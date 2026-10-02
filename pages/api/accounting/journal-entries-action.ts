@@ -14,6 +14,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { UUID } from '@/lib/schemas/common';
 import {
   postJournalEntry,
@@ -82,6 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // A pay run's journal: the guard's wait ran out before anything was written.
     // 400 with its code, as the payroll routes answer their lock timeouts.
     if (err instanceof PayrollRunBusyError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    // The reversal's chain-head claim (D8): 503 + Retry-After, not the 400 below.
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

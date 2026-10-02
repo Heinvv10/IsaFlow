@@ -20,6 +20,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from '../core/lockContention';
+import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /**
  * Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row.
@@ -103,23 +104,18 @@ export async function lockBankTransactionForUpdate(
   // answer this raw query with a bare 25P02 BEFORE the guarded SELECT below is
   // reached, handing the caller the opaque error the check exists to replace.
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     // `SELECT *` carries feed_state, which assertFeedPosted/feedStateOf require — never narrow it.
     const rows = (await sql`
       SELECT * FROM bank_transactions
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
-    // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
-    // of the TRANSACTION, so without this the 5s budget silently governs every
-    // lock taken afterwards in the same request — and both confirm arms and
-    // `voidPaymentDocument` now call this FIRST, so that is every lock they
-    // take. Deliberately NOT in a `finally`: after a timeout the transaction is
-    // aborted and this statement would itself throw 25P02, replacing the typed
-    // error with an opaque one. The shape and the reasoning are `paymentLock`'s.
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     // Classified with `isLockContention`, not the 55P03 check alone: a DEADLOCK
     // (40P01) is the same answer to the caller — the row was never acquired,
     // nothing was written, retrying is the remedy — and left unmapped it
@@ -145,7 +141,24 @@ export async function lockBankTransactionForUpdate(
     // the wording it raises is at least retryable in either reading.
     if (isLockContention(err)) throw new BankTransactionLockTimeoutError(bankTxId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
+}
+
+/**
+ * Lock several bank lines in ONE order — ascending id, the order `ORDER BY bt.id` gives — and return the rows found,
+ * in that order. Every flow that takes more than one line goes through here (D8 round 11, rev-d8-c553cc0f8 F2): the
+ * MCP void took the root journal's line and then the chain's in a second pass, the HTTP void took both in one id
+ * pass, and the pair deadlocked whenever the head's line had the lower id.
+ */
+export async function lockBankTransactionsInIdOrder(companyId: string, ids: readonly string[]): Promise<DbRow[]> {
+  const rows: DbRow[] = [];
+  for (const id of [...new Set(ids.map((i) => i.toLowerCase()))].sort()) {
+    const row = await lockBankTransactionForUpdate(companyId, id);
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 /**
@@ -153,21 +166,28 @@ export async function lockBankTransactionForUpdate(
  * bounded: `matchTransaction`'s UPDATE waits on `uq_bank_tx_matched_line`
  * behind a peer's uncommitted binding. It used to inherit the budget
  * `lockBankTransactionForUpdate` left behind; that helper now restores the
- * default, and the inherited wait became unbounded — a slow peer pinned the
- * request instead of answering LINE_CLAIMED.
+ * caller's value, and the inherited wait became unbounded — a slow peer pinned
+ * the request instead of answering LINE_CLAIMED.
  *
  * Call it INSIDE a savepoint. A timeout is then undone by ROLLBACK TO, which
- * restores the previous value too; on success the default is restored here,
- * so the budget ends with the write it was set for.
+ * restores the previous value too; on success the caller's value is restored
+ * here (D8 round 10: not DEFAULT), so the budget ends with the write it was set for.
  */
 export async function withBankLockBudget<T>(fn: () => Promise<T>): Promise<T> {
   const client = als.getStore()?.client;
   if (!client) throw new Error('withBankLockBudget requires a request transaction (withAuth / als.run).');
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
-  const out = await fn();
-  await client.query('SET LOCAL lock_timeout = DEFAULT');
-  return out;
+  let failure: unknown = null;
+  try {
+    return await fn();
+  } catch (err) {
+    failure = err;
+    throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
+  }
 }
 
 /** Is this the `lock_timeout` firing, on any statement in the request? */

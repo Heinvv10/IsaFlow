@@ -81,6 +81,7 @@
  * (252.47mm of 255), and three more take the page to another line, at which
  * point `fitPageToBox` answers by dropping the whole note.
  */
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec, PackDisclosureNote } from './packPageModel';
 import { counterpartsByPage, PERIOD_COUNTERPARTS, type PeriodCounterpart } from './packPeriodCounterparts';
 
@@ -102,10 +103,9 @@ function inWords(items: string[]): string {
  */
 export function trendWindowNote(
   panels: PackChartSpec[],
-  /** Ratio panels ending on the part month, by name — see
-   *  `TrendPanels.ratiosEndingOnPartMonth`. Empty on a series that ends on a
-   *  whole month, and on a pack that draws no ratio panel. */
-  ratiosEndingOnPartMonth: readonly string[] = [],
+  /** The part month no panel draws — see `TrendPanels.partMonthLeftOut`.
+   *  Null on a series that ends on a whole month. */
+  partMonthLeftOut: PackTrendPoint | null = null,
   /**
    * Whether the page this panel points at PRINTS a comparative figure for it,
    * read off the composed page rather than assumed — see `without` below.
@@ -199,56 +199,14 @@ export function trendWindowNote(
   // the sentence does not, and the comparative is a period by construction —
   // the basis page names its dates. Every measure and every page it points a
   // reader at is still here, in the same words.
-  // A PART MONTH IS A DIFFERENT WINDOW TOO, AND FOR A RATIO IT IS A DIFFERENT
-  // MEASUREMENT. The marker on the axis and in the panel title says WHICH
-  // month; it does not say that a ratio taken over seven of thirty days is an
-  // artefact of that window. Page 10 ended two panels on one — a 100.0% gross
-  // margin (seven days of revenue, no cost of sales posted yet) and 60 debtor
-  // days (a seven-day ratio annualised over a month) — and a director reads
-  // the first as a turnaround. Named panels, so the clause cannot claim it of
-  // a panel that ends on a whole month, and carried HERE because this note is
-  // already the page's statement about windows: a disclosure of its own is
-  // 6.5mm on a sheet that composes within 12 of its box.
   //
-  // AND IT QUALIFIES THE ENDPOINT RATHER THAN ONLY EXPLAINING THE METHOD.
-  // It read "…is taken on the sums posted, not a full one", which states how
-  // the number was made and leaves the reader to draw the conclusion. Page 10
-  // is the only sheet in the pack that plots RATIOS ending in the stub, and
-  // it was the only sheet not carrying the cover's "not comparable with the
-  // months before it" — so "Debtor days rose from 19 days to 60 days"
-  // presented a threefold rise whose last point rests on seven days of
-  // revenue, tagged but never qualified. The clause now ends where every
-  // other sheet's does, in the pack's own words (`partialMonthClause`), so
-  // one wording covers the whole document.
-  //
-  // AND THE UNIT IS THE MONEY, NOT A DAY COUNT. It read "taken on the days
-  // posted", which page 12 disproves in its own words: the trends page
-  // "multiplies each month's ratio by the days in that month", and Sep's 60
-  // debtor days is 59 over 30 times THIRTY, not times the seven days posted.
-  // The clause was describing the numerator's window with the denominator's
-  // multiplier and got a reader to the wrong arithmetic either way, so it
-  // names the sums the ratio is taken on and makes no claim about days at
-  // all. "sums" for "days" is character-for-character, which is the whole of
-  // why it is that word: this note has ZERO characters of slack — three more
-  // takes it to another line and `fitPageToBox` answers by dropping the note
-  // entire, which is measured, not feared (252.47mm of 255 with the clause,
-  // 236.04 with three characters added, the difference being the note).
-  //
-  // ONE CLAUSE, AND THE LENGTH IS AGAIN THE WHOLE OF THE DESIGN — the same
-  // lesson the `debtorDays` clause above records. The first wording named the
-  // panels ("Gross margin and Debtor days end on the part month: a ratio
-  // there is computed on the sums posted, so its level is not comparable with
-  // the months before it") and ran to two lines, and `fitPageToBox` paid for
-  // them by dropping THIS ENTIRE NOTE from the live demo pack — so the sheet
-  // lost the whole month-versus-period reconciliation in order to qualify two
-  // ratios. The panels are not named because they do not need to be: each one
-  // already carries "(part)" in its own title and on its own last tick, which
-  // is where a reader meets the ratio. What was missing is what the marker
-  // MEANS for a ratio, and that is what this says.
-  const partRatios = ratiosEndingOnPartMonth.length === 0
+  // WHICH MONTH IS NOT ON THE SHEET. The panels draw whole months only (see
+  // `wholeMonthsOf`), so a pack run to 2 October ends them in September; a
+  // reader who finds October on page 5 and not here is told why, in the
+  // clause's shortest form — this note has little slack on the live demo.
+  const leftOut = partMonthLeftOut === null
     ? ''
-    : ' A ratio ending in the part month is taken on the sums posted, so its level is not '
-      + 'comparable with the months before it.';
+    : ` ${partMonthLeftOut.label} is a part month and is not drawn.`;
   return {
     heading: 'Period',
     body:
@@ -258,6 +216,6 @@ export function trendWindowNote(
       // this note has no slack on the live demo sheet.
       'Each panel plots one MONTH. The WHOLE period\'s figures print on other pages'
       + `${comparative} — ${inWords(where)}. Different windows: the two `
-      + `need not agree.${debtorDays}${partRatios}`,
+      + `need not agree.${debtorDays}${leftOut}`,
   };
 }

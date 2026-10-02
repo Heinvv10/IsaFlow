@@ -8,7 +8,10 @@
 //   2. the successful reversal, so the fix did not turn a working path into a
 //      refusal: balanced contra, and the subledger agrees with it;
 //   3. another tenant's reversal of the same bank line, refused with nothing
-//      written.
+//      written;
+//   4. (D8 round 4) a journal whose reversal chain is genuinely OUT — a real
+//      posted contra stands against it — frees the line and posts nothing. The
+//      forged case 1 (stamped, NO contra) is a broken chain and still refuses.
 // Every refusal here is a 4xx, which `withAuth` COMMITs — so "nothing written"
 // is a claim about the database after the commit, not about an aborted tx.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -43,7 +46,8 @@ const happyPath = newFixture();
 const crossTenant = newFixture();
 const closedToday = newFixture();
 const noPeriodToday = newFixture();
-const fixtures = [alreadyReversed, happyPath, crossTenant, closedToday, noPeriodToday];
+const outChain = newFixture();
+const fixtures = [alreadyReversed, happyPath, crossTenant, closedToday, noPeriodToday, outChain];
 
 let token = '';
 let otherToken = '';
@@ -165,11 +169,22 @@ beforeAll(async () => {
   await seedFixture(crossTenant, 'cross-tenant');
   await seedFixture(closedToday, 'closed-today');
   await seedFixture(noPeriodToday, 'no-period-today');
+  await seedFixture(outChain, 'out-chain');
 
   // Only the first fixture's journal is already reversed. reverseJournalEntry
   // refuses on `reversed_at`, and it refuses AFTER the unwind has written.
   await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW(), reversed_by = $2 WHERE id = $1',
     [alreadyReversed.je, user]);
+  // outChain: a REAL posted contra (as reverseJournalEntry leaves one), so its chain is out.
+  const contra = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,status,created_by,fiscal_period_id,posted_at,posted_by,source,reversal_of_id)
+     VALUES($1,$2,$5::date,'K021A out-chain contra','posted',$3,$4,NOW(),$3,'auto_bank_recon',$6)`,
+    [contra, company, user, oldPeriod, oldDate, outChain.je]);
+  await pool.query(
+    `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit)
+     VALUES($1,$2,$3,0,1000),($1,$2,$4,1000,0)`, [company, contra, bank, arControl]);
+  await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW(), reversed_by = $2 WHERE id = $1', [outChain.je, user]);
 
   for (const jwt of [{ id: user, set: (t: string) => { token = t; } }, { id: otherUser, set: (t: string) => { otherToken = t; } }]) {
     jwt.set(await new SignJWT({ sub: jwt.id, aal: 'aal2' })
@@ -254,6 +269,16 @@ describe('K-021 reversal atomicity', () => {
     const result = await reverse(crossTenant.bankTx, otherToken, otherCompany);
     expect(result.state.statusCode).not.toBe(200);
     expect(await readState(crossTenant)).toEqual(UNTOUCHED);
+  });
+
+  it('frees the line and posts nothing when the journal\'s chain is already OUT (D8 round 4)', async () => {
+    const result = await reverse(outChain.bankTx, token, company);
+    expect(result.state.statusCode).toBe(200);
+    // Subledger unwound like the happy path; the only contra is the one already there.
+    expect(await readState(outChain)).toEqual({
+      bankTxStatus: 'imported', invoiceAmountPaid: 0, invoiceStatus: 'approved',
+      paymentStatus: 'cancelled', allocationRows: 0, reversalJournals: 1,
+    });
   });
 
   // A guard that fronts a write must refuse only what the write refuses.

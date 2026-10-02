@@ -11,6 +11,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { isCallerSafeError, isLockTimeoutError } from '@/lib/lockTimeout';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { WipEntriesLockedError } from '@/modules/accounting/services/practice/wipEntryLock';
 import { safeErrorText } from '@/lib/mcp/tools/toolHelpers';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import { CreditNoteLockTimeoutError } from '@/modules/accounting/services/ar/creditNoteLock';
@@ -41,6 +43,19 @@ describe('isLockTimeoutError', () => {
     // still must not be surfaced — only the typed rethrow may be.
     for (const code of ['23505', '42703', '55P03', '25P02']) {
       expect(isLockTimeoutError(driverError(code))).toBe(false);
+    }
+  });
+
+  // D8 round 11 (rev-d8-c553cc0f8 F5): ONE predicate. apiDocumentLock kept its own copy that also admitted
+  // WIP_ENTRIES_LOCKED, so the route answer (503) and the caller-safe filter disagreed on the same error.
+  it('admits the WIP lock refusal, and the 503 mapping and the caller-safe filter agree on every case', () => {
+    const wip = new WipEntriesLockedError();
+    expect(isLockTimeoutError(wip)).toBe(true);
+    expect(isCallerSafeError(wip)).toBe(true);
+    const res = { setHeader: () => res, status: () => res, json: () => res };
+    for (const err of [wip, new CustomerInvoiceLockTimeoutError('Invoice INV-1'), driverError('55P03'),
+      new Error('plain'), Object.assign(new Error('x'), { code: 'X_LOCK_TIMEOUT' }), null]) {
+      expect(respondIfLockTimeout(res as never, err), String((err as Error | null)?.name)).toBe(isLockTimeoutError(err));
     }
   });
 

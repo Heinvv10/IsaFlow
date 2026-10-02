@@ -23,12 +23,15 @@ import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import {
   assertAllocationsMatchApplied,
   deriveCreditNoteStatus,
+  listCreditNoteAllocations,
   reverseCreditNoteApplications,
 } from '../shared/creditNoteFifo';
-import { UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
+import { lockInvoicesForUpdate, UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
 import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { lockStandingChainHead } from '../shared/journalChainHead';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The states that have something to reverse. A draft has posted nothing. */
 const CANCELLABLE_STATUSES = new Set(['approved', 'partially_applied', 'applied']);
@@ -41,6 +44,13 @@ export async function cancelCreditNote(companyId: string,
   // its own and must carry the agent stamp, or an MCP cancellation reverses a
   // journal under the token owner's name.
   opts?: PostingActorOpts,
+): Promise<CreditNote> {
+  // Every lock of the cancel under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget).
+  return underFlowLockBudget(`Credit note ${id}`, () => cancelCreditNoteInner(companyId, id, userId, reason, opts));
+}
+
+async function cancelCreditNoteInner(
+  companyId: string, id: string, userId: string, reason: string | undefined, opts: PostingActorOpts | undefined,
 ): Promise<CreditNote> {
   try {
     // Same check-then-act window as approve: two concurrent cancellations would
@@ -65,13 +75,20 @@ export async function cancelCreditNote(companyId: string,
     // Reverse the GL journal entry. (It used to manage its own transaction; it
     // now runs on the ALS-bound request client like everything else, so the
     // reversal and the un-apply below commit or roll back together.)
-    if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry(
-        companyId,
-        String(cn.gl_journal_entry_id),
-        userId,
-        actorMeta(opts),
-      );
+    // At its reversal-chain HEAD (D8, shared/journalChainHead): after O <- R <- R2
+    // the GL carries the note again through R2 while O is stamped reversed, and
+    // reversing O threw "already reversed". A chain already out reverses nothing.
+    // The DOCUMENTS this note credited first, in id order, then the journal head (D8 round 10, brk-d8c F3): the
+    // head and the contra before the invoice inverted the bank line -> document -> journal order of a receipt
+    // cancel or payment void on the same invoice, and the pair deadlocked (40P01 -> 500).
+    const legacyDoc = side === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
+    await lockInvoicesForUpdate('cancelCreditNote', companyId, side, [
+      ...(await listCreditNoteAllocations(companyId, id)).map((l) => l.invoiceId), ...(legacyDoc ? [String(legacyDoc)] : [])]);
+    const head = cn.gl_journal_entry_id
+      ? await lockStandingChainHead(companyId, String(cn.gl_journal_entry_id))
+      : null;
+    if (head) {
+      await reverseJournalEntry(companyId, head, userId, actorMeta(opts));
     }
 
     // Un-apply exactly what was applied, never the note's face value, and do it

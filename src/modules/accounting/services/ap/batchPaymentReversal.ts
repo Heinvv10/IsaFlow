@@ -31,6 +31,7 @@ import { fetchBillCandidates, round2 } from './supplierAllocationLines';
 import { toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch } from './paymentJournalReversal';
+import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -41,10 +42,13 @@ export class BatchAlreadyReversedError extends Error {
   }
 }
 
-export interface BatchReversal { reversalEntryId: string; billsReopened: number }
+/** `reversalEntryId` is null when the batch journal's chain was already out of the ledger: nothing was posted. */
+export interface BatchReversal { reversalEntryId: string | null; billsReopened: number }
 
 export async function reverseBatch(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
-  return withSavepoint('reverse_payment_batch', () => reverseBatchInner(companyId, batchId, userId));
+  // Every lock under ONE budget, plain UPDATEs included (D8 round 10).
+  return withSavepoint('reverse_payment_batch', () => underFlowLockBudget(`Batch ${batchId}`,
+    () => reverseBatchInner(companyId, batchId, userId)));
 }
 
 async function reverseBatchInner(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
@@ -76,14 +80,20 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   const journalId = batch.gl_journal_entry_id ? String(batch.gl_journal_entry_id) : null;
   if (!journalId || !leg) throw new SupplierPaymentRefusal(`Batch ${number} has no journal to reverse.`);
   assertSameJournal(peekedJournal, journalId);
-  if (leg.alreadyReversed) throw new BatchAlreadyReversedError(number);
+  // A journal chain already OUT of the ledger (reversed from the GL) is not a
+  // refusal (D8 round 5): the batch's documents are still voided and its bills
+  // reopened, and nothing is posted — as the single void does. Refusing left
+  // the bills paid against a ledger that holds no payment.
   if (leg.allocatedLineIds.length > 0) {
     throw new SupplierPaymentRefusal(`Batch ${number}'s journal is claimed by an allocated bank line — undo that first.`);
   }
 
+  // The member payments locked BEFORE their bills (D8 round 10, brk-d8c O4): a member's MCP void takes payment ->
+  // bill, and this took bills -> journal -> members, so the pair deadlocked.
   const members = (await sql`
     SELECT id, payment_number, status FROM supplier_payments
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+    ORDER BY id FOR UPDATE
   `) as DbRow[];
   const unsettled = members.find((m) => m.status !== 'processed');
   if (unsettled) {
@@ -100,7 +110,11 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
     GROUP BY pa.invoice_id ORDER BY pa.invoice_id
   `) as DbRow[];
-  const bills = await fetchBillCandidates(companyId, null, perBill.map((r) => String(r.invoice_id)));
+  const bills = await fetchBillCandidates(companyId, null, perBill.map((r) => String(r.invoice_id))).catch((err: unknown) => {
+    // Its one retryable refusal is a held bill — a lock timeout on this D8 flow, 503 at the route, not 409 (round 18).
+    if (err instanceof SupplierPaymentRefusal && err.retryable) throw new RowLockTimeoutError(`Batch ${number}`);
+    throw err;
+  });
   for (const r of perBill) {
     const bill = bills.get(String(r.invoice_id));
     if (!bill || toCents(Number(bill.amount_paid ?? 0)) < toCents(Number(r.amount))) {
@@ -118,8 +132,10 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     await recomputeInvoiceStatus(companyId, 'supplier', String(r.invoice_id));
   }
   // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
+  // The bank line is freed even when the chain is already out (D8 round 6).
   await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
-  const reversal = await reverseJournalEntry(companyId, journalId, userId);
+  const reversalEntryId = leg.alreadyReversed
+    ? null : String((await reverseJournalEntry(companyId, leg.reverseId, userId)).id); // the chain head (D8)
   await sql`
     UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
@@ -129,7 +145,7 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
   `;
   log.info('Reversed supplier payment batch', {
-    batchId, userId, journalId, reversalEntryId: reversal.id, bills: perBill.length, bankLines: leg.bankLineIds.length,
+    batchId, userId, journalId, reversalEntryId, bills: perBill.length, bankLines: leg.bankLineIds.length,
   }, 'accounting');
-  return { reversalEntryId: String(reversal.id), billsReopened: perBill.length };
+  return { reversalEntryId, billsReopened: perBill.length };
 }

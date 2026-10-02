@@ -25,33 +25,39 @@ describe('R-107: attach under contention', () => {
     expect(await docPostedAt(loser)).toBeNull();
   });
 
-  it('answers 409 while another request holds the bank line, and claims nothing', async () => {
+  it('answers 503 + Retry-After while another request holds the bank line, and claims nothing', async () => {
     const { je, bt } = await seedProvisional();
     const doc = await seedDoc(company);
 
     const out = await holding('SELECT 1 FROM bank_transactions WHERE id=$1 FOR UPDATE', bt, () => attach(je, doc));
 
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(409);
+    // A held row is a lock timeout: 503 + Retry-After, not 409 (D8 round 18).
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(503);
+    expect(out.retryAfter).toBe('2');
     expect(await docPostedAt(doc)).toBeNull();
   }, 30_000);
 
-  it('answers 409 while another request holds the journal, and claims nothing', async () => {
+  it('answers 503 + Retry-After while another request holds the journal, and claims nothing', async () => {
     const { je } = await seedProvisional({ noBankLine: true });
     const doc = await seedDoc(company);
 
     const out = await holding('SELECT 1 FROM gl_journal_entries WHERE id=$1 FOR UPDATE', je, () => attach(je, doc));
 
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(409);
+    // A held row is a lock timeout: 503 + Retry-After, not 409 (D8 round 18).
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(503);
+    expect(out.retryAfter).toBe('2');
     expect(await docPostedAt(doc)).toBeNull();
   }, 30_000);
 
-  it('answers 409 while another request holds the document, and evidences nothing', async () => {
+  it('answers 503 + Retry-After while another request holds the document, and evidences nothing', async () => {
     const { je, bt } = await seedProvisional();
     const doc = await seedDoc(company);
 
     const out = await holding('SELECT 1 FROM captured_documents WHERE id=$1 FOR UPDATE', doc, () => attach(je, doc));
 
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(409);
+    // A held row is a lock timeout: 503 + Retry-After, not 409 (D8 round 18).
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(503);
+    expect(out.retryAfter).toBe('2');
     expect((await jeState(je)).needs_evidence).toBe(true);
     expect(await btStatus(bt)).toBe('provisional');
   }, 30_000);

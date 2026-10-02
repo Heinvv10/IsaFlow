@@ -65,11 +65,18 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
 // tests/integration/cancel-supplier-invoice-shared-path.int.test.ts; stubbed so
 // the sql queue below stays positional.
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceCancelPlan', () => ({
-  planSupplierInvoiceCancel: vi.fn(async () => ({})),
+  planSupplierInvoiceCancel: vi.fn(async () => ({ journal: { id: 'dddddddd-0000-4000-8000-dddddddddddd' } })),
   SupplierInvoiceCancelRefusal: class SupplierInvoiceCancelRefusal extends Error {},
 }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
   lockSupplierInvoiceForUpdate: vi.fn(),
+}));
+// D8: the entry reversed is the approval journal's chain HEAD, which the shared
+// helper finds and locks — proven against a real ledger, chains included, in
+// tests/integration/d8-r2-chain-head-cancel-void. Here it answers "the journal
+// itself stands" unless a case says otherwise.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  lockStandingChainHead: vi.fn(async (_companyId: string, id: string) => id),
 }));
 
 // ── Imports ───────────────────────────────────────────────────────────────────
@@ -81,6 +88,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { lockSupplierInvoiceForUpdate } from '@/modules/accounting/services/ap/supplierInvoiceLock';
+import { lockStandingChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import {
   cancelSupplierInvoice,
   postSupplierInvoiceToGL,
@@ -118,7 +126,6 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
   it('locks the row FOR UPDATE and reverses the approval journal before flipping', async () => {
     mockSql
       .mockResolvedValueOnce([lockRow()]) // invoice lock
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]) // journal lock
       .mockResolvedValueOnce([updatedRow]); // UPDATE
     mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
 
@@ -129,14 +136,14 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     expect(lockText).toMatch(/company_id/i);
     // No actor from a human caller: reverseJournalEntry falls back to human attribution.
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID, undefined);
-    // reversal happens after the journal-state check, before the UPDATE
+    // reversal happens after the chain head is locked, before the UPDATE
     expect(mockReverse.mock.invocationCallOrder[0]!).toBeGreaterThan(
-      mockSql.mock.invocationCallOrder[1]!,
+      vi.mocked(lockStandingChainHead).mock.invocationCallOrder[0]!,
     );
     expect(mockReverse.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockSql.mock.invocationCallOrder[2]!,
+      mockSql.mock.invocationCallOrder[1]!,
     );
-    const updateText = (mockSql.mock.calls[2]![0] as string[]).join('?');
+    const updateText = (mockSql.mock.calls[1]![0] as string[]).join('?');
     expect(updateText).toMatch(/status != 'cancelled'/i);
     expect(updateText, 'cancel must clear the journal link').toMatch(
       /gl_journal_entry_id = NULL/i,
@@ -151,7 +158,6 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
   it('passes a posting actor through to the reversal it posts', async () => {
     mockSql
       .mockResolvedValueOnce([lockRow()])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }])
       .mockResolvedValueOnce([updatedRow]);
     mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
     const actor = { postingAgent: 'mcp:cancel_supplier_invoice:v1', actorType: 'agent' as const, actorTokenJti: 'jti' };
@@ -161,22 +167,34 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, USER_ID, actor);
   });
 
-  it('skips the reversal when the journal is already reversed (reversed_at set)', async () => {
+  it('skips the reversal when the journal\'s chain is already out of the ledger', async () => {
     mockSql
       .mockResolvedValueOnce([lockRow()])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: '2026-07-01T00:00:00Z' }])
       .mockResolvedValueOnce([updatedRow]);
+    vi.mocked(lockStandingChainHead).mockResolvedValueOnce(null);
 
     await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
 
     expect(mockReverse).not.toHaveBeenCalled();
-    expect(mockSql).toHaveBeenCalledTimes(3);
+    expect(mockSql).toHaveBeenCalledTimes(2);
+  });
+
+  it('reverses the chain HEAD the helper names, not the linked journal (D8)', async () => {
+    mockSql
+      .mockResolvedValueOnce([lockRow()])
+      .mockResolvedValueOnce([updatedRow]);
+    vi.mocked(lockStandingChainHead).mockResolvedValueOnce('head-r2');
+    mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
+
+    await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
+
+    expect(lockStandingChainHead).toHaveBeenCalledWith(COMPANY_ID, JOURNAL_ID, expect.any(Function));
+    expect(mockReverse).toHaveBeenCalledWith(COMPANY_ID, 'head-r2', USER_ID, undefined);
   });
 
   it('runs the cancel plan on the locked row, before the journal lock and any reversal', async () => {
     mockSql
       .mockResolvedValueOnce([lockRow()])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }])
       .mockResolvedValueOnce([updatedRow]);
     mockReverse.mockResolvedValueOnce({ id: REVERSAL_ID });
     await cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID);
@@ -184,7 +202,7 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     expect(plan).toHaveBeenCalledWith(COMPANY_ID, INVOICE_ID);
     const planAt = plan.mock.invocationCallOrder[0]!;
     expect(planAt).toBeGreaterThan(mockSql.mock.invocationCallOrder[0]!);
-    expect(planAt).toBeLessThan(mockSql.mock.invocationCallOrder[1]!);
+    expect(planAt).toBeLessThan(vi.mocked(lockStandingChainHead).mock.invocationCallOrder[0]!);
   });
 
   it('writes nothing when the plan refuses', async () => {
@@ -197,14 +215,13 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
 
   it('propagates reversal failure and never flips status', async () => {
     mockSql
-      .mockResolvedValueOnce([lockRow()])
-      .mockResolvedValueOnce([{ status: 'posted', reversed_at: null }]);
+      .mockResolvedValueOnce([lockRow()]);
     mockReverse.mockRejectedValueOnce(new Error('Fiscal period is closed'));
 
     await expect(cancelSupplierInvoice(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
       /period/i,
     );
-    expect(mockSql).toHaveBeenCalledTimes(2); // locks only, no UPDATE
+    expect(mockSql).toHaveBeenCalledTimes(1); // the invoice lock only, no UPDATE
   });
 
   it('still blocks cancelling invoices with payments', async () => {

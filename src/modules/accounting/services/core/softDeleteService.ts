@@ -10,6 +10,8 @@ import { softDeleteRow, restoreRow } from './softDeleteRowOps';
 import { assertNoOpenDocuments } from './masterDeleteGuards';
 import { prepareInvoiceDelete, reinstateInvoiceJournal } from './softDeleteJournalService';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
+import { underFlowLockBudget } from './rowLockBudget';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -28,6 +30,28 @@ const INVOICE_ENTITY_TYPES = new Set(['customer_invoice', 'supplier_invoice']);
 
 export function isValidEntityType(entityType: string): boolean {
   return ALLOWED_ENTITY_TYPES.has(entityType);
+}
+
+/**
+ * An invoice's delete or undo under ONE flow lock budget (D8 round 11), inside this service's own savepoint as every
+ * D8 entry point runs it: the invoice row lock, the undo's `deleted_at` UPDATE and the contra posting each wait at
+ * most 5 s, then answer `RowLockTimeoutError` (503). The request transaction stays withAuth's. Other entity types post
+ * nothing and are left as they were.
+ */
+function underInvoiceLockBudget<T>(entityType: string, entityId: string, fn: () => Promise<T>): Promise<T> {
+  return INVOICE_ENTITY_TYPES.has(entityType) ? underFlowLockBudget(`Invoice ${entityId}`, fn) : fn();
+}
+
+/**
+ * A lock wait that ran out — the raw 55P03 the budget above converts, or a nested helper's typed timeout — is an
+ * answered 503, not a fault: logged at info (D8 round 13). Everything else is logged at error.
+ */
+function logFailure(message: string, data: Record<string, unknown>, err: unknown): void {
+  if ((err as { code?: unknown } | null)?.code === '55P03' || isLockTimeoutError(err)) {
+    log.info(message, { ...data, error: (err as Error).message }, 'accounting');
+  } else {
+    log.error(message, { ...data, error: err }, 'accounting');
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -52,9 +76,9 @@ export async function softDelete(
   // SAVEPOINT for the same reason cancel takes one: the route answers 400 on a
   // refusal and withAuth COMMITs the request tx on any <5xx, so a failure after
   // the reversal's draft INSERTs would orphan-commit them.
-  return withSavepoint('soft_delete_entity', () =>
+  return withSavepoint('soft_delete_entity', () => underInvoiceLockBudget(entityType, entityId, () =>
     softDeleteInner(companyId, entityType, entityId, userId),
-  );
+  ));
 }
 
 async function softDeleteInner(
@@ -85,7 +109,7 @@ async function softDeleteInner(
     log.info('Soft deleted entity', { entityType, entityId, companyId }, 'accounting');
     return { undoToken: entityId };
   } catch (err) {
-    log.error('Soft delete failed', { entityType, entityId, error: err }, 'accounting');
+    logFailure('Soft delete failed', { entityType, entityId }, err);
     throw err;
   }
 }
@@ -105,9 +129,9 @@ export async function undoDelete(
     throw new Error(`Unknown entity type: ${entityType}`);
   }
 
-  return withSavepoint('undo_delete_entity', () =>
+  return withSavepoint('undo_delete_entity', () => underInvoiceLockBudget(entityType, entityId, () =>
     undoDeleteInner(companyId, entityType, entityId, userId),
-  );
+  ));
 }
 
 async function undoDeleteInner(
@@ -130,7 +154,7 @@ async function undoDeleteInner(
     }
     return restored;
   } catch (err) {
-    log.error('Undo delete failed', { entityType, entityId, error: err }, 'accounting');
+    logFailure('Undo delete failed', { entityType, entityId }, err);
     throw err;
   }
 }

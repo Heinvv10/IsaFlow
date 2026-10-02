@@ -6,6 +6,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
 import {
@@ -122,7 +123,8 @@ export async function refuseIfSettlementPlanned(companyId: string, invoiceId: st
 }
 
 /**
- * A posted, unreversed journal sourced from this bill. `applyDRCVat` posted one
+ * A posted journal sourced from this bill that its reversal chain leaves
+ * standing (D8: one reversed and re-reversed still carries the bill's figures). `applyDRCVat` posted one
  * on DRAFTS until 2026-09-23 (legacy rows remain) and leaves `gl_journal_entry_id`
  * NULL, so the link column alone misses it; editing the base under it would leave the DRC
  * VAT on the old figure, and nothing re-runs it (`is_drc` bills are excluded).
@@ -131,10 +133,10 @@ export async function refuseIfJournalNamesBill(
   companyId: string, invoiceId: string, number: string, isDrc: boolean,
 ): Promise<void> {
   const rows = (await sql`
-    SELECT entry_number FROM gl_journal_entries
-    WHERE company_id = ${companyId}::UUID AND source_record_id = ${invoiceId}::UUID
-      AND status = 'posted' AND reversed_at IS NULL
-    ORDER BY entry_number LIMIT 1`) as DbRow[];
+    SELECT je.entry_number FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID AND je.source_record_id = ${invoiceId}::UUID
+      AND je.status = 'posted' AND ${journalStandsFragment('je.id', companyId)}
+    ORDER BY je.entry_number LIMIT 1`) as DbRow[];
   if (rows[0] || isDrc) {
     const what = rows[0]
       ? `posted journal ${String(rows[0].entry_number)} is sourced from it`

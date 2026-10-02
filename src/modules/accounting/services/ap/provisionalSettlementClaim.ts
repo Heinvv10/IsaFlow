@@ -3,7 +3,9 @@
  * every refusal of that decision — all taken BEFORE the approval's first write,
  * so a refusal answered 4xx (which withAuth COMMITs) leaves nothing behind.
  *
- * A provisional qualifies when it is posted, unreversed, evidenced
+ * A provisional qualifies when it is posted, standing by its reversal chain
+ * (D8: one reversed and re-reversed books its slip again through the second
+ * contra, so it settles like any other), evidenced
  * (`needs_evidence = false`) by the invoice's own source document, in the same
  * company, and linked from `bank_transactions.provisional_je_id`. It is LOCKED
  * here (bounded) and only then read for a live payment already holding it
@@ -24,16 +26,19 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { als, assertTxUsable } from '@/lib/als';
+import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { getJournalEntryById } from '../gl/journalEntryService';
 import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGuard';
 import type { JournalLine } from '../../types/gl.types';
 import { round2 } from './supplierAllocationLines';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { lockStandingChainHead } from '../shared/journalChainHead';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { withRowLockBudget } from '../core/rowLockBudget';
 
 const CENT = 0.005;
-const LOCK_NOT_AVAILABLE = '55P03';
 
 export interface ProvisionalClaim {
   journalEntryId: string;
@@ -49,35 +54,42 @@ export interface ProvisionalClaim {
   reclassDate: string;
 }
 
-/** The candidates, row-locked under a 5 s budget whose timeout names the provisional. */
+/**
+ * The candidates, row-locked under the shared 5 s budget (`core/rowLockBudget`, the caller's lock_timeout restored
+ * on every path that leaves the transaction usable — D8 rounds 6 and 9), a timeout naming the provisional.
+ */
 async function lockCandidates(companyId: string, documentId: string): Promise<DbRow[]> {
-  const client = als.getStore()?.client;
-  if (!client) throw new Error('claimEvidencedProvisional requires a request transaction (withAuth / als.run)');
-  assertTxUsable();
-  await client.query("SET LOCAL lock_timeout = '5s'");
+  if (!als.getStore()?.client) throw new Error('claimEvidencedProvisional requires a request transaction (withAuth / als.run)');
+  const contended = () => new SupplierPaymentRefusal(
+    'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
+    { retryable: true },
+  );
   try {
-    const rows = (await sql`
+    const rows = await withRowLockBudget(async () => (await sql`
       SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount
       FROM gl_journal_entries je
       JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id
       WHERE je.company_id = ${companyId}::UUID
         AND je.source_document_id = ${documentId}::UUID
         AND je.status = 'posted'
-        AND je.reversed_at IS NULL
+        AND ${journalStandsFragment('je.id', companyId)}
         AND je.needs_evidence = false
       ORDER BY je.id
       FOR UPDATE OF je
-    `) as DbRow[];
-    // Success path only: after a timeout the transaction is aborted (see supplierInvoiceLock.ts).
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
-    return rows;
-  } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE) {
-      throw new SupplierPaymentRefusal(
-        'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
-        { retryable: true },
-      );
+    `) as DbRow[], contended);
+    // D8 round 4 (B1): X's row lock does not hold a re-reversed X in the
+    // ledger — its HEAD (R2) does, and a reversal of R2 claims R2, not X. So
+    // lock the standing head too, under the same budget helper, and drop a candidate
+    // whose chain went out meanwhile; the reversal then waits on this lock and
+    // meets the settlement in refuseReversingSettlementJournal.
+    const standing: DbRow[] = [];
+    for (const r of rows) {
+      if (await lockStandingChainHead(companyId, String(r.je_id), (m) => new SupplierPaymentRefusal(m))) standing.push(r);
     }
+    return standing;
+  } catch (err) {
+    // The head lock's own timeout reads as this claim's contention, like the candidates' lock.
+    if (err instanceof JournalReversalLockTimeoutError) throw contended();
     throw err;
   }
 }

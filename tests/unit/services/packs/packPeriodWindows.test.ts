@@ -65,95 +65,43 @@ function prose(doc: PackPagesDocument): string {
 }
 
 /**
- * A TAG SAYS WHICH MONTH; IT DOES NOT SAY WHAT A RATIO TAKEN THERE IS.
+ * A PART MONTH IS NOT A POINT ON PAGE 10, AND THE PAGE SAYS SO.
  *
- * Page 10 quoted "Gross margin fell from 5323.5% to 100.0% in Sep 2026
- * (part)" — seven days of turnover against no cost of sales posted yet — and
- * "Debtor days rose from 19 days to 60 days in Sep 2026 (part)", a seven-day
- * ratio annualised over a whole month. Both carry the marker, so both pass
- * the letter of the part-month rule, and a director still reads 100.0% as a
- * turnaround. A part month's REVENUE is a smaller true figure; a part month's
- * MARGIN is a different measurement, and nothing in the pack said so.
+ * Page 10 used to end its panels on the stub and qualify it in words: "Gross
+ * margin fell from 5323.5% to 100.0% in Sep 2026 (part)", with a clause that
+ * a ratio there is "not comparable with the months before it". A qualified
+ * comparison is still a comparison, and Velocity Fibre's page headlined
+ * "Revenue is down 100.0%" off two days of October. The panels now draw whole
+ * months only (`wholeMonthsOf`), and the Period note names the month left out
+ * — exactly when there is one.
  */
-describe('the part-month ratio clause', () => {
-  // `liveDemoRenderedInput` is the pack the gate read: its series ends on
-  // seven days of September and both ratio panels are drawn through it. The
-  // other fixtures are here to hold the NEGATIVE case — a page that draws no
-  // ratio panel, or one whose ratios stop earlier, must not carry the clause.
-  const RATIO_FIXTURES: Array<[string, BoardPackInput]> = [
+describe('the part month on page 10', () => {
+  const PART_FIXTURES: Array<[string, BoardPackInput]> = [
     ['the live demo company as it renders', liveDemoRenderedInput],
     ...FIXTURES,
   ];
 
-  for (const [name, input] of RATIO_FIXTURES) {
-    it(`prints on ${name} exactly when a ratio panel ends on the stub`, () => {
+  for (const [name, input] of PART_FIXTURES) {
+    it(`is left out and named exactly when the window ends on one — ${name}`, () => {
+      const stub = input.trend.find((p) => p.partial) ?? null;
       const built = buildTrendPanels(input.trend, PACK_SCALE);
-      const note = trendWindowNote(built.panels, built.ratiosEndingOnPartMonth);
+      expect(built.partMonthLeftOut?.label ?? null).toBe(stub?.label ?? null);
+      for (const panel of built.panels) expect(panel.title).not.toContain('(part)');
+
+      const note = trendWindowNote(built.panels, built.partMonthLeftOut);
       if (built.panels.length === 0) {
         expect(note).toBeNull();
         return;
       }
-      // THE QUALIFICATION, NOT THE TAG. The clause used to read "…is taken
-      // on the days posted, not a full one", which states the method and
-      // leaves the reader to draw the conclusion — and page 10 was then the
-      // one sheet in the pack whose ratios end in the stub and the one sheet
-      // not carrying the cover's own "not comparable with the months before
-      // it". Matching only /part month/ passed on that wording, which is why
-      // the gap survived a round: the assertion is now the sentence the rest
-      // of the pack uses, so a clause that tags without qualifying is red.
-      const qualifies = /part month/i.test(note!.body)
-        && /not comparable with the months before it/.test(note!.body);
-      expect(
-        qualifies,
-        built.ratiosEndingOnPartMonth.length > 0
-          ? `${built.ratiosEndingOnPartMonth.join(', ')} end on the part month and the page does `
-            + 'not say the endpoint is not comparable with the months before it'
-          : 'the page qualifies a part-month ratio it does not draw',
-      ).toBe(built.ratiosEndingOnPartMonth.length > 0);
-
-      // AND IT MAKES NO CLAIM PAGE 12 DISPROVES. "taken on the days posted"
-      // said the multiplier was the seven days posted; page 12 says the
-      // trends page "multiplies each month's ratio by the days in that
-      // month", and the arithmetic sides with page 12 — Sep's 60 debtor days
-      // is 59 over 30 times thirty. The clause names the SUMS it is taken on
-      // and leaves the day count to the page that defines it.
-      expect(note!.body, 'page 12 owns the day-count multiplier').not.toContain('days posted');
+      expect(note!.body.includes(`${stub?.label} is a part month and is not drawn.`)).toBe(stub !== null);
     });
   }
 
-  // NOT VACUOUS: at least one fixture must reach the positive case, or every
-  // assertion above is `expect(false).toBe(false)`.
-  it('has a fixture where a ratio really does end on the part month', () => {
-    const reached = RATIO_FIXTURES.filter(([, input]) =>
-      buildTrendPanels(input.trend, PACK_SCALE).ratiosEndingOnPartMonth.length > 0);
-    expect(reached.map(([name]) => name), 'no fixture reaches the clause at all').not.toEqual([]);
-  });
-
-  /**
-   * AND IT IS READ OFF THE MONTHS THE PANEL ACTUALLY PLOTS. A ratio panel
-   * drops the months it cannot measure, so the point it ends on is the last
-   * month it COULD measure and is not always the end of the window. Read it
-   * off the window instead — `trend[trend.length - 1].partial` — and a pack
-   * whose ratios all stop before the stub qualifies a ratio that is not
-   * there.
-   */
-  it('reads the terminal month off the plotted series, not off the window', () => {
-    // The pack the gate read, with the stub's two ratio values removed. Both
-    // panels are still DRAWN — every earlier month has a value — and neither
-    // now ends on the part month.
-    const trend = liveDemoRenderedInput.trend.map((point, i, all) =>
-      i === all.length - 1
-        ? { ...point, partial: true, grossMarginPct: null, debtorDays: null }
-        : point);
-    const built = buildTrendPanels(trend, PACK_SCALE);
-    expect(
-      built.panels.map((p) => p.id).filter((id) => /gross-margin|debtor-days/.test(id)),
-      'the fixture draws no ratio panel, so nothing is being tested',
-    ).not.toEqual([]);
-    expect(built.ratiosEndingOnPartMonth,
-      'a ratio panel that stops before the stub is reported as ending on it').toEqual([]);
-    const note = trendWindowNote(built.panels, built.ratiosEndingOnPartMonth);
-    expect(note!.body).not.toMatch(/part month/i);
+  // NOT VACUOUS: both cases must be reached.
+  it('has a fixture on each side', () => {
+    const withStub = PART_FIXTURES.filter(([, input]) => input.trend.some((p) => p.partial));
+    expect(withStub.length).toBeGreaterThan(0);
+    expect(withStub.length).toBeLessThan(PART_FIXTURES.length);
   });
 });
 

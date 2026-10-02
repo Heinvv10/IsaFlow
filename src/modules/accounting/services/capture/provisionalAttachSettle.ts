@@ -28,6 +28,7 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional, type AttachResult } from './evidenceAttachmentService';
 
@@ -57,6 +58,9 @@ export async function attachEvidenceAndSettleApproved(
   try {
     await withSavepoint('provisional_settle', () => postSupplierInvoiceToGL(companyId, invoiceId, input.userId));
   } catch (err) {
+    // Contention, not a refusal (D8 round 11): the savepoint rolled the settlement back, and a retry of the whole
+    // request settles it — withdrawing the auto-approval would send a person to approve by hand for a 5 s wait.
+    if (isLockTimeoutError(err)) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     const why = attached.attachedJeId
       ? `this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason})`

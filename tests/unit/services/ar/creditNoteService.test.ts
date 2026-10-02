@@ -54,6 +54,8 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
+// D8: the chain head (real-ledger proof: d8-r3-credit-note-bank-chain-head) is the journal itself here.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ lockStandingChainHead: async (_c: string, id: string) => id }));
 // approve/cancel take a FOR UPDATE row lock, which refuses to run outside a
 // request transaction. This suite drives the service with a mocked sql tag and
 // no ALS context, so the lock is stubbed to return the same row the mock would

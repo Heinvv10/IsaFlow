@@ -23,6 +23,7 @@
  * "margin is (12.0%)" reads as an aside rather than as a negative.
  */
 import { MONEY_SCALES, type MoneyScale } from './moneyScale';
+import { belowPrecision } from './belowPrecision';
 
 export { inScale, MONEY_SCALES, toMoneyScale } from './moneyScale';
 export type { MoneyScale } from './moneyScale';
@@ -198,10 +199,10 @@ export function formatPct(n: number, dp = 1, opt: PackFormatOpt = {}): string {
  */
 export function formatPctLevel(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
+  // A level below its precision is a bound — −0.001% is `(<0.1%)`, never a
+  // bracketed zero. See `belowPrecision`.
   const body = `${groupedFixed(Math.abs(n), dp)}%`;
-  // Not `n < 0`: a level of −0.001% is `0.0%` at one decimal, and a bracketed
-  // zero is a negative figure to a reader. See `bracketed`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  return belowPrecision(n, dp, '%') ?? (bracketed(n, dp) ? `(${body})` : body);
 }
 
 /**
@@ -216,10 +217,9 @@ export function formatRatio(n: number, dp = 2): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
   const body = groupedFixed(Math.abs(n), dp);
   // Not `signOf`: a ratio of 0.00 is a MEASURED ratio, and the en dash is
-  // this module's word for a figure that is not there at all. Only the sign
-  // is decided here — and only where the printed digits still carry it, so
-  // −0.0001 is `0.00` rather than `(0.00)`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  // this module's word for a figure that is not there at all. A real ratio
+  // below two places is a bound — −0.0001 is `(<0.01)` (`belowPrecision`).
+  return belowPrecision(n, dp, '') ?? (bracketed(n, dp) ? `(${body})` : body);
 }
 
 /** A multiple — "1.50×", "(0.14)×": `formatRatio`, the × outside the bracket.
@@ -245,9 +245,8 @@ export function formatDays(n: number, dp = 0): string {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   }).format(Math.abs(n)));
-  const body = `${digits} days`;
-  // −0.4 days is `0 days`, not `(0 days)` — see `bracketed`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  // −0.4 days is `(<1 day)`, not `(0 days)` — see `belowPrecision`.
+  return belowPrecision(n, dp, ' day') ?? (bracketed(n, dp) ? `(${digits} days)` : `${digits} days`);
 }
 
 /**
@@ -264,7 +263,8 @@ export function formatDays(n: number, dp = 0): string {
  * That is not a formatting bug; it is a false statement about the business.
  *
  * The remedy is the shape `TrustedChartSvg` uses (`src/lib/charts/trustedChartSvg.ts`):
- * a branded value with exactly ONE guarded way to obtain it. The magnitude
+ * a branded value with guarded ways only (this, and `pctLevelWithWord`, which
+ * wraps it for a level and still takes both words). The magnitude
  * formatter below is no longer exported, so a sentence cannot be handed a
  * bare percentage from this module at all — the next author of the next
  * sentence has to name the word that carries the sign, and forgetting is a
