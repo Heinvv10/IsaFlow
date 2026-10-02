@@ -39,10 +39,11 @@ vi.mock('@/modules/accounting/services/shared/journalChainHead', async (original
 }));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
-  lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {
+  // The real helper's contract (D8 round 11): each id once, ascending.
+  lockBankTransactionsInIdOrder: vi.fn(async (_c: string, ids: string[]) => [...new Set(ids)].sort().map((id) => {
     events.push(`lock bank ${id}`);
     return { id };
-  }),
+  })),
 }));
 vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE: { already_posted: 'Document already posted', rejected: 'rejected' },

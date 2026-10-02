@@ -32,7 +32,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
   BankTransactionLockTimeoutError,
-  lockBankTransactionForUpdate,
+  lockBankTransactionsInIdOrder,
 } from '@/modules/accounting/services/bank/bankTxLock';
 import { isLockContention } from '@/modules/accounting/services/core/lockContention';
 import {
@@ -71,7 +71,7 @@ export async function attachDocumentToProvisional(
       SELECT id FROM bank_transactions
       WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
       ORDER BY id`) as DbRow[];
-    for (const line of lines) await lockBankTransactionForUpdate(companyId, String(line.id));
+    await lockBankTransactionsInIdOrder(companyId, lines.map((line) => String(line.id)));
 
     // (2) The journal, under the same bounded wait as the document.
     // Standing by its reversal chain, not its stamp (D8, as the automatic attach):
