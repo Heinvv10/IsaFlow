@@ -7,6 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -77,6 +79,8 @@ export default function TrainingPage() {
       if (eRes.ok) {
         const json = await eRes.json();
         setEvents(((json.data ?? json) as Event[]) ?? []);
+      } else {
+        setError(payrollLoadMessage(eRes.status, 'Failed to load training events'));
       }
       if (emRes.ok) {
         const json = await emRes.json();
@@ -150,12 +154,20 @@ export default function TrainingPage() {
           <div className="flex items-center gap-2">
             <input type="number" value={year} onChange={e => setYear(Number(e.target.value))}
               className="w-24 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]" />
-            <button onClick={() => setShowForm(!showForm)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">
-              <Plus className="h-4 w-4" /> New event
-            </button>
+            <WriteOnly>
+              <button onClick={() => setShowForm(!showForm)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">
+                <Plus className="h-4 w-4" /> New event
+              </button>
+            </WriteOnly>
           </div>
         </div>
+
+        {error && !showForm && (
+          <div className="flex items-center gap-2 text-sm text-red-400">
+            <AlertCircle className="h-4 w-4" />{error}
+          </div>
+        )}
 
         {showForm && (
           <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-5 space-y-3">

@@ -13,6 +13,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 type Row = Record<string, unknown>;
@@ -26,7 +27,7 @@ interface DirectorInput {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     const rows = (await sql`
@@ -36,12 +37,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ORDER BY created_at ASC
     `) as Row[];
 
+    // A director's ID number and the name of their ID document are personal identifiers: write roles only.
+    const personal = canWrite(companyRole);
     const directors = rows.map((r: Row) => ({
       id: r.id,
       name: r.name,
-      idNumber: r.id_number,
+      ...(personal && { idNumber: r.id_number }),
       role: r.role,
-      idDocumentName: r.id_document_name,
+      ...(personal && { idDocumentName: r.id_document_name }),
       createdAt: r.created_at,
     }));
 

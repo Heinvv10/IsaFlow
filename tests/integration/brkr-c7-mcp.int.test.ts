@@ -21,8 +21,9 @@ const fingerprint = async () => (await r.pool.query(
      UNION ALL SELECT row_to_json(l)::text FROM gl_journal_lines l WHERE company_id = ANY($1)) s`, [[r.company, other]])).rows[0]!.h as string;
 
 let key = 0;
-async function tool(name: string, args: Record<string, unknown>, o: { scopes?: string[]; company?: string } = {}) {
-  const ctx = { userId: r.admin, companyId: o.company ?? r.company, scopes: o.scopes ?? ALL, tokenJti: null, oauthAppId: null };
+async function tool(name: string, args: Record<string, unknown>, o: { scopes?: string[]; company?: string; role?: string } = {}) {
+  // The caller is the company's admin (company_users.role) unless a case says otherwise: payroll tools are fenced on the role.
+  const ctx = { userId: r.admin, companyId: o.company ?? r.company, scopes: o.scopes ?? ALL, tokenJti: null, oauthAppId: null, companyRole: o.role ?? 'admin' };
   key += 1;
   const before = await fingerprint();
   let res: { isError?: boolean; content: Array<{ text: string }> };
@@ -45,6 +46,16 @@ beforeAll(async () => {
 afterAll(async () => { await r.teardown([other]); });
 
 describe('CLAIM 7 — MCP approve_pay_run', () => {
+  it('a viewer-role caller holding every scope is refused, dry run and live, and nothing is written', async () => {
+    const id = await r.calculatedRun(12);
+    for (const args of [{ run_id: id, dry_run: true }, { run_id: id, expected_plan_hash: 'x' }]) {
+      const x = await tool('approve_pay_run', args, { role: 'viewer' });
+      expect(x.isError).toBe(true);
+      expect(x.text).toMatch(/owner, admin and manager/);
+      expect(x.wroteNothing).toBe(true);
+    }
+  });
+
   it('C7: scope, hash, dry-run parity, company binding', async () => {
     const out: Record<string, unknown> = {};
     const id = await r.calculatedRun(1);

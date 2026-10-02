@@ -87,6 +87,7 @@ export const createEmployeeTool: McpTool = {
     + 'employment_type drives the PAYE and UIF treatment, so it must be right: '
     + 'permanent, contract, casual or director.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',
@@ -192,6 +193,7 @@ export const updateEmployeeTool: McpTool = {
     + 'schedules the departure and leaves them active until then. '
     + 'employee_number and start_date cannot be changed — create a new employee instead.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',
@@ -291,6 +293,7 @@ export const assignEmployeeComponentTool: McpTool = {
     + '(is_recurring: false) dies at the end of the month it was captured for. '
     + 'Amounts are to the cent and post NOTHING to the ledger.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',
@@ -366,6 +369,7 @@ export const endEmployeeComponentTool: McpTool = {
     + 'To change a salary: end the old assignment and assign a new one from the following month. '
     + 'Resolve assignment_id with list_employee_components.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',

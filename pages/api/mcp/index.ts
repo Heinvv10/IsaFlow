@@ -206,6 +206,7 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     scopes: req.scopes ?? [],
     tokenJti: req.patId ?? req.oauthAuthorisationId ?? null,
     oauthAppId: req.oauthAppId ?? null,
+    companyRole: req.companyRole ?? null,
   };
 
   if (Array.isArray(body)) {
