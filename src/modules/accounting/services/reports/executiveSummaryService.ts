@@ -8,8 +8,9 @@
  * at -0.14", "Net loss of R 1544240.9" — and took margins on zero or negative
  * revenue. Margins and ratios in a sentence now come from the ratio engine
  * (not stated where it says so, with its reason); a percentage carries its
- * sign in a word (`pctWithWord`); money and ratios use the pack's notation.
- * The numeric `kpis` are unchanged.
+ * sign in a word (`pctWithWord`), "nil" where it rounds to nothing; money and
+ * ratios use the pack's notation. The numeric `kpis` margins are the engine's
+ * too: null on non-positive revenue, with its reason in `kpis.notMeaningful`.
  */
 import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
 import { calculateFinancialRatios } from './ratioCalculations';
@@ -92,7 +93,10 @@ function engineRatios(input: ExecutiveSummaryInput) {
   return calculateFinancialRatios({ ...input, otherIncome: 0 });
 }
 
-const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative');
+/** Why a highlight states no margin: the engine has none on non-positive revenue. */
+export const MARGINS_NOT_STATED = 'Margins are not stated: revenue is not positive, so no margin has a meaning.';
+
+const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative', 'nil');
 const ratio = (key: string, value: number): string => formatRatioOf(key, value);
 
 export function generateHighlights(input: ExecutiveSummaryInput): ExecutiveHighlight[] {
@@ -102,7 +106,9 @@ export function generateHighlights(input: ExecutiveSummaryInput): ExecutiveHighl
   const netMargin = ratios.netProfitMargin;
 
   if (input.priorRevenue && input.priorRevenue > 0) {
-    const revGrowth = growthRate(input.revenue, input.priorRevenue);
+    // On the PRINTED figure: a growth that rounds to 0.0% is no movement to
+    // report, not "grew 0.0%".
+    const revGrowth = Number(growthRate(input.revenue, input.priorRevenue).toFixed(1));
     if (revGrowth > 0) {
       highlights.push({ type: 'positive', message: `Revenue ${pctWithWord(revGrowth, 'grew', 'declined')} vs prior period` });
     } else if (revGrowth < 0) {
@@ -111,9 +117,10 @@ export function generateHighlights(input: ExecutiveSummaryInput): ExecutiveHighl
   }
 
   if (grossMargin === null || netMargin === null) {
-    // The engine's own sentence: on non-positive revenue there is no margin.
-    const reason = ratios.notMeaningful.grossProfitMargin ?? ratios.notMeaningful.netProfitMargin;
-    highlights.push({ type: 'neutral', message: `Margins are not stated: ${reason}` });
+    // The engine nulls both on the same condition, non-positive revenue. Its
+    // reason is written for ONE ratio ("…so this ratio has no meaning"), and
+    // after "Margins are" that is a singular in a plural sentence.
+    highlights.push({ type: 'neutral', message: MARGINS_NOT_STATED });
   } else {
     if (grossMargin >= 40) {
       highlights.push({ type: 'positive', message: `Gross margin is ${level(grossMargin)} — strong` });

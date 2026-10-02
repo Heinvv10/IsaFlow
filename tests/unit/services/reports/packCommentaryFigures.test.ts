@@ -67,6 +67,11 @@ describe('the commentary on ordinary figures', () => {
     expect(text).toBe('ISAFlow Demo (Pty) Ltd reported revenue of R 4 200 000.55. Net profit margin is a positive 15.9%.');
   });
 
+  it('says a margin that rounds to nil is nil, unsigned', () => {
+    const text = summary({ revenue: 4_200_000, costOfSales: 2_310_000, netProfit: -1_000 });
+    expect(text).toBe('ISAFlow Demo (Pty) Ltd reported revenue of R 4 200 000.00. Net profit margin is nil.');
+  });
+
   it('says nil revenue in a word, not a dash, and states no margin', () => {
     const text = summary({ revenue: 0, costOfSales: 0, netProfit: -910_000 });
     expect(text).toBe(`ISAFlow Demo (Pty) Ltd reported revenue of nil. ${NO_MARGIN_SENTENCE}`);

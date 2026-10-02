@@ -74,7 +74,7 @@ describe('on negative revenue', () => {
   const highlights = messages(generateHighlights(NEGATIVE_REVENUE));
 
   it('states no margin, and says why in the engine\'s words', () => {
-    expect(highlights).toContain('Margins are not stated: Revenue is not positive, so this ratio has no meaning.');
+    expect(highlights).toContain('Margins are not stated: revenue is not positive, so no margin has a meaning.');
     expect(highlights.join('\n')).not.toMatch(/margin (of|is) /);
   });
 
@@ -103,5 +103,22 @@ describe('on healthy figures', () => {
 
   it('states high leverage as a ratio in its unit', () => {
     expect(messages(generateAlerts(HEALTHY))).toEqual(['High leverage — debt-to-equity ratio at 2.50']);
+  });
+});
+
+describe('a margin that rounds to nil', () => {
+  it('reads "nil", not "a positive 0.0%" or "a negative 0.0%"', () => {
+    const text = messages(generateHighlights({ ...HEALTHY, costOfSales: HEALTHY.revenue + 1, netProfit: -1 }));
+    expect(text).toContain('Gross margin is nil — review cost structure');
+    expect(text).toContain('Net profit margin is nil — thin, monitor closely');
+    expect(text.join('\n')).not.toMatch(/(positive|negative) 0\.0%/);
+  });
+});
+
+describe('a revenue movement that rounds to nil', () => {
+  it('is not reported as growth of 0.0%', () => {
+    // +0.04%: this read "Revenue grew 0.0%".
+    const text = messages(generateHighlights({ ...HEALTHY, priorRevenue: 4_198_321 }));
+    expect(text.join('\n')).not.toMatch(/Revenue (grew|declined)/);
   });
 });

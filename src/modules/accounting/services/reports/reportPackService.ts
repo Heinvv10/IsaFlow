@@ -211,7 +211,7 @@ function buildSectionData(
         summary: margin === null
           ? `${input.companyName} reported revenue of ${revenue}. ${NO_MARGIN_SENTENCE}`
           : `${input.companyName} reported revenue of ${revenue}. `
-            + `Net profit margin is ${pctWithWord(margin, 'a positive', 'a negative')}.`,
+            + `Net profit margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')}.`,
       };
     }
 

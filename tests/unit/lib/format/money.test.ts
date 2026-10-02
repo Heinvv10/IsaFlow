@@ -164,6 +164,19 @@ describe('pctWithWord', () => {
     expect(pctWithWord(6.94, 'up', 'down')).toBe('up 6.9%');
     expect(pctWithWord(0, 'up', 'down')).toBe('up 0.0%');
   });
+  // A FIGURE THAT ROUNDS TO NOTHING HAS NO DIRECTION. "Gross margin is a
+  // positive 0.0%" and "a negative 0.0%" name a sign the printed digits do
+  // not carry. A sentence that can say nil passes the words it wants for
+  // it; the word is decided from the ROUNDED figure.
+  it('says the nil words, unsigned, for a figure that rounds to zero', () => {
+    expect(pctWithWord(0, 'a positive', 'a negative', 'nil')).toBe('nil');
+    expect(pctWithWord(-0.04, 'a positive', 'a negative', 'nil')).toBe('nil');
+    expect(pctWithWord(0.049, 'up', 'down', 'unchanged')).toBe('unchanged');
+    expect(pctWithWord(-0.05, 'up', 'down', 'unchanged')).toBe('down 0.1%');
+  });
+  it('leaves a caller that names no nil words as it was', () => {
+    expect(pctWithWord(-0.04, 'up', 'down')).toBe('down 0.0%');
+  });
   it('renders a dash for a non-finite figure, with no direction word', () => {
     expect(pctWithWord(NaN, 'up', 'down')).toBe('–');
     expect(pctWithWord(Infinity, 'up', 'down')).toBe('–');

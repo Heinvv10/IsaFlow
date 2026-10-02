@@ -276,11 +276,17 @@ function formatPctMagnitude(n: number, dp = 1): string {
   return `${groupedFixed(Math.abs(n), dp)}%`;
 }
 
-export function pctWithWord(n: number, up: string, down: string, dp = 1): ProsePct {
+export function pctWithWord(n: number, up: string, down: string, nil?: string, dp = 1): ProsePct {
   // A non-finite percentage has no magnitude to state and no direction to
   // name. The dash is the same answer `formatPct` gives, and the direction
   // word is dropped with it — "up –" would be worse than either.
   if (!Number.isFinite(n)) return ZERO_DASH as ProsePct;
+  // A FIGURE THAT ROUNDS TO NOTHING HAS NO DIRECTION: "a positive 0.0%" and
+  // "a negative 0.0%" name a sign the printed digits do not carry. Decided on
+  // the ROUNDED figure. Only where the sentence supplies its nil words — what
+  // reads right ("nil", "unchanged", "at nil") depends on the sentence, so a
+  // caller that names none keeps its old output.
+  if (nil !== undefined && Number(Math.abs(n).toFixed(dp)) === 0) return nil as ProsePct;
   // Zero counts as the positive word, matching every call site's previous
   // `pct >= 0 ? 'up' : 'down'`.
   return `${n < 0 ? down : up} ${formatPctMagnitude(n, dp)}` as ProsePct;
