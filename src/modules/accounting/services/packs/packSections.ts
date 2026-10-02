@@ -58,8 +58,12 @@ export function packSectionTitle(sectionType: string, fallback: string): string 
   return (IFRS_TITLES as Record<string, string>)[sectionType] ?? fallback;
 }
 
-/** Sections whose content is a chart wide enough to need the page turned. */
-const LANDSCAPE = new Set(['waterfall', 'trends']);
+/** Sections that need the page turned. NONE: the legacy bridge and trend are
+ *  drawn at 174mm, the portrait content width (A4 less the 18mm sides), so they flow in the portrait
+ *  pages like every other section instead of each standing on a mostly blank
+ *  landscape sheet. The mechanism stays (`data-print-landscape`, the named
+ *  page) for a section that one day is wider. */
+const LANDSCAPE = new Set<string>();
 
 export function isLandscapeSection(sectionType: string): boolean {
   return LANDSCAPE.has(sectionType);

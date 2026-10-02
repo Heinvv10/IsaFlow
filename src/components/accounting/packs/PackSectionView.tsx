@@ -24,17 +24,20 @@ import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 /**
  * THE BOX THIS VIEW'S BRIDGE IS DRAWN IN, AND IT IS A FIXED ONE.
  *
- * The only caller is `PackPrintView`, whose root is `max-w-[190mm]`, and the
- * waterfall section is a LANDSCAPE sheet (`isLandscapeSection`) — 261mm of
- * measure — so the chart's container is 190mm wide in every render the PDF
- * transport makes. 190mm is 718 CSS pixels. `PackChart` is given that width
- * outright rather than `100%`, so it is 718 on a narrow browser window too:
+ * The only caller is `PackPrintView`, whose root is `max-w-[174mm]` — A4
+ * less the transport's 18mm side margins (`PDF_MARGIN_MM`), the width a
+ * PORTRAIT sheet really holds — and no section is landscape any more
+ * (`isLandscapeSection`), so the chart's container is 174mm wide in every
+ * render the PDF transport makes. 174mm is 657 CSS pixels. (It was 190mm /
+ * 718px, tuned for a landscape sheet; on a portrait one that overran the right
+ * margin by 16mm.) `PackChart` is given that width
+ * outright rather than `100%`, so it is 657 on a narrow browser window too:
  * the layout below is chosen for one known rectangle and that is the
  * rectangle drawn. A bridge in a container narrower than its own axis labels
  * — measured at 360px, where ECharts squeezed the plot to nothing — cannot
  * occur. `packLegacyBridgeWidth.dom.test.tsx` pins the two together.
  */
-export const LEGACY_WATERFALL_BOX = { heightPx: 320, widthPx: 718 } as const;
+export const LEGACY_WATERFALL_BOX = { heightPx: 320, widthPx: 657 } as const;
 
 /**
  * THIS VIEW'S CHARTS ARE SET IN THE PACK'S PRINT FACE, NOT THE SCREEN'S.
@@ -79,7 +82,7 @@ export { formatPackKv };
 function Block({ block }: { block: PackBlock }) {
   switch (block.kind) {
     case 'statement':
-      return <StatementGrid rows={block.rows} columns={NO_COMPARATORS} cents />;
+      return <div className="pack-legacy-card"><StatementGrid rows={block.rows} columns={NO_COMPARATORS} cents /></div>;
 
     case 'kv':
       return (
@@ -95,7 +98,7 @@ function Block({ block }: { block: PackBlock }) {
 
     case 'scorecard':
       return (
-        <div className="pack-legacy-kv grid grid-cols-3 gap-2">
+        <div className="pack-legacy-kv pack-legacy-card grid grid-cols-3 gap-2">
           {block.items.map((item) => {
             // The scored/unscored decision is `scorecardFigure`'s, not this
             // renderer's — the screen wrote its own and called .toFixed(2) on

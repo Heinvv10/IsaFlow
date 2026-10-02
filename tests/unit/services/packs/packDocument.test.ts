@@ -51,10 +51,9 @@ describe('buildPackDocument', () => {
     expect(doc.sections[0]!.title).toBe('Statement of Comprehensive Income');
   });
 
-  it('turns only the chart sections landscape', () => {
+  it('turns no section landscape: the charts are 174mm and flow in portrait', () => {
     const doc = buildPackDocument(pack, TREND);
-    const landscape = doc.sections.filter((s) => s.landscape).map((s) => s.type);
-    expect(landscape).toEqual(['waterfall', 'trends']);
+    expect(doc.sections.filter((s) => s.landscape).map((s) => s.type)).toEqual([]);
   });
 
   it('INVENTS NO FIGURE: every number in the document is a pack number', () => {
@@ -104,8 +103,8 @@ describe('buildPackDocument', () => {
     expect(items.find((i) => i.label === 'Free Cash Flow')!.format).toBe('money');
     expect(items.find((i) => i.label === 'EBITDA Margin')!.format).toBe('pct');
     expect(items.find((i) => i.label === 'Return on Capital Employed (ROCE)')!.format).toBe('pct');
-    expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('ratio');
-    expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('ratio');
+    expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('times');
+    expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('times');
     // A cover or a turnover is a multiple, and is written as one.
     expect(items.find((i) => i.label === 'Asset Turnover')!.format).toBe('times');
     expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'times', 'days']));

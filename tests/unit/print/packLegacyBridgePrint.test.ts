@@ -91,7 +91,7 @@ describe('the management pack\'s bridge in Chromium', () => {
     for (const f of named) expect(rules.some((y) => y > boxOf(f!).top && y < boxOf(f!).bottom), `no rule crosses "${f!.text}"`).toBe(true);
 
     const { drawn, bare } = await withChromium(async (browser) => {
-      const page = await browser.newPage({ viewport: { width: 1123, height: 794 }, deviceScaleFactor: SCALE });
+      const page = await browser.newPage({ viewport: { width: 794, height: 1123 }, deviceScaleFactor: SCALE });
       try {
         await open(page);
         return { drawn: await pixels(page, 'drawn'), bare: await pixels(page, 'bare') };
@@ -110,7 +110,7 @@ describe('the management pack\'s bridge in Chromium', () => {
       const page = await browser.newPage({ viewport: { width: 1123, height: 794 } });
       try {
         await open(page);
-        return await page.pdf({ format: 'A4', landscape: true, printBackground: true });
+        return await page.pdf({ format: 'A4', printBackground: true });
       } finally {
         await page.close();
       }

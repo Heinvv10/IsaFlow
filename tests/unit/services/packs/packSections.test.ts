@@ -23,9 +23,9 @@ describe('packSectionTitle', () => {
 });
 
 describe('isLandscapeSection', () => {
-  it('turns the two chart sections sideways and nothing else', () => {
-    expect(isLandscapeSection('waterfall')).toBe(true);
-    expect(isLandscapeSection('trends')).toBe(true);
+  it('turns no section sideways: the charts are drawn at the portrait content width', () => {
+    expect(isLandscapeSection('waterfall')).toBe(false);
+    expect(isLandscapeSection('trends')).toBe(false);
     expect(isLandscapeSection('income_statement')).toBe(false);
     expect(isLandscapeSection('ratios')).toBe(false);
   });

@@ -162,14 +162,22 @@
  * never sits alone at a page foot. */
 html.print-mode .pack-legacy-kv > * { break-inside: avoid; }
 html.print-mode .pack-legacy-heading { break-after: avoid; }
-/* The legacy view's DRAFT mark: `position: fixed` repeats on every printed
- * sheet, the cover included. Same size, tone and angle as the board pack's. */
+/* ONE FIXED BOX PER SHEET, CLIPPED TO IT. `position: fixed` repeats on every
+ * printed sheet and is sized to that sheet's content box (`inset: 0`), and
+ * `overflow: hidden` means the rotated mark can never spill onto a neighbour or
+ * past an edge — the grey fragments an unclipped, unboxed mark left behind
+ * a title and at the top of the next sheet. */
 [data-pack-draft] [data-pack-watermark] {
-  position: fixed; top: 50%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-45deg);
-  font-size: 96pt; font-weight: 600; color: var(--pack-ink);
-  opacity: 0.06; pointer-events: none; white-space: nowrap; z-index: 0;
+  position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
 }
+[data-pack-draft] [data-pack-watermark] > span {
+  transform: rotate(-45deg);
+  font-size: 96pt; font-weight: 600; color: var(--pack-ink);
+  opacity: 0.06; white-space: nowrap;
+}
+/* A card that fits on a sheet never splits across two. */
+html.print-mode .pack-legacy-card { break-inside: avoid; }
 html.print-mode .pack-legacy-toc { margin-bottom: calc(var(--pack-baseline) * 2); }
 /* A section that follows another on the same sheet is set off from it by twice
  * the board pack's block spacing (`--pack-baseline`), so its heading plainly

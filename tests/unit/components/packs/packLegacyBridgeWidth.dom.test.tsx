@@ -8,8 +8,9 @@
  * to be the one drawn. At a container's width the chart was 360px on a narrow
  * window and ECharts squeezed the plot to nothing under its own axis labels.
  * Three facts make the box fixed, and each is pinned here:
- *   - the print view's root is `max-w-[190mm]`, 718 CSS pixels;
- *   - the waterfall section is a landscape sheet, wider than that;
+ *   - the print view's root is `max-w-[174mm]`, 657 CSS pixels: A4 less the
+ *     transport's 18mm sides, what a PORTRAIT sheet holds;
+ *   - no section is landscape, so nothing wider is ever offered;
  *   - the chart's wrapper is given that width outright, not `100%`, and the
  *     option is laid out for the same box.
  */
@@ -34,7 +35,6 @@ afterEach(() => {
 });
 
 const PX_PER_MM = 96 / 25.4;
-const A4_LANDSCAPE_MEASURE_MM = 297 - 18 - 18;
 const STEPS = [
   { label: 'Revenue', start: 0, end: 101_400, value: 101_400, isSubtotal: false, color: 'green' },
   { label: 'Cost of Sales', start: 101_400, end: -1_329_181, value: -1_430_581, labelValue: 1_430_581, isSubtotal: false, color: 'red' },
@@ -44,16 +44,17 @@ const STEPS = [
 ];
 const doc: PackDocument = {
   packType: 'management', companyName: 'ISAFlow Demo', period: '2026-01-01 to 2026-09-05', generatedAt: '2026-09-06T08:00:00.000Z',
-  sections: [{ type: 'waterfall', title: 'Profit Bridge', landscape: true, blocks: [{ kind: 'waterfall', steps: STEPS }] }],
+  sections: [{ type: 'waterfall', title: 'Profit Bridge', landscape: false, blocks: [{ kind: 'waterfall', steps: STEPS }] }],
 } as PackDocument;
 
 describe('the management pack bridge\'s box', () => {
-  it('is the print view\'s own measure: 190mm, on a sheet wide enough to hold it', () => {
+  it('is the print view\'s own measure: 174mm, what a portrait sheet holds', () => {
     const { container } = render(<PackPrintView document={doc} />);
-    expect(container.firstElementChild!.className).toContain('max-w-[190mm]');
-    expect(LEGACY_WATERFALL_BOX.widthPx).toBe(Math.floor(190 * PX_PER_MM));
-    expect(isLandscapeSection('waterfall')).toBe(true);
-    expect(A4_LANDSCAPE_MEASURE_MM).toBeGreaterThan(190);
+    expect(container.firstElementChild!.className).toContain('max-w-[174mm]');
+    expect(LEGACY_WATERFALL_BOX.widthPx).toBe(Math.floor(174 * PX_PER_MM));
+    // No section is landscape: 174mm is A4 less the transport's 18mm sides.
+    expect(174).toBe(210 - 18 - 18);
+    expect(isLandscapeSection('waterfall')).toBe(false);
   });
 
   it('is the width the chart is given outright, and the height it is drawn at', () => {

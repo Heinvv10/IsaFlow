@@ -17,6 +17,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import sharp from 'sharp';
+import { PDF_MARGIN_MM } from '@/lib/pdf/pdfTransport';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { bundlePrintPages } from './support/bundlePrintPages';
@@ -132,6 +134,72 @@ describe('spacing and the contents page', () => {
       expect(words[headingIdx]!.y0 - above, 'the heading sits right under the block above').toBeGreaterThan(20);
     }
   }, 60_000);
+});
+
+describe('no sheet is landscape', () => {
+  it('prints every section, the charts and the commentary included, on portrait sheets', async () => {
+    const file = path.join(dir, 'portrait.pdf');
+    writeFileSync(file, await printLegacyPack(browser, bundle, DEMO));
+    const { stdout } = await run('pdfinfo', ['-f', '1', '-l', '20', file]);
+    const sizes = [...stdout.matchAll(/Page\s+\d+ size:\s+([\d.]+) x ([\d.]+)/g)].map((m) => [+m[1]!, +m[2]!]);
+    expect(sizes.length).toBeGreaterThan(3);
+    for (const [w, h] of sizes) expect(w!, 'a landscape sheet').toBeLessThan(h!);
+    const text = (await run('pdftotext', [file, '-'])).stdout;
+    for (const heading of ['Profit Bridge', 'Twelve-Month Trend', 'Commentary']) expect(text).toContain(heading);
+  }, 60_000);
+});
+
+describe('cards are not split', () => {
+  const pack = buildReportPack('management', DEMO, '2026-01-01', '2026-08-31');
+  const tiles = (pack.sections.find((s) => s.type === 'kpis')!.data as { scorecard: Array<{ name: string }> }).scorecard.map((t) => t.name);
+  const sweep = Array.from({ length: 14 }, (_, i) => i * 16);
+  const css = (mmv: number) => `#pack-section-balance_sheet, #pack-section-kpis, #pack-section-waterfall { margin-top: ${mmv}mm; }`;
+
+  it('keeps the Financial Position card whole, and the KPI Scorecard heading with all its tiles, at every offset', async () => {
+    expect(tiles.length).toBeGreaterThan(2);
+    for (const mmv of sweep) {
+      const printed = await print(`cards-${mmv}`, { extraCss: css(mmv) });
+      const pageOf = (line: string) => printed.raw.flatMap((page, p) => (page.includes(line) ? [p] : []));
+      expect(pageOf('Total Assets'), `offset ${mmv}mm`).toEqual(pageOf('Total Equity and Liabilities'));
+      const heading = pageOf('KPI Scorecard');
+      expect(heading.length, 'heading printed once').toBe(1);
+      // A tile's name may also be a ratio label earlier in the pack, so: it must be
+      // on the heading's own sheet (absent there means it was split away).
+      // (a tile's raw line is its name followed by its figure)
+      const tilePage = (name: string) => printed.raw.flatMap((page, p) => (page.some((l) => l.startsWith(name)) ? [p] : []));
+      for (const name of tiles) expect(tilePage(name), `${name} apart from its heading (offset ${mmv}mm)`).toContain(heading[0]);
+    }
+  }, 170_000);
+});
+
+describe('the DRAFT mark stays inside its sheet', () => {
+  it('prints on every sheet and its ink never leaves the content box', async () => {
+    const file = path.join(dir, 'mark.pdf');
+    // Solid red, so the mark is told apart from every other ink on the page.
+    writeFileSync(file, await printLegacyPack(browser, bundle, DEMO, {
+      draft: true, extraCss: '[data-pack-draft] [data-pack-watermark] > span { color: #f00 !important; opacity: 1 !important; }',
+    }));
+    const { stdout } = await run('pdfinfo', [file]);
+    const n = Number(/Pages:\s+(\d+)/.exec(stdout)![1]);
+    const DPI = 50;
+    const px = (mmv: number) => (mmv * DPI) / 25.4;
+    await run('pdftoppm', ['-r', String(DPI), '-png', file, path.join(dir, 'mark')]);
+    for (let p = 1; p <= n; p++) {
+      const name = path.join(dir, `mark-${String(p).padStart(n >= 10 ? 2 : 1, '0')}.png`);
+      const { data, info } = await sharp(name).raw().toBuffer({ resolveWithObject: true });
+      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) {
+        const i = (y * info.width + x) * info.channels;
+        if (data[i]! > 230 && data[i + 1]! < 40 && data[i + 2]! < 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      }
+      expect(x1, `sheet ${p} carries no mark`).toBeGreaterThan(0);
+      const tol = 2;
+      expect(x0, `sheet ${p}: ink left of the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.left) - tol);
+      expect(x1, `sheet ${p}: ink right of the content box`).toBeLessThanOrEqual(info.width - px(PDF_MARGIN_MM.right) + tol);
+      expect(y0, `sheet ${p}: ink above the content box`).toBeGreaterThanOrEqual(px(PDF_MARGIN_MM.top) - tol);
+      expect(y1, `sheet ${p}: ink below the content box`).toBeLessThanOrEqual(info.height - px(PDF_MARGIN_MM.bottom) + tol);
+    }
+  }, 120_000);
 });
 
 describe('the DRAFT mark', () => {
