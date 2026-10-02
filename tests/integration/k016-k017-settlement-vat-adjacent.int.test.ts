@@ -235,6 +235,14 @@ describeIfDb('K-016/K-017 settlement VAT — adjacent cases', () => {
   }, 60000);
 
   it('settles a supplier REFUND gross with no input tax reversal', async () => {
+    // A refund returns credit the company holds with the supplier and is
+    // refused above it (ap/supplierRefundDocument, added after this test was
+    // written). So first overpay R115 — a payment with no bill to settle,
+    // which sits on account — and then take it back.
+    const paid = await newTx(-115, `ACME PREPAY ${TAG} D`);
+    await inTx(() => allocateTransaction(
+      COMPANY, paid, null, USER, undefined, 'supplier', supplier, undefined,
+    ));
     const before = await leg('1140');
     const tx = await newTx(115, `ACME REFUND ${TAG} D`);
     await inTx(() => allocateTransaction(
@@ -245,6 +253,7 @@ describeIfDb('K-016/K-017 settlement VAT — adjacent cases', () => {
     // carried its own `netAmount`. The refund credits AP by the full R115 and
     // touches vat_input in neither direction.
     expect((await leg('2100')).cr).toBeCloseTo(115, 2);
+    expect((await leg('2100')).dr).toBeCloseTo(115, 2); // the prepayment, now handed back
     const after = await leg('1140');
     expect(after.dr - before.dr).toBeCloseTo(0, 2);
     expect(after.cr - before.cr).toBeCloseTo(0, 2);

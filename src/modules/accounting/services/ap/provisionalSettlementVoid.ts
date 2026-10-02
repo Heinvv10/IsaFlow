@@ -35,6 +35,7 @@ import { reconciliationLockOf } from '../bank/reconciledCash';
 import type { VoidPaymentResult } from '../core/paymentVoidService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { UNAPPLY_REMEDY } from './provisionalSettlementGuards';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 
 export interface SettlementPaymentRef {
   id: string;
@@ -93,8 +94,14 @@ export async function voidProvisionalSettlement(
     if (cancelled.length !== 1) throw new Error('Payment state changed concurrently — void aborted');
 
     // The claim is released above, so neither reversal is refused as half a settlement.
+    // The provisional is reversed at its chain HEAD (D8): one reversed and
+    // re-reversed stands through its second contra, and is stamped reversed. A
+    // chain already out (only a forged row or the pre-round-4 B1 race can leave
+    // a settlement on one) reverses nothing; the bank line is freed either way.
     const reclass = await reverseJournalEntry(companyId, reclassJournalId, userId, opts);
-    const provisional = await reverseJournalEntry(companyId, payment.settlesProvisionalJeId, userId, opts);
+    const provisionalHead = await lockStandingChainHead(companyId, payment.settlesProvisionalJeId,
+      (m) => new SupplierPaymentRefusal(m));
+    const provisional = provisionalHead ? await reverseJournalEntry(companyId, provisionalHead, userId, opts) : null;
     if (bankTransactionId) {
       await sql`
         UPDATE bank_transactions SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()
@@ -107,7 +114,7 @@ export async function voidProvisionalSettlement(
     }, 'accounting');
     return {
       bankTransactionId,
-      vatLockRoll: provisional.vatLockRoll ?? null,
+      vatLockRoll: provisional?.vatLockRoll ?? null,
       reclassVatLockRoll: reclass.vatLockRoll ?? null,
     };
   });

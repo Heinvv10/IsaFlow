@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { journalInForceAsAtFragment } from '../shared/journalInForceAsAt';
 
 type Row = DbRow;
 
@@ -113,10 +114,12 @@ export async function generateVAT201(companyId: string,
       LEFT JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}
         -- A late-claimed bill (gl/vatLateClaimSplit) is filed in its claim
-        -- period: dated by its posted companion, not by the invoice.
+        -- period: dated by its posted companion, not by the invoice, while that
+        -- companion stands as at the period end (its reversal chain's parity).
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
-                AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
+                AND lc.status = 'posted'
+                AND ${journalInForceAsAtFragment('lc.id', periodEnd, companyId)} LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         -- Approved bills only (Hein, 2026-09-25), as an ALLOW-list (ap/billAllocatable):
         -- draft, pending_approval, disputed and cancelled claim nothing, and a status
         -- added later is left out until someone decides it claims.
@@ -141,7 +144,8 @@ export async function generateVAT201(companyId: string,
         -- Same late-claim dating as the invoice list above (field 8 follows the claim).
         AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
               WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
-                AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
+                AND lc.status = 'posted'
+                AND ${journalInForceAsAtFragment('lc.id', periodEnd, companyId)} LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
         -- Approved bills only (Hein, 2026-09-25), as an ALLOW-list (ap/billAllocatable):
         -- draft, pending_approval, disputed and cancelled claim nothing, and a status
         -- added later is left out until someone decides it claims.

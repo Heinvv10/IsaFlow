@@ -31,13 +31,19 @@ vi.mock('@/lib/als', () => ({
   als: { getStore: () => ({ client: { query: clientQuery } }) },
   assertTxUsable: vi.fn(),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }) }));
+// D8 round 6: the broken-chain walk (real-ledger proof: tests/integration/d8-r6-broken-permit); here, an intact chain.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (original) => ({
+  ...await original<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+}));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
-  lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {
+  // The real helper's contract (D8 round 11): each id once, ascending.
+  lockBankTransactionsInIdOrder: vi.fn(async (_c: string, ids: string[]) => [...new Set(ids)].sort().map((id) => {
     events.push(`lock bank ${id}`);
     return { id };
-  }),
+  })),
 }));
 vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE: { already_posted: 'Document already posted', rejected: 'rejected' },
@@ -68,7 +74,7 @@ function answer(strings: TemplateStringsArray): unknown[] {
   if (/SELECT id FROM bank_transactions/.test(text)) { events.push('peek bank'); return [{ id: BANK_TX_ID }]; }
   if (/FROM gl_journal_entries[\s\S]*FOR UPDATE/.test(text)) {
     events.push('lock journal');
-    return [{ needs_evidence: true, reversed_at: null }];
+    return [{ needs_evidence: true, stands: true }];
   }
   if (/source_document_id/.test(text) && /status = 'posted'/.test(text)) {
     events.push('guard: document not already posted');

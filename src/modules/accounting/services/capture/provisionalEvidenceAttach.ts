@@ -32,7 +32,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
   BankTransactionLockTimeoutError,
-  lockBankTransactionForUpdate,
+  lockBankTransactionsInIdOrder,
 } from '@/modules/accounting/services/bank/bankTxLock';
 import { isLockContention } from '@/modules/accounting/services/core/lockContention';
 import {
@@ -47,6 +47,8 @@ import {
   DocumentAlreadyPostedRefusal,
   DocumentAlreadyLinkedRefusal,
 } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
+import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -69,15 +71,20 @@ export async function attachDocumentToProvisional(
       SELECT id FROM bank_transactions
       WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
       ORDER BY id`) as DbRow[];
-    for (const line of lines) await lockBankTransactionForUpdate(companyId, String(line.id));
+    await lockBankTransactionsInIdOrder(companyId, lines.map((line) => String(line.id)));
 
     // (2) The journal, under the same bounded wait as the document.
+    // Standing by its reversal chain, not its stamp (D8, as the automatic attach):
+    // a provisional reversed and re-reversed books the bank line again.
     const je = await lockWithTimeout(jeId, async () => (await sql`
-      SELECT needs_evidence, reversed_at FROM gl_journal_entries
-      WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-      FOR UPDATE`) as DbRow[]);
+      SELECT je.needs_evidence, ${journalStandsUnbrokenFragment('je.id', companyId)} AS stands
+      FROM gl_journal_entries je
+      WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
+      FOR UPDATE OF je`) as DbRow[]);
     if (!je) return { kind: 'not_found', what: 'Journal entry', id: jeId };
-    if (je.reversed_at != null) return { kind: 'refused', message: 'Journal entry has been reversed' };
+    if (je.stands !== true) return { kind: 'refused', message: 'Journal entry has been reversed' };
+    const chain = await findJournalChainHead(companyId, jeId); // the fragment sees a broken root only (D8 round 6)
+    if (chain?.kind === 'broken') return { kind: 'refused', message: brokenChainMessage(jeId, chain) };
     if (!je.needs_evidence) return { kind: 'refused', message: 'Journal entry is already evidenced' };
 
     // (3) The document, under a bounded wait (the claim UPDATE alone would wait unbounded).

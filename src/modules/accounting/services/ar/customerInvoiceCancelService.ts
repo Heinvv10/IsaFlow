@@ -32,6 +32,9 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
+import { lockStandingChainHead } from '../shared/journalChainHead';
+import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 type Row = DbRow;
 
@@ -71,9 +74,8 @@ export async function cancelCustomerInvoice(
   invoiceId: string,
   userId: string,
 ): Promise<CancelCustomerInvoiceResult> {
-  return withSavepoint('cancel_customer_invoice', () =>
-    cancelCustomerInvoiceInner(companyId, invoiceId, userId),
-  );
+  return withSavepoint('cancel_customer_invoice', () => underFlowLockBudget(`Invoice ${invoiceId}`, () =>
+    cancelCustomerInvoiceInner(companyId, invoiceId, userId))); // one lock budget (D8 round 10)
 }
 
 async function cancelCustomerInvoiceInner(
@@ -92,13 +94,13 @@ async function cancelCustomerInvoiceInner(
     // change exists to hold, broken from the other side. Refusing reads as not
     // found, which is what the delete has already made the document to every
     // list, and matches what softDeleteInvoiceGuards says on the way in.
-    const invRows = (await sql`
+    const invRows = await withRowLockBudget(async () => (await sql`
       SELECT id, status, amount_paid, gl_journal_entry_id
       FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND deleted_at IS NULL
       FOR UPDATE
-    `) as Row[];
+    `) as Row[], () => new RowLockTimeoutError(`Invoice ${invoiceId}`)); // bounded (D8 round 9)
     if (invRows.length === 0) throw new InvoiceNotFoundError(invoiceId);
     const inv = invRows[0]!;
 
@@ -128,20 +130,23 @@ async function cancelCustomerInvoiceInner(
       throw new InvoiceHasPaymentsError();
     }
 
-    // Reverse the posted GL journal, if one exists and is still posted and not
-    // already reversed. A draft invoice (no journal) skips this. Note: after the
-    // reversal-semantics fix an already-reversed entry KEEPS status='posted', so
-    // idempotency is checked via reversed_at, not status.
+    // Reverse the posted GL journal while its reversal CHAIN still stands. A
+    // draft invoice (no journal) skips this. An already-reversed entry KEEPS
+    // status='posted', and its `reversed_at` is not the answer either: after
+    // O <- R <- R2 the ledger carries the invoice again through R2 while O stays
+    // stamped, so the entry to reverse is the chain HEAD (D8,
+    // shared/journalChainHead) — and none at all when the chain is out.
     let reversedJournalEntryId: string | null = null;
     const journalEntryId = inv.gl_journal_entry_id ? String(inv.gl_journal_entry_id) : null;
     if (journalEntryId) {
-      const jeRows = (await sql`
-        SELECT status, reversed_at FROM gl_journal_entries
+      await withRowLockBudget(() => sql`
+        SELECT id FROM gl_journal_entries
         WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
         FOR UPDATE
-      `) as Row[];
-      if (jeRows.length > 0 && String(jeRows[0]!.status) === 'posted' && jeRows[0]!.reversed_at == null) {
-        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId);
+      `, () => new JournalReversalLockTimeoutError(journalEntryId));
+      const head = await lockStandingChainHead(companyId, journalEntryId);
+      if (head) {
+        const reversal = await reverseJournalEntry(companyId, head, userId);
         reversedJournalEntryId = reversal.id;
       }
     }

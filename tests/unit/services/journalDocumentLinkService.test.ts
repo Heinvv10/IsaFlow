@@ -6,8 +6,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-const m = vi.hoisted(() => ({ sql: vi.fn(), logAuditOrThrow: vi.fn() }));
+const m = vi.hoisted(() => ({
+  sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }), logAuditOrThrow: vi.fn(),
+}));
 vi.mock('@/lib/neon', () => ({ sql: m.sql, withSavepoint: (_name: string, fn: () => unknown) => fn() }));
+// D8 round 6: the broken-chain walk (real-ledger proof: tests/integration/d8-r6-broken-permit); here, an intact chain.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (original) => ({
+  ...await original<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+}));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
   logAuditOrThrow: m.logAuditOrThrow,
 }));
