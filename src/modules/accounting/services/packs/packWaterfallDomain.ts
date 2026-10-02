@@ -81,6 +81,9 @@ const MAX_PASSES = 16;
  *  gain in the bridge's height that buys it. */
 const TIGHT_BUDGET = 3;
 const TIGHT_GAIN = 1.25;
+/** The plots on which a coarser round axis is taken where it draws the
+ *  bridge taller, in steps they hold. */
+const COARSER_BUDGET = 4;
 /** How many lines out a figure may be staggered before the type is set a
  *  size smaller instead. */
 const MAX_STAGGER = 2;
@@ -205,8 +208,9 @@ export function waterfallLayout(
   const budget = Math.max(1, Math.floor(plotPx / MIN_TICK_PITCH_PX));
   const ends = steps.flatMap((step) => [step.start, step.end]);
 
-  const settle = (fontPx: number) => {
-    let ask = Math.min(askHint ?? Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
+  const firstAsk = Math.min(askHint ?? Math.max(2, Math.floor(plotPx / TICK_PITCH_PX)), budget);
+  const settle = (fontPx: number, from: number) => {
+    let ask = from;
     let reach: number[] = [];
     let domain = axisDomain(ends, ask);
     let settled = false;
@@ -235,8 +239,23 @@ export function waterfallLayout(
   // will not settle. Every figure on the chart takes the one size. Only
   // where the bars' widths are known: without them no two figures meet.
   const sizes = fit?.plotWidthPx === undefined ? [LABEL_LINE_PX] : FIGURE_SIZES_PX;
-  let chosen = settle(sizes[0]!);
-  for (const size of sizes.slice(1)) if (!chosen.clear) chosen = settle(size);
+  // ON A PLOT WITH ROOM FOR FOUR STEPS OR FEWER, the finest round axis that
+  // settles is not always the one to draw. Its headroom can cost a step: an
+  // all-positive P&L on 73px settled at (200 000)..600 000 because two
+  // figures overran the zero line by 0.1 and 1.8px, and drew its tallest bar
+  // 38px, where 0..500 000 held every figure and drew it 62px. Every coarser
+  // ask is settled too, and the one that draws the bridge tallest is taken.
+  const best = (fontPx: number) => {
+    let chosen = settle(fontPx, firstAsk);
+    if (!chosen.clear || budget > COARSER_BUDGET) return chosen;
+    for (let ask = firstAsk - 1; ask >= 1; ask -= 1) {
+      const coarser = settle(fontPx, ask);
+      if (coarser.clear && drawnShare(steps, coarser.domain) > drawnShare(steps, chosen.domain) * (1 + 1e-9)) chosen = coarser;
+    }
+    return chosen;
+  };
+  let chosen = best(sizes[0]!);
+  for (const size of sizes.slice(1)) if (!chosen.clear) chosen = best(size);
   // ON A PLOT WITH ROOM FOR THREE STEPS OR FEWER, a round step can cost the
   // bridge most of its height. Where the figures' headroom is most of the
   // plot, every widening for it coarsens the round step and the coarser step
