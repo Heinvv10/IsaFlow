@@ -60,6 +60,7 @@ vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
 // here the matched journal itself stands, so the head is the journal.
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
   findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+  lockChainHead: vi.fn(async (_companyId: string, id: string) => ({ id, standing: true })),
 }));
 
 import { sql } from '@/lib/neon';

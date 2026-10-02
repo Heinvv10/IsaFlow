@@ -84,34 +84,48 @@ export class JournalChainBrokenError extends Error {
 }
 
 /**
- * The entry to reverse to take `rootId` OUT of the ledger, locked FOR UPDATE:
- * the chain head while the chain stands; null when it is already out (an odd
- * number of reversals) or the root is not a posted entry of this company. A
- * broken chain throws `refuse(message)`.
+ * The chain's HEAD, locked FOR UPDATE, and whether the chain stands; null when
+ * the root is not a posted entry of this company. A broken chain throws
+ * `refuse(message)`.
  *
  * The walk is unlocked, so the head it names can be reversed before the lock
  * lands. One reversal in between takes the chain out; TWO put it back in, with
  * a new head (D8 round 4, B2). So a locked head that is no longer unreversed is
  * not an answer: walk again, and lock the new head — bounded, because each pass
  * that loses means somebody else's reversal committed, and a chain that never
- * settles within MAX_CHAIN_DEPTH passes is refused as broken.
+ * settles within MAX_CHAIN_DEPTH passes is refused as broken. The head is locked
+ * whether the chain stands or not: the lock is what keeps a concurrent reversal
+ * from flipping the answer before the caller acts on it.
+ */
+export async function lockChainHead(
+  companyId: string,
+  rootId: string,
+  refuse: (message: string) => Error = (m) => new JournalChainBrokenError(m),
+): Promise<{ id: string; standing: boolean } | null> {
+  for (let pass = 0; pass < MAX_CHAIN_DEPTH; pass++) {
+    const chain = await findJournalChainHead(companyId, rootId);
+    if (!chain) return null;
+    if (chain.kind === 'broken') throw refuse(brokenChainMessage(rootId, chain));
+    const [row] = (await sql`
+      SELECT status, reversed_at FROM gl_journal_entries
+      WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
+      FOR UPDATE
+    `) as DbRow[];
+    if (row && row.status === 'posted' && row.reversed_at == null) return { id: chain.id, standing: chain.standing };
+  }
+  throw refuse(`Journal entry ${rootId}'s reversal chain kept changing while it was being reversed. Retry.`);
+}
+
+/**
+ * The entry to reverse to take `rootId` OUT of the ledger, locked: the chain
+ * head while the chain stands; null when it is already out (an odd number of
+ * reversals) or the root is not a posted entry of this company.
  */
 export async function lockStandingChainHead(
   companyId: string,
   rootId: string,
   refuse: (message: string) => Error = (m) => new JournalChainBrokenError(m),
 ): Promise<string | null> {
-  for (let pass = 0; pass < MAX_CHAIN_DEPTH; pass++) {
-    const chain = await findJournalChainHead(companyId, rootId);
-    if (!chain) return null;
-    if (chain.kind === 'broken') throw refuse(brokenChainMessage(rootId, chain));
-    if (!chain.standing) return null;
-    const [row] = (await sql`
-      SELECT status, reversed_at FROM gl_journal_entries
-      WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
-      FOR UPDATE
-    `) as DbRow[];
-    if (row && row.status === 'posted' && row.reversed_at == null) return chain.id;
-  }
-  throw refuse(`Journal entry ${rootId}'s reversal chain kept changing while it was being reversed. Retry.`);
+  const head = await lockChainHead(companyId, rootId, refuse);
+  return head?.standing ? head.id : null;
 }
