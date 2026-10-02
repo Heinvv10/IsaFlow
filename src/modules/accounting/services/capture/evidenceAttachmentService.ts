@@ -11,6 +11,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 
 type Row = DbRow;
 
@@ -111,6 +112,8 @@ export async function attachEvidenceToProvisional(
       // journal (e.g. the invoice this same request just raised) is not
       // re-attached here; the caller's try/catch treats this as no match.
       await assertDocumentNotAlreadyPosted(companyId, capturedDocumentId, jeId);
+      // A broken reversal chain is no candidate: the flip's fragment sees a broken ROOT only (D8 round 6, brk-d8b F3).
+      if ((await findJournalChainHead(companyId, jeId))?.kind === 'broken') return nothing;
 
       // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
       // `bank/.claude.md`, and the twin of the same reorder in

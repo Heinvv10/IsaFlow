@@ -10,6 +10,7 @@ import { resolveReversalDate } from '../gl/journalEntryService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 
 type Row = DbRow;
 
@@ -73,6 +74,27 @@ export async function reversalTargetOf(companyId: string, journalEntryId: string
   if (chain?.kind !== 'head') return journalEntryId;
   const head = await lockChainHead(companyId, journalEntryId);
   return head?.standing ? head.id : null;
+}
+
+/** `reversalTargetOf` from the unlocked walk alone: the pre-write answer, before any row of the caller is locked. */
+export async function peekReversalTarget(companyId: string, journalEntryId: string): Promise<string | null> {
+  const chain = await findJournalChainHead(companyId, journalEntryId);
+  if (chain?.kind !== 'head') return journalEntryId;
+  return chain.standing ? chain.id : null;
+}
+
+/**
+ * The target again, its head LOCKED — called after the caller has locked its documents, so the journal is
+ * locked last, as every flow locks it (document, then head: D8 round 6, brk-d8b F2 — the head locked before
+ * the unwind deadlocked against a receipt cancel). Refuses when it moved since `peekReversalTarget`.
+ */
+export async function lockPeekedReversalTarget(
+  companyId: string, journalEntryId: string, peeked: string | null,
+): Promise<void> {
+  if (await reversalTargetOf(companyId, journalEntryId) !== peeked) {
+    throw new BankAllocationRefusal(
+      "This bank line's journal was reversed by another request while this was in progress — retry in a moment.");
+  }
 }
 
 /** A journal's entry_date, as pg returns it (Date or string). */

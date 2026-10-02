@@ -323,14 +323,14 @@ async function cancelSupplierInvoiceInner(
     }
     // Every refusal the MCP tool's plan makes, on the row just locked, before
     // any write — the UI Cancel button and the bulk action reach only this.
-    const plan = await planSupplierInvoiceCancel(companyId, id);
+    await planSupplierInvoiceCancel(companyId, id);
 
     // P1.1 (audit C1, systemic): approve posts GL — cancel must reverse it.
     // Reverse BEFORE the flip so a blocked reversal (locked period) aborts
-    // the cancel. The entry is the plan's: the approval journal's chain HEAD
-    // while the chain stands (D8) — not the journal itself, whose reversed_at
-    // stays set after O <- R <- R2 although the GL carries the bill again.
-    if (locked.gl_journal_entry_id && plan.journal) {
+    // the cancel. The approval journal's chain HEAD while the chain stands (D8),
+    // decided under the head LOCK, not from the plan's unlocked walk (round 6):
+    // a reversal landing between the two would otherwise be acted on stale.
+    if (locked.gl_journal_entry_id) {
       const head = await lockStandingChainHead(companyId, String(locked.gl_journal_entry_id),
         (m) => new SupplierInvoiceCancelRefusal(m));
       if (head) await reverseJournalEntry(companyId, head, userId, opts);

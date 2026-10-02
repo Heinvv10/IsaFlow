@@ -16,7 +16,8 @@ import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
-import { lockStandingChainHead } from '../shared/journalChainHead';
+import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from '../ap/paymentJournalReversal';
+import { lockReceiptBankLeg } from './receiptBankLeg';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -157,24 +158,22 @@ async function cancelCustomerPaymentInner(
   reason?: string,
 ): Promise<CustomerPayment> {
   try {
-    // (2) THE PAYMENT FIRST. This is the AR twin of `voidSupplierPayment`: it
-    // took `gl_journal_entries` (the reversal of the pre-existing posting) then
-    // `customer_invoices` then `customer_payments` — the inverse of the
-    // canonical order in `bank/.claude.md` and of `voidPaymentDocument`, which
-    // reaches the same receipt through `unwindOnePayment`.
-    if (!(await lockCustomerPaymentForUpdate(companyId, id))) {
-      throw new Error(`Payment ${id} not found`);
-    }
+    // (1) THE BANK LINE, then (2) THE PAYMENT — the canonical order in `bank/.claude.md`, as `voidSupplierPayment`
+    // takes it; the line is freed below (D8 round 6: it stayed allocated/matched to a journal the cancel took out).
+    const { journalId, leg } = await lockReceiptBankLeg(companyId, id);
+    if (!(await lockCustomerPaymentForUpdate(companyId, id))) throw new Error(`Payment ${id} not found`);
     const payment = await getCustomerPaymentById(companyId, id);
     if (!payment) throw new Error(`Payment ${id} not found`);
-    if (payment.status !== 'confirmed') {
-      throw new Error(`Cannot cancel payment with status: ${payment.status}`);
-    }
+    if (payment.status !== 'confirmed') throw new Error(`Cannot cancel payment with status: ${payment.status}`);
+    assertSameJournal(journalId, payment.glJournalEntryId);
+    const label = `Receipt ${payment.paymentNumber}`;
+    // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
+    const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label);
 
     // (3) Reverse invoice balances — runs on the ALS-bound connection so the
     // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
     // cancels touching the same two invoices cannot deadlock on each other.
-    for (const alloc of byInvoiceId(payment.allocations)) {
+    for (const alloc of delegated ? [] : byInvoiceId(payment.allocations)) {
       await sql`
         UPDATE customer_invoices
         SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
@@ -188,10 +187,11 @@ async function cancelCustomerPaymentInner(
       `;
     }
 
-    // (4) Reverse the GL journal LAST, at its reversal-chain HEAD (D8; a chain already out reverses nothing) —
-    // the pre-existing posted entry is the most-contended row of the four and the canonical order puts it last.
-    const head = payment.glJournalEntryId ? await lockStandingChainHead(companyId, payment.glJournalEntryId) : null;
-    if (head) await reverseJournalEntry(companyId, head, userId);
+    // (4) The journal LAST: head locked and re-checked, matched line unmatched, head reversed (none when out, D8).
+    if (!delegated && journalId && leg) {
+      await lockJournalAndUnmatch(companyId, journalId, leg, label);
+      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
+    }
 
     const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
     const updated = (await sql`
