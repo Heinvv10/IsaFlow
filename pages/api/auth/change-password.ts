@@ -3,7 +3,7 @@ import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
-import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
+import { AuthUpstreamUnavailableError, respondIfAuthUnavailable, AUTH_RETRY_AFTER_SECS } from '@/lib/auth/authUpstream';
 import { rotateSessionRevokingOthers } from '@/lib/auth/sessionRevocation';
 import { setAuthCookies, parseCookies, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
@@ -45,9 +45,22 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     await adminUpdateUser(user.id, { password: newPassword });
   } catch (err) {
-    // D9: 503, not 500. On a timeout GoTrue may still have applied the change; the message says to try again.
-    if (respondIfAuthUnavailable(res, err, 'change-password')) return;
-    throw err;
+    if (!(err instanceof AuthUpstreamUnavailableError)) throw err;
+    // D9: the outcome is UNKNOWN — GoTrue may have saved the password and lost the reply. Fail safe: the new
+    // password signs in only if the change landed, and then the other sessions are revoked as below.
+    try {
+      await signIn(email, newPassword);
+    } catch (probeErr) {
+      if (probeErr instanceof AuthUpstreamUnavailableError) {
+        log.warn('change-password: outcome unknown and unverifiable', { userId: user.id }, 'Auth');
+        res.setHeader('Retry-After', String(AUTH_RETRY_AFTER_SECS));
+        return res.status(503).json({ success: false, error: { code: 'PASSWORD_CHANGE_UNCONFIRMED', message:
+          'We could not confirm the change. Your password may have been changed: try signing in with the new one, then sign out of all devices.' } });
+      }
+      // The new password does not sign in: the change did not land. Nothing changed; a retry is safe.
+      respondIfAuthUnavailable(res, err, 'change-password');
+      return;
+    }
   }
 
   // SECURITY: adminUpdateUser only rotates the password hash — GoTrue's
