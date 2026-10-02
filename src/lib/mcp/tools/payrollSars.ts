@@ -123,6 +123,7 @@ export const irp5DataTool: McpTool = {
     'SA identity numbers and SARS tax numbers are MASKED to their last four digits unless you pass reveal_identity_numbers: true. They are personal information under POPIA. ' +
     'This is the DATA for a certificate, not a certificate. It does not allocate amounts to SARS source codes, does not validate against the IRP5 rules, does not produce an EasyFile export, and does not file anything. It also carries no allowance or fringe-benefit breakdown — those live in each run line\'s component detail and are not aggregated here.',
   scope: 'read:payroll',
+  requiresWriteRole: true,
   write: false,
   inputSchema: {
     type: 'object',
