@@ -74,7 +74,7 @@ export default function DataArchivingPage() {
     try {
       const data = await fetchJson<{ stats: StorageStats[] }>('/api/accounting/data-archiving', 'Could not load storage stats - try again');
       setStats(data.stats);
-    } catch (err) { log.error('Failed to load storage stats', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load storage stats - try again')); }
+    } catch (err) { setStats([]); log.error('Failed to load storage stats', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load storage stats - try again')); }
     finally { setStatsLoading(false); }
   }, [activeCompany]);
 
@@ -84,7 +84,7 @@ export default function DataArchivingPage() {
     try {
       const data = await fetchJson<{ runs: ArchiveRun[] }>('/api/accounting/archive-runs', 'Could not load archive history - try again');
       setRuns(data.runs);
-    } catch (err) { log.error('Failed to load archive runs', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archive history - try again')); }
+    } catch (err) { setRuns([]); log.error('Failed to load archive runs', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archive history - try again')); }
     finally { setRunsLoading(false); }
   }, [activeCompany]);
 
@@ -98,7 +98,7 @@ export default function DataArchivingPage() {
       const data = await fetchJson<{ items: ArchivedEntry[]; total: number }>(`/api/accounting/archived-data?${params.toString()}`, 'Could not load archived data - try again');
       setArchivedItems(data.items);
       setArchivedTotal(data.total);
-    } catch (err) { log.error('Failed to load archived data', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archived data - try again')); }
+    } catch (err) { setArchivedItems([]); setArchivedTotal(0); log.error('Failed to load archived data', { error: err }, COMPONENT); setError(apiErrorMessage(err, 'Could not load archived data - try again')); }
     finally { setArchivedLoading(false); }
   }, [activeCompany, archivePage, archiveDateFrom, archiveDateTo]);
 

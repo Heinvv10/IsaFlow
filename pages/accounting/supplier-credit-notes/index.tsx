@@ -51,6 +51,7 @@ export default function SupplierCreditNotesPage() {
       setCreditNotes(payload.creditNotes ?? []);
       setTotal(payload.total ?? 0);
     } catch (err) {
+      setCreditNotes([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load supplier credit notes - try again'));
     } finally {
       setIsLoading(false);

@@ -44,6 +44,7 @@ export default function CustomerAllocationsPage() {
       }));
       setPayments(mapped.filter(p => (p.amount - p.allocatedAmount) > 0.01));
     } catch (err: unknown) {
+      setPayments([]);
       setError(apiErrorMessage(err, 'Could not load receipts - try again'));
     } finally {
       setLoading(false);
@@ -81,15 +82,18 @@ export default function CustomerAllocationsPage() {
 
   const doAllocate = async () => {
     if (!selected || totalAlloc <= 0) return;
-    setSaving(true);
+    setSaving(true); setMsg(''); setError('');
     const allocations = Object.entries(allocs).filter(([, a]) => a > 0).map(([invoiceId, amount]) => ({ invoiceId, amount }));
-    const res = await apiFetch('/api/accounting/customer-allocations', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
-    });
-    if (res.ok) { setMsg('Allocated successfully'); setSelected(null); setAllocs({}); await loadPayments(); }
-    else { setMsg('Allocation failed'); }
-    setSaving(false);
+    try {
+      const res = await apiFetch('/api/accounting/customer-allocations', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ paymentId: selected.id, allocations }),
+      });
+      await assertOk(res, 'Could not allocate the receipt - try again');
+      setMsg('Allocated successfully'); setSelected(null); setAllocs({});
+      await loadPayments();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not allocate the receipt - try again')); }
+    finally { setSaving(false); }
   };
 
   return (

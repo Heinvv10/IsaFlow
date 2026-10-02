@@ -53,7 +53,7 @@ export default function SupplierCreditNoteDetailPage() {
         const data = (json as { data?: CreditNote }).data ?? (json as CreditNote);
         setNote(data);
       })
-      .catch((err: unknown) => setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again')))
+      .catch((err: unknown) => { setNote(null); setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again')); })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -67,11 +67,11 @@ export default function SupplierCreditNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: note.id, action }),
       });
-      const json = await res.json() as { error?: { message?: string }; data?: CreditNote };
-      if (!res.ok) throw new Error(json?.error?.message ?? 'Action failed');
+      await assertOk(res, 'Could not update the credit note - try again');
+      const json = await res.json() as { data?: CreditNote };
       setNote(json.data ?? (json as unknown as CreditNote));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update the credit note - try again'));
     } finally {
       setActionLoading('');
     }
@@ -88,13 +88,10 @@ export default function SupplierCreditNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'cancel', creditNoteId: note.id }),
       });
-      if (!res.ok) {
-        const j = await res.json() as { error?: { message?: string } };
-        throw new Error(j?.error?.message ?? 'Delete failed');
-      }
+      await assertOk(res, 'Could not delete the credit note - try again');
       await router.push('/accounting/supplier-credit-notes');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
+      setError(apiErrorMessage(err, 'Could not delete the credit note - try again'));
       setActionLoading('');
     }
   };

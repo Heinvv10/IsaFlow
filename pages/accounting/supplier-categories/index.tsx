@@ -19,6 +19,7 @@ export default function SupplierCategoriesPage() {
   const [form, setForm] = useState({ name: '', description: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -28,6 +29,7 @@ export default function SupplierCategoriesPage() {
       const json = await res.json();
       setItems(json.data || []);
     } catch (err) {
+      setItems([]);
       setError(apiErrorMessage(err, 'Could not load supplier categories - try again'));
       log.error('Failed to load supplier categories', { error: err }, 'SupplierCategoriesPage');
     } finally {
@@ -41,25 +43,35 @@ export default function SupplierCategoriesPage() {
 
   const save = async () => {
     if (!form.name.trim()) return;
-    setBusy(true);
+    setBusy(true); setError(''); setSuccess('');
     const method = editing ? 'PUT' : 'POST';
     const body = editing ? { id: editing, ...form } : form;
-    await apiFetch('/api/accounting/supplier-categories', {
-      method, headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify(body),
-    });
-    setForm({ name: '', description: '' });
-    setEditing(null); setAdding(false); setBusy(false);
-    await load();
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', {
+        method, headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify(body),
+      });
+      await assertOk(res, 'Could not save the category - try again');
+      setForm({ name: '', description: '' });
+      setEditing(null); setAdding(false);
+      setSuccess('Category saved');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the category - try again')); }
+    finally { setBusy(false); }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Delete this category?')) return;
-    await apiFetch('/api/accounting/supplier-categories', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ id }),
-    });
-    await load();
+    setError(''); setSuccess('');
+    try {
+      const res = await apiFetch('/api/accounting/supplier-categories', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the category - try again');
+      setSuccess('Category deleted');
+      await load();
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the category - try again')); }
   };
 
   const startEdit = (cat: Category) => {
@@ -90,6 +102,7 @@ export default function SupplierCategoriesPage() {
         </div>
 
         <div className="p-6">
+          {success && <div className="mb-4 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">

@@ -118,6 +118,7 @@ export function ActivityTab({ customerId }: { customerId: string }) {
       const data = (json as { data?: CustomerActivity[] }).data ?? (json as CustomerActivity[]);
       setActivities(data);
     } catch (err) {
+      setActivities([]);
       setError(apiErrorMessage(err, 'Could not load activities - try again'));
     } finally {
       setLoading(false);
@@ -129,8 +130,9 @@ export function ActivityTab({ customerId }: { customerId: string }) {
   const handleAdd = async () => {
     if (!form.description.trim()) return;
     setSaving(true);
+    setError('');
     try {
-      await apiFetch('/api/accounting/customer-activities', {
+      const res = await apiFetch('/api/accounting/customer-activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -140,17 +142,26 @@ export function ActivityTab({ customerId }: { customerId: string }) {
           description:   form.description.trim(),
         }),
       });
+      await assertOk(res, 'Could not save the activity - try again');
       setForm(EMPTY_FORM);
       setShowForm(false);
       void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the activity - try again'));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    await apiFetch(`/api/accounting/customer-activities?id=${id}`, { method: 'DELETE' });
-    void load();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/accounting/customer-activities?id=${id}`, { method: 'DELETE' });
+      await assertOk(res, 'Could not delete the activity - try again');
+      void load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the activity - try again'));
+    }
   };
 
   if (loading) {

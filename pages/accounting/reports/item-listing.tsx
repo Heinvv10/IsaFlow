@@ -32,6 +32,7 @@ export default function ItemListingReport() {
 
   useEffect(() => {
     load().catch(err => {
+      setRows([]);
       setLoading(false);
       setError(apiErrorMessage(err, 'Could not load the item listing - try again'));
       log.error('Failed to load item listing', { error: err }, 'ItemListingReport');

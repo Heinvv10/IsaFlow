@@ -78,10 +78,7 @@ export default function DunningTemplatesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error?.message ?? `PUT failed: ${res.status}`);
-      }
+      await assertOk(res, 'Could not save the template - try again');
       const json = await res.json();
       const updated = json?.data as DunningTemplate | undefined;
       if (updated) {
@@ -89,7 +86,7 @@ export default function DunningTemplatesPage() {
       }
       cancelEdit();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(apiErrorMessage(err, 'Could not save the template - try again'));
     } finally {
       setSaving(false);
     }
@@ -100,10 +97,10 @@ export default function DunningTemplatesPage() {
     if (!confirm(`Deactivate "${name}"? The template stays in history but the cron will skip it.`)) return;
     try {
       const res = await apiFetch(`/api/accounting/ar/dunning/templates/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
+      await assertOk(res, 'Could not deactivate the template - try again');
       setTemplates((prev) => prev.map((t) => (t.id === id ? { ...t, active: false } : t)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Deactivate failed');
+      setError(apiErrorMessage(err, 'Could not deactivate the template - try again'));
     }
   }, []);
 
@@ -120,6 +117,7 @@ export default function DunningTemplatesPage() {
       setTemplates(tJson?.data?.templates ?? []);
       setSettings(sJson?.data?.settings ?? null);
     } catch (err) {
+      setTemplates([]); setSettings(null);
       setError(apiErrorMessage(err, 'Could not load dunning templates - try again'));
     } finally {
       setLoading(false);
@@ -362,7 +360,7 @@ export default function DunningTemplatesPage() {
               )}
             </div>
           ))}
-          {templates.length === 0 && (
+          {templates.length === 0 && !error && (
             <div className="text-sm text-gray-500 p-6 text-center border rounded">
               No templates configured. Refresh to auto-seed SA defaults.
             </div>

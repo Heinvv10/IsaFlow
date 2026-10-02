@@ -21,6 +21,7 @@ export default function ItemAdjustmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
   const [form, setForm] = useState({
     itemId: '', adjustmentType: 'increase' as 'increase' | 'decrease',
     quantity: '', reason: '', date: localISODate(),
@@ -28,34 +29,39 @@ export default function ItemAdjustmentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch('/api/accounting/item-adjustments', { credentials: 'include' });
-    await assertOk(res, 'Could not load items - try again');
-    const json = await res.json();
-    setItems(json.data || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/item-adjustments', { credentials: 'include' });
+      await assertOk(res, 'Could not load items - try again');
+      const json = await res.json();
+      setItems(json.data || []);
+    } catch (e) {
+      setItems([]);
+      throw e;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
-      setMsg(apiErrorMessage(err, 'Could not load items - try again'));
-    });
+    load().catch((e) => setErr(apiErrorMessage(e, 'Could not load items - try again')));
   }, [load]);
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setSaving(true); setMsg('');
+    setSaving(true); setMsg(''); setErr('');
+    let written = false;
     try {
       const res = await apiFetch('/api/accounting/item-adjustments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(form),
       });
       await assertOk(res, 'Could not save the adjustment - try again');
+      written = true;
       setMsg('Adjustment saved'); setShowForm(false);
       setForm({ itemId: '', adjustmentType: 'increase', quantity: '', reason: '', date: localISODate() });
       await load();
-    } catch (err) {
-      setMsg(apiErrorMessage(err, 'Could not save the adjustment - try again'));
+    } catch (e2) {
+      setErr(apiErrorMessage(e2, written ? 'Could not reload items - try again' : 'Could not save the adjustment - try again'));
     } finally {
       setSaving(false);
     }
@@ -81,7 +87,8 @@ export default function ItemAdjustmentsPage() {
         </div>
 
         <div className="p-6 space-y-4">
-          {msg && <div className={`p-3 rounded-lg text-sm flex items-center gap-2 ${msg.includes('saved') ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}><Check className="h-4 w-4" />{msg}</div>}
+          {msg && <div className="p-3 rounded-lg text-sm flex items-center gap-2 bg-teal-500/10 text-teal-400"><Check className="h-4 w-4" />{msg}</div>}
+          {err && <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-400">{err}</div>}
 
           {showForm && (
             <form onSubmit={submit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">

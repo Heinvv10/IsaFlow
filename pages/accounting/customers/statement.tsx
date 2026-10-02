@@ -49,9 +49,11 @@ export default function CustomerStatementPage() {
     setSearching(true);
     try {
       const res = await apiFetch(`/api/accounting/customers?q=${encodeURIComponent(q)}`, { credentials: 'include' });
+      await assertOk(res, 'Could not search customers - try again');
       const json = await res.json();
+      setError('');
       setCustomerResults((json.data || []).slice(0, 10));
-    } catch { setCustomerResults([]); }
+    } catch (err) { setCustomerResults([]); setError(apiErrorMessage(err, 'Could not search customers - try again')); }
     finally { setSearching(false); }
   }, []);
 
@@ -80,11 +82,11 @@ export default function CustomerStatementPage() {
         toDate,
       });
       const res = await apiFetch(`/api/accounting/customer-statement?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the statement - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to load statement');
       setStatement(json.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load statement');
+      setError(apiErrorMessage(err, 'Could not load the statement - try again'));
     } finally {
       setLoading(false);
     }
@@ -127,7 +129,7 @@ export default function CustomerStatementPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate PDF');
+      setError(apiErrorMessage(err, 'Could not generate the PDF - try again'));
     } finally {
       setDownloadingPdf(false);
     }

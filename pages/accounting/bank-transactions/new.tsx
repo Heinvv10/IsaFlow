@@ -154,14 +154,14 @@ export default function NewBankTransactionPage() {
           entityId: form.entityId || undefined, vatCode: form.vatCode,
         }),
       });
+      await assertOk(res, 'Could not record the transaction - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false)
-        throw new Error(json.error?.message ?? json.message ?? 'Failed to record transaction');
+      if (json.success === false) { notify.error(json.error?.message ?? json.message ?? 'Could not record the transaction - try again'); return; }
       notify.success('Transaction recorded successfully');
       notifyLateClaims(json); // VAT claimed in a later period (s16(3))
       void router.push('/accounting/bank-transactions');
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : 'Failed to record transaction');
+      notify.error(apiErrorMessage(error, 'Could not record the transaction - try again'));
     } finally {
       setIsSubmitting(false);
     }

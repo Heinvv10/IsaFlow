@@ -132,11 +132,10 @@ export default function NewCustomerPaymentPage() {
             .map(a => ({ invoiceId: a.invoiceId, amount: a.amount })),
         }),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json?.error?.message || 'Failed to create payment');
+      await assertOk(res, 'Could not record the payment - try again');
       await router.push('/accounting/customer-payments');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create payment');
+      setError(apiErrorMessage(err, 'Could not record the payment - try again'));
     } finally { setIsSubmitting(false); }
   };
 

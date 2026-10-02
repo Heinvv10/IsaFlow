@@ -63,3 +63,19 @@ it('counts what was inserted and reports the rest as skipped', async () => {
     await pool.query('DROP INDEX IF EXISTS d2_tmp_supp_name');
   }
 });
+
+it('a batch that throws is reported as failed, not skipped, and saves nothing', async () => {
+  const co = crypto.randomUUID();
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, 'D2 failed-batch fixture']);
+  try {
+    // name is VARCHAR(255): the second row makes the whole customers batch roll back
+    const r = await executeMigration(co, user, 'xero', [], [{ name: 'Fine Co' }, { name: 'X'.repeat(300) }, { name: '  ' }], [{ name: 'Supplier Ok' }]);
+    expect(r).toMatchObject({ customersImported: 0, customersFailed: 2, customersSkipped: 1, suppliersImported: 1, suppliersFailed: 0, suppliersSkipped: 0 });
+    expect(r.errors.join(' ')).toMatch(/Customers batch/);
+    const n = await pool.query('SELECT count(*)::int AS n FROM customers WHERE company_id=$1', [co]);
+    expect(n.rows[0].n).toBe(0);
+  } finally {
+    await pool.query('DELETE FROM suppliers WHERE company_id=$1', [co]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [co]);
+  }
+});

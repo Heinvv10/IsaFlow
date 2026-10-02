@@ -139,10 +139,9 @@ export default function EditCustomerInvoicePage() {
           })),
         }),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to save');
+      await assertOk(res, 'Could not save the invoice - try again');
       await router.push(`/accounting/customer-invoices/${String(invoiceId)}`);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); setSubmitting(false); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not save the invoice - try again')); setSubmitting(false); }
   };
 
   if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div></AppLayout>;

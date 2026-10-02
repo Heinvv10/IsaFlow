@@ -51,6 +51,7 @@ export default function StatementRunPage() {
       const data = json.data || json;
       setCustomers(data.customers || []);
     } catch (err) {
+      setCustomers([]);
       setError(apiErrorMessage(err, 'Could not load customers - try again'));
     } finally {
       setIsLoading(false);
@@ -97,7 +98,7 @@ export default function StatementRunPage() {
       }
     } catch (err) {
       log.error('Statement generation failed', { data: err }, 'StatementRun');
-      setError('Failed to generate statements');
+      setError(apiErrorMessage(err, 'Could not generate the statements - try again'));
     } finally {
       setIsGenerating(false);
     }
@@ -151,7 +152,7 @@ export default function StatementRunPage() {
                     if (confirmed) {
                       sendEmails(selected).catch((error) => {
                         log.error('Failed to send statements', { data: error }, 'StatementRun');
-                        setError('Failed to generate statements');
+                        setError(apiErrorMessage(error, 'Could not send the statements - try again'));
                       });
                     }
                   }}

@@ -27,6 +27,7 @@ export default function ItemCategoriesPage() {
       const json = await res.json();
       setItems(json.data || []);
     } catch (err: unknown) {
+      setItems([]);
       setError(apiErrorMessage(err, 'Could not load categories - try again'));
     } finally {
       setLoading(false);
@@ -46,13 +47,12 @@ export default function ItemCategoriesPage() {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to save');
+      await assertOk(res, 'Could not save the category - try again');
       setForm({ name: '', description: '' });
       setEditing(null); setAdding(false);
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(apiErrorMessage(err, 'Could not save the category - try again'));
     } finally {
       setBusy(false);
     }
@@ -66,11 +66,10 @@ export default function ItemCategoriesPage() {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ id }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to delete');
+      await assertOk(res, 'Could not delete the category - try again');
       await load();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to delete');
+      setError(apiErrorMessage(err, 'Could not delete the category - try again'));
     }
   };
 

@@ -28,6 +28,7 @@ export default function ItemMovementReport() {
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);

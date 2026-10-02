@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCompany } from '@/contexts/CompanyContext';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   Calculator, BookOpen, FileSpreadsheet, Calendar, BarChart3, Loader2,
@@ -48,6 +48,7 @@ export default function AccountingPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [heroStats, setHeroStats] = useState<DashboardHeroStats | undefined>();
   const [heroError, setHeroError] = useState('');
+  const [impersonateError, setImpersonateError] = useState('');
 
   useEffect(() => { setIsMounted(true); }, []);
 
@@ -59,8 +60,9 @@ export default function AccountingPage() {
 
     apiFetch(`/api/auth/impersonate-exchange?token=${encodeURIComponent(impersonateToken)}`)
       .then(async res => {
+        await assertOk(res, 'Could not switch to that company - try again');
         const json = await res.json() as { data?: { company_id: string; company_name: string } };
-        if (!res.ok || !json.data) throw new Error('Exchange failed');
+        if (!json.data) throw new ApiEnvelopeError('Could not switch to that company - try again');
         const { company_id, company_name } = json.data;
         localStorage.setItem('isaflow_active_company', JSON.stringify({ id: company_id, name: company_name }));
         // Hard navigation (not router.replace): the exchange rotated the
@@ -71,6 +73,7 @@ export default function AccountingPage() {
       })
       .catch(err => {
         log.error('Impersonation exchange failed', { error: err }, 'accounting-page');
+        setImpersonateError(apiErrorMessage(err, 'Could not switch to that company - try again'));
         void router.replace('/accounting', undefined, { shallow: false });
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,6 +127,7 @@ export default function AccountingPage() {
       })
       .catch(err => {
         log.error('Failed to load hero stats', { error: err }, 'accounting-page');
+        setHeroStats(undefined);
         setHeroError(apiErrorMessage(err, 'Could not load the dashboard figures - try again'));
       });
   }, [isMounted, activeCompany?.id]);
@@ -155,6 +159,7 @@ export default function AccountingPage() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
           />
+          {impersonateError && <p role="alert" className="mt-2 text-sm text-red-500">{impersonateError}</p>}
           {heroError && <p role="alert" className="mt-2 text-sm text-red-500">{heroError}</p>}
         </div>
 

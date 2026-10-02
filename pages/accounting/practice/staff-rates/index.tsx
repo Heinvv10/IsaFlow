@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, AlertCircle, Plus } from 'lucide-react';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import type { StaffRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
 import { localISODate } from '@/lib/dateUtils';
@@ -42,13 +42,14 @@ export default function StaffRatesPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [ratesError, setRatesError] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await apiFetch('/api/accounting/practice/users');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the staff members - try again');
       const json = await res.json() as { data?: CompanyUserSummary[] };
       const list = json.data ?? [];
       setUsers(list);
@@ -56,8 +57,9 @@ export default function StaffRatesPage() {
         setSelectedUser(list[0].id);
         setForm((f) => ({ ...f, userId: list[0]!.id }));
       }
-    } catch {
-      setError('Failed to load users');
+    } catch (err) {
+      setUsers([]);
+      setError(apiErrorMessage(err, 'Could not load the staff members - try again'));
     } finally {
       setLoading(false);
     }
@@ -65,13 +67,15 @@ export default function StaffRatesPage() {
 
   const loadRates = useCallback(async (userId: string) => {
     if (!userId) return;
+    setRatesError(null);
     try {
       const res = await apiFetch(`/api/accounting/practice/staff-rates?userId=${userId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the rates - try again');
       const json = await res.json() as { data?: StaffRate[] };
       setRates(json.data ?? []);
-    } catch {
+    } catch (err) {
       setRates([]);
+      setRatesError(apiErrorMessage(err, 'Could not load the rates - try again'));
     }
   }, []);
 
@@ -107,7 +111,7 @@ export default function StaffRatesPage() {
       setForm((f) => ({ ...EMPTY_FORM, userId: f.userId, currency: f.currency }));
       await loadRates(selectedUser);
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add rate');
+      setAddError(apiErrorMessage(err, 'Could not add the rate - try again'));
     } finally {
       setAdding(false);
     }
@@ -158,6 +162,12 @@ export default function StaffRatesPage() {
               </select>
             </div>
 
+            {ratesError && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {ratesError}
+              </div>
+            )}
+
             {/* Rate history */}
             <div className="rounded-xl border border-[var(--ff-border-primary)] overflow-hidden mb-6">
               <table className="w-full">
@@ -173,7 +183,7 @@ export default function StaffRatesPage() {
                   {rates.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="py-8 text-center text-sm text-[var(--ff-text-secondary)]">
-                        No rates set for this staff member
+                        {ratesError ? 'Rates could not be loaded' : 'No rates set for this staff member'}
                       </td>
                     </tr>
                   ) : rates.map((r) => (

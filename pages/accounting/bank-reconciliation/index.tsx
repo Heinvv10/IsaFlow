@@ -44,6 +44,7 @@ export default function BankReconciliationListPage() {
       const data = json.data || json;
       setReconciliations(Array.isArray(data) ? data : []);
     } catch (err) {
+      setReconciliations([]);
       setError(apiErrorMessage(err, 'Could not load the reconciliations - try again'));
     } finally {
       setIsLoading(false);
@@ -63,15 +64,14 @@ export default function BankReconciliationListPage() {
         credentials: 'include',
         body: JSON.stringify({ action: 'cancel', reconciliationId: pendingCancel.id }),
       });
-      const json = await res.json();
       // apiFetch resolves on 4xx: a refusal (already completed, reconciled
-      // rows) only shows up in res.ok.
-      if (!res.ok) throw new Error(json?.error?.message || 'Cannot cancel reconciliation');
+      // rows) only shows up in the status.
+      await assertOk(res, 'Could not cancel the reconciliation - try again');
       setPendingCancel(null);
       await load();
     } catch (err) {
       setPendingCancel(null);
-      setError(err instanceof Error ? err.message : 'Cannot cancel reconciliation');
+      setError(apiErrorMessage(err, 'Could not cancel the reconciliation - try again'));
     } finally {
       setIsCancelling(false);
     }

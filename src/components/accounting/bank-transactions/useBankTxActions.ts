@@ -47,10 +47,9 @@ export function buildBankTxActions(deps: ActionDeps) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify(body),
     });
+    await assertOk(res, 'Could not complete the action - try again');
     const json = await res.json();
-    if (!res.ok || json.success === false) {
-      throw new Error(json.error?.message || json.message || (typeof json.error === 'string' ? json.error : 'Action failed'));
-    }
+    if (json.success === false) throw new Error(json.error?.message || 'Could not complete the action - try again');
     return json;
   };
 
@@ -58,14 +57,14 @@ export function buildBankTxActions(deps: ActionDeps) {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null, vatCode: vatCode || null }),
-    }).catch(() => { notify.error('Failed to save selection — please try again'); });
+    }).then(r => assertOk(r, 'Could not save the selection - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
   };
 
   const saveDimensions = (txId: string, cc1Id: string, cc2Id: string, buId: string) => {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ action: 'save_dimensions', bankTransactionId: txId, cc1Id: cc1Id || null, cc2Id: cc2Id || null, buId: buId || null }),
-    }).catch(() => { /* fire-and-forget */ });
+    }).then(r => assertOk(r, 'Could not save the cost centres - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the cost centres - try again')));
   };
 
   const handleAccept = async (txId: string) => {
@@ -99,6 +98,7 @@ export function buildBankTxActions(deps: ActionDeps) {
           try {
             const params = new URLSearchParams({ pattern, matchType: 'contains', bankAccountId: selectedBank });
             const res = await apiFetch(`/api/accounting/bank-rules-preview?${params}`);
+            await assertOk(res, 'Rule preview unavailable');
             const json = await res.json();
             const matchCount = json.data?.matchCount ?? 0;
             if (matchCount > 0) setRulePrompt({ tx, matchCount });
@@ -181,8 +181,8 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: toAccept }),
       });
+      await assertOk(res, 'Could not mark the transactions as reviewed - try again');
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.error?.message || json.message || 'Failed to mark as reviewed');
       const accepted: number = json.data?.accepted ?? toAccept.length;
       if (accepted < toAccept.length) {
         notify.warning(`${accepted} of ${toAccept.length} transaction(s) marked as reviewed`, `${toAccept.length - accepted} were already reviewed or no longer eligible`);
@@ -201,10 +201,10 @@ export function buildBankTxActions(deps: ActionDeps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'apply', bankAccountId: selectedBank }),
       });
+      await assertOk(rulesRes, 'Could not apply the rules - try again');
       const rulesJson = await rulesRes.json();
-      if (!rulesRes.ok || rulesJson.success === false) throw new Error(rulesJson.error?.message || rulesJson.message || 'Apply rules failed');
       const rulesApplied = rulesJson.data?.applied ?? 0;
-      let smartCategorized = 0, totalSkipped = 0;
+      let smartCategorized = 0, totalSkipped = 0, smartFailed = false;
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 15000);
@@ -219,11 +219,11 @@ export function buildBankTxActions(deps: ActionDeps) {
         totalSkipped = smartJson.data?.skipped ?? 0;
         const residualCount: number = smartJson.data?.residualCount ?? 0;
         if (residualCount > 0) onLlmResidual?.(residualCount);
-      } catch (e) { if (e instanceof ApiRequestError) notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); /* else: AI categorization timed out */ }
-      notify.success(rulesApplied + smartCategorized > 0
+      } catch (e) { if (e instanceof ApiRequestError) { smartFailed = true; notify.error(apiErrorMessage(e, 'Smart categorisation could not run - try again')); } /* else: AI categorization timed out */ }
+      if (!smartFailed) notify.success(rulesApplied + smartCategorized > 0
         ? `${rulesApplied} rules applied, ${smartCategorized} smart-categorised, ${totalSkipped} skipped`
         : 'No new categorisations found');
-      setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();
+      setRowSelections(() => ({})); loadTransactions(); refreshBankAccounts();   // the rules DID apply
     } catch (e) { notify.error(e instanceof Error ? e.message : 'Failed to apply rules'); }
     finally { setSmartRunning(false); }
   };
@@ -257,7 +257,7 @@ export function buildBankTxActions(deps: ActionDeps) {
     if (!selectedBank) return;
     try {
       const res = await apiFetch(`/api/accounting/bank-reconciliation-report?bankAccountId=${selectedBank}`);
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not build the reconciliation report - try again');
       const json = await res.json();
       const { generateReconReport } = await import('@/modules/accounting/utils/reconReportPdf');
       const blob = await generateReconReport(json.data || json);
@@ -266,7 +266,7 @@ export function buildBankTxActions(deps: ActionDeps) {
       a.href = url; a.download = `recon-report-${bankAccountCode || 'bank'}.pdf`;
       a.click(); URL.revokeObjectURL(url);
       notify.success('Report downloaded');
-    } catch (e) { notify.error(e instanceof Error ? e.message : 'Report failed'); }
+    } catch (e) { notify.error(apiErrorMessage(e, 'Could not build the reconciliation report - try again')); }
   };
   const handleApplyBatchEdit = (entityId: string, label: string) => {
     const updates: Record<string, RowSelection> = { ...rowSelections };

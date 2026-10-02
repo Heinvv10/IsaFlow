@@ -48,6 +48,8 @@ export default function AccountingSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [loadErr, setLoadErr] = useState('');
+  const [apLoadErr, setApLoadErr] = useState('');
   const [ap, setAp] = useState<AutoPostSettings>({ enabled: false, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
   const [apDraft, setApDraft] = useState<{ minConfidence: string; amountCap: string; llmMinConfidence: string; llmAmountCap: string }>({ minConfidence: '0.9', amountCap: '10000', llmMinConfidence: '0.95', llmAmountCap: '2000' });
   const [apSaving, setApSaving] = useState(false);
@@ -55,23 +57,20 @@ export default function AccountingSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       setLoading(true);
-      setError('');
+      setLoadErr('');
       try {
         const loaded: SettingItem[] = [];
         for (const def of SETTINGS_DEFINITIONS) {
-          try {
-            const res = await apiFetch(`/api/accounting/accounting-settings?key=${def.key}`, { credentials: 'include' });
-            await assertOk(res, 'Could not load settings - try again');
-            const json = await res.json();
-            loaded.push({ ...def, value: String(json.data?.value || '') });
-          } catch (err) {
-            loaded.push({ ...def, value: '' });
-            setError(apiErrorMessage(err, 'Could not load settings - try again'));
-          }
+          const res = await apiFetch(`/api/accounting/accounting-settings?key=${def.key}`, { credentials: 'include' });
+          await assertOk(res, 'Could not load settings - try again');
+          const json = await res.json();
+          loaded.push({ ...def, value: String(json.data?.value || '') });
         }
         setSettings(loaded);
-      } catch {
-        setError('Failed to load settings');
+      } catch (err) {
+        // A key that failed to load would render blank and could be saved back over the real value.
+        setSettings([]);
+        setLoadErr(apiErrorMessage(err, 'Could not load settings - try again'));
       } finally {
         setLoading(false);
       }
@@ -86,7 +85,7 @@ export default function AccountingSettingsPage() {
         if (j?.data?.settings) setAp(j.data.settings);
         // else: leave defaults; card still renders with sensible values
       })
-      .catch((err) => setError(apiErrorMessage(err, 'Could not load auto-post settings - try again')));
+      .catch((err) => setApLoadErr(apiErrorMessage(err, 'Could not load auto-post settings - try again')));
   }, []);
 
   // Sync the editable string drafts whenever ap changes (initial GET hydration
@@ -112,7 +111,7 @@ export default function AccountingSettingsPage() {
       await assertOk(res, 'Could not save auto-post settings - try again');
       const j = (await res.json()) as { data?: { settings?: AutoPostSettings }; error?: string };
       if (j?.data?.settings) setAp(j.data.settings);
-      else setError(j?.error ?? 'Failed to save auto-post settings');
+      else setError('Could not save auto-post settings - try again');
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not save auto-post settings - try again'));
     } finally {
@@ -136,10 +135,10 @@ export default function AccountingSettingsPage() {
         credentials: 'include',
         body: JSON.stringify({ key, value: setting.value }),
       });
-      if (!res.ok) throw new Error('Failed to save');
+      await assertOk(res, 'Could not save the setting - try again');
       notify.success(`${setting.label} updated`);
-    } catch {
-      notify.error('Failed to save setting');
+    } catch (err) {
+      notify.error(apiErrorMessage(err, 'Could not save the setting - try again'));
     } finally {
       setSaving(null);
     }
@@ -161,11 +160,11 @@ export default function AccountingSettingsPage() {
         </div>
 
         <div className="p-6 max-w-2xl">
-          {error && (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
-              <AlertCircle className="h-4 w-4" /> {error}
+          {[loadErr, apLoadErr, error].filter(Boolean).map(m => (
+            <div key={m} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
+              <AlertCircle className="h-4 w-4" /> {m}
             </div>
-          )}
+          ))}
 
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -173,7 +172,7 @@ export default function AccountingSettingsPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {settings.map(setting => (
+              {!loadErr && settings.map(setting => (
                 <div
                   key={setting.key}
                   className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5"
@@ -222,14 +221,14 @@ export default function AccountingSettingsPage() {
                 </div>
               ))}
 
-              {settings.length === 0 && (
+              {!loadErr && settings.length === 0 && (
                 <div className="text-center py-12 text-[var(--ff-text-secondary)]">
                   <Check className="h-8 w-8 mx-auto mb-2 text-green-500" />
                   No configurable settings
                 </div>
               )}
 
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 mt-6">
+              {!apLoadErr && <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5 mt-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-medium text-[var(--ff-text-primary)] mb-1">
@@ -280,7 +279,7 @@ export default function AccountingSettingsPage() {
                   onDraftChange={(key, value) => setApDraft((d) => ({ ...d, [key]: value }))}
                   onSave={saveAutoPost}
                 />
-              </div>
+              </div>}
             </div>
           )}
         </div>

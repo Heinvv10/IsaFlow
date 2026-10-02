@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle, Plus } from 'lucide-react';
 
 interface PayScale {
@@ -35,11 +35,12 @@ export default function PayScalesPage() {
     setError('');
     try {
       const res = await apiFetch('/api/payroll/pay-scales');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not load the pay scales - try again');
       const json = await res.json();
       setScales(((json.data ?? json) as PayScale[]) ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Load failed');
+      setScales([]);
+      setError(apiErrorMessage(err, 'Could not load the pay scales - try again'));
     } finally {
       setLoading(false);
     }
@@ -55,25 +56,29 @@ export default function PayScalesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Create failed');
-        return;
-      }
+      await assertOk(res, 'Could not create the pay scale - try again');
       setForm({ code: '', name: '', gradeLevel: 1, minSalary: 0, midSalary: 0, maxSalary: 0 });
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the pay scale - try again'));
     } finally {
       setCreating(false);
     }
   }
 
   async function toggleActive(s: PayScale): Promise<void> {
-    await apiFetch(`/api/payroll/pay-scales/${s.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: !s.isActive }),
-    });
-    await load();
+    setError('');
+    try {
+      const res = await apiFetch(`/api/payroll/pay-scales/${s.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !s.isActive }),
+      });
+      await assertOk(res, 'Could not change the pay scale status - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not change the pay scale status - try again'));
+    }
   }
 
   return (

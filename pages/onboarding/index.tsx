@@ -9,7 +9,7 @@ import {
   Check, Building2, MapPin, Image, Landmark,
   Settings, FileText, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   type WizardData, INITIAL_WIZARD,
@@ -47,6 +47,8 @@ export default function OnboardingWizard() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authTimeout, setAuthTimeout] = useState(false);
   const redirectingRef = useRef(false);
+  // Steps already done by a failed submit, so Retry resumes instead of creating a second company
+  const doneRef = useRef<{ companyId?: string; coa?: boolean; dirs?: boolean; docs?: boolean }>({});
 
   // Auth check — fires once on mount only.
   // router is intentionally excluded from deps: it is only used for navigation,
@@ -210,6 +212,7 @@ export default function OnboardingWizard() {
     setError('');
     try {
       // 1. Create company
+      if (!doneRef.current.companyId) {
       const compRes = await apiFetch('/api/accounting/companies', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -232,59 +235,53 @@ export default function OnboardingWizard() {
           defaultCurrency: d.defaultCurrency,
         }),
       });
-      if (!compRes.ok) {
-        const body = await compRes.json();
-        throw new Error(body.error?.message || 'Failed to create company');
+      await assertOk(compRes, 'Could not create the company - try again');
+      const compData = await compRes.json() as { data?: { id?: string } };
+      const newId = compData.data?.id;
+      if (!newId) throw new ApiEnvelopeError('The company was not created - try again');
+      doneRef.current.companyId = newId;
       }
-      const compData = await compRes.json();
-      const companyId = compData.data?.id;
+      const companyId = doneRef.current.companyId as string;
 
-      // 2. Seed Chart of Accounts from chosen template. This used to be
-      // best-effort wrapped in a silent catch; in practice a silent failure
-      // here left users with an empty COA and no way to recover from the UI.
-      // Now we surface the error and block completion — the user can retry
-      // or pick 'blank' to proceed without seeding.
-      if (companyId && d.coaTemplate !== 'blank') {
+      // 2. Seed Chart of Accounts from chosen template. A failure blocks completion so the
+      // user can retry or pick 'blank'; the company id is kept so a retry never creates a second one.
+      if (d.coaTemplate !== 'blank' && !doneRef.current.coa) {
         const coaRes = await apiFetch('/api/accounting/coa-seed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
           body: JSON.stringify({ template: d.coaTemplate }),
         });
-        if (!coaRes.ok) {
-          const body = await coaRes.json().catch(() => ({}));
-          throw new Error(body.error?.message || 'Failed to seed chart of accounts');
-        }
+        await assertOk(coaRes, 'Could not set up the chart of accounts - try again');
+        doneRef.current.coa = true;
       }
 
-      // 3. Save directors (non-blocking)
-      if (d.directors.length > 0 && companyId) {
-        try {
-          await apiFetch('/api/accounting/company-directors', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
-            body: JSON.stringify({ directors: d.directors }),
-          });
-        } catch { /* non-critical */ }
+      // 3. Save directors and 4. documents: blocking, so a failed save is never dropped silently
+      if (d.directors.length > 0 && !doneRef.current.dirs) {
+        const dirRes = await apiFetch('/api/accounting/company-directors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
+          body: JSON.stringify({ directors: d.directors }),
+        });
+        await assertOk(dirRes, 'Could not save the directors - try again');
+        doneRef.current.dirs = true;
       }
-
-      // 4. Upload documents (non-blocking — company is already created)
-      if (d.documents.length > 0 && companyId) {
-        try {
-          await apiFetch('/api/onboarding/documents', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ companyId, documents: d.documents }),
-          });
-        } catch { /* non-critical */ }
+      if (d.documents.length > 0 && !doneRef.current.docs) {
+        const docRes = await apiFetch('/api/onboarding/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId, documents: d.documents }),
+        });
+        await assertOk(docRes, 'Could not upload the documents - try again');
+        doneRef.current.docs = true;
       }
 
       // 5. Mark onboarding complete
-      await apiFetch('/api/onboarding/complete', { method: 'POST' });
+      await assertOk(await apiFetch('/api/onboarding/complete', { method: 'POST' }), 'Could not finish setup - try again');
 
       // Navigate — full reload so the middleware picks up the new ff_onboarding_done cookie
       window.location.href = '/accounting';
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(apiErrorMessage(err, 'Something went wrong - try again'));
       setSubmitting(false);
     }
   };

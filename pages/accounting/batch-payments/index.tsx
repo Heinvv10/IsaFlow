@@ -38,6 +38,7 @@ export default function BatchPaymentsPage() {
       const json = await res.json();
       setItems(json.data?.items || []);
     } catch (err) {
+      setItems([]);
       setError(apiErrorMessage(err, 'Could not load batch payments - try again'));
       log.error('Failed to load batch payments', { error: err }, 'batch-payments-page');
     } finally {
@@ -51,11 +52,19 @@ export default function BatchPaymentsPage() {
 
   const doAction = async (action: string, id: string) => {
     setBusy(id);
-    await apiFetch('/api/accounting/batch-payments-action', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ action, id }),
-    });
-    await load(); setBusy('');
+    try {
+      const res = await apiFetch('/api/accounting/batch-payments-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ action, id }),
+      });
+      await assertOk(res, 'Could not update the batch - try again');
+      await load();
+    } catch (err) {
+      log.error('Batch payment action failed', { action, id, error: err }, 'batch-payments-page');
+      setError(apiErrorMessage(err, 'Could not update the batch - try again'));
+    } finally {
+      setBusy('');
+    }
   };
 
   return (

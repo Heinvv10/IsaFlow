@@ -148,11 +148,10 @@ export default function NewItemPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create item');
+      await assertOk(res, 'Could not create the item - try again');
       void router.push('/accounting/items');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create item');
+      setError(apiErrorMessage(err, 'Could not create the item - try again'));
     } finally { setSaving(false); }
   };
 

@@ -30,6 +30,7 @@ export default function NewDeliveryNotePage() {
   const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState('');  // set once the draft exists, so a retry never creates a second note
   const [error, setError] = useState('');
 
   const [customerId, setCustomerId] = useState('');
@@ -82,29 +83,37 @@ export default function NewDeliveryNotePage() {
     if (validLines.length === 0) { setError('At least one line item with a description is required'); return; }
     setSaving(true);
     try {
-      const res = await apiFetch('/api/accounting/delivery-notes', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: customerId,
-          sales_order_id: salesOrderId || undefined,
-          delivery_date: deliveryDate,
-          delivery_address: deliveryAddress || undefined,
-          notes: notes || undefined,
-          lines: validLines,
-        }),
-      });
-      const json = (await res.json()) as { data?: { id?: string }; error?: { message?: string } };
-      if (!res.ok) { setError(json?.error?.message ?? 'Failed to create delivery note'); return; }
-      const noteId = json?.data?.id ?? '';
+      let noteId = savedId;
+      if (!noteId) {
+        const res = await apiFetch('/api/accounting/delivery-notes', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: customerId,
+            sales_order_id: salesOrderId || undefined,
+            delivery_date: deliveryDate,
+            delivery_address: deliveryAddress || undefined,
+            notes: notes || undefined,
+            lines: validLines,
+          }),
+        });
+        await assertOk(res, 'Could not save the delivery note - try again');
+        const json = (await res.json()) as { data?: { id?: string } };
+        noteId = json?.data?.id ?? '';
+        setSavedId(noteId);
+      }
       if (dispatchAfter && noteId) {
-        await apiFetch('/api/accounting/delivery-notes', {
+        const dispatched = await apiFetch('/api/accounting/delivery-notes', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: noteId, status: 'dispatched' }),
         });
+        try { await assertOk(dispatched, 'Could not dispatch the delivery note'); } catch (err: unknown) {
+          setError(`The delivery note was saved as a draft but not dispatched: ${apiErrorMessage(err, 'Could not dispatch the delivery note')}. Open it from the delivery notes list to dispatch it.`);
+          return;
+        }
       }
       await router.push('/accounting/delivery-notes');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save delivery note');
+      setError(apiErrorMessage(err, 'Could not save the delivery note - try again'));
     } finally { setSaving(false); }
   };
 

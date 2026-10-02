@@ -45,6 +45,7 @@ export default function FinancialYearsPage() {
       setPeriods(json.data ?? []);
     } catch (err) {
       log.error('Failed to fetch fiscal periods', { error: err }, 'financial-years-page');
+      setPeriods([]);
       setError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally {
       setLoading(false);
@@ -54,12 +55,14 @@ export default function FinancialYearsPage() {
   const fetchJeCounts = useCallback(async (year: number) => {
     try {
       const res = await apiFetch(`/api/accounting/fiscal-periods?jeCounts=true&year=${year}`);
+      await assertOk(res, 'Could not load the journal counts');
       const json = await res.json() as { data?: Record<string, number> };
-      if (res.ok && json.data) {
+      if (json.data) {
         setJeCounts(prev => ({ ...prev, ...json.data }));
       }
     } catch (err) {
-      log.error('Failed to fetch JE counts', { year, error: err }, 'financial-years-page');
+      // Secondary badge counts: a miss only hides the badge, the periods themselves still load
+      log.warn('Failed to fetch JE counts', { year, error: err }, 'financial-years-page');
     }
   }, []);
 
@@ -82,11 +85,11 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, action }),
       });
-      await assertOk(res, 'Action failed');
+      await assertOk(res, 'Could not update that period - try again');
       await fetchPeriods();
     } catch (err) {
       log.error('Period action failed', { id, action, error: err }, 'financial-years-page');
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not update that period - try again'));
     } finally {
       setLoadingPeriodId(null);
     }
@@ -108,12 +111,12 @@ export default function FinancialYearsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'close_year', fiscalYear: closeYearTarget }),
       });
-      await assertOk(res, 'Failed to close year');
+      await assertOk(res, 'Could not close the year - try again');
       setCloseYearTarget(null);
       await fetchPeriods();
     } catch (err) {
       log.error('Close year failed', { year: closeYearTarget, error: err }, 'financial-years-page');
-      setError(err instanceof Error ? err.message : 'Failed to close year');
+      setError(apiErrorMessage(err, 'Could not close the year - try again'));
       setCloseYearTarget(null);
     } finally {
       setClosingYearSaving(false);
@@ -124,12 +127,17 @@ export default function FinancialYearsPage() {
   // ── Add year ──────────────────────────────────────────────────────────────
 
   const handleAddYear = useCallback(async (year: number) => {
-    const res = await apiFetch('/api/accounting/fiscal-periods', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ year }),
-    });
-    await assertOk(res, 'Failed to create year');
+    try {
+      const res = await apiFetch('/api/accounting/fiscal-periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year }),
+      });
+      await assertOk(res, 'Could not create the year - try again');
+    } catch (err) {
+      // The modal shows err.message: give it a person-readable sentence, never a transport error
+      throw new Error(apiErrorMessage(err, 'Could not create the year - try again'));
+    }
     await fetchPeriods();
   }, [fetchPeriods]);
 

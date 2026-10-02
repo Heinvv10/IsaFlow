@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
-type View = 'loading' | 'disabled' | 'enrolling' | 'enabled';
+type View = 'loading' | 'unknown' | 'disabled' | 'enrolling' | 'enabled';
 
 interface StatusData { enabled: boolean; factor_id: string | null }
 interface EnrollData { factor_id: string; qr_code: string; secret: string }
@@ -27,12 +27,13 @@ export function TwoFactorSection() {
         setFactorId(json.data.factor_id);
         setView(json.data.enabled ? 'enabled' : 'disabled');
       } else {
-        setView('disabled');
+        throw new ApiEnvelopeError('Could not load your two-factor status - try again');
       }
     } catch (e) {
       log.warn('2fa-status load failed', { error: e }, 'auth');
       setError(apiErrorMessage(e, 'Could not load your two-factor status - try again'));
-      setView('disabled');
+      // Keep a known view; never fall to 'disabled' (the Enable panel) when the status is unknown.
+      setView(v => (v === 'loading' ? 'unknown' : v));
     }
   }, []);
 
@@ -65,6 +66,8 @@ export function TwoFactorSection() {
       await assertOk(res, 'Could not verify the code - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Invalid code');
+      // 2FA is on now; if the status refresh fails the user must not be shown the Enable panel.
+      setFactorId(enroll.factor_id); setView('enabled');
       setEnroll(null); setCode('');
       await refresh();
     } catch (e) {
@@ -85,6 +88,7 @@ export function TwoFactorSection() {
       await assertOk(res, 'Could not disable two-factor - try again');
       const json = await res.json() as { success: boolean; error?: { message: string } };
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Invalid code');
+      setFactorId(null); setView('disabled');
       setCode('');
       await refresh();
     } catch (e) {
@@ -96,6 +100,18 @@ export function TwoFactorSection() {
 
   if (view === 'loading') {
     return <div className="text-sm text-gray-500">Loading 2FA status…</div>;
+  }
+
+  if (view === 'unknown') {
+    return (
+      <div className="space-y-3">
+        <h3 className="text-base font-semibold">Two-factor authentication</h3>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <button className="px-3 py-1.5 border rounded-md" onClick={() => { setError(null); setView('loading'); void refresh(); }}>
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (view === 'enrolling' && enroll) {

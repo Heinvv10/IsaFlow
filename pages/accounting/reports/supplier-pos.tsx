@@ -196,7 +196,7 @@ export default function SupplierPosReport() {
       const json = await res.json() as { data: SupplierPosReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, 'Could not load the report - try again'));
+      setData(null); setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);
     }

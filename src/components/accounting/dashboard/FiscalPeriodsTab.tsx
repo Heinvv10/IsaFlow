@@ -34,7 +34,7 @@ export function FiscalPeriodsTab() {
       const res = await apiFetch('/api/accounting/fiscal-periods'); await assertOk(res, 'Could not load fiscal periods - try again');
       const data = await res.json() as { data?: FiscalPeriod[] };
       setPeriods(data.data || []);
-    } catch (err) { log.error('Failed to load fiscal periods', { error: err }, 'accounting-ui'); setLoadError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
+    } catch (err) { setPeriods([]); log.error('Failed to load fiscal periods', { error: err }, 'accounting-ui'); setLoadError(apiErrorMessage(err, 'Could not load fiscal periods - try again'));
     } finally { setIsLoading(false); }
   };
 
@@ -47,8 +47,8 @@ export function FiscalPeriodsTab() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ action, ids }),
       });
-      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number }; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Bulk action failed');
+      await assertOk(res, 'Could not run the bulk action - try again');
+      const json = await res.json() as { data?: { results: Array<{ id: string; ok: boolean; error?: string }>; okCount: number; total: number } };
       const data = json.data!;
       setBulkResult({
         ok: data.okCount,
@@ -62,7 +62,7 @@ export function FiscalPeriodsTab() {
       // Network/server error: the server may have processed some periods
       // before the connection broke. Reload to surface whatever did land,
       // and tell the user the count is best-effort.
-      const msg = err instanceof Error ? err.message : 'Failed';
+      const msg = apiErrorMessage(err, 'Could not run the bulk action - try again');
       setBulkResult({
         ok: 0,
         total: ids.length,
@@ -93,13 +93,11 @@ export function FiscalPeriodsTab() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify({ id: periodId, action }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { error?: { message?: string }; message?: string };
-        throw new Error(body.error?.message || body.message || 'Action failed');
-      }
+      await assertOk(res, 'Could not update the fiscal period - try again');
       await loadPeriods();
     } catch (err) {
       log.error('Fiscal period action failed', { error: err, periodId, action }, 'accounting-ui');
+      setLoadError(apiErrorMessage(err, 'Could not update the fiscal period - try again'));
     } finally { setActionLoading(null); }
   };
 

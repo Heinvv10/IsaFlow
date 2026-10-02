@@ -139,12 +139,12 @@ export default function DepreciationPage() {
         method: 'POST',
         credentials: 'include',
       });
-      await assertOk(res, 'Failed');
+      await assertOk(res, 'Could not run depreciation - try again');
       const json = await res.json();
       setLastRun(json.data);
       await loadAssets();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not run depreciation - try again'));
     } finally {
       setRunning(false);
     }

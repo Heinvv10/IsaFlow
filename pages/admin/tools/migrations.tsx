@@ -23,6 +23,8 @@ interface ExecResult {
   suppliersImported: number;
   customersSkipped: number;
   suppliersSkipped: number;
+  customersFailed: number;
+  suppliersFailed: number;
   openingBalancesSet: number;
   errors: string[];
 }
@@ -30,6 +32,7 @@ const IMPORTED: Record<FileType, keyof Pick<ExecResult, 'accountsImported' | 'cu
   accounts: 'accountsImported', customers: 'customersImported', suppliers: 'suppliersImported',
 };
 const SKIPPED = { customers: 'customersSkipped', suppliers: 'suppliersSkipped' } as const;
+const FAILED = { customers: 'customersFailed', suppliers: 'suppliersFailed' } as const;
 
 const BLANK: ZoneState = { status: 'idle', count: 0, error: '', parsed: [] };
 
@@ -131,7 +134,7 @@ export default function AdminMigrationsPage() {
       });
       await assertOk(res, 'Migration failed');
       const { data } = await res.json() as { data: ExecResult };
-      setResult({ ...data, customersSkipped: data.customersSkipped ?? 0, suppliersSkipped: data.suppliersSkipped ?? 0, errors: Array.isArray(data.errors) ? data.errors : [] });
+      setResult({ ...data, customersSkipped: data.customersSkipped ?? 0, suppliersSkipped: data.suppliersSkipped ?? 0, customersFailed: data.customersFailed ?? 0, suppliersFailed: data.suppliersFailed ?? 0, errors: Array.isArray(data.errors) ? data.errors : [] });
     } catch (err) {
       setExecErr(apiErrorMessage(err, 'Migration failed'));
     } finally { setExecuting(false); }
@@ -259,6 +262,9 @@ export default function AdminMigrationsPage() {
                   <p className="text-teal-600 dark:text-teal-400 mt-1">{result[IMPORTED[type]]} imported</p>
                   {type !== 'accounts' && result[SKIPPED[type]] > 0 && (
                     <p className="text-amber-600 dark:text-amber-400 text-xs">{result[SKIPPED[type]]} skipped</p>
+                  )}
+                  {type !== 'accounts' && result[FAILED[type]] > 0 && (
+                    <p className="text-red-500 text-xs">{result[FAILED[type]]} failed, nothing was saved</p>
                   )}
                 </div>
               ))}

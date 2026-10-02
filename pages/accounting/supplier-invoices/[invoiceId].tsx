@@ -62,6 +62,7 @@ export default function SupplierInvoiceDetailPage() {
       const json = await res.json();
       setInvoice(json.data || json);
     } catch (err) {
+      setInvoice(null);
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setIsLoading(false);
@@ -82,16 +83,17 @@ export default function SupplierInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceId }),
       });
-      if (!res.ok) {
-        const err = await res.json();
+      try {
+        await assertOk(res, 'Could not complete that action - try again');
+      } catch (refused) {
         // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
         if (res.status === 409) await loadInvoice();
-        throw new Error(err.error?.message || 'Action failed');
+        throw refused;
       }
       notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
       await loadInvoice();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(apiErrorMessage(err, 'Could not complete that action - try again'));
     } finally {
       setActionLoading('');
     }
@@ -105,13 +107,14 @@ export default function SupplierInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, ...editForm }),
       });
-      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'Save failed'); }
+      await assertOk(res, 'Could not save the invoice - try again');
       setEditing(false);
       await loadInvoice();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(apiErrorMessage(err, 'Could not save the invoice - try again'));
+    } finally {
+      setActionLoading('');
     }
-    setActionLoading('');
   };
 
   const { groups, overflowActions } = useSupplierInvoiceActions(

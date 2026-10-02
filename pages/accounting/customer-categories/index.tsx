@@ -21,43 +21,58 @@ export default function CustomerCategoriesPage() {
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
-    await assertOk(res, 'Could not load categories - try again');
-    const json = await res.json();
-    setError('');
-    setItems(json.data || []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load().catch((err) => {
-      setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/customer-categories', { credentials: 'include' });
+      await assertOk(res, 'Could not load categories - try again');
+      const json = await res.json();
+      setError('');
+      setItems(json.data || []);
+    } catch (err) {
+      setItems([]);
       setError(apiErrorMessage(err, 'Could not load categories - try again'));
       log.error('Failed to load customer categories', { error: err }, 'customer-categories-page');
-    });
-  }, [load]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     if (!form.name.trim()) return;
     setBusy(true);
-    const method = editing ? 'PUT' : 'POST';
-    const body = editing ? { id: editing, ...form } : form;
-    await apiFetch('/api/accounting/customer-categories', {
-      method, headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify(body),
-    });
-    setForm({ name: '', description: '' });
-    setEditing(null); setAdding(false); setBusy(false);
-    await load();
+    setError('');
+    try {
+      const method = editing ? 'PUT' : 'POST';
+      const body = editing ? { id: editing, ...form } : form;
+      const res = await apiFetch('/api/accounting/customer-categories', {
+        method, headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify(body),
+      });
+      await assertOk(res, 'Could not save the category - try again');
+      setForm({ name: '', description: '' });
+      setEditing(null); setAdding(false);
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the category - try again'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Delete this category?')) return;
-    await apiFetch('/api/accounting/customer-categories', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      credentials: 'include', body: JSON.stringify({ id }),
-    });
-    await load();
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/customer-categories', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ id }),
+      });
+      await assertOk(res, 'Could not delete the category - try again');
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the category - try again'));
+    }
   };
 
   const startEdit = (cat: Category) => {

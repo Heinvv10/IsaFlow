@@ -105,6 +105,7 @@ export default function CustomerCommunicationReport() {
       const json = await res.json() as { data: ReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoading(false);

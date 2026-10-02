@@ -43,7 +43,7 @@ export default function PisScorePage() {
   const [shCount, setShCount] = useState(1);
   const [allDirs, setAllDirs] = useState(true);
 
-  const fetchPis = useCallback(async () => {
+  const fetchPis = useCallback(async (): Promise<boolean> => {
     setLoading(true);
     setError('');
     try {
@@ -54,9 +54,9 @@ export default function PisScorePage() {
       setEmpBegin(d.employees.beginning);
       setEmpEnd(d.employees.end);
       setShCount(d.shareholders.count);
-      setAllDirs(d.allShareholdersAreDirectors);
+      setAllDirs(d.allShareholdersAreDirectors); return true;
     } catch (err: unknown) {
-      setError(apiErrorMessage(err, 'Could not load the PIS score - try again'));
+      setData(null); setError(apiErrorMessage(err, 'Could not load the PIS score - try again')); return false;
     } finally {
       setLoading(false);
     }
@@ -66,10 +66,9 @@ export default function PisScorePage() {
 
   const saveInputs = async () => {
     setSaving(true);
-    setError('');
-    setSuccessMsg('');
+    setError(''); setSuccessMsg('');
     try {
-      await apiFetch('/api/accounting/afs/pis-score', {
+      const res = await apiFetch('/api/accounting/afs/pis-score', {
         method: 'PUT',
         body: JSON.stringify({
           employeeCountBeginning: empBegin,
@@ -78,12 +77,13 @@ export default function PisScorePage() {
           allShareholdersAreDirectors: allDirs,
         }),
       });
+      await assertOk(res, 'Could not save the PIS inputs - try again');
       setSuccessMsg('PIS inputs saved. Recalculating...');
-      await fetchPis();
-      setSuccessMsg('PIS score updated successfully.');
-      setTimeout(() => setSuccessMsg(''), 3000);
+      const ok = await fetchPis();
+      setSuccessMsg(ok ? 'PIS score updated successfully.' : 'PIS inputs saved.');
+      if (ok) setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      setError(apiErrorMessage(err, 'Could not save the PIS inputs - try again'));
     } finally {
       setSaving(false);
     }

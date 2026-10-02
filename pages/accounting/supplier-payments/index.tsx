@@ -39,6 +39,7 @@ export default function SupplierPaymentsPage() {
       setPayments(payload.payments || []);
       setTotal(payload.total || 0);
     } catch (err) {
+      setPayments([]); setTotal(0);
       setError(apiErrorMessage(err, 'Could not load payments - try again'));
     } finally {
       setIsLoading(false);

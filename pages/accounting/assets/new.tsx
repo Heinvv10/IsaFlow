@@ -88,11 +88,10 @@ export default function NewAssetPage() {
           usefulLifeYears: Number(form.usefulLifeYears),
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create asset');
+      await assertOk(res, 'Could not create the asset - try again');
       void router.push('/accounting/assets');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(apiErrorMessage(err, 'Could not create the asset - try again'));
     } finally {
       setSaving(false);
     }

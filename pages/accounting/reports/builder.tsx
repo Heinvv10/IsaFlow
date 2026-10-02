@@ -116,11 +116,11 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      await assertOk(res, 'Run failed');
+      await assertOk(res, 'Could not run the report - try again');
       const json = await res.json();
       setResult(json.data);
     } catch (err) {
-      showToast(apiErrorMessage(err, 'Failed to run report'));
+      showToast(apiErrorMessage(err, 'Could not run the report - try again'));
     } finally {
       setIsRunning(false);
     }
@@ -148,12 +148,12 @@ export default function ReportBuilderPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the report - try again');
       const json = await res.json();
       showToast('Report saved successfully');
       void router.replace(`/accounting/reports/builder?id=${json.data.id}`);
     } catch (err) {
-      showToast(apiErrorMessage(err, 'Failed to save report'));
+      showToast(apiErrorMessage(err, 'Could not save the report - try again'));
     } finally {
       setIsSaving(false);
     }
@@ -188,7 +188,7 @@ export default function ReportBuilderPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }).then(async res => {
-      if (!res.ok) { showToast('Export failed'); return; }
+      await assertOk(res, 'Could not export the report - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -196,7 +196,7 @@ export default function ReportBuilderPage() {
       a.download = `${reportName.replace(/[^a-z0-9_-]/gi, '_')}_${localISODate()}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-    }).catch(() => showToast('Export failed'));
+    }).catch(err => showToast(apiErrorMessage(err, 'Could not export the report - try again')));
     void form;
   }
 

@@ -4,12 +4,14 @@
  * `{ action, requestId }` — every supplier-invoice Approve in the UI failed.
  * The page must send the digest of the row the approver was looking at.
  */
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import ApprovalsPage from '@/../pages/accounting/approvals';
 import { apiFetch } from '@/lib/apiFetch';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({children}: {children: React.ReactNode}) => <>{children}</> }));
 
 const DIGEST = 'a'.repeat(64);

@@ -39,6 +39,7 @@ export default function PurchaseOrdersPage() {
       const json = await res.json();
       setOrders(json.data || []);
     } catch (err) {
+      setOrders([]);
       setError(apiErrorMessage(err, 'Could not load purchase orders - try again'));
     } finally {
       setLoading(false);

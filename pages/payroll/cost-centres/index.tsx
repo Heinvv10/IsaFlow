@@ -4,7 +4,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, Check, X } from 'lucide-react';
 
 interface CostCentre {
@@ -55,20 +55,19 @@ export default function CostCentresPage() {
         apiFetch('/api/payroll/cost-centres/gl-mappings'),
         apiFetch('/api/accounting/chart-of-accounts'),
       ]);
-      if (!ccRes.ok) throw new Error(`HTTP ${ccRes.status}`);
+      await assertOk(ccRes, 'Could not load the cost centres - try again');
+      await assertOk(mapRes, 'Could not load the GL mappings - try again');
+      await assertOk(acctRes, 'Could not load the expense accounts - try again');
       const ccJson = await ccRes.json();
       setRows((ccJson.data ?? ccJson) as CostCentre[]);
-      if (mapRes.ok) {
-        const j = await mapRes.json();
-        setMappings(((j.data ?? j) as Mapping[]) ?? []);
-      }
-      if (acctRes.ok) {
-        const j = await acctRes.json();
-        const all = ((j.data ?? j) as GlAccount[]) ?? [];
-        setAccounts(all.filter(a => a.accountType === 'expense'));
-      }
-    } catch {
-      setError('Failed to load cost centres');
+      const mj = await mapRes.json();
+      setMappings(((mj.data ?? mj) as Mapping[]) ?? []);
+      const aj = await acctRes.json();
+      const all = ((aj.data ?? aj) as GlAccount[]) ?? [];
+      setAccounts(all.filter(a => a.accountType === 'expense'));
+    } catch (err) {
+      setRows([]); setMappings([]); setAccounts([]);
+      setError(apiErrorMessage(err, 'Could not load the cost centres - try again'));
     } finally {
       setLoading(false);
     }
@@ -85,12 +84,10 @@ export default function CostCentresPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ expenseAccountId }),
           });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'GL mapping save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the GL mapping - try again');
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the GL mapping - try again'));
     } finally {
       setBusy(false);
     }
@@ -111,14 +108,12 @@ export default function CostCentresPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: newCode.trim(), name: newName.trim() }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Create failed');
-        return;
-      }
+      await assertOk(res, 'Could not create the cost centre - try again');
       setNewCode('');
       setNewName('');
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not create the cost centre - try again'));
     } finally {
       setBusy(false);
     }
@@ -132,19 +127,18 @@ export default function CostCentresPage() {
 
   async function saveEdit(id: string): Promise<void> {
     setBusy(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/payroll/cost-centres/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: editCode.trim(), name: editName.trim() }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Save failed');
-      } else {
-        setEditingId(null);
-        await load();
-      }
+      await assertOk(res, 'Could not save the cost centre - try again');
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the cost centre - try again'));
     } finally {
       setBusy(false);
     }
@@ -152,17 +146,19 @@ export default function CostCentresPage() {
 
   async function toggleActive(cc: CostCentre): Promise<void> {
     setBusy(true);
+    setError('');
     try {
-      if (cc.isActive) {
-        await apiFetch(`/api/payroll/cost-centres/${cc.id}`, { method: 'DELETE' });
-      } else {
-        await apiFetch(`/api/payroll/cost-centres/${cc.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isActive: true }),
-        });
-      }
+      const res = cc.isActive
+        ? await apiFetch(`/api/payroll/cost-centres/${cc.id}`, { method: 'DELETE' })
+        : await apiFetch(`/api/payroll/cost-centres/${cc.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isActive: true }),
+          });
+      await assertOk(res, 'Could not change the cost centre status - try again');
       await load();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not change the cost centre status - try again'));
     } finally {
       setBusy(false);
     }

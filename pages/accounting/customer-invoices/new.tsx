@@ -6,7 +6,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
@@ -81,8 +81,8 @@ export default function NewCustomerInvoicePage() {
     setSubmitting(true); setError('');
     try {
       const res = await apiFetch('/api/accounting/customer-invoices-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, items: validLines }) });
-      const json = await res.json() as { data?: { id?: string }; id?: string; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || 'Failed to create');
+      await assertOk(res, 'Could not create the invoice - try again');
+      const json = await res.json() as { data?: { id?: string }; id?: string };
       const d = json.data || json;
       if (andNew) {
         const today = localISODate();
@@ -90,9 +90,11 @@ export default function NewCustomerInvoicePage() {
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
         await router.push('/accounting/customer-invoices/new');
       } else {
+        if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
         await router.push(`/accounting/customer-invoices/${d.id}`);
       }
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); setSubmitting(false); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not create the invoice - try again')); }
+    finally { setSubmitting(false); }
   };
 
   return (

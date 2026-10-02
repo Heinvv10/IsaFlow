@@ -97,7 +97,9 @@ export default function FinancialAnalysisPage() {
       const ratioRes = await getJson(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`);
       if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
       if (ratioRes.data) setUnclassified(ratioRes.data.unclassifiedAccounts ?? null);
-    } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); setError(apiErrorMessage(err, 'Could not load the financial analysis - try again')); }
+    } catch (err) {
+      setScorecard([]); setTrends([]); setSummary(null); setRatios({}); setInventoryWarning(null); setUnclassified(null);
+      log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); setError(apiErrorMessage(err, 'Could not load the financial analysis - try again')); }
     finally { setLoading(false); }
   }, [months]);
 

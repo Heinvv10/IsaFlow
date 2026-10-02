@@ -32,6 +32,7 @@ export default function SalesByCustomerReport() {
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load sales by customer - try again'));
     } finally {
       setLoading(false);
