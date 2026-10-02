@@ -32,6 +32,9 @@ function intercompanyValueError(body: Record<string, unknown>): string | null {
     return `transactionType must be one of ${INTERCOMPANY_TRANSACTION_TYPES.join(', ')}`;
   }
   if (typeof body.amount !== 'number' || !Number.isFinite(body.amount) || body.amount <= 0) return 'amount must be a positive number';
+  // The column is NUMERIC(15,2): 1e13 overflows (a 500), and 0.001 would be stored as 0.00.
+  if (body.amount >= 1e13) return 'amount must be less than 10,000,000,000,000';
+  if (!/^\d+(\.\d{1,2})?$/.test(String(body.amount))) return 'amount must have at most 2 decimal places';
   if (!isLedgerDate(body.transactionDate)) return `transactionDate ${LEDGER_DATE_MESSAGE}`;
   if (body.currency !== undefined && typeof body.currency !== 'string') return 'currency must be a string';
   if (body.description !== undefined && typeof body.description !== 'string') return 'description must be a string';

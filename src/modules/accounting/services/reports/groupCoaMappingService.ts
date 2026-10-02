@@ -198,8 +198,8 @@ export async function getCoaMappings(groupId: string, companyId?: string): Promi
                ga.account_code AS group_account_code, ga.account_name AS group_account_name,
                ca.account_code AS company_account_code, ca.account_name AS company_account_name
         FROM group_coa_mappings m
-        JOIN group_accounts ga ON ga.id = m.group_account_id
-        JOIN gl_accounts ca ON ca.id = m.company_account_id
+        JOIN group_accounts ga ON ga.id = m.group_account_id AND ga.group_id = m.group_id
+        JOIN gl_accounts ca ON ca.id = m.company_account_id AND ca.company_id = m.company_id
         WHERE m.group_id = ${groupId}::UUID AND m.company_id = ${companyId}::UUID
         ORDER BY ga.account_code
       `) as Row[]
@@ -208,8 +208,8 @@ export async function getCoaMappings(groupId: string, companyId?: string): Promi
                ga.account_code AS group_account_code, ga.account_name AS group_account_name,
                ca.account_code AS company_account_code, ca.account_name AS company_account_name
         FROM group_coa_mappings m
-        JOIN group_accounts ga ON ga.id = m.group_account_id
-        JOIN gl_accounts ca ON ca.id = m.company_account_id
+        JOIN group_accounts ga ON ga.id = m.group_account_id AND ga.group_id = m.group_id
+        JOIN gl_accounts ca ON ca.id = m.company_account_id AND ca.company_id = m.company_id
         WHERE m.group_id = ${groupId}::UUID
         ORDER BY m.company_id, ga.account_code
       `) as Row[];
