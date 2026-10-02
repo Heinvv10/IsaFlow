@@ -14,6 +14,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 type Row = DbRow;
 
@@ -85,4 +86,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   res.status(200).send(csv);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+export default withAuth(withErrorHandler(withCsrf(withPayrollDetailAccess(handler))));

@@ -10,6 +10,7 @@
  *
  * The limit itself is unchanged. This is about saying so.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { retryAfterSeconds } from '../../../../pages/accounting/reports/report-packs';
@@ -29,13 +30,13 @@ vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const apiFetchMock = vi.fn();
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: (...a: unknown[]) => apiFetchMock(...a),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 const PACK = {
   type: 'board',

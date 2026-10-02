@@ -7,6 +7,7 @@ import { FileText, Loader2, AlertCircle, Download, AlertTriangle, Info } from 'l
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type Severity = 'error' | 'warning' | 'info';
 interface ValidationMessage {
@@ -96,7 +97,7 @@ export default function Irp5Page() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/irp5/summary?taxYear=${taxYear}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load IRP5 summary')); return; }
       const json = await res.json() as { data?: Irp5Summary };
       setSummary((json.data ?? null) as Irp5Summary | null);
     } catch {
@@ -127,7 +128,7 @@ export default function Irp5Page() {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
       if (!res.ok) {
         const json = await res.json().catch(() => null) as { error?: { message?: string; details?: { missing?: string[]; fix?: string } } } | null;
-        const msg = json?.error?.message ?? `HTTP ${res.status}`;
+        const msg = payrollLoadMessage(res.status, json?.error?.message ?? `HTTP ${res.status}`);
         const missing = json?.error?.details?.missing;
         const fix = json?.error?.details?.fix;
         setEasyFileError([msg, missing ? `Missing: ${missing.join(', ')}` : '', fix ? `Fix here: ${fix}` : ''].filter(Boolean).join(' · '));

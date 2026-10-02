@@ -34,6 +34,7 @@ export const createPayRunTool: McpTool = {
     'Costing the run (which applies the PAYE, UIF, SDL and ETI engines to each employee) and approving it are separate steps in the app; this tool only opens the period. Once a run is approved, post_payroll_journal puts it in the ledger. ' +
     'Run it with dry_run: true first — the preview reports whether the month is already taken without writing anything.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   inputSchema: {
     type: 'object',
@@ -105,6 +106,7 @@ export const postPayrollJournalTool: McpTool = {
     'It also does not calculate or approve the run, does not pay anyone, and does not file an EMP201. ETI is booked net of labour cost and against PAYE payable, capped at the PAYE of the run: the labour debit and the PAYE credit both fall by min(ETI, PAYE), so the PAYE credit equals the EMP201 PAYE payable. ETI beyond PAYE is not booked and is reported as an eti_beyond_paye advisory. ' +
     'Reverse a posted payroll journal in the app; this tool will refuse a run that already has one rather than post a second.',
   scope: 'write:payroll',
+  requiresWriteRole: true,
   write: true,
   requiresPost: true,
   inputSchema: {

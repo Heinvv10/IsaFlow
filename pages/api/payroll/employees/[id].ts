@@ -14,6 +14,8 @@ import {
 } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
+import { canWrite } from '@/lib/auth/writeRoles';
+import { employeeNamesOnly } from '@/modules/accounting/services/payroll/payrollEmployeeRedaction';
 import {
   getPayrollEmployee,
   updatePayrollEmployee,
@@ -23,7 +25,7 @@ async function handler(
   req: AuthenticatedNextApiRequest,
   res: NextApiResponse
 ): Promise<void> {
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
   const { id } = req.query;
 
   if (typeof id !== 'string') {
@@ -33,7 +35,7 @@ async function handler(
   if (req.method === 'GET') {
     const employee = await getPayrollEmployee(id, companyId);
     if (!employee) return apiResponse.notFound(res, 'PayrollEmployee', id);
-    return apiResponse.success(res, employee);
+    return apiResponse.success(res, canWrite(companyRole) ? employee : employeeNamesOnly(employee));
   }
 
   if (req.method === 'PATCH') {

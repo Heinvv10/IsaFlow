@@ -82,7 +82,7 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
     expect(state.statusCode, text(state)).toBe(400);
     expect(text(state)).toContain(`This bank line is on the completed reconciliation of R068 Bank to ${today}`);
-    expect(text(state)).toContain("A completed reconciliation can't be reopened yet");
+    expect(text(state)).toContain("A completed reconciliation must be reopened before this can be reversed");
     expect(text(state)).toContain('Correct it with a journal, or contact support');
     await expectNothingWritten(a, 'reconciled');
   });
