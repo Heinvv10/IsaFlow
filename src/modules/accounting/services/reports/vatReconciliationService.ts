@@ -5,6 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { deletedDocumentChainLinkFragment } from '../shared/softDeleteLedgerPresence';
 
 type DbRow = Record<string, unknown>;
 
@@ -74,6 +75,7 @@ export async function getVatReconciliation(
 ): Promise<VatReconciliation> {
   log.info('vatReconciliationService: generating reconciliation', { companyId, periodStart, periodEnd });
 
+  const otherMonthLink = deletedDocumentChainLinkFragment('gje', companyId, 'otherMonth');
   // Run all queries in parallel
   const [glMonthly, invoiceMonthly, returnMonthly, capitalSplit] = await Promise.all([
     // 1. GL-based monthly revenue and VAT
@@ -83,8 +85,28 @@ export async function getVatReconciliation(
         -- NET. ABS inside the SUM added a credit note to GL revenue, then
         -- reconciled it against invoiced revenue - already net of them - so
         -- the reconciliation invented the variance and blamed the ledger.
+        -- EACH ARM IS READ THE WAY THE SOURCE IT IS COMPARED WITH READS (D7):
+        --   gl_revenue     vs the invoice leg (query 2), which is undated: it
+        --                  keeps a deleted invoice in the month it was raised.
+        --                  So a soft-deleted document's reversal chain past its
+        --                  own journal (the delete's reversal, a hand reversal
+        --                  of it, or one made before the delete) is left out,
+        --                  else it lands as revenue the invoice leg never had.
+        --   gl_output_vat  vs vat_returns, which submitVATReturn fills from the
+        --   gl_input_vat   LEDGER by entry date, chain and all. Leaving the chain
+        --                  out here reported a variance against a return that
+        --                  matched the ledger exactly (round 3).
+        --   rate_revenue, rate_output_vat  THE RATE'S ONE ROW SET: the month's
+        --                  ledger less only the chain links of a deleted document
+        --                  whose own journal is dated in ANOTHER month.
         COALESCE(SUM(CASE WHEN ga.account_type = 'revenue'
-          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_revenue,
+          THEN CASE WHEN ${deletedDocumentChainLinkFragment('gje', companyId)} THEN 0
+                    ELSE gjl.credit - gjl.debit END
+          ELSE 0 END), 0) AS gl_revenue,
+        COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND NOT ${otherMonthLink}
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS rate_revenue,
+        COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output' AND NOT ${otherMonthLink}
+          THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS rate_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
           THEN gjl.credit - gjl.debit ELSE 0 END), 0) AS gl_output_vat,
         COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
@@ -110,21 +132,6 @@ export async function getVatReconciliation(
         -- same predicate in vatReturnService. The revenue arm of this query is
         -- unaffected: the clearing journal posts no revenue line.
         AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
-        -- K-053: the reversal a SOFT-DELETE posts is not trade. The invoice leg
-        -- (query 2) is deliberately undated — it keeps a deleted invoice in the
-        -- month it was raised, which is what the document-based return did when
-        -- it was FILED (vat201Service) — so counting the reversal compares a GL
-        -- that has dropped the document against an invoice population and a
-        -- vat_return that have not: a permanent variance in the reversal's
-        -- month that no operator can reconcile away, and one that reads as MORE
-        -- revenue, not less, because the revenue arm takes ABS(credit - debit).
-        -- soft_delete_journal_reversals (mig 653) holds one row per ACTIVE
-        -- delete, so an UNDONE delete stops being excluded at once.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -189,12 +196,7 @@ export async function getVatReconciliation(
         -- Excluding by SOURCE keeps it excluded if the clearing entry ever
         -- starts stamping vat_type.
         AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
-        -- K-053: same predicate, same reason as the monthly GL query above.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
+        -- Ledger basis, like the VAT arms of query 1: no chain exclusion (D7).
         AND ga.account_subtype IN ('vat_output', 'vat_input')
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -243,7 +245,9 @@ export async function getVatReconciliation(
     const revenueVariance = r2(glRevenue - invoiceRevenue);
     const outputVatVariance = returnOutputVat !== null ? r2(glOutputVat - returnOutputVat) : 0;
     const inputVatVariance = returnInputVat !== null ? r2(glInputVat - returnInputVat) : 0;
-    const effectiveVatRate = glRevenue > 0 ? r2((glOutputVat / glRevenue) * 100) : 0;
+    // Numerator and denominator from ONE row set (query 1's rate_* arms).
+    const rateRevenue = toNum(gl?.rate_revenue);
+    const effectiveVatRate = rateRevenue > 0 ? r2((toNum(gl?.rate_output_vat) / rateRevenue) * 100) : 0;
 
     // Flag issues
     if (Math.abs(revenueVariance) > 100) {
@@ -363,12 +367,8 @@ export async function getVatMultiYearSummary(
         -- the trade. Revenue is unaffected — the clearing journal posts no
         -- revenue line. IS DISTINCT FROM, not <>: source is nullable.
         AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
-        -- K-053: same predicate, same reason as the monthly GL query above.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
+        -- Ledger basis throughout: nothing here is compared with documents, and
+        -- the rate divides VAT by revenue on ONE basis (D7 round 3).
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY EXTRACT(YEAR FROM gje.entry_date)
       ORDER BY year
