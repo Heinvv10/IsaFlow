@@ -1,0 +1,88 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r175-rate-limiter
+
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts (6 tests | 4 failed) 9ms
+     × sends one upsert per call, even far below the limit 4ms
+     × admits exactly max of 70 calls on one process 2ms
+     × charges the clamped cost 1ms
+     × a refusal is not remembered: the next call asks the database again 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/rateLimitEveryCallCounted.test.ts > checkRateLimit — every call is counted (R-175) > sends one upsert per call, even far below the limit
+AssertionError: expected "vi.fn()" to be called 10 times, but got 1 times
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:33:21
+     31|     for (let i = 0; i < 10; i++) expect(await checkRateLimit('k', { ma…
+     32|
+     33|     expect(sqlMock).toHaveBeenCalledTimes(10);
+       |                     ^
+     34|   });
+     35|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/unit/lib/rateLimitEveryCallCounted.test.ts > checkRateLimit — every call is counted (R-175) > admits exactly max of 70 calls on one process
+AssertionError: expected 65 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 65
+
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:41:22
+     39|     for (let i = 0; i < 70; i++) if (await checkRateLimit('k', { max: …
+     40|
+     41|     expect(admitted).toBe(20);
+       |                      ^
+     42|     expect(sqlMock).toHaveBeenCalledTimes(70);
+     43|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/unit/lib/rateLimitEveryCallCounted.test.ts > checkRateLimit — every call is counted (R-175) > charges the clamped cost
+AssertionError: expected [ 7 ] to deeply equal [ 7, 1 ]
+
+- Expected
++ Received
+
+  [
+    7,
+-   1,
+  ]
+
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:57:55
+     55|     await checkRateLimit('k', { max: 100, windowSecs: 60, cost: -3 });
+     56|
+     57|     expect(sqlMock.mock.calls.map((call) => call[2])).toEqual([7, 1]);
+       |                                                       ^
+     58|   });
+     59|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/unit/lib/rateLimitEveryCallCounted.test.ts > checkRateLimit — every call is counted (R-175) > a refusal is not remembered: the next call asks the database again
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:62:68
+     60|   it('a refusal is not remembered: the next call asks the database aga…
+     61|     sqlMock.mockResolvedValueOnce([{ count: 21, window_start: new Date…
+     62|     expect(await checkRateLimit('k', { max: 20, windowSecs: 60 })).toB…
+       |                                                                    ^
+     63|     // The window rolled over, or the units were refunded by another p…
+     64|     sqlMock.mockResolvedValueOnce([{ count: 1, window_start: new Date(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  12:29:25
+   Duration  166ms (transform 29ms, setup 0ms, import 45ms, tests 9ms, environment 0ms)
+

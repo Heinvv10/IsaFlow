@@ -12,7 +12,8 @@ import { hashArgs, recordToolCall } from './audit';
 import type { JsonRpcRequest } from './jsonrpc';
 
 export const SKIPPED_FOR_ROLE_LOCK = 'Not run: an earlier call in this batch found the chart of accounts being changed by another request, '
-  + 'so the calls after it were skipped. Nothing was written or charged for this call — retry it in a moment.';
+  + 'so the calls after it were skipped. Nothing was written and no Flows were debited for this call; '
+  + 'it still counted towards the batch\'s rate limit — retry it in a moment.';
 
 /** The skipped result for a well-formed `tools/call`; null for anything else (a ping, a call with no tool name), which is answered as usual. */
 export async function skippedForRoleLock(rpc: JsonRpcRequest, ctx: McpToolContext): Promise<McpToolResult | null> {

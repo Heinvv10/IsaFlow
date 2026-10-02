@@ -4,6 +4,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,8 @@ export async function callVlmChat(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // A 5xx may come after the provider did the work; a 4xx did none (R-175).
+      markQuotaUsedForStatus('ai', response.status);
       const errorText = await response.text().catch(() => 'unknown error');
       log.error('vLLM request failed', {
         status: response.status,
@@ -86,12 +89,16 @@ export async function callVlmChat(
       }, 'vlm-core');
       return null;
     }
+    // The provider answered: the request's daily AI unit is spent (R-175).
+    markQuotaUsed('ai');
 
     const result = await response.json() as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     return result.choices?.[0]?.message?.content ?? null;
   } catch (err) {
+    // A timeout proves nothing about the work; a refused connection does (R-175).
+    markQuotaUsedUnlessNoWork('ai', err);
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('aborted') || msg.includes('AbortError')) {
       log.error('vLLM request timed out', { timeout: config.timeout }, 'vlm-core');

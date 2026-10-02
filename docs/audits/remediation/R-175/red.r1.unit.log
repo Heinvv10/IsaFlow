@@ -1,0 +1,85 @@
+### Round-1 unit tests run against c5b0ba6d0's sources (the 7 changed src/pages files swapped back; rateLimitQuota.ts did not exist then and is left in place)
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts (5 tests | 2 failed) 51ms
+     × charges nothing when the ownership guard refuses the request 15ms
+     × gives back the daily units of the emails that failed, and only those 7ms
+ ❯ tests/unit/lib/rateLimitQuota.test.ts (10 tests | 7 failed) 66ms
+     × checkAiRateLimit notes one unit of the daily bucket, and only that bucket 34ms
+     × checkSendRateLimit notes the recipient count on the daily bucket 4ms
+     × does nothing outside a request that keeps the list 1ms
+     × refundQuotaCharges gives back each noted charge once 14ms
+     × refundAiDailyQuota gives the unit back once, and then the failed-request refund has nothing left 7ms
+     × a request cannot give back a bucket it did not charge 1ms
+     × refundSendDailyQuota gives back at most what the request charged 1ms
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts (9 tests | 3 failed) 42ms
+     × admits exactly max of 70 calls on one process, and asks the database for every admission 7ms
+     × remembers a refusal, and only a refusal: memory never admits 5ms
+     × remembers a refusal no longer than the window has left 10ms
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts (10 tests | 6 failed) 77ms
+     × gives the unit back for a question that is too short 10ms
+     × gives the unit back for a question that is not a string 1ms
+     × gives the unit back for a question that is too long 3ms
+     × gives the unit back when no provider key is configured 2ms
+     × gives the unit back when the provider answers with an error status 7ms
+     × gives the unit back when the provider call throws 3ms
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts (4 tests | 3 failed) 14ms
+     × finds the call sites 10ms
+     × no two call sites share a key prefix with different options 1ms
+     × every call it cannot read is pinned, and every pin still points at such a call 1ms
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts (10 tests | 3 failed) 1194ms
+     × gives the usage-quota charge back when the handler responds 5xx 10ms
+     × gives the usage-quota charge back when the handler throws 20ms
+     × gives the usage-quota charge back when the COMMIT fails after a 2xx 9ms
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:71:33
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:79:33
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:86:33
+AssertionError: expected [] to deeply equal [ [ …(2) ] ]
+ ❯ tests/unit/api/nlQueryQuotaRefund.test.ts:93:33
+AssertionError: expected [] to deeply equal [ [ { key: 'ai:x:co:c:day', …(1) } ] ]
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:263:22
+AssertionError: expected [] to deeply equal [ [ { key: 'ai:x:co:c:day', …(1) } ] ]
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:271:22
+AssertionError: expected [] to deeply equal [ [ { key: 'ai:x:co:c:day', …(1) } ] ]
+ ❯ tests/unit/auth/withAuth-commit-order.test.ts:277:22
+AssertionError: expected "vi.fn()" to be called 21 times, but got 70 times
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:46:21
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:69:68
+AssertionError: expected true to be false // Object.is equality
+ ❯ tests/unit/lib/rateLimitEveryCallCounted.test.ts:91:68
+AssertionError: expected [] to deeply equal [ { …(2) } ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:46:30
+AssertionError: expected [] to deeply equal [ { …(2) } ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:53:30
+TypeError: aiDailyKey is not a function
+ ❯ Module.refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:68:31
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:68:15
+AssertionError: expected [] to deeply equal [ [ …(2) ], [ …(2) ] ]
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:83:23
+TypeError: aiDailyKey is not a function
+ ❯ Module.refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:110:13
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:108:5
+TypeError: aiDailyKey is not a function
+ ❯ Module.refundAiDailyQuota src/lib/rateLimitQuota.ts:61:26
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:122:13
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:120:5
+TypeError: sendDailyKey is not a function
+ ❯ Module.refundSendDailyQuota src/lib/rateLimitQuota.ts:66:26
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:134:13
+ ❯ tests/unit/lib/rateLimitQuota.test.ts:132:5
+AssertionError: expected [ …(79) ] to deeply equal ArrayContaining{…}
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:148:46
+AssertionError: expected [ Array(1) ] to deeply equal []
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:154:37
+AssertionError: expected [ …(7) ] to deeply equal [ …(7) ]
+ ❯ tests/unit/security/rateLimitKeyCensus.test.ts:158:42
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:136:40
+AssertionError: expected [] to deeply equal [ [ …(3) ] ]
+ ❯ tests/unit/security/statementBulkEmailRateLimit.test.ts:150:39
+ Test Files  6 failed | 1 passed (7)
+      Tests  24 failed | 29 passed (53)
