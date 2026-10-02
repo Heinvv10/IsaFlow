@@ -34,6 +34,9 @@ import { cancelSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { cancelCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { JournalReversalLockTimeoutError } from '@/modules/accounting/services/gl/journalEntryReversalClaim';
 import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
+import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import customerAction from '../../../pages/api/accounting/customer-payments-action';
 import bankAction from '../../../pages/api/accounting/bank-transactions-action';
 import supplierInvoiceAction from '../../../pages/api/accounting/supplier-invoices-action';
@@ -85,5 +88,26 @@ describe.each(routes)('$name', ({ handler, body, service }) => {
     const res = await call(handler as never, body);
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toMatch(/Cannot cancel this document/);
+  });
+});
+
+// D8 round 17: bank reversal is a D8 flow — a held bank line or payment is a lock timeout there too (503 +
+// Retry-After), not K-071's 409. The 409 stays for the retryable state conflicts, and for the route's other verbs.
+describe('bank-transactions-action reverse: a held row vs a state conflict', () => {
+  it.each([
+    ['the bank line', () => new BankTransactionLockTimeoutError(ID)],
+    ['the payment', () => new PaymentLockTimeoutError(ID)],
+  ])('answers %s held 503 + Retry-After', async (_what, make) => {
+    vi.mocked(reverseReconciledTransaction).mockRejectedValue(make() as never);
+    const res = await call(bankAction as never, { action: 'reverse', bankTransactionId: ID });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['Retry-After']).toBe('2');
+  });
+
+  it('still answers a retryable state conflict 409', async () => {
+    vi.mocked(reverseReconciledTransaction).mockRejectedValue(
+      new ReceiptRefusal('This document changed while it was being reversed — retry in a moment.', { retryable: true }) as never);
+    const res = await call(bankAction as never, { action: 'reverse', bankTransactionId: ID });
+    expect(res.statusCode).toBe(409);
   });
 });
