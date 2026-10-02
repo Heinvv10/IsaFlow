@@ -273,7 +273,8 @@ export default function JobDetailPage() {
               {timeError ? <TabError message={timeError} onRetry={() => setTimeError('')} /> : !timeLoaded ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div> : (
                 <>
                   <div className="grid grid-cols-3 gap-4">
-                    {[['Total Hours', totalH.toFixed(1)], ['Billable Hours', billH.toFixed(1)], ['Total Value', `R${totalV.toFixed(2)}`]].map(([l, v]) => (
+                    {/* Stored line totals over every entry listed (leave included) — not the Engagement Budget's consumption rule. */}
+                    {[['Total Hours (all entries)', totalH.toFixed(1)], ['Billable Hours', billH.toFixed(1)], ['Total Value (stored line totals)', `R${totalV.toFixed(2)}`]].map(([l, v]) => (
                       <div key={l} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-4">
                         <div className="flex items-center gap-2 text-xs text-[var(--ff-text-secondary)] mb-1"><Clock className="h-3.5 w-3.5" />{l}</div>
                         <div className="text-xl font-semibold text-[var(--ff-text-primary)]">{v}</div>

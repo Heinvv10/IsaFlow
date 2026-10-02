@@ -5,6 +5,7 @@
  * (bump it after an entry is saved so the balance includes it).
  */
 import { useEffect, useState } from 'react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import { fetchJobBudgets, type JobBudgetRow } from './practiceApi';
 import { EngagementBudgetSummary, BUDGET_STATE_TEXT } from './EngagementBudgetSummary';
 import { CLOSED_JOB_STATUSES } from '@/modules/accounting/services/practice/practiceJobBudget';
@@ -22,21 +23,30 @@ interface Props {
 export function JobBudgetPicker({ practiceClientId, jobId, onChange, refreshKey, selectClassName, labelClassName }: Props) {
   const [jobs, setJobs] = useState<JobBudgetRow[]>([]);
   const [error, setError] = useState('');
+  // True once this client's list has loaded: an empty list mid-reload must not clear the chosen job.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    setJobs([]); setError('');
+    setJobs([]); setError(''); setLoaded(false);
     if (!practiceClientId) return;
     let cancelled = false;
     void (async () => {
       try {
         const rows = await fetchJobBudgets(practiceClientId);
-        if (!cancelled) setJobs(rows.filter((j) => !CLOSED_JOB_STATUSES.includes(j.jobStatus)).sort((a, b) => a.title.localeCompare(b.title)));
+        if (cancelled) return;
+        setJobs(rows.filter((j) => !CLOSED_JOB_STATUSES.includes(j.jobStatus)).sort((a, b) => a.title.localeCompare(b.title)));
+        setLoaded(true);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load jobs');
+        if (!cancelled) setError(apiErrorMessage(err, 'Could not load the jobs - try again'));
       }
     })();
     return () => { cancelled = true; };
   }, [practiceClientId, refreshKey]);
+
+  // A chosen job that has since closed is no longer offered: drop it rather than send a hidden id.
+  useEffect(() => {
+    if (loaded && jobId && !jobs.some((j) => j.jobId === jobId)) onChange('');
+  }, [loaded, jobs, jobId, onChange]);
 
   const selected = jobs.find((j) => j.jobId === jobId);
   const placeholder = !practiceClientId ? 'Pick a client first' : jobs.length ? 'No job' : 'No open jobs for this client';
@@ -48,7 +58,7 @@ export function JobBudgetPicker({ practiceClientId, jobId, onChange, refreshKey,
         <option value="">{placeholder}</option>
         {jobs.map((j) => <option key={j.jobId} value={j.jobId}>{j.title}</option>)}
       </select>
-      {error && <p className={`text-xs ${BUDGET_STATE_TEXT.over}`}>Could not load jobs: {error}</p>}
+      {error && <p className={`text-xs ${BUDGET_STATE_TEXT.over}`}>{error}</p>}
       {selected && <EngagementBudgetSummary status={selected} />}
     </div>
   );

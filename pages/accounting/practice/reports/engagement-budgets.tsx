@@ -10,6 +10,7 @@ import { Loader2, AlertCircle, Wallet, Download } from 'lucide-react';
 import { fetchActiveClients, fetchJobBudgets, type JobBudgetRow, type PracticeClient } from '@/components/practice/practiceApi';
 import { fmtRand, BUDGET_STATE_TEXT, BUDGET_STATE_LABEL } from '@/components/practice/EngagementBudgetSummary';
 import { downloadCsv } from '@/lib/csvExport';
+import { apiErrorMessage } from '@/lib/apiFetch';
 import type { CsvColumn } from '@/lib/csvExport';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -38,7 +39,7 @@ export default function EngagementBudgetsPage() {
   useEffect(() => {
     fetchActiveClients()
       .then(setClients)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load clients'));
+      .catch((e: unknown) => setError(apiErrorMessage(e, 'Could not load the clients - try again')));
   }, []);
 
   useEffect(() => {
@@ -48,7 +49,8 @@ export default function EngagementBudgetsPage() {
     setError(null);
     fetchJobBudgets(clientId || undefined)
       .then((r) => { if (!cancelled) setRows(r); })
-      .catch((e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load'); })
+      // A failed load must not leave the previous client's rows on screen under the new filter.
+      .catch((e: unknown) => { if (!cancelled) { setRows([]); setError(apiErrorMessage(e, 'Could not load the engagement budgets - try again')); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [clientId]);
@@ -79,7 +81,7 @@ export default function EngagementBudgetsPage() {
             <div className="ml-auto">
               <button
                 onClick={handleDownload}
-                disabled={rows.length === 0 && !loading}
+                disabled={loading || rows.length === 0}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded border bg-white hover:bg-slate-50 text-sm text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Download className="h-3.5 w-3.5" />Download CSV
