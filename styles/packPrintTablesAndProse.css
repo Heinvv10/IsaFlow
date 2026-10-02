@@ -179,6 +179,9 @@ html.print-mode .pack-legacy-heading { break-after: avoid; }
 }
 /* A card that fits on a sheet never splits across two. */
 html.print-mode .pack-legacy-card { break-inside: avoid; }
+/* The card's name, target and reason, in the pack's mid grey: 5.3:1 on
+ * paper, where #9ca3af was 2.5:1 (WCAG AA is 4.5). */
+html.print-mode .pack-legacy-card-note { color: var(--pack-grey-mid); }
 html.print-mode .pack-legacy-toc { margin-bottom: calc(var(--pack-baseline) * 2); }
 /* A section that follows another on the same sheet is set off from it by twice
  * the board pack's block spacing (`--pack-baseline`), so its heading plainly

@@ -106,14 +106,16 @@ function Block({ block }: { block: PackBlock }) {
             const figure = scorecardFigure(item);
             return (
               <div key={item.ratioKey} className="rounded border border-[var(--ff-border-light)] p-2 text-xs">
-                <span className="block text-[var(--ff-text-tertiary)]">{item.name}</span>
+                {/* Secondary ink, not tertiary: #9ca3af on white is 2.5:1, and
+                  * the reason is the card's whole content where it has no figure. */}
+                <span className="pack-legacy-card-note block text-[var(--ff-text-secondary)]">{item.name}</span>
                 {figure.scored ? (
                   <>
                     <span className="font-bold tabular-nums text-[var(--ff-text-primary)]">{figure.value}</span>
-                    <span className="ml-1 text-[var(--ff-text-tertiary)]">/ {figure.target}</span>
+                    <span className="pack-legacy-card-note ml-1 text-[var(--ff-text-secondary)]">/ {figure.target}</span>
                   </>
                 ) : (
-                  <span className="text-[var(--ff-text-tertiary)]">{figure.reason}</span>
+                  <span className="pack-legacy-card-note text-[var(--ff-text-secondary)]">{figure.reason}</span>
                 )}
               </div>
             );
