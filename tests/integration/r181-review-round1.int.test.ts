@@ -107,9 +107,10 @@ describe('1. a fee the customer paid is the gateway\'s, not customer credit', ()
   it('amount below requested_amount: the amount is banked (requested_amount is not trusted), flagged', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
-    expect((await deliver(ref, 11000, 'ZAR', { requested_amount: 11500 })).statusCode).toBe(200);
+    expect((await deliver(ref, 11000, 'ZAR', { requested_amount: 11500, fees: 150 })).statusCode).toBe(200);
     expect(await settlement(A, ref, id)).toMatchObject({
       payments: [{ total: '110.00' }], review: 'review:amount_mismatch,amount_below_requested_amount' });
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '108.50', feeExpense: '1.50', balanced: true });
   });
 });
 
