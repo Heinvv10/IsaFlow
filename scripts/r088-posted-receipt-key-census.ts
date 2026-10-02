@@ -30,6 +30,7 @@
 import { writeFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { receiptContentKey } from '../src/modules/accounting/services/capture/receiptFingerprint';
+import { rollbackFailed } from '../src/lib/rollbackFailed';
 
 interface Row {
   id: string;
@@ -71,9 +72,10 @@ async function main(): Promise<void> {
         ORDER BY cd.company_id, cd.posted_at, cd.id`,
       [company],
     )).rows;
-    await client.query('ROLLBACK');
   } finally {
-    client.release();
+    // In the finally, so a failed SELECT is rolled back too (R-176).
+    const unusable = await rollbackFailed(client, 'r088-posted-receipt-key-census');
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     await pool.end();
   }
 
