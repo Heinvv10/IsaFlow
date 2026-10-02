@@ -58,7 +58,7 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
   const top = 48;
   const labelled = (index: number) => drawn.length <= LABEL_EVERY_BAR_UP_TO || index === drawn.length - 1;
   // The last figure is centred on the last bar, half a band inside the plot's
-  // right edge — at twelve months on 657px about 22px, less than half a
+  // right edge — at twelve months on 657px about 23px, less than half a
   // nine-digit figure. Room for half the figure and its halo is kept beyond
   // the plot, not counting that half band: it depends on the width drawn at.
   const last = drawn[drawn.length - 1];
