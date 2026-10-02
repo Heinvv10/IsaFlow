@@ -58,7 +58,9 @@ journals that would newly read as `unsupportedInputVat` and the unposted
 invoices/bills carrying VAT — so Hein knows the blast radius before real
 tenants' eFiling starts refusing on either check. The unsupported-journal
 half is an ESTIMATE (per-journal, not reversal-chain-rooted the way the app
-is); the unposted-invoice half mirrors `vatUnpostedInvoices.ts` exactly.
+is); the unposted-invoice half follows `vatUnpostedInvoices.ts` but is also
+indicative (undated chain parity, no `journal_dated_after_period` arm, bucketed
+periods — the script's header lists them).
 
 ## Recent changes
 - 2026-10-02 (D7 round 3, adversarial pass): **each VAT-recon arm is read the way the source it is compared with reads.** `gl_revenue` is compared with the undated invoice leg, so it leaves a deleted document's chain out; `gl_output_vat` / `gl_input_vat` are compared with `vat_returns`, which `submitVATReturn` fills from the LEDGER, so they carry every entry. Round 2 dropped the chain from the VAT arms too and a correct filed return read as an `Output VAT variance` (brk-d7 V1/V2; V2's June variance was on master as well, from the sdjr-only exclusion). The capital split and `getVatMultiYearSummary` (compared with no document) read the ledger with no exclusion; the effective VAT rate divides by a new internal `ledger_revenue`, never by the revenue arm. **Every reversal-chain walk carries a `CYCLE` guard** (shared/softDeleteLedgerPresence `chainWalk`): one forged `reversal_of_id` loop hung the VAT recon, the VAT201 unposted check and — through the parity walk, on master too — the AR reconciliation and aging, server-side. The deleted-chain test now walks UP from each entry (scoped to that entry's chain) instead of collecting a company-wide set. Tests: `k053-vat-recon-vs-filed-return.int.test.ts`, `k053-chain-cycle-guard.int.test.ts`.
