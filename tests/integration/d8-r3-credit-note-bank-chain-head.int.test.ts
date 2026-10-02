@@ -130,4 +130,32 @@ describeIfDb('D8 round 3: credit-note cancel and bank reversal take a re-reverse
     const [line] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Row[];
     expect(line!.status).toBe('imported');
   });
+
+  // Merge of master's date_moved (2026-10-02) with D8: the contra is dated from the HEAD it reverses, so the
+  // "original" date it is compared with is the head's, and a chain already out posts no contra and has no date.
+  async function allocatedJournal(desc: string): Promise<{ tx: string; journal: string }> {
+    const tx = await seedBankTx(fx, { date: '2026-05-12', amount: -230, description: desc });
+    await inTx(fx, () => allocateTransaction(fx.companyId, tx, expense, fx.userId, undefined, 'account', undefined, undefined));
+    const [m] = (await sql`
+      SELECT l.journal_entry_id AS j FROM bank_transactions bt JOIN gl_journal_lines l ON l.id = bt.matched_journal_line_id
+      WHERE bt.id = ${tx}::UUID AND bt.company_id = ${fx.companyId}::UUID`) as Row[];
+    return { tx, journal: String(m!.j) };
+  }
+  const reverseOn = async (id: string, reversalDate: string) =>
+    (await inTx(fx, () => reverseJournalEntry(fx.companyId, id, fx.userId, { reversalDate }))).id;
+
+  it('a re-reversed allocation journal: original_entry_date is the head\'s date, so an undisturbed contra has not moved', async () => {
+    const { tx, journal } = await allocatedJournal('D8R6 DATED');
+    await reverseOn(await reverseOn(journal, '2026-06-01'), '2026-06-15');
+    const r = await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId));
+    expect({ original: r.originalEntryDate, contra: r.reversalEntryDate }).toEqual({ original: '2026-06-15', contra: '2026-06-15' });
+  });
+
+  it('a chain already out: the line is freed, no contra, no reversal date', async () => {
+    const { tx, journal } = await allocatedJournal('D8R6 OUT');
+    await reverseOn(journal, '2026-06-01');
+    const r = await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId));
+    expect(r.reversalEntryDate).toBeNull();
+    expect(r.vatLockRoll ?? null).toBeNull();
+  });
 });

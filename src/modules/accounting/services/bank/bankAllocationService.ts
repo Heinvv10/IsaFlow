@@ -25,7 +25,7 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { assertReversalDatePostable, reversalTargetOf } from './reversalDatePostable';
+import { assertReversalDatePostable, entryDateOf, reversalTargetOf } from './reversalDatePostable';
 import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
@@ -773,6 +773,13 @@ export async function splitAllocateTransaction(
 
 // ── Reverse Reconciled ────────────────────────────────────────────────────────
 
+/** A pg DATE (Date or string) as YYYY-MM-DD; null when absent. */
+function isoDay(v: unknown): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
 /**
  * Undo an allocation: post the contra for the matched journal, then return the
  * bank transaction to 'imported'.
@@ -797,14 +804,19 @@ export async function reverseReconciledTransaction(
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   await refuseSettledProvisionalLine(companyId, tx); // R-127: a settled provisional's own line
   let journalEntryId: string | null = null, reverseId: string | null = null;
+  let originalEntryDate: string | null = null;
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
-      SELECT jl.journal_entry_id FROM gl_journal_lines jl
+      SELECT jl.journal_entry_id, je.entry_date FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
       reverseId = await reversalTargetOf(companyId, journalEntryId); // pre-write; D8: the chain head, null when out
+      // Read-only, and before the first write of this function.
       if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate);
+      // The contra defaults to the date of the journal it reverses (D8: the chain head); date_moved compares to it.
+      originalEntryDate = isoDay(reverseId && reverseId !== journalEntryId ? await entryDateOf(companyId, reverseId) : jlRows[0]!.entry_date);
     }
   }
 
@@ -837,7 +849,13 @@ export async function reverseReconciledTransaction(
         const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;
         // Carried out so reverse_bank_allocation / void_receipt can say the
         // contra was dated past a locked VAT period.
-        result = { ...result, vatLockRoll: reversal?.vatLockRoll ?? null };
+        // and, with the two dates, that a CLOSED fiscal period moved it to today
+        // (2026-10-02: nine April-2025 contras landed in October while the reply
+        // said nothing had moved). A chain already out (D8) posts no contra: no date.
+        result = {
+          ...result, vatLockRoll: reversal?.vatLockRoll ?? null,
+          originalEntryDate, reversalEntryDate: reversal ? isoDay(reversal.entryDate) : null,
+        };
       } catch (e) {
         // A CODED refusal (VatPeriodLockedError and its kin: a string code that
         // is not a 5-character SQLSTATE) passes through as itself — rewrapped,

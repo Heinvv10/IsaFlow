@@ -74,3 +74,10 @@ export async function reversalTargetOf(companyId: string, journalEntryId: string
   const head = await lockChainHead(companyId, journalEntryId);
   return head?.standing ? head.id : null;
 }
+
+/** A journal's entry_date, as pg returns it (Date or string). */
+export async function entryDateOf(companyId: string, journalEntryId: string): Promise<unknown> {
+  const [row] = (await sql`SELECT entry_date FROM gl_journal_entries
+    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+  return row?.entry_date ?? null;
+}
