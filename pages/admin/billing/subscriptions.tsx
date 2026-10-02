@@ -152,8 +152,7 @@ export default function SubscriptionsPage() {
     setCancelError('');
     try {
       const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to cancel');
+      await assertOk(res, 'Could not cancel the subscription - try again');
       setConfirmCancelId(null);
       void load(search, status, page);
     } catch (err) {

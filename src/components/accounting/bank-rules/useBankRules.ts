@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
-import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { emitApplyToast } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
@@ -97,18 +97,12 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
     setError('');
     try {
       const res = await apiFetch('/api/accounting/bank-rules', { credentials: 'include' });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({} as Record<string, unknown>));
-        const msg = (body as { error?: { message?: string }; message?: string }).error?.message
-          ?? (body as { message?: string }).message
-          ?? `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
+      await assertOk(res, 'Could not load the rules - try again');
       const json = await res.json();
       setRules((json.data?.items as BankRule[]) || []);
       setSelected(new Set());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load rules');
+      setError(apiErrorMessage(err, 'Could not load the rules - try again'));
     } finally {
       setLoading(false);
     }

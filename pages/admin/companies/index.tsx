@@ -86,8 +86,8 @@ export default function AdminCompaniesPage() {
       if (q)  params.set('search', q);
       if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/companies?${params}`);
+      await assertOk(res, 'Could not load companies - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to load companies');
       const d = (json as { data: PagedResponse }).data;
       setRows(d.items);
       setTotal(d.total);
@@ -159,8 +159,7 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify(createForm),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to create company');
+      await assertOk(res, 'Could not create the company - try again');
       setShowCreate(false);
       setCreateForm({ name: '', trading_name: '', email: '', phone: '', plan_id: '' });
       setPage(1);
@@ -215,8 +214,7 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'suspend', company_ids: [...selectedIds], reason: 'Bulk suspended by admin' }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Bulk suspend failed');
+      await assertOk(res, 'Could not suspend the companies - try again');
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
@@ -234,8 +232,7 @@ export default function AdminCompaniesPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ action: 'extend_trial', company_ids: [...selectedIds], days: 7 }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Extend trial failed');
+      await assertOk(res, 'Could not extend the trial - try again');
       setSelectedIds(new Set());
       void load(search, status, page, sortBy, sortDir);
     } catch (err) {
