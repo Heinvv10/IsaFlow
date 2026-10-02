@@ -22,9 +22,10 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { verifyExtensionToken } from './extensionJwt';
-import { deferEnd, answerThrow, replayEnd, abortResponse, type DeferredEnd } from './deferredEnd';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
 export interface ExtensionAuthedRequest extends NextApiRequest {
   extension: {
@@ -53,6 +54,8 @@ function pool(): pg.Pool {
           ? false
           : { rejectUnauthorized: false },
   });
+  // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+  _pool.on('error', (err) => log.warn('withExtensionToken pool error', { message: err.message }, 'Auth'));
   return _pool;
 }
 
@@ -91,6 +94,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
 
     const client = await pool().connect();
     let deferred: DeferredEnd | null = null;
+    let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
@@ -115,14 +119,14 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
 
       const row = conn.rows[0];
       if (!row || !row.is_active || row.company_id !== claims.companyId) {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withExtensionToken');
         return res.status(403).json({
           success: false,
           error: { code: 'CONNECTION_INACTIVE', message: 'Connection is not active' },
         });
       }
       if (row.provider !== 'extension') {
-        await client.query('ROLLBACK');
+        unusable = await rollbackFailed(client, 'withExtensionToken');
         return res.status(403).json({
           success: false,
           error: { code: 'WRONG_PROVIDER', message: 'Connection is not an extension provider' },
@@ -152,24 +156,24 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       // NOT COMMIT its partial writes, and must NOT drain afterCommit work
       // queued before the fault.
       const handlerFailed = res.statusCode >= 500;
-      try {
-        await client.query(handlerFailed ? 'ROLLBACK' : 'COMMIT');
-      } catch (finalizeErr) {
-        try { await client.query('ROLLBACK'); } catch { /* secondary */ }
-        log.error('withExtensionToken: transaction finalize failed after handler responded', {
-          status: res.statusCode, handlerFailed, connectionId: claims.connectionId,
-          message: finalizeErr instanceof Error ? finalizeErr.message : String(finalizeErr),
-        }, 'extensionAuth');
-        if (res.headersSent) {
-          abortResponse(res); // the status is on the wire; a clean close would read as success
-        } else {
-          const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.setHeader('Content-Length', Buffer.byteLength(body));
-          flush.realEnd(body);
+      const finalizeCtx = { source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId, extra: { connectionId: claims.connectionId } };
+      if (handlerFailed) {
+        // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
+        // fails: the connection is then destroyed and the server discards the transaction (R-176).
+        const rollbackErr = await rollbackError(client, 'withExtensionToken');
+        unusable = rollbackErr !== null;
+        if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true, component: 'extensionAuth' });
+      } else {
+        try {
+          await client.query('COMMIT');
+        } catch (finalizeErr) {
+          // The COMMIT failed after the handler "responded": the write did not land, or its
+          // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
+          unusable = await rollbackFailed(client, 'withExtensionToken');
+          reportFinalizeFailure(req, res, finalizeErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: unusable, component: 'extensionAuth' });
+          answerCommitFailed(res, flush);
+          return; // finally still runs (release + slow-request log)
         }
-        return;
       }
       // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
       replayEnd(res, flush, {
@@ -179,14 +183,14 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       // R-159: answer the throw here; see withAuth.
-      let rolledBack = true;
-      try { await client.query('ROLLBACK'); } catch { rolledBack = false; }
+      const failed = await rollbackFailed(client, 'withExtensionToken');
+      unusable = unusable || failed; // an earlier failed ROLLBACK still condemns the connection
       answerThrow(req, res, deferred, err, {
         source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
-        extra: { connectionId: claims.connectionId }, rolledBack,
+        extra: { connectionId: claims.connectionId }, rolledBack: !failed,
       });
     } finally {
-      client.release();
+      client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     }
   };
 }

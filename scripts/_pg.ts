@@ -22,6 +22,8 @@
  */
 
 import pg from 'pg';
+import { rollbackFailed } from '../src/lib/rollbackFailed';
+import { log } from '../src/lib/logger';
 
 let _pools: Map<string, pg.Pool> = new Map();
 
@@ -40,6 +42,7 @@ export function createSql(connectionString?: string) {
         ? false
         : { rejectUnauthorized: false },
     });
+    pool.on('error', (err) => log.warn('scripts/_pg pool error', { message: err.message }, 'DB'));
     _pools.set(url, pool);
   }
 
@@ -101,6 +104,8 @@ function getOrCreatePool(url: string): pg.Pool {
       max: 5,
       ssl: url.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
     });
+    // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
+    pool.on('error', (err) => log.warn('scripts/_pg pool error', { message: err.message }, 'DB'));
     _pools.set(url, pool);
   }
   return pool;
@@ -133,6 +138,7 @@ export async function withTransactionPg<T>(
   if (!url) throw new Error('withTransactionPg needs a connection string or DATABASE_URL');
   const pool = getOrCreatePool(url);
   const client = await pool.connect();
+  let unusable = false;
   try {
     await client.query('BEGIN');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,9 +165,9 @@ export async function withTransactionPg<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    try { await client.query('ROLLBACK'); } catch { /* secondary; swallow */ }
+    unusable = await rollbackFailed(client, 'withTransactionPg');
     throw err;
   } finally {
-    client.release();
+    client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
   }
 }

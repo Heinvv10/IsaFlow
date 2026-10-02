@@ -7,6 +7,7 @@ import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
@@ -64,6 +65,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     const appClient = await getAppPool().connect();
     let role: string | undefined;
     let standing: UserAccountRow | null = null;
+    let gateUnusable = false;
     try {
       await appClient.query('BEGIN');
       await appClient.query('SET LOCAL ROLE app_user');
@@ -79,10 +81,10 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       standing = result.rows[0] ?? null;
       await appClient.query('COMMIT');
     } catch (err) {
-      try { await appClient.query('ROLLBACK'); } catch { /* secondary */ }
+      gateUnusable = await rollbackFailed(appClient, 'withPlatformAdmin gate');
       throw err; // Fail-closed — withErrorHandler returns 500.
     } finally {
-      appClient.release();
+      appClient.release(gateUnusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
     }
 
     if (role !== 'super_admin') {
@@ -110,6 +112,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
 
     // ── Handler tx: platform_admin pool (BYPASSRLS) ──────────────────────────
     const adminClient = await getPlatformAdminPool().connect();
+    let unusable = false;
     // The connection authenticates as the platform_admin Postgres role
     // (BYPASSRLS). DO NOT add SET LOCAL ROLE app_user here — that would
     // drop BYPASSRLS and re-apply RLS policies, defeating the purpose of
@@ -153,10 +156,12 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       // response, the privileged mutation must NOT persist without its audit
       // row — ROLLBACK instead of COMMIT (fail-closed).
       if (ctx.criticalAuditFailed) {
-        await adminClient.query('ROLLBACK');
+        // Through rollbackFailed (R-176): bounded, and a failure destroys the connection, which
+        // discards the unaudited write just the same. The 500 below stands either way.
+        unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
         log.error(
           'withPlatformAdmin: critical audit write failed — admin action rolled back',
-          { url: req.url, userId: claims!.sub },
+          { url: req.url, userId: claims!.sub, connectionDestroyed: unusable },
           'Auth'
         );
         if (!res.headersSent) {
@@ -171,10 +176,11 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       await adminClient.query('COMMIT');
       drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {
-      try { await adminClient.query('ROLLBACK'); } catch { /* secondary */ }
+      // `||`: the forced ROLLBACK above may already have failed, and that still condemns the connection.
+      unusable = (await rollbackFailed(adminClient, 'withPlatformAdmin')) || unusable;
       throw err;
     } finally {
-      adminClient.release();
+      adminClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       const ms = Date.now() - startedAt;
       if (ms > 200) log.info('withPlatformAdmin slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {

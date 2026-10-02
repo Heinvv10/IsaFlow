@@ -1,0 +1,331 @@
+# RED on origin/master 090497265 + the new suite only; fixture isaflow-fixture-r175 (2026-10-01T10:32:18Z).
+# The 4 'COMMIT fails but ROLLBACK succeeds' cases are red only on the new connectionDestroyed log field; their outcome assertions (state idle, same pid, no row) pass on unchanged code.
+# withPublicRouteTransaction: all 5 cases pass on unchanged code (it already evicts).
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1239ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1050ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1049ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 12ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1057ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1056ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1055ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 19ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1047ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1046ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1054ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 16ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next request cannot commit the write 1050ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1047ms
+     × a 500 answer whose ROLLBACK fails twice: the connection is destroyed 1041ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 10ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 16 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 1 to be +0 // Object.is equality
+AssertionError: expected 'idle in transaction' to be null
+AssertionError: expected 'idle in transaction' to be null
+AssertionError: expected { …(4) } to match object { handlerFailed: false, …(1) }
+AssertionError: expected { status: 200, …(3) } to match object { handlerFailed: false, …(1) }
+ Test Files  1 failed (1)
+      Tests  16 failed | 13 passed | 1 skipped (30)
+# Census (b), unchanged matcher 090497265 + the new fixture cases:
+     × the matcher flags Reflect.defineProperty(res, 'end', { value: f }); 4ms
+AssertionError: expected false to be true // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 24 passed (25)
+
+# Round 2 (all owners). RED on f3d3f6262 + the two new suites; source unchanged since f3d3f6262 (2026-10-01T10:46:09Z).
+# withAlsTransaction passes all 5 (it already evicts). Every healthy-path case passes.
+## tests/integration/r176-other-owners-evict-connection.int.test.ts
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1551ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1045ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1201ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1048ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1065ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1044ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1039ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1050ms
+     × a gate COMMIT that fails, and then its ROLLBACK: the connection is destroyed 1043ms
+     × a COMMIT that fails, and then its ROLLBACK: destroyed, so the next admin write is not read-only 1056ms
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withInviteToken > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (handler transaction) > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withInviteToken > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (handler transaction) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected true to be false // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin (role gate) > a gate COMMIT that fails, and then its ROLLBACK: the connection is destroyed
+AssertionError: expected 2221 not to be 2221 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > portfolio workbench (one READ ONLY transaction per client company) > a COMMIT that fails, and then its ROLLBACK: destroyed, so the next admin write is not read-only
+AssertionError: expected true to be false // Object.is equality
+ Test Files  1 failed (1)
+      Tests  10 failed | 19 passed (29)
+## tests/integration/r176-invite-accept-evicts-connection.int.test.ts
+   × EMAIL_IN_USE whose ROLLBACK fails: the connection is destroyed and the next invitee is still served 1151ms
+   × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 1132ms
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > EMAIL_IN_USE whose ROLLBACK fails: the connection is destroyed and the next invitee is still served
+AssertionError: expected 500 to be 200 // Object.is equality
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership
+AssertionError: expected 1 to be +0 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+
+# Round 3 (review round 1). RED on 6c30dbec8 + the new and changed cases; source unchanged (2026-10-01T11:18:20Z).
+# Pass on this head already, so they are proved by mutants instead: the early returns whose ROLLBACK throws, the real query_timeout case, the criticalAuditFailed case.
+## integration
+   × a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction 15ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 16ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 17ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 16ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 15ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 13ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 10ms
+     × a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write 1046ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 1040ms
+     × a BEGIN that fails after it reached the server: rolled back, so the next admin write is not read-only 4ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 7ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 4ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 3ms
+     × a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back 3ms
+     × the wait is bounded: 500 is sent, the connection is destroyed in flight, the pool keeps no slot 9018ms
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withAuth > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerOrCookieAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withExtensionToken > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+AssertionError: expected { status: 500, code: 'COMMIT_FAILED' } to deeply equal { status: 503, code: 'R176_BUSY' }
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > a BEGIN that fails after it reached the server: rolled back, not pooled inside the open transaction
+AssertionError: expected 'idle in transaction' to be 'idle' // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > sql.transaction > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransactionPg (scripts/_pg.ts) > a throw whose ROLLBACK fails: the connection is destroyed, and the next user cannot commit the write
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withTransactionPg (scripts/_pg.ts) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected 1 to be +0 // Object.is equality
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > portfolio workbench (one READ ONLY transaction per client company) > a BEGIN that fails after it reached the server: rolled back, so the next admin write is not read-only
+AssertionError: expected 'idle in transaction' to be 'idle' // Object.is equality
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerOrCookieAuth (PAT) > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerAuth (PAT) > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+AssertionError: expected { …(6) } to match object { rolledBack: true }
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withExtensionToken > a ROLLBACK that succeeds in the catch after an earlier one failed is logged as rolled back
+AssertionError: expected { …(7) } to match object { rolledBack: true }
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > the wait is bounded: 500 is sent, the connection is destroyed in flight, the pool keeps no slot
+AssertionError: expected 9017 to be less than 7500
+ Test Files  4 failed (4)
+      Tests  15 failed | 66 passed | 1 skipped (82)
+## unit (rollbackFailed bound, release census)
+     × every bare release is one of the pinned ones 153ms
+     × a ROLLBACK that never answers is abandoned at the bound, not before it 3ms
+     × the bound is a few seconds 1ms
+     × an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line 10002ms
+AssertionError: a bare .release(): release with the result of rollbackFailed(), or pin it in BARE with the reason no later caller can receive that connection: expected { …(11) } to deeply equal { …(8) }
+AssertionError: expected undefined to be true // Object.is equality
+AssertionError: expected undefined to be 5000 // Object.is equality
+Error: Test timed out in 10000ms.
+ Test Files  2 failed (2)
+      Tests  4 failed | 20 passed (24)
+
+# Round 4 (review round 2). RED on eb9661c22 + the new and changed cases; source unchanged (2026-10-01T15:35:04Z).
+# rollbackBound does not exist on this head: the bounded-wait case fails on that, and rollbackFailed.test.ts does not load. The query_timeout case shows the backend still 'active' after its socket was destroyed.
+## integration
+   × a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership 46ms
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > a COMMIT that fails, and then its ROLLBACK: the next accept cannot commit the failed membership
+AssertionError: expected [ false, false ] to deeply equal [ true, true ]
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 31ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 20ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 13ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 31ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 21ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 13ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 19ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 18ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 10ms
+     × a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands 19ms
+     × a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets 16ms
+     × a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused 7ms
+     × the connection is destroyed, and the next admin request cannot commit the unaudited write 25ms
+     × an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed 37ms
+     × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 33ms
+     × an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed 25ms
+     × an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed 19ms
+     × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 1ms
+     × a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed 4797ms
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts [ tests/integration/r176-wrapper-edges.int.test.ts ]
+Error: Hook timed out in 10000ms.
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withAuth > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerOrCookieAuth (PAT) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerAuth (PAT) > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected { …(4) } to match object { handlerFailed: false, …(3) }
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withAuth > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerOrCookieAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerAuth (PAT) > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withExtensionToken > a 503 answer whose ROLLBACK fails: destroyed, and the handler's own 503 is what the client gets
+AssertionError: expected undefined to match object { …(7) }
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withAuth > a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerOrCookieAuth (PAT) > a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withBearerAuth (PAT) > a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused
+AssertionError: expected { …(4) } to match object { handlerFailed: false, …(1) }
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withExtensionToken > a COMMIT that fails, and then its ROLLBACK: the connection is destroyed, the write never lands
+AssertionError: expected { status: 200, …(3) } to match object { handlerFailed: false, …(3) }
+ FAIL  tests/integration/r176-failed-rollback-evicts-connection.int.test.ts > withExtensionToken > a COMMIT that fails but whose ROLLBACK succeeds: rolled back, and the connection is reused
+AssertionError: expected { status: 200, …(3) } to match object { handlerFailed: false, …(1) }
+ FAIL  tests/integration/r176-other-owners-evict-connection.int.test.ts > withPlatformAdmin: a critical audit write failed, and the forced ROLLBACK fails too > the connection is destroyed, and the next admin request cannot commit 
+AssertionError: expected 2 to be 1 // Object.is equality
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth > an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerOrCookieAuth (PAT) > an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withBearerAuth (PAT) > an early return (429) whose ROLLBACK fails: still 429, and the connection is destroyed
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withExtensionToken > an early return (403) whose ROLLBACK fails: still 403, and the connection is destroyed
+AssertionError: expected 2 to be 1 // Object.is equality
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed
+TypeError: Cannot read properties of undefined (reading 'ms')
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > a real client-side query_timeout: COMMIT and ROLLBACK both time out in the queue; cancelled and destroyed
+AssertionError: expected 'active' to be null
+ Test Files  3 failed (3)
+      Tests  19 failed | 60 passed | 1 skipped (80)
+## unit (finalize report, rollback helper, release census)
+     × logs the request under the message an alert watches, with the tenant and what failed 1ms
+     × captures to Sentry with the tenant when Sentry is on, and not when it is off 0ms
+     × a Sentry capture that throws does not escape: the wrapper still has a response to send 1ms
+     × keeps the wrapper's own log component when it has one 0ms
+     × nothing reaches .release indirectly, and every argument is a ROLLBACK outcome 4ms
+ FAIL  tests/unit/lib/rollbackFailed.test.ts [ tests/unit/lib/rollbackFailed.test.ts ]
+TypeError: Cannot read properties of undefined (reading 'ms')
+ FAIL  tests/unit/lib/releaseCensus.test.ts > R-176: no transaction owner releases its connection bare > nothing reaches .release indirectly, and every argument is a ROLLBACK outcome
+AssertionError: release with the result of rollbackFailed() from the same function: expected [ Array(1) ] to deeply equal []
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > logs the request under the message an alert watches, with the tenant and what failed
+TypeError: reportFinalizeFailure is not a function
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > captures to Sentry with the tenant when Sentry is on, and not when it is off
+TypeError: reportFinalizeFailure is not a function
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > a Sentry capture that throws does not escape: the wrapper still has a response to send
+AssertionError: expected [Function] to not throw an error but 'TypeError: __vi_import_0__.reportFina…' was thrown
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > keeps the wrapper's own log component when it has one
+TypeError: reportFinalizeFailure is not a function
+ Test Files  3 failed (3)
+      Tests  5 failed | 55 passed (60)
+
+# Round 5 (review round 3). RED on 9d835c70e + the new and changed cases; source unchanged (2026-10-01T16:56:12Z).
+# rollbackFailed.test.ts and the wrapper-edges bounded-wait case need setRollbackBoundForTests, which does not exist on this head.
+## integration
+   × EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served 52ms
+ FAIL  tests/integration/r176-invite-accept-evicts-connection.int.test.ts > EMAIL_IN_USE whose ROLLBACK fails: still 409, the connection is destroyed and the next invitee is served
+AssertionError: expected 2 to be 1 // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+     × the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed 1ms
+     × the forced ROLLBACK fails, then the one in the catch succeeds: still destroyed 1059ms
+     × its memoised pool survives a destroyed client's error 6ms
+ FAIL  tests/integration/r176-platform-admin-edges.int.test.ts > withPlatformAdmin: a critical audit write failed > the forced ROLLBACK fails, then the one in the catch succeeds: still destroyed
+AssertionError: expected 95328 not to be 95328 // Object.is equality
+ FAIL  tests/integration/r176-platform-admin-edges.int.test.ts > scripts/_pg.ts > its memoised pool survives a destroyed client's error
+AssertionError: expected [ false ] to deeply equal [ true ]
+ FAIL  tests/integration/r176-wrapper-edges.int.test.ts > withAuth: a ROLLBACK that does not answer > the wait is bounded: 500 is sent, the query in flight is cancelled, the connection is destroyed
+TypeError: setRollbackBoundForTests is not a function
+ Test Files  2 failed | 1 passed (3)
+      Tests  3 failed | 52 passed (55)
+## unit
+     × sends the protocol CancelRequest with the backend pid and secret key 6ms
+     × opens no socket for a mock client, and says so 1ms
+     × opens no socket for a client that never connected, and says so 0ms
+     × opens no socket for null, and says so 0ms
+     × logs the request under the message an alert watches, with the tenant and what failed 4ms
+     × never logs the query string: some routes carry a secret there 2ms
+     × a file that constructs a pool listens for its errors, or is pinned with the reason 113ms
+     × unproven, fails closed: async function f(a, b) { const gone = await rollbackFailed(a, "s"); a.release(gone); b.release(gone); } 4ms
+     × unproven, fails closed: async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release(bad); } 1ms
+     × a ROLLBACK that never answers is abandoned at the bound, not before it, and the backend is cancelled 4ms
+     × a test can shorten the bound, and gets a restore 1ms
+     × outside a test run (NODE_ENV="production") the bound cannot be changed 2ms
+     × outside a test run (NODE_ENV="development") the bound cannot be changed 1ms
+     × outside a test run (NODE_ENV="") the bound cannot be changed 0ms
+     × the production bound is exported read-only 2ms
+     × a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn 10001ms
+     × an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line 10010ms
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends the protocol CancelRequest with the backend pid and secret key
+AssertionError: expected undefined to be true // Object.is equality
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for a mock client, and says so
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for a client that never connected, and says so
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > opens no socket for null, and says so
+AssertionError: expected undefined to be false // Object.is equality
+ FAIL  tests/unit/lib/poolErrorListenerCensus.test.ts > R-176: every long-lived pool listens for errors > a file that constructs a pool listens for its errors, or is pinned with the reason
+AssertionError: add pool.on('error', …), or pin the file in UNLISTENED with the reason an uncaught pool error is acceptable there: expected { …(11) } to deeply equal { …(8) }
+ FAIL  tests/unit/lib/releaseCensus.test.ts > R-176: no transaction owner releases its connection bare > unproven, fails closed: async function f(a, b) { const gone = await rollbackFailed(a, "s"); a.release(gone); b.release(gone);
+ FAIL  tests/unit/lib/releaseCensus.test.ts > R-176: no transaction owner releases its connection bare > unproven, fails closed: async function f(a, b) { let bad; try { await a.query("ROLLBACK"); } catch (e) { bad = e; } b.release
+AssertionError: expected [] to deeply equal [ 'unproven' ]
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a ROLLBACK that never answers is abandoned at the bound, not before it, and the backend is cancelled
+AssertionError: expected undefined to be true // Object.is equality
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a test can shorten the bound, and gets a restore
+TypeError: setRollbackBoundForTests is not a function
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="production") the bound cannot be changed
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="development") the bound cannot be changed
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > outside a test run (NODE_ENV="") the bound cannot be changed
+AssertionError: expected [Function] to throw error matching /only in a test run/ but got '__vi_import_1__.setRollbackBoundForTe…'
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > the production bound is exported read-only
+AssertionError: expected [ 'rollbackBound', …(2) ] to deeply equal [ 'ROLLBACK_TIMEOUT_MS', …(3) ]
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a timed-out ROLLBACK whose backend cannot be cancelled is said once, at warn
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > an abandoned ROLLBACK that rejects later is handled: no unhandled rejection, no second log line
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > logs the request under the message an alert watches, with the tenant and what failed
+AssertionError: expected [ [ …(3) ] ] to deeply equal [ [ …(3) ] ]
+ FAIL  tests/unit/lib/auth/deferredEnd.test.ts > reportFinalizeFailure (R-176) > never logs the query string: some routes carry a secret there
+AssertionError: expected '[["withAuth: transaction finalize fai…' not to contain 's3cr3t'
+ Test Files  5 failed (5)
+      Tests  17 failed | 80 passed (97)
+
+# Round 6 (review round 4). RED on 496a26cfb + the new and changed cases; source unchanged (2026-10-01T18:08:40Z).
+# The real-client cancel case passes on this head (the installed pg gives a numeric key); it is the guard for a type change.
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+     × a ROLLBACK that timed out (no answer, or pg's query_timeout) with no cancel possible is warned once; a refused one is not 4ms
+     × sends a CancelRequest whose key is a 32-byte key (protocol 3.2), byte for byte 4ms
+     × sends a CancelRequest whose key is a 4-byte key held as a Buffer, byte for byte 1ms
+     × a file that constructs a pool listens for its errors, or is pinned with the reason 81ms
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends a CancelRequest whose key is a 32-byte key (protocol 3.2), byte for byte
+ FAIL  tests/unit/lib/cancelBackend.test.ts > cancelBackend > sends a CancelRequest whose key is a 4-byte key held as a Buffer, byte for byte
+AssertionError: expected false to be true // Object.is equality
+ FAIL  tests/unit/lib/poolErrorListenerCensus.test.ts > R-176: every long-lived pool listens for errors > a file that constructs a pool listens for its errors, or is pinned with the reason
+AssertionError: add pool.on('error', …), or pin the file in UNLISTENED with the reason an uncaught pool error is acceptable there: expected { …(8) } to deeply equal { …(7) }
+ FAIL  tests/unit/lib/rollbackFailed.test.ts > rollbackFailed > a ROLLBACK that timed out (no answer, or pg's query_timeout) with no cancel possible is warned once; a refused one is not
+AssertionError: expected +0 to be 1 // Object.is equality
+ Test Files  3 failed (3)
+      Tests  4 failed | 30 passed (34)
+
+# Round 7 (review round 5). RED on 058e40913 + the new cases; source unchanged (2026-10-01T19:07:58Z). The exact-bytes and boundary cases pass on this head; they pin behaviour.
+     × opens no socket for a NaN pid, and says so 3ms
+     × opens no socket for a fractional pid, and says so 1ms
+     × opens no socket for a pid above 32 bits, and says so 1ms
+     × opens no socket for a pid below int32, and says so 0ms
+     × opens no socket for a NaN key, and says so 0ms
+     × opens no socket for a fractional key, and says so 0ms
+     × opens no socket for a key above 32 bits, and says so 0ms
+     × opens no socket for a key below int32, and says so 0ms
+     × opens no socket for an empty Buffer key, and says so 0ms
+     × opens no socket for a 3-byte Buffer key, and says so 0ms
+     × opens no socket for a 257-byte Buffer key, and says so 0ms
+ Test Files  1 failed (1)
+      Tests  11 failed | 17 passed (28)
+
+# Round 8 (/review on PR #603). RED on bf07cf80b + the new verify-email cases; source unchanged (2026-10-01T19:59:21Z).
+     × provisioning throws, its ROLLBACK fails: released with true, the pool still ended, the error rethrown 4ms
+     × an unknown token whose ROLLBACK fails: still 410, released with true, the pool still ended 1ms
+     × provisioning throws, ROLLBACK succeeds: released with false (the connection is reused) 1ms
+     × an unknown token, ROLLBACK succeeds: released with false (the connection is reused) 1ms
+     × success: released with false (the connection is reused) 0ms
+AssertionError: expected [ [] ] to deeply equal [ [ true ] ]
+AssertionError: expected [ [] ] to deeply equal [ [ false ] ]
+ Test Files  1 failed (1)
+      Tests  5 failed | 13 passed (18)
+
+# Round 9 (/review addendum: Client-owned scripts). RED on f646cc1f6 + tests/unit/lib/rollbackCensus.test.ts; source unchanged (2026-10-01T20:14:16Z). The release census never saw these two scripts: they own a dedicated pg.Client and end it, so they have no .release( call.
+     × every bare ROLLBACK is a pinned one 157ms
+AssertionError: roll back with rollbackFailed(client, source), or pin the file in PINNED with the reason: expected { …(5) } to deeply equal { Object (src/lib/rollbackFailed.ts, scripts/apply-migrations.ts, ...) }
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+
+# Round 11 (/review round 2). RED on 42579d105 + the new verify-email case and the widened rollback census; source unchanged (2026-10-01T20:25:51Z). The census's new fixtures test its own matcher, so they are proved by mutants.
+     × an unknown token whose ROLLBACK fails, then a throw: the stuck client is not rolled back a second time 3ms
+AssertionError: expected [ 'ROLLBACK', 'ROLLBACK' ] to have a length of 1 but got 2
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 54 passed (55)

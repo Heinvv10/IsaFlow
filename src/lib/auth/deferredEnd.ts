@@ -71,6 +71,58 @@ export function abortResponse(res: NextApiResponse): void {
 }
 
 /**
+ * Reports a transaction that could not be finalised after the handler responded: a COMMIT that
+ * failed, or (handlerFailed) the ROLLBACK of a request the handler had already answered 5xx.
+ * One log line with the request and its tenant, under the message alerts watch, and a Sentry
+ * capture. It never throws: the caller still has a response to send.
+ */
+export function reportFinalizeFailure(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  err: unknown,
+  ctx: ThrowContext & { handlerFailed: boolean; connectionDestroyed: boolean; component?: string },
+): void {
+  // The path only: some routes carry a secret in the query string.
+  const route = sanitizeRoute(req.url);
+  log.error(`${ctx.source}: transaction finalize failed after handler responded`, {
+    url: route,
+    status: res.statusCode,
+    handlerFailed: ctx.handlerFailed, // distinguishes a failed COMMIT (2xx) from a failed ROLLBACK (5xx)
+    connectionDestroyed: ctx.connectionDestroyed,
+    companyId: ctx.companyId,
+    userId: ctx.userId,
+    ...ctx.extra,
+    message: describe(err).message,
+  }, ctx.component ?? 'Auth');
+  if (process.env.SENTRY_ENABLED !== 'true') return;
+  try {
+    Sentry.captureException(err, {
+      tags: { ...(ctx.companyId && { company_id: ctx.companyId }), ...(route && { route }) },
+      ...(ctx.userId && { user: { id: ctx.userId } }),
+    });
+  } catch (sentryErr) {
+    log.warn(`${ctx.source}: Sentry capture failed`, describe(sentryErr), 'Auth');
+  }
+}
+
+/**
+ * Answers a COMMIT that failed. The buffered 2xx must not go out: the write did not land, or its
+ * outcome is unknown. 500 COMMIT_FAILED replaces it; a response whose status line is already on
+ * the wire is aborted, because a clean close would read as success.
+ */
+export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd): void {
+  if (res.headersSent) {
+    abortResponse(res);
+    return;
+  }
+  const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+  res.statusCode = 500;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Length', Buffer.byteLength(body));
+  deferred.realEnd(body);
+}
+
+/**
  * Sends the buffered end once the transaction is final. It never throws: the transaction may
  * already have COMMITted, so a failure here (Node refuses `end({ id })`, for one) must not
  * reach the wrapper's catch, which would ROLLBACK a committed write and tell the client it
