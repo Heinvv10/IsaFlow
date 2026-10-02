@@ -14,6 +14,7 @@
  * nothing else — the `window.location` fallback that used to cover a
  * not-ready window is gone, because that window cannot occur on this page.
  */
+import { useApiJsonOverMock } from '../../helpers/apiJsonOverMock';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -44,13 +45,14 @@ vi.mock('@/components/layout/AppLayout', () => ({
   ),
 }));
 
-vi.mock('@/lib/apiFetch', () => ({
-  apiFetch: vi.fn(() => Promise.resolve(new Response('{}'))),
-  assertOk: vi.fn(() => Promise.resolve({})),
-}));
+vi.mock('@/lib/apiFetch', async () => (await import('../../helpers/apiJsonOverMock')).mockedApiFetchModule());
+useApiJsonOverMock();
 
+import { apiFetch } from '@/lib/apiFetch';
 import ReportPacksPage, { getServerSideProps } from '../../../../pages/accounting/reports/report-packs';
 import { PRINT_RENDER_PATH } from '@/lib/pdf/printRenderQuery';
+
+const apiFetchMock = vi.mocked(apiFetch);
 
 beforeEach(() => {
   useRouterMock.mockReset();

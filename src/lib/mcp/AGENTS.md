@@ -36,7 +36,7 @@ class McpRegistry { register(tool); getManifest(); listTools(); call(name, args,
 // audit.ts — persists to mcp_tool_calls (mig 507, tenant RLS, append-only)
 recordToolCall({ ctx, tool, argsHash, idempotencyKey, status, result, durationMs })
 findIdempotentReplay(companyId, tool, key): Promise<McpToolResult | null>
-hashArgs(args): string   // sha256 of key-sorted canonical JSON
+hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like hasNul (past it: a fixed marker hash, the registry refuses the call)
 ```
 
 ## Business rules
