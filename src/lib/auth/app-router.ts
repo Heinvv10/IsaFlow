@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './gotrue';
 import { ACCESS_COOKIE } from './cookies';
 import { requireActiveAccount } from './requireActiveAccount';
+import { AuthUpstreamUnavailableError, AUTH_RETRY_AFTER_SECS } from './authUpstream';
 
 export type AppRouterUser = {
   id: string;
@@ -41,6 +42,7 @@ function extractToken(req: NextRequest): string | null {
 /**
  * Resolve the authenticated user from a NextRequest.
  * Returns null if the request is unauthenticated or the JWT is invalid/expired.
+ * Throws AuthUpstreamUnavailableError when GoTrue could not answer: that is not "no user".
  */
 export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUser | null> {
   const token = extractToken(req);
@@ -59,7 +61,8 @@ export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUse
       email: typeof claims.email === 'string' ? claims.email : undefined,
       claims: claims as Record<string, unknown>,
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof AuthUpstreamUnavailableError) throw err;
     return null;
   }
 }
@@ -75,7 +78,15 @@ export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUse
 export async function requireAuth(
   req: NextRequest
 ): Promise<[AppRouterUser, null] | [null, NextResponse]> {
-  const user = await getUserFromRequest(req);
+  let user: AppRouterUser | null;
+  try {
+    user = await getUserFromRequest(req);
+  } catch (err) {
+    if (!(err instanceof AuthUpstreamUnavailableError)) throw err;
+    return [null, NextResponse.json({ error: 'Sign-in is temporarily unavailable' }, {
+      status: 503, headers: { 'Retry-After': String(AUTH_RETRY_AFTER_SECS) },
+    })];
+  }
   if (!user) {
     return [null, NextResponse.json({ error: 'Unauthorized' }, { status: 401 })];
   }

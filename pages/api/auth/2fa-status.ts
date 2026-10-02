@@ -4,6 +4,7 @@
 import type { NextApiHandler } from 'next';
 import { parseCookies, ACCESS_COOKIE } from '@/lib/auth/cookies';
 import { listFactors, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'GET') {
@@ -21,6 +22,7 @@ const handler: NextApiHandler = async (req, res) => {
       data: { enabled: !!verified, factor_id: verified?.id ?? null },
     });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, '2fa-status')) return;
     if (err instanceof GotrueMfaError) {
       return res.status(err.status).json({ success: false, error: { code: 'STATUS_FAILED', message: err.message } });
     }
