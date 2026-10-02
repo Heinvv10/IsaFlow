@@ -88,8 +88,10 @@ function recordedOn(createdAt: Date): string {
 }
 
 /** Whole days between the date a journal carries and when it was recorded —
- *  past `BACKDATE_DAYS`, it is backdated. One definition, for the window's
- *  journals and for the recording-day census alike. */
+ *  past `BACKDATE_DAYS`, it is backdated. Measured from UTC midnight of the
+ *  entry date, as it always was; the recording DAY a load is grouped by is
+ *  SAST (`recordedOn`). One lateness test, for the window's journals and for
+ *  the recording-day census alike. */
 function isBackdated(entryDate: string, createdAt: Date): boolean {
   const daysLate = Math.floor(
     (createdAt.getTime() - new Date(`${entryDate}T00:00:00.000Z`).getTime()) / (1000 * 60 * 60 * 24),

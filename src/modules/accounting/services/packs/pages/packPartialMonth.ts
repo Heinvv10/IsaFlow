@@ -15,18 +15,18 @@
  * panel, the operating-expenses panel and the debtor-days panel, and the last
  * row of page 5's table.
  *
- * THE MONTH IS KEPT AND MARKED, rather than dropped. It is real posted
- * movement inside the period the pack reports on, and a series that stopped
- * at the last whole month would end in August on a pack whose footer says
- * 7 September — reporting a different window from the one it names. What was
- * missing was the marking, so this module owns it: one form of words, used by
- * the row label, the panel axes, the sentences that quote a terminal value,
- * and the basis of preparation.
+ * THE MONTH IS A ROW, NEVER AN END POINT. It is real posted movement inside
+ * the period the pack reports on, so where it is a row — page 5's table, page
+ * 8's closing-cash line, the basis page's Period fact — it is kept and marked.
+ * Where a figure is compared first-to-last — page 10's panels and headline,
+ * page 3's sparklines — it is left out (`wholeMonthsOf`) and page 10 names
+ * it: marking alone did not stop Velocity Fibre's page 10 headlining "Revenue
+ * is down 100.0%" off two days of October.
  *
- * ONE MODULE BECAUSE IT IS ONE CLAIM. The marker appears on four pages; four
- * copies of it is four chances for the sheet and the sentence to describe the
- * same seven days differently, which is the defect class this pack has spent
- * a dozen commits closing.
+ * ONE MODULE BECAUSE IT IS ONE CLAIM. Several pages mark or leave out the
+ * same month; copies of the wording are chances for the sheet and the
+ * sentence to describe the same days differently, which is the defect class
+ * this pack has spent a dozen commits closing.
  */
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 

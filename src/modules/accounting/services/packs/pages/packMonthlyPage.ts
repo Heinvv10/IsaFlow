@@ -39,6 +39,8 @@ export function buildMonthlyResultsPage(
 // THE SERIES BLOCKS ARE WHAT VARIES; the EBITDA memorandum and the caption
 // below are the period's and are on the sheet either way, which is also
 // what keeps a company with no series above the three-block floor.
+// The stub this table prints as a row and page 10 leaves out.
+const stub = partialMonthOf(trend);
 const monthlySeriesBlocks: PackPageBlock[] = trend.length === 0
   ? [mustDisclose('No monthly series', [
       note('Why', 'No monthly series covers this period, so the result cannot be shown month by '
@@ -151,7 +153,7 @@ const monthlySeriesBlocks: PackPageBlock[] = trend.length === 0
       note('The window', `This table covers ${trendWindowLabel(trend)}, the window page 10 `
         + 'draws from. The income statement overleaf carries the reporting period\'s own '
         + 'totals against the comparative.'
-        + (partialMonthOf(trend) === null ? '' : ` ${partialMonthUndrawnClause(partialMonthOf(trend)!)}`)),
+        + (stub === null ? '' : ` ${partialMonthUndrawnClause(stub)}`)),
     ]),
   ];
 const monthlyBlocks: PackPageBlock[] = [

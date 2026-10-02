@@ -104,7 +104,8 @@ export const velocitySet: PackFigureSet = {
 const MONTHS: Array<[string, string, number, number, number, number, number, number | null]> = [
   // month, label, revenue, cost of sales, operating, other, cash, debtor days
   ['2025-11', 'Nov 2025', 2_932, 4_693, 1_764, 0, 614, 0],
-  ['2025-12', 'Dec 2025', 3_397, 6_370, 1_631, 65, 552, -10],
+  // Receivables in net credit at December's end: no debtor days (`getPackTrend`).
+  ['2025-12', 'Dec 2025', 3_397, 6_370, 1_631, 65, 552, null],
   ['2026-01', 'Jan 2026', 9_661, 5_092, 1_895, 17, 4_310, 5],
   ['2026-02', 'Feb 2026', 8_673, 10_694, -1_350, 0, 478, 15],
   ['2026-03', 'Mar 2026', 9_966, 5_843, 3_332, 32, 620, 20],
@@ -137,7 +138,7 @@ export const velocityTrend: PackTrendPoint[] = MONTHS.map(
       operatingExpenses: k(operating),
       grossMarginPct: revenue === 0 ? null : ((revenue - costOfSales) / revenue) * 100,
       cash: k(cash),
-      accountsReceivable: debtorDays === null ? 16_089_000 : k(Math.round((revenue * debtorDays) / DAYS_IN[i]!)),
+      accountsReceivable: debtorDays === null ? (i === 1 ? -1_097_000 : 16_089_000) : k(Math.round((revenue * debtorDays) / DAYS_IN[i]!)),
       debtorDays,
     };
   },

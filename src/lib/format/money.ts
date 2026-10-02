@@ -23,6 +23,7 @@
  * "margin is (12.0%)" reads as an aside rather than as a negative.
  */
 import { MONEY_SCALES, type MoneyScale } from './moneyScale';
+import { belowPrecision } from './belowPrecision';
 
 export { inScale, MONEY_SCALES, toMoneyScale } from './moneyScale';
 export type { MoneyScale } from './moneyScale';
@@ -131,24 +132,6 @@ function bracketed(n: number, dp: number): boolean {
   return n < 0 && Number(Math.abs(n).toFixed(dp)) !== 0;
 }
 
-/**
- * A REAL FIGURE TOO SMALL FOR ITS PRECISION, STATED AS A BOUND.
- *
- * Velocity Fibre's cash ratio of 0.0034 printed as nil on a board pack — the
- * two-place figure is `0.00`, and a reader takes `0.00×` and the dash alike
- * as "no cash". `formatMoney` already states an amount below its scale as
- * `<1`; a ratio, a day count and a percentage level now say the same thing
- * in their own unit: `<0.01`, `<1 day`, `<0.1%`, bracketed where negative.
- * A measured zero is not below its precision and keeps its zero.
- *
- * Null where the figure prints as itself.
- */
-function belowPrecision(n: number, dp: number, unit: string): string | null {
-  if (n === 0 || Number(Math.abs(n).toFixed(dp)) !== 0) return null;
-  const bound = `<${dp === 0 ? '1' : `0.${'0'.repeat(dp - 1)}1`}${unit}`;
-  return n < 0 ? `(${bound})` : bound;
-}
-
 /** A figure too small to survive its scale, printed as a bound rather than as
  *  a zero — see `formatMoney`. */
 const BELOW_SCALE = '<1';
@@ -216,12 +199,10 @@ export function formatPct(n: number, dp = 1, opt: PackFormatOpt = {}): string {
  */
 export function formatPctLevel(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const bound = belowPrecision(n, dp, '%');
-  if (bound !== null) return bound;
+  // A level below its precision is a bound — −0.001% is `(<0.1%)`, never a
+  // bracketed zero. See `belowPrecision`.
   const body = `${groupedFixed(Math.abs(n), dp)}%`;
-  // Not `n < 0`: a level of −0.001% is `0.0%` at one decimal, and a bracketed
-  // zero is a negative figure to a reader. See `bracketed`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  return belowPrecision(n, dp, '%') ?? (bracketed(n, dp) ? `(${body})` : body);
 }
 
 /**
@@ -234,14 +215,11 @@ export function formatPctLevel(n: number, dp = 1): string {
  */
 export function formatRatio(n: number, dp = 2): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const bound = belowPrecision(n, dp, '');
-  if (bound !== null) return bound;
   const body = groupedFixed(Math.abs(n), dp);
   // Not `signOf`: a ratio of 0.00 is a MEASURED ratio, and the en dash is
-  // this module's word for a figure that is not there at all. Only the sign
-  // is decided here — and only where the printed digits still carry it, so
-  // −0.0001 is `0.00` rather than `(0.00)`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  // this module's word for a figure that is not there at all. A real ratio
+  // below two places is a bound — −0.0001 is `(<0.01)` (`belowPrecision`).
+  return belowPrecision(n, dp, '') ?? (bracketed(n, dp) ? `(${body})` : body);
 }
 
 /** A multiple — "1.50×", "(0.14)×": `formatRatio`, the × outside the bracket.
@@ -263,15 +241,12 @@ export function formatTimes(n: number, dp = 2): string {
  */
 export function formatDays(n: number, dp = 0): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const bound = belowPrecision(n, dp, ' day');
-  if (bound !== null) return bound;
   const digits = separated(new Intl.NumberFormat('en-ZA', {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
   }).format(Math.abs(n)));
-  const body = `${digits} days`;
-  // −0.4 days is `0 days`, not `(0 days)` — see `bracketed`.
-  return bracketed(n, dp) ? `(${body})` : body;
+  // −0.4 days is `(<1 day)`, not `(0 days)` — see `belowPrecision`.
+  return belowPrecision(n, dp, ' day') ?? (bracketed(n, dp) ? `(${digits} days)` : `${digits} days`);
 }
 
 /**

@@ -35,8 +35,9 @@ export interface PackMetricRead {
  * Fibre's cash ratio — 277 over 80 584, in R'000, 0.0034 — reached page 9 as
  * exactly 0 and printed as the dash page 12 defines as nil. Where the engine
  * states a zero over a numerator that is not nil, the quotient is taken from
- * the same two figures the engine divided. Everywhere else the engine's own
- * figure stands, so the pack still agrees with Financial Analysis.
+ * the same two figures the engine divided — so on that path alone the pack
+ * prints `<0.01×` where Financial Analysis prints the engine's 0.00, which is
+ * the point. Everywhere else the engine's own figure stands and the two agree.
  */
 function measured<T extends number | null>(engine: T, numerator: number, denominator: number, times = 1): T | number {
   return engine === 0 && numerator !== 0 && denominator !== 0 ? (numerator / denominator) * times : engine;
