@@ -31,6 +31,7 @@ import { fetchBillCandidates, round2 } from './supplierAllocationLines';
 import { toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch } from './paymentJournalReversal';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -45,7 +46,9 @@ export class BatchAlreadyReversedError extends Error {
 export interface BatchReversal { reversalEntryId: string | null; billsReopened: number }
 
 export async function reverseBatch(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
-  return withSavepoint('reverse_payment_batch', () => reverseBatchInner(companyId, batchId, userId));
+  // Every lock under ONE budget, plain UPDATEs included (D8 round 10).
+  return withSavepoint('reverse_payment_batch', () => underFlowLockBudget(`Batch ${batchId}`,
+    () => reverseBatchInner(companyId, batchId, userId)));
 }
 
 async function reverseBatchInner(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
@@ -85,9 +88,12 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
     throw new SupplierPaymentRefusal(`Batch ${number}'s journal is claimed by an allocated bank line — undo that first.`);
   }
 
+  // The member payments locked BEFORE their bills (D8 round 10, brk-d8c O4): a member's MCP void takes payment ->
+  // bill, and this took bills -> journal -> members, so the pair deadlocked.
   const members = (await sql`
     SELECT id, payment_number, status FROM supplier_payments
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+    ORDER BY id FOR UPDATE
   `) as DbRow[];
   const unsettled = members.find((m) => m.status !== 'processed');
   if (unsettled) {

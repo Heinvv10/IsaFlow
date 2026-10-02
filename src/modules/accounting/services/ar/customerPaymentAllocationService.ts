@@ -22,6 +22,7 @@ import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
 
@@ -146,9 +147,8 @@ export async function cancelCustomerPayment(
   // which `withAuth` COMMITs — so a throw between the invoice roll-back and the
   // payment flip would otherwise leave the invoices un-applied against a
   // payment still reading 'confirmed'.
-  return withSavepoint('cancel_customer_payment', () =>
-    cancelCustomerPaymentInner(companyId, id, userId, reason),
-  );
+  return withSavepoint('cancel_customer_payment', () => underFlowLockBudget(`Receipt ${id}`, () => // one lock budget
+    cancelCustomerPaymentInner(companyId, id, userId, reason)));
 }
 
 async function cancelCustomerPaymentInner(

@@ -59,9 +59,12 @@ import {
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
-import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { findBankTransactions, findChainBankTransactions, peekPaymentJournal } from './paymentVoidReads';
+import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
+import { unmatchTransaction } from '../bank/bankTxStatusMutations';
 import { voidSettlementDocument } from '../ap/provisionalSettlementVoid';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { underFlowLockBudget } from './rowLockBudget';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 
@@ -152,7 +155,18 @@ async function loadPayment(
   };
 }
 
+/** Every lock of the void under ONE budget, plain UPDATEs included (D8 round 10, core/rowLockBudget). */
 export async function voidPaymentDocument(
+  companyId: string,
+  kind: PaymentKind,
+  paymentId: string,
+  userId: string,
+  opts?: PostingActorOpts & { reversalDate?: string },
+): Promise<VoidPaymentResult | VoidRefusal> {
+  return underFlowLockBudget(`Payment ${paymentId}`, () => voidPaymentDocumentInner(companyId, kind, paymentId, userId, opts));
+}
+
+async function voidPaymentDocumentInner(
   companyId: string,
   kind: PaymentKind,
   paymentId: string,
@@ -173,6 +187,12 @@ export async function voidPaymentDocument(
   // A no-op re-lock for `reverseReconciledTransaction` below — one statement,
   // and it fixes the order for the pair.
   if (bankTransactionId) await lockBankTransactionForUpdate(companyId, bankTransactionId);
+  // Lines matched to another journal of the chain (the head R2, D8 round 10): locked here too, reconciled cash refused.
+  const chainLines = peekedJournalId ? await findChainBankTransactions(companyId, peekedJournalId) : [];
+  for (const id of chainLines) {
+    const line = await lockBankTransactionForUpdate(companyId, id);
+    if (line) refuseLockedCash(await reconciliationLockOf(companyId, line), "This payment's bank line");
+  }
 
   const payment = await loadPayment(companyId, kind, paymentId);
   if (!payment) return { refusal: 'not_found' };
@@ -200,6 +220,7 @@ export async function voidPaymentDocument(
     const unwoundViaBank = await reverseReconciledTransaction(
       companyId, bankTransactionId, userId, opts,
     );
+    for (const id of chainLines) await unmatchTransaction(companyId, id);
     log.info('Voided payment document via its bank allocation', {
       companyId, kind, paymentId, bankTransactionId,
       invoicesReopened: unwoundViaBank.invoicesReopened,
@@ -252,6 +273,7 @@ export async function voidPaymentDocument(
       // error would RELEASE both and commit the unwind.
       if (head) vatLockRoll = (await reverseJournalEntry(companyId, head, userId, opts)).vatLockRoll ?? null;
     }
+    for (const id of chainLines) await unmatchTransaction(companyId, id); // the line follows the chain out
     return result;
   });
 

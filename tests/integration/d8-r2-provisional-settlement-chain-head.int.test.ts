@@ -9,7 +9,7 @@
  * chain HEAD (journalChainHead), and the head cannot be reversed on its own
  * from the GL while the settlement holds it — the same refusal X itself gets.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
@@ -187,4 +187,52 @@ describe('D8 round 9: a held chain head is the claim\'s own retryable contention
     expect((err as { retryable?: boolean }).retryable).toBe(true);
     expect(String((err as Error).message)).toMatch(/being settled by another request/);
   }, 30000);
+});
+
+describe('D8 round 10 (brk-d8c O7): the claim refused on the chain-head DEADLINE path leaves lock_timeout as it was', () => {
+  it('a timeout raised with no SQL error (deadline spent between passes) restores the caller\'s lock_timeout', async () => {
+    const doc = await seedDoc();
+    const { je: x } = await seedProvisional({ totalAmount: 115, evidencedBy: doc });
+    const r1 = (await inTx(() => reverseJournalEntry(company, x, user))).id;
+    const head = (await inTx(() => reverseJournalEntry(company, r1, user))).id;
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 115 });
+    // A holder reverses the head and commits 300 ms in; the claim's first pass waits, then finds a new head. Right
+    // after that pass the clock jumps 6 s, so the second pass throws from the spent deadline — no SQL error.
+    const h = await pool.connect();
+    await h.query('BEGIN');
+    await als.run({ client: h, userId: user, companyId: company, claims: {} } as never, () => reverseJournalEntry(company, head, user));
+    const a = await pool.connect();
+    const orig = a.query.bind(a) as (...q: unknown[]) => Promise<unknown>;
+    const realNow = Date.now.bind(Date);
+    let jumped = false;
+    (a as unknown as { query: unknown }).query = async (...args: unknown[]) => {
+      const t = typeof args[0] === 'string' ? args[0] : (args[0] as { text?: string } | undefined)?.text ?? '';
+      if (t.includes('SELECT status, reversed_at FROM gl_journal_entries') && !jumped) {
+        setTimeout(() => { void h.query('COMMIT').then(() => h.release()); }, 300);
+        const out = await orig(...args);
+        jumped = true;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 6000);
+        return out;
+      }
+      return orig(...args);
+    };
+    let err: unknown = null;
+    let after = '';
+    try {
+      await orig('BEGIN');
+      await als.run({ client: a, userId: user, companyId: company, claims: {} } as never, async () => {
+        await claimEvidencedProvisional(company, invoiceId).catch((e: unknown) => { err = e; });
+      });
+      vi.restoreAllMocks();
+      after = String(((await orig("SELECT current_setting('lock_timeout') AS v")) as { rows: { v: string }[] }).rows[0]!.v);
+    } finally {
+      vi.restoreAllMocks();
+      await orig('ROLLBACK').catch(() => undefined);
+      (a as unknown as { query: unknown }).query = orig;
+      a.release();
+    }
+    expect(jumped).toBe(true);
+    expect((err as Error)?.name).toBe('SupplierPaymentRefusal');
+    expect(after).toBe('0');
+  }, 60000);
 });
