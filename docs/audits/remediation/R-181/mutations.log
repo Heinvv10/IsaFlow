@@ -100,3 +100,14 @@ Q5 excess equal to the fee distrusted [src/modules/accounting/services/ar/gatewa
 AFTER: 13 passed (13)
 
 FIXTURE: every batch in this log ran through scratchpad/int.sh, i.e. isaflow-fixture-r181 at 127.0.0.1:55563.
+
+PR #618 blind review — new guards, code at 7cfe7d8b4 (all four R-181 suites, fixture 55563)
+BASELINE: 55 passed (55)
+S1 verify does not pass its fee [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 54 passed (55) -> KILLED; red: verify alone (the webhook never lands) books the R3.50 fee: Bank nets R111.50
+S2 NaN balance not blocked [src/modules/accounting/services/ar/gatewayReceiptAllocation.ts]: 1 failed | 54 passed (55) -> KILLED; red: takes nothing, is flagged invoice_balance_invalid, and the receipt is banked unapplied
+S3 verify reports the stored status after a failed settlement [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 54 passed (55) -> KILLED; red: a failed request Paystack says succeeded, whose settlement times out on the invoice lock, answers pending
+S4 Paystack success never recorded [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 54 passed (55) -> KILLED; red: a failed request Paystack says succeeded, whose settlement times out on the invoice lock, answers pending
+S5 second report amount not compared [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 53 passed (55) -> KILLED; red: verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100, the two amounts flagged (PR #618 LOW-5); webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100
+S6 first amount not tagged on the receipt [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 52 passed (55) -> KILLED; red: verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee; webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100; verify first with charges passed on, then the webhook with the fee: one R115 receipt, no disagreement
+S7 tag ignored when read back [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 52 passed (55) -> KILLED; red: verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee; webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100; verify first with charges passed on, then the webhook with the fee: one R115 receipt, no disagreement
+AFTER: 55 passed (55)
