@@ -14,6 +14,7 @@
 --   SELECT count(*) FROM time_entries te
 --   LEFT JOIN practice_jobs pj ON pj.id = te.job_id
 --   WHERE te.job_id IS NOT NULL
+--     AND te.practice_client_id IS NOT NULL  -- MATCH SIMPLE accepts a NULL in any column
 --     AND (pj.id IS NULL
 --          OR te.company_id IS DISTINCT FROM pj.company_id
 --          OR te.practice_client_id IS DISTINCT FROM pj.practice_client_id);
