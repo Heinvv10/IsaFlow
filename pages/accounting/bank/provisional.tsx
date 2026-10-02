@@ -154,7 +154,13 @@ export default function ProvisionalEntriesPage() {
             ))}
             <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">{filtered.length} entr{filtered.length !== 1 ? 'ies' : 'y'}</span>
           </div>
-          {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div>}
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4">
+              <AlertCircle className="h-4 w-4 shrink-0" />{error}
+              {/* The only way back after a failed load: it leaves no rows to dismiss or attach (D8 round 15). */}
+              <button onClick={() => void load()} className="ml-auto px-3 py-1 rounded-lg border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-secondary)]">Try again</button>
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-amber-400" /></div>
           ) : error ? null : filtered.length === 0 ? (
