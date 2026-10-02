@@ -33,8 +33,9 @@ import PayPackagePage from '@/../pages/payroll/pay-packages/[id]';
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 const fetchMock = vi.fn();
 const PACKAGE = { id: 'p1', code: 'EXEC', name: 'Executive', description: null, isActive: true, components: [{ id: 'pc1', componentId: 'c1', componentName: 'Basic', sarsSourceCode: '3601', componentType: 'earning', amount: 100, isRecurring: true }] };
+const COMPONENTS = [{ id: 'c1', name: 'Basic', sarsSourceCode: '3601', componentType: 'earning', isTaxable: true, isUifApplicable: true, isSdlApplicable: true, isActive: true }];
 const LEAVE = { id: '11111111-1111-4111-8111-111111111111', employeeName: 'Wanda Test', employeeNumber: 'E-1', leaveTypeName: 'Annual', startDate: '2026-11-02', endDate: '2026-11-03', days: 2, reason: null, status: 'pending', approvedAt: null, createdAt: '2026-10-01T00:00:00Z' };
-beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async (url: string) => String(url).includes('/api/payroll/pay-packages/') ? ok(PACKAGE) : String(url).includes('/api/payroll/leave/') ? ok(LEAVE) : ok([])); vi.stubGlobal('fetch', fetchMock); });
+beforeEach(() => { fetchMock.mockReset(); fetchMock.mockImplementation(async (url: string) => String(url).includes('/api/payroll/pay-packages/') ? ok(PACKAGE) : String(url).includes('/api/payroll/leave/') ? ok(LEAVE) : String(url).includes('/api/payroll/components') ? ok(COMPONENTS) : ok([])); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); company.role = 'viewer'; });
 
 const hrefs = () => Array.from(document.querySelectorAll('a')).map((a) => a.getAttribute('href'));
@@ -54,7 +55,7 @@ const probes: Probe[] = [
   ['UIF: Generate Declaration', () => <UifPage />, () => button(/generate declaration/i)],
   ['training: New event', () => <TrainingPage />, () => button(/new event/i)],
   ['pay package: Add component', () => <PayPackagePage />, () => button(/add component/i)],
-  ['pay package: per-row Remove', () => <PayPackagePage />, () => button(/remove component/i)],
+  ['pay package: per-row Remove', () => <PayPackagePage />, () => button(/^remove basic$/i)],
   ['leave request: Approve', () => <LeaveRequestPage />, () => button(/^approve$/i)],
   ['leave request: Reject', () => <LeaveRequestPage />, () => button(/^reject$/i)],
   ['leave request: Delete', () => <LeaveRequestPage />, () => button(/^delete$/i)],
@@ -104,4 +105,3 @@ describe('pay package inputs', () => {
     expect(editable()).toBeGreaterThan(0);
   });
 });
-
