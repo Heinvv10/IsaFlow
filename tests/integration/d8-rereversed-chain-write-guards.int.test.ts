@@ -21,6 +21,8 @@ import { alreadyPosted } from '@/modules/accounting/services/items/depreciationR
 import { postAssetDepreciationToGL } from '@/modules/accounting/services/gl/assetDepreciationPosting';
 import { decideLedgerRelink } from '@/modules/accounting/services/core/sageLedgerRelinkGuard';
 import { planSupplierInvoiceCancel } from '@/modules/accounting/services/ap/supplierInvoiceCancelPlan';
+import { findReclassCandidates } from '@/modules/accounting/services/gl/reclassification/candidates';
+import { targetPriorSources } from '@/modules/accounting/services/gl/reclassification/warnings';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { dropFixture, inTx, seedBill, seedFixture, type Fixture } from './helpers/l1FifoFixture';
@@ -99,6 +101,8 @@ describeIfDb('D8: a re-reversed journal still carries what it carried', () => {
     if (!fx) return;
     await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
     await sql`DELETE FROM assets WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM reclassification_batch_lines WHERE company_id = ${fx.companyId}::UUID`;
+    await sql`DELETE FROM reclassification_batches WHERE company_id = ${fx.companyId}::UUID`;
     await dropFixture(fx);
   }, 120000);
 
@@ -163,6 +167,37 @@ describeIfDb('D8: a re-reversed journal still carries what it carried', () => {
     ];
     expect(await inTx(fx, () => decideLedgerRelink(fx.companyId, ref, '2026-05-10', active)))
       .toEqual({ kind: 'relink', entryId: x });
+  });
+
+  it('reclassification: a line moved by a re-reversed reclass journal is already reclassified', async () => {
+    const x = await postedJournal();
+    const [line] = (await sql`
+      SELECT id FROM gl_journal_lines WHERE journal_entry_id = ${x}::UUID AND gl_account_id = ${expense}::UUID`) as Row[];
+    const [target] = (await sql`
+      INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+      VALUES (${fx.companyId}::UUID, '6100', ${`D8 target ${fx.tag}`}, 'expense', 'operating_expense', 'debit', true)
+      RETURNING id`) as Row[];
+    const rj = await inTx(fx, () => createJournalEntry(fx.companyId, {
+      entryDate: '2026-05-10', description: 'D8 reclass', source: 'manual', lines: [
+        { glAccountId: String(target!.id), debit: 100, credit: 0 },
+        { glAccountId: expense, debit: 0, credit: 100 },
+      ],
+    }, fx.userId));
+    await inTx(fx, () => postJournalEntry(fx.companyId, rj.id, fx.userId));
+    const [batch] = (await sql`
+      INSERT INTO reclassification_batches (company_id, created_by, tool, source_account_id, target_account_id, line_count)
+      VALUES (${fx.companyId}::UUID, ${fx.userId}, 'd8-test', ${expense}::UUID, ${String(target!.id)}::UUID, 1)
+      RETURNING id`) as Row[];
+    await sql`
+      INSERT INTO reclassification_batch_lines (company_id, batch_id, source_line_id, journal_entry_id)
+      VALUES (${fx.companyId}::UUID, ${String(batch!.id)}::UUID, ${String(line!.id)}::UUID, ${rj.id}::UUID)`;
+    await reverseTwice(rj.id);
+
+    const rows = await inTx(fx, () => findReclassCandidates(fx.companyId,
+      { sourceAccountId: expense, from: null, to: null, limit: 500 }));
+    expect(rows.find((r) => r.line_id === String(line!.id))?.already_reclassified).toBe(true);
+    // ...and the target still counts the source as a prior one.
+    expect(await inTx(fx, () => targetPriorSources(fx.companyId, String(target!.id), fx.bankAccountId))).toBe(1);
   });
 
   it('bill cancel: refuses while a re-reversed journal sourced from the bill still stands', async () => {
