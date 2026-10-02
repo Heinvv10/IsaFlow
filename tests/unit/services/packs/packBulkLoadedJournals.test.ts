@@ -19,6 +19,9 @@ import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import { checkMattersCrossReference } from '@/modules/accounting/services/packs/figures/packMattersIntegrity';
+import { boardActionItems, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
+import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import { demoInput } from './fixtures/boardPackInputs';
@@ -88,3 +91,28 @@ describe('a count of matters in the thousands', () => {
     expect(checkMattersCrossReference(doc)).toEqual([]);
   });
 });
+
+describe('the counts no whole pack reaches', () => {
+  const finding = (i: number): PackMatter => ({
+    kind: 'finding', issue: `Journal JE-${i} (large round-number amount): transfer`, quantum: 1_000_000,
+    owner: 'Finance', movement: 'Not tracked.', decisionRequired: BOARD_DECISIONS.unusualJournal,
+  });
+
+  it('groups the "further matters follow on the matters page" count, which the gate also reads', () => {
+    // Page 11 prints a handful of rows, so a real pack never has a thousand
+    // follow on; the panel's own arithmetic is held here instead.
+    const printed = Array.from({ length: 1_234 }, (_, i) => finding(i));
+    const { tail } = boardActionItems({ printed, omitted: [], source: printed });
+    const followOn = tail.find((t) => t.includes('follow on the matters page'));
+    expect(followOn).toMatch(/^1\u00a02\d\d further matters follow on the matters page\.$/);
+  });
+
+  it('writes a count of nothing as the digit, not the dash a measured nil takes', () => {
+    expect(groupedCount(0)).toBe('0');
+    // Page 4's title where the panel names no finding but the pack raises some.
+    const none: PackMatter = { ...finding(0), kind: 'checkFailed', issue: 'aged debtors could not be assessed' };
+    expect(narrativeTitle([none], [none, finding(1), finding(2)], PACK_SCALE))
+      .toMatch(/^0 of 2 matters requiring a board decision are put to the board on this page/);
+  });
+});
+
