@@ -110,4 +110,28 @@ describeIfDb('D7 reversal-chain walks: cycle guard and tenant scope', () => {
     expect(bRecon.months.map((m) => [m.glRevenue, m.glOutputVat])).toEqual([[500, 75]]);
     await forgeLink(b, bo, null);
   }, 60000);
+
+  it('S3: a self-loop (an entry forged to reverse itself) ends the walk too', async () => {
+    // Only an entry nothing else reverses can loop on itself (UNIQUE on
+    // company_id, reversal_of_id), so: an invoice deleted before deletes moved
+    // the GL (deleted_at set, journal never reversed), and a live one.
+    const co = await makeCompany('D7S3'); cos.push(co);
+    const del = await arInvoice(co, '-del', '2026-07-12', 1000, 150);
+    await sql`UPDATE customer_invoices SET deleted_at = NOW() WHERE company_id = ${co.id}::UUID AND id = ${del}::UUID`;
+    const o = await journalOf(co, del);
+    const live = await journalOf(co, await arInvoice(co, '-live', '2026-07-14', 300, 45));
+    await forgeLink(co, o, o);
+    await forgeLink(co, live, live);
+
+    // The loop row is dropped: each journal stands alone and stands.
+    const aged = await finishes('AR aging', () => getARAging(co.id, '2026-07-31'));
+    expect(aged.find((b) => b.entityId === co.customer)?.total).toBe(1495);
+    const recon = await finishes('VAT recon', () => getVatReconciliation(co.id, '2026-07-01', '2026-07-31'));
+    expect(recon.months.map((m) => [m.glRevenue, m.revenueVariance])).toEqual([[1300, 0]]);
+    expect(await finishes('VAT201 unposted', () => findUnpostedInvoiceVat(co.id, '2026-07-01', '2026-07-31'))).toEqual([]);
+    const ar = await finishes('AR recon', () => reconcileSubledger(co.id, 'ar', '2026-07-31'));
+    expect([ar.subledgerTotal, ar.unexplainedDifference]).toEqual([1495, 0]);
+    await forgeLink(co, o, null);
+    await forgeLink(co, live, null);
+  }, 60000);
 });
