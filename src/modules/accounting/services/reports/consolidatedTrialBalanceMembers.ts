@@ -18,10 +18,7 @@ import { round2 } from '../gl/trialBalanceBasis';
 type Row = DbRow;
 
 /**
- * The member's own fiscal year start for the range being reported: the fiscal
- * year containing the range END, as the single-company trial balance and every
- * ledger listing use (D4) — not the range start, which for a range that crosses
- * a fiscal-year start would carry the earlier year's profit in the P&L rows.
+ * The member's own fiscal year start for the range being reported.
  *
  * Each member is measured on ITS OWN `financial_year_start`, so its
  * income-statement figures and its brought-forward profit are cut at the same
@@ -34,9 +31,9 @@ type Row = DbRow;
  * READ PATH, so a tenant with no configured year start gets the March fallback
  * explicitly rather than a refusal — the group report must still render.
  */
-export async function memberFiscalYearStart(companyId: string, periodEnd: string): Promise<string> {
+export async function memberFiscalYearStart(companyId: string, periodStart: string): Promise<string> {
   const month = await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH });
-  return fiscalYearStart(periodEnd, month);
+  return fiscalYearStart(periodStart, month);
 }
 
 /**

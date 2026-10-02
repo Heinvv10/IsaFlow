@@ -8,7 +8,7 @@ import { Scale, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { csvCell } from '@/lib/csv';
 import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/TBSummaryCards';
-import { TBConsolidationWarnings, yearEndCloseLines } from '@/components/accounting/group/TBConsolidationWarnings';
+import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsolidationWarnings';
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
 
 interface EntityBalance { debit: number; credit: number }
@@ -49,8 +49,6 @@ interface ConsolidatedTBResponse {
     byEntity: UnmappedEntity[];
   };
   coterminous: boolean;
-  fiscalYearStarts?: Record<string, string>;
-  fiscalYearEndsClosed?: Record<string, string[]>;
 }
 
 interface EntityGroup { id: string; name: string }
@@ -141,7 +139,6 @@ export default function ConsolidatedTrialBalancePage() {
       tCols.push(String(totals.eliminationDebit), String(totals.eliminationCredit), String(totals.consolidatedDebit), String(totals.consolidatedCredit));
       csvRows.push(tCols.join(','));
     }
-    for (const line of yearEndCloseLines(data)) csvRows.push('', `${csvCell('Year-end close (derived — not posted)')},${csvCell(line)}`);
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -181,7 +178,7 @@ export default function ConsolidatedTrialBalancePage() {
 
         <div className="p-6">
           {!loading && data && (
-            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} yearEnd={data} />
+            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} />
           )}
 
           {!loading && data && data.groupAccounts.length > 0 && totals && (
