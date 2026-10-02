@@ -69,6 +69,7 @@ export default function ParallelRunPage() {
       const json = await res.json() as { data?: ReportPayload };
       setReport(json.data ?? null);
     } catch (err) {
+      setReport(null);
       setError(apiErrorMessage(err, 'Could not load the comparison - try again'));
     } finally {
       setIsComparing(false);

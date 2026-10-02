@@ -56,7 +56,7 @@ export default function PisScorePage() {
       setShCount(d.shareholders.count);
       setAllDirs(d.allShareholdersAreDirectors); return true;
     } catch (err: unknown) {
-      setData(null); setError(apiErrorMessage(err, 'Could not load the PIS score - try again')); return false;
+      setData(null); setEmpBegin(0); setEmpEnd(0); setShCount(1); setAllDirs(true); setError(apiErrorMessage(err, 'Could not load the PIS score - try again')); return false;
     } finally {
       setLoading(false);
     }

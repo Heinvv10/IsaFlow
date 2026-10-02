@@ -15,6 +15,7 @@ import {
 } from '@/components/accounting/bank/BankAccountModals';
 import { BankAccountCard, type BankAccountCardData } from '@/components/accounting/bank/BankAccountCard';
 import { notify } from '@/utils/toast';
+import { log } from '@/lib/logger';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 
 type BankAccount = BankAccountCardData;
@@ -61,8 +62,9 @@ export default function BankAccountsPage() {
       const json = await res.json();
       const code = json?.data?.code ?? json?.code;
       if (code) setForm(f => ({ ...f, accountCode: String(code) }));
-    } catch {
+    } catch (err) {
       // Suggestion is a convenience — leave blank on failure, user can still type.
+      log.warn('Could not suggest a bank account code', { error: err }, 'bank-accounts');
     }
   }, []);
 
@@ -72,6 +74,7 @@ export default function BankAccountsPage() {
       return;
     }
     setSaving(true);
+    let accountCreated = false;
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', {
         method: 'POST',
@@ -93,6 +96,7 @@ export default function BankAccountsPage() {
         notify.error(json?.error?.message || 'Could not create the bank account - try again');
         return;
       }
+      accountCreated = true;
       // If bank account number provided, save it separately
       if (form.bankAccountNumber.trim()) {
         const created = json.data || json;
@@ -111,11 +115,15 @@ export default function BankAccountsPage() {
       }
       setShowAddModal(false);
       setForm(EMPTY_ADD);
-      void loadAccounts();
     } catch (err) {
-      notify.error(apiErrorMessage(err, 'Could not create the bank account - try again'));
+      if (accountCreated) {
+        notify.error('The account was created, but its bank account number was not saved - add it from Edit');
+        setShowAddModal(false);
+        setForm(EMPTY_ADD);
+      } else notify.error(apiErrorMessage(err, 'Could not create the bank account - try again'));
     } finally {
       setSaving(false);
+      if (accountCreated) void loadAccounts();
     }
   };
 

@@ -147,7 +147,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
         }
       }
     } catch (e) {
-      if (!stale()) setError(apiErrorMessage(e, 'Could not load the close agent - try again'));
+      if (!stale()) { setRun(null); setAccuracy(null); setError(apiErrorMessage(e, 'Could not load the close agent - try again')); }
     } finally {
       if (!stale()) setLoading(false);
     }
@@ -177,15 +177,14 @@ export function CloseAgentPanel({ period }: { period: string }) {
       await assertOk(res, 'Could not complete that action - try again');
       const json = await res.json() as Envelope<unknown>;
       if (!json.success) throw new ApiEnvelopeError(json.error?.message ?? 'Could not complete that action - try again');
+      try { await onOk(reqId); } catch (e) {
+        setError(apiErrorMessage(e, 'The change was saved but the page could not refresh - reload it'));
+      }
     } catch (e) {
       setError(apiErrorMessage(e, 'Could not complete that action - try again'));
+    } finally {
       setBusy(false);
-      return;
     }
-    try { await onOk(reqId); } catch (e) {
-      setError(apiErrorMessage(e, 'The change was saved but the page could not refresh - reload it'));
-    }
-    setBusy(false);
   }, []);
 
   const start = useCallback(() => {

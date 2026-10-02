@@ -118,7 +118,7 @@ export default function SupplierRulesPage() {
       setGlAccounts(glJson.data ?? []);
       setCostCentres(ccJson.data ?? []);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load the coding rule - try again'));
+      setSupplier(null); setRule(null); setError(apiErrorMessage(err, 'Could not load the coding rule - try again'));
     } finally {
       setLoading(false);
     }

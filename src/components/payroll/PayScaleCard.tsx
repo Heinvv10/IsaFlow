@@ -35,6 +35,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
         setScales(((json.data ?? json) as PayScale[]) ?? []);
       }
     } catch (err) {
+      setScales([]);
       setError(apiErrorMessage(err, 'Could not load pay scales - try again'));
     } finally {
       setLoading(false);

@@ -47,20 +47,21 @@ export function ComplianceTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const res = await apiFetch('/api/accounting/compliance-obligations');
-        await assertOk(res, 'Could not load - try again');
+        await assertOk(res, 'Could not load the compliance obligations - try again');
         const json = await res.json();
         if (!cancelled && json.data) {
           setConfig(json.data as Obligations);
           setExists(true);
         }
-      } catch {
-        if (!cancelled) setMessage({ kind: 'err', text: 'Failed to load compliance obligations' });
+      } catch (err) {
+        if (!cancelled) { setConfig(DEFAULTS); setExists(false); setLoadError(apiErrorMessage(err, 'Could not load the compliance obligations - try again')); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -89,6 +90,10 @@ export function ComplianceTab() {
 
   if (loading) {
     return <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-teal-500" /></div>;
+  }
+
+  if (loadError) {
+    return <div role="alert" className="py-8 text-center text-sm text-red-500">{loadError}</div>;
   }
 
   return (

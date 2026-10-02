@@ -75,13 +75,14 @@ export function AccountRow({
     // rule, orphaned bank transactions) that should not fire on a rename.
     const currentSubtype = account.accountSubtype || '';
     const currentParent = account.parentAccountId || '';
-    await onUpdate(account.id, {
-      accountName: editName, description: editDesc,
-      defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
-      ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
-      ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
-    });
-    setIsSaving(false);
+    try {
+      await onUpdate(account.id, {
+        accountName: editName, description: editDesc,
+        defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
+        ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
+        ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
+      });
+    } finally { setIsSaving(false); }
     setIsEditing(false);
   };
 

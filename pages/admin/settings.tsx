@@ -122,6 +122,7 @@ export default function AdminSettings() {
       const alertJson = await alertRes.json() as { data: AlertSettings };
       setAlertSettings(alertJson.data ?? { health_alert_email: '', health_alert_webhook_url: '' });
     } catch (err) {
+      setSettings(null); setAlertSettings({ health_alert_email: '', health_alert_webhook_url: '' });
       setError(apiErrorMessage(err, 'Could not load the settings - try again'));
     } finally {
       setLoading(false);

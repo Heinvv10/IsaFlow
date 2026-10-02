@@ -132,7 +132,7 @@ export default function AdminCompanyDetailPage() {
       await assertOk(res, 'Could not load the company - try again');
       const json = await res.json();
       setCompany(json.data as CompanyDetail);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the company - try again')); }
+    } catch (err) { setCompany(null); setError(apiErrorMessage(err, 'Could not load the company - try again')); }
     finally { setLoading(false); }
   }, [id]);
 
@@ -197,7 +197,7 @@ export default function AdminCompanyDetailPage() {
       const res  = await apiFetch(`/api/admin/companies/${id}`, { method: 'DELETE', headers: { 'X-Admin-Request': 'true' } });
       await assertOk(res, 'Could not delete the company - try again');
       void router.push(adminHref('/admin/companies'));
-    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); setActionLoading(false); }
+    } catch (err) { setActionError(apiErrorMessage(err, 'Could not delete the company - try again')); } finally { setActionLoading(false); }
   }
 
   function startEdit() {

@@ -282,8 +282,7 @@ export default function OnboardingWizard() {
       window.location.href = '/accounting';
     } catch (err) {
       setError(apiErrorMessage(err, 'Something went wrong - try again'));
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   if (!authChecked) {

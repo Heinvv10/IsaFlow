@@ -92,6 +92,8 @@ export default function ARAgingPage() {
       setData(json.data ?? null);
       setHasMore(Boolean((json as { meta?: { hasMore?: boolean } }).meta?.hasMore));
     } catch (err) {
+      setData(null);
+      setHasMore(false);
       setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);

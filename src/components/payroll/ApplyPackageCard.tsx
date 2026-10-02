@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { apiFetch, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Package, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -27,11 +27,11 @@ export function ApplyPackageCard({ employeeId }: Props) {
     setLoading(true);
     try {
       const res = await apiFetch('/api/payroll/pay-packages?activeOnly=1');
-      if (res.ok) {
-        const json = await res.json();
-        setPackages(((json.data ?? json) as Pkg[]) ?? []);
-      }
+      await assertOk(res, 'Could not load packages - try again');
+      const json = await res.json();
+      setPackages(((json.data ?? json) as Pkg[]) ?? []);
     } catch (err) {
+      setPackages([]);
       setError(apiErrorMessage(err, 'Could not load packages - try again'));
     } finally {
       setLoading(false);

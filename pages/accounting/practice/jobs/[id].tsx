@@ -66,7 +66,7 @@ export default function JobDetailPage() {
         const uj = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
         setUsers(Array.isArray(uj) ? uj : ((uj as { data?: CompanyUserSummary[] }).data ?? []));
       }
-    } catch (err) { setError(apiErrorMessage(err, 'Could not load the job - try again')); }
+    } catch (err) { setUsers([]); setError(apiErrorMessage(err, 'Could not load the job - try again')); }
     finally { setLoading(false); }
   }, [jobId]);
 

@@ -110,7 +110,7 @@ export default function PracticeClientDetailPage() {
         setContacts(('data' in contactsJson ? contactsJson.data : contactsJson) as ClientContact[] ?? []);
       }
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load the client - try again'));
+      setClient(null); setContacts([]); setError(apiErrorMessage(err, 'Could not load the client - try again'));
     } finally {
       setLoading(false);
     }

@@ -112,7 +112,7 @@ export default function VAT201Page() {
       const json = await res.json();
       setData(json.data);
       setExceptionsKey(k => k + 1);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not generate VAT201 - try again')); }
+    } catch (err) { setData(null); setError(apiErrorMessage(err, 'Could not generate VAT201 - try again')); }
     finally { setLoading(false); }
   }, [from, to]);
 

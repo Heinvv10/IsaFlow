@@ -167,7 +167,7 @@ export default function MirrorSettingsPage() {
       const res = await apiFetch(`/api/accounting/capture/mirror/${id}/log?limit=100`);
       await assertOk(res, 'Could not load the scan log - try again'); const json = await res.json() as { data?: { entries?: ScanLogEntry[] } };
       setLogEntries(json.data?.entries ?? []);
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
+    } catch (err) { setLogEntries([]); showToast(apiErrorMessage(err, 'Could not load the scan log - try again'), false); }
   }
 
   return (

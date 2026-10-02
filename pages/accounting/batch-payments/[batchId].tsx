@@ -63,6 +63,7 @@ export default function BatchPaymentDetailPage() {
       const json = await res.json();
       setBatch(json.data || null);
     } catch (err) {
+      setBatch(null);
       setError(apiErrorMessage(err, 'Could not load the batch - try again'));
     } finally {
       setIsLoading(false);

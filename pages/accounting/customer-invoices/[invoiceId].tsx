@@ -61,12 +61,14 @@ export default function CustomerInvoiceDetailPage() {
 
   const loadInvoice = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const res = await apiFetch(`/api/accounting/customer-invoices-detail?id=${invoiceId}`);
       await assertOk(res, 'Could not load the invoice - try again');
       const json = await res.json();
       setInvoice(json.data || json);
     } catch (err) {
+      setInvoice(null); setPrevId(null); setNextId(null);
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setLoading(false);

@@ -84,8 +84,7 @@ export default function TimesheetsPage() {
       await assertOk(r, 'Could not load entries - try again');
       const j = await r.json() as { data?: { entries?: TimeEntry[] } };
       setEntries(j.data?.entries ?? []);
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not load entries - try again'), false); }
-    setLoading(false);
+    } catch (err) { setEntries([]); setSelected(new Set()); showToast(apiErrorMessage(err, 'Could not load entries - try again'), false); } finally { setLoading(false); }
   }, [weekStart, filterCustomer]);
 
   useEffect(() => { void loadEntries(); }, [loadEntries]);
@@ -134,8 +133,7 @@ export default function TimesheetsPage() {
       await assertOk(res, 'Could not save the time entry - try again');
       showToast('Entry added', true);
       setShowForm(false); setForm({ ...BLANK_FORM }); void loadEntries();
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not save the time entry - try again'), false); }
-    setFormBusy(false);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not save the time entry - try again'), false); } finally { setFormBusy(false); }
   };
 
   const handleCreateInvoice = async () => {
@@ -153,8 +151,7 @@ export default function TimesheetsPage() {
       const j = await res.json() as { data?: { invoiceNumber?: string }; message?: string };
       showToast(`Invoice ${j.data?.invoiceNumber ?? ''} created`, true);
       setSelected(new Set()); void loadEntries();
-    } catch (err) { showToast(apiErrorMessage(err, 'Could not create the invoice - try again'), false); }
-    setInvoiceBusy(false);
+    } catch (err) { showToast(apiErrorMessage(err, 'Could not create the invoice - try again'), false); } finally { setInvoiceBusy(false); }
   };
 
   return (

@@ -37,6 +37,7 @@ export function ConvertTrialModal({ companyId, companyName, onClose, onConverted
         setPlans(json.data ?? []);
         if (json.data && json.data.length > 0) setPlanId(json.data[0]?.id ?? '');
       } catch (err) {
+        setPlans([]); setPlanId('');
         setError(apiErrorMessage(err, 'Could not load plans - try again'));
       } finally {
         setLoading(false);

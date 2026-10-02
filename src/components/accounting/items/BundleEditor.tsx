@@ -52,7 +52,7 @@ export function BundleEditor({ itemId, parentDescription, onSaved }: Props) {
       await assertOk(res, 'Could not load the bundle components - try again');
       const json = await res.json() as { data?: BundleLine[] };
       setLines(json.data ?? []);
-    } catch (e) { setError(apiErrorMessage(e, 'Could not load the bundle components - try again')); }
+    } catch (e) { setLines([]); setError(apiErrorMessage(e, 'Could not load the bundle components - try again')); }
     finally { setLoading(false); }
   }, [itemId]);
 

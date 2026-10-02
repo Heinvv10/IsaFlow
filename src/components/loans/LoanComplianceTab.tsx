@@ -50,8 +50,9 @@ export function LoanComplianceTab({ loanId }: Props) {
     } catch (err) {
       setHistory([]);
       setError(apiErrorMessage(err, 'Could not load compliance history - try again'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [loanId]);
 
 
@@ -67,16 +68,13 @@ export function LoanComplianceTab({ loanId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: 'Assessment failed' }));
-        setError(err.message ?? 'Assessment failed');
-      } else {
-        await load();
-      }
+      await assertOk(res, 'Could not run the compliance assessment - try again');
+      await load();
     } catch (e) {
-      setError(apiErrorMessage(e, 'Could not complete: assessment - try again'));
+      setError(apiErrorMessage(e, 'Could not run the compliance assessment - try again'));
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   const latest = history[0];

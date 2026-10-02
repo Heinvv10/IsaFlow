@@ -58,8 +58,9 @@ export default function LoanDetailPage() {
     } catch (err) {
       setLoan(null);
       setError(apiErrorMessage(err, 'Could not load the loan - try again'));
+    } finally {
+      setLoadingLoan(false);
     }
-    setLoadingLoan(false);
   }, [id]);
 
   const loadSchedule = useCallback(async () => {

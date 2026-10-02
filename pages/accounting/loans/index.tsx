@@ -47,27 +47,27 @@ export default function LoansIndexPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    const [loansRes, summaryRes] = await Promise.all([
-      apiFetch('/api/accounting/loans'),
-      apiFetch('/api/accounting/loans/portfolio/summary'),
-    ]);
-    await assertOk(loansRes, 'Could not load the loan portfolio - try again');
-    await assertOk(summaryRes, 'Could not load the loan portfolio - try again');
-    const [loansJson, summaryJson] = await Promise.all([loansRes.json(), summaryRes.json()]);
-    setLoans(loansJson.data ?? []);
-    setSummary(summaryJson.data ?? null);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load().catch((err) => {
+    try {
+      const [loansRes, summaryRes] = await Promise.all([
+        apiFetch('/api/accounting/loans'),
+        apiFetch('/api/accounting/loans/portfolio/summary'),
+      ]);
+      await assertOk(loansRes, 'Could not load the loan portfolio - try again');
+      await assertOk(summaryRes, 'Could not load the loan portfolio - try again');
+      const [loansJson, summaryJson] = await Promise.all([loansRes.json(), summaryRes.json()]);
+      setLoans(loansJson.data ?? []);
+      setSummary(summaryJson.data ?? null);
+    } catch (err) {
       setLoans([]);
       setSummary(null);
       setError(apiErrorMessage(err, 'Could not load the loan portfolio - try again'));
-      setLoading(false);
       log.error('Failed to load loan portfolio', { error: err }, 'loans-index-page');
-    });
-  }, [load]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
 
   const filtered = loans.filter(l => {
     if (statusFilter && l.status !== statusFilter) return false;

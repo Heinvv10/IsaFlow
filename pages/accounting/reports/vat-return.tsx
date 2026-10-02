@@ -130,11 +130,11 @@ export default function VATReturnPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-vat-return?${params}`);
-      await assertOk(res, 'Failed to load');
+      await assertOk(res, 'Could not load VAT return - try again');
       const json = await res.json();
       setReport(json.data || json);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load VAT return - try again'));
+      setReport(null); setError(apiErrorMessage(err, 'Could not load VAT return - try again'));
     } finally {
       setIsLoading(false);
     }

@@ -62,6 +62,7 @@ export default function PaystackMandateReturn() {
         else setState('cancelled');
       } catch (err) {
         if (cancelled) return;
+        setData(null);
         setState('error');
         setErrorMsg(apiErrorMessage(err, 'Could not verify the mandate - try again'));
       }

@@ -133,7 +133,7 @@ export default function AdminWebAnalytics() {
         if (ws.length > 0) setWebsiteId(prev => prev || ws[0]!.id);
         else setLoading(false);
       } catch (err) {
-        setError(apiErrorMessage(err, 'Could not load websites - try again'));
+        setWebsites([]); setError(apiErrorMessage(err, 'Could not load websites - try again'));
         setLoading(false);
       }
     })();

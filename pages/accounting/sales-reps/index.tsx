@@ -58,8 +58,7 @@ export default function SalesRepsPage() {
       log.error('Failed to load sales reps', { err });
       setError(apiErrorMessage(err, 'Network error — could not load sales reps'));
       setReps([]);
-    }
-    setLoading(false);
+    } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void loadReps(); }, [loadReps]);
@@ -128,8 +127,7 @@ export default function SalesRepsPage() {
     } catch (err) {
       log.error('Failed to save sales rep', { err });
       setFormError(apiErrorMessage(err, 'Network error — save failed'));
-    }
-    setSaving(false);
+    } finally { setSaving(false); }
   };
 
   const handleDeactivate = async (rep: SalesRep) => {

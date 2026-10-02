@@ -48,6 +48,8 @@ export default function DocumentCapturePage() {
       setDocuments(json.data || []);
       setTotal(json.pagination?.total || 0);
     } catch (err) {
+      setDocuments([]);
+      setTotal(0);
       setError(apiErrorMessage(err, 'Could not load documents - try again'));
     } finally { setIsLoading(false); }
   }, [statusFilter]);

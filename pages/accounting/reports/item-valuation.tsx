@@ -26,6 +26,7 @@ export default function ItemValuationReport() {
       const json = await res.json();
       setRows(json.data || []);
     } catch (err: unknown) {
+      setRows([]);
       setError(apiErrorMessage(err, 'Could not load item valuation - try again'));
     } finally {
       setLoading(false);

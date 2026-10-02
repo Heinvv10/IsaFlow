@@ -67,3 +67,26 @@ describe('(d) a write whose result is never checked', () => {
     expect(kinds(wrap(`await apiFetch('/x', { method: 'GET' });`))).toEqual([]);
   });
 });
+
+describe('(e) a busy flag with no finally', () => {
+  it('fires when setLoading(true) is cleared only on the happy path', () => {
+    expect(kinds(wrap(`setLoading(true); const res = await apiFetch('/x'); await assertOk(res, 'Could not load x - try again'); setLoading(false);`))).toEqual(['e']);
+    expect(kinds(wrap(`setSaving(true); try { await save(); } catch (e) { setSaving(false); }`))).toEqual(['e']);
+  });
+  it('is quiet when a finally clears it, and for a synchronous function', () => {
+    expect(kinds(wrap(`setLoading(true); try { await save(); } catch (e) { setError('Could not save - try again'); } finally { setLoading(false); }`))).toEqual([]);
+    expect(kinds(`export function g() { setLoading(true); }`)).toEqual([]);
+  });
+});
+
+describe('(f) a failed load that keeps its old rows', () => {
+  const LOAD = (catchBody: string) => wrap(`try { const res = await apiFetch('/x'); await assertOk(res, 'Could not load x - try again'); const json = await res.json(); setRows(json.data); } catch (err) { ${catchBody} }`);
+  it('fires when the catch shows an error but does not clear what the try filled', () => {
+    expect(kinds(LOAD(`setError(apiErrorMessage(err, 'Could not load x - try again'));`))).toEqual(['f']);
+  });
+  it('is quiet when the catch clears it, or for a write', () => {
+    expect(kinds(LOAD(`setRows([]); setError(apiErrorMessage(err, 'Could not load x - try again'));`))).toEqual([]);
+    expect(kinds(wrap(`try { const res = await apiFetch('/x', { method: 'POST' }); await assertOk(res, 'Could not save - try again'); const json = await res.json(); setRows(json.data); } catch (err) { setError(apiErrorMessage(err, 'Could not save - try again')); }`))).toEqual([]);
+    expect(kinds(wrap(`try { const res = await apiFetch('/x', { method: m }); await assertOk(res, 'Could not save - try again'); const json = await res.json(); setRows(json.data); } catch (err) { setError(apiErrorMessage(err, 'Could not save - try again')); }`))).toEqual([]);
+  });
+});

@@ -41,16 +41,19 @@ export default function SupplierDetailPage() {
   const loadSupplier = useCallback(async () => {
     if (!supplierId) return;
     setLoading(true);
+    setError('');
     try {
       const res  = await apiFetch(`/api/accounting/suppliers-list?id=${supplierId}`);
       await assertOk(res, 'Could not load the supplier - try again');
       const json = await res.json() as { data?: Supplier; success?: boolean };
       if (!json.success || !json.data) {
+        setSupplier(null);
         setError('Supplier not found');
         return;
       }
       setSupplier(json.data);
     } catch (err) {
+      setSupplier(null);
       setError(apiErrorMessage(err, 'Could not load the supplier - try again'));
     } finally {
       setLoading(false);

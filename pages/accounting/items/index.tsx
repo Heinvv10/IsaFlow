@@ -61,8 +61,9 @@ export default function ItemsListPage() {
       log.error('Failed to load items', { error: err }, 'items-list-page');
       setItems([]);
       setError(apiErrorMessage(err, 'Could not load items - try again'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [search, typeFilter, categoryFilter]);
 
   const loadCategories = useCallback(async () => {

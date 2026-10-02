@@ -52,6 +52,7 @@ export default function ConsolidationPage() {
       const json = await res.json();
       setGroupCompanies((json.data?.items ?? []) as GroupCompany[]);
     } catch (err) {
+      setGroupCompanies([]);
       setCompaniesError(apiErrorMessage(err, 'Could not load group companies - try again'));
     } finally {
       setLoadingCompanies(false);
@@ -76,6 +77,7 @@ export default function ConsolidationPage() {
       }
       setReport(json.data as ConsolidatedTrialBalance);
     } catch (err) {
+      setReport(null);
       setReportError(apiErrorMessage(err, 'Could not load the report - try again'));
     } finally {
       setLoadingReport(false);

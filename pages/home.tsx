@@ -46,6 +46,7 @@ export default function HomePage() {
       const json = await res.json() as { data?: HomeData; message?: string };
       setData(json.data ?? null);
     } catch (err) {
+      setData(null);
       setError(apiErrorMessage(err, 'Could not load - try again'));
     } finally {
       setLoading(false);

@@ -53,6 +53,9 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         if (list.length > 0) setMode('split');
       }
     } catch (err) {
+      setCentres([]);
+      setAllocations([]);
+      setBaseline([]);
       setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
     } finally {
       setLoading(false);

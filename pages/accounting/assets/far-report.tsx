@@ -64,20 +64,23 @@ export default function FarReportPage() {
   const load = useCallback(async (date: string) => {
     setLoading(true);
     setError(null);
-    const res = await apiFetch(`/api/accounting/assets/far-report?asAt=${date}`);
-    await assertOk(res, 'Could not load the report - try again');
-    const json = await res.json() as { success: boolean; data?: FarReport; error?: string };
-    if (json.success && json.data) {
-      setReport(json.data);
-    } else {
-      setError(json.error ?? 'Failed to load report');
+    try {
+      const res = await apiFetch(`/api/accounting/assets/far-report?asAt=${date}`);
+      await assertOk(res, 'Could not load the report - try again');
+      const json = await res.json() as { success: boolean; data?: FarReport; error?: string };
+      if (json.success && json.data) {
+        setReport(json.data);
+      } else {
+        setError(json.error ?? 'Failed to load report');
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
     load(asAt).catch((err) => {
-      setLoading(false);
+      setReport(null);
       setError(apiErrorMessage(err, 'Could not load the report - try again'));
     });
   }, [asAt, load]);
