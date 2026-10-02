@@ -25,9 +25,8 @@
  *                  the reclass is dated with the provisional and nets its claim there.
  */
 import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
-import { als, assertTxUsable } from '@/lib/als';
+import { als } from '@/lib/als';
 import { fmtDate } from '@/lib/fmtDate';
 import { getJournalEntryById } from '../gl/journalEntryService';
 import { findActiveVatLock, journalMovesVatFigure } from '../gl/journalVatLockGuard';
@@ -37,9 +36,9 @@ import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { withRowLockBudget } from '../core/rowLockBudget';
 
 const CENT = 0.005;
-const LOCK_NOT_AVAILABLE = '55P03';
 
 export interface ProvisionalClaim {
   journalEntryId: string;
@@ -55,14 +54,18 @@ export interface ProvisionalClaim {
   reclassDate: string;
 }
 
-/** The candidates, row-locked under a 5 s budget whose timeout names the provisional. */
+/**
+ * The candidates, row-locked under the shared 5 s budget (`core/rowLockBudget`, the caller's lock_timeout restored
+ * on every path that leaves the transaction usable — D8 rounds 6 and 9), a timeout naming the provisional.
+ */
 async function lockCandidates(companyId: string, documentId: string): Promise<DbRow[]> {
-  const client = als.getStore()?.client;
-  if (!client) throw new Error('claimEvidencedProvisional requires a request transaction (withAuth / als.run)');
-  assertTxUsable();
-  await client.query("SET LOCAL lock_timeout = '5s'");
+  if (!als.getStore()?.client) throw new Error('claimEvidencedProvisional requires a request transaction (withAuth / als.run)');
+  const contended = () => new SupplierPaymentRefusal(
+    'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
+    { retryable: true },
+  );
   try {
-    const rows = (await sql`
+    const rows = await withRowLockBudget(async () => (await sql`
       SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount
       FROM gl_journal_entries je
       JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id
@@ -73,34 +76,20 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
         AND je.needs_evidence = false
       ORDER BY je.id
       FOR UPDATE OF je
-    `) as DbRow[];
+    `) as DbRow[], contended);
     // D8 round 4 (B1): X's row lock does not hold a re-reversed X in the
     // ledger — its HEAD (R2) does, and a reversal of R2 claims R2, not X. So
-    // lock the standing head too, under the same budget, and drop a candidate
+    // lock the standing head too, under the same budget helper, and drop a candidate
     // whose chain went out meanwhile; the reversal then waits on this lock and
     // meets the settlement in refuseReversingSettlementJournal.
     const standing: DbRow[] = [];
     for (const r of rows) {
       if (await lockStandingChainHead(companyId, String(r.je_id), (m) => new SupplierPaymentRefusal(m))) standing.push(r);
     }
-    // Success path only: after a timeout the transaction is aborted (see supplierInvoiceLock.ts).
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return standing;
   } catch (err) {
-    // A lock timeout (raw, or lockChainHead's typed one) aborts the transaction: nothing to restore.
-    if ((err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE || err instanceof JournalReversalLockTimeoutError) {
-      throw new SupplierPaymentRefusal(
-        'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
-        { retryable: true },
-      );
-    }
-    // Any other throw — the broken-chain refusal above is one — leaves the
-    // transaction usable, and withAuth COMMITs the 4xx it becomes: restore the
-    // default so the rest of the request does not run under a 5 s lock_timeout
-    // (D8 round 6). Guarded, so a failed restore cannot replace the real error.
-    await client.query('SET LOCAL lock_timeout = DEFAULT').catch((restoreErr: unknown) => {
-      log.error('Failed to restore lock_timeout after a provisional claim refusal', { error: restoreErr }, 'accounting');
-    });
+    // The head lock's own timeout reads as this claim's contention, like the candidates' lock.
+    if (err instanceof JournalReversalLockTimeoutError) throw contended();
     throw err;
   }
 }

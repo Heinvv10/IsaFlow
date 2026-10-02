@@ -32,6 +32,8 @@ import { loadJournalVatLines } from '../gl/journalVatLockGuard';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { brokenChainMessage, findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
+import { withRowLockBudget } from '../core/rowLockBudget';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 export interface BankLeg {
   /** The journal's reversal chain is out of the ledger; the caller decides what that means. */
@@ -163,12 +165,13 @@ export async function lockJournalAndUnmatch(
   companyId: string, journalId: string, leg: BankLeg, label: string,
 ): Promise<void> {
   const journals = [...new Set([journalId, leg.reverseId])];
-  await sql`
+  // ORDER BY id: two requests locking the same two journals take them in one order. Bounded (D8 round 9).
+  await withRowLockBudget(() => sql`
     SELECT id FROM gl_journal_entries
     WHERE id = ANY(${journals}::UUID[]) AND company_id = ${companyId}::UUID
     ORDER BY id
     FOR UPDATE
-  `;
+  `, () => new JournalReversalLockTimeoutError(journalId));
   // The head the leg named, re-read under lock (D8 round 6): lockBankLegOf walked
   // the chain unlocked, and a reversal landing since makes reverseId stale — or
   // flips the chain in or out. Contention, retryable, never an untyped

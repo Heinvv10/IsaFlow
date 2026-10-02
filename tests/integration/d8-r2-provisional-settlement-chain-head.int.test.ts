@@ -155,3 +155,36 @@ describe('D8 round 6: a refused provisional claim leaves the request\'s lock_tim
     expect(after).toBe('0');
   });
 });
+
+describe('D8 round 9: a held chain head is the claim\'s own retryable contention, not a raw lock timeout', () => {
+  it('another request holding R2 of a re-reversed provisional: the claim refuses within the budget, retryable', async () => {
+    const doc = await seedDoc();
+    const { je } = await seedProvisional({ totalAmount: 115, evidencedBy: doc });
+    const r = await inTx(() => reverseJournalEntry(company, je, user));
+    const head = (await inTx(() => reverseJournalEntry(company, r.id, user))).id;
+    const invoiceId = await seedInvoice({ documentId: doc, totalAmount: 115 });
+
+    const holder = await pool.connect();
+    const c = await pool.connect();
+    let err: unknown = null;
+    const started = Date.now();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [head]); // X is free: the HEAD is held
+      await c.query('BEGIN');
+      await c.query("SET LOCAL statement_timeout = '15s'");
+      await als.run({ client: c, userId: user, companyId: company, claims: {} } as never, async () => {
+        await claimEvidencedProvisional(company, invoiceId).catch((e: unknown) => { err = e; });
+      });
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(Date.now() - started).toBeLessThan(9000);
+    expect((err as Error)?.name).toBe('SupplierPaymentRefusal');
+    expect((err as { retryable?: boolean }).retryable).toBe(true);
+    expect(String((err as Error).message)).toMatch(/being settled by another request/);
+  }, 30000);
+});

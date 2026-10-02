@@ -30,6 +30,8 @@ import { reverseJournalEntry } from '../gl/journalEntryPostingService';
 import { assertInvoiceDeletable } from './softDeleteInvoiceGuards';
 import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { findJournalChainHead } from '../shared/journalChainHead';
+import { withRowLockBudget } from './rowLockBudget';
+import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 /**
  * Lock the document's journal entry and report whether it is still live.
@@ -42,12 +44,12 @@ async function lockJournalEntry(
   companyId: string,
   journalEntryId: string,
 ): Promise<{ status: string; reversedAt: unknown } | null> {
-  const rows = (await sql`
+  const rows = await withRowLockBudget(async () => (await sql`
     SELECT status, reversed_at
     FROM gl_journal_entries
     WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE
-  `) as DbRow[];
+  `) as DbRow[], () => new JournalReversalLockTimeoutError(journalEntryId)); // bounded (D8 round 9)
   if (rows.length === 0) return null;
   return { status: String(rows[0]!.status), reversedAt: rows[0]!.reversed_at };
 }
