@@ -10,8 +10,7 @@
  *  - A mapping's accounts must belong to that company and that group: the route used to accept
  *    any tenant's gl_accounts id and any group's group_accounts id, and GET mappings then
  *    returned the foreign account's code and name.
- *  - The creator's add-member bootstrap holds only while every current member company is one
- *    the creator still belongs to (vacuously, an empty group).
+ *  - The creator's add-member bootstrap holds only while the group has no current member.
  *
  * `company_users.user_id` is TEXT: compared to the bare parameter, never cast (see
  * companyAccessService). `created_by` is uuid, so the COLUMN is cast to text.
@@ -80,9 +79,9 @@ export async function companyIsGroupMember(groupId: string, companyId: string): 
 }
 
 /**
- * The creator may add members without a group write role only while every current member company
- * is one they still belong to — an empty group, or only their own companies. Once a company they
- * do not belong to is in (or they left one), the group's own write roles decide.
+ * The creator may add a member without a group write role only while the group has NO current
+ * member — it could never gain its first one otherwise. Once any company is in, the group's own
+ * write roles decide: a creator demoted to viewer (or who has left) keeps no standing write.
  */
 export async function creatorMayBootstrapGroup(userId: string, groupId: string): Promise<boolean> {
   const rows = (await sql`
@@ -90,11 +89,7 @@ export async function creatorMayBootstrapGroup(userId: string, groupId: string):
     WHERE g.id = ${groupId}::UUID
       AND g.created_by::TEXT = ${userId}
       AND NOT EXISTS (
-        SELECT 1 FROM company_group_members cgm
-        WHERE cgm.group_id = g.id AND cgm.left_date IS NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM company_users cu WHERE cu.company_id = cgm.company_id AND cu.user_id = ${userId}
-          )
+        SELECT 1 FROM company_group_members cgm WHERE cgm.group_id = g.id AND cgm.left_date IS NULL
       )
     LIMIT 1
   `) as Record<string, unknown>[];

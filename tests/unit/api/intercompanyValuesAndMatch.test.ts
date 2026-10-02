@@ -100,3 +100,38 @@ describe('match: a transaction not in this group → 404', () => {
     await expect(call({ action: 'match', groupId: G, sourceId: T1, targetId: T2 })).rejects.toThrow('connection reset');
   });
 });
+
+// Round 11 (security probe P3): GET sent group_id / company_id to ::UUID and the dates to ::DATE
+// unchecked — a malformed value threw (500) before any access answer.
+describe('GET: ids and dates are checked before any query (400)', () => {
+  async function get(query: Record<string, unknown>) {
+    const res = { status: vi.fn().mockReturnThis(), json: vi.fn(), setHeader: vi.fn() };
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(
+      { method: 'GET', query, body: {}, user: { id: 'u1' } } as unknown as NextApiRequest, res as unknown as NextApiResponse);
+    return res;
+  }
+
+  it.each([
+    [{ group_id: 'not-a-uuid' }, 'group_id must be a valid UUID'],
+    [{ group_id: [G, G] }, 'group_id must be a valid UUID'],
+    [{ group_id: G, company_id: 'co-1' }, 'company_id must be a valid UUID'],
+    [{ group_id: G, period_start: '2026-13-01' }, 'period_start must be a real date'],
+    [{ group_id: G, period_end: ['2026-01-31'] }, 'period_end must be a real date'],
+    [{ group_id: G, action: 'reconciliation', period_start: '2026-01-01', period_end: 'soon' }, 'period_end must be a real date'],
+    [{ group_id: G, status: ['matched', 'x'] }, 'status must be a string'],
+  ])('%j → 400', async (query, message) => {
+    const res = await get(query);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(msg(res)).toContain(message);
+    expect(access.userBelongsToGroup).not.toHaveBeenCalled();
+    expect(svc.listIntercompanyTransactions).not.toHaveBeenCalled();
+    expect(svc.getIntercompanyReconciliation).not.toHaveBeenCalled();
+  });
+
+  it('a valid list and a valid reconciliation still read', async () => {
+    expect((await get({ group_id: G, company_id: A, period_start: '2026-01-01', period_end: '2026-01-31', status: 'matched' })).status).toHaveBeenCalledWith(200);
+    expect((await get({ group_id: G, action: 'reconciliation', period_start: '2026-01-01', period_end: '2026-01-31' })).status).toHaveBeenCalledWith(200);
+    expect(svc.listIntercompanyTransactions).toHaveBeenCalledTimes(1);
+    expect(svc.getIntercompanyReconciliation).toHaveBeenCalledWith(G, '2026-01-01', '2026-01-31');
+  });
+});
