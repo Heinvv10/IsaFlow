@@ -32,6 +32,11 @@ vi.mock('@/lib/als', () => ({
   assertTxUsable: vi.fn(),
 }));
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn((s: string) => s) }) }));
+// D8 round 6: the broken-chain walk (real-ledger proof: tests/integration/d8-r6-broken-permit); here, an intact chain.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (original) => ({
+  ...await original<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+}));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   BankTransactionLockTimeoutError: class extends Error {},
   lockBankTransactionForUpdate: vi.fn(async (_c: string, id: string) => {

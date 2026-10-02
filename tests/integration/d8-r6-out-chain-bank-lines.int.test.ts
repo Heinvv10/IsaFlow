@@ -17,7 +17,8 @@ import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEnt
 import { voidSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentWorkflowService';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { inTx, runOn } from './helpers/l1FifoFixture';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { inTx, runOn, seedBankTx } from './helpers/l1FifoFixture';
 import { buildChain, diff, postedBill, processedPayment, setup, tb, teardown, type Ctx } from './d8-r4-helpers';
 
 let c: Ctx;
@@ -86,6 +87,22 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 6: an out-of-ledger payment
 
     expect(await line(bt)).toEqual({ status: 'imported', matched_journal_line_id: null });
     expect(await paymentStatus(pay.id)).toBe('cancelled');
+    expect(diff(t0, await tb(c))).toMatchObject({ ap: 0, bank: 0 });
+  });
+
+  it('a payment a bank ALLOCATION posted, chain out: voided through the bank path, the allocated line freed', async () => {
+    await postedBill(c);
+    const bt = await seedBankTx(c.fx, { date: '2026-05-21', amount: -1150, description: `D8R6-A ${++c.seq}` });
+    const a = await inTx(c.fx, () => allocateTransaction(c.fx.companyId, bt, null, c.fx.userId, undefined, 'supplier',
+      c.fx.supplierId, undefined, undefined, undefined, undefined, undefined));
+    const [p] = (await sql`SELECT id FROM supplier_payments WHERE gl_journal_entry_id = ${a.journalEntryId}::UUID`) as Row[];
+    await buildChain(c, a.journalEntryId, 1);
+    const t0 = await tb(c);
+
+    await inTx(c.fx, () => voidSupplierPayment(c.fx.companyId, String(p!.id), c.fx.userId));
+
+    expect(await line(bt)).toEqual({ status: 'imported', matched_journal_line_id: null });
+    expect(await paymentStatus(String(p!.id))).toBe('cancelled');
     expect(diff(t0, await tb(c))).toMatchObject({ ap: 0, bank: 0 });
   });
 

@@ -48,6 +48,7 @@ import {
   DocumentAlreadyLinkedRefusal,
 } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -82,6 +83,8 @@ export async function attachDocumentToProvisional(
       FOR UPDATE OF je`) as DbRow[]);
     if (!je) return { kind: 'not_found', what: 'Journal entry', id: jeId };
     if (je.stands !== true) return { kind: 'refused', message: 'Journal entry has been reversed' };
+    const chain = await findJournalChainHead(companyId, jeId); // the fragment sees a broken root only (D8 round 6)
+    if (chain?.kind === 'broken') return { kind: 'refused', message: brokenChainMessage(jeId, chain) };
     if (!je.needs_evidence) return { kind: 'refused', message: 'Journal entry is already evidenced' };
 
     // (3) The document, under a bounded wait (the claim UPDATE alone would wait unbounded).

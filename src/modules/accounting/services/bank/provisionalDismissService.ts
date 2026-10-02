@@ -15,6 +15,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
+import { lockBankTransactionForUpdate } from './bankTxLock';
 
 type Row = DbRow;
 
@@ -42,6 +43,13 @@ export async function dismissProvisionalEntry(
   // At its reversal-chain HEAD (D8): a provisional reversed and re-reversed is
   // back in the ledger through the second contra and stamped reversed; one
   // whose chain is already out reverses nothing and only frees its bank line.
+  // (1) THE BANK LINE FIRST, then the head: the canonical order (`bank/.claude.md`) both evidence attaches take
+  // — head first deadlocked against the automatic attach (D8 round 6, brk-d8b).
+  const lines = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id
+  `) as Row[];
+  for (const l of lines) await lockBankTransactionForUpdate(companyId, String(l.id));
   const head = await lockStandingChainHead(companyId, jeId);
   const reversal = head ? await reverseJournalEntry(companyId, head, userId) : null;
 

@@ -25,7 +25,7 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { assertReversalDatePostable, entryDateOf, reversalTargetOf } from './reversalDatePostable';
+import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
 import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
@@ -812,9 +812,8 @@ export async function reverseReconciledTransaction(
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
-      reverseId = await reversalTargetOf(companyId, journalEntryId); // pre-write; D8: the chain head, null when out
-      // Read-only, and before the first write of this function.
-      if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate);
+      reverseId = await peekReversalTarget(companyId, journalEntryId); // D8: the head, null when out; locked after the unwind
+      if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
       // The contra defaults to the date of the journal it reverses (D8: the chain head); date_moved compares to it.
       originalEntryDate = isoDay(reverseId && reverseId !== journalEntryId ? await entryDateOf(companyId, reverseId) : jlRows[0]!.entry_date);
     }
@@ -844,6 +843,7 @@ export async function reverseReconciledTransaction(
       // settled, which widens the subledger-to-control gap behind an
       // ordinary-looking reversal.
       result = await unwindBankAllocationApplication(companyId, journalEntryId);
+      await lockPeekedReversalTarget(companyId, journalEntryId, reverseId); // the journal locked last (D8 round 6)
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;

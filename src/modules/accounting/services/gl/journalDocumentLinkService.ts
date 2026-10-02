@@ -17,6 +17,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { journalStandsFragment, journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
+import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
@@ -73,7 +74,11 @@ async function loadLinkableJournal(companyId: string, journalEntryId: string): P
     WHERE je.id = ${journalEntryId}::UUID AND je.company_id = ${companyId}::UUID
       AND je.status = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
   `) as DbRow[];
-  return rows[0] ? { id: String(rows[0].id) } : null;
+  if (!rows[0]) return null;
+  // The fragment sees a broken ROOT only; a stamp with no contra further down, or a loop, is found by the walk.
+  const chain = await findJournalChainHead(companyId, journalEntryId); // D8 round 6, brk-d8b F3
+  if (chain?.kind === 'broken') throw new JournalDocumentLinkRefusal(brokenChainMessage(journalEntryId, chain));
+  return { id: String(rows[0].id) };
 }
 
 async function documentBelongsToCompany(companyId: string, capturedDocumentId: string): Promise<boolean> {
