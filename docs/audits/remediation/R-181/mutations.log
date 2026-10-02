@@ -127,3 +127,18 @@ P2 polling unbounded (bound removed): not a clean mutant - with no bound the loo
 P2b bound raised (MAX_POLLS 10 -> 1000) [pages/portal/payments/paystack/return.tsx]: 1 failed | 3 passed (4) -> KILLED; red: pending on every try: stops after 10 polls on a neutral "still confirming" state (the test now unmounts in a finally)
 P3 a 429 is an error [pages/portal/payments/paystack/return.tsx]: 1 failed | 3 passed (4) -> KILLED; red: a rate-limited verify (429) ends on the neutral state, not an error
 AFTER int: 8 passed (8) | component: 4 passed (4)
+
+REVIEW AT 72b132f52 — CI-gated wiring (M1), one-cent fee (L1), currency (L2); env -u DATABASE_URL, code at 14853abe6
+BASELINE unit: 66 passed (66) | component: 5 passed (5)
+W1 main path hands postGatewayFee the raw receipt (:208) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 2 failed | 64 passed (66) -> KILLED; red: pass-on fee: banks requested_amount, hands postGatewayFee no fee (the customer paid it); non-ZAR: banked, held unapplied, and no fee posted as rand
+W2 dedupe fee costed against this report, not the first banked figure (:132) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 65 passed (66) -> KILLED; red: dedupe: no receipt INSERT; the fee is costed against what the FIRST report banked (R118.50)
+W3 unapplied_currency hold dropped (:188) [src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts]: 1 failed | 65 passed (66) -> KILLED; red: non-ZAR: banked, held unapplied, and no fee posted as rand
+W4 verify drops requestedAmountCents (verify.ts:122) [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 65 passed (66) -> KILLED; red: requested_amount and fees pass through, and the fee leg with them
+W5 webhook drops requested_amount (paystackEventHandlers.ts:100) [src/modules/billing/services/paystackEventHandlers.ts]: 2 failed | 64 passed (66) -> KILLED; red: a pending request; a request already completed (verify got there first)
+W6 webhook drops fees [src/modules/billing/services/paystackEventHandlers.ts]: 2 failed | 64 passed (66) -> KILLED; red: a pending request; a request already completed (verify got there first)
+W7 verify drops fees [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 65 passed (66) -> KILLED; red: requested_amount and fees pass through, and the fee leg with them
+W8 verify drops the fee leg [pages/api/portal/payments/paystack/verify.ts]: 1 failed | 65 passed (66) -> KILLED; red: requested_amount and fees pass through, and the fee leg with them
+L1 the old one-cent floor [src/modules/accounting/services/ar/gatewayFeeService.ts]: 1 failed | 65 passed (66) -> KILLED; red: posts one cent
+L2a the receipt currency always ZAR [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 1 failed | 65 passed (66) -> KILLED; red: names a non-ZAR currency, tags an amount that differs from the receipt, and reads it back
+L2b the page shows a rand figure for any currency [pages/portal/payments/paystack/return.tsx]: 1 failed | 4 passed (5) -> KILLED; red: completed in a foreign currency: no rand figure, a plain "received"
+AFTER unit: 66 passed (66) | component: 5 passed (5)
