@@ -143,9 +143,12 @@ describe('the bill read locks what it is about to decide from', () => {
     // can take them in opposite sequences and deadlock.
     expect(read).toMatch(/ORDER BY si\.id/);
     expect(mockTx.queries).toContain("SET LOCAL lock_timeout = '5s'");
-    // Restored on the success path: SET LOCAL lasts to the end of the
-    // TRANSACTION, so the 5s budget would otherwise govern every later lock.
-    expect(mockTx.queries).toContain('SET LOCAL lock_timeout = DEFAULT');
+    // Restored: SET LOCAL lasts to the end of the TRANSACTION, so the 5s budget
+    // would otherwise govern every later lock. D8 round 16: to the value found
+    // (an enclosing flow budget), never DEFAULT, which unbounded the rest of it.
+    expect(mockTx.queries).toContain("SELECT current_setting('lock_timeout') AS v");
+    expect(mockTx.queries).toContain("SELECT set_config('lock_timeout', $1, true)");
+    expect(mockTx.queries).not.toContain('SET LOCAL lock_timeout = DEFAULT');
   });
 
   it('turns a lock timeout into a refusal that names the retry', async () => {
