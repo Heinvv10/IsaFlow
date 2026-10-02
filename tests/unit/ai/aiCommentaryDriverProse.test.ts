@@ -46,3 +46,19 @@ describe('the key-driver sentences', () => {
     for (const d of identifyKeyDrivers(CURRENT, PRIOR)) expect(d.explanation).not.toMatch(/[-−]\s?\d/);
   });
 });
+
+describe('the structured direction agrees with the sentence', () => {
+  const driver = (current: Lines, prior: Lines, metric: string) =>
+    identifyKeyDrivers(current, prior).find((d) => d.metric === metric)!;
+
+  it('is up or down from a nil prior, not flat', () => {
+    expect(driver({ ...CURRENT, revenue: 1_000_000 }, { ...PRIOR, revenue: 0 }, 'revenue').direction).toBe('up');
+    expect(driver({ ...CURRENT, netProfit: -5_000 }, { ...PRIOR, netProfit: 0 }, 'netProfit').direction).toBe('down');
+  });
+
+  it('is flat where nothing moved from nil', () => {
+    const d = driver({ ...CURRENT, revenue: 0 }, { ...PRIOR, revenue: 0 }, 'revenue');
+    expect(d.direction).toBe('flat');
+    expect(d.explanation).toBe('Revenue remained flat');
+  });
+});

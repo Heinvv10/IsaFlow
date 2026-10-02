@@ -51,7 +51,7 @@ export interface ExecutiveSummary {
 function driverSentence(
   label: string, prior: number, change: number, changePercent: number, direction: KeyDriver['direction'],
 ): string {
-  if (prior === 0 && change !== 0) return `${label} ${change > 0 ? 'increased' : 'decreased'} from nil`;
+  if (prior === 0 && direction !== 'flat') return `${label} ${direction === 'up' ? 'increased' : 'decreased'} from nil`;
   if (direction === 'flat') return `${label} remained flat`;
   return `${label} ${pctWithWord(changePercent, 'increased by', 'decreased by')}`;
 }
@@ -71,7 +71,11 @@ export function identifyKeyDrivers(
   const drivers: KeyDriver[] = metrics.map(m => {
     const change = Math.round((m.current - m.prior) * 100) / 100;
     const changePercent = m.prior !== 0 ? Math.round((change / Math.abs(m.prior)) * 10000) / 100 : 0;
-    const direction: KeyDriver['direction'] = Math.abs(changePercent) < 1 ? 'flat' : change > 0 ? 'up' : 'down';
+    // From nil there is no percentage, but there is a direction: the
+    // structured field says what the sentence says (`driverSentence`).
+    const direction: KeyDriver['direction'] = m.prior === 0
+      ? (change > 0 ? 'up' : change < 0 ? 'down' : 'flat')
+      : Math.abs(changePercent) < 1 ? 'flat' : change > 0 ? 'up' : 'down';
 
     return {
       metric: m.metric,
@@ -90,7 +94,7 @@ export function identifyKeyDrivers(
  * "Gross margin -1310.8% is below 20%" — a hyphen for a minus and no
  * grouping. A margin carries its sign in a word; a ratio is in its unit.
  */
-const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative');
+const level = (pct: number): string => pctWithWord(pct, 'a positive', 'a negative', 'nil');
 const ratio = (key: string, value: number): string => formatRatioOf(key, value);
 
 export function assessRiskAreas(data: ManagementPackData): RiskArea[] {

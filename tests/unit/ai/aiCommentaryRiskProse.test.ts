@@ -62,3 +62,11 @@ describe('on ordinary figures', () => {
     ]);
   });
 });
+
+describe('a margin that rounds to nil', () => {
+  it('reads "nil", unsigned', () => {
+    const text = sentences({ ...DATA, ratios: { ...DATA.ratios, grossMargin: -0.01, netMargin: 0 } });
+    expect(text).toContain('Gross margin is nil, below 20.0%');
+    expect(text).toContain('Net margin is nil, below 5.0%');
+  });
+});
