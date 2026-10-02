@@ -15,7 +15,10 @@
  * explicit-amount link can raise 40P01 (pre-existing; recoverable). A 55P03 after
  * 5s becomes `CustomerInvoiceLockTimeoutError` and rolls the settlement back, so
  * nothing is lost: the webhook answers 500 and Paystack redelivers; verify answers
- * `pending` and leaves the request as stored for the webhook.
+ * `pending` and leaves the request as stored for the webhook. The DEDUPE path
+ * (receipt already banked) never reaches here: spend link, then fee journal, then
+ * the request row FOR UPDATE last (the review note), with no lock_timeout and no
+ * cycle, because the request is already completed.
  */
 
 import { sql } from '@/lib/neon';

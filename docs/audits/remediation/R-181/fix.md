@@ -393,3 +393,37 @@ pre-existing k061 contention case above). All on `isaflow-fixture-r181`, 127.0.0
   `gatewayInvoiceReceiptService.ts`, `paystackEventHandlers.ts`) corrected; `fees` added to
   `billing/.claude.md`; mirrors regenerated.
 - **LOW-4.** `paystackClient.ts` stays R-183.
+
+## Review at 72b132f52 (FIX: M1 + 3 LOWs)
+
+- **M1. CI gated the arithmetic, not the wiring.** Unit tests, run without a database:
+  `tests/unit/services/ar/gatewayReceiptWiring.test.ts` pins `recordGatewayInvoiceReceipt`'s receipt
+  INSERT total, the fee leg handed to `postGatewayFee` and the non-ZAR hold, for the pass-on,
+  merchant-borne, non-ZAR and dedupe paths (on dedupe, the fee costed against the FIRST report's
+  banked figure). `tests/unit/services/billing/paystackSettlementPassThrough.test.ts` pins that the
+  webhook (both branches) and verify hand over `amount`, `currency`, `requested_amount`, `fees` and
+  the fee leg. Under `env -u DATABASE_URL`, mutants W1..W8 all go red: the raw receipt to
+  `postGatewayFee`, the dedupe fee against this report, the hold dropped, `requestedAmountCents` /
+  `fees` dropped at verify and at the webhook, verify's fee leg dropped (`mutations.log`).
+  **The invoice lock is not CI-gated; it is proven by the r181 integration race test**
+  (`r181-review-round1.int.test.ts`, two settlements racing for one invoice; mutant M36). The CI
+  workflow is unchanged.
+- **L1. A one-cent fee leg was dropped.** `postGatewayFee` skipped `fee <= 0.01`, so R118.50 /
+  R115 / R3.51 computed a R0.01 merchant share and posted nothing, leaving Bank a cent above the
+  deposit. It now skips only below half a cent. Callers checked: `postGatewayFee` is called only from
+  `gatewayInvoiceReceiptService` (first-report and dedupe paths), both with `merchantFee`'s
+  cent-rounded figure; nothing relies on a one-cent floor. Pinned in the unit table, in
+  `gatewayFeeLeg.test.ts` and in `r181-pr618.int.test.ts` (Bank R114.99, fee R0.01).
+- **L2. A non-ZAR payer saw a rand figure.** verify now also answers `currency`: the receipt's
+  reported currency, read from its description tag (`receiptCurrency`, the reader of the tag
+  `receiptDescription` writes), else ZAR. The return page shows the figure only for ZAR; otherwise
+  "Thank you. Your payment has been received." Response shape:
+  `{ status, amountCents, appliedToInvoice, currency, invoiceNumber?, companyName? }`.
+- **L3.** The dedupe path's lock order (spend link → fee journal → request row `FOR UPDATE` last, no
+  `lock_timeout`, no cycle because the request is already completed) is in `ar/.claude.md` and the
+  `gatewayReceiptAllocation.ts` header. `return.tsx` and `gatewayFeeService.ts` are in R-181's
+  `affectedPaths`.
+
+Red: unit 1 of 59 (`red.r10.unit.log`), component 1 of 5 (`red.r10.component.log`), int 3 of 11
+(`red.r10.int.log`); the wiring tests pin existing behaviour and are proven by their mutants.
+Green: R-181 integration 61/61 on 55563.
