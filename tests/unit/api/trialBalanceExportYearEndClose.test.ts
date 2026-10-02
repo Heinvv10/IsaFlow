@@ -56,6 +56,7 @@ describe('trial-balance CSV — derived year-end close', () => {
       '"4300","Income",100.00,0.00',
       '"5200","Labour",0.00,1300.00',
       '"RE-BF","Retained Earnings b/f",1200.00,0.00',
+      '"","TOTALS",1300.00,1300.00',
     ]);
   });
 

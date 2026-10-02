@@ -21,6 +21,15 @@ import {
   reverseEliminationAdjustment,
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
+import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
+
+/** 400 text for a bad range, or null. `typeof` first inside isLedgerDate: a repeated param is an array. */
+function rangeError(periodStart: unknown, periodEnd: unknown): string | null {
+  if (periodStart === undefined || periodEnd === undefined) return 'period_start and period_end required';
+  if (!isLedgerDate(periodStart)) return `period_start ${LEDGER_DATE_MESSAGE}`;
+  if (!isLedgerDate(periodEnd)) return `period_end ${LEDGER_DATE_MESSAGE}`;
+  return periodStart > periodEnd ? 'period_start must not be after period_end' : null;
+}
 
 // Uses withAuth (not withCompany) because consolidated reports aggregate data
 // from multiple companies in a group. Security comes from userBelongsToGroup(),
@@ -41,7 +50,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'trial-balance') {
       const periodStart = req.query.period_start as string;
       const periodEnd = req.query.period_end as string;
-      if (!periodStart || !periodEnd) return apiResponse.badRequest(res, 'period_start and period_end required');
+      const bad = rangeError(req.query.period_start, req.query.period_end);
+      if (bad) return apiResponse.badRequest(res, bad);
       const report = await getConsolidatedTrialBalance(groupId, periodStart, periodEnd);
       return apiResponse.success(res, report);
     }

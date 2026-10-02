@@ -45,7 +45,7 @@ const DESCRIPTION = [
   'openingDebit/openingCredit are the balance at the period start (search_gl\'s opening). closedToRetainedEarnings is the derived, not posted, year-end close on the account own normal side (search_gl\'s closedToRetainedEarnings): opening + movement + closedToRetainedEarnings = closing on every row, the derived RE-BF line included (there it is what the closed years added). It is 0 unless the period crosses a fiscal-year start; fiscalYearEndsClosed lists the fiscal-year ends inside the period (empty when none).',
   'debitBalance/creditBalance carry the NET closing balance on the account own side, not gross turnover — do not sum them expecting turnover. periodDebit/periodCredit are the turnover.',
   'accountCount states how many accounts the balanced assertion covers, and you should check it: a trial balance that omits accounts without movement is a period-movement listing wearing a trial balance name, which is how this report once reported 7 of 118 accounts as Balanced.',
-  'include_zero_balances separates three states that are NOT the same question. An account carrying a balance but with no movement this period is ALWAYS returned. An account whose postings net to zero is returned only with the flag on. An account never posted to is never returned.',
+  'include_zero_balances separates three states that are NOT the same question. An account is ALWAYS returned when its opening, its closing or its gross movement in the period is non-zero — a balance with no movement, or an income-statement account that opens with a balance and is closed to zero at a fiscal-year start inside the period. An account whose opening, closing and movement are all zero (its postings net to zero before the period) is returned only with the flag on. An account never posted to is never returned.',
   'A row with derived:true is computed (the retained-earnings brought-forward line) and has no journal behind it — exclude it when tying this report to the ledger.',
   'Paginated: call again with cursor until next_cursor is null. rowsTotal is the full account count, not the size of the page.',
 ].join(' ');
@@ -125,7 +125,7 @@ export const trialBalanceTool: McpTool = {
       // Nothing is excluded — the whole point of v2 is that no account is
       // dropped — so the universe is the account count.
       universeTotal: report.accountCount,
-      figureBasis: figureBasis('gl.trialbalance.v2'),
+      figureBasis: figureBasis('gl.trialbalance.v3'),
     });
 
     return ok({

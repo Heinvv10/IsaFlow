@@ -113,17 +113,19 @@ function yearEndCloseSection(
   fiscalYearEnds: string[],
 ): string[] {
   if (fiscalYearEnds.length === 0) return [];
-  const closed = rows.filter(r => (r.closedToRetainedEarnings ?? 0) !== 0);
+  // closedToRetainedEarnings is on the account's normal side; the columns are debit/credit.
+  const closed = rows.filter(r => (r.closedToRetainedEarnings ?? 0) !== 0).map(r => {
+    const netDebit = r.normalBalance === 'debit' ? r.closedToRetainedEarnings! : -r.closedToRetainedEarnings!;
+    return { r, debit: Math.max(netDebit, 0), credit: Math.max(-netDebit, 0) };
+  });
+  // The closes balance (each fiscal year's P&L against RE-BF), so the totals are equal.
+  const total = (k: 'debit' | 'credit') => closed.reduce((s, c) => s + c[k], 0).toFixed(2);
   return [
     ``,
     `${csvVal('Year-end close (derived — not posted)')},${csvVal(`Fiscal year end ${fiscalYearEnds.join(' / ')}`)},${csvVal('Opening + Movement + Closed = Closing')}`,
     'Account Code,Account Name,Closed Debit,Closed Credit',
-    ...closed.map(r => {
-      // closedToRetainedEarnings is on the account's normal side; the columns are debit/credit.
-      const netDebit = r.normalBalance === 'debit' ? r.closedToRetainedEarnings! : -r.closedToRetainedEarnings!;
-      return [csvVal(r.accountCode), csvVal(r.accountName),
-        Math.max(netDebit, 0).toFixed(2), Math.max(-netDebit, 0).toFixed(2)].join(',');
-    }),
+    ...closed.map(({ r, debit, credit }) => [csvVal(r.accountCode), csvVal(r.accountName), debit.toFixed(2), credit.toFixed(2)].join(',')),
+    `${csvVal('')},${csvVal('TOTALS')},${total('debit')},${total('credit')}`,
   ];
 }
 

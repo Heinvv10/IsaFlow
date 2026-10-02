@@ -59,4 +59,16 @@ describe('trial_balance — description matches the payload (Postgres)', async (
       }
     }, 3, [[YEAR, '2026-01-01', '2026-12-31']]);
   }, 30000);
+
+  // 4300 earned 100 in Dec 2025 (FY ending Feb 2026) and nothing in Jan–Mar 2026: it opens at 100,
+  // does not move, is closed to zero. The description says such a row comes back without the flag.
+  it.skipIf(!reachable)('returns an opening-only row without include_zero_balances, as described', async () => {
+    const Q1 = '20000000-0000-4000-8000-0000000000b4';
+    await withLedger(3, async () => {
+      const data = payload(await trialBalanceTool.handler({ fiscal_period_id: Q1 }, CTX));
+      const income = (data.rows as ToolRow[]).find(r => r.accountCode === '4300');
+      expect(income).toMatchObject({ openingCredit: 100, periodDebit: 0, periodCredit: 0, debitBalance: 0, creditBalance: 0, closedToRetainedEarnings: -100 });
+      expect(trialBalanceTool.description).toContain('opens with a balance and is closed to zero at a fiscal-year start inside the period');
+    }, 3, [[Q1, '2026-01-01', '2026-03-31']]);
+  }, 30000);
 });
