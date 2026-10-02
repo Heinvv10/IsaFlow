@@ -133,6 +133,13 @@ describe('allocationPlan: what the invoice takes', () => {
     ['a held (non-ZAR) receipt', { hold: 'unapplied_currency' }, { allocated: 0, invoiceBlock: 'unapplied_currency', overpaid: false }],
     ['a NaN total', { totalAmount: 'NaN' }, { allocated: 0, invoiceBlock: 'invoice_balance_invalid', overpaid: false }],
     ['a NaN amount_paid', { amountPaid: 'NaN' }, { allocated: 0, invoiceBlock: 'invoice_balance_invalid', overpaid: false }],
+    ['one cent over (R2.01 on R2.00 owed)', { totalAmount: '2.00', amountRand: 2.01 }, { allocated: 2, invoiceBlock: null, overpaid: true }],
+    ['one cent owed (R2.01 total, R2.00 paid)', { totalAmount: '2.01', amountPaid: '2.00', amountRand: 115 },
+      { allocated: 0.01, invoiceBlock: null, overpaid: true }],
+    ['one cent owed on a large invoice (R20000.01, R20000.00 paid), one cent banked',
+      { totalAmount: '20000.01', amountPaid: '20000.00', amountRand: 0.01 }, { allocated: 0.01, invoiceBlock: null, overpaid: false }],
+    ['exactly the balance on a large invoice', { totalAmount: '20000.01', amountRand: 20000.01 },
+      { allocated: 20000.01, invoiceBlock: null, overpaid: false }],
   ] as const)('%s', (_label, change, plan) => {
     expect(allocationPlan({ ...base, ...change })).toEqual(plan);
   });

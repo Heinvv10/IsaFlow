@@ -26,8 +26,6 @@ import { log } from '@/lib/logger';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { invoiceReview } from './gatewaySettlementReview';
 
-/** A cent. Matches confirmCustomerPayment's own settle tolerance. */
-const EPS = 0.01;
 
 export interface GatewayAllocation {
   allocated: number;
@@ -58,20 +56,22 @@ export interface AllocationInputs {
 
 /** The pure arithmetic of the allocation (unit-tested; the DB read is decideGatewayAllocation's). */
 export function allocationPlan(inputs: AllocationInputs): Pick<GatewayAllocation, 'allocated' | 'invoiceBlock' | 'overpaid'> {
-  const { amountRand } = inputs;
+  // In whole cents: a float rand difference misses a cent (2.01 - 2.00 > 0.01 is false).
+  const cents = (rand: number) => Math.round(rand * 100);
+  const amountCents = cents(inputs.amountRand);
   // The gateway can settle more than the invoice still owes — an EFT part-payment
   // landing between the payment link and the card charge is enough. The excess is
   // real cash in the bank, so the receipt is banked in full and only the part the
   // invoice can absorb is allocated; the remainder stays on the customer as an
   // unapplied receipt. Truncating the receipt to fit would drop that cash.
-  const outstanding = Number(inputs.totalAmount) - Number(inputs.amountPaid ?? 0) - inputs.pending;
+  const outstanding = cents(Number(inputs.totalAmount)) - cents(Number(inputs.amountPaid ?? 0)) - cents(inputs.pending);
   // An invoice outside the ledger takes none of it: the whole receipt stays on the
   // customer unapplied, for a person to place. So does one whose balance is not a
   // number (numeric NaN in total_amount or amount_paid is a real state, R-166).
   const invoiceBlock = invoiceReview(inputs.status, inputs.deletedAt) ?? inputs.hold
     ?? (Number.isFinite(outstanding) ? null : 'invoice_balance_invalid');
-  const allocated = invoiceBlock ? 0 : Math.max(0, Math.min(amountRand, outstanding));
-  return { allocated, invoiceBlock, overpaid: !invoiceBlock && amountRand - allocated > EPS };
+  const allocatedCents = invoiceBlock ? 0 : Math.max(0, Math.min(amountCents, outstanding));
+  return { allocated: allocatedCents / 100, invoiceBlock, overpaid: !invoiceBlock && amountCents > allocatedCents };
 }
 
 export async function decideGatewayAllocation(
