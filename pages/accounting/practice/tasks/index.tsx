@@ -61,6 +61,8 @@ export default function PracticeTasksPage() {
   const [users,     setUsers]    = useState<CompanyUserSummary[]>([]);
   const [loading,   setLoading]  = useState(true);
   const [error,     setError]    = useState('');
+  // A failed write is not the load's to clear: loadTasks() resets `error`, only the next write resets this.
+  const [actionError, setActionError] = useState('');
   const [toast,     setToast]    = useState('');
   const [popover,   setPopover]  = useState<string | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -107,24 +109,26 @@ export default function PracticeTasksPage() {
 
   async function doTransition(id: string, ns: PracticeTask['status']) {
     setPopover(null);
+    setActionError('');
     try {
       const r = await apiFetch('/api/accounting/practice/tasks/transition', { method: 'POST', body: JSON.stringify({ id, newStatus: ns }) });
       await assertOk(r, 'Could not update the task status - try again');
       flash('Status updated'); await loadTasks();
-    } catch (e) { setError(apiErrorMessage(e, 'Could not update the task status - try again')); }
+    } catch (e) { setActionError(apiErrorMessage(e, 'Could not update the task status - try again')); }
   }
 
   async function doAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!qaTitle.trim()) return;
     setQaAdding(true);
+    setActionError('');
     try {
       const body: PracticeTaskInput = { title: qaTitle.trim(), assignedTo: qaAssigned.trim() || null, dueDate: qaDue || null, priority: qaPriority, jobId: qaJob || null };
       const r = await apiFetch('/api/accounting/practice/tasks', { method: 'POST', body: JSON.stringify(body) });
       await assertOk(r, 'Could not add the task - try again');
       setQaTitle(''); setQaAssigned(''); setQaDue(''); setQaPriority('normal'); setQaJob('');
       flash('Task added'); await loadTasks();
-    } catch (e) { setError(apiErrorMessage(e, 'Could not add the task - try again')); }
+    } catch (e) { setActionError(apiErrorMessage(e, 'Could not add the task - try again')); }
     finally { setQaAdding(false); }
   }
 
@@ -149,6 +153,7 @@ export default function PracticeTasksPage() {
 
         <div className="px-6 py-6">
           {error && <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"><AlertCircle className="h-4 w-4 shrink-0" /><span>{error}</span></div>}
+          {actionError && <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"><AlertCircle className="h-4 w-4 shrink-0" /><span>{actionError}</span></div>}
           {toast && <div className="p-3 mb-4 rounded-lg bg-teal-500/10 border border-teal-500/20 text-teal-400 text-sm">{toast}</div>}
 
           <div className="flex items-center gap-2 mb-6 flex-wrap">
