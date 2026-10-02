@@ -211,6 +211,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYROLL_RUN_LOCK_TIMEOUT',
   // R-073 practice client fence: names only the id the caller passed; raised before any write.
   'PRACTICE_CLIENT_NOT_FOUND',
+  // Engagement Budgets job fence (assertJobForPracticeClient): names only the job id the caller passed; raised before any write.
+  'PRACTICE_JOB_NOT_FOUND',
   // Another request is posting a document with the same content (R-088): one
   // fixed "retry" sentence naming no document, raised before any write.
   'RECEIPT_POST_BUSY',
