@@ -16,6 +16,7 @@ import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
 import { CustomerInvoiceSummary } from '@/components/invoices/CustomerInvoiceSummary';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { RevokePaymentLinkDialog } from '@/components/invoices/RevokePaymentLinkDialog';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useCustomerInvoiceActions } from '@/modules/accounting/hooks/useCustomerInvoiceActions';
@@ -42,6 +43,7 @@ export default function CustomerInvoiceDetailPage() {
   const [prevId, setPrevId] = useState<string | null>(null);
   const [nextId, setNextId] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
 
   const loadAdjacent = useCallback(async (id: string) => {
     try {
@@ -161,6 +163,7 @@ export default function CustomerInvoiceDetailPage() {
       onCopyPaymentLink: () => { void handleCopyPaymentLink(); },
       onAction: (action) => { void handleAction(action); },
       onShowCancelConfirm: () => setShowCancelConfirm(true),
+      onShowRevokeConfirm: () => setShowRevokeConfirm(true),
     } : null,
   );
 
@@ -275,6 +278,14 @@ export default function CustomerInvoiceDetailPage() {
           loading={actionLoading === 'cancel'}
           onAccept={() => { setShowCancelConfirm(false); void handleAction('cancel'); }}
           onCancel={() => setShowCancelConfirm(false)}
+        />
+        <RevokePaymentLinkDialog
+          open={showRevokeConfirm}
+          invoiceId={invoiceId as string}
+          invoiceNumber={invoice.invoice_number}
+          onClose={() => setShowRevokeConfirm(false)}
+          onRevoked={() => { setError(''); void loadInvoice(); }}
+          onError={setError}
         />
       </div>
     </AppLayout>

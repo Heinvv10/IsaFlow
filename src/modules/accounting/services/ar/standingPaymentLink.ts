@@ -98,3 +98,44 @@ export async function ensureStandingLink(
   `;
   return { ok: true, token, paymentUrl };
 }
+
+/**
+ * Cancel the standing link the invoice names and clear the invoice's `payment_url` and
+ * `online_payment_enabled`, so the page stops offering it and the next Pay Now mints a fresh one.
+ * Takes the same invoice lock as ensureStandingLink, so it cannot race a concurrent Pay Now.
+ *
+ * Only the named `charges_balance` link is touched. An explicit-amount link is left alone, and so
+ * is a checkout already open at Paystack: a payment already started still settles as before.
+ * Both refusals come before the first write (withAuth COMMITs a 4xx).
+ */
+export async function revokeStandingLink(
+  companyId: string,
+  invoiceId: string,
+): Promise<{ ok: true; token: string } | { ok: false; reason: 'invoice_not_found' | 'no_active_link' }> {
+  const locked = await withCustomerInvoiceLock('revokeStandingLink', 'This invoice', async () => (await sql`
+    SELECT ci.id FROM customer_invoices ci
+    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL
+    FOR NO KEY UPDATE OF ci
+  `) as { id: string }[]);
+  if (!locked[0]) return { ok: false, reason: 'invoice_not_found' };
+
+  // Identified exactly as ensureStandingLink does: the active charges_balance link whose token
+  // the invoice's payment_url names.
+  const named = (await sql`
+    SELECT l.id, l.token
+    FROM portal_payment_links l
+    JOIN customer_invoices ci ON ci.id = l.invoice_id
+    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+      AND l.status = 'active' AND l.charges_balance
+      AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token
+    LIMIT 1
+  `) as { id: string; token: string }[];
+  if (!named[0]) return { ok: false, reason: 'no_active_link' };
+
+  await sql`UPDATE portal_payment_links SET status = 'cancelled' WHERE id = ${named[0].id}::UUID`;
+  await sql`
+    UPDATE customer_invoices SET payment_url = NULL, online_payment_enabled = false, updated_at = NOW()
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+  `;
+  return { ok: true, token: named[0].token };
+}
