@@ -57,6 +57,19 @@ describe('the engine', () => {
     expect(NO_INVENTORY_CLASSIFIED).toBe('No inventory could be identified in the chart of accounts, so this ratio cannot be computed.');
   });
 
+  it('states no quick ratio where the chart classifies no inventory: there is nothing established to take off', () => {
+    const r = calculateExtendedRatios({ ...COMPANY, inventoryClassified: false });
+    expect(r.quickRatio).toBeNull();
+    expect(r.notMeaningful.quickRatio).toBe(NO_INVENTORY_CLASSIFIED);
+    // The current ratio does not stand on inventory, and stays.
+    expect(r.currentRatio).toBe(0.14);
+  });
+
+  it('states the quick ratio where inventory is classified, held or not', () => {
+    expect(calculateExtendedRatios({ ...COMPANY, inventoryClassified: true }).quickRatio).toBe(0.14);
+    expect(calculateExtendedRatios({ ...COMPANY, inventory: 40_000, inventoryClassified: true }).quickRatio).toBe(0.1);
+  });
+
   it('states nil inventory days and the cycle where the chart classifies inventory and holds none', () => {
     const r = calculateExtendedRatios({ ...COMPANY, inventoryClassified: true });
     expect(r.inventoryDays).toBe(0);
@@ -125,6 +138,8 @@ describe.each([['the management pack', managementPack], ['Financial Analysis', f
     const r = await read(false);
     for (const key of INVENTORY_KEYS) expect(r[key], key).toBeNull();
     expect(r.notMeaningful.cashConversionCycle).toBe(NO_INVENTORY_CLASSIFIED_CYCLE);
+    expect(r.quickRatio).toBeNull();
+    expect(r.notMeaningful.quickRatio).toBe(NO_INVENTORY_CLASSIFIED);
   });
 
   it('with inventory classified and none held: nil days and a stated cycle', async () => {

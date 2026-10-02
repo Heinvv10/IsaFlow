@@ -76,8 +76,12 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
     operatingProfitMargin: on('operatingProfitMargin', data.revenue, 'Revenue', () => pct(operatingProfit, data.revenue)),
     currentRatio: on('currentRatio', data.currentLiabilities, 'Current liabilities',
       () => r2(safeDiv(data.currentAssets, data.currentLiabilities))),
-    quickRatio: on('quickRatio', data.currentLiabilities, 'Current liabilities',
-      () => r2(safeDiv(data.currentAssets - data.inventory, data.currentLiabilities))),
+    // The acid test takes inventory OFF current assets. On a chart with no
+    // inventory account there is no established figure to take off — it is
+    // the current ratio under another name. The board pack publishes none.
+    quickRatio: given('quickRatio', data.currentLiabilities <= 0 ? notPositive('Current liabilities')
+      : data.inventoryClassified === false ? NO_INVENTORY_CLASSIFIED : null,
+    () => r2(safeDiv(data.currentAssets - data.inventory, data.currentLiabilities))),
     debtToEquity: equityFailure ? null : r2(safeDiv(data.totalLiabilities, data.totalEquity)),
     returnOnAssets: on('returnOnAssets', data.totalAssets, 'Total assets', () => pct(data.netProfit, data.totalAssets)),
     returnOnEquity: equityFailure ? null : pct(data.netProfit, data.totalEquity),
