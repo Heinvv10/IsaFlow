@@ -28,6 +28,7 @@ const groupAccounts = vi.hoisted(() => ({ getGroupAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => groupAccounts);
 
 import handler from '../../../pages/api/accounting/consolidated-reports';
+import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 
 const GROUP = '80000000-0000-4000-8000-000000000001';
 const ADJ = '70000000-0000-4000-8000-000000000001';
@@ -132,10 +133,58 @@ describe('create-elimination body is shape-checked before the insert', () => {
     [{ lines: [{ groupAccountId: 'G4000', debit: 10, credit: 0 }] }, 'groupAccountId'],
     [{ lines: [{ groupAccountId: ACCT, debit: '10', credit: 0 }] }, 'debit'],
     [{ lines: [{ groupAccountId: ACCT, debit: 10, credit: -1 }] }, 'credit'],
+    [{ lines: [{ groupAccountId: ACCT, debit: 10, credit: 0, description: 7 }] }, "line's description"],
   ])('%j → 400', async (patch, field) => {
     const res = await call('POST', { group_id: GROUP }, { ...VALID_CREATE, ...patch });
     expect(res.status).toHaveBeenCalledWith(400);
     expect(message(res)).toContain(field);
     expect(svc.createEliminationAdjustment).not.toHaveBeenCalled();
+  });
+});
+
+// Blind review LOW-2: the group id may arrive in the BODY only (no query group_id); the gate must
+// bind that id — the pre-fix `groupId` (query only) would be undefined here.
+describe('write gate with the group id in the body only', () => {
+  it('a viewer is refused 403 and the gate is asked about the body group', async () => {
+    access.userCanWriteGroup.mockResolvedValue(false);
+    const res = await call('POST', {}, { action: 'post-elimination', groupId: GROUP, adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(access.userCanWriteGroup).toHaveBeenCalledWith('u1', GROUP);
+    expect(svc.postEliminationAdjustment).not.toHaveBeenCalled();
+  });
+
+  it('a writer posts against the body group', async () => {
+    const res = await call('POST', {}, { action: 'post-elimination', groupId: GROUP, adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(access.userCanWriteGroup).toHaveBeenCalledWith('u1', GROUP);
+    expect(svc.postEliminationAdjustment).toHaveBeenCalledWith(ADJ, GROUP);
+  });
+});
+
+// Blind review LOW-4: the journal's expected refusals are typed and answered 400 / 409 with their
+// message; they used to be plain Errors, i.e. a 500. Anything else still propagates (500).
+describe('expected refusals answer 400 / 409, not 500', () => {
+  it('an unbalanced create → 400 with the totals', async () => {
+    svc.createEliminationAdjustment.mockRejectedValue(new EliminationUnbalancedError(10, 9));
+    const res = await call('POST', { group_id: GROUP }, { ...VALID_CREATE,
+      lines: [{ groupAccountId: ACCT, debit: 10, credit: 0 }, { groupAccountId: ACCT, debit: 0, credit: 9 }] });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(message(res)).toContain('do not balance: debits 10.00, credits 9.00');
+  });
+
+  it.each([
+    ['post-elimination', 'postEliminationAdjustment', 'draft', 'already posted'],
+    ['reverse-elimination', 'reverseEliminationAdjustment', 'posted', 'already reversed'],
+  ] as const)('%s of the wrong status / missing / other group → 409', async (action, fn, status, why) => {
+    svc[fn].mockRejectedValue(new EliminationStateError(ADJ, status));
+    const res = await call('POST', { group_id: GROUP }, { action, adjustmentId: ADJ });
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(message(res)).toContain(`is not a ${status} adjustment of this group`);
+    expect(message(res)).toContain(why);
+  });
+
+  it('an unexpected failure still propagates (a 500 from the error handler)', async () => {
+    svc.postEliminationAdjustment.mockRejectedValue(new Error('connection reset'));
+    await expect(call('POST', { group_id: GROUP }, { action: 'post-elimination', adjustmentId: ADJ })).rejects.toThrow('connection reset');
   });
 });

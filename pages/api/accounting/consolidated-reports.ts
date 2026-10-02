@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { userBelongsToGroup, userCanWriteGroup } from '@/modules/accounting/services/core/companyAccessService';
 import { isUuidParam } from '@/lib/validation';
 import { getGroupAccounts } from '@/modules/accounting/services/reports/groupCompanyService';
+import { EliminationStateError, EliminationUnbalancedError } from '@/modules/accounting/services/reports/eliminationErrors';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -55,6 +56,17 @@ function eliminationBodyError(body: Record<string, unknown>): string | null {
     if (l.description !== undefined && typeof l.description !== 'string') return "each line's description must be a string";
   }
   return null;
+}
+
+/** The elimination journal's expected refusals → 400 / 409 with their message; anything else rethrows (500). */
+async function answerRefusals(res: NextApiResponse, write: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await write();
+  } catch (err) {
+    if (err instanceof EliminationUnbalancedError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof EliminationStateError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 }
 
 // Uses withAuth (not withCompany) because consolidated reports aggregate data
@@ -144,20 +156,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const { adjustmentType, description, periodStart, periodEnd, lines } = req.body;
       const bad = rangeError(periodStart, periodEnd, { optional: true, names: ['periodStart', 'periodEnd'] });
       if (bad) return apiResponse.badRequest(res, bad);
-      const adj = await createEliminationAdjustment(gId, {
+      return answerRefusals(res, async () => apiResponse.success(res, await createEliminationAdjustment(gId, {
         adjustmentType, description, periodStart, periodEnd, lines,
-      });
-      return apiResponse.success(res, adj);
+      })));
     }
 
     if (action === 'post-elimination') {
-      await postEliminationAdjustment(body.adjustmentId as string, gId);
-      return apiResponse.success(res, { posted: true });
+      return answerRefusals(res, async () => {
+        await postEliminationAdjustment(body.adjustmentId as string, gId);
+        return apiResponse.success(res, { posted: true });
+      });
     }
 
     if (action === 'reverse-elimination') {
-      await reverseEliminationAdjustment(body.adjustmentId as string, gId);
-      return apiResponse.success(res, { reversed: true });
+      return answerRefusals(res, async () => {
+        await reverseEliminationAdjustment(body.adjustmentId as string, gId);
+        return apiResponse.success(res, { reversed: true });
+      });
     }
 
     if (action === 'auto-eliminate') {
