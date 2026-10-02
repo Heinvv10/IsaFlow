@@ -46,7 +46,10 @@
           body: payload,
           keepalive: true,
           credentials: 'omit'
-        }).catch(function () {});
+        }).then(function (res) {
+          // Telemetry is best-effort: a refused hit is dropped, never shown on the host page.
+          return res.ok;
+        }).catch(function () { /* offline / blocked: drop the hit */ });
       }
     } catch (_) { /* swallow */ }
   }

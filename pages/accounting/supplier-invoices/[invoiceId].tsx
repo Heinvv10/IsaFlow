@@ -85,12 +85,11 @@ export default function SupplierInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceId }),
       });
-      try {
-        await assertOk(res, 'Could not complete that action - try again');
-      } catch (refused) {
-        // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      if (!res.ok) {
         if (res.status === 409) await loadInvoice();
-        throw refused;
+        await assertOk(res, 'Could not complete that action - try again'); // throws: the response is not ok
+        return;
       }
       notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
       await loadInvoice();

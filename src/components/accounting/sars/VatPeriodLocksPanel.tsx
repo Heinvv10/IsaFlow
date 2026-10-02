@@ -5,19 +5,19 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { VatPeriodLockForm } from './VatPeriodLockForm';
 import { VatPeriodLocksTable } from './VatPeriodLocksTable';
 import type { VatPeriodLock } from './vatPeriodLockTypes';
 
-/** The exact fallback chain other accounting pages use for a 4xx/5xx body. */
+/** The server's message for a refused response (assertOk reads it), else the plain-sentence fallback. */
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
-    const json = await res.json();
-    return json.error?.message || json.message || fallback;
-  } catch {
-    return fallback;
+    await assertOk(res, fallback);
+  } catch (err) {
+    return apiErrorMessage(err, fallback);
   }
+  return fallback;
 }
 
 export function VatPeriodLocksPanel() {

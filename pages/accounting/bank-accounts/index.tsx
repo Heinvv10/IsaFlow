@@ -107,7 +107,8 @@ export default function BankAccountsPage() {
           body: JSON.stringify({ id: created.id, bankAccountNumber: form.bankAccountNumber.trim() }),
         });
         // apiFetch resolves on a 4xx: unchecked, a refused number read as "Bank account created".
-        const numberError = await assertOk(numberRes, 'try again from Edit').then(() => '', (e: unknown) => apiErrorMessage(e, 'try again from Edit'));
+        let numberError = '';
+        try { await assertOk(numberRes, 'try again from Edit'); } catch (e) { numberError = apiErrorMessage(e, 'try again from Edit'); }
         if (numberError) notify.error(`The account was created, but its bank account number was not saved: ${numberError}`);
         else notify.success('Bank account created');
       } else {

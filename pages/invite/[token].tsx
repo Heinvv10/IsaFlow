@@ -136,7 +136,7 @@ export default function InvitePage() {
         {pageState === 'error' && (
           <div className="bg-white dark:bg-gray-900 border border-red-300 dark:border-red-800 rounded-2xl p-8 text-center shadow-xl">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Something Went Wrong</h1>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white mb-2">We Could Not Open This Invitation</h1>
             <p className="text-slate-600 dark:text-gray-400 text-sm mb-6">{errorMsg}</p>
             <button
               onClick={() => window.location.reload()}

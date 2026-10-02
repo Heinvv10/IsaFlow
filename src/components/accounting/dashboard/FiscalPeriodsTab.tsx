@@ -53,7 +53,7 @@ export function FiscalPeriodsTab() {
       setBulkResult({
         ok: data.okCount,
         total: data.total,
-        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'Unknown error' })),
+        failures: data.results.filter(r => !r.ok).map(r => ({ id: r.id, error: r.error || 'This period could not be updated' })),
       });
       setChecked(new Set());
       await loadPeriods();

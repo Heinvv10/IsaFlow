@@ -15,6 +15,7 @@
  */
 
 import { clearTenantClientState } from './clearTenantClientState';
+import { log } from '@/lib/logger';
 
 const CHANNEL_NAME = 'isaflow_auth';
 const ACTIVITY_KEY = 'isaflow_last_activity_at';
@@ -135,14 +136,16 @@ export function startSessionHeartbeat(opts: HeartbeatOptions): StopFn {
       const headers: Record<string, string> = {};
       const csrf = readCsrfCookie();
       if (csrf) headers['X-CSRF-Token'] = csrf;
-      await fetch('/api/auth/logout', {
+      const res = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
         keepalive: true,
         headers,
       });
-    } catch {
+      if (!res.ok) log.warn('Server logout was refused; continuing with the redirect', { status: res.status }, 'auth');
+    } catch (err) {
       // Logout is best-effort — never block the redirect on it.
+      log.warn('Server logout failed; continuing with the redirect', { error: err }, 'auth');
     }
   };
 

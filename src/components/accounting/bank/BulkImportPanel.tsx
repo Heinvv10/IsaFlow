@@ -305,17 +305,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
               ...filePayload,
             }),
           });
-          if (!res.ok) {
-            const errBody = await res.json().catch(() => ({}));
-            const msg = errBody?.error?.message
-              || errBody?.error
-              || `Server returned ${res.status}`;
-            failed++;
-            setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: String(msg),
-            } : r));
-            return;
-          }
+          await assertOk(res, 'Could not import this statement - try again');
           const json = await res.json();
           const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
@@ -332,7 +322,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           } else {
             failed++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: data.reason ?? 'Unknown error',
+              ...r, phase: 'failed', errorMessage: data.reason ?? 'This statement could not be imported - try again',
             } : r));
           }
         } catch (err) {

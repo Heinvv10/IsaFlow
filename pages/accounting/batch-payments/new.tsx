@@ -43,7 +43,7 @@ export default function NewBatchPaymentPage() {
       // The same pending set batch creation subtracts (supplierBatchAllocationPlan).
       return apiFetch(`/api/accounting/batch-payments?reservedFor=${list.map((i) => i.id).join(',')}`, { credentials: 'include' })
         .then(async (r) => {
-          if (!r.ok) throw new Error(`reservations ${r.status}`);
+          await assertOk(r, 'Could not load the amounts already reserved - try again');
           const rr = (await r.json()) as { data?: Record<string, number> };
           const reserved = rr.data ?? {};
           setInvoices(list.map((i) => ({ ...i, reserved: Number(reserved[i.id] ?? 0) })).filter((i) => available(i) > 0));

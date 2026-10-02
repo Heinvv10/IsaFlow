@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -15,6 +15,11 @@ const pageOf = (url: unknown) => Number(new URL(String(url), 'http://x').searchP
 afterEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(log.warn).mockReset(); });
 
 describe('fetchAllSuppliers', () => {
+  it('a 4xx surfaces the server message', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ success: false, error: { code: 'X', message: 'No access to suppliers' } }), { status: 403 }));
+    await expect(fetchAllSuppliers()).rejects.toThrow('No access to suppliers');
+  });
+
   it('pages past the 200-row cap and returns every supplier', async () => {
     const ALL = rowsOf(0, 450);
     vi.mocked(apiFetch).mockImplementation(async (url) => ok(ALL.slice((pageOf(url) - 1) * 200, pageOf(url) * 200), ALL.length));
@@ -40,7 +45,7 @@ describe('fetchAllSuppliers', () => {
 
   it('throws when the route fails instead of returning a silently short list', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 500 }));
-    await expect(fetchAllSuppliers()).rejects.toThrow('HTTP 500');
+    await expect(fetchAllSuppliers()).rejects.toThrow('Could not load the suppliers - try again');
   });
 
   it('throws when the body is not JSON', async () => {

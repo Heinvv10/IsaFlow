@@ -3,6 +3,7 @@
  */
 import { useState, useCallback } from 'react';
 import { X, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/apiFetch';
 
 interface Props {
   existingYears: number[];
@@ -36,7 +37,7 @@ export function AddYearModal({ existingYears, onConfirm, onClose }: Props) {
       await onConfirm(year);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create year');
+      setError(apiErrorMessage(err, 'Could not create the year - try again'));
     } finally {
       setSaving(false);
     }

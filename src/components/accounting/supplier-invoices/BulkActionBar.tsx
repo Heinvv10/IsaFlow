@@ -66,7 +66,7 @@ export function BulkActionBar({
         const byReason = new Map<string, number>();
         for (const r of data.results) {
           if (r.ok) continue;
-          const reason = r.error || 'unknown error';
+          const reason = r.error || 'no reason was given';
           byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
         }
         const detail = Array.from(byReason.entries())

@@ -19,6 +19,15 @@ const VERSION = chrome.runtime.getManifest().version;
 
 // ── Message bus ──────────────────────────────────────────────────────────────
 
+// The popup shows this text to a person: only a sentence the connector wrote itself (userMessage) goes through;
+// anything else (a network error, a server body) becomes a plain line and the detail stays in the worker console.
+function userError(message) { const e = new Error(message); e.userMessage = message; return e; }
+function workerMessage(err) {
+  if (err && err.userMessage) return err.userMessage;
+  console.warn('[isaflow-bank-connector]', err);
+  return 'The bank connector could not finish that - reload the extension and try again';
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.source !== 'isaflow-bank') return false;
 
@@ -30,7 +39,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'pair') {
     handlePair(msg.payload).then(
       (record) => sendResponse({ ok: true, value: record }),
-      (err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }),
+      (err) => sendResponse({ ok: false, error: workerMessage(err) }),
     );
     return true;
   }
@@ -38,7 +47,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'list-connections') {
     self.IsaflowApi.listConnections().then(
       (list) => sendResponse({ ok: true, value: list }),
-      (err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }),
+      (err) => sendResponse({ ok: false, error: workerMessage(err) }),
     );
     return true;
   }
@@ -46,7 +55,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'unpair') {
     self.IsaflowApi.deleteConnection(msg.connectionId).then(
       () => sendResponse({ ok: true }),
-      (err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }),
+      (err) => sendResponse({ ok: false, error: workerMessage(err) }),
     );
     return true;
   }
@@ -65,7 +74,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'sync') {
     handleSync(msg.connectionId, msg.opts || {}).then(
       (out) => sendResponse({ ok: true, value: out }),
-      (err) => sendResponse({ ok: false, error: err && err.message ? err.message : String(err) }),
+      (err) => sendResponse({ ok: false, error: workerMessage(err) }),
     );
     return true;
   }
@@ -84,11 +93,12 @@ const ALLOWED_HOSTS = new Set([
 
 async function handlePair(payload) {
   if (!payload || !payload.connectionId || !payload.jwt || !payload.ingestUrl || !payload.bankId) {
-    throw new Error('Invalid pair payload');
+    throw userError('The pairing details were incomplete - start pairing again');
   }
   const host = payload.host || 'https://app.isaflow.co.za';
   if (!ALLOWED_HOSTS.has(host)) {
-    throw new Error(`Untrusted host rejected: ${host}`);
+    console.warn('[isaflow-bank-connector] untrusted host', host);
+    throw userError('That address is not an IsaFlow server this extension trusts');
   }
   const record = {
     connectionId: payload.connectionId,
@@ -109,10 +119,10 @@ async function handlePair(payload) {
 
 async function handleSync(connectionId, opts) {
   const conn = await self.IsaflowApi.getConnection(connectionId);
-  if (!conn) throw new Error('Unknown connection');
+  if (!conn) throw userError('That connection no longer exists - reconnect your bank');
   const reg = self.SCRAPER_REGISTRY.get(conn.bankId);
   if (!reg) {
-    throw new Error('Bank tab not open. Please log in to your bank in another tab.');
+    throw userError('The bank tab is not open - sign in to your bank in another tab and try again');
   }
 
   const fromDate = opts.fromDate || isoDaysAgo(opts.daysBack || 30);
@@ -125,7 +135,7 @@ async function handleSync(connectionId, opts) {
     toDate,
   });
   if (!txs || !Array.isArray(txs.transactions)) {
-    throw new Error(txs && txs.error ? txs.error : 'Scraper returned no transactions');
+    throw userError('The bank page returned no transactions - open your statement page and try again');
   }
 
   const ingestRes = await self.IsaflowApi.ingest(conn, {
@@ -139,7 +149,7 @@ async function handleSync(connectionId, opts) {
   });
 
   if (!ingestRes.ok) {
-    throw new Error('Ingest failed: ' + (ingestRes.body && ingestRes.body.error ? JSON.stringify(ingestRes.body.error) : ingestRes.status));
+    throw userError('IsaFlow could not save the transactions - try again');
   }
 
   conn.lastSyncAt = new Date().toISOString();
