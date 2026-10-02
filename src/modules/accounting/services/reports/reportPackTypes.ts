@@ -66,6 +66,8 @@ export interface ReportPackInput {
    * line (`ledgerRatioLines`). Kept so a hand-built input can carry one.
    */
   directMaterialCosts?: number;
+  /** False where the chart classifies no inventory: see `FinancialData.inventoryClassified`. */
+  inventoryClassified?: boolean;
   /** Set only when those five were asked for and could not be read. */
   ratioInputsUnavailable?: string;
 }

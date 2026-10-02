@@ -99,5 +99,5 @@ export async function readExtendedRatioInputs(
 ): Promise<{ data: FinancialData; figures: PeriodFigures }> {
   const figures = await getFinancialFigures(companyId, from, to);
   const ledger = await readLedgerRatioInputs(companyId, from, to, headCount);
-  return { data: { ...toFinancialData(figures), ...ledger }, figures };
+  return { data: { ...toFinancialData(figures), inventoryClassified: figures.inventoryClassified, ...ledger }, figures };
 }

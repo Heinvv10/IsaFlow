@@ -237,6 +237,7 @@ export async function readReportPackInput(
     // reader to go and set it. See `FigureCaveat`.
     depreciation: figures.period.depreciation,
     inventoryCaveat: inventory === null ? null : inventory.board,
+    inventoryClassified: figures.inventoryClassified,
     classificationCaveat: unclassified === null ? null : unclassified.board,
   };
   return { input, figures };

@@ -10,7 +10,7 @@
  */
 import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
 import {
-  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW, NO_STOCK_HELD,
+  dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW, NO_STOCK_HELD, NO_INVENTORY_CLASSIFIED, NO_INVENTORY_CLASSIFIED_CYCLE,
   NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive,
 } from './ratioBasis';
 
@@ -66,7 +66,8 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   // Cost of sales is the numerator, so a non-positive one is no turnover —
   // the same rule as creditor and inventory days. Where none is held the
   // turnover has no value and inventory days are nil; see NO_STOCK_HELD.
-  const noInventoryTurnover = data.costOfSales <= 0 ? notPositive('Cost of sales')
+  const noInventoryTurnover = data.inventoryClassified === false ? NO_INVENTORY_CLASSIFIED
+    : data.costOfSales <= 0 ? notPositive('Cost of sales')
     : data.inventory > 0 ? null : data.inventory < 0 ? notPositive('Inventory') : NO_STOCK_HELD;
 
   return {
@@ -137,7 +138,10 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // conversion cycle is its debtor days less its creditor days. Where stock
   // is held the figure is 365 over the turnover, as it always was.
   const turnover = base.inventoryTurnover;
-  const inventoryDays = given('inventoryDays',
+  // No inventory classification: nil stock is not established, so neither
+  // the days nor the cycle stand on it — the board pack's rule, one rule.
+  const unclassified = data.inventoryClassified === false;
+  const inventoryDays = given('inventoryDays', unclassified ? NO_INVENTORY_CLASSIFIED :
     data.costOfSales > 0 ? (data.inventory < 0 ? notPositive('Inventory') : null) : notPositive('Cost of sales'),
     () => (turnover !== null && turnover > 0 ? r2(365 / turnover) : 0));
   const { debtorDays, creditorDays } = base;
@@ -200,7 +204,8 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     () => r2(safeDiv(data.costOfSales, data.accountsPayable))),
     inventoryDays,
     cashConversionCycle: given('cashConversionCycle',
-      cycleParts ? dependsOnUnstated('debtor days, inventory days or creditor days') : null,
+      unclassified ? NO_INVENTORY_CLASSIFIED_CYCLE
+        : cycleParts ? dependsOnUnstated('debtor days, inventory days or creditor days') : null,
       () => r2((debtorDays ?? 0) + (inventoryDays ?? 0) - (creditorDays ?? 0))),
     netOperatingAssetTurnover: salesOver('netOperatingAssetTurnover', netOperatingAssets, 'Net operating assets'),
     // Cash Flow

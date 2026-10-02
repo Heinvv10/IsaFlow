@@ -46,9 +46,26 @@ export function equityNotMeaningful(totalEquity: number): Record<string, string>
 }
 
 /** Why a ratio on a base that is zero or negative is not stated. */
+/** Bases whose name is plural, so the reason says "are": "Total assets is
+ *  not positive" printed on the management pack. */
+const PLURAL_BASES: ReadonlySet<string> = new Set([
+  'Total assets', 'Current liabilities', 'Net operating assets', 'Accounts receivable', 'Accounts payable',
+]);
+
 export function notPositive(base: string): string {
-  return `${base} is not positive, so this ratio has no meaning.`;
+  return `${base} ${PLURAL_BASES.has(base) ? 'are' : 'is'} not positive, so this ratio has no meaning.`;
 }
+
+/**
+ * The chart of accounts classifies no inventory at all (`inventoryClassified`
+ * false), so an inventory of nil is not a measurement. The cycle's wording is
+ * the board pack's own (`packScorecardMetrics.NO_INVENTORY_CLASSIFIED`), so
+ * the two packs say the same thing of the same company.
+ */
+export const NO_INVENTORY_CLASSIFIED =
+  'No inventory could be identified in the chart of accounts, so this ratio cannot be computed.';
+export const NO_INVENTORY_CLASSIFIED_CYCLE =
+  'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.';
 
 /**
  * TWO DIFFERENT ABSENCES, AND THE ENGINE MUST NOT CONFUSE THEM.

@@ -243,6 +243,8 @@ export function buildReportPack(
     currentAssets: data.currentAssets,
     currentLiabilities: data.currentLiabilities,
     inventory: data.inventory,
+    // Nil stock on a chart with no inventory account is not nil stock.
+    inventoryClassified: data.inventoryClassified,
     accountsReceivable: data.accountsReceivable,
     accountsPayable: data.accountsPayable,
     cash: data.cash,

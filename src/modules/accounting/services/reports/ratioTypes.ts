@@ -47,6 +47,13 @@ export interface FinancialData {
   nonCurrentAssets?: number;
   nonCurrentLiabilities?: number;
   /**
+   * False where the chart of accounts classifies no inventory, so `inventory`
+   * is nil because nothing could be identified, not because none is held.
+   * Inventory days, inventory turnover and the cash conversion cycle are then
+   * not stated. Undefined: the caller did not say, and nil is taken as nil.
+   */
+  inventoryClassified?: boolean;
+  /**
    * Set by a caller that TRIED to read interest, tax, employee cost, head
    * count and direct materials and could not. The ratios that need them are
    * then unstated with this sentence rather than "not captured in this
