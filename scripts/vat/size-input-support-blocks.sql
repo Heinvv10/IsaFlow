@@ -79,8 +79,15 @@ WITH docs AS (
     AND (
       ci.gl_journal_entry_id IS NULL
       OR je.status IS DISTINCT FROM 'posted'
-      OR EXISTS (SELECT 1 FROM gl_journal_entries rev
-        WHERE rev.reversal_of_id = ci.gl_journal_entry_id AND rev.company_id = ci.company_id AND rev.status = 'posted')
+      -- Reversed OUT: an ODD number of posted links in its reversal chain (D7) —
+      -- a delete undone in-period, O <- R <- R2, stands and does not block.
+      OR (WITH RECURSIVE l AS (
+            SELECT r.id FROM gl_journal_entries r
+            WHERE r.reversal_of_id = ci.gl_journal_entry_id AND r.company_id = ci.company_id AND r.status = 'posted'
+            UNION ALL
+            SELECT j.id FROM gl_journal_entries j JOIN l ON j.reversal_of_id = l.id
+            WHERE j.company_id = ci.company_id AND j.status = 'posted')
+          SELECT COUNT(*) % 2 = 1 FROM l)
     )
   UNION ALL
   SELECT si.company_id, si.invoice_date,
@@ -93,8 +100,15 @@ WITH docs AS (
     AND (
       si.gl_journal_entry_id IS NULL
       OR je.status IS DISTINCT FROM 'posted'
-      OR EXISTS (SELECT 1 FROM gl_journal_entries rev
-        WHERE rev.reversal_of_id = si.gl_journal_entry_id AND rev.company_id = si.company_id AND rev.status = 'posted')
+      -- Reversed OUT: an ODD number of posted links in its reversal chain (D7) —
+      -- a delete undone in-period, O <- R <- R2, stands and does not block.
+      OR (WITH RECURSIVE l AS (
+            SELECT r.id FROM gl_journal_entries r
+            WHERE r.reversal_of_id = si.gl_journal_entry_id AND r.company_id = si.company_id AND r.status = 'posted'
+            UNION ALL
+            SELECT j.id FROM gl_journal_entries j JOIN l ON j.reversal_of_id = l.id
+            WHERE j.company_id = si.company_id AND j.status = 'posted')
+          SELECT COUNT(*) % 2 = 1 FROM l)
     )
 )
 SELECT company_id,

@@ -5,6 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { deletedDocumentReversalChainIds } from '../shared/softDeleteLedgerPresence';
 
 type DbRow = Record<string, unknown>;
 
@@ -118,13 +119,12 @@ export async function getVatReconciliation(
         -- vat_return that have not: a permanent variance in the reversal's
         -- month that no operator can reconcile away, and one that reads as MORE
         -- revenue, not less, because the revenue arm takes ABS(credit - debit).
-        -- soft_delete_journal_reversals (mig 653) holds one row per ACTIVE
-        -- delete, so an UNDONE delete stops being excluded at once.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
+        -- So the GL leg carries O alone: the deleted document's WHOLE chain
+        -- past it is left out (D7), not only the entry the delete recorded —
+        -- a hand reversal of that entry otherwise landed as fresh revenue and
+        -- VAT in its own month. An UNDONE delete clears deleted_at, so its
+        -- chain stops being excluded at once.
+        AND gje.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -190,11 +190,7 @@ export async function getVatReconciliation(
         -- starts stamping vat_type.
         AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         -- K-053: same predicate, same reason as the monthly GL query above.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
+        AND gje.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
         AND ga.account_subtype IN ('vat_output', 'vat_input')
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -364,11 +360,7 @@ export async function getVatMultiYearSummary(
         -- revenue line. IS DISTINCT FROM, not <>: source is nullable.
         AND gje.source IS DISTINCT FROM ${VAT_SUBMISSION_CLEARING_SOURCE}
         -- K-053: same predicate, same reason as the monthly GL query above.
-        AND NOT EXISTS (
-          SELECT 1 FROM soft_delete_journal_reversals sdjr
-          WHERE sdjr.company_id = ${companyId}
-            AND sdjr.reversal_journal_entry_id = gje.id
-        )
+        AND gje.id NOT IN ${deletedDocumentReversalChainIds(companyId)}
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY EXTRACT(YEAR FROM gje.entry_date)
       ORDER BY year

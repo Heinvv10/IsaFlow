@@ -20,7 +20,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlFn = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlFn(...a), withTransaction: vi.fn() }));
+vi.mock('@/lib/neon', () => ({
+  // unsafe: the deleted-document chain fragment (shared/softDeleteLedgerPresence).
+  sql: Object.assign((...a: unknown[]) => sqlFn(...a), { unsafe: vi.fn((s: string) => s) }),
+  withTransaction: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 const paymentCashFn = vi.fn();
