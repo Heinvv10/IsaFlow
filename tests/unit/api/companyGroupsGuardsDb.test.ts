@@ -167,41 +167,80 @@ describe('company-groups guards (Postgres)', async () => {
     });
   });
 
-  // Round 11 (test gap): the bootstrap is the CREATOR's. Someone else who belongs to every member
-  // company but holds no write role in the group cannot add a member.
-  it.skipIf(!reachable)('a non-creator who belongs to every member company, as a viewer, cannot add a member', async () => {
+  // Round 11 (test gap): the bootstrap is the CREATOR's. Someone else cannot add the first member
+  // of an empty group, even a company they own.
+  it.skipIf(!reachable)('a non-creator cannot bootstrap an empty group', async () => {
     await withGroups(async () => {
       const NEW_CO = '10000000-0000-4000-8000-0000000000c1';
-      await sql`INSERT INTO company_users VALUES (${MINE}::uuid, 'onlooker', 'viewer'), (${VIEWED}::uuid, 'onlooker', 'viewer'),
-        (${NEW_CO}::uuid, 'onlooker', 'owner')`;
+      await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid`;
+      await sql`INSERT INTO company_users VALUES (${NEW_CO}::uuid, 'onlooker', 'owner')`;
       const res = await call('POST', 'onlooker', { action: 'add-member', groupId: G, companyId: NEW_CO });
-      expect([res.statusCode, JSON.stringify(res.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+      expect([res.statusCode, JSON.stringify(res.sent)]).toEqual([403, expect.stringContaining('Access denied to this group')]);
       expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE company_id = ${NEW_CO}::uuid`).toEqual([{ n: 0 }]);
     });
   });
 
-  it.skipIf(!reachable)('creator bootstrap holds only while every member is a company the creator still belongs to', async () => {
+  // Round 11 (security review of 28cd87199, probe P1): the bootstrap exists only so an EMPTY group can
+  // gain its first member. With any current member, the group's own write roles decide — a creator
+  // demoted to viewer could otherwise add a company whose users then read the group.
+  it.skipIf(!reachable)('creator bootstrap: only while the group has no current member', async () => {
     await withGroups(async () => {
       const CREATOR = '90000000-0000-4000-8000-000000000001';
       const NEW_CO = '10000000-0000-4000-8000-0000000000b1';
-      await sql`INSERT INTO company_users VALUES (${NEW_CO}::uuid, ${CREATOR}, 'owner')`;
-      const add = () => call('POST', CREATOR, { action: 'add-member', groupId: G, companyId: NEW_CO });
-      // G already holds MINE and VIEWED, which the creator does not belong to → no bootstrap.
-      expect((await add()).statusCode).toBe(403);
+      await sql`INSERT INTO company_users VALUES (${NEW_CO}::uuid, ${CREATOR}, 'owner'), (${MINE}::uuid, ${CREATOR}, 'viewer'),
+        (${VIEWED}::uuid, ${CREATOR}, 'viewer')`;
+      const add = (co: string) => call('POST', CREATOR, { action: 'add-member', groupId: G, companyId: co });
+      // The creator is only a VIEWER of every member company: no bootstrap, no write role → 403.
+      const demoted = await add(NEW_CO);
+      expect([demoted.statusCode, JSON.stringify(demoted.sent)]).toEqual([403, expect.stringContaining('does not allow this change')]);
+      expect(await sql`SELECT count(*)::int AS n FROM company_group_members WHERE company_id = ${NEW_CO}::uuid`).toEqual([{ n: 0 }]);
       // Empty the group: the creator may bootstrap it.
       await sql`UPDATE company_group_members SET left_date = CURRENT_DATE WHERE group_id = ${G}::uuid`;
-      expect((await add()).statusCode).toBe(200);
-      // Now G holds only the creator's own company → still bootstrap.
+      expect((await add(NEW_CO)).statusCode).toBe(200);
+      // Now a member exists. The creator owns it, so they pass as an ordinary group writer...
       const OWN2 = '10000000-0000-4000-8000-0000000000b2';
       await sql`INSERT INTO company_users VALUES (${OWN2}::uuid, ${CREATOR}, 'owner')`;
-      expect((await call('POST', CREATOR, { action: 'add-member', groupId: G, companyId: OWN2 })).statusCode).toBe(200);
-      // The creator leaves both member companies: they are no longer the creator's own, and the
-      // creator holds no write role in the group either, so they can add nothing more.
-      // (While they still owned OWN2 they would pass as a group writer, not via the bootstrap.)
-      await sql`DELETE FROM company_users WHERE company_id = ANY(${[NEW_CO, OWN2]}::uuid[]) AND user_id = ${CREATOR}`;
+      expect((await add(OWN2)).statusCode).toBe(200);
+      // ...and once demoted to viewer in every member, they can add nothing more.
+      await sql`UPDATE company_users SET role = 'viewer' WHERE user_id = ${CREATOR} AND company_id = ANY(${[NEW_CO, OWN2]}::uuid[])`;
       const OWN3 = '10000000-0000-4000-8000-0000000000b3';
       await sql`INSERT INTO company_users VALUES (${OWN3}::uuid, ${CREATOR}, 'owner')`;
-      expect((await call('POST', CREATOR, { action: 'add-member', groupId: G, companyId: OWN3 })).statusCode).toBe(403);
+      expect((await add(OWN3)).statusCode).toBe(403);
+    });
+  });
+
+  // Security probe P2: the unfiltered list (no company_id) must not show a company that has LEFT the
+  // group, nor a foreign account; current members' mappings stay visible to any group reader, as in
+  // the consolidated reports.
+  it.skipIf(!reachable)('GET mappings without company_id hides a departed member and foreign rows', async () => {
+    await withGroups(async () => {
+      const DEPARTED = '10000000-0000-4000-8000-0000000000d1';
+      await sql`INSERT INTO company_group_members (group_id, company_id, left_date) VALUES (${G}::uuid, ${DEPARTED}::uuid, CURRENT_DATE - 30)`;
+      await sql`INSERT INTO company_users VALUES (${MINE}::uuid, 'reader', 'viewer')`;
+      await sql`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type) VALUES
+        (${acct(4)}::uuid, ${DEPARTED}::uuid, '4100', 'DEPARTED SECRET', 'revenue'),
+        (${acct(5)}::uuid, ${VIEWED}::uuid, '4200', 'OTHER MEMBER ACCT', 'revenue')`;
+      await sql`INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id) VALUES
+        (${G}::uuid, ${DEPARTED}::uuid, ${acct(4)}::uuid, ${gacct(1)}::uuid),
+        (${G}::uuid, ${VIEWED}::uuid, ${acct(5)}::uuid, ${gacct(1)}::uuid),
+        (${G}::uuid, ${MINE}::uuid, ${acct(9)}::uuid, ${gacct(1)}::uuid)`;
+      const all = await call('GET', 'reader', {}, { action: 'mappings', group_id: G });
+      expect(all.statusCode).toBe(200);
+      const body = JSON.stringify(all.sent);
+      expect(body).not.toMatch(/DEPARTED SECRET|4100|VICTIM SECRET LOAN|9999/);
+      expect(body).toContain('OTHER MEMBER ACCT');
+      expect((await call('GET', 'reader', {}, { action: 'mappings', group_id: G, company_id: DEPARTED })).statusCode).toBe(400);
+    });
+  });
+
+  // Security probe P4: a mistyped action must never reach delete-group.
+  it.skipIf(!reachable)('DELETE with an unknown action is a 400 and the group survives', async () => {
+    await withGroups(async () => {
+      await sql`UPDATE company_groups SET is_active = true WHERE id = ${G}::uuid`;
+      const junk = await call('DELETE', 'attacker', {}, { action: 'remove-membr', group_id: 'not-a-uuid' });
+      const typo = await call('DELETE', 'attacker', {}, { action: 'remove-membr', group_id: G, member_id: MINE });
+      expect([junk.statusCode, typo.statusCode]).toEqual([400, 400]);
+      expect(await sql`SELECT is_active FROM company_groups WHERE id = ${G}::uuid`).toEqual([{ is_active: true }]);
     });
   });
 });

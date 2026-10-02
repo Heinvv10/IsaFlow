@@ -95,6 +95,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
+    // group_id / company_id reach ::UUID and the dates ::DATE: checked first (typeof), 400 not 500.
+    const badGet = badUuid(req.query, ['group_id'], ['company_id'])
+      ?? (['period_start', 'period_end'] as const).find(d => req.query[d] !== undefined && req.query[d] !== '' && !isLedgerDate(req.query[d]));
+    if (badGet) {
+      return apiResponse.badRequest(res, badGet.startsWith('period_') ? `${badGet} ${LEDGER_DATE_MESSAGE}` : `${badGet} must be a valid UUID`);
+    }
+    if (req.query.status !== undefined && typeof req.query.status !== 'string') return apiResponse.badRequest(res, 'status must be a string');
     if (!(await verifyGroupAccess(groupId, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
 
     if (action === 'reconciliation') {
