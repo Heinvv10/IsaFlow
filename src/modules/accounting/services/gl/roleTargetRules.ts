@@ -17,6 +17,7 @@
  * row's type, so judging its import row instead put the bank role on a liability.
  */
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
+import { GL_ACCOUNT_TYPES, type GLAccountType } from '../../types/gl.types';
 import { isSystemAccountKey, typeFitsSubtype } from './systemAccountKeys';
 
 export interface RoleTarget {
@@ -66,14 +67,18 @@ export function roleTargetRefusal(
 }
 
 /**
- * The account types whose role holder may not have sub-accounts (Hein,
- * 2026-10-01): the balance-sheet ones. A level 1-2 asset / liability / equity
- * account with children is left out of the balance sheet (migration 484), so
- * postings to such a holder would be hidden behind a header. The income
- * statement has no such filter: "Sales - Services" under the revenue holder
- * 4100 is ordinary chart maintenance, as it always was.
+ * Which side of the split each account type is on — the ONE definition (Hein,
+ * 2026-10-01 / 2026-10-02). A balance-sheet holder may not have sub-accounts
+ * and a balance-sheet role may not be assigned to an account that has them: a
+ * level 1-2 asset / liability / equity account with children is left out of
+ * the balance sheet (migration 484), so postings to it would be hidden behind
+ * a header. The income statement has no such filter: "Sales - Services" under
+ * the revenue holder 4100 is ordinary chart maintenance, as it always was.
+ * Typed over every account type, so a new type must be placed here.
  */
-export const HOLDER_NO_CHILDREN_TYPES = ['asset', 'liability', 'equity'] as const;
+const BALANCE_SHEET: Record<GLAccountType, boolean> = {
+  asset: true, liability: true, equity: true, revenue: false, expense: false,
+};
 
 /**
  * THE balance-sheet test for both header rules: a holder of this type may not
@@ -82,8 +87,12 @@ export const HOLDER_NO_CHILDREN_TYPES = ['asset', 'liability', 'equity'] as cons
  * role's too: `typeFitsSubtype` admits no role on both sides of the split.
  */
 export function isBalanceSheetType(accountType: unknown): boolean {
-  return (HOLDER_NO_CHILDREN_TYPES as readonly string[]).includes(String(accountType));
+  return typeof accountType === 'string' && Object.hasOwn(BALANCE_SHEET, accountType)
+    && BALANCE_SHEET[accountType as GLAccountType];
 }
+
+/** The same split as a list, for SQL (`= ANY(...)`): generated FROM `isBalanceSheetType`, so the two cannot drift. */
+export const HOLDER_NO_CHILDREN_TYPES: readonly GLAccountType[] = GL_ACCOUNT_TYPES.filter(isBalanceSheetType);
 
 /** The role a row holds, or null. */
 export function roleHeldBy(row: { account_subtype?: unknown; is_system_account?: unknown }): string | null {

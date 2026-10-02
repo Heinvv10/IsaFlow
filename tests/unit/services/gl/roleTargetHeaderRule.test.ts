@@ -5,7 +5,8 @@
  * `bun run ci` (which skips the integration suite) goes red if it drifts.
  */
 import { describe, it, expect } from 'vitest';
-import { roleBarringChildren, roleTargetRefusal } from '@/modules/accounting/services/gl/roleTargetRules';
+import { HOLDER_NO_CHILDREN_TYPES, isBalanceSheetType, roleBarringChildren, roleTargetRefusal } from '@/modules/accounting/services/gl/roleTargetRules';
+import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
 
 const header = (type: string) => ({ code: '9000', type, isActive: true, hasChildren: true, subtype: 'other' });
 
@@ -33,5 +34,18 @@ describe('roleTargetRefusal: a header as the target', () => {
       const barsAssignment = roleTargetRefusal(role, role, header(type)) !== null;
       expect({ role, barsAssignment }).toEqual({ role, barsAssignment: barsChildren });
     }
+  });
+});
+
+describe('the balance-sheet split: one definition for the function and the SQL list', () => {
+  it('HOLDER_NO_CHILDREN_TYPES (bound into SQL) is exactly the account types isBalanceSheetType admits', () => {
+    for (const type of [...GL_ACCOUNT_TYPES, 'other', '', 'ASSET', undefined, null]) {
+      expect({ type, inList: (HOLDER_NO_CHILDREN_TYPES as readonly unknown[]).includes(type) })
+        .toEqual({ type, inList: isBalanceSheetType(type) });
+    }
+  });
+
+  it('is asset, liability and equity', () => {
+    expect([...HOLDER_NO_CHILDREN_TYPES].sort()).toEqual(['asset', 'equity', 'liability']);
   });
 });

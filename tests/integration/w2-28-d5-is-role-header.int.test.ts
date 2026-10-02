@@ -18,7 +18,7 @@ const describeIfDb = process.env.DATABASE_URL && process.env.JWT_SECRET
 
 const fx = brkFixture('W228D5');
 const { CO, USER, ins, holders } = fx;
-const [BANK, AR, AP, REV, EXP, RH, EH, AH, LH] = Array.from({ length: 9 }, () => randomUUID());
+const [BANK, AR, AP, REV, EXP, RH, EH, AH, LH, RE, OBE, QH] = Array.from({ length: 12 }, () => randomUUID());
 const message = (r: { body: Record<string, unknown> }) => String((r.body.error as { message?: string } | undefined)?.message ?? '');
 const save = async (uiKey: string, target: string, loaded: string) => {
   const r = await fx.call(defaultAccounts, 'POST', '/api/accounting/default-accounts', { mappings: { [uiKey]: target }, loaded: { [uiKey]: loaded } });
@@ -50,6 +50,8 @@ describeIfDb('D5: an income-statement role may be assigned to a header; a balanc
     await ins(AP, '2110', 'liability', 'payable', true);
     await ins(REV, '4100', 'revenue', 'default_revenue', true);
     await ins(EXP, '5100', 'expense', 'default_expense', true);
+    await ins(RE, '3100', 'equity', 'retained_earnings', true);
+    await ins(OBE, '3300', 'equity', 'opening_balance_equity', true);
     // One header of each kind, each with one sub-account.
     await ins(RH, '4200', 'revenue', 'other', false, { level: 2 });
     await ins(randomUUID(), '4201', 'revenue', 'revenue', false, { parent: RH });
@@ -59,6 +61,8 @@ describeIfDb('D5: an income-statement role may be assigned to a header; a balanc
     await ins(randomUUID(), '1201', 'asset', null, false, { parent: AH });
     await ins(LH, '2200', 'liability', null, false, { level: 2 });
     await ins(randomUUID(), '2201', 'liability', null, false, { parent: LH });
+    await ins(QH, '3200', 'equity', null, false, { level: 2 });
+    await ins(randomUUID(), '3201', 'equity', null, false, { parent: QH });
   });
   afterAll(fx.teardown);
 
@@ -84,6 +88,14 @@ describeIfDb('D5: an income-statement role may be assigned to a header; a balanc
       expect(out).toEqual({ bank: refused('1200', 'primary_bank'), receivable: refused('1200', 'accounts_receivable'), payable: refused('2200', 'accounts_payable') });
       expect({ bank: await holders('bank'), receivable: await holders('receivable'), payable: await holders('payable') })
         .toEqual({ bank: ['1110'], receivable: ['1120'], payable: ['2110'] });
+    });
+
+    it('still refuses the EQUITY roles (retained earnings, opening balance equity) on an equity header; nothing moves', async () => {
+      const out = { re: await save('retained_earnings', QH, RE), obe: await save('opening_balance_equity', QH, OBE) };
+      expect(out).toEqual({
+        re: { status: 400, message: expect.stringMatching(/^Account 3200 is a header with sub-accounts, and a balance-sheet role cannot be held by a header/) },
+        obe: { status: 400, message: expect.stringMatching(/^Account 3200 is a header with sub-accounts, and a balance-sheet role cannot be held by a header/) } });
+      expect({ re: await holders('retained_earnings'), obe: await holders('opening_balance_equity') }).toEqual({ re: ['3100'], obe: ['3300'] });
     });
   });
 

@@ -12,10 +12,11 @@ import { apiFetch } from '@/lib/apiFetch';
 vi.mock('@/lib/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 
+// The fields the chart API returns and the page's per-role options read (defaultAccountRoles.roleCandidates).
 const ACCOUNTS = [
-  { id: 'bank-1', accountCode: '1110', accountName: 'Bank' },
-  { id: 'ar-1', accountCode: '1120', accountName: 'AR' },
-  { id: 'ar-2', accountCode: '1121', accountName: 'AR new' },
+  { id: 'bank-1', accountCode: '1110', accountName: 'Bank', accountType: 'asset', accountSubtype: 'bank', isActive: true },
+  { id: 'ar-1', accountCode: '1120', accountName: 'AR', accountType: 'asset', accountSubtype: 'receivable', isActive: true },
+  { id: 'ar-2', accountCode: '1121', accountName: 'AR new', accountType: 'asset', isActive: true },
 ];
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
