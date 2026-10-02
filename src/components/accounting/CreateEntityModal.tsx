@@ -6,9 +6,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage } from '@/lib/apiFetch';
 import type { AllocType, SelectOption } from './BankTxTable';
 import { AccountForm } from './createEntity/AccountForm';
+import {
+  SUPPLIER_CREATE_URL, CUSTOMER_CREATE_URL, supplierCreateBody, customerCreateBody, createdRow,
+} from './createEntity/entityRequests';
 import { SupplierForm } from './createEntity/SupplierForm';
 import { CustomerForm } from './createEntity/CustomerForm';
 import {
@@ -118,49 +121,33 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
 
       if (type === 'account') {
         const nb = ACCOUNT_TYPES.find(t => t.value === acctType)?.nb || 'debit';
-        const res = await apiFetch('/api/accounting/chart-of-accounts', {
+        const d = await apiJson('/api/accounting/chart-of-accounts', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             accountCode: acctCode.trim(), accountName: acctName.trim(),
             accountType: acctType, normalBalance: nb,
           }),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create account');
-        const d = json.data;
+        }, 'Failed to create account') as { id: string; accountCode: string; accountName: string };
         entity = { id: d.id, code: d.accountCode, name: d.accountName };
       } else if (type === 'supplier') {
-        const res = await apiFetch('/api/suppliers', {
+        const d = await apiJson(SUPPLIER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: {
-            name: supName.trim(),
-            email: supEmail.trim(),
-            phone: supPhone.trim() || undefined,
-          }}),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create supplier');
-        const d = json.data;
-        entity = { id: String(d.id), code: d.code, name: supName.trim() };
+          body: JSON.stringify(supplierCreateBody({ name: supName, email: supEmail, phone: supPhone })),
+        }, 'Failed to create supplier');
+        const row = createdRow(d);
+        entity = { id: row.id, code: row.code, name: supName.trim() };
       } else {
-        const res = await apiFetch('/api/clients', {
+        const d = await apiJson(CUSTOMER_CREATE_URL, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            company_name: custName.trim(),
-            email: custEmail.trim() || undefined,
-            phone: custPhone.trim() || undefined,
-          }),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error?.message || 'Failed to create customer');
-        const d = json.data;
-        entity = { id: d.id, name: custName.trim() };
+          body: JSON.stringify(customerCreateBody({ name: custName, email: custEmail, phone: custPhone })),
+        }, 'Failed to create customer');
+        entity = { id: createdRow(d).id, name: custName.trim() };
       }
 
       notify.success(`${title.replace('New ', '')} created`);
       onCreated(entity);
     } catch (e) {
-      notify.error(e instanceof Error ? e.message : 'Failed to create');
+      notify.error(apiErrorMessage(e, 'Failed to create'));
     } finally {
       setSaving(false);
     }
