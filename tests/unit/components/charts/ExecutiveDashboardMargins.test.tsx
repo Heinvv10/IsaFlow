@@ -23,6 +23,11 @@ import { apiFetch } from '@/lib/apiFetch';
 import ExecutiveDashboardPage from '@/../pages/accounting/reports/executive-dashboard';
 
 const REVENUE = 'Revenue is not positive, so this ratio has no meaning.';
+const SCORECARD = [
+  { ratioKey: 'grossProfitMargin', name: 'Gross Profit Margin', value: -1310.83, target: 35, status: 'red', percentOfTarget: -3745 },
+  { ratioKey: 'debtorDays', name: 'Debtor Days', value: 213.23, target: 30, status: 'red', percentOfTarget: 711 },
+  { ratioKey: 'currentRatio', name: 'Current Ratio', value: 0.58, target: 1.5, status: 'red', percentOfTarget: 39 },
+];
 
 function summary(margins: { gross: number | null; net: number | null }) {
   return {
@@ -40,7 +45,7 @@ function summary(margins: { gross: number | null; net: number | null }) {
 function serve(body: unknown): void {
   vi.mocked(apiFetch).mockImplementation(async (url: string) => {
     if (url.includes('reports-executive-summary')) return new Response(JSON.stringify({ data: { summary: body } }), { status: 200 });
-    if (url.includes('reports-kpi-scorecard')) return new Response(JSON.stringify({ data: { scorecard: [] } }), { status: 200 });
+    if (url.includes('reports-kpi-scorecard')) return new Response(JSON.stringify({ data: { scorecard: SCORECARD } }), { status: 200 });
     return new Response(JSON.stringify({ data: { value: 'accountant' } }), { status: 200 });
   });
 }
@@ -69,5 +74,20 @@ describe('the executive dashboard\'s margin tiles', () => {
     await screen.findByText('Gross margin');
     expect(within(tile('Gross margin')).getByText('45.5%')).toBeInTheDocument();
     expect(within(tile('Net margin')).queryByText('n/m')).toBeNull();
+  });
+});
+
+describe('the executive dashboard\'s KPI scorecard tiles', () => {
+  it.each([
+    ['Gross Profit Margin', '(1 310.8%)', 'Target: 35.0%'],
+    ['Debtor Days', '213 days', 'Target: 30 days'],
+    ['Current Ratio', '0.58', 'Target: 1.50'],
+  ])('%s prints %s against "%s"', async (name, value, target) => {
+    serve(summary({ gross: 45.5, net: 12 }));
+    render(<ExecutiveDashboardPage />);
+    const label = await screen.findByText(name);
+    const text = (label.closest('[data-kpi]') as HTMLElement).textContent!.replace(/[\u00a0\u202f]/g, ' ');
+    expect(text).toContain(value);
+    expect(text).toContain(target);
   });
 });

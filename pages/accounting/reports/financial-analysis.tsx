@@ -17,6 +17,7 @@ import {
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ratioLabel, ratioLine } from '@/modules/accounting/services/reports/ratioPresentation';
+import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -57,7 +58,11 @@ const RATIO_GROUPS: Record<string, string[]> = {
   'Cash Flow': ['freeCashFlow'],
 };
 
-const fmt = (v: number) => v >= 1000 ? `R ${(v / 1000).toFixed(0)}K` : v >= 100 ? v.toFixed(0) : v.toFixed(2);
+/** A scored tile's figures; only called on the scored branch. */
+const scored = (item: ScorecardItem): { value: string; target: string } => {
+  const figure = scorecardFigure(item);
+  return figure.scored ? figure : { value: figure.reason, target: figure.target };
+};
 
 export default function FinancialAnalysisPage() {
   const [scorecard, setScorecard] = useState<ScorecardItem[]>([]);
@@ -159,7 +164,7 @@ export default function FinancialAnalysisPage() {
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {scorecard.map(item => (
-                    <div key={item.ratioKey} className={`rounded-lg border p-3 ${statusColors[item.status]}`}>
+                    <div key={item.ratioKey} data-kpi={item.ratioKey} className={`rounded-lg border p-3 ${statusColors[item.status]}`}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium opacity-70">{item.name}</span>
                         <span className={`w-2.5 h-2.5 rounded-full ${statusDots[item.status]}`} />
@@ -173,9 +178,12 @@ export default function FinancialAnalysisPage() {
                         </>
                       ) : (
                         <>
-                          <p className="text-xl font-bold">{fmt(item.value ?? 0)}</p>
+                          {/* Value and target in the ratio's own unit — the tile's
+                              decision, shared with every pack surface. It printed
+                              "Target: 35" under a gross margin. */}
+                          <p className="text-xl font-bold">{scored(item).value}</p>
                           <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs opacity-60">Target: {fmt(item.target)}</span>
+                            <span className="text-xs opacity-60">Target: {scored(item).target}</span>
                             <span className="text-xs font-medium">{item.percentOfTarget.toFixed(0)}%</span>
                           </div>
                         </>
