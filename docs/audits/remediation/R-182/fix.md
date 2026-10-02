@@ -16,7 +16,8 @@ plain decimal digits, a whole number from the floor to 100 is used as given (the
 `PG_POOL_MAX` and `AUTH_POOL_MAX`, 1 for the others). Unset or blank is the default, silently.
 Anything else is refused with one warning per (name, value) and gives
 `min(default, ceil(Number(text)))` when `Number(text)` is finite and above 0, else
-`min(default, 10)` (round 5; earlier rounds capped these at 10 too). So `5.0`, `+5` and `0x5` give 5,
+`min(default, 10)` (round 6, see Review round 6; earlier rounds capped these at 10 too; the red log for it is
+`red.round5.log`, named before the round was renumbered). So `5.0`, `+5` and `0x5` give 5,
 `2.5` gives 3 (pg-pool opened ceil(max)), `1e1` gives 10, `20.0`, `+20` and `2e1` give the default 20,
 and `50.0` gives the default 20 while `50` gives 50 (never above the default, and warned); NaN and 0 give 10 as pg-pool did; negative and Infinity (broken before) give
 `min(default, 10)`. No spelling the old `Number()` accepted gives more connections than
@@ -92,7 +93,7 @@ app) alone are 80 (one variable).
   (127), `green.round2.log` (149), `green.round3.log` (178), `green.round4.log` (184 passed in the
   6 files above; the final file set). Mutants, each with its clean baseline read first, are in
   `mutations.log`: 13 in round 0, 7 in round 1, 7 in round 2, 4 in round 3, 4 in round 4; all red.
-  Rounds 5 and later changed docs and test names only; the shuffle check is in Review round 5.
+  Round 5 changed docs and test names only; round 6 changed the rule (see its section); the shuffle check is in Review round 5.
 
 ## Review round 1
 1. Rationale corrected everywhere (see Defect); premise pinned by a real-library test.

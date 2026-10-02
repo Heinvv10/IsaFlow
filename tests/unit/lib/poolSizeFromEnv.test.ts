@@ -3,8 +3,9 @@
  * turns NaN and 0 into 10 (see pgPoolMaxPremise.test.ts); the real dangers were
  * a huge or Infinity value and a negative one. What holds for an invalid value:
  * min(default, ceil(Number(text))) when Number(text) is finite and > 0, else
- * min(default, 10) (pg-pool made NaN and 0 into 10), never below the floor, so no spelling the old Number() accepted gives a pool with
- * more connections than pg-pool allowed for it.
+ * min(default, 10) (pg-pool made NaN and 0 into 10), never below the floor, so
+ * no spelling the old Number() accepted gives a pool with more connections than
+ * pg-pool allowed for it.
  *
  * The reader remembers which (name, value) it has warned about for the life of
  * the module. Each warning case below therefore uses a (name, value) pair no

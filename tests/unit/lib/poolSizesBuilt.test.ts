@@ -1,8 +1,9 @@
 /**
  * R-182: each pool is built with the VALIDATED size. pg.Pool is mocked and the
  * options it was constructed with are read back. A bad value must give the
- * pool's default capped at 10 and at ceil(Number(text)) when that is a usable
- * positive number: never more connections than pg-pool allowed for the spelling.
+ * pool's min(default, ceil(Number(text))) when Number(text) is a finite positive
+ * number, else min(default, 10): never more than the default or than pg-pool
+ * allowed for the spelling.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
