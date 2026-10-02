@@ -493,6 +493,8 @@ describe('write-tool manifest invariants', () => {
       // A reclassification posts real journals to the ledger, so it needs the
       // same explicit opt-in every other posting path does.
       'post_reclassification_batch',
+      // Undoes a bank reconciliation sign-off, like reopen_fiscal_period undoes a close.
+      'reopen_bank_reconciliation',
       'reopen_fiscal_period',
       'reverse_allocations',
       'reverse_bank_allocation',
@@ -609,6 +611,8 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing reconciliation_id before any lookup; behaviour
       // in bankReconciliationTools.test.ts.
       cancel_bank_reconciliation: { ...KEY },
+      // Refuses on the missing reconciliation_id before any lookup.
+      reopen_bank_reconciliation: { ...KEY },
       // All four practice write tools refuse on a missing required argument
       // before touching the database; behaviour in practiceTools.test.ts.
       // lock_vat_period refuses on the missing period before reading anything;
