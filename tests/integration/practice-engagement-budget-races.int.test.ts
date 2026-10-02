@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import timeEntriesRoute from '../../pages/api/accounting/practice/time-entries';
+import duplicateRoute from '../../pages/api/accounting/practice/time-entries/duplicate';
 import entryRoute from '../../pages/api/accounting/practice/time-entries/[id]';
 import bulkRoute from '../../pages/api/accounting/practice/time-entries/bulk';
 import { updatePracticeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
@@ -22,6 +23,7 @@ import { createEbFixture, ebDbAvailable, type EbFixture } from './practice-engag
 
 const describeIfDb = ebDbAvailable ? describe : describe.skip;
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type Held = { c: PoolClient; pid: number };
 
 describeIfDb('Engagement budgets — a job moved mid-request, id case, and updateJob error mapping', () => {
   let f: EbFixture;
@@ -31,14 +33,34 @@ describeIfDb('Engagement budgets — a job moved mid-request, id case, and updat
      WHERE te.job_id = $1 AND (te.practice_client_id IS DISTINCT FROM pj.practice_client_id OR te.company_id <> pj.company_id)`,
     [job])).rows[0].n);
 
-  /** Another transaction moves the job to CLIENT2 and holds the row until released. */
-  async function holdJobMove(job: string): Promise<PoolClient> {
+  /**
+   * Another transaction moves the job to CLIENT2 (after deleting `entry`, when
+   * given, so 851's RESTRICT lets the move through) and holds the row.
+   */
+  async function holdJobMove(job: string, entry?: string): Promise<Held> {
     const c = await f.pool.connect();
     await c.query('BEGIN');
+    if (entry) await c.query('DELETE FROM time_entries WHERE id = $1', [entry]);
     await c.query('UPDATE practice_jobs SET practice_client_id = $2 WHERE id = $1', [job, f.CLIENT2]);
-    return c;
+    const pid = Number((await c.query('SELECT pg_backend_pid() AS p')).rows[0].p);
+    return { c, pid };
   }
-  async function release(c: PoolClient) { await c.query('COMMIT'); c.release(); }
+  /**
+   * Proves the write under test is BLOCKED on the held job row — i.e. it passed
+   * the fence and reached 851's FK check — before the move commits. Without
+   * this a slow start would hit the fence after the commit and pass for the
+   * wrong reason. Bounded: 10s.
+   */
+  async function waitUntilBlockedBy(held: Held): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      const n = Number((await f.pool.query(
+        'SELECT count(*) AS n FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [held.pid])).rows[0].n);
+      if (n > 0) return;
+      await pause(50);
+    }
+    throw new Error('the write never blocked on the held job row');
+  }
+  async function release(held: Held) { await held.c.query('COMMIT'); held.c.release(); }
 
   beforeAll(async () => { f = await createEbFixture('EBX'); });
   afterAll(async () => { if (f) await f.cleanup(); });
@@ -47,7 +69,7 @@ describeIfDb('Engagement budgets — a job moved mid-request, id case, and updat
     const job = await f.job(f.A, f.CLIENT, 'EBX race create');
     const t2 = await holdJobMove(job);
     const p = f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBX race create', jobId: job });
-    await pause(800);
+    await waitUntilBlockedBy(t2);
     await release(t2);
     const r = await p;
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
@@ -61,7 +83,7 @@ describeIfDb('Engagement budgets — a job moved mid-request, id case, and updat
     const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBX race update' });
     const t2 = await holdJobMove(job);
     const p = f.call(entryRoute, 'PUT', { jobId: job }, { id });
-    await pause(800);
+    await waitUntilBlockedBy(t2);
     await release(t2);
     const r = await p;
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
@@ -79,7 +101,7 @@ describeIfDb('Engagement budgets — a job moved mid-request, id case, and updat
       [tpl, f.A, f.USER, f.CLIENT, f.CAT, f.ITEM]);
     const t2 = await holdJobMove(job);
     const p = f.call(bulkRoute, 'POST', { templateId: tpl, dateFrom: '2026-01-05', dateTo: '2026-01-07', weekdays: [1, 2, 3], jobId: job });
-    await pause(800);
+    await waitUntilBlockedBy(t2);
     await release(t2);
     const r = await p;
     expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
@@ -88,6 +110,21 @@ describeIfDb('Engagement budgets — a job moved mid-request, id case, and updat
     expect(data.failed).toHaveLength(3);
     for (const fl of data.failed) expect(fl.error).toMatch(/^Job .* was not found for this client$/);
     expect(await f.entriesNamed('EBX race bulk')).toBe(0);
+  });
+
+  it('POST /duplicate: the job moves after the fence read — 400, nothing written', async () => {
+    const job = await f.job(f.A, f.CLIENT, 'EBX race dup');
+    const src = await f.entry({ job, hours: 1, rate: 1000, desc: 'EBX race dup src' });
+    // The source is read before the mover commits (MVCC), so the fence passes; the INSERT then waits on the job row.
+    const t2 = await holdJobMove(job, src);
+    const p = f.call(duplicateRoute, 'POST', { id: src, newDate: '2026-01-20' });
+    await waitUntilBlockedBy(t2);
+    await release(t2);
+    const r = await p;
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+    expect(r.body.error?.message).toMatch(/was not found for this client/);
+    expect(await f.entriesNamed('EBX race dup src')).toBe(0);
+    expect(await mismatched(job)).toBe(0);
   });
 
   it('an uppercase copy of the entry\'s own (now closed) job id is not a new link', async () => {

@@ -15,7 +15,7 @@ import type {
   PracticeTimeEntryInput,
   PracticeTimeEntryUpdateInput,
 } from './practiceTimeEntryTypes';
-import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor, PracticeEntryRefusal } from './practiceTimeEntryTypes';
 import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
 import { mapEntry } from './practiceTimeEntryMap';
 
@@ -37,7 +37,7 @@ export async function validateClientCategoryWorkItem(
       AND company_id = ${companyId}::UUID
       AND status = 'active'
   `) as DbRow[];
-  if (!clientRows.length) throw new Error('practice client not found or not active');
+  if (!clientRows.length) throw new PracticeEntryRefusal('practice client not found or not active');
 
   const catRows = (await sql`
     SELECT id FROM practice_job_categories
@@ -45,7 +45,7 @@ export async function validateClientCategoryWorkItem(
       AND company_id = ${companyId}::UUID
       AND is_active = true
   `) as DbRow[];
-  if (!catRows.length) throw new Error('job category not found or not active');
+  if (!catRows.length) throw new PracticeEntryRefusal('job category not found or not active');
 
   const wiRows = (await sql`
     SELECT id FROM practice_work_items
@@ -55,7 +55,7 @@ export async function validateClientCategoryWorkItem(
       AND category_id = ${jobCategoryId}::UUID
   `) as DbRow[];
   if (!wiRows.length) {
-    throw new Error('work item not found, not active, or does not belong to selected category');
+    throw new PracticeEntryRefusal('work item not found, not active, or does not belong to selected category');
   }
 }
 
@@ -65,11 +65,11 @@ export async function createPracticeEntry(
   input: PracticeTimeEntryInput,
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
-  if (input.entryDate > today) throw new Error('entry date cannot be in the future');
+  if (input.entryDate > today) throw new PracticeEntryRefusal('entry date cannot be in the future');
   // Range-check the ROUNDED value: 0.004 is > 0 here but 0.00 in the column.
   const hours = roundHours(input.hours);
   if (!(hours > 0 && hours <= 24)) {
-    throw new Error('hours must be between 0 and 24');
+    throw new PracticeEntryRefusal('hours must be between 0 and 24');
   }
 
   await validateClientCategoryWorkItem(

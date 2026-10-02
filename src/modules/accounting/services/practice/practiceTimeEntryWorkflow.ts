@@ -8,10 +8,10 @@ import {
 } from './practiceTimeEntryService';
 import { mapEntry } from './practiceTimeEntryMap';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
-import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor, PracticeEntryRefusal } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
+import { assertJobForPracticeClient, isJobFenceRefusal, rethrowJobFkAsRefusal } from './practiceClientFence';
 
 export interface BulkFromTemplateInput {
   templateId: string;
@@ -33,14 +33,18 @@ export interface BulkFromTemplateResult {
 let workflowSeq = 0;
 
 /**
- * What a failed bulk date says: a service refusal's own message (a bare Error,
- * or a typed refusal with a named code), never a database error's text — a pg
- * error carries a 5-character SQLSTATE and may name tables and constraints.
+ * What a failed bulk date says, or null when it is not a per-date failure at
+ * all. A refusal (the job fence, PracticeEntryRefusal) keeps its own message;
+ * a data error on that one row (SQLSTATE class 22 or 23) gets a fixed sentence,
+ * never its text, which can name tables and constraints. Anything else — a
+ * statement timeout, a deadlock, a missing column after a deploy, a lost
+ * connection, an aborted transaction — is a server fault: the caller re-throws
+ * it so the request 500s and rolls back, rather than answering a quiet 201.
  */
-function bulkFailureText(err: unknown): string {
-  if (!(err instanceof Error)) return 'Could not create this entry';
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? 'Could not create this entry' : err.message;
+function bulkDateFailure(err: unknown): string | null {
+  if (isJobFenceRefusal(err) || err instanceof PracticeEntryRefusal) return err.message;
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return typeof code === 'string' && /^2[23][0-9A-Z]{3}$/.test(code) ? 'Could not create this entry' : null;
 }
 
 export async function bulkCreateFromTemplate(
@@ -49,17 +53,17 @@ export async function bulkCreateFromTemplate(
   input: BulkFromTemplateInput,
 ): Promise<BulkFromTemplateResult> {
   const template = await getEntryTemplate(companyId, input.templateId);
-  if (!template) throw new Error('template not found');
+  if (!template) throw new PracticeEntryRefusal('template not found');
 
   if (!template.practiceClientId || !template.jobCategoryId || !template.workItemId) {
-    throw new Error('template is incomplete — client, category and work item required before bulk use');
+    throw new PracticeEntryRefusal('template is incomplete — client, category and work item required before bulk use');
   }
   // Narrowed copies: the per-date closure below would otherwise see them as nullable again.
   const { practiceClientId, jobCategoryId, workItemId } = template;
 
   const hours = input.hoursOverride ?? template.defaultHours;
   if (hours == null) {
-    throw new Error('hours required (template has no default_hours and no hoursOverride)');
+    throw new PracticeEntryRefusal('hours required (template has no default_hours and no hoursOverride)');
   }
 
   const taskDescription = input.taskOverride ?? template.taskDescription ?? template.name;
@@ -67,7 +71,7 @@ export async function bulkCreateFromTemplate(
   const jobId = await assertJobForPracticeClient(companyId, template.practiceClientId, input.jobId, { newLink: true });
 
   if (input.dateFrom > input.dateTo) {
-    throw new Error('dateFrom must be on or before dateTo');
+    throw new PracticeEntryRefusal('dateFrom must be on or before dateTo');
   }
 
   // Build inclusive date list using UTC to avoid DST drift
@@ -85,7 +89,7 @@ export async function bulkCreateFromTemplate(
   }
 
   if (allDates.length > 62) {
-    throw new Error('bulk range too large (max 62 days)');
+    throw new PracticeEntryRefusal('bulk range too large (max 62 days)');
   }
 
   const allowedWeekdays = input.weekdays ?? [1, 2, 3, 4, 5];
@@ -99,7 +103,8 @@ export async function bulkCreateFromTemplate(
 
   for (const entryDate of filteredDates) {
     try {
-      // One savepoint per date: a refused date must not abort the dates after it (25P02).
+      // One savepoint per date: a data error on one date (e.g. a 22xxx in one of create's unsavepointed reads)
+      // must not abort the dates after it with 25P02.
       await withSavepoint(`bulk_date_${++workflowSeq}`, () => createPracticeEntry(companyId, userId, {
         entryDate,
         hours,
@@ -114,7 +119,12 @@ export async function bulkCreateFromTemplate(
       }));
       created++;
     } catch (err) {
-      failed.push({ date: entryDate, error: bulkFailureText(err) });
+      const text = bulkDateFailure(err);
+      if (text === null) throw err;
+      log.warn('Bulk time entry date not created', {
+        templateId: input.templateId, date: entryDate, code: (err as { code?: unknown } | null)?.code ?? null, error: text,
+      }, 'practice');
+      failed.push({ date: entryDate, error: text });
     }
   }
 
