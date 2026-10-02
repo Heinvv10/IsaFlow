@@ -42,7 +42,13 @@ const handler: NextApiHandler = async (req, res) => {
     if (respondIfAuthUnavailable(res, err, 'change-password')) return;
     return res.status(400).json({ success: false, error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
   }
-  await adminUpdateUser(user.id, { password: newPassword });
+  try {
+    await adminUpdateUser(user.id, { password: newPassword });
+  } catch (err) {
+    // D9: 503, not 500. On a timeout GoTrue may still have applied the change; the message says to try again.
+    if (respondIfAuthUnavailable(res, err, 'change-password')) return;
+    throw err;
+  }
 
   // SECURITY: adminUpdateUser only rotates the password hash — GoTrue's
   // stateless HS256 refresh tokens survive it, so without this a stolen token

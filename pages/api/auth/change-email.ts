@@ -77,6 +77,7 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     await adminUpdateUser(user.id, { email: normalisedNew, email_confirm: true });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, 'change-email')) return;
     const msg = err instanceof Error ? err.message : String(err);
     log.warn('change-email: gotrue rejected', { userId: user.id, message: msg }, 'Auth');
     if (/422|already|exists|duplicate/i.test(msg)) {
