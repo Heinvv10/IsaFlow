@@ -18,6 +18,7 @@ const h = vi.hoisted(() => ({
     scopes: ['read:reports'],
     patId: 'pat-jti-1',
     authMethod: 'pat' as const,
+    companyRole: 'viewer',
   },
 }));
 
@@ -208,8 +209,27 @@ describe('/api/mcp transport', () => {
     expect(seenContexts[0]!.companyId).toBe(COMPANY_ID); // from req, not params
     expect(seenContexts[0]!.userId).toBe('user-gotrue-1');
     expect(seenContexts[0]!.tokenJti).toBe('pat-jti-1');
+    // The membership role the bearer pipeline resolved is what payroll tools are fenced on (D3 round 3).
+    expect(seenContexts[0]!.companyRole).toBe('viewer');
     const result = (res.body as { result: { content: Array<{ text: string }> } }).result;
     expect(result.content[0]!.text).toContain(COMPANY_ID);
+  });
+
+  it('a request with NO resolved role reaches the tool as null, and a fenced tool refuses it', async () => {
+    const saved = { ...h.auth };
+    try {
+      (h.auth as Record<string, unknown>).companyRole = undefined;
+      (h.auth as Record<string, unknown>).scopes = ['read:reports', 'read:payroll', 'write:payroll'];
+      const res = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'echo_ctx', arguments: {} })) as never, res);
+      expect(seenContexts.at(-1)!.companyRole).toBeNull(); // never defaulted to a role
+      const refused = makeRes();
+      await route(makeReq('POST', rpc('tools/call', { name: 'get_employee', arguments: { employee_id: '11111111-1111-4111-8111-111111111111' } })) as never, refused);
+      const text = JSON.stringify(refused.body);
+      expect(text).toMatch(/owner, admin and manager/);
+    } finally {
+      Object.assign(h.auth, saved);
+    }
   });
 
   it('tools/call without a name → -32602', async () => {
@@ -264,15 +284,14 @@ describe('/api/mcp transport', () => {
     vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp:'));
     const res = makeRes();
     await route(makeReq('POST', rpc('ping')) as never, res);
-    expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60 });
+    expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 1 });
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
   });
 
-  it('a batch charges the per-company limiter PER call (no batch bypass)', async () => {
-    const res = makeRes();
-    await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, res);
-    const companyCharges = vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith(`mcp:`));
-    expect(companyCharges).toHaveLength(3); // one per-company unit per RPC, not one per HTTP request
+  const companyCharges = () => vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith('mcp:'));
+  it('a batch charges the per-company limiter its call count, once (R-175; more in transportBatchCharge)', async () => {
+    await route(makeReq('POST', [rpc('ping', undefined, 1), rpc('ping', undefined, 2), rpc('ping', undefined, 3)]) as never, makeRes());
+    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 3 }]]);
   });
 
   it('an over-large batch (>20) → 400 invalid request, nothing dispatched', async () => {
@@ -308,10 +327,11 @@ describe('/api/mcp transport', () => {
     const body = res.body as Array<{ id: number; result: { isError?: boolean; content?: { text: string }[] } }>;
     const retry = 'The chart of accounts is being changed by another request — retry in a moment.';
     const text = (id: number) => { const r = body.find((b) => b.id === id)!.result; return `${r.isError}:${r.content?.[0]?.text}`; };
-    // The call that waited gets the lock's own refusal; the calls not run say that, and that nothing was charged.
+    // The call that waited gets the lock's refusal; the calls not run say so. The batch was charged its full five up front.
     expect({ roleBusyRuns: counts.roleBusy, echoRuns: seenContexts.length, ids: body.map((b) => b.id), ping: body[3]!.result, waited: text(2), skipped: [text(3), text(5)] })
       .toEqual({ roleBusyRuns: 1, echoRuns: 1, ids: [1, 2, 3, 4, 5], ping: {}, waited: `true:${retry}`,
-        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written or charged/)) });
+        skipped: Array(2).fill(expect.stringMatching(/^true:Not run: an earlier call in this batch found the chart of accounts being changed.*Nothing was written and no Flows were debited for this call; it still counted towards the batch's rate limit/)) });
+    expect(companyCharges()).toEqual([[`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 5 }]]);
   });
 
   it('no other failure stops a batch: a thrown error, a returned tool error and a row-lock timeout each leave the later calls running', async () => {

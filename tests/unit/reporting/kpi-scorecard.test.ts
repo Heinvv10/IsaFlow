@@ -74,18 +74,13 @@ describe('KPI Scorecard Engine', () => {
     expect(buildKPIScorecard(sampleRatios, []).length).toBe(0);
   });
 
-  it('handles unknown ratio key', () => {
+  it('refuses a target that names a ratio nobody has defined', () => {
+    // It used to print a row named by the raw key. A scorecard row with no
+    // name and no unit is the failure the presentation table exists to stop,
+    // so an unknown key is refused by name rather than printed.
     const bad: KPITargetConfig[] = [
       { ratioKey: 'nonExistent', target: 50, warningThreshold: 40, criticalThreshold: 30, lowerIsBetter: false },
     ];
-    const sc = buildKPIScorecard(sampleRatios, bad);
-    expect(sc.length).toBeLessThanOrEqual(1);
-    if (sc.length === 1) {
-      // An unknown key has no value. It used to be coerced to 0, which is a
-      // fabricated reading — the same coercion that scored a negative
-      // debt-to-equity as green (AN-07). Report it as unscored instead.
-      expect(sc[0]!.value).toBeNull();
-      expect(sc[0]!.status).toBe('not_meaningful');
-    }
+    expect(() => buildKPIScorecard(sampleRatios, bad)).toThrow(/nonExistent/);
   });
 });

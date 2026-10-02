@@ -4,6 +4,7 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', companyId: 'c1' }) }));
 import type { ReactNode } from 'react';
 
 const router = vi.hoisted(() => ({ push: vi.fn(), query: { id: 'loan-1' } as Record<string, string>, pathname: '/' }));

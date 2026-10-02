@@ -17,7 +17,7 @@ const router = vi.hoisted(() => ({ query: { id: '11111111-2222-4333-8444-5555555
 vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({
-    activeCompany: { id: 'co-1' }, loading: false, switchCompany: vi.fn(),
+    activeCompany: { id: 'co-1' }, companyRole: 'owner', loading: false, switchCompany: vi.fn(),
     companies: [{ companyId: 'co-2', companyName: 'Second Co' }],
   }),
 }));

@@ -90,9 +90,35 @@
     "reason": "Pure page-visit telemetry: a missed write changes nothing the user sees; the .catch logs at debug."
   },
   {
-    "file": "pages/payroll/runs/[id].tsx",
-    "kind": "f",
-    "line": "setRun((json.data ?? json) as RunDetail);",
-    "reason": "Deliberate: after Approve the run is taken from the server's own result and a failed refresh keeps it with an explicit 'Could not refresh this run' message (payrollRunApprove.test.tsx pins it); a different run id already clears it."
+    "file": "src/components/accounting/packs/usePrintMode.ts",
+    "kind": "b",
+    "line": "throw new Error(`packFontsLoaded: the footer face did not load (HTTP ${response.status})`);",
+    "reason": "Machine diagnostic: it only becomes the data-print-error-fonts attribute the PDF renderer reads (pinned as 'HTTP <n>' by the playwright/gotenberg transport tests); no person sees it."
+  },
+  {
+    "file": "src/components/accounting/packs/usePrintMode.ts",
+    "kind": "c",
+    "line": "if (live) reportFontFailure(err instanceof Error ? err.message : String(err));",
+    "reason": "Machine diagnostic for the PDF renderer's data-print-error-fonts attribute and the log; never rendered to a person.",
+    "count": 2
+  },
+  {
+    "file": "src/lib/auth/authUpstream.ts",
+    "kind": "a",
+    "line": "return await res.json();",
+    "reason": "Server-side helper, not a client: callAuthUpstream already turned every unavailable status into AuthUpstreamUnavailableError and this wrapper converts a body failure into the same error; the caller judges 4xx."
+  },
+  {
+    "file": "src/lib/auth/authUpstream.ts",
+    "kind": "b",
+    "line": "throw new AuthUpstreamUnavailableError(`${what} unavailable: ${res.status}`);",
+    "reason": "Server-side internal error text for logs; the route answers a fixed 503 sentence to the person."
+  },
+  {
+    "file": "src/components/accounting/packs/usePackPagesData.ts",
+    "kind": "c",
+    "line": "markPrintError('pages', err instanceof ApiRequestError ? `HTTP ${err.status}` : err instanceof Error ? err.message : String(err));",
+    "reason": "Machine diagnostic for the PDF renderer's data-print-error-pages attribute (packPagesPrintError.dom.test pins 'pages: socket hang up'); the person sees apiErrorMessage's sentence via setError.",
+    "count": 2
   }
 ]

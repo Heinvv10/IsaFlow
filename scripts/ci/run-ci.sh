@@ -26,6 +26,15 @@ run_step() {
 # has no bunfig.toml, and adding one means changing this line in review (R-052).
 run_step "no-bunfig"         test ! -e bunfig.toml
 run_step "type-check"        bun run type-check
+# `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
+# of the model it claims to be and neither `tsc --noEmit` nor vitest notices.
+# It is not hypothetical: `PackMatter.kind` was missing from every matter in
+# `boardPackInputs`, and page 11 of the demo pack composed the headline
+# "0 matters require a board decision this period. Every check ran clean."
+# over a table listing one matter and 245 of exposure. This narrows the check
+# to the pack fixtures — the composed documents every pack test is written
+# against — without pulling the rest of `tests/**` into the program.
+run_step "pack-fixture-types" bun run type-check:pack-fixtures
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
@@ -60,13 +69,21 @@ run_step "workflow-runs-ci"       bun scripts/ci/check-workflow-runs-ci.ts
 run_step "client-responses"       bun scripts/ci/check-client-responses.ts
 run_step "unit-tests"        bun run test:unit
 run_step "component-tests"   bun run test:components
+# The tests that launch real Chromium (tests/unit/print/). Excluded from
+# unit-tests above, where they timed out beside ~800 parallel files, and
+# run here one file at a time. REQUIRED, like every other step: a failure or a
+# timeout fails the gate.
+run_step "browser-tests"     bun run test:print
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
 if [ -n "${DATABASE_URL:-}" ]; then
   run_step "integration-tests" bun run test:integration
-else
-  echo "[skip] integration-tests: DATABASE_URL not set"
 fi
+# Says, by name, which integration suites this run did NOT include and why:
+# all of them without DATABASE_URL, and the disposable-database-only ones
+# whenever DATABASE_URL names anything else. They skip themselves rather than
+# fail, so without this a green run reads as if they had passed.
+CI_DATABASE_URL="${DATABASE_URL:-}" bun scripts/ci/report-skipped-integration.ts
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.

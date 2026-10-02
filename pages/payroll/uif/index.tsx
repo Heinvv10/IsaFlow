@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, CheckCircle2, Clock } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 const ZAR = new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' });
 const MONTHS = [
@@ -170,10 +171,12 @@ export default function UifDeclarationPage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Monthly UI-19 declaration to Department of Labour</p>
               </div>
             </div>
-            <button onClick={() => setShowGenerate(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
-              <Plus className="h-4 w-4" />Generate Declaration
-            </button>
+            <WriteOnly>
+              <button onClick={() => setShowGenerate(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
+                <Plus className="h-4 w-4" />Generate Declaration
+              </button>
+            </WriteOnly>
           </div>
         </div>
 
@@ -212,10 +215,12 @@ export default function UifDeclarationPage() {
               <FileText className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No UIF declarations</p>
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Generate your first monthly UIF declaration to get started</p>
-              <button onClick={() => setShowGenerate(true)}
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
-                <Plus className="h-4 w-4" />Generate Declaration
-              </button>
+              <WriteOnly>
+                <button onClick={() => setShowGenerate(true)}
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
+                  <Plus className="h-4 w-4" />Generate Declaration
+                </button>
+              </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
@@ -241,11 +246,13 @@ export default function UifDeclarationPage() {
                       <td className="py-3 px-4"><StatusBadge status={d.status} /></td>
                       <td className="py-3 px-4 text-right">
                         {d.status === 'draft' ? (
-                          <button onClick={() => handleMarkSubmitted(d.id)} disabled={submittingId === d.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-xs font-medium transition-colors disabled:opacity-50">
-                            {submittingId === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                            Mark Submitted
-                          </button>
+                          <WriteOnly>
+                            <button onClick={() => handleMarkSubmitted(d.id)} disabled={submittingId === d.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-tertiary)] text-xs font-medium transition-colors disabled:opacity-50">
+                              {submittingId === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                              Mark Submitted
+                            </button>
+                          </WriteOnly>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
                             <Clock className="h-3 w-3" />

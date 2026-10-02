@@ -11,14 +11,17 @@ import {
 
 export interface RatioTrendPoint {
   period: string;
-  value: number;
+  /** null where the ratio could not be stated in that period. */
+  value: number | null;
 }
 
 export interface RatioTrendResult {
   ratioName: string;
   values: RatioTrendPoint[];
-  trend: 'improving' | 'declining' | 'stable';
-  changePercent: number;
+  /** 'not_meaningful' where the first or the last period has no figure. */
+  trend: 'improving' | 'declining' | 'stable' | 'not_meaningful';
+  /** null with it: a change is measured between two points. */
+  changePercent: number | null;
 }
 
 // Ratios where higher is better (used for trend classification)
@@ -71,12 +74,17 @@ export function calculateRatioTrends(
   return TRACKED_RATIOS.map(ratioName => {
     const values: RatioTrendPoint[] = allRatios.map((r, i) => ({
       period: periodLabels[i] || `Period ${i + 1}`,
-      value: r[ratioName] as number,
+      value: r[ratioName] as number | null,
     }));
 
-    // Calculate overall change from first to last
-    const first = values[0]?.value ?? 0;
-    const last = values[values.length - 1]?.value ?? 0;
+    // Calculate overall change from first to last. A ratio the engine could
+    // not state at either end has no change to report: reading its null as 0
+    // printed "stable, 0%" for a margin that did not exist.
+    const first = values[0]?.value ?? null;
+    const last = values[values.length - 1]?.value ?? null;
+    if (first === null || last === null) {
+      return { ratioName, values, trend: 'not_meaningful' as const, changePercent: null };
+    }
     const changePercent = first !== 0
       ? Math.round(((last - first) / Math.abs(first)) * 10000) / 100
       : 0;

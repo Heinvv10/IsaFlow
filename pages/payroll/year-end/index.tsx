@@ -10,8 +10,9 @@ import {
   AlertTriangle, ExternalLink,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface YearEndStatus {
   taxYear: number;
@@ -74,6 +75,7 @@ export default function YearEndPage() {
     setDownloadError(null);
     try {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not download the EasyFile export - try again'));
       await assertOk(res, 'Could not download the EasyFile export - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

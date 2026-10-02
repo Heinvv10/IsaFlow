@@ -7,12 +7,13 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import {
   ArrowLeft, Loader2, AlertCircle, GitCompare, AlertTriangle,
   TrendingUp, TrendingDown, UserPlus, UserMinus,
 } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -133,6 +134,7 @@ export default function PayrollRunVariancePage() {
     setLoading(true); setError('');
     try {
       const res = await apiFetch(`/api/payroll/runs/${runId}/variance`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the variance report - try again'));
       await assertOk(res, 'Could not load the variance report - try again');
       const json = await res.json() as { data?: PayrollVariance };
       setData(json.data ?? null);

@@ -22,6 +22,7 @@ const ROOT = resolve(__dirname, '../../..');
 const ALLOWED: Record<string, string> = {
   'src/components/accounting/suppliers/DrcFlagToggle.tsx': 'PATCH of one supplier, no list read',
   'pages/accounting/suppliers/new.tsx': 'POST create, no list read',
+  'src/components/accounting/createEntity/entityRequests.ts': 'POST create URL for the bank page modal, no list read',
   'src/components/accounting/supplier-invoices/SupplierTypeahead.tsx':
     'the bare ?limit=25 is only the first suggestions; typing switches to ?q= in the same file',
   'pages/accounting/suppliers/index.tsx': 'the suppliers list page: builds ?page=/limit/q params and pages through the total',

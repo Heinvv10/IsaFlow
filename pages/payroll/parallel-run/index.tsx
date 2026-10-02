@@ -9,10 +9,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { GitCompareArrows, Loader2, AlertCircle, Download, Trash2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { ParallelRunUploadCard } from '@/components/payroll/parallelRun/ParallelRunUploadCard';
 import { ParallelRunReportView } from '@/components/payroll/parallelRun/ParallelRunReportView';
 import type { ParallelRunComparisonReport } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface ImportSummary {
   id: string;
@@ -65,6 +67,7 @@ export default function ParallelRunPage() {
     setReport(null);
     try {
       const res = await apiFetch(`/api/payroll/parallel-run/compare?importId=${importId}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the comparison - try again'));
       await assertOk(res, 'Could not load the comparison - try again');
       const json = await res.json() as { data?: ReportPayload };
       setReport(json.data ?? null);
@@ -106,6 +109,7 @@ export default function ParallelRunPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/parallel-run/export?importId=${importId}`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not export the comparison - try again'));
       await assertOk(res, 'Could not export the comparison - try again');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -135,7 +139,9 @@ export default function ParallelRunPage() {
           </div>
         </div>
 
-        <ParallelRunUploadCard onImported={handleImported} />
+        <WriteOnly>
+          <ParallelRunUploadCard onImported={handleImported} />
+        </WriteOnly>
 
         {rowWarnings.length > 0 && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-400">
@@ -197,13 +203,15 @@ export default function ParallelRunPage() {
                     >
                       <Download className="h-4 w-4" />
                     </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
-                      title="Delete import"
-                      className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <WriteOnly>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void handleDelete(imp.id); }}
+                        title="Delete import"
+                        className="p-1.5 rounded-lg text-[var(--ff-text-tertiary)] hover:text-red-400 hover:bg-[var(--ff-bg-primary)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </WriteOnly>
                   </td>
                 </tr>
               ))}

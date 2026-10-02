@@ -30,6 +30,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalReversedAsAtFragment } from '../shared/softDeleteLedgerPresence';
 
 // Exported so vatDeclaredElsewhereQuery.ts (split out, 2026-09-27, file-size
 // limit) shares the exact same population — test either against
@@ -42,8 +43,10 @@ export const APPROVED_BILL_STATUSES: readonly string[] = ['approved', 'partially
 /**
  * A document counts as unposted invoice VAT not only when it has NO journal
  * (`reason: 'no_journal'`), but also when its linked journal is not posted
- * (`'journal_not_posted'`) or has a POSTED reversal dated on or before the
- * period end (`'journal_reversed'`, B3). A reversal nets the original's VAT
+ * (`'journal_not_posted'`) or is REVERSED OUT as at the period end — an odd
+ * number of posted reversals in its chain dated on or before it, never just
+ * "has one" (D7: a delete undone in-period, O <- R <- R2, stands) —
+ * (`'journal_reversed'`, B3). A reversal nets the original's VAT
  * out of the filed ledger (vatEntryMembership) while `status = 'sent'` etc.
  * on the invoice itself is untouched — reverseJournalEntry carries no
  * document guard — so without this an issued invoice's output VAT vanishes
@@ -84,13 +87,7 @@ export async function findUnpostedInvoiceVat(
         CASE
           WHEN ci.gl_journal_entry_id IS NULL THEN 'no_journal'
           WHEN je.status IS DISTINCT FROM 'posted' THEN 'journal_not_posted'
-          WHEN EXISTS (
-            SELECT 1 FROM gl_journal_entries rev
-            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
-              AND rev.company_id = ${companyId}::UUID
-              AND rev.status = 'posted'
-              AND rev.entry_date <= ${periodEnd}::DATE
-          ) THEN 'journal_reversed'
+          WHEN ${journalReversedAsAtFragment('ci', periodEnd, companyId)} THEN 'journal_reversed'
           ELSE 'journal_dated_after_period'
         END AS reason
       FROM customer_invoices ci
@@ -122,13 +119,7 @@ export async function findUnpostedInvoiceVat(
         -- journal is already known to be posted and unreversed.
         AND (
           ci.vat_declared_elsewhere_at IS NULL
-          OR EXISTS (
-            SELECT 1 FROM gl_journal_entries rev
-            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
-              AND rev.company_id = ${companyId}::UUID
-              AND rev.status = 'posted'
-              AND rev.entry_date <= ${periodEnd}::DATE
-          )
+          OR ${journalReversedAsAtFragment('ci', periodEnd, companyId)}
           OR (je.status = 'posted' AND je.entry_date > ${periodEnd}::DATE)
         )
         AND ci.status = ANY(${ISSUED_CUSTOMER_INVOICE_STATUSES as string[]}::TEXT[])
@@ -136,13 +127,7 @@ export async function findUnpostedInvoiceVat(
         AND (
           ci.gl_journal_entry_id IS NULL
           OR je.status IS DISTINCT FROM 'posted'
-          OR EXISTS (
-            SELECT 1 FROM gl_journal_entries rev
-            WHERE rev.reversal_of_id = ci.gl_journal_entry_id
-              AND rev.company_id = ${companyId}::UUID
-              AND rev.status = 'posted'
-              AND rev.entry_date <= ${periodEnd}::DATE
-          )
+          OR ${journalReversedAsAtFragment('ci', periodEnd, companyId)}
           -- CUSTOMER only (see the doc-comment above): a posted, unreversed
           -- journal dated after time-of-supply's own period under-declares
           -- output VAT with no exception otherwise.
@@ -170,26 +155,14 @@ export async function findUnpostedInvoiceVat(
         -- Same reasoning as the customer branch above.
         AND (
           si.vat_declared_elsewhere_at IS NULL
-          OR EXISTS (
-            SELECT 1 FROM gl_journal_entries rev
-            WHERE rev.reversal_of_id = si.gl_journal_entry_id
-              AND rev.company_id = ${companyId}::UUID
-              AND rev.status = 'posted'
-              AND rev.entry_date <= ${periodEnd}::DATE
-          )
+          OR ${journalReversedAsAtFragment('si', periodEnd, companyId)}
         )
         AND si.status = ANY(${APPROVED_BILL_STATUSES as string[]}::TEXT[])
         AND si.invoice_date >= ${periodStart}::DATE AND si.invoice_date <= ${periodEnd}::DATE
         AND (
           si.gl_journal_entry_id IS NULL
           OR je.status IS DISTINCT FROM 'posted'
-          OR EXISTS (
-            SELECT 1 FROM gl_journal_entries rev
-            WHERE rev.reversal_of_id = si.gl_journal_entry_id
-              AND rev.company_id = ${companyId}::UUID
-              AND rev.status = 'posted'
-              AND rev.entry_date <= ${periodEnd}::DATE
-          )
+          OR ${journalReversedAsAtFragment('si', periodEnd, companyId)}
         )
     ) docs
     WHERE unposted_vat <> 0

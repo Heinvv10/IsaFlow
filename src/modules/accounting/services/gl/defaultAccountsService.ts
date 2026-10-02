@@ -11,7 +11,8 @@
  *     showed; an omitted `loaded` (or key) counts as "not configured", so it
  *     gets a 409 on any role that has a holder;
  *   - a role is cleared, or the account is unknown, of the wrong type,
- *     inactive, a header with sub-accounts, or already classified as something
+ *     inactive, a header with sub-accounts (balance-sheet roles only — an
+ *     income-statement role may go to one), or already classified as something
  *     other than that role (Hein, 2026-09-30: only an unclassified, 'other' or
  *     same-role account may take a role — no reclassifying by assignment);
  *   - a locked (filed) VAT period's figures would move;
@@ -26,23 +27,11 @@ import { SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from './systemAccountKeys'
 import { rolesNotKept, snapshotRoles } from './systemRoleInvariant';
 import { lockSystemRoleWrites, withBoundedLockWait } from './systemRoleWriteLock';
 import { roleTargetRefusal } from './roleTargetRules';
+import { DEFAULT_ACCOUNT_ROLES, defaultAccountRole } from './defaultAccountRoles';
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from './vatLockLineClassification';
 
 const SETTINGS_KEY = 'accounting_default_accounts';
-
-/** UI setting key → the role (system account subtype) it manages. */
-const KEY_TO_SYSTEM_SUBTYPE: Record<string, SystemAccountKey> = {
-  sales_revenue: 'default_revenue',
-  sales_vat_output: 'vat_output',
-  accounts_receivable: 'receivable',
-  cost_of_sales: 'default_expense',
-  purchase_vat_input: 'vat_input',
-  accounts_payable: 'payable',
-  primary_bank: 'bank',
-  retained_earnings: 'retained_earnings',
-  opening_balance_equity: 'opening_balance_equity',
-};
 
 /** The page's rows that manage no role: stored in app_settings only. */
 const UNMANAGED_KEYS: readonly string[] = ['sales_discount', 'petty_cash', 'rounding'];
@@ -56,10 +45,8 @@ export class DefaultAccountsRefusal extends TransactionRefusal {
   constructor(message: string, readonly status: 400 | 409 = 400) { super(message); }
 }
 
-/** The role a UI key manages — own keys only, so `constructor` is ignored like any unknown key. */
-function managedSubtype(uiKey: string): SystemAccountKey | undefined {
-  return Object.hasOwn(KEY_TO_SYSTEM_SUBTYPE, uiKey) ? KEY_TO_SYSTEM_SUBTYPE[uiKey] : undefined;
-}
+/** The role a UI key manages (`defaultAccountRoles`, the map the page shares). */
+const managedSubtype = defaultAccountRole;
 
 /** A stored or posted mapping: a plain object, else nothing. */
 export function plainMapping(value: unknown): Record<string, unknown> {
@@ -80,7 +67,7 @@ async function storedMapping(companyId: string, q: TxSql = sql): Promise<Record<
 export async function readDefaultAccountMappings(companyId: string): Promise<Record<string, unknown>> {
   const mappings = await storedMapping(companyId);
   const { holders } = await snapshotRoles(companyId);
-  for (const [uiKey, subtype] of Object.entries(KEY_TO_SYSTEM_SUBTYPE)) {
+  for (const [uiKey, subtype] of Object.entries(DEFAULT_ACCOUNT_ROLES)) {
     const holder = holders.get(subtype);
     if (holder) mappings[uiKey] = holder;
     else delete mappings[uiKey];
@@ -163,7 +150,7 @@ export async function saveDefaultAccountMappings(
     if (!row) throw new DefaultAccountsRefusal(`Account for '${uiKey}' not found`);
     const code = String(row.account_code);
     const fromSubtype = row.account_subtype == null ? null : String(row.account_subtype);
-    // Right type, active, not a header, unclassified or already this role: the rule the COA import's role map shares.
+    // Right type, active, not a balance-sheet header, unclassified or already this role: the rule the COA import's role map shares.
     const unfit = roleTargetRefusal(subtype, uiKey,
       { code, type: String(row.account_type), isActive: row.is_active === true, hasChildren: row.has_children === true, subtype: fromSubtype });
     if (unfit) throw new DefaultAccountsRefusal(unfit);

@@ -18,21 +18,14 @@ import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { getClientIp } from '@/lib/rateLimit';
+import { checkAutoRateLimit } from './autoRateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
-/**
- * Auto rate-limit table — must stay in sync with the equivalent table in
- * withAuth.ts. Bearer-authed requests skip withAuth entirely, so without this
- * mirror they'd silently bypass per-company rate limits on heavy report routes.
- */
-const AUTO_RATE_LIMIT: Array<{ prefix: string; key: string; max: number; windowSecs: number }> = [
-  { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
-];
 
 /** Postgres SQLSTATE for invalid_text_representation — i.e. UUID cast errors. */
 const PG_INVALID_TEXT_REPRESENTATION = '22P02';
@@ -207,23 +200,16 @@ export async function runBearerRequest(
       authedReq.oauthAppId = ctx.oauthAppId;
     }
 
-    // Mirror withAuth's per-company rate limit so Bearer-authed reports calls
-    // don't bypass the limiter that protects the pool from full-GL aggregations.
-    const path = req.url?.split('?')[0] ?? '';
-    const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
-    if (bucket) {
-      const allowed = await checkRateLimit(
-        `${bucket.key}:${ctx.companyId}`,
-        { max: bucket.max, windowSecs: bucket.windowSecs },
-      );
-      if (!allowed) {
-        unusable = await rollbackFailed(client, 'bearerPipeline');
-        res.status(429).json({
-          success: false,
-          error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
-        });
-        return;
-      }
+    // The same per-company rate limit as withAuth, from the same table, so
+    // Bearer-authed reports calls don't bypass the limiter that protects the
+    // pool from full-GL aggregations.
+    if (!(await checkAutoRateLimit(req.url, ctx.companyId))) {
+      unusable = await rollbackFailed(client, 'bearerPipeline');
+      res.status(429).json({
+        success: false,
+        error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again shortly.' },
+      });
+      return;
     }
 
     // ── Defer the response flush until AFTER the transaction is finalised ──

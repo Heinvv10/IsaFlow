@@ -56,7 +56,7 @@ export function buildBankTxActions(deps: ActionDeps) {
   const saveSelection = (txId: string, type: AllocType, entityId: string, vatCode?: string) => {
     apiFetch('/api/accounting/bank-transactions-action', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || null, vatCode: vatCode || null }),
+      body: JSON.stringify({ action: 'save_selection', bankTransactionId: txId, selectionType: type, selectionEntityId: entityId || undefined, vatCode: vatCode || undefined }),
     }).then(r => assertOk(r, 'Could not save the selection - try again')).catch(e => notify.error(apiErrorMessage(e, 'Could not save the selection - try again')));
   };
 
@@ -280,8 +280,8 @@ export function buildBankTxActions(deps: ActionDeps) {
   };
   // ---- Row-level selection handlers (also persist to DB) ----
   const handleRowTypeChange = (txId: string, type: AllocType) => {
-    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode: type === 'account' ? (prev[txId]?.vatCode || 'none') : 'none' } }));
-    saveSelection(txId, type, '');
+    const vatCode: VatCode = type === 'account' ? (rowSelections[txId]?.vatCode || 'none') : 'none';
+    setRowSelections(prev => ({ ...prev, [txId]: { type, entityId: '', label: '', vatCode } })); saveSelection(txId, type, '', vatCode);
   };
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';

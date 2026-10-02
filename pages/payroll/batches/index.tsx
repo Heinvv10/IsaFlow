@@ -8,6 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { Layers, Loader2, AlertCircle, Plus } from 'lucide-react';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
 
 interface BatchRow {
   id: string;
@@ -43,6 +46,8 @@ function TypeBadge({ type }: { type: BatchRow['batchType'] }) {
 }
 
 export default function PayrollBatchesListPage() {
+  const { companyRole } = useCompany();
+  const mayWrite = canWrite(companyRole); // batch lines are per-employee pay
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,9 +86,11 @@ export default function PayrollBatchesListPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Bulk component and reimbursive travel entries</p>
               </div>
             </div>
-            <Link href="/payroll/batches/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
-              <Plus className="h-4 w-4" /> New Batch
-            </Link>
+            <WriteOnly>
+              <Link href="/payroll/batches/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
+                <Plus className="h-4 w-4" /> New Batch
+              </Link>
+            </WriteOnly>
           </div>
         </div>
 
@@ -115,9 +122,11 @@ export default function PayrollBatchesListPage() {
             <div className="text-center py-16">
               <Layers className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No batches yet</p>
-              <Link href="/payroll/batches/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
-                <Plus className="h-4 w-4" /> Create first batch
-              </Link>
+              <WriteOnly>
+                <Link href="/payroll/batches/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
+                  <Plus className="h-4 w-4" /> Create first batch
+                </Link>
+              </WriteOnly>
             </div>
           ) : (
             <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-surface-primary)]">
@@ -143,7 +152,9 @@ export default function PayrollBatchesListPage() {
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{b.lineCount}</td>
                       <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
                       <td className="py-3 px-4 text-right">
-                        <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
+                        {mayWrite && (
+                          <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
+                        )}
                       </td>
                     </tr>
                   ))}

@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { AlertCircle, AlertTriangle, ArrowRight, CheckCircle2, Loader2, LogOut, Save } from 'lucide-react';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type Reason = 'resignation' | 'dismissal' | 'retrenchment' | 'retirement' | 'end_of_contract' | 'death';
 
@@ -72,6 +73,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
     setLoading(true);
     try {
       const res = await apiFetch(`/api/payroll/employees/${employeeId}/termination`);
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the termination details - try again'));
       await assertOk(res, 'Could not load the termination details - try again');
       const json = await res.json() as {
         data?: { details: TerminationDetails; context: TerminationContext; preview: TerminationPreview | null };

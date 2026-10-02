@@ -15,11 +15,26 @@ const INPUT: ReportPackInput = {
 };
 
 const TREND: PackTrendPoint[] = [
-  { month: '2026-08', label: 'Aug 2026', revenue: 400000, expenses: 300000, netProfit: 100000 },
-  { month: '2026-09', label: 'Sep 2026', revenue: 420000, expenses: 310000, netProfit: 110000 },
+  {
+    month: '2026-08', label: 'Aug 2026', revenue: 400000, expenses: 300000, netProfit: 100000,
+    costOfSales: 180000, operatingExpenses: 120000, grossMarginPct: 55,
+    cash: 250000, accountsReceivable: 90000, debtorDays: 6.75,
+  },
+  {
+    month: '2026-09', label: 'Sep 2026', revenue: 420000, expenses: 310000, netProfit: 110000,
+    costOfSales: 185000, operatingExpenses: 125000, grossMarginPct: 55.95,
+    cash: 260000, accountsReceivable: 95000, debtorDays: 6.79,
+  },
 ];
 
 const pack = buildReportPack('management', INPUT, '2026-01-01', '2026-09-05');
+/** The same pack with a cash flow statement and a capital expenditure figure
+ *  behind it, so every cash line and every ratio has a figure to print. */
+const packWithCashFlows = buildReportPack('management', {
+  ...INPUT,
+  operatingCashFlow: 512_345.67, investingCashFlow: -98_765.43, financingCashFlow: 12_345.67,
+  capitalExpenditure: 150_000,
+}, '2026-01-01', '2026-09-05');
 
 /** Every number reachable in a value, however deeply nested. */
 function numbersIn(value: unknown, found: Set<number> = new Set()): Set<number> {
@@ -36,10 +51,9 @@ describe('buildPackDocument', () => {
     expect(doc.sections[0]!.title).toBe('Statement of Comprehensive Income');
   });
 
-  it('turns only the chart sections landscape', () => {
+  it('turns no section landscape: the charts are 174mm and flow in portrait', () => {
     const doc = buildPackDocument(pack, TREND);
-    const landscape = doc.sections.filter((s) => s.landscape).map((s) => s.type);
-    expect(landscape).toEqual(['waterfall', 'trends']);
+    expect(doc.sections.filter((s) => s.landscape).map((s) => s.type)).toEqual([]);
   });
 
   it('INVENTS NO FIGURE: every number in the document is a pack number', () => {
@@ -87,11 +101,15 @@ describe('buildPackDocument', () => {
     // A rand amount printed as a bare ratio is the defect this map exists for.
     expect(items.find((i) => i.label === 'Working Capital')!.format).toBe('money');
     expect(items.find((i) => i.label === 'Free Cash Flow')!.format).toBe('money');
-    expect(items.find((i) => i.label === 'Ebitda Margin')!.format).toBe('pct');
-    expect(items.find((i) => i.label === 'Roce')!.format).toBe('pct');
-    expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('ratio');
-    expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('ratio');
-    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'days']));
+    expect(items.find((i) => i.label === 'EBITDA Margin')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'Return on Capital Employed (ROCE)')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('times');
+    expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('times');
+    // A cover or a turnover is a multiple, and is written as one.
+    expect(items.find((i) => i.label === 'Asset Turnover')!.format).toBe('times');
+    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'currency', 'pct', 'times', 'days']));
+    // No label is an engine key split on its capitals.
+    expect(items.map((i) => i.label).filter((l) => /\b(Ebitda|Roce|Pbit|Pbt|Dupont)\b/.test(l))).toEqual([]);
   });
 
   it('has a format for every numeric field calculateExtendedRatios returns', () => {
@@ -127,8 +145,8 @@ describe('buildPackDocument', () => {
     };
 
     it('prints each line under its own label, with the figure the service produced', () => {
-      const source = pack.sections.find((s) => s.type === 'cash_flow')!.data as Record<string, number>;
-      const items = cashFlowItems(buildPackDocument(pack, TREND));
+      const source = packWithCashFlows.sections.find((s) => s.type === 'cash_flow')!.data as Record<string, number>;
+      const items = cashFlowItems(buildPackDocument(packWithCashFlows, TREND));
 
       expect(items.map((i) => i.label)).toEqual([
         'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow',
@@ -163,6 +181,7 @@ describe('buildPackDocument', () => {
     ['waterfall', 'steps'],
     ['commentary', 'summary'],
     ['ratios', 'notMeaningful'],
+    ['cash_flow', 'unavailable'],
   ])('throws when the %s section loses its %s field', (sectionType, field) => {
     const stripped = {
       ...pack,
@@ -195,7 +214,7 @@ describe('buildPackDocument', () => {
     const ratios = doc.sections.find((s) => s.type === 'ratios')!;
     const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
 
-    for (const label of ['Debt To Equity', 'Return On Equity', 'Equity Multiplier', 'Dupont Leverage']) {
+    for (const label of ['Debt to Equity', 'Return on Equity (ROE)', 'Equity Multiplier', 'DuPont Leverage']) {
       const item = items.find((i) => i.label === label);
       expect(item, `${label} must still appear`).toBeDefined();
       expect(item!.value).toBeNull();
@@ -209,10 +228,19 @@ describe('buildPackDocument', () => {
   });
 
   it('carries no unavailable reason when equity is sound', () => {
-    const doc = buildPackDocument(pack, TREND);
+    // With capital expenditure carried: without it free cash flow has a
+    // reason of its own, pinned in reportPackUnstatedCashFigures.test.ts.
+    const doc = buildPackDocument(packWithCashFlows, TREND);
     const ratios = doc.sections.find((s) => s.type === 'ratios')!;
     const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
-    expect(items.filter((i) => i.unavailable !== undefined)).toEqual([]);
-    expect(items.filter((i) => i.value === null)).toEqual([]);
+    // No ratio is withheld for want of EQUITY. Ratios whose own input this
+    // pack does not carry (interest, employees, dividends, tax) are unstated
+    // for that reason, each with a figure of null and a reason — never one
+    // without the other.
+    expect(items.filter((i) => /equity/i.test(i.unavailable ?? ''))).toEqual([]);
+    for (const i of items) expect(i.value === null, i.label).toBe(i.unavailable !== undefined);
+    for (const label of ['Debt to Equity', 'Return on Equity (ROE)', 'Current Ratio', 'Gross Profit Margin', 'Free Cash Flow']) {
+      expect(items.find((i) => i.label === label)!.unavailable, label).toBeUndefined();
+    }
   });
 });

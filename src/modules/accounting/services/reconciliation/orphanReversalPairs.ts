@@ -4,15 +4,16 @@
  *
  * `unappliedCashService` mechanism 2 reports every posted control movement no
  * sub-ledger document references. A soft-delete posts R (reversing the
- * document's journal O) and records it in `soft_delete_journal_reversals`, and
- * the query excludes it by that row. The UNDO — `reinstateInvoiceJournal` —
- * DELETEs that row and posts R2 reversing R, so after one round trip the
- * ledger holds O, R and R2, the invoice still points at O, and NEITHER R nor
- * R2 is claimed by a document or by an sdjr row. Both therefore passed every
- * `NOT EXISTS` and landed in `withoutPaymentRecord` for the document's full
- * gross value each. The `total` nets to zero so the headline figure looked
- * right; the ITEMISATION — the part an operator works through line by line —
- * gained two entries for a document that is restored and perfectly reconciled.
+ * document's journal O), and while the document stays deleted the query
+ * excludes O's whole reversal chain (orphanControlPostings). The UNDO —
+ * `reinstateInvoiceJournal` — posts R2 reversing R and clears `deleted_at`, so
+ * after one round trip the ledger holds O, R and R2, the invoice still points
+ * at O, and NEITHER R nor R2 is claimed by a document or excluded as the chain
+ * of a deleted one. Both therefore passed every `NOT EXISTS` and landed in
+ * `withoutPaymentRecord` for the document's full gross value each. The
+ * `total` nets to zero so the headline figure looked right; the ITEMISATION —
+ * the part an operator works through line by line — gained two entries for a
+ * document that is restored and perfectly reconciled.
  *
  * The rule is stated by OUTCOME, not by provenance, so it needs no new
  * bookkeeping and repairs the round trips that already happened before this

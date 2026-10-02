@@ -1,0 +1,143 @@
+/**
+ * A BOARD PACK DOES NOT TELL A BOARD THAT ITS LAYOUT DROPPED THE EXPLANATION.
+ *
+ * The rendered demo pack printed, at the foot of two sheets:
+ *
+ *   Not printed on this page: 1 explanatory note, from “Scoring basis”.
+ *   Not printed on this page: 2 explanatory notes, from “Reading these panels”.
+ *
+ * The scorecard's was a POINTER to where MISSED and NOT MEANINGFUL are
+ * defined — and it pointed at the basis sheet, which prints those definitions
+ * whether or not the pointer survives. The trends page's two were the notes
+ * its own "1.1% of the shared range" claims are checked against, so the sheet
+ * kept the claim and dropped the means of checking it. Brightsphere prints
+ * both sections in full on the identical template, so neither was a design
+ * that cannot fit — both were pages spending their paper badly.
+ *
+ * `fitPageToBox` is not the defect and the footnote it writes is not either:
+ * a page that has to abridge should say so. What must not happen is a page
+ * REACHING for it in the ordinary case. This holds the ordinary case.
+ *
+ * Sheet 11's "N further matters are not printed" is a different sentence and
+ * is deliberately not covered here: it quantifies withheld DATA, foots against
+ * the printed rows, and is proper disclosure rather than a layout apology.
+ */
+import { describe, expect, it } from 'vitest';
+import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
+import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
+import { brightsphereInput, brightsphereLiveInput, demoInput, ratioInputsUnreadInput, withRatioInputs } from './fixtures/boardPackInputs';
+import {
+  liveDemoBridgeInput,
+  liveDemoInput,
+  liveDemoRenderedInput,
+  liveDemoShortPanelsInput,
+  manyLongNullQuantumMattersInput,
+  manyShortNullQuantumMattersInput,
+  millionsCashInput,
+} from './fixtures/liveDemoBoardPack';
+
+const FIXTURES: [string, BoardPackInput][] = [
+  ['the live demo company as it renders', liveDemoRenderedInput],
+  // The panel shape that company's ledger ACTUALLY produces — two ratio
+  // panels over three periods, four money panels over twelve. The fixture
+  // above gives every month revenue and therefore draws six full panels, so
+  // no test in this suite could see the shortened case; page 5 claimed the
+  // window "is the series page 10 draws" and fourteen gates read it against a
+  // document in which that was true. This one composes identically to the
+  // live render, page for page, and its sheet 4 is the tightest in the pack
+  // at 4.01mm.
+  ['the live demo company with two short ratio panels', liveDemoShortPanelsInput],
+  // Its own EBITDA bridge, which does not add as printed — the sheet-12 note
+  // that costs the glossary 7.4mm. See `liveDemoBridgeInput`.
+  ['the live demo company whose EBITDA bridge rounds', liveDemoBridgeInput],
+  ['the live demo company', liveDemoInput],
+  ['the demo company', demoInput],
+  ['the demo company with its ratio inputs unread', ratioInputsUnreadInput],
+  ['the demo company with interest a net credit', withRatioInputs(demoInput, 'netCredit')],
+  ['Brightsphere', brightsphereInput],
+  // The live tenant's own sheet 6, which refused to compose at all rather
+  // than apologising — see `brightsphereLiveInput`.
+  ['Brightsphere as the live route composed it', brightsphereLiveInput],
+  ['cash in the millions', millionsCashInput],
+  // THE TWO FIXTURES THAT EXIST BECAUSE PAGE 11 ONCE SPILLED, and which this
+  // gate did not cover — so when the QUANTUM column's lettered reason was
+  // charged for and under-reserved by one line, both apologised and the whole
+  // suite stayed green. A pack whose every matter is unquantified carries TWO
+  // lettered notes under that table, not one.
+  ['twenty long matters with no rand amount', manyLongNullQuantumMattersInput],
+  ['twenty short matters with no rand amount', manyShortNullQuantumMattersInput],
+];
+
+/**
+ * NO SHEET APOLOGISES, ON ANY FIXTURE, AND THE LIST THAT USED TO SIT HERE IS
+ * DELETED RATHER THAN EMPTIED.
+ *
+ * Task 36 raised `WIDTH_SAFETY` from 1.08 — inside the em table's own 7-12%
+ * error — to 1.12, above the worst of the 344 strings these fixtures print
+ * measured in Chromium in the real face. That was the ruler starting to tell
+ * the truth, and it cost four sheets the paper they had been fitting on: this
+ * table named them per fixture, with an assertion below it that went red the
+ * moment it emptied, because the decision about which sentence goes was the
+ * one still open.
+ *
+ * It is paid now, in prose, in task 37 — sheet 3's "Absent comparatives"
+ * dropped the clause that restates the Commentary block above it, sheet 5's
+ * two required notes each lost a second naming of something the same note
+ * already said, sheet 10's Scale and Period notes lost a sentence and a
+ * phrase, page 11's two support notes became one, and page 12's
+ * ledger-unavailable value became one line of its column. Every disclosure
+ * those sheets carried is still on them; what went was words.
+ *
+ * So the expectation is back to `[]` for every fixture, which is the state
+ * this file asserted before the ruler was corrected and the state it should
+ * be kept in: a sheet joining the list is the regression, and there is no
+ * longer an accepted cost for it to hide in.
+ */
+describe('no sheet apologises for its own layout', () => {
+  it.each(FIXTURES)('%s', (name, input) => {
+    const doc = buildBoardPackPages(input);
+    const apologised = doc.pages
+      .filter((p) => p.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)))
+      .map((p) => `${p.number} ${p.navLabel}`);
+    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual([]);
+  });
+
+  /**
+   * And every footnote on a sheet has its own number. The trimmer leaves gaps
+   * — a surviving footnote keeps the number the table's superscript points at
+   * — so a page that numbered its apology off the COUNT issued a second 3.
+   */
+  it.each(FIXTURES)('%s numbers every footnote once', (unused, input) => {
+    for (const p of buildBoardPackPages(input).pages) {
+      const numbers = p.footnotes.map((f) => f.number);
+      expect(new Set(numbers).size, `page ${p.number} (${p.navLabel}) repeats a footnote number`)
+        .toBe(numbers.length);
+    }
+  });
+});
+
+describe('the scorecard says where its status words are defined', () => {
+  it('keeps the pointer to the sheet that defines them, and that sheet defines them', () => {
+    const doc = buildBoardPackPages(liveDemoRenderedInput);
+    const scorecard = doc.pages.find((p) => p.navLabel === 'Scorecard')!;
+    const basis = doc.pages.find((p) => p.navLabel === 'Basis of preparation')!;
+
+    // The pointer is the whole of what this sheet says about its own terms —
+    // "Targets" and "Not meaningful" were moved to the basis sheet — so the
+    // sheet losing it leaves a column of MISSED and NOT MEANINGFUL defined
+    // nowhere a reader is sent.
+    const pointer = scorecard.blocks.flatMap((b) => (b.kind === 'disclosure'
+      ? b.disclosure.notes.map((n) => n.body)
+      : []));
+    expect(pointer.some((t) => /basis page/i.test(t)),
+      'the scorecard sheet says nowhere where its terms are defined').toBe(true);
+
+    // And the sheet it points at really does carry them.
+    const defined = basis.blocks.flatMap((b) => (b.kind === 'definitions'
+      ? b.entries.map((e) => `${e.term} ${e.definition}`)
+      : []));
+    expect(defined.some((t) => /not meaningful/i.test(t)),
+      'the scorecard points at a sheet that does not define its status words').toBe(true);
+  });
+});

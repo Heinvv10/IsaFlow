@@ -12,6 +12,7 @@
 //     bounding is the right granularity before we know who the caller is).
 import type { NextApiHandler } from 'next';
 import { refresh } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import {
   setAuthCookies,
   clearAuthCookies,
@@ -42,6 +43,8 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     token = await refresh(refreshToken);
   } catch (err) {
+    // D9: GoTrue could not answer. The refresh token may still be good: keep the cookies.
+    if (respondIfAuthUnavailable(res, err, 'auth refresh')) return;
     log.info(
       'auth refresh failed — clearing cookies',
       { message: err instanceof Error ? err.message : 'unknown' },

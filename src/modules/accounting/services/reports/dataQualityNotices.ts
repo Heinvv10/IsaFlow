@@ -6,6 +6,8 @@
  * `@/components/accounting/DataQualityNotice` renders whatever this returns.
  */
 
+import { formatMoney } from '@/lib/format/money';
+
 export interface UnclassifiedWarning {
   accounts: number;
   amount: number;
@@ -45,8 +47,15 @@ export interface DataQualityInput {
   otherIncomeExposureAtMost?: number;
 }
 
+/**
+ * The app's money formatter, so a figure in a notice reads exactly like the
+ * table beside it ("R 2 700.00"). It used `toLocaleString('en-ZA')`, which
+ * printed a no-break space and a decimal COMMA: "R 2 700,00" under a table
+ * whose figures read "2 700.00". A zero is "R 0.00", not the table's en dash —
+ * a sentence cannot say "carrying –".
+ */
 export const fmtZAR = (n: number): string =>
-  `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  Math.abs(n) < 0.005 ? 'R 0.00' : formatMoney(n, { cents: true, symbol: true });
 
 /**
  * @returns one sentence per caveat; an empty array means the figures rest on

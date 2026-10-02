@@ -12,6 +12,8 @@ import { log } from '@/lib/logger';
 import {
   Calendar, Lock, Pencil, CircleDot, CheckCircle2, AlertCircle, Loader2,
 } from 'lucide-react';
+import { useCompany } from '@/contexts/CompanyContext';
+import { canWrite } from '@/lib/auth/writeRoles';
 
 interface PeriodContext {
   companyName: string;
@@ -36,6 +38,7 @@ const STATUS_BADGE: Record<string, { bg: string; fg: string; icon: typeof Circle
 };
 
 export function PayrollPeriodBar() {
+  const { companyRole } = useCompany();
   const [ctx, setCtx] = useState<PeriodContext | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -85,7 +88,8 @@ export function PayrollPeriodBar() {
     </>
   );
 
-  if (ctx.runId) {
+  // The run detail is per-employee pay: only a write role gets the link.
+  if (ctx.runId && canWrite(companyRole)) {
     return (
       <Link
         href={`/payroll/runs/${ctx.runId}`}

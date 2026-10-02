@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
+import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -64,7 +65,9 @@ const handler: NextApiHandler = async (req, res) => {
 
   try {
     await signIn(user.email, currentPassword);
-  } catch {
+  } catch (err) {
+    // D9: GoTrue could not answer, so the password was never judged. Never say it is wrong.
+    if (respondIfAuthUnavailable(res, err, 'change-email')) return;
     return res.status(400).json({
       success: false,
       error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' },
@@ -74,6 +77,7 @@ const handler: NextApiHandler = async (req, res) => {
   try {
     await adminUpdateUser(user.id, { email: normalisedNew, email_confirm: true });
   } catch (err) {
+    if (respondIfAuthUnavailable(res, err, 'change-email')) return;
     const msg = err instanceof Error ? err.message : String(err);
     log.warn('change-email: gotrue rejected', { userId: user.id, message: msg }, 'Auth');
     if (/422|already|exists|duplicate/i.test(msg)) {

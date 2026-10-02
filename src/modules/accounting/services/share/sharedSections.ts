@@ -24,15 +24,20 @@ import type { PackSection, ReportPack } from '@/modules/accounting/services/repo
  * format tags per figure; this view consumes it after merge and all four
  * sections come back then.
  *
- * `cash_flow` is here for a third reason, and it is the strongest of the three:
- * the section is not a cash flow statement. `buildSectionData` synthesizes it —
- * operating cash flow IS net profit, investing and financing are zero, and
- * opening cash is closing cash less that number — because no caller supplies
- * `operatingCashFlow`, `capitalExpenditure` or `financingCashFlow`. On the
- * owner's own screen that is a placeholder the owner can recognise. Rendered as
- * money to a bank or an investor who cannot see the ledger behind it, it is a
- * statement of cash movement that the ledger never produced. It comes back when
- * the section is built from the ledger, not before.
+ * `cash_flow` was here for a third reason: the section was not a cash flow
+ * statement. `buildSectionData` synthesized it — operating cash flow WAS net
+ * profit, investing and financing were zero, and opening cash was closing cash
+ * less that number — because no caller supplied the three flows. Rendered as
+ * money to a bank or an investor who cannot see the ledger behind it, that is
+ * a statement of cash movement the ledger never produced.
+ *
+ * `getReportPackInput` now carries the three flows from the direct-method
+ * statement, and the section names any line it still cannot state in its own
+ * `unavailable` map rather than printing a stand-in. So that reason no longer
+ * holds for a pack built from the ledger. The section stays omitted: this
+ * view has no rendering for it that honours `unavailable`, and bringing it
+ * back is a decision about the shared view, not a consequence of the figures
+ * existing.
  */
 export const OMITTED_SECTIONS: ReadonlySet<string> = new Set([
   'kpis', 'waterfall', 'trends', 'ratios', 'cash_flow',

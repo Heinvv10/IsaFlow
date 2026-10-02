@@ -73,6 +73,7 @@ let supplier: string;
 let arInvoice: string;
 let apInvoice: string;
 let deleteReversalId: string;
+let apDeleteReversalId: string;
 
 async function inTx<T>(fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -192,6 +193,13 @@ describeIfDb('K-053 the soft-delete exclusion is dated to the reversal', () => {
     deleteReversalId = rows[0]!.id;
     // The premise of the whole file: the reversal is NOT dated to the document.
     expect(fmtDate(new Date(String(rows[0]!.entry_date)))).toBe(TODAY);
+
+    const apRows = (await sql`
+      SELECT r.reversal_journal_entry_id AS id FROM soft_delete_journal_reversals r
+      WHERE r.company_id = ${COMPANY}::UUID AND r.entity_type = 'supplier_invoice'
+    `) as { id: string }[];
+    expect(apRows).toHaveLength(1);
+    apDeleteReversalId = apRows[0]!.id;
   });
 
   it('AR: as at a date BEFORE the reversal the invoice is still aged and still on the control account', async () => {
@@ -240,5 +248,17 @@ describeIfDb('K-053 the soft-delete exclusion is dated to the reversal', () => {
     const check = await arSubLedgerCheck(COMPANY, { endDate: TODAY });
     expect(check.status).toBe('pass');
     expect(check.reason).toContain(GROSS.toFixed(2));
+  });
+
+  it('AP: reversing the delete reversal by hand puts the bill back on BOTH sides', async () => {
+    // The AP twin of the case above (D7): the bill is still deleted_at, its
+    // chain O <- R <- R2 stands again, and the close check must see it tie.
+    await inTx(() => reverseJournalEntry(COMPANY, apDeleteReversalId, USER));
+
+    expect(await controlBalance(payable, TODAY)).toBeCloseTo(-GROSS, 2);
+    expect(await agedAP(TODAY)).toBeCloseTo(GROSS, 2);
+    const check = await apSubLedgerCheck(COMPANY, { endDate: TODAY });
+    expect(check.reason).not.toContain('posting_with_no_document');
+    expect(check.status).toBe('pass');
   });
 });

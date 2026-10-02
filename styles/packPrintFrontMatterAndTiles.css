@@ -1,0 +1,116 @@
+/* styles/packPrintFrontMatterAndTiles.css — the third of packPrint.css's four
+ * partials: the cover, the contents list, the section divider, the stat tile,
+ * the block rhythm and the tile rows.
+ *
+ * A CONTIGUOUS SLICE of what packPrint.css was, in its original order — see
+ * packPrintPage.css for why the partials are not regrouped by topic.
+ */
+
+/* Task 14 — cover, contents, section divider and the stand-alone stat tile. */
+/* THE COVER IS NOT VERTICALLY CENTRED, and that is the fix.
+ *
+ * It was `justify-content: center`, which on a 255mm box put roughly half a
+ * sheet of white between the brand band and the first word of the title and
+ * left the band reading as a placeholder somebody forgot to fill. The title
+ * block now starts under the band with a deliberate amount of air above it,
+ * and the generated line and the cover's own blocks (the confidentiality mark
+ * and the preparer) are pushed to the foot by `margin-top: auto` below — so
+ * the sheet is composed top and bottom rather than pooled in the middle, and
+ * the band caps a page that starts at the top of it. */
+.pack-cover {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 4mm; min-height: 255mm; text-align: center;
+  /* `border-box` so the padding comes OUT of the 255mm box rather than being
+   * added to it — without it the cover measured 301mm against a 255mm sheet
+   * and printed on two. */
+  box-sizing: border-box; padding-top: 46mm;
+  position: relative;
+}
+/* Spec §5.4's brand band.
+ *
+ * `::after`, NOT `::before`, and that is the whole fix. `PackCoverV2` renders
+ * one element carrying both `pack-page` and `pack-cover`, and the DRAFT
+ * watermark below is `[data-pack-draft] .pack-page::before` — the same
+ * pseudo-element, at higher specificity. On a draft pack the band therefore
+ * inherited the watermark's `top: 50%`, its rotation and, fatally, its
+ * `opacity: 0.06`: the rendered cover measured 1 972 pixels of rgb(241,243,245)
+ * where a 12mm band of brand colour should have been, which reads as white
+ * paper and was reported as "zero coloured pixels". Two marks, two
+ * pseudo-elements.
+ *
+ * A band rather than a tint: `print-color-adjust: exact` is already set above,
+ * so it prints, and a solid band survives a photocopier where a tint does not.
+ * A pseudo-element rather than an element, so the band needs nothing in the
+ * component and cannot be mistaken for content — nothing in it is a figure. */
+.pack-cover::after {
+  /* The band SAYS whose pack this is. It shipped empty — a solid navy
+   * rectangle across the top of page 1 with no logo, no name and no mark of
+   * any kind, which is the first thing a director sees and reads as an
+   * unfinished template. `attr()` because the band has to stay a
+   * pseudo-element for the reason above, and a pseudo-element takes its text
+   * from the attribute or from nowhere. */
+  content: attr(data-brand-name);
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 12mm;
+  background: var(--pack-brand);
+  display: flex; align-items: center;
+  padding: 0 18mm;
+  color: #fff;
+  font-size: 8pt; letter-spacing: 0.28em; text-transform: uppercase;
+  text-align: left;
+}
+.pack-cover-eyebrow { font-size: 9pt; letter-spacing: 0.3em; text-transform: uppercase; color: var(--pack-grey-strong); }
+.pack-cover-company { font-size: 26pt; line-height: 30pt; font-weight: 600; margin: 0; }
+.pack-cover-label { font-size: 16pt; line-height: 20pt; color: var(--pack-grey-strong); }
+.pack-cover-period { font-size: 11pt; }
+/* The foot of the cover: this and everything after it (page 1's own blocks)
+ *  sit at the bottom of the sheet. See `.pack-cover`. */
+.pack-cover-meta { font-size: 8pt; color: var(--pack-grey-mid); margin-top: auto; }
+.pack-cover-logo { max-height: 18mm; max-width: 60mm; }
+
+.pack-contents-list { list-style: none; margin: 4mm 0 0; padding: 0; font-size: 10pt; line-height: 16pt; }
+/* AND THE INDEX ENDS BEFORE THE NEXT HEADING BEGINS. The contents list is
+ * drawn by `PackContents` inside the page rather than as a `[data-pack-block]`,
+ * so the gap the composer puts between blocks does not apply at its lower
+ * edge: the first heading after it sat 5px under the table's closing rule
+ * where its sibling gets 22, and — the index's last line being "12 Basis of
+ * preparation" — for a beat the heading read as a thirteenth contents row.
+ * The heading no longer repeats that row (see `packFrontMatter`); this is the
+ * space that stops the two touching. */
+.pack-contents-list + [data-pack-block] { margin-top: 5mm; }
+.pack-contents-item { display: flex; justify-content: space-between; border-bottom: 0.5pt solid var(--pack-rule); padding: 1mm 0; }
+/* A COLUMN TWO FIGURES WIDE, numbers set to its right. It took each number's
+ * own width, so "10" to "12" pushed their titles further in than "1" to "9"
+ * and the last three rows read as sub-entries. The figures are tabular
+ * (`packPrintPage.css`), so 2ch is exactly two of them. */
+.pack-contents-number { font-family: var(--pack-font-figure); color: var(--pack-grey-mid); margin-right: 3mm; flex: none; width: 2ch; text-align: right; }
+.pack-contents-title { flex: 1; }
+
+.pack-section-divider {
+  display: flex; flex-direction: column; justify-content: center; min-height: 255mm; gap: 3mm;
+}
+.pack-section-divider-eyebrow { font-size: 10pt; letter-spacing: 0.2em; text-transform: uppercase; color: var(--pack-brand); }
+.pack-section-divider-title { font-size: 22pt; line-height: 26pt; font-weight: 600; margin: 0; }
+
+.pack-stat-tile { display: flex; flex-direction: column; gap: 0.5mm; }
+.pack-stat-label { font-size: 8pt; line-height: 11pt; color: var(--pack-grey-strong); }
+.pack-stat-value { font-family: var(--pack-font-figure); font-size: 13pt; line-height: 16pt; font-weight: 500; white-space: nowrap; }
+.pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
+
+/* Task 18 — the block layer. Every page below the cover is a column of
+ * blocks, so the page's own vertical rhythm (spec §5.1, a 6mm baseline) is
+ * set once here rather than by each block kind. */
+.pack-block + .pack-block { margin-top: var(--pack-baseline); }
+
+/* Tile rows — spec §5.1's 4+4+4 and 3+3+3+3 columns. Page 3 carries eight
+ * KPI tiles and page 5 five, so the row wraps rather than fixing a count. */
+.pack-kpi-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--pack-gutter);
+}
+.pack-stat-groups { display: flex; flex-direction: column; gap: 4mm; }
+.pack-stat-group { display: flex; flex-direction: column; gap: 1.5mm; }
+.pack-stat-group-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
+.pack-stat-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--pack-gutter); }

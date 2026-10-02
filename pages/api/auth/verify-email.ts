@@ -10,13 +10,14 @@
  * Order matters: the token is consumed FIRST (atomically), so a replay or a
  * double-click cannot provision two tenants for one signup.
  */
-import type { NextApiHandler } from 'next';
+import type { NextApiHandler, NextApiResponse } from 'next';
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { adminUpdateUser } from '@/lib/auth/gotrue';
+import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import {
   consumeEmailVerificationToken,
   findConsumedVerification,
@@ -98,6 +99,32 @@ const INVALID_TOKEN = {
   },
 } as const;
 
+const CONFIRMATION_INCOMPLETE = {
+  success: false,
+  error: {
+    code: 'CONFIRMATION_INCOMPLETE',
+    message: 'Your account was created but we could not finish confirming it. Please open the link from your email again.',
+  },
+} as const;
+
+/**
+ * Confirm the address in GoTrue on a path where the token is already spent and
+ * the tenant committed. A GoTrue OUTAGE answers 503 CONFIRMATION_INCOMPLETE
+ * (D9): opening the same link again reaches the consumed-token recovery and
+ * finishes this. Returns false once it has answered; any other failure throws.
+ */
+async function confirmOrAskToRetry(res: NextApiResponse, gotrueUserId: string): Promise<boolean> {
+  try {
+    await adminUpdateUser(gotrueUserId, { email_confirm: true });
+    return true;
+  } catch (err) {
+    if (!(err instanceof AuthUpstreamUnavailableError)) throw err;
+    log.warn('email confirmation hit an auth outage — the link will finish it', { message: err.message }, 'auth');
+    res.status(503).json(CONFIRMATION_INCOMPLETE);
+    return false;
+  }
+}
+
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
@@ -133,7 +160,7 @@ const handler: NextApiHandler = async (req, res) => {
       // failed. Distinguish by whether the tenant actually exists.
       const recovered = await recoverAlreadyConsumed(token);
       if (recovered) {
-        await adminUpdateUser(recovered.gotrueUserId, { email_confirm: true });
+        if (!(await confirmOrAskToRetry(res, recovered.gotrueUserId))) return;
         log.info('verification retry completed a partially-finished signup', {
           companyId: recovered.companyId,
         }, 'auth');
@@ -165,7 +192,7 @@ const handler: NextApiHandler = async (req, res) => {
       log.warn('verification skipped provisioning — user already owns a tenant', {
         companyId: owned.rows[0].company_id,
       }, 'auth');
-      await adminUpdateUser(gotrueUserId, { email_confirm: true });
+      if (!(await confirmOrAskToRetry(res, gotrueUserId))) return;
       return res.status(200).json({ success: true, data: { companyId: owned.rows[0].company_id } });
     }
 
@@ -206,13 +233,7 @@ const handler: NextApiHandler = async (req, res) => {
       companyId,
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');
-    return res.status(503).json({
-      success: false,
-      error: {
-        code: 'CONFIRMATION_INCOMPLETE',
-        message: 'Your account was created but we could not finish confirming it. Please open the link from your email again.',
-      },
-    });
+    return res.status(503).json(CONFIRMATION_INCOMPLETE);
   }
 
   log.info('signup verified and provisioned', { companyId, paygEligible }, 'auth');

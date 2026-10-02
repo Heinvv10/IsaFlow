@@ -4,9 +4,11 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -75,6 +77,7 @@ export default function TrainingPage() {
         apiFetch(`/api/payroll/training-events?year=${year}`),
         apiFetch('/api/payroll/employees'),
       ]);
+      if (eRes.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the training events - try again'));
       await assertOk(eRes, 'Could not load the training events - try again');
       await assertOk(emRes, 'Could not load the employees - try again');
       const json = await eRes.json();
@@ -152,10 +155,12 @@ export default function TrainingPage() {
           <div className="flex items-center gap-2">
             <input type="number" value={year} onChange={e => setYear(Number(e.target.value))}
               className="w-24 rounded-md bg-[var(--ff-surface-secondary)] border border-[var(--ff-border-primary)] px-2 py-1.5 text-sm text-[var(--ff-text-primary)]" />
-            <button onClick={() => setShowForm(!showForm)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">
-              <Plus className="h-4 w-4" /> New event
-            </button>
+            <WriteOnly>
+              <button onClick={() => setShowForm(!showForm)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium">
+                <Plus className="h-4 w-4" /> New event
+              </button>
+            </WriteOnly>
           </div>
         </div>
 
