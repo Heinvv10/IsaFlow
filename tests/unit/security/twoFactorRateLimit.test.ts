@@ -3,7 +3,7 @@
  *
  * Both endpoints verify a 6-digit TOTP code against a factor_id with only withCsrf,
  * relying entirely on GoTrue's internal limits. A session holder could brute-force the
- * code to reach AAL2 or disable 2FA. Both now apply a per-factor checkRateLimit (5/15min),
+ * code to reach AAL2 or disable 2FA. Both now apply a per-factor chargeRateLimit (5/15min),
  * mirroring 2fa-challenge. These tests assert a 429 (and no GoTrue verify) when over.
  */
 
@@ -24,9 +24,10 @@ vi.mock('@/lib/auth/gotrue-mfa', () => ({
   GotrueMfaError: class GotrueMfaError extends Error {},
 }));
 
-const { checkRateLimitMock } = vi.hoisted(() => ({ checkRateLimitMock: vi.fn() }));
+const { chargeRateLimitMock } = vi.hoisted(() => ({ chargeRateLimitMock: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({
-  checkRateLimit: checkRateLimitMock,
+  chargeRateLimit: chargeRateLimitMock,
+  refundRateLimit: vi.fn(async () => undefined),
   getClientIp: vi.fn().mockReturnValue('1.2.3.4'),
 }));
 
@@ -59,16 +60,16 @@ describe('2FA endpoints H7 — per-factor brute-force rate limit', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it.each(CASES)('%s returns 429 and skips GoTrue verify when over the limit', async (_name, handler, expectedKey) => {
-    checkRateLimitMock.mockResolvedValue(false);
+    chargeRateLimitMock.mockResolvedValue({ admitted: false, windowStart: null });
     const res = makeRes();
     await handler(makeReq(), res);
-    expect(checkRateLimitMock).toHaveBeenCalledWith(expectedKey, { max: 5, windowSecs: 900 });
+    expect(chargeRateLimitMock).toHaveBeenCalledWith(expectedKey, { max: 5, windowSecs: 900 });
     expect(res.status).toHaveBeenCalledWith(429);
     expect(challengeFactor).not.toHaveBeenCalled();
   });
 
   it.each(CASES)('%s proceeds to GoTrue verify when under the limit', async (_name, handler) => {
-    checkRateLimitMock.mockResolvedValue(true);
+    chargeRateLimitMock.mockResolvedValue({ admitted: true, windowStart: 'w' });
     (challengeFactor as ReturnType<typeof vi.fn>).mockResolvedValue('challenge-1');
     (verifyFactor as ReturnType<typeof vi.fn>).mockResolvedValue({
       access_token: 'a', refresh_token: 'r', expires_in: 3600,

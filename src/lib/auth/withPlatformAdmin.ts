@@ -3,6 +3,7 @@ import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
+import { respondIfAuthUnavailable } from './authUpstream';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
@@ -47,6 +48,8 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
+      // D9: GoTrue could not answer. Not a verdict on the token: 503, cookies kept.
+      if (respondIfAuthUnavailable(res, err, 'withPlatformAdmin')) return;
       log.warn(
         'withPlatformAdmin: invalid token',
         { message: err instanceof Error ? err.message : String(err) },

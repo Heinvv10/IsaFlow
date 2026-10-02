@@ -1,14 +1,15 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 
 export function assertDisposable() {
   if (process.env.ISAFLOW_DISPOSABLE_AUTH_TEST !== '1') throw new Error('Disposable auth opt-in required');
-  for (const name of ['DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL', 'GOTRUE_URL']) {
-    const url = new URL(process.env[name] ?? 'http://missing.invalid');
-    if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error(`${name} must be localhost`);
-    if (name !== 'GOTRUE_URL' && url.pathname !== '/isaflow_schema_fixture') {
-      throw new Error(`${name} must use isaflow_schema_fixture`);
-    }
+  // The database URLs through the parser pg uses (fixtureDbGuard): a `?host=`
+  // in the query string otherwise overrides the localhost a URL check sees.
+  for (const name of ['DATABASE_URL', 'PLATFORM_ADMIN_DATABASE_URL']) {
+    assertLocalFixtureDbUrl(name, process.env[name], ['isaflow_schema_fixture']);
   }
+  const gotrue = new URL(process.env.GOTRUE_URL ?? 'http://missing.invalid');
+  if (!['localhost', '127.0.0.1'].includes(gotrue.hostname)) throw new Error('GOTRUE_URL must be localhost');
 }
 export function request(jar: Record<string, string>, method: string, targetId?: string) {
   const csrf = 'disposable-postgres-workflow-csrf-0123456789';

@@ -17,6 +17,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 vi.mock('@/lib/rateLimit', () => ({
   withRateLimit: (h: unknown) => h,
   checkRateLimit: vi.fn(async () => true),
+  chargeRateLimit: vi.fn(async () => ({ admitted: true, windowStart: null })),
+  refundRateLimit: vi.fn(async () => undefined),
   getClientIp: () => '127.0.0.1',
 }));
 // vi.hoisted so the spy exists before the hoisted vi.mock factory runs.

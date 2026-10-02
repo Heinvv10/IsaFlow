@@ -83,7 +83,8 @@ describe('rate-limit key census (R-175)', () => {
 
   it('every refund is on a key that some call site charges', () => {
     const charged = new Set(found.charges.map((s) => s.pattern));
-    expect(found.refunds.map((s) => s.pattern)).toEqual(['invite-accept:*']);
+    // D9: the 2FA per-factor, login per-email and invite-accept limits refund an attempt that met a GoTrue outage.
+    expect(found.refunds.map((s) => s.pattern)).toEqual(['2fa:factor:*', '2fa:confirm:*', '2fa:disable:*', 'login:email:*', 'invite-accept:*']);
     expect(found.refunds.filter((s) => !charged.has(s.pattern))).toEqual([]);
   });
 
