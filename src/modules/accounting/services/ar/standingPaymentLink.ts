@@ -100,42 +100,47 @@ export async function ensureStandingLink(
 }
 
 /**
- * Cancel the standing link the invoice names and clear the invoice's `payment_url` and
- * `online_payment_enabled`, so the page stops offering it and the next Pay Now mints a fresh one.
+ * Make sure no standing link on the invoice is live, and clear its `payment_url` and
+ * `online_payment_enabled`, so the page stops offering one and the next Pay Now mints a fresh link.
  * Takes the same invoice lock as ensureStandingLink, so it cannot race a concurrent Pay Now.
  *
- * Only the named `charges_balance` link is touched. An explicit-amount link is left alone, and so
- * is a checkout already open at Paystack: a payment already started still settles as before.
- * Both refusals come before the first write (withAuth COMMITs a 4xx).
+ * Cancels EVERY active `charges_balance` link on the invoice, not only the one `payment_url`
+ * names: before R-177 each Pay Now click minted one (with a 30-day expiry) and they stay payable.
+ * Explicit-amount links are left alone, and so is a checkout already open at Paystack: a payment
+ * already started still settles as before.
+ *
+ * Succeeds with the number cancelled (0 when `payment_url` named a link that was already paid,
+ * cancelled or fixed-amount: the dead URL is still cleared). Refuses only when there is nothing
+ * to do: no active standing link and no `payment_url`. The refusal comes before the first write
+ * (withAuth COMMITs a 4xx).
  */
 export async function revokeStandingLink(
   companyId: string,
   invoiceId: string,
-): Promise<{ ok: true; token: string } | { ok: false; reason: 'invoice_not_found' | 'no_active_link' }> {
+): Promise<{ ok: true; cancelled: number } | { ok: false; reason: 'invoice_not_found' | 'no_active_link' }> {
   const locked = await withCustomerInvoiceLock('revokeStandingLink', 'This invoice', async () => (await sql`
-    SELECT ci.id FROM customer_invoices ci
+    SELECT ci.payment_url,
+           EXISTS (SELECT 1 FROM portal_payment_links l
+                   WHERE l.invoice_id = ci.id AND l.status = 'active' AND l.charges_balance) AS has_link
+    FROM customer_invoices ci
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL
     FOR NO KEY UPDATE OF ci
-  `) as { id: string }[]);
+  `) as { payment_url: string | null; has_link: boolean }[]);
   if (!locked[0]) return { ok: false, reason: 'invoice_not_found' };
+  if (!locked[0].has_link && !locked[0].payment_url) return { ok: false, reason: 'no_active_link' };
 
-  // Identified exactly as ensureStandingLink does: the active charges_balance link whose token
-  // the invoice's payment_url names.
-  const named = (await sql`
-    SELECT l.id, l.token
-    FROM portal_payment_links l
-    JOIN customer_invoices ci ON ci.id = l.invoice_id
-    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-      AND l.status = 'active' AND l.charges_balance
-      AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token
-    LIMIT 1
-  `) as { id: string; token: string }[];
-  if (!named[0]) return { ok: false, reason: 'no_active_link' };
-
-  await sql`UPDATE portal_payment_links SET status = 'cancelled' WHERE id = ${named[0].id}::UUID`;
+  // One statement, scoped to this invoice (and its company through the invoice); the invoice is
+  // cleared only after it has run, in the same transaction.
+  const cancelled = (await sql`
+    UPDATE portal_payment_links SET status = 'cancelled'
+    WHERE invoice_id = ${invoiceId}::UUID AND status = 'active' AND charges_balance
+      AND EXISTS (SELECT 1 FROM customer_invoices ci
+                  WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID)
+    RETURNING id
+  `) as { id: string }[];
   await sql`
     UPDATE customer_invoices SET payment_url = NULL, online_payment_enabled = false, updated_at = NOW()
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `;
-  return { ok: true, token: named[0].token };
+  return { ok: true, cancelled: cancelled.length };
 }

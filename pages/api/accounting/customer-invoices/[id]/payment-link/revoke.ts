@@ -1,11 +1,12 @@
 /**
  * POST /api/accounting/customer-invoices/[id]/payment-link/revoke
  *
- * Cancels the invoice's standing "Pay now" link and clears `payment_url` /
+ * Cancels every active standing "Pay now" link on the invoice and clears `payment_url` /
  * `online_payment_enabled`; the next Pay Now mints a fresh link. Explicit-amount links and any
  * checkout already open at Paystack are untouched: a payment already started still settles.
  *
- * Response: { revoked: true }. 404 'No active payment link' when there is nothing to revoke.
+ * Response: { revoked: true, cancelled: <links cancelled> } (0 when only a dead payment_url was
+ * cleared). 404 'No active payment link' when there is nothing to do.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -39,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ? apiResponse.notFound(res, 'Invoice')
       : apiResponse.error(res, ErrorCode.NOT_FOUND, 'No active payment link');
   }
-  return apiResponse.success(res, { revoked: true });
+  return apiResponse.success(res, { revoked: true, cancelled: result.cancelled });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

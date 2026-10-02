@@ -80,6 +80,7 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect(await row(id)).toMatchObject({ on: true });
     const r = await revoke(id);
     expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: 1 });
     expect(await status(token)).toBe('cancelled');
     expect(await row(id)).toEqual({ payment_url: null, on: false });
   });
@@ -91,7 +92,7 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect((await revoke(id)).statusCode).toBe(200);
     expect((await getLink(token)).statusCode).toBe(404);
     const pay = await create(token);
-    expect(pay.statusCode).not.toBe(200);
+    expect(pay.statusCode).toBe(400);
     expect(await requests(id)).toEqual([]);
   });
 
@@ -105,26 +106,72 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect((await getLink(second)).statusCode).toBe(200);
   });
 
-  it('leaves an explicit-amount link, and an unnamed standing link, untouched', async () => {
+  it('leaves an explicit-amount link untouched; cancels the unnamed standing link', async () => {
     const id = await invoice();
     const explicit = await addLink(id, 10, false);
     const unnamed = await addLink(id, 115, true);
     const named = tokenOf(await payNow(id));
     expect((await revoke(id)).statusCode).toBe(200);
     expect(await status(explicit.token)).toBe('active');
-    expect(await status(unnamed.token)).toBe('active');
+    expect(await status(unnamed.token)).toBe('cancelled');
     expect(await status(named)).toBe('cancelled');
   });
 
-  it('does not cancel an explicit-amount link the invoice names: 404 and nothing written', async () => {
+  it('cancels every active standing link on the invoice, named or not, and only on that invoice', async () => {
+    const id = await invoice();
+    const other = await invoice();
+    const old = await addLink(id, 115, true); // a pre-R-177 Pay Now click
+    await pool.query("UPDATE portal_payment_links SET expires_at = NOW() + interval '30 days' WHERE id = $1", [old.linkId]);
+    const named = tokenOf(await payNow(id));
+    const elsewhere = await addLink(other, 115, true);
+    const r = await revoke(id);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: 2 });
+    expect(await status(old.token)).toBe('cancelled');
+    expect(await status(named)).toBe('cancelled');
+    expect(await status(elsewhere.token)).toBe('active');
+    expect((await getLink(old.token)).statusCode).toBe(404);
+  });
+
+  it('stuck button: a payment_url naming an explicit-amount link is cleared, the link left active', async () => {
     const id = await invoice();
     const explicit = await addLink(id, 10, false);
-    const url = `https://app.revoke.test/portal/pay/${explicit.token}`;
-    await pool.query('UPDATE customer_invoices SET payment_url = $2, online_payment_enabled = true WHERE id = $1', [id, url]);
+    await pool.query('UPDATE customer_invoices SET payment_url = $2, online_payment_enabled = true WHERE id = $1',
+      [id, `https://app.revoke.test/portal/pay/${explicit.token}`]);
     const r = await revoke(id);
-    expect(r.statusCode).toBe(404);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: 0 });
     expect(await status(explicit.token)).toBe('active');
-    expect(await row(id)).toEqual({ payment_url: url, on: true });
+    expect(await row(id)).toEqual({ payment_url: null, on: false });
+  });
+
+  it.each(['paid', 'cancelled'])('stuck button: a payment_url naming a %s link is cleared, the link status kept', async (st) => {
+    const id = await invoice();
+    const token = tokenOf(await payNow(id));
+    await pool.query('UPDATE portal_payment_links SET status = $2 WHERE token = $1', [token, st]);
+    const r = await revoke(id);
+    expect(r.body.data).toEqual({ revoked: true, cancelled: 0 });
+    expect(await status(token)).toBe(st);
+    expect(await row(id)).toEqual({ payment_url: null, on: false });
+  });
+
+  it('stuck button: a payment_url naming no link at all is cleared', async () => {
+    const id = await invoice();
+    await pool.query("UPDATE customer_invoices SET payment_url = 'https://app.revoke.test/portal/pay/gone', online_payment_enabled = true WHERE id = $1", [id]);
+    expect((await revoke(id)).body.data).toEqual({ revoked: true, cancelled: 0 });
+    expect(await row(id)).toEqual({ payment_url: null, on: false });
+  });
+
+  it('an active standing link the invoice does not name is cancelled even with no payment_url', async () => {
+    const id = await invoice();
+    const old = await addLink(id, 115, true);
+    expect((await revoke(id)).body.data).toEqual({ revoked: true, cancelled: 1 });
+    expect(await status(old.token)).toBe('cancelled');
+  });
+
+  it('only an explicit-amount link and no payment_url: nothing to do, 404, link untouched', async () => {
+    const id = await invoice();
+    const explicit = await addLink(id, 10, false);
+    expect((await revoke(id)).statusCode).toBe(404);
+    expect(await status(explicit.token)).toBe('active');
   });
 
   it('leaves a checkout already open at Paystack in place', async () => {
@@ -180,13 +227,12 @@ describe('LINK-REVOKE: revoke the standing payment link', () => {
     expect((await links(id)).map((l) => l.charges_balance)).toEqual([true]);
   });
 
-  it('a named link that is no longer active (paid) is not touched: 404', async () => {
+  it('only a paid standing link and no payment_url: nothing to do, 404, status kept', async () => {
     const id = await invoice();
-    const token = tokenOf(await payNow(id));
-    await pool.query("UPDATE portal_payment_links SET status = 'paid' WHERE token = $1", [token]);
+    const paid = await addLink(id, 115, true);
+    await pool.query("UPDATE portal_payment_links SET status = 'paid' WHERE id = $1", [paid.linkId]);
     expect((await revoke(id)).statusCode).toBe(404);
-    expect(await status(token)).toBe('paid');
-    expect((await row(id)).on).toBe(true);
+    expect(await status(paid.token)).toBe('paid');
   });
 
   it('a malformed id is 400', async () => {

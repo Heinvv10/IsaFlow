@@ -284,7 +284,7 @@ export default function CustomerInvoiceDetailPage() {
           invoiceId={invoiceId as string}
           invoiceNumber={invoice.invoice_number}
           onClose={() => setShowRevokeConfirm(false)}
-          onRevoked={() => { setError(''); void loadInvoice(); }}
+          onDone={() => { setError(''); void loadInvoice(); }}
           onError={setError}
         />
       </div>
