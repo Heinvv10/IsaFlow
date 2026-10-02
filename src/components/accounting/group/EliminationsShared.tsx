@@ -52,3 +52,28 @@ export const STATUS_STYLES: Record<EliminationStatus, string> = {
   posted: 'bg-teal-500/10 text-teal-400',
   reversed: 'bg-amber-500/10 text-amber-400',
 };
+
+/**
+ * One row of the eliminations table, read from what `consolidated-reports?action=eliminations`
+ * returns (consolidatedReportingService `ConsolidationAdjustment`): adjustmentNumber,
+ * adjustmentType, periodStart / periodEnd ('YYYY-MM-DD') and lines of { debit, credit }.
+ * The table used to read number / type / period / amount, which the API never sends, so those
+ * columns rendered blank. Amount is the adjustment's total debit (a balanced entry's size).
+ */
+export function toEliminationRow(raw: unknown): EliminationAdjustment {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  const start = text(r.periodStart);
+  const end = text(r.periodEnd);
+  const lines = Array.isArray(r.lines) ? (r.lines as Array<Record<string, unknown>>) : [];
+  const amount = lines.reduce((sum, l) => sum + (Number(l?.debit) || 0), 0);
+  return {
+    id: text(r.id),
+    number: text(r.adjustmentNumber),
+    type: text(r.adjustmentType) as EliminationType,
+    description: text(r.description),
+    period: start && end && start !== end ? `${start} – ${end}` : start || end,
+    status: text(r.status) as EliminationStatus,
+    amount: Math.round(amount * 100) / 100,
+  };
+}

@@ -14,6 +14,7 @@ import {
   type EliminationType,
   type EliminationLine,
   type EliminationAdjustment,
+  toEliminationRow,
 } from '@/components/accounting/group/EliminationsShared';
 import { EliminationsTable } from '@/components/accounting/group/EliminationsTable';
 import { EliminationsCreateModal } from '@/components/accounting/group/EliminationsCreateModal';
@@ -79,7 +80,8 @@ export default function EliminationsPage() {
       const res = await apiFetch(`/api/accounting/consolidated-reports?${params}`);
       if (!res.ok) throw new Error('Failed to load elimination adjustments');
       const json = await res.json();
-      setItems((json.data || json).items || []);
+      const list: unknown = (json.data || json).items;
+      setItems(Array.isArray(list) ? list.map(toEliminationRow) : []);
     } catch { setError('Failed to load elimination adjustments'); setItems([]); }
     finally { setLoading(false); }
   }, [selectedGroupId, periodStart, periodEnd]);

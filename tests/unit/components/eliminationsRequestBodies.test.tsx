@@ -32,8 +32,9 @@ function serve(postStatus = 200, postBody: unknown = { data: { ok: true } }) {
     const data = u.includes('action=accounts') ? { items: ACCOUNTS }
       : u.includes('company-groups') ? [{ id: GROUP, name: 'Group' }]
       : { items: [
-        { id: DRAFT, number: 'E1', type: 'interco_revenue', description: 'd', period: '2026-01', status: 'draft', amount: 10 },
-        { id: POSTED, number: 'E2', type: 'interco_revenue', description: 'p', period: '2026-01', status: 'posted', amount: 10 },
+        // The list API's shape (ConsolidationAdjustment), as round 7 reads it.
+        { id: DRAFT, adjustmentNumber: 'E1', adjustmentType: 'interco_revenue', description: 'd', periodStart: '2026-01-31', periodEnd: '2026-01-31', status: 'draft', lines: [] },
+        { id: POSTED, adjustmentNumber: 'E2', adjustmentType: 'interco_revenue', description: 'p', periodStart: '2026-01-31', periodEnd: '2026-01-31', status: 'posted', lines: [] },
       ] };
     return new Response(JSON.stringify({ success: true, data }), { status: 200 });
   });
