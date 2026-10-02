@@ -126,3 +126,16 @@ POST before that deploy carry `charges_balance` true and are cancelled.
 - L4 the integration suite is split: `link-revoke.int.test.ts` (functional, 23 tests incl. the new
   flag test), `link-revoke-locking.int.test.ts` (race + 5s lock timeout, 2 tests) and
   `link-revoke.helpers.ts`. Both pass against the fixture.
+
+## Expired unnamed links (adversarial LOW at 46b378577)
+
+`has_standing_link` ignores a link whose `expires_at` has passed (`COALESCE(l.expires_at > NOW(), true)`),
+because nothing ever sets `status = 'expired'` and Revoke would otherwise be offered indefinitely for
+dead links. Test: an expired unnamed active link gives false, an unexpired one true; the mutant without
+the expiry predicate goes red.
+
+`revokeStandingLink` is deliberately NOT changed: it still counts an expired active `charges_balance`
+link as something to do (it cancels it and answers 200). That is harmless and accurate (the row was
+`active` and is now `cancelled`), the only caller that can reach it with just an expired link is a
+stale page or a direct call, and treating it as "nothing to do" would leave a dead-but-active row
+behind. The expiry on the read only decides whether the button is shown.
