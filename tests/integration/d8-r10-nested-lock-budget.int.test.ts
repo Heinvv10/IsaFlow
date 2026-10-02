@@ -58,7 +58,10 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 10: a nested lock helper le
       VALUES (${c.fx.companyId}::UUID, 'd8r10.pdf', 'application/pdf', 'reviewed', 'supplier_invoice') RETURNING id`) as Row[];
     ids = { inv: inv.id, invJe: inv.je, bill: bill.id, pay: pay.id, rc: rc.id, bt, cn: cn.id, doc: String(doc!.id) };
   }, 120000);
-  afterAll(async () => { await teardown(c); }, 120000);
+  afterAll(async () => {
+    if (c) await sql`DELETE FROM credit_notes WHERE company_id = ${c.fx.companyId}::UUID`;
+    await teardown(c);
+  }, 120000);
 
   const company = () => c.fx.companyId;
   const nested: [string, () => Promise<unknown>][] = [
