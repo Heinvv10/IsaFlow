@@ -112,14 +112,14 @@ describe('LOW: the fee leg is fees - (amount - banked), clamped to [0, fees]', (
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', feeExpense: '3.00', balanced: true });
   });
 
-  it('verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100', async () => {
+  it('verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100, the two amounts flagged (PR #618 LOW-5)', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id, 10000);
     paystackSays(10000);
     expect((await verify(ref)).body.data?.status).toBe('completed');
     expect((await deliver(ref, 10300, 'ZAR', { requested_amount: 10000, fees: 300 })).statusCode).toBe(200);
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', feeExpense: '0.00', balanced: true });
-    expect((await settlement(A, ref, id)).review).toBeNull();
+    expect((await settlement(A, ref, id)).review).toBe('review:amount_disagrees_with_first_report');
   });
 
   it('verify banks R100, then the webhook reports R103 with R3 fees and no requested_amount: no fee, Bank nets R100, flagged', async () => {

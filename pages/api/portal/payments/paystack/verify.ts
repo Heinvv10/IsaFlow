@@ -68,9 +68,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!pr) return apiResponse.notFound(res, 'Payment');
 
   let status = pr.status;
+  let paystackSaidSuccess = false;
   if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
       const live = await verifyTransaction(pr.paystack_reference, { timeoutMs: GATEWAY_TIMEOUT_MS });
+      paystackSaidSuccess = live.status === 'success';
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
       else if (live.status === 'failed') mapped = 'failed';
@@ -121,9 +123,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 feeCents: live.feesCents,
               },
               reference: pr.paystack_reference,
-              // verifyTransaction reports paidAt but no fee. The webhook does
-              // carry `fees`, and postGatewayFee runs on its dedupe path too, so
-              // the fee is still booked against the receipt created here.
+              // The fee leg too, from the verify response's own `fees` (null when absent),
+              // so Bank is right even if the webhook never lands. postGatewayFee is
+              // idempotent on reference + posting agent: the webhook does not post it again.
+              feeRand: typeof live.feesCents === 'number' ? live.feesCents / 100 : null,
               paidAt: live.paidAt ?? null,
             });
           }
@@ -141,6 +144,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         { prId: pr.id, err: err instanceof Error ? err.message : String(err) },
         'PaystackPortal',
       );
+      // Paystack took the money and only our settlement failed (it rolled back; the webhook
+      // settles it): a payer must never be told "failed" and invited to pay again.
+      if (paystackSaidSuccess) status = 'pending';
     }
   }
 
