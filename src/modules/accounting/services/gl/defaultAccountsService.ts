@@ -11,7 +11,8 @@
  *     showed; an omitted `loaded` (or key) counts as "not configured", so it
  *     gets a 409 on any role that has a holder;
  *   - a role is cleared, or the account is unknown, of the wrong type,
- *     inactive, a header with sub-accounts, or already classified as something
+ *     inactive, a header with sub-accounts (balance-sheet roles only — an
+ *     income-statement role may go to one), or already classified as something
  *     other than that role (Hein, 2026-09-30: only an unclassified, 'other' or
  *     same-role account may take a role — no reclassifying by assignment);
  *   - a locked (filed) VAT period's figures would move;
@@ -163,7 +164,7 @@ export async function saveDefaultAccountMappings(
     if (!row) throw new DefaultAccountsRefusal(`Account for '${uiKey}' not found`);
     const code = String(row.account_code);
     const fromSubtype = row.account_subtype == null ? null : String(row.account_subtype);
-    // Right type, active, not a header, unclassified or already this role: the rule the COA import's role map shares.
+    // Right type, active, not a balance-sheet header, unclassified or already this role: the rule the COA import's role map shares.
     const unfit = roleTargetRefusal(subtype, uiKey,
       { code, type: String(row.account_type), isActive: row.is_active === true, hasChildren: row.has_children === true, subtype: fromSubtype });
     if (unfit) throw new DefaultAccountsRefusal(unfit);
