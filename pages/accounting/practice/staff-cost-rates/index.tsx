@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import type { StaffCostRate } from '@/modules/accounting/services/practice/practiceCostRateService';
 import { localISODate } from '@/lib/dateUtils';
@@ -57,8 +57,8 @@ export default function StaffCostRatesPage() {
         apiFetch('/api/accounting/practice/users'),
         apiFetch('/api/accounting/practice/staff-cost-rates'),
       ]);
-      if (!usersRes.ok) throw new Error(`Users fetch failed: ${usersRes.status}`);
-      if (!ratesRes.ok) throw new Error(`Rates fetch failed: ${ratesRes.status}`);
+      await assertOk(usersRes, 'Could not load the staff list - try again');
+      await assertOk(ratesRes, 'Could not load the cost rates - try again');
 
       const usersJson = await usersRes.json() as { data?: CompanyUserSummary[] } | CompanyUserSummary[];
       const ratesJson = await ratesRes.json() as { data?: StaffCostRate[] } | StaffCostRate[];
@@ -66,7 +66,8 @@ export default function StaffCostRatesPage() {
       setUsers(Array.isArray(usersJson) ? usersJson : ((usersJson as { data?: CompanyUserSummary[] }).data ?? []));
       setRates(Array.isArray(ratesJson) ? ratesJson : ((ratesJson as { data?: StaffCostRate[] }).data ?? []));
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      setUsers([]); setRates([]);
+      setError(apiErrorMessage(e, 'Could not load the cost rates - try again'));
     } finally {
       setLoading(false);
     }
@@ -101,14 +102,11 @@ export default function StaffCostRatesPage() {
           notes: form.notes || null,
         }),
       });
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not add the cost rate - try again');
       setForm(EMPTY_FORM);
       await loadData();
     } catch (e) {
-      setAddError(e instanceof Error ? e.message : 'Failed to add');
+      setAddError(apiErrorMessage(e, 'Could not add the cost rate - try again'));
     } finally {
       setAdding(false);
     }
@@ -120,10 +118,10 @@ export default function StaffCostRatesPage() {
       const res = await apiFetch(`/api/accounting/practice/staff-cost-rates/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await assertOk(res, 'Could not delete the cost rate - try again');
       await loadData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      setError(apiErrorMessage(e, 'Could not delete the cost rate - try again'));
     } finally {
       setDeletingId(null);
     }

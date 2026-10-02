@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface PurchaseOrder {
   id: string;
@@ -57,6 +57,7 @@ export default function PurchaseOrderDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/supplier-purchase-orders');
+      await assertOk(res, 'Could not load the purchase order - try again');
       const json = await res.json();
       const data = json.data || json;
       if (Array.isArray(data)) {
@@ -66,8 +67,8 @@ export default function PurchaseOrderDetailPage() {
       } else {
         setPo(data);
       }
-    } catch {
-      setError('Failed to load purchase order');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not load the purchase order - try again'));
     } finally {
       setLoading(false);
     }

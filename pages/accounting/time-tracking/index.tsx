@@ -62,11 +62,11 @@ export default function TimeTrackingPage() {
   const [form, setForm] = useState({ ...BLANK_FORM });
 
   useEffect(() => {
-    apiFetch('/api/accounting/customers').then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/customers').then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.items || [];
       setCustomers(list.map((c: Record<string, unknown>) => ({ id: String(c.id), companyName: String(c.companyName || c.company_name || '') })));
-    }).catch(() => { /* non-critical */ });
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load customers - try again')));
   }, []);
 
   const loadEntries = useCallback(async () => {
@@ -82,11 +82,12 @@ export default function TimeTrackingPage() {
     params.set('limit', '100');
     try {
       const res = await apiFetch(`/api/accounting/time-entries?${params}`);
+      await assertOk(res, 'Could not load time entries - try again');
       const json = await res.json();
       const d = json.data || json;
       setEntries(d.entries || []); setTotal(d.total || 0);
-    } catch { setError('Failed to load time entries'); }
-    setLoading(false);
+    } catch (err) { setEntries([]); setTotal(0); setError(apiErrorMessage(err, 'Could not load time entries - try again')); }
+    finally { setLoading(false); }
   }, [tab, filterStatus, filterProject, filterCustomer, filterBillable, filterDateFrom, filterDateTo]);
 
   const loadSummary = useCallback(async () => {
@@ -96,10 +97,11 @@ export default function TimeTrackingPage() {
     if (filterDateTo) params.set('dateTo', filterDateTo);
     try {
       const res = await apiFetch(`/api/accounting/time-summary?${params}`);
+      await assertOk(res, 'Could not load the summary - try again');
       const json = await res.json();
       setSummary(json.data || null);
-    } catch { setError('Failed to load summary'); }
-    setLoading(false);
+    } catch (err) { setSummary(null); setError(apiErrorMessage(err, 'Could not load the summary - try again')); }
+    finally { setLoading(false); }
   }, [filterDateFrom, filterDateTo]);
 
   useEffect(() => { if (tab === 'summary') void loadSummary(); else void loadEntries(); }, [tab, loadEntries, loadSummary]);
@@ -121,10 +123,10 @@ export default function TimeTrackingPage() {
         ? await apiFetch('/api/accounting/time-entries', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editId, ...body }) })
         : await apiFetch('/api/accounting/time-entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       // R-120: the error envelope is { error: { message } }; json.message showed "Failed".
-      await assertOk(res, 'Save failed');
+      await assertOk(res, 'Could not save the time entry - try again');
       setSuccess(editId ? 'Entry updated' : 'Entry created');
       setShowForm(false); resetForm(); await loadEntries();
-    } catch (err) { setError(apiErrorMessage(err, 'Save failed')); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the time entry - try again')); }
     finally { setBusy(''); }
   };
 
@@ -133,10 +135,9 @@ export default function TimeTrackingPage() {
     setBusy(id);
     try {
       const res = await apiFetch(`/api/accounting/time-entries?id=${id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Could not delete the time entry - try again');
       setSuccess('Entry deleted'); await loadEntries();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Delete failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not delete the time entry - try again')); }
     finally { setBusy(''); }
   };
 
@@ -159,11 +160,11 @@ export default function TimeTrackingPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, ids }),
       });
+      await assertOk(res, `Could not ${action} the time entries - try again`);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setSuccess(`${action === 'submit' ? 'Submitted' : 'Approved'} ${json.data?.count || 0} entries`);
       setSelected(new Set()); await loadEntries();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Action failed'); }
+    } catch (err) { setError(apiErrorMessage(err, `Could not ${action} the time entries - try again`)); }
     finally { setBusy(''); }
   };
 

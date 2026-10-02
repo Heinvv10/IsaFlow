@@ -44,8 +44,12 @@ self.IsaflowApi = {
       },
       body: JSON.stringify(payload),
     });
-    let json = null;
-    try { json = await resp.json(); } catch (_e) { /* non-JSON */ }
-    return { status: resp.status, ok: resp.ok, body: json };
+    if (!resp.ok) {
+      // A refusal: keep the server's error body (when it is JSON) for the caller's message.
+      const refused = await resp.json().catch(() => null);
+      return { status: resp.status, ok: false, body: refused };
+    }
+    const json = await resp.json().catch(() => null);
+    return { status: resp.status, ok: true, body: json };
   },
 };

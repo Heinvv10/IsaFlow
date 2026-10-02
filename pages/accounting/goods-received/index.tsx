@@ -7,7 +7,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageCheck, Plus, Search, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface GRN {
   id: string;
@@ -37,11 +37,12 @@ export default function GoodsReceivedPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/goods-received');
+      await assertOk(res, 'Could not load GRNs - try again');
       const json = await res.json();
       const d = json.data || json;
       setGrns(Array.isArray(d) ? d : []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load GRNs');
+      setError(apiErrorMessage(err, 'Could not load GRNs - try again'));
     } finally {
       setLoading(false);
     }

@@ -9,7 +9,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Layers, Plus, Pencil, Trash2, Loader2, AlertCircle, FileText,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AccountReportingGroupModal } from '@/components/accounting/AccountReportingGroupModal';
 
 interface GroupMember {
@@ -54,11 +54,12 @@ export default function AccountReportingGroupsPage() {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/account-reporting-groups');
+      await assertOk(res, 'Could not load the reporting groups - try again');
       const json = await res.json();
-      if (!res.ok) { setError(json.message ?? 'Failed to load groups'); return; }
       setGroups(json.data?.items ?? []);
-    } catch {
-      setError('Failed to load reporting groups');
+    } catch (err) {
+      setGroups([]);
+      setError(apiErrorMessage(err, 'Could not load the reporting groups - try again'));
     } finally {
       setLoading(false);
     }
@@ -72,11 +73,10 @@ export default function AccountReportingGroupsPage() {
     setConfirmDelete(null);
     try {
       const res = await apiFetch(`/api/accounting/account-reporting-groups?id=${id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) { setError(json.message ?? 'Failed to delete group'); return; }
+      await assertOk(res, 'Could not delete the reporting group - try again');
       setGroups(prev => prev.filter(g => g.id !== id));
-    } catch {
-      setError('Failed to delete group');
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not delete the reporting group - try again'));
     } finally {
       setDeleting(null);
     }

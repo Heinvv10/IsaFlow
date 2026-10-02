@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users, UserPlus, Trash2, Shield, Mail, Clock, ChevronDown } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
 
@@ -41,80 +41,87 @@ export default function UserAccessPage() {
   const isAdmin = ADMIN_ROLES.includes(myRole);
   const ownerCount = users.filter((u) => u.role === 'owner').length;
 
+  const loadInvitations = useCallback(async () => {
+    const res = await apiFetch('/api/accounting/company-invitations');
+    if (res.status === 403) { setInvitations([]); return; } // non-admin - no access to invitations
+    await assertOk(res, 'Could not load the pending invitations - try again');
+    setInvitations(((await res.json()) as { data?: PendingInvitation[] }).data ?? []);
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true); setError(null);
+    let step = 'company users';
     try {
-      const ur = await (await apiFetch('/api/accounting/company-users')).json();
-      setUsers(ur.data ?? []);
-      try {
-        const ir = await (await apiFetch('/api/accounting/company-invitations')).json();
-        setInvitations(ir.data ?? []);
-      } catch { /* non-admin — no access */ }
+      const res = await apiFetch('/api/accounting/company-users');
+      await assertOk(res, 'Could not load the company users - try again');
+      setUsers(((await res.json()) as { data?: CompanyUser[] }).data ?? []);
+      step = 'pending invitations';
+      await loadInvitations();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load data.');
+      if (step === 'company users') setUsers([]);
+      setInvitations([]);
+      setError(apiErrorMessage(e, `Could not load the ${step} - try again`));
     } finally { setLoading(false); }
-  }, []);
+  }, [loadInvitations]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  const showFeedback = (msg: string) => {
-    setFeedback(msg);
-    setTimeout(() => setFeedback(null), 4000);
-  };
+  const showFeedback = (msg: string) => { setFeedback(msg); setTimeout(() => setFeedback(null), 4000); };
 
-  async function handleRoleChange(userId: string, role: string) {
+  async function writeUsers(method: string, body: object, ok: string, fallback: string): Promise<boolean> {
+    setError(null);
     try {
-      const j = await (await apiFetch('/api/accounting/company-users', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, role }),
-      })).json();
-      setUsers(j.data ?? []); showFeedback('Role updated.');
-    } catch (e) { showFeedback(e instanceof Error ? e.message : 'Update failed.'); }
+      const res = await apiFetch('/api/accounting/company-users', {
+        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      await assertOk(res, fallback);
+      setUsers(((await res.json()) as { data?: CompanyUser[] }).data ?? []); showFeedback(ok);
+      return true;
+    } catch (e) { setError(apiErrorMessage(e, fallback)); return false; }
   }
 
+  const handleRoleChange = (userId: string, role: string) =>
+    writeUsers('PUT', { userId, role }, 'Role updated.', 'Could not update the role - try again');
+
   async function handleRemove(userId: string) {
-    try {
-      const j = await (await apiFetch('/api/accounting/company-users', {
-        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      })).json();
-      setUsers(j.data ?? []); showFeedback('User removed.');
-      if (expandedUserId === userId) setExpandedUserId(null);
-    } catch (e) { showFeedback(e instanceof Error ? e.message : 'Remove failed.'); }
-    finally { setConfirmRemove(null); }
+    const removed = await writeUsers('DELETE', { userId }, 'User removed.', 'Could not remove the user - try again');
+    if (removed && expandedUserId === userId) setExpandedUserId(null);
+    setConfirmRemove(null);
   }
 
   async function handleInvite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
-    setInviting(true);
+    setInviting(true); setError(null);
+    let autoAdded = false;
     try {
-      const j = await (await apiFetch('/api/accounting/company-invitations', {
+      const res = await apiFetch('/api/accounting/company-invitations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-      })).json();
-      if (j.data?.autoAdded) {
-        showFeedback(`${inviteEmail} was found and added directly.`);
-        void loadData();
-      } else {
-        showFeedback(`Invitation sent to ${inviteEmail}.`);
-        const ir = await (await apiFetch('/api/accounting/company-invitations')).json();
-        setInvitations(ir.data ?? []);
-      }
-      setInviteEmail('');
-    } catch (e) { showFeedback(e instanceof Error ? e.message : 'Invite failed.'); }
-    finally { setInviting(false); }
+      });
+      await assertOk(res, 'Could not send the invitation - try again');
+      autoAdded = Boolean(((await res.json()) as { data?: { autoAdded?: boolean } }).data?.autoAdded);
+    } catch (err) { setError(apiErrorMessage(err, 'Could not send the invitation - try again')); setInviting(false); return; }
+    showFeedback(autoAdded ? `${inviteEmail} was found and added directly.` : `Invitation sent to ${inviteEmail}.`);
+    setInviteEmail('');
+    try {
+      if (autoAdded) await loadData(); else await loadInvitations();
+    } catch (err) {
+      setError(apiErrorMessage(err, 'The invitation was sent, but the list could not be refreshed - reload the page'));
+    } finally { setInviting(false); }
   }
 
   async function handleCancelInvite(id: string) {
+    setError(null);
     try {
-      await apiFetch('/api/accounting/company-invitations', {
+      const res = await apiFetch('/api/accounting/company-invitations', {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invitationId: id }),
       });
+      await assertOk(res, 'Could not cancel the invitation - try again');
       setInvitations((prev) => prev.filter((i) => i.id !== id));
       showFeedback('Invitation cancelled.');
-    } catch (e) { showFeedback(e instanceof Error ? e.message : 'Cancel failed.'); }
+    } catch (e) { setError(apiErrorMessage(e, 'Could not cancel the invitation - try again')); }
   }
 
   function toggleExpand(userId: string) {

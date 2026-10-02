@@ -5,7 +5,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, ChevronLeft, ChevronRight, Plus, X, Check, Ban, Download } from 'lucide-react';
@@ -82,16 +83,15 @@ export default function SubscriptionsPage() {
     setError('');
     try {
       const params = new URLSearchParams({ page: String(pg), limit: String(LIMIT) });
-      if (q)  params.set('search', q);
-      if (st) params.set('status', st);
+      if (q) params.set('search', q); if (st) params.set('status', st);
       const res  = await apiFetch(`/api/admin/billing/subscriptions?${params}`);
+      await assertOk(res, 'Could not load subscriptions - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to load subscriptions');
       const d = json.data as PagedResponse;
-      setRows(d.items);
-      setTotal(d.total);
+      setRows(d.items); setTotal(d.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setRows([]); setTotal(0);
+      setError(apiErrorMessage(err, 'Could not load subscriptions - try again'));
     } finally {
       setLoading(false);
     }
@@ -99,10 +99,10 @@ export default function SubscriptionsPage() {
 
   const loadPlans = useCallback(async () => {
     try {
-      const res  = await apiFetch('/api/admin/billing/plans');
+      const res  = await apiFetch('/api/admin/billing/plans'); await assertOk(res, 'Could not load the plans');
       const json = await res.json();
-      if (res.ok) setPlans((json.data ?? []) as Plan[]);
-    } catch { /* non-critical */ }
+      setPlans((json.data ?? []) as Plan[]);
+    } catch (err) { log.warn('Failed to load billing plans', { err }, 'admin-subscriptions'); }
   }, []);
 
   useEffect(() => { void loadPlans(); }, [loadPlans]);
@@ -136,13 +136,12 @@ export default function SubscriptionsPage() {
           discount_pct:  parseFloat(form.discount_pct) || 0,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed to create subscription');
+      await assertOk(res, 'Could not create the subscription - try again');
       setShowForm(false);
       setForm(EMPTY_FORM);
       void load(search, status, 1);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed');
+      setFormError(apiErrorMessage(err, 'Could not create the subscription - try again'));
     } finally {
       setSaving(false);
     }
@@ -153,12 +152,11 @@ export default function SubscriptionsPage() {
     setCancelError('');
     try {
       const res  = await apiFetch(`/api/admin/billing/subscriptions/${id}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' }, body: JSON.stringify({ at_period_end: false }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error((json as { message?: string }).message || 'Failed to cancel');
+      await assertOk(res, 'Could not cancel the subscription - try again');
       setConfirmCancelId(null);
       void load(search, status, page);
     } catch (err) {
-      setCancelError(err instanceof Error ? err.message : 'Failed to cancel subscription');
+      setCancelError(apiErrorMessage(err, 'Could not cancel the subscription - try again'));
     } finally {
       setCancelling(false);
     }

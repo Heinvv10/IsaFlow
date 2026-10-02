@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
@@ -113,6 +113,7 @@ export default function AssetDetailPage() {
     setLoading(true);
     try {
       const res = await apiFetch('/api/accounting/assets');
+      await assertOk(res, 'Could not load the asset - try again');
       const json = await res.json() as { data?: unknown };
       const data = json.data ?? json;
       if (Array.isArray(data)) {
@@ -122,7 +123,7 @@ export default function AssetDetailPage() {
       } else { setAsset(data as Asset); }
     } catch (err) {
       log.error('Failed to load asset', { err, assetId }, 'accounting');
-      setError('Failed to load asset');
+      setError(apiErrorMessage(err, 'Could not load the asset - try again'));
     } finally { setLoading(false); }
   }, [assetId]);
 
@@ -141,12 +142,13 @@ export default function AssetDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ proceeds: Number(form.disposal_amount) || 0, disposalDate: form.disposal_date, disposalType: form.disposal_method, notes: form.reason || undefined }),
       });
-      const json = await res.json() as { success?: boolean; error?: string; message?: string };
-      if (!res.ok || !json.success) { setDisposalError(json.error ?? json.message ?? 'Disposal failed'); return; }
-      await router.push('/accounting/assets');
+      await assertOk(res, 'Could not dispose of the asset - try again');
+      const json = await res.json() as { success?: boolean; error?: { message?: string } };
+      if (!json.success) { setDisposalError(json.error?.message ?? 'Could not dispose of the asset - try again'); return; }
+      try { await router.push('/accounting/assets'); } catch (e) { log.warn('navigation failed', { error: e }, 'assets-assetId'); }
     } catch (err) {
       log.error('Disposal failed', { err, assetId: asset.id }, 'accounting');
-      setDisposalError('Network error — please try again');
+      setDisposalError(apiErrorMessage(err, 'Could not dispose of the asset - try again'));
     } finally { setSubmitting(false); }
   };
 

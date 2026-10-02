@@ -10,7 +10,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export interface HandOffset {
@@ -114,15 +114,12 @@ export function HandOffsetNotice({ runId, offset, onDecided }: Props) {
           action, runId, transactionId: offset.transactionId, offsetJournalId: offset.journalEntryId,
         }),
       });
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(errJson.error?.message ?? `The decision was not recorded (${res.status})`);
-      }
-      const result = ((await res.json()) as { data?: { runClosed?: boolean; handOffset?: HandOffset | null } }).data;
+      await assertOk(res, 'The decision was not recorded - please try again');
+      const result = ((await res.json().catch(() => null)) as { data?: { runClosed?: boolean; handOffset?: HandOffset | null } } | null)?.data;
       setOpen(null);
       onDecided(offset, result?.runClosed === true, result?.handOffset ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'The decision was not recorded — please try again');
+      setError(apiErrorMessage(err, 'The decision was not recorded - please try again'));
       setOpen(null);
     } finally {
       setSaving(false);

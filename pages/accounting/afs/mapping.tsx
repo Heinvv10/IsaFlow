@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import {
   GitMerge, Loader2, AlertCircle, CheckCircle, Wand2, ChevronDown, ChevronRight,
   ArrowRight, Search, X, BarChart3,
@@ -37,20 +37,13 @@ interface MappedAccount {
 }
 
 interface UnmappedAccount {
-  id: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-  accountSubtype: string | null;
+  id: string; accountCode: string; accountName: string;
+  accountType: string; accountSubtype: string | null;
 }
 
 interface MappingStats {
-  totalAccounts: number;
-  mappedAccounts: number;
-  unmappedAccounts: number;
-  totalLines: number;
-  activeLines: number;
-  linesWithMappings: number;
+  totalAccounts: number; mappedAccounts: number; unmappedAccounts: number;
+  totalLines: number; activeLines: number; linesWithMappings: number;
 }
 
 interface AutoMapResult {
@@ -67,6 +60,8 @@ interface AutoMapResult {
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
+
+const LOAD_ERR = 'Could not load the mapping data - try again';
 
 export default function AfsMappingPage() {
   const [lines, setLines] = useState<StatementLine[]>([]);
@@ -96,6 +91,8 @@ export default function AfsMappingPage() {
         apiFetch('/api/accounting/afs-mapping/accounts?unmapped=true', { credentials: 'include' }),
         apiFetch('/api/accounting/afs-mapping/stats', { credentials: 'include' }),
       ]);
+      await assertOk(linesRes, LOAD_ERR); await assertOk(mappingsRes, LOAD_ERR);
+      await assertOk(unmappedRes, LOAD_ERR); await assertOk(statsRes, LOAD_ERR);
       const [linesJson, mappingsJson, unmappedJson, statsJson] = await Promise.all([
         linesRes.json(), mappingsRes.json(), unmappedRes.json(), statsRes.json(),
       ]);
@@ -103,8 +100,9 @@ export default function AfsMappingPage() {
       setMappings(mappingsJson.data ?? []);
       setUnmapped(unmappedJson.data ?? []);
       setStats(statsJson.data ?? null);
-    } catch {
-      setError('Failed to load mapping data');
+    } catch (err) {
+      setLines([]); setMappings([]); setUnmapped([]); setStats(null);
+      setError(apiErrorMessage(err, LOAD_ERR));
     } finally {
       setIsLoading(false);
     }
@@ -122,12 +120,12 @@ export default function AfsMappingPage() {
       const res = await apiFetch('/api/accounting/afs-mapping/lines', {
         method: 'POST', credentials: 'include',
       });
+      await assertOk(res, 'Could not seed the taxonomy - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? 'Seed failed');
       setSuccess(`Taxonomy seeded: ${json.data?.created ?? 0} lines created, ${json.data?.existing ?? 0} already existed`);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Seed failed');
+      setError(apiErrorMessage(err, 'Could not seed the taxonomy - try again'));
     } finally {
       setIsSeeding(false);
     }
@@ -142,19 +140,19 @@ export default function AfsMappingPage() {
       const res = await apiFetch('/api/accounting/afs-mapping/auto-map', {
         method: 'POST', credentials: 'include',
       });
+      await assertOk(res, 'Could not auto-map the accounts - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message ?? 'Auto-map failed');
       setAutoMapResult(json.data);
       setSuccess(`Auto-mapped ${json.data?.mapped ?? 0} accounts. ${json.data?.suggestions?.length ?? 0} suggestions for review.`);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Auto-map failed');
+      setError(apiErrorMessage(err, 'Could not auto-map the accounts - try again'));
     } finally {
       setIsAutoMapping(false);
     }
   }
 
-  async function handleMapAccount(glAccountId: string, afsLineCode: string) {
+  async function handleMapAccount(glAccountId: string, afsLineCode: string): Promise<boolean> {
     setError('');
     try {
       const res = await apiFetch('/api/accounting/afs-mapping/accounts', {
@@ -162,11 +160,13 @@ export default function AfsMappingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ glAccountId, afsLineCode }),
       });
-      if (!res.ok) throw new Error('Map failed');
+      await assertOk(res, 'Could not map the account - try again');
       setAssigningAccountId(null);
       await loadAll();
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Map failed');
+      setError(apiErrorMessage(err, 'Could not map the account - try again'));
+      return false;
     }
   }
 
@@ -178,15 +178,15 @@ export default function AfsMappingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ glAccountId }),
       });
-      if (!res.ok) throw new Error('Unmap failed');
+      await assertOk(res, 'Could not unmap the account - try again');
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unmap failed');
+      setError(apiErrorMessage(err, 'Could not unmap the account - try again'));
     }
   }
 
   async function handleAcceptSuggestion(glAccountId: string, afsLineCode: string) {
-    await handleMapAccount(glAccountId, afsLineCode);
+    if (!(await handleMapAccount(glAccountId, afsLineCode))) return;
     setAutoMapResult((prev) => prev ? {
       ...prev,
       suggestions: prev.suggestions.filter((s) => s.glAccountId !== glAccountId),

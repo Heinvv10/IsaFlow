@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
 import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin/charts/TrafficTimeseriesChart';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { log } from '@/lib/logger';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
 
 type Range = '24h' | '7d' | '30d' | '90d';
@@ -124,16 +125,16 @@ export default function AdminWebAnalytics() {
     void (async () => {
       try {
         const res = await apiFetch('/api/admin/analytics/web/websites');
-        const json = await res.json();
-        const ws: Website[] = json?.data?.websites ?? [];
+        await assertOk(res, 'Could not load websites - try again');
+        const ws: Website[] = (await res.json())?.data?.websites ?? [];
         setWebsites(ws);
         // No websites (or a failed load, below) means loadSummary's
         // `if (!websiteId) return` guard never fires — clear `loading`
         // here or the initial spinner runs forever.
         if (ws.length > 0) setWebsiteId(prev => prev || ws[0]!.id);
         else setLoading(false);
-      } catch (_e) {
-        setError('Failed to load websites');
+      } catch (err) {
+        setWebsites([]); setError(apiErrorMessage(err, 'Could not load websites - try again'));
         setLoading(false);
       }
     })();
@@ -146,15 +147,13 @@ export default function AdminWebAnalytics() {
     try {
       const bots = includeBots ? '&include_bots=1' : '';
       const res = await apiFetch(`/api/admin/analytics/web/summary?website_id=${websiteId}&range=${range}${bots}`);
+      await assertOk(res, 'Could not load the analytics summary - try again');
       const json = await res.json();
-      if (!res.ok || !json.success) {
-        setError(json?.error?.message || 'Failed to load summary');
-        setSummary(null);
-      } else {
-        setSummary(json.data as Summary);
-      }
-    } catch {
-      setError('Network error');
+      if (!json.success) throw new ApiEnvelopeError('Could not load the analytics summary - try again');
+      setSummary(json.data as Summary);
+    } catch (err) {
+      setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the analytics summary - try again'));
     } finally {
       setLoading(false);
     }
@@ -169,9 +168,9 @@ export default function AdminWebAnalytics() {
     if (!websiteId) return;
     try {
       const res = await apiFetch(`/api/admin/analytics/web/realtime?website_id=${websiteId}`);
-      const json = await res.json();
-      if (res.ok && json.success) setRealtime(json.data as Realtime);
-    } catch { /* silent */ }
+      await assertOk(res, 'Could not refresh the live visitor count'); // polled every 5s: a failed tick keeps the last reading
+      const json = await res.json(); if (json.success) setRealtime(json.data as Realtime);
+    } catch (err) { log.warn('web-analytics: realtime tick failed, keeping the last reading', { err }); }
   }, [websiteId]);
 
   useEffect(() => { void loadSummary(); }, [loadSummary]);

@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Send, ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 interface Props {
   /** Saved draft submission id — '' until the user saves a draft. */
@@ -30,6 +30,8 @@ interface SubmitResult {
 
 export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClean }: Props) {
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [statusError, setStatusError] = useState('');
+  const [statusTry, setStatusTry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<SubmitResult | null>(null);
@@ -37,38 +39,53 @@ export function VAT201SarsSubmit({ submissionId, exceptionsReady, exceptionsClea
 
   useEffect(() => {
     cancelled.current = false;
+    const failure = 'Could not check whether SARS e-filing is set up - try again';
     void (async () => {
       try {
+        setStatusError('');
         const res = await apiFetch('/api/accounting/sars/efiling-status', { credentials: 'include' });
+        await assertOk(res, failure);
         const json = await res.json();
-        if (!cancelled.current) setConfigured(res.ok ? Boolean(json.data?.configured) : false);
-      } catch {
-        if (!cancelled.current) setConfigured(false);
+        if (!cancelled.current) setConfigured(Boolean(json?.data?.configured));
+      } catch (err) {
+        // A refused or failed check is NOT "not armed": say so, with a Retry.
+        if (!cancelled.current) { setConfigured(false); setStatusError(apiErrorMessage(err, failure)); }
       }
     })();
     return () => { cancelled.current = true; };
-  }, []);
+  }, [statusTry]);
 
   // A new draft (or regenerated period) resets any prior submit result so the
   // gate + button reflect the current return, not the last one.
   useEffect(() => { setResult(null); setError(''); }, [submissionId]);
 
   // Dark unless the server has the ISV channel armed.
+  if (configured !== true && statusError) {
+    return (
+      <div data-testid="sars-status-error" className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex items-center gap-3">
+        <span>{statusError}</span>
+        <button type="button" onClick={() => setStatusTry(n => n + 1)} className="underline">Retry</button>
+      </div>
+    );
+  }
   if (configured !== true) return null;
 
   const call = async (action: 'submit' | 'poll') => {
     if (!submissionId) return;
     setBusy(true); setError('');
+    const failure = action === 'submit'
+      ? 'Could not submit the VAT201 to SARS - try again'
+      : 'Could not check the SARS submission - try again';
     try {
       const res = await apiFetch('/api/accounting/sars/efiling-submit', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissionId, action }),
       });
+      await assertOk(res, failure);
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
       setResult(json.data as SubmitResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'SARS eFiling failed');
+      setError(apiErrorMessage(err, failure));
     } finally {
       setBusy(false);
     }

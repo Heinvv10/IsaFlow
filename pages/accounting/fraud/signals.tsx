@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   ShieldAlert, AlertCircle, Loader2, RefreshCw, Check, X, ScanLine,
   Info, AlertTriangle, Shield,
@@ -60,12 +60,13 @@ export default function FraudSignalsPage() {
     try {
       const qs = status ? `?status=${status}` : '';
       const res = await apiFetch(`/api/accounting/fraud/signals${qs}`);
-      const json = await res.json() as { data?: { alerts?: Alert[] }; error?: { message?: string } | string };
-      if (!res.ok) {
-        setError(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Failed'); return;
-      }
+      await assertOk(res, 'Could not load fraud signals - try again');
+      const json = await res.json() as { data?: { alerts?: Alert[] } };
       setAlerts(json.data?.alerts ?? []);
-    } catch { setError('Network error'); }
+    } catch (err) {
+      setAlerts([]);
+      setError(apiErrorMessage(err, 'Could not load fraud signals - try again'));
+    }
     finally { setLoading(false); }
   }, [status]);
 
@@ -75,14 +76,12 @@ export default function FraudSignalsPage() {
     setScanning(true);
     try {
       const res = await apiFetch('/api/accounting/fraud/scan', { method: 'POST', body: '{}' });
-      const json = await res.json() as { data?: { created?: number; refreshed?: number }; error?: { message?: string } | string };
-      if (!res.ok) {
-        showToast(typeof json.error === 'string' ? json.error : json.error?.message ?? 'Scan failed', false); return;
-      }
+      await assertOk(res, 'The scan could not run - try again');
+      const json = await res.json() as { data?: { created?: number; refreshed?: number } };
       const d = json.data ?? {};
       showToast(`Scan complete — ${d.created ?? 0} new, ${d.refreshed ?? 0} refreshed`, true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, 'The scan could not run - try again'), false); }
     finally { setScanning(false); }
   }
 
@@ -91,13 +90,10 @@ export default function FraudSignalsPage() {
       const res = await apiFetch(`/api/accounting/fraud/${id}/${action}`, {
         method: 'POST', body: '{}',
       });
-      const json = await res.json() as { error?: { message?: string } | string };
-      if (!res.ok) {
-        showToast(typeof json.error === 'string' ? json.error : json.error?.message ?? `${action} failed`, false); return;
-      }
+      await assertOk(res, `Could not ${action} this signal - try again`);
       showToast(action === 'confirm' ? 'Confirmed as fraud' : 'Dismissed', true);
       void load();
-    } catch { showToast('Network error', false); }
+    } catch (err) { showToast(apiErrorMessage(err, `Could not ${action} this signal - try again`), false); }
   }
 
   return (

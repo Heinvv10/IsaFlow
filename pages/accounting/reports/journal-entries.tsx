@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { BookOpen, Loader2, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
 interface JournalEntryRow {
@@ -127,10 +127,12 @@ export default function JournalEntriesReport() {
       const res = await apiFetch(`/api/accounting/reports-journal-entries?${params}`, {
         credentials: 'include',
       });
+      await assertOk(res, 'Could not load the journal report - try again');
       const json = await res.json() as { data: ReportResponse };
       setData(json.data ?? null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load report');
+      setData(null);
+      setError(apiErrorMessage(err, 'Could not load the journal report - try again'));
     } finally {
       setLoading(false);
     }

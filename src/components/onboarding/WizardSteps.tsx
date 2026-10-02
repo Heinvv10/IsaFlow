@@ -4,7 +4,7 @@
 
 import { useRef, useState } from 'react';
 import { Upload, X, Loader2, ScanLine, Check } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -162,11 +162,10 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
           cipcDirectors: d.cipcDirectors.map(dir => ({ name: dir.name, idNumber: dir.idNumber, role: dir.role })),
         }),
       });
-      if (res.ok) {
-        const body = await res.json() as { data?: { warnings?: ValidationWarning[] } };
-        setValidationWarnings(body.data?.warnings ?? []);
-      }
-    } catch { /* non-critical */ }
+      await assertOk(res, 'Could not check the directors against CIPC - try again');
+      const body = await res.json() as { data?: { warnings?: ValidationWarning[] } };
+      setValidationWarnings(body.data?.warnings ?? []);
+    } catch (err) { setValidationWarnings([{ type: 'check_failed', message: apiErrorMessage(err, 'Could not check the directors against CIPC - try again') }]); }
     setValidating(false);
   };
 
@@ -193,80 +192,80 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
       const doc: DocFile = { type: 'director_id', name: file.name, data: dataUrl, mimeType: file.type, size: file.size };
       updateDirector(i, { idDocument: doc, extracting: true, idVerification: undefined, idVerificationMsg: undefined });
 
+      let failMsg = 'Could not extract details from ID. Please enter manually.';
       try {
         const res = await apiFetch('/api/onboarding/extract-id', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: dataUrl }),
         });
-        if (res.ok) {
-          const body = await res.json() as { success: boolean; data?: { name?: string; idNumber?: string } };
-          if (body.success && body.data) {
-            const existing = d.directors[i];
-            const extractedName = body.data.name || '';
-            const extractedId = body.data.idNumber || '';
-            const hadName = existing?.name?.trim();
-            const hadId = existing?.idNumber?.trim();
+        await assertOk(res, failMsg);
+        const body = await res.json() as { success: boolean; data?: { name?: string; idNumber?: string } };
+        if (body.success && body.data) {
+          const existing = d.directors[i];
+          const extractedName = body.data.name || '';
+          const extractedId = body.data.idNumber || '';
+          const hadName = existing?.name?.trim();
+          const hadId = existing?.idNumber?.trim();
 
-            // Determine verification status
-            let verification: Director['idVerification'] = 'updated';
-            let msg = '';
+          // Determine verification status
+          let verification: Director['idVerification'] = 'updated';
+          let msg = '';
 
-            // Final values to commit — may diverge from the raw extraction
-            // if we detect a likely OCR misread of an already-correct name.
-            let finalName = extractedName || existing?.name || '';
-            const finalId = extractedId || existing?.idNumber || '';
+          // Final values to commit — may diverge from the raw extraction
+          // if we detect a likely OCR misread of an already-correct name.
+          let finalName = extractedName || existing?.name || '';
+          const finalId = extractedId || existing?.idNumber || '';
 
-            if (hadName && hadId && extractedName && extractedId) {
-              // Both existed — check if they match
-              const nameNorm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
-              const idNorm = (s: string) => s.replace(/[\s-]/g, '');
-              const nameMatch = nameNorm(hadName).includes(nameNorm(extractedName).split(' ').pop() ?? '')
-                             || nameNorm(extractedName).includes(nameNorm(hadName).split(' ').pop() ?? '');
-              const idMatch = idNorm(hadId) === idNorm(extractedId);
+          if (hadName && hadId && extractedName && extractedId) {
+            // Both existed — check if they match
+            const nameNorm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+            const idNorm = (s: string) => s.replace(/[\s-]/g, '');
+            const nameMatch = nameNorm(hadName).includes(nameNorm(extractedName).split(' ').pop() ?? '')
+                           || nameNorm(extractedName).includes(nameNorm(hadName).split(' ').pop() ?? '');
+            const idMatch = idNorm(hadId) === idNorm(extractedId);
 
-              // Guard: if the ID number confirms we're looking at the same person
-              // AND the extracted name is only a character or two different from
-              // the existing one, the VLM almost certainly misread a letter —
-              // keep the user's value rather than regressing a good name.
-              const nameDrift = levenshtein(nameNorm(hadName), nameNorm(extractedName));
-              const isLikelyOcrDrift = idMatch && !nameMatch && nameDrift > 0 && nameDrift <= 2;
+            // Guard: if the ID number confirms we're looking at the same person
+            // AND the extracted name is only a character or two different from
+            // the existing one, the VLM almost certainly misread a letter —
+            // keep the user's value rather than regressing a good name.
+            const nameDrift = levenshtein(nameNorm(hadName), nameNorm(extractedName));
+            const isLikelyOcrDrift = idMatch && !nameMatch && nameDrift > 0 && nameDrift <= 2;
 
-              if (isLikelyOcrDrift) {
-                finalName = hadName;
-                verification = 'verified';
-                msg = `ID verified — kept "${hadName}" (document read as "${extractedName}", treated as OCR noise).`;
-              } else if (nameMatch && idMatch) {
-                verification = 'verified';
-                msg = `ID verified — ${extractedName} matches the uploaded document.`;
-              } else if (!nameMatch && !idMatch) {
-                verification = 'updated';
-                msg = `Details updated from ID. Previous: ${hadName} (${hadId}).`;
-              } else if (!nameMatch) {
-                verification = 'updated';
-                msg = `Name updated from ID: ${extractedName}. Previous: ${hadName}.`;
-              } else {
-                verification = 'updated';
-                msg = `ID number updated from document: ${extractedId}. Previous: ${hadId}.`;
-              }
-            } else if (extractedName || extractedId) {
+            if (isLikelyOcrDrift) {
+              finalName = hadName;
+              verification = 'verified';
+              msg = `ID verified — kept "${hadName}" (document read as "${extractedName}", treated as OCR noise).`;
+            } else if (nameMatch && idMatch) {
+              verification = 'verified';
+              msg = `ID verified — ${extractedName} matches the uploaded document.`;
+            } else if (!nameMatch && !idMatch) {
               verification = 'updated';
-              msg = `Details extracted from ID: ${extractedName}${extractedId ? ` (${extractedId})` : ''}.`;
+              msg = `Details updated from ID. Previous: ${hadName} (${hadId}).`;
+            } else if (!nameMatch) {
+              verification = 'updated';
+              msg = `Name updated from ID: ${extractedName}. Previous: ${hadName}.`;
+            } else {
+              verification = 'updated';
+              msg = `ID number updated from document: ${extractedId}. Previous: ${hadId}.`;
             }
-
-            updateDirector(i, {
-              name: finalName,
-              idNumber: finalId,
-              idDocument: doc, extracting: false,
-              idVerification: verification, idVerificationMsg: msg,
-            });
-            return;
+          } else if (extractedName || extractedId) {
+            verification = 'updated';
+            msg = `Details extracted from ID: ${extractedName}${extractedId ? ` (${extractedId})` : ''}.`;
           }
+
+          updateDirector(i, {
+            name: finalName,
+            idNumber: finalId,
+            idDocument: doc, extracting: false,
+            idVerification: verification, idVerificationMsg: msg,
+          });
+          return;
         }
-      } catch { /* extraction failed */ }
+      } catch (err) { failMsg = apiErrorMessage(err, failMsg); }
       updateDirector(i, {
         idDocument: doc, extracting: false,
-        idVerification: 'failed', idVerificationMsg: 'Could not extract details from ID. Please enter manually.',
+        idVerification: 'failed', idVerificationMsg: failMsg,
       });
     };
     reader.readAsDataURL(file);

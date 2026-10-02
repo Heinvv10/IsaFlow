@@ -38,25 +38,31 @@ export default function RecurringJournalsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [formLines, setFormLines] = useState([{ key: crypto.randomUUID(), glAccountId: '', debit: 0, credit: 0, description: '' }]);
 
+  // Catches its own failure: a reload that fails after a good write must not
+  // be reported as the write failing.
   const load = useCallback(async () => {
-    const res = await apiFetch('/api/accounting/recurring-journals', { credentials: 'include' });
-    const json = await res.json();
-    setItems(json.data?.items || []);
-    setLoading(false);
+    try {
+      const res = await apiFetch('/api/accounting/recurring-journals', { credentials: 'include' });
+      await assertOk(res, 'Could not load recurring journals - try again');
+      const json = await res.json();
+      setItems(json.data?.items || []);
+    } catch (err) {
+      setItems([]);
+      setError(apiErrorMessage(err, 'Could not load recurring journals - try again'));
+    } finally { setLoading(false); }
   }, []);
 
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    load().catch(err => { setLoading(false); setError(err instanceof Error ? err.message : 'Failed to load recurring journals'); });
-  }, [load]);
-  useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(r => r.json()).then(res => {
+    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
+      .then(async r => { await assertOk(r, 'Could not load accounts - try again'); return r.json(); }).then(res => {
       const d = res.data || res;
       const list = Array.isArray(d) ? d : d.accounts || d.items || [];
       setAccounts(list.map((a: Record<string, unknown>) => ({
         id: String(a.id), accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
       })));
-    }).catch(err => setError(err instanceof Error ? err.message : 'Failed to load accounts'));
+    }).catch(err => setError(apiErrorMessage(err, 'Could not load accounts - try again')));
   }, []);
 
   const totalDebit = formLines.reduce((s, l) => s + (l.debit || 0), 0);
@@ -70,7 +76,7 @@ export default function RecurringJournalsPage() {
     // no fiscal period, closed period, a deactivated account named by its code,
     // an unbalanced template, and the 409 for a contended generate. The list
     // reloaded unchanged and the button looked dead.
-    const fallback = `Could not ${action} this recurring journal`;
+    const fallback = `Could not ${action} this recurring journal - try again`;
     try {
       const res = await apiFetch('/api/accounting/recurring-journals-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -118,11 +124,10 @@ export default function RecurringJournalsPage() {
         method, headers: { 'Content-Type': 'application/json' },
         credentials: 'include', body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
+      await assertOk(res, 'Could not save the recurring journal - try again');
       resetForm();
       await load();
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setError(apiErrorMessage(err, 'Could not save the recurring journal - try again')); }
     finally { setBusy(''); }
   };
 

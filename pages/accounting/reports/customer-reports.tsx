@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
 
 interface Row {
@@ -44,10 +44,10 @@ export default function CustomerReportsPage() {
     try {
       const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
       const res = await apiFetch(`/api/accounting/reports-customer?${params}`, { credentials: 'include' });
+      await assertOk(res, 'Could not load the customer report - try again');
       const json = await res.json();
-      if (!res.ok) throw new Error(json.message || 'Failed');
       setRows(json.data || []);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed'); }
+    } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the customer report - try again')); }
     finally { setLoading(false); }
   }, [periodStart, periodEnd]);
 
@@ -113,7 +113,7 @@ export default function CustomerReportsPage() {
                   <th className="px-4 py-3 text-right">Balance at {periodEnd}</th>
                 </tr></thead>
                 <tbody>
-                  {rows.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No data for period</td></tr>}
+                  {rows.length === 0 && !error && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No data for period</td></tr>}
                   {rows.map(r => (
                     <tr key={r.clientId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.clientName}</td>

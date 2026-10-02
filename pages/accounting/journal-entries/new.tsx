@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
 import { ArrowLeft, Plus, Trash2, Loader2, AlertCircle, CheckCircle2, BookOpen, Receipt } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 import { localISODate } from '@/lib/dateUtils';
 
@@ -47,12 +47,12 @@ export default function NewJournalEntryPage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load accounts - try again'); return r.json(); })
       .then((data: { data?: GLAccount[] } | GLAccount[]) => {
         const list = (data as { data?: GLAccount[] }).data ?? (data as GLAccount[]) ?? [];
         setAccounts(list.filter((a: GLAccount) => a.isActive));
       })
-      .catch(err => { log.error('Failed to load accounts', { error: err }, 'journal-new'); });
+      .catch(err => { log.error('Failed to load accounts', { error: err }, 'journal-new'); setError(apiErrorMessage(err, 'Could not load accounts - try again')); });
   }, []);
 
   const addLine = useCallback(() => setLines(prev => [...prev, emptyLine()]), []);
@@ -96,15 +96,14 @@ export default function NewJournalEntryPage() {
         }),
       });
       if (!res.ok) {
-        const errData = await res.json() as { message?: string };
-        throw new Error(errData.message || 'Failed to create journal entry');
+        await assertOk(res, 'Could not create the journal entry - try again');
       }
       const data = await res.json() as { data?: { id?: string }; id?: string };
       const entry = data.data ?? data;
       setSuccess(true);
       setTimeout(() => { void router.push(`/accounting/journal-entries/${entry.id}`); }, 1000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to create journal entry';
+      const msg = apiErrorMessage(err, 'Could not create journal entry - try again');
       setError(msg);
       log.error('Failed to create journal entry', { error: err }, 'journal-new');
     } finally {

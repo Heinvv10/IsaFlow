@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Building2, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 
 interface CostCentre {
@@ -33,27 +33,32 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
   const [selected, setSelected] = useState<string>(currentCostCentreId ?? '');
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [baseline, setBaseline] = useState<Allocation[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError('');
+    setLoadFailed(false);
     try {
       const [cRes, aRes] = await Promise.all([
         apiFetch('/api/payroll/cost-centres?activeOnly=1'),
         apiFetch(`/api/payroll/employees/${employeeId}/cost-allocations`),
       ]);
-      if (cRes.ok) {
-        const json = await cRes.json();
-        setCentres((json.data ?? json) as CostCentre[]);
-      }
-      if (aRes.ok) {
-        const json = await aRes.json();
-        const list = ((json.data ?? json) as Allocation[]) ?? [];
-        setAllocations(list);
-        setBaseline(list);
-        if (list.length > 0) setMode('split');
-      }
+      await assertOk(cRes, 'Could not load the cost centres and allocations - try again');
+      await assertOk(aRes, 'Could not load the cost centres and allocations - try again');
+      const cJson = await cRes.json();
+      setCentres((cJson.data ?? cJson) as CostCentre[]);
+      const aJson = await aRes.json();
+      const list = ((aJson.data ?? aJson) as Allocation[]) ?? [];
+      setAllocations(list);
+      setBaseline(list);
+      if (list.length > 0) setMode('split');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load cost centres');
+      setCentres([]);
+      setAllocations([]);
+      setBaseline([]);
+      setLoadFailed(true);
+      setError(apiErrorMessage(err, 'Could not load the cost centres and allocations - try again'));
     } finally {
       setLoading(false);
     }
@@ -94,11 +99,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ allocations: [] }),
         });
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          setError(j.error?.message ?? j.message ?? 'Could not clear allocations');
-          return;
-        }
+        await assertOk(r, 'Could not clear the allocations - try again');
         setBaseline([]);
         setAllocations([]);
       }
@@ -108,12 +109,10 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ costCentreId }),
       });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError(json.error?.message ?? json.message ?? 'Save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the cost centre - try again');
       onChange(costCentreId);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the cost centre - try again'));
     } finally {
       setSaving(false);
     }
@@ -130,15 +129,13 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
           allocations: allocations.map(a => ({ costCentreId: a.costCentreId, percentage: a.percentage })),
         }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError(j.error?.message ?? j.message ?? 'Save failed');
-        return;
-      }
+      await assertOk(res, 'Could not save the allocations - try again');
       const json = await res.json();
       const saved = ((json.data ?? json) as Allocation[]) ?? [];
       setAllocations(saved);
       setBaseline(saved);
+    } catch (err) {
+      setError(apiErrorMessage(err, 'Could not save the allocations - try again'));
     } finally {
       setSaving(false);
     }
@@ -158,7 +155,7 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         <div className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading cost centres...
         </div>
-      ) : centres.length === 0 ? (
+      ) : loadFailed ? null : centres.length === 0 ? (
         <div className="text-sm text-[var(--ff-text-secondary)]">
           No active cost centres. Create one under Setup → Cost Centres first.
         </div>
@@ -277,6 +274,12 @@ export function CostCentreAssignmentCard({ employeeId, currentCostCentreId, onCh
         </>
       )}
 
+      {loadFailed && !loading && (
+        <button type="button" onClick={() => void load()}
+          className="mt-3 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-primary)]">
+          Retry
+        </button>
+      )}
       {error && (
         <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
           <AlertCircle className="h-4 w-4" />{error}

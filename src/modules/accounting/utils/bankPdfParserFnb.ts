@@ -79,9 +79,10 @@ export function parseFnbStatement(text: string): BankCsvParseResult {
         reference: undefined,
       });
     } catch (err) {
+      log.warn('FNB PDF: a transaction line could not be read', { row: tx.lineNum, error: err }, 'accounting-pdf');
       result.errors.push({
         row: tx.lineNum,
-        error: `Parse error: ${err instanceof Error ? err.message : String(err)}`,
+        error: 'Could not read this FNB statement line - check it in the PDF and add it by hand if needed',
       });
     }
     pendingTx = null;

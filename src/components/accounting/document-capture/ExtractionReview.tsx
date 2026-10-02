@@ -1,7 +1,7 @@
 import { FileText, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { notify } from '@/utils/toast';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface ReviewForm {
@@ -50,13 +50,14 @@ export function ExtractionReview({ uploadResult, form, onChange, onDismiss, onRe
           },
         }),
       });
+      await assertOk(res, 'Could not confirm the document - try again');
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message || 'Confirm failed');
       notify.success('Document confirmed');
       onDismiss();
       onRefreshList();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Confirm failed');
+      notify.error(apiErrorMessage(err, 'Could not confirm the document - try again'));
     }
   }
 
@@ -71,13 +72,14 @@ export function ExtractionReview({ uploadResult, form, onChange, onDismiss, onRe
           data: { notes: form.notes || 'Rejected during review' },
         }),
       });
+      await assertOk(res, 'Could not reject the document - try again');
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message || 'Reject failed');
       notify.success('Document rejected');
       onDismiss();
       onRefreshList();
     } catch (err) {
-      notify.error(err instanceof Error ? err.message : 'Reject failed');
+      notify.error(apiErrorMessage(err, 'Could not reject the document - try again'));
     }
   }
 

@@ -5,8 +5,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { FileText, Loader2, AlertCircle, Download, AlertTriangle, Info } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { saveBlob } from '@/lib/saveBlob';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 
 type Severity = 'error' | 'warning' | 'info';
@@ -97,11 +98,13 @@ export default function Irp5Page() {
     setError('');
     try {
       const res = await apiFetch(`/api/payroll/irp5/summary?taxYear=${taxYear}`);
-      if (!res.ok) { setError(payrollLoadMessage(res.status, 'Failed to load IRP5 summary')); return; }
+      if (res.status === 403) throw new ApiEnvelopeError(payrollLoadMessage(403, 'Could not load the IRP5 summary - try again'));
+      await assertOk(res, 'Could not load the IRP5 summary - try again');
       const json = await res.json() as { data?: Irp5Summary };
       setSummary((json.data ?? null) as Irp5Summary | null);
-    } catch {
-      setError('Failed to load IRP5 summary');
+    } catch (err) {
+      setSummary(null);
+      setError(apiErrorMessage(err, 'Could not load the IRP5 summary - try again'));
     } finally {
       setIsLoading(false);
     }
@@ -112,13 +115,7 @@ export default function Irp5Page() {
   const handleExport = () => {
     if (!summary) return;
     const csv = buildCsv(summary.employees);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `IRP5_${taxYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    saveBlob(new Blob([csv], { type: 'text/csv' }), `IRP5_${taxYear}.csv`);
   };
 
   const [easyFileError, setEasyFileError] = useState<string | null>(null);
@@ -128,21 +125,15 @@ export default function Irp5Page() {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
       if (!res.ok) {
         const json = await res.json().catch(() => null) as { error?: { message?: string; details?: { missing?: string[]; fix?: string } } } | null;
-        const msg = payrollLoadMessage(res.status, json?.error?.message ?? `HTTP ${res.status}`);
+        const msg = payrollLoadMessage(res.status, json?.error?.message ?? 'Could not export the EasyFile file - try again');
         const missing = json?.error?.details?.missing;
         const fix = json?.error?.details?.fix;
         setEasyFileError([msg, missing ? `Missing: ${missing.join(', ')}` : '', fix ? `Fix here: ${fix}` : ''].filter(Boolean).join(' · '));
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `IRP5_${taxYear - 1}_${taxYear}.irp5`;
-      a.click();
-      URL.revokeObjectURL(url);
+      saveBlob(await res.blob(), `IRP5_${taxYear - 1}_${taxYear}.irp5`);
     } catch (err) {
-      setEasyFileError(err instanceof Error ? err.message : 'e@syFile export failed');
+      setEasyFileError(apiErrorMessage(err, 'Could not export the EasyFile file - try again'));
     }
   };
 

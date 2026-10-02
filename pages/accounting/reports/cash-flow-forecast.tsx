@@ -6,7 +6,7 @@
 import { useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   CashFlowForecastChart,
@@ -36,16 +36,14 @@ export default function AICashFlowForecastPage() {
     setError('');
     try {
       const res = await apiFetch(`/api/accounting/cash-flow-forecast?horizon=${selectedHorizon}`);
-      if (!res.ok) {
-        const body = await res.json() as { error?: { message?: string } };
-        throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
-      }
+      await assertOk(res, 'Could not generate the forecast - try again');
       const json = await res.json() as { data: CashFlowForecast };
       setForecast(json.data);
       setGenerated(true);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate forecast';
+      const msg = apiErrorMessage(err, 'Could not generate the forecast - try again');
       log.error('Cash flow forecast failed', { error: msg }, 'ui');
+      setForecast(null);
       setError(msg);
     } finally {
       setLoading(false);

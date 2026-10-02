@@ -10,7 +10,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Repeat, Loader2, AlertCircle, Save,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
   LineItemsSection,
@@ -47,7 +47,7 @@ export default function EditRecurringInvoicePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); const [loaded, setLoaded] = useState(false);
 
   const [form, setForm] = useState({
     templateName: '',
@@ -63,22 +63,20 @@ export default function EditRecurringInvoicePage() {
 
   useEffect(() => {
     apiFetch('/api/accounting/customers')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load customers - try again'); return r.json(); })
       .then((json: { data?: unknown }) => {
         const d = json.data;
         const list = Array.isArray(d) ? d : (d as { clients?: Customer[] })?.clients ?? [];
         setCustomers(list as Customer[]);
       })
-      .catch(err => {
-        log.error('Failed to load customers', { error: err }, 'recurring-edit');
-      });
+      .catch(err => { log.error('Failed to load customers', { error: err }, 'recurring-edit'); setError(apiErrorMessage(err, 'Could not load customers - try again')); });
   }, []);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     apiFetch('/api/accounting/recurring-invoices')
-      .then(r => r.json())
+      .then(async r => { await assertOk(r, 'Could not load the recurring invoice - try again'); return r.json(); })
       .then((json: { data?: { items?: Record<string, unknown>[] } }) => {
         const found = json.data?.items?.find(i => i.id === id);
         if (!found) { setError('Recurring invoice not found'); return; }
@@ -106,10 +104,11 @@ export default function EditRecurringInvoicePage() {
             glAccountId: String(l.glAccountId ?? l.gl_account_id ?? ''),
           })));
         }
+        setLoaded(true);
       })
       .catch(err => {
         log.error('Failed to load recurring invoice', { id, error: err }, 'recurring-edit');
-        setError('Failed to load recurring invoice');
+        setError(apiErrorMessage(err, 'Could not load the recurring invoice - try again'));
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -145,12 +144,11 @@ export default function EditRecurringInvoicePage() {
         method: 'PUT',
         body: JSON.stringify(payload),
       });
-      const json = await res.json() as { error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message ?? 'Update failed');
-      await router.push('/accounting/recurring-invoices');
+      await assertOk(res, 'Could not save the recurring invoice - try again');
+      try { await router.push('/accounting/recurring-invoices'); } catch (e) { log.warn('navigation failed', { error: e }, 'recurring-invoices-id'); }
     } catch (err) {
       log.error('Failed to update recurring invoice', { id, error: err }, 'recurring-edit');
-      setError(err instanceof Error ? err.message : 'Update failed');
+      setError(apiErrorMessage(err, 'Could not save the recurring invoice - try again'));
     } finally {
       setSubmitting(false);
     }
@@ -322,7 +320,7 @@ export default function EditRecurringInvoicePage() {
             </Link>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || !loaded}
               className="inline-flex items-center gap-2 px-6 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm font-medium disabled:opacity-50"
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}

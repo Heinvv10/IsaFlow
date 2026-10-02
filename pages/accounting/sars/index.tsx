@@ -12,7 +12,7 @@ import {
   Loader2, ChevronRight,
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 interface ComplianceEvent {
@@ -90,12 +90,12 @@ export default function SARSDashboard() {
         apiFetch('/api/accounting/sars/sars-compliance', { credentials: 'include' }),
         apiFetch('/api/accounting/sars/sars-submissions', { credentials: 'include' }),
       ]);
-      const compJson = await compRes.json();
-      const subJson = await subRes.json();
+      await assertOk(compRes, 'Could not load the SARS data - try again'); await assertOk(subRes, 'Could not load the SARS data - try again');
+      const [compJson, subJson] = await Promise.all([compRes.json(), subRes.json()]);
       setEvents(compJson.data?.events || []);
       setSubmissions(subJson.data?.items || []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setEvents([]); setSubmissions([]); setError(apiErrorMessage(err, 'Could not load the SARS data - try again'));
     } finally {
       setLoading(false);
     }

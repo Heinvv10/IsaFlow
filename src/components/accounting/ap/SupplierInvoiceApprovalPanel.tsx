@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck, Clock, Send, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 interface Props {
@@ -40,13 +40,16 @@ export function SupplierInvoiceApprovalPanel({ invoiceId, approval, onChanged }:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'request', documentType: 'supplier_invoice', documentId: invoiceId }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.message || 'Submitting for approval failed');
-      }
-      await onChanged();
+      await assertOk(res, 'Could not submit the bill for approval - try again');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submitting for approval failed');
+      setError(apiErrorMessage(err, 'Could not submit the bill for approval - try again'));
+      setSubmitting(false);
+      return;
+    }
+    try {
+      await onChanged();
+    } catch {
+      setError('The bill was submitted for approval, but the page could not refresh - reload to see its status');
     } finally {
       setSubmitting(false);
     }
