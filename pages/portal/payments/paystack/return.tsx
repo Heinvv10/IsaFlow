@@ -12,14 +12,26 @@ import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
-type VerifyState = 'verifying' | 'completed' | 'failed' | 'cancelled' | 'error';
+type VerifyState = 'verifying' | 'completed' | 'failed' | 'cancelled' | 'confirming' | 'error';
 
 interface VerifyResponse {
   status: 'completed' | 'failed' | 'cancelled' | 'pending';
+  /** What was banked once settled (R-181), else the checkout amount. */
   amountCents: number;
+  /** Whether the invoice took any of it; false when it was banked unapplied. */
+  appliedToInvoice?: boolean;
   invoiceNumber?: string;
   companyName?: string;
 }
+
+/**
+ * A payment still pending after this many polls (about 30s) stops on a neutral
+ * "still confirming" state. Unbounded, it ran into verify's per-IP rate limit and
+ * ended on an error for a payer who may well have been charged.
+ */
+const MAX_POLLS = 10;
+const POLL_MS = 3000;
+const RATE_LIMITED = 429;
 
 const fmtZAR = (cents: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(cents / 100);
@@ -44,21 +56,23 @@ export default function PaystackReturnPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch(
-          `/api/portal/payments/paystack/verify?ref=${encodeURIComponent(r)}`,
-        );
-        if (!res.ok) throw new Error(`Verification failed (${res.status})`);
-        const json = (await res.json()) as { data: VerifyResponse };
-        if (cancelled) return;
-        const verified = json.data;
-        setData(verified);
-        if (verified.status === 'completed') setState('completed');
-        else if (verified.status === 'failed') setState('failed');
-        else if (verified.status === 'cancelled') setState('cancelled');
-        else {
-          setState('verifying');
-          setTimeout(() => router.replace(router.asPath), 3000);
+        for (let poll = 1; poll <= MAX_POLLS; poll += 1) {
+          const res = await apiFetch(
+            `/api/portal/payments/paystack/verify?ref=${encodeURIComponent(r)}`,
+          );
+          if (cancelled) return;
+          if (res.status === RATE_LIMITED) break;
+          if (!res.ok) throw new Error(`Verification failed (${res.status})`);
+          const verified = ((await res.json()) as { data: VerifyResponse }).data;
+          if (cancelled) return;
+          setData(verified);
+          if (verified.status === 'completed') return setState('completed');
+          if (verified.status === 'failed') return setState('failed');
+          if (verified.status === 'cancelled') return setState('cancelled');
+          if (poll < MAX_POLLS) await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+          if (cancelled) return;
         }
+        setState('confirming');
       } catch (err) {
         if (cancelled) return;
         setState('error');
@@ -66,7 +80,7 @@ export default function PaystackReturnPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [router.isReady, router.query, router]);
+  }, [router.isReady, router.query]);
 
   return (
     <>
@@ -89,13 +103,25 @@ export default function PaystackReturnPage() {
               <h1 className="mt-4 text-2xl font-semibold text-slate-900">Payment received</h1>
               <p className="mt-2 text-slate-600">
                 Thank you. {fmtZAR(data.amountCents)} has been received
-                {data.invoiceNumber ? ` against invoice ${data.invoiceNumber}` : ''}.
+                {data.appliedToInvoice && data.invoiceNumber ? ` against invoice ${data.invoiceNumber}` : ''}.
               </p>
               {data.companyName && (
                 <p className="mt-1 text-sm text-slate-500">Paid to {data.companyName}</p>
               )}
               <p className="mt-6 text-xs text-slate-400">
                 A receipt has been emailed to you. You can close this window.
+              </p>
+            </div>
+          )}
+
+          {state === 'confirming' && (
+            <div className="text-center">
+              <Loader2 className="w-12 h-12 text-indigo-600 mx-auto" />
+              <h1 className="mt-4 text-xl font-semibold text-slate-900">Still confirming your payment</h1>
+              <p className="mt-2 text-sm text-slate-600">
+                Your bank has not confirmed this payment to us yet. If your account was debited, it
+                will be recorded shortly. Please check back later, or contact
+                {data?.companyName ? ` ${data.companyName}` : ' the sender'} if it does not update.
               </p>
             </div>
           )}

@@ -41,6 +41,36 @@ export interface GatewayAllocation {
   deleted: boolean;
 }
 
+/** The invoice row as read under the lock, plus what the caller decides. */
+export interface AllocationInputs {
+  totalAmount: string;
+  amountPaid: string | null;
+  /** Draft receipts' open allocations against the invoice. */
+  pending: number;
+  amountRand: number;
+  status: string | null;
+  deletedAt: string | null;
+  hold: string | null;
+}
+
+/** The pure arithmetic of the allocation (unit-tested; the DB read is decideGatewayAllocation's). */
+export function allocationPlan(inputs: AllocationInputs): Pick<GatewayAllocation, 'allocated' | 'invoiceBlock' | 'overpaid'> {
+  const { amountRand } = inputs;
+  // The gateway can settle more than the invoice still owes — an EFT part-payment
+  // landing between the payment link and the card charge is enough. The excess is
+  // real cash in the bank, so the receipt is banked in full and only the part the
+  // invoice can absorb is allocated; the remainder stays on the customer as an
+  // unapplied receipt. Truncating the receipt to fit would drop that cash.
+  const outstanding = Number(inputs.totalAmount) - Number(inputs.amountPaid ?? 0) - inputs.pending;
+  // An invoice outside the ledger takes none of it: the whole receipt stays on the
+  // customer unapplied, for a person to place. So does one whose balance is not a
+  // number (numeric NaN in total_amount or amount_paid is a real state, R-166).
+  const invoiceBlock = invoiceReview(inputs.status, inputs.deletedAt) ?? inputs.hold
+    ?? (Number.isFinite(outstanding) ? null : 'invoice_balance_invalid');
+  const allocated = invoiceBlock ? 0 : Math.max(0, Math.min(amountRand, outstanding));
+  return { allocated, invoiceBlock, overpaid: !invoiceBlock && amountRand - allocated > EPS };
+}
+
 export async function decideGatewayAllocation(
   companyId: string,
   invoiceId: string,
@@ -76,23 +106,14 @@ export async function decideGatewayAllocation(
   `;
   const pending = Number(pendingRows[0]?.pending ?? 0);
 
-  // The gateway can settle more than the invoice still owes — an EFT part-payment
-  // landing between the payment link and the card charge is enough. The excess is
-  // real cash in the bank, so the receipt is banked in full and only the part the
-  // invoice can absorb is allocated; the remainder stays on the customer as an
-  // unapplied receipt. Truncating the receipt to fit would drop that cash.
-  const outstanding = Number(invoice.locked_total) - Number(invoice.amount_paid ?? 0) - pending;
-  // An invoice outside the ledger takes none of it: the whole receipt stays on the
-  // customer unapplied, for a person to place. So does one whose balance is not a
-  // number (numeric NaN in total_amount or amount_paid is a real state, R-166).
-  const invoiceBlock = invoiceReview(invoice.status, invoice.deleted_at) ?? hold
-    ?? (Number.isFinite(outstanding) ? null : 'invoice_balance_invalid');
-  const allocated = invoiceBlock ? 0 : Math.max(0, Math.min(amountRand, outstanding));
-  const overpaid = !invoiceBlock && amountRand - allocated > EPS;
+  const { allocated, invoiceBlock, overpaid } = allocationPlan({
+    totalAmount: invoice.locked_total, amountPaid: invoice.amount_paid, pending, amountRand,
+    status: invoice.status, deletedAt: invoice.deleted_at, hold,
+  });
   if (overpaid) {
     log.warn(
       'Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt',
-      { reference, invoiceId, amountRand, outstanding, pending, unallocated: amountRand - allocated },
+      { reference, invoiceId, amountRand, pending, unallocated: amountRand - allocated },
       'accounting',
     );
   }

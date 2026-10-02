@@ -150,6 +150,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
+  // What was actually banked, and whether the invoice took any of it (R-181, PR #618 LOW-2):
+  // the receipt can differ from the request, and an invoice outside the ledger takes nothing.
+  const receipt = pr.purpose === 'customer_invoice'
+    ? await sql<{ total: string; applied: string }>`
+        SELECT cp.total_amount::text AS total,
+               COALESCE(SUM(a.amount_allocated) FILTER (WHERE a.invoice_id = ${pr.customer_invoice_id}::UUID), 0)::text AS applied
+        FROM customer_payments cp
+        LEFT JOIN customer_payment_allocations a ON a.payment_id = cp.id
+        WHERE cp.company_id = ${pr.company_id}::UUID AND cp.bank_reference = ${pr.paystack_reference}
+          AND cp.status IS DISTINCT FROM 'cancelled'
+        GROUP BY cp.id
+        LIMIT 1
+      `
+    : [];
+  const banked = receipt[0];
+
   const publicStatus =
     status === 'completed' ? 'completed'
     : status === 'failed' ? 'failed'
@@ -158,7 +174,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   return apiResponse.success(res, {
     status: publicStatus,
-    amountCents: Number(pr.amount_cents),
+    amountCents: banked ? Math.round(Number(banked.total) * 100) : Number(pr.amount_cents),
+    appliedToInvoice: banked ? Number(banked.applied) > 0.005 : false,
     invoiceNumber: pr.invoice_number ?? undefined,
     companyName: pr.company_name ?? undefined,
   });

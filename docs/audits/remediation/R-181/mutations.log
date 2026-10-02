@@ -111,3 +111,9 @@ S5 second report amount not compared [src/modules/accounting/services/ar/gateway
 S6 first amount not tagged on the receipt [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 52 passed (55) -> KILLED; red: verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee; webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100; verify first with charges passed on, then the webhook with the fee: one R115 receipt, no disagreement
 S7 tag ignored when read back [src/modules/accounting/services/ar/gatewaySettlementReview.ts]: 3 failed | 52 passed (55) -> KILLED; red: verify trusts requested_amount within its fee (R103, R100, R3): R100 banked; the webhook with the same figures posts no fee; webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100; verify first with charges passed on, then the webhook with the fee: one R115 receipt, no disagreement
 AFTER: 55 passed (55)
+
+MEDIUM-1 unit table (tests/unit/services/ar/gatewaySettlementRules.test.ts, env -u DATABASE_URL vitest run)
+BASELINE:       Tests  53 passed (53)
+U1 line 58 '>' -> '>=' :      × pass-on fee within fees: requested_amount 8ms      × requested_amount differs from the request 1ms      × excess equal to fees is trusted (R103 / R100 / R3) 1ms       Tests  3 failed | 50 passed (53) 
+U2 line 111 Math.min(clamped, banked) -> clamped :      × fee larger than the receipt: capped at the receipt 8ms       Tests  1 failed | 52 passed (53) 
+AFTER:       Tests  53 passed (53)
