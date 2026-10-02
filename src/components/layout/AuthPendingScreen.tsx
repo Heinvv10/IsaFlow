@@ -1,26 +1,17 @@
 /**
  * AuthPendingScreen — what AppLayout shows until the first session check has
- * an answer. Normally a spinner. During an auth-service outage (D9) it says so,
- * because the session is not lost: AuthContext keeps retrying every few
- * seconds in the background and the page appears by itself once it answers.
+ * an answer. Normally a spinner. During an auth-service outage (D9) it says so
+ * instead of signing anyone out: AuthContext keeps retrying every few seconds
+ * in the background and the page appears by itself once /api/auth/me answers.
  */
 
-import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 export function AuthPendingScreen() {
-  const { authUnavailable, refreshUser } = useAuth();
-  const [retrying, setRetrying] = useState(false);
-
-  const retry = async () => {
-    setRetrying(true);
-    try {
-      await refreshUser();
-    } finally {
-      setRetrying(false);
-    }
-  };
+  // authChecking covers a background retry too, so the button never invites a click that would only
+  // join a check already in flight.
+  const { authUnavailable, authChecking, refreshUser } = useAuth();
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-gray-950 px-4">
@@ -34,11 +25,11 @@ export function AuthPendingScreen() {
             </p>
             <button
               type="button"
-              onClick={() => { void retry(); }}
-              disabled={retrying}
+              onClick={() => { void refreshUser(); }}
+              disabled={authChecking}
               className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-50"
             >
-              Retry
+              {authChecking ? 'Checking…' : 'Retry'}
             </button>
           </div>
         ) : (

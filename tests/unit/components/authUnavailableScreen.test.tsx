@@ -39,13 +39,20 @@ const ME = { success: true, data: { user: { id: 'u-1', email: 'owner@example.tes
 const MESSAGE = /can.t reach the sign-in service right now/i;
 
 /** /api/auth/me answers from a queue (the last entry repeats); nothing else may be fetched. */
-function meFetch(answers: Array<Response | Error>) {
+function meFetch(answers: Array<Response | Error | Promise<Response>>) {
   return vi.fn(async (url: string) => {
     if (url !== '/api/auth/me') throw new Error(`unexpected fetch ${url}`);
     const next = answers.length > 1 ? answers.shift()! : answers[0]!;
     if (next instanceof Error) throw next;
-    return next.clone();
+    return (await next).clone();
   });
+}
+
+/** A /api/auth/me answer the test releases by hand, so a check can be held in flight. */
+function heldAnswer() {
+  let release!: (r: Response) => void;
+  const answer = new Promise<Response>((resolve) => { release = resolve; });
+  return { answer, release };
 }
 
 function renderPage() {
@@ -89,6 +96,37 @@ describe('AppLayout during an auth-service outage', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(await screen.findByText('customers page')).toBeInTheDocument();
     expect(screen.queryByText(MESSAGE)).toBeNull();
+  });
+
+  it('Retry shows "Checking…" and is disabled while its check is in flight; a second click sends nothing', async () => {
+    const held = heldAnswer();
+    const fetch = meFetch([json(503), held.answer]);
+    vi.stubGlobal('fetch', fetch);
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+    const button = await screen.findByRole('button', { name: 'Checking…' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => { held.release(json(200, ME)); });
+    expect(await screen.findByText('customers page')).toBeInTheDocument();
+  });
+
+  it('a background retry in flight also shows "Checking…" on the button', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const held = heldAnswer();
+    const fetch = meFetch([json(503), held.answer]);
+    vi.stubGlobal('fetch', fetch);
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const button = await screen.findByRole('button', { name: 'Checking…' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await act(async () => { held.release(json(503)); });
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeEnabled();
   });
 
   it('a normal first load shows the page and never the outage message', async () => {

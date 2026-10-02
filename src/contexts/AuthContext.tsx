@@ -4,14 +4,12 @@ import {
   useEffect,
   useState,
   useMemo,
-  useRef,
   ReactNode,
   useCallback,
 } from 'react';
 import type { AuthRole } from '@/lib/auth/types';
 import { clearTenantClientState } from '@/lib/auth/clearTenantClientState';
-import { isAuthUnavailableStatus, AUTH_RETRY_AFTER_SECS } from '@/lib/auth/authUpstream';
-import { log } from '@/lib/logger';
+import { useSessionCheck } from './useSessionCheck';
 
 /**
  * Authenticated user shape returned from /api/auth/me
@@ -37,6 +35,8 @@ interface AuthContextType {
   loading: boolean;
   /** D9: the last /api/auth/me check hit an outage (5xx/408/429/unreachable), not a sign-out */
   authUnavailable: boolean;
+  /** D9: a /api/auth/me check is in flight (Retry shows "Checking…") */
+  authChecking: boolean;
   /** Last authentication error message */
   error: string | null;
   /** True when a valid user session exists */
@@ -115,46 +115,15 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [authUnavailable, setAuthUnavailable] = useState(false);
-  const retry = useRef<{ active: boolean; settled: boolean; timer?: ReturnType<typeof setTimeout> }>({ active: true, settled: false });
-  /** Fetch the session. D9: an outage is not a sign-out: keep the user (AdminLayout redirects on null), keep a
-   *  first check pending and retry it every 5 s; a settled session retries only on focus/interval. */
-  const checkAuth = useCallback(async function check(): Promise<void> {
-    clearTimeout(retry.current.timer);
-    let unavailable = false;
-    try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
-
-      if (res.ok) {
-        const data = await res.json();
-        // Support both { data: { user } } and { data: user } shapes
-        const raw = data.data?.user ?? data.data ?? data.user;
-        if (raw) {
-          setUser(mapApiUser(raw));
-        } else {
-          setUser(null);
-        }
-      } else if (isAuthUnavailableStatus(res.status)) {
-        unavailable = true;
-      } else {
-        setUser(null);
-      }
-    } catch (err) {
-      unavailable = true;
-      log.error('Failed to check auth session', { error: err }, 'auth-context');
-    }
-    setAuthUnavailable(unavailable);
-    if (!unavailable) { retry.current.settled = true; setLoading(false); }
-    else if (retry.current.active && !retry.current.settled) retry.current.timer = setTimeout(() => { void check(); }, AUTH_RETRY_AFTER_SECS * 1000);
-  }, []);
+  const applyUser = useCallback((raw: Record<string, unknown> | null) => setUser(raw ? mapApiUser(raw) : null), []);
+  const { checkAuth, authUnavailable, authChecking, startRetries } = useSessionCheck(applyUser, setLoading);
 
   useEffect(() => {
     if (skipFetch) {
       setLoading(false);
       return;
     }
-    const pending = retry.current;
-    pending.active = true;
+    const stopRetries = startRetries();
 
     void checkAuth();
 
@@ -168,10 +137,9 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);
-      pending.active = false;
-      clearTimeout(pending.timer);
+      stopRetries();
     };
-  }, [checkAuth, skipFetch]);
+  }, [checkAuth, skipFetch, startRetries]);
 
   /**
    * Sign in with email/password credentials.
@@ -276,6 +244,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     user,
     loading,
     authUnavailable,
+    authChecking,
     error,
     isAuthenticated: user !== null,
     login,
@@ -285,7 +254,7 @@ export function AuthProvider({ children, skipFetch = false }: AuthProviderProps)
     hasPermission,
     hasRole,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [user, loading, authUnavailable, error]);
+  }), [user, loading, authUnavailable, authChecking, error]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
