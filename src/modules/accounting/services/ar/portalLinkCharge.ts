@@ -49,13 +49,21 @@ interface Row {
   charge_cents: string | null;
 }
 
+/**
+ * The expiry rule, as a fragment over the aliases `l` (portal_payment_links) and `ci`
+ * (customer_invoices): a link past its stored expiry is expired, except the standing link the
+ * invoice's `payment_url` names, which never expires. `resolveLinkCharge` and the invoice detail's
+ * `has_standing_link` both use it, so what is shown as live is what can be paid.
+ */
+export const linkExpiredSql = () => sql`(COALESCE(l.expires_at < NOW(), false)
+             AND NOT COALESCE(l.charges_balance AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token, false))`;
+
 export async function resolveLinkCharge(
   token: string,
 ): Promise<{ ok: true; charge: LinkCharge } | { ok: false; reason: LinkChargeRefusal }> {
   const rows = (await sql`
     SELECT l.id AS link_id, l.status AS link_status,
-           (COALESCE(l.expires_at < NOW(), false)
-             AND NOT COALESCE(l.charges_balance AND right(ci.payment_url, 12 + length(l.token)) = '/portal/pay/' || l.token, false)) AS expired,
+           ${linkExpiredSql()} AS expired,
            ci.id AS invoice_id, ci.status AS invoice_status, ci.company_id, ci.invoice_number,
            COALESCE(c.name, 'Customer') AS client_name, c.email AS client_email,
            -- NaN sorts above every number, so LEAST would drop it silently; it charges nothing.

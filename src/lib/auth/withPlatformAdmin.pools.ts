@@ -7,6 +7,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
+import { authPoolMax, poolSizeFromEnv } from '@/lib/limits/poolLimits';
 
 let _appPool: pg.Pool | null = null;
 let _adminPool: pg.Pool | null = null;
@@ -25,7 +26,7 @@ export function getAppPool(): pg.Pool {
   if (!url) throw new Error('DATABASE_URL required');
   _appPool = new pg.Pool({
     connectionString: url,
-    max: Number(process.env.AUTH_POOL_MAX ?? 20),
+    max: authPoolMax(),
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000,
     ssl: sslOpt(),
@@ -42,7 +43,7 @@ export function getPlatformAdminPool(): pg.Pool {
   if (!url) throw new Error('PLATFORM_ADMIN_DATABASE_URL required');
   _adminPool = new pg.Pool({
     connectionString: url,
-    max: Number(process.env.PLATFORM_ADMIN_POOL_MAX ?? 10),
+    max: poolSizeFromEnv('PLATFORM_ADMIN_POOL_MAX', 10),
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000,
     ssl: sslOpt(),

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r182-pool-size
+
+
+ Test Files  4 passed (4)
+      Tests  116 passed (116)
+   Start at  10:23:49
+   Duration  1.42s (transform 1.02s, setup 0ms, import 825ms, tests 1.02s, environment 1ms)
+

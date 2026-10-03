@@ -98,3 +98,57 @@ export async function ensureStandingLink(
   `;
   return { ok: true, token, paymentUrl };
 }
+
+/**
+ * Make sure no standing link on the invoice is live, and clear its `payment_url` and
+ * `online_payment_enabled`, so the page stops offering one and the next Pay Now mints a fresh link.
+ * Takes the same invoice lock as ensureStandingLink, so it cannot race a concurrent Pay Now.
+ *
+ * Cancels EVERY active `charges_balance` link on the invoice, not only the one `payment_url`
+ * names: before R-177 each Pay Now click minted one (with a 30-day expiry) and they stay payable.
+ * Explicit-amount links are left alone, and so is a checkout already open at Paystack: a payment
+ * already started still settles as before.
+ *
+ * Succeeds with the number cancelled (0 when `payment_url` named a link that was already paid,
+ * cancelled or fixed-amount: the dead URL is still cleared). Refuses only when there is nothing
+ * to do: no active standing link and no `payment_url`. The refusal comes before the first write
+ * (withAuth COMMITs a 4xx).
+ */
+export async function revokeStandingLink(
+  companyId: string,
+  invoiceId: string,
+): Promise<{ ok: true; cancelled: number } | { ok: false; reason: 'invoice_not_found' | 'no_active_link' }> {
+  const locked = await withCustomerInvoiceLock('revokeStandingLink', 'This invoice', async () => (await sql`
+    SELECT ci.payment_url
+    FROM customer_invoices ci
+    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID AND ci.deleted_at IS NULL
+    FOR NO KEY UPDATE OF ci
+  `) as { payment_url: string | null }[]);
+  if (!locked[0]) return { ok: false, reason: 'invoice_not_found' };
+
+  // A statement of its own, after the lock: a call that waited on the lock must see what the other
+  // revoke committed, and a subquery of the locking statement would still read its old snapshot.
+  const live = (await sql`
+    SELECT 1 FROM portal_payment_links
+    WHERE invoice_id = ${invoiceId}::UUID AND status = 'active' AND charges_balance
+      AND EXISTS (SELECT 1 FROM customer_invoices ci
+                  WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID)
+    LIMIT 1
+  `) as unknown[];
+  if (live.length === 0 && !locked[0].payment_url) return { ok: false, reason: 'no_active_link' };
+
+  // One statement, scoped to this invoice (and its company through the invoice); the invoice is
+  // cleared only after it has run, in the same transaction.
+  const cancelled = (await sql`
+    UPDATE portal_payment_links SET status = 'cancelled'
+    WHERE invoice_id = ${invoiceId}::UUID AND status = 'active' AND charges_balance
+      AND EXISTS (SELECT 1 FROM customer_invoices ci
+                  WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID)
+    RETURNING id
+  `) as { id: string }[];
+  await sql`
+    UPDATE customer_invoices SET payment_url = NULL, online_payment_enabled = false, updated_at = NOW()
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+  `;
+  return { ok: true, cancelled: cancelled.length };
+}

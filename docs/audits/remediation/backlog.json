@@ -15094,17 +15094,73 @@
     {
       "area": "lib",
       "affectedPaths": [
+        "src/lib/limits/poolLimits.ts",
+        "src/lib/neon.ts",
+        "src/lib/rateLimitPool.ts",
+        "src/lib/pdf/renderSemaphore.ts",
         "src/lib/auth/authPool.ts",
-        "src/lib/neon.ts"
+        "src/lib/auth/withExtensionToken.ts",
+        "src/lib/auth/withPlatformAdmin.pools.ts",
+        "src/lib/auth/bearerPipeline.ts"
       ],
       "sourceLabel": "R-175 coder report, 2026-10-01",
       "sourceIds": [
         "R-175"
       ],
-      "correctedTrigger": null,
+      "correctedTrigger": "pg-pool 3.13 turns NaN and 0 into 10 (max = max || poolSize || 10), so those were not unbounded. The dangers were Infinity or a huge value (no practical limit) and a negative value (truthy, so the pool is always full and every acquire waits out its timeout).",
       "severityRationale": "Needs a misconfigured environment variable; the shared Postgres has max_connections 100, so an unbounded pool could exhaust it for prod and dev together.",
       "auditedSha": "77e184aa4",
       "currentSha": "77e184aa4",
+      "status": "in-progress",
+      "dependencies": [],
+      "testNames": [
+        "tests/unit/lib/poolSizeFromEnv.test.ts",
+        "tests/unit/lib/poolSizesBuilt.test.ts",
+        "tests/unit/lib/pgPoolMaxPremise.test.ts",
+        "tests/unit/lib/rateLimitPoolMax.test.ts",
+        "tests/unit/lib/pdf/renderSemaphore.test.ts",
+        "tests/unit/lib/neonPoolNestedSql.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-182/fix.md",
+        "docs/audits/remediation/R-182/red.unit.log",
+        "docs/audits/remediation/R-182/green.log",
+        "docs/audits/remediation/R-182/green.round1.log",
+        "docs/audits/remediation/R-182/green.round2.log",
+        "docs/audits/remediation/R-182/green.round3.log",
+        "docs/audits/remediation/R-182/green.round4.log",
+        "docs/audits/remediation/R-182/red.round5.log",
+        "docs/audits/remediation/R-182/red.round5.ratelimit.log",
+        "docs/audits/remediation/R-182/green.round6.log",
+        "docs/audits/remediation/R-182/green.round7.log",
+        "docs/audits/remediation/R-182/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/617",
+      "deployedSha": null,
+      "historicalDataImpact": "None.",
+      "canonicalItem": null,
+      "branch": "fix/r182-pool-size-validation-20261002",
+      "id": "R-182",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "AUTH_POOL_MAX (and the other pool-size variables) are read without validation; a bad value makes the pool unbounded",
+      "claim": "src/lib/auth/authPool.ts reads AUTH_POOL_MAX with a plain Number(); a non-numeric value becomes NaN and pg treats a NaN max as no limit. PG_POOL_MAX and PLATFORM_ADMIN_POOL_MAX have the same shape. R-175's RATE_LIMIT_POOL_MAX validates 1-100 and falls back with a warning.",
+      "processNotes": "2026-10-02: found while adding RATE_LIMIT_POOL_MAX (R-175). Not fixed. Also relevant: the shared Postgres (port 7772) serves prod, isaflow_dev, CI and Supabase services with max_connections 100; ~42-52 in use when quiet, and a master Golden Paths run on 2026-10-02 hit 'remaining connection slots are reserved'."
+    },
+    {
+      "area": "lib",
+      "affectedPaths": [
+        "src/lib/neon.ts"
+      ],
+      "sourceLabel": "R-182 blind review, 2026-10-02",
+      "sourceIds": [
+        "R-182"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Maintainability only: no behaviour defect; the file is over the repo's 300-line limit.",
+      "auditedSha": "0c0c6c0a8",
+      "currentSha": "0c0c6c0a8",
       "status": "candidate",
       "dependencies": [],
       "testNames": [],
@@ -15115,12 +15171,12 @@
       "historicalDataImpact": "None.",
       "canonicalItem": null,
       "branch": null,
-      "id": "R-182",
+      "id": "R-184",
       "severity": "low",
       "reportedSeverity": "low",
-      "title": "AUTH_POOL_MAX (and the other pool-size variables) are read without validation; a bad value makes the pool unbounded",
-      "claim": "src/lib/auth/authPool.ts reads AUTH_POOL_MAX with a plain Number(); a non-numeric value becomes NaN and pg treats a NaN max as no limit. PG_POOL_MAX and PLATFORM_ADMIN_POOL_MAX have the same shape. R-175's RATE_LIMIT_POOL_MAX validates 1-100 and falls back with a warning.",
-      "processNotes": "2026-10-02: found while adding RATE_LIMIT_POOL_MAX (R-175). Not fixed. Also relevant: the shared Postgres (port 7772) serves prod, isaflow_dev, CI and Supabase services with max_connections 100; ~42-52 in use when quiet, and a master Golden Paths run on 2026-10-02 hit 'remaining connection slots are reserved'."
+      "title": "src/lib/neon.ts is 475 lines, over the 300-line file limit",
+      "claim": "src/lib/neon.ts holds the pool, the lazy sql template, sql.transaction, withTransaction, withSavepoint and test helpers in one file of 475 lines (474 before R-182 added one import). CLAUDE.md sets a 300-line maximum. The oversize is older than R-182 and was left alone there.",
+      "processNotes": "2026-10-02: registered, not fixed. A split would need to keep every import path of @/lib/neon working."
     },
     {
       "area": "billing",
