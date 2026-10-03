@@ -55,7 +55,7 @@ Added the ESLint import restriction (mutants M6a, M6b), the `paystack-export-typ
   `files` would have failed the step with TS6053 there (and was the cause of an earlier unexplained rc=2).
   Removed; proven in a `git archive` tree without it (`gates.log`: rc=0, and M8 still TS6053). Template-literal
   `import(\`...paystackHttp\`)` is caught (M12). Known harmless gap: `typeof import('...')` type queries.
-- Mutants M1-M5, M6a, M6b, M7-M15 (16): all killed (M13: the template selector flags `import(`@/x/paystackHttp`)` and `import(`${b}/paystackTransactions`)`, not `import(`./paystackClient`)`). Unit and gate logs are at 9662a10d3; `full-unit.log` and
+- Mutants M1-M5, M6a, M6b, M7-M15 (16): all killed (M13: the template selector flags `import(`@/x/paystackHttp`)` and `import(`${b}/paystackTransactions`)`, not `import(`./paystackClient`)`). Round 3-4 unit and gate logs were at 9662a10d3 (superseded: see Round 5, 81c4d0466); `full-unit.log` and
   `regression.int.log` predate rounds 1-3 (no moved code changed since).
 
 ## Round 5
