@@ -3,7 +3,7 @@
  *
  * A pack PDF render holds its request's withAuth pool connection for the whole
  * render AND the headless browser re-enters the same API for the report, so
- * unbounded concurrency exhausts the auth pool (AUTH_POOL_MAX, default 20) and
+ * unbounded concurrency exhausts the auth pool (AUTH_POOL_MAX, default 10) and
  * stalls the API for every tenant. The per-company export rate limit does not
  * cover this: one tenant's allowance is already enough, and the damage is
  * cross-tenant.
@@ -34,6 +34,9 @@ function deferred() {
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
+  // A pool of 20 (ceiling 5) keeps these tests about the queue, not the default
+  // pool: at the default of 10 the ceiling is 2 and clamps the 3 renders asked for.
+  process.env.AUTH_POOL_MAX = '20';
   process.env.PDF_MAX_CONCURRENT_RENDERS = '3';
   process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '10000';
 });
@@ -169,7 +172,14 @@ describe('bounds derived from the auth pool', () => {
   });
 
   it('caps concurrency at a quarter of the pool, so renders cannot take it all', () => {
+    delete process.env.AUTH_POOL_MAX;
     expect(renderSlotCeilings().maxConcurrent).toBe(Math.floor(DEFAULT_AUTH_POOL_MAX / 4));
+  });
+
+  it('at the default pool of 10 the ceiling is 2, below the default of 3 renders (R-188)', () => {
+    delete process.env.AUTH_POOL_MAX;
+    expect(DEFAULT_AUTH_POOL_MAX).toBe(10);
+    expect(renderSlotCeilings().maxConcurrent).toBe(2);
   });
 
   it('tracks a changed pool size rather than holding a stale copy', () => {
