@@ -44,9 +44,10 @@ afterAll(async () => { await cleanup(companies); });
 
 describe('R-186: a skipped invoice keeps its journals, or the run refuses', () => {
   it.each([
-    // The realistic cancel: the invoice's journal is 'reversed' (the run would not move it),
-    // its reversal is posted before the cutoff (the run would).
-    ['its reversal is in the window', 'forward', async (c: string) => {
+    // LEGACY rows: an original left at status='reversed' (the run would not move it) that the
+    // invoice still points at, its reversal posted before the cutoff (the run would). Today's
+    // cancel keeps the original 'posted' and NULLs the link: r186-archive-current-cancel.
+    ['its reversal is in the window (legacy status=reversed original)', 'forward', async (c: string) => {
       const original = await addJournal(c, OLD_DAY, 'reversed');
       await addJournal(c, OLD_DAY, 'posted', original);
       return original;
@@ -77,10 +78,11 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     expect(await archivedInvoices(c)).toEqual([]);
   }, 40000);
 
-  it('completes when no journal of the skipped invoice is one the run moves', async () => {
+  it('completes when no journal of the skipped invoice is one the run moves (legacy status=reversed original)', async () => {
     const c = co.outside;
     const { skipped, free } = await skippedInvoice(c);
-    // 'reversed' in the window (not moved), its reversal after the cutoff (not moved).
+    // LEGACY rows: a status='reversed' original in the window (not moved), its reversal after
+    // the cutoff (not moved).
     const original = await addJournal(c, OLD_DAY, 'reversed');
     await addJournal(c, LATE_DAY, 'posted', original);
     await linkJournal(skipped, original);

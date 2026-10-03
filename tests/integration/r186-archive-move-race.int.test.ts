@@ -10,7 +10,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { executeArchive } from '@/modules/accounting/services/core/archiveExecutionService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { CUTOFF, addCompany, addInvoice, addUser, cleanup, failureOf, ids, pool, user } from './r186-archive.helpers';
+import {
+  CUTOFF, OLD_DAY, addCompany, addInvoice, addJournal, addPaystackRequest, addUser, cleanup, failureOf, ids, linkJournal, pool, user,
+} from './r186-archive.helpers';
 
 const hooks = vi.hoisted(() => ({ afterSelection: null as null | (() => Promise<void>), fired: 0 }));
 vi.mock('@/lib/neon', async (orig) => {
@@ -36,7 +38,8 @@ assertDisposable();
 const coReopen = randomUUID();
 const coRedate = randomUUID();
 const coConflict = randomUUID();
-const companies = [coReopen, coRedate, coConflict];
+const coEscape = randomUUID();
+const companies = [coReopen, coRedate, coConflict, coEscape];
 
 beforeAll(async () => {
   await addUser();
@@ -80,5 +83,23 @@ describe('R-186: the move re-checks what it selected', () => {
     expect(await live(coConflict)).toEqual([clash]);
     const kept = (await pool.query('SELECT invoice_number FROM archive_customer_invoices WHERE id=$1', [clash])).rows;
     expect(kept).toEqual([{ invoice_number: 'R186-OLD' }]);
+  }, 40000);
+
+  it('a skipped invoice reopened after the selection still keeps its journal: the run refuses', async () => {
+    const skipped = await addInvoice(coEscape, 'paid');
+    await addPaystackRequest(coEscape, skipped);
+    const journal = await addJournal(coEscape, OLD_DAY, 'posted');
+    await linkJournal(skipped, journal);
+    hooks.fired = 0;
+    hooks.afterSelection = async () => {
+      await pool.query("UPDATE customer_invoices SET status = 'approved', amount_paid = 0 WHERE id = $1", [skipped]);
+    };
+
+    const failure = await failureOf(coEscape, () => executeArchive(coEscape, CUTOFF, user));
+
+    expect(hooks.fired, 'the hook did not fire').toBe(1);
+    expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+    expect(await ids('SELECT id FROM gl_journal_entries WHERE company_id=$1', [coEscape])).toEqual([journal]);
+    expect(await ids('SELECT id FROM archive_gl_journal_entries WHERE company_id=$1', [coEscape])).toEqual([]);
   }, 40000);
 });

@@ -1,0 +1,35 @@
+HEAD: bbf439af447812cac55bac2fba3be99349c4be80 (code at HEAD, unchanged; move-race test from the working tree); fixture postgresql://postgres@127.0.0.1:55932/isaflow_schema_fixture; load 34.65
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=bbf439af447812cac55bac2fba3be99349c4be80 load=34.65
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+ ❯ tests/integration/r186-archive-move-race.int.test.ts (4 tests | 1 failed) 485ms
+     × a skipped invoice reopened after the selection still keeps its journal: the run refuses 71ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-move-race.int.test.ts > R-186: the move re-checks what it selected > a skipped invoice reopened after the selection still keeps its journal: the run refuses
+AssertionError: expected undefined to be 'ARCHIVE_SKIPPED_INVOICE_JOURNAL' // Object.is equality
+
+- Expected:
+"ARCHIVE_SKIPPED_INVOICE_JOURNAL"
+
++ Received:
+undefined
+
+ ❯ tests/integration/r186-archive-move-race.int.test.ts:101:26
+     99|
+    100|     expect(hooks.fired, 'the hook did not fire').toBe(1);
+    101|     expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+       |                          ^
+    102|     expect(await ids('SELECT id FROM gl_journal_entries WHERE company_…
+    103|     expect(await ids('SELECT id FROM archive_gl_journal_entries WHERE …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  11:04:41
+   Duration  1.20s (transform 241ms, setup 0ms, import 410ms, tests 485ms, environment 0ms)
+
