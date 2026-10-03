@@ -54,12 +54,30 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'WHERE provisional_je_id = ${payment.settlesProvisionalJeId}::UUID AND company_id = ${companyId}::UUID',
     ],
   },
+  'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': {
+    why: 'reads only: the cancel leaves an evidenced provisional\'s line out of its revert (D10 round 2); never writes the link',
+    lines: [
+      "AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)) AS matched",
+      "AND status = 'matched' AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)",
+    ],
+  },
+  'src/modules/accounting/services/bank/bankChainLineReversal.ts': {
+    why: 'unlink only (= NULL) or unchanged: the bank reversal clears the link of a line whose provisional the GL already took out (D10 O9)',
+    lines: ['provisional_je_id = CASE WHEN ${clearProvisional} THEN NULL ELSE provisional_je_id END,'],
+  },
   'src/modules/accounting/services/bank/provisionalDismissService.ts': {
     why: 'unlink only (= NULL), keyed on the link; the lock peek reads it (D8 round 6)',
     lines: [
       'WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id',
       "SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()",
       'WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID',
+    ],
+  },
+  'src/modules/accounting/services/bank/bankTxStatusMutations.ts': {
+    why: 'reads only: a match onto the bank leg of a provisional whose own line holds it is refused (D10 round 2)',
+    lines: [
+      '// D10 (brk-d10 O-a): a bank-first provisional\'s own statement line holds its cash through `provisional_je_id`, not',
+      'WHERE provisional_je_id = ${root}::UUID AND company_id = ${companyId}::UUID AND id <> ${bankTxId}::UUID',
     ],
   },
   'src/modules/accounting/services/bank/feed/bankIngestionPersistence.ts': {

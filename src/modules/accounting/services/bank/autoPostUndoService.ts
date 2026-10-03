@@ -22,6 +22,7 @@ import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
+import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 
 type Row = DbRow;
@@ -145,6 +146,10 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
       // read as paid. `reverseReconciledTransaction` unwinds those BEFORE its
       // contra; the undo does the same here, so the subledger agrees with the
       // ledger when the line is finished. Idempotent (`status <> 'cancelled'`).
+      // A provisional's line (no matched journal line) is re-decided under X's chain-head LOCK, after the line lock
+      // (D10 round 2, brk-d10 O-b): the state above is an unlocked read, and a re-reversal landing before the reset
+      // below would put X back in force under a line this frees. Now it waits; standing again -> skipped as above.
+      if (!tx.matched_journal_line_id && (await lockChainHead(companyId, jeId))?.standing) return { kind: 'reReversed' };
       await unwindBankAllocationApplication(companyId, jeId);
     }
     if (state === 'live' && tx.matched_journal_line_id) {

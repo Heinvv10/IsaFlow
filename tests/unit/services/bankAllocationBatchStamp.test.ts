@@ -122,7 +122,8 @@ describe('reverseReconciledTransaction', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray) => {
       const t = textOf(strings);
       statements.push(t);
-      if (t.includes('FROM bank_transactions')) {
+      // The locked read (D10: the unlocked chain peek before it finds no matched line here).
+      if (t.includes('FROM bank_transactions') && t.includes('FOR UPDATE')) {
         return Promise.resolve([{ id: TX, status: 'allocated', matched_journal_line_id: null }]);
       }
       return Promise.resolve([]);
