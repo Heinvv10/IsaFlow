@@ -45,9 +45,13 @@ outcome, in its own savepoint.
   'system:paystack-receipt:v1' AND reference IS NOT NULL AND status IS DISTINCT FROM 'reversed'`.
   A DO block first counts the duplicate groups and `RAISE EXCEPTION`s with the count. A bare
   `CREATE UNIQUE INDEX` would also fail, but names only one key. The census query is in the
-  header. `SET LOCAL lock_timeout = '5s'`: the build takes a SHARE lock on `gl_journal_entries`.
+  header. The build holds a SHARE lock on `gl_journal_entries` (blocks journal writes) for a full
+  scan. `SET LOCAL lock_timeout = '5s'` bounds only the WAIT for that lock; `SET LOCAL
+  statement_timeout = '120s'` (PR #626 review) bounds how long the census scan and the build may
+  then run while holding it. Either cancels the statement and the file rolls back. The prod row
+  count was not measured here; the fixture has 0 rows, so its timing proves nothing about prod.
   Not `CONCURRENTLY`, because the runner wraps each file in a transaction.
-- **Code:** the guard SELECT stays as the fast path (`feeJournalExists`, same predicate as the
+- **Code:** the guard SELECT stays as the fast path (`findFeeJournal`, same predicate as the
   index). The create and post run in `withSavepoint('gateway_fee_post')`. On ANY failure the
   journal is re-read: if it is present, another delivery posted it, so log at info and return; if
   it is absent, rethrow the original error. No error code or message is matched. The savepoint is
@@ -66,6 +70,11 @@ outcome, in its own savepoint.
   - Either way the re-read (READ COMMITTED, new statement) decides by outcome; it does not care
     which constraint fired. The winner holds nothing the loser needs before its insert on the
     dedupe path (no request UPDATE; the link spend is a no-op once spent).
+- **Stand-down detail (PR #626 review):** the re-read returns the row. A DRAFT row stops the post
+  exactly as before (same semantics as the guard) but logs `warn` "a DRAFT fee journal already
+  holds the reference" with its id, not `info` "already posted". The swallowed error's `code` is
+  read null-safely: a thrown `null` used to raise a TypeError in the log line instead of standing
+  down; with no journal found it is rethrown as the same `null`.
 - **Logs on a lost race:** `journalEntryCrudService` logs `error` "Failed to create journal entry"
   with the 23505, then the stand-down `info` "Gateway fee already posted by a concurrent delivery"
   carries the swallowed `code` and message (no stack). The shared service is not changed; the error
@@ -97,7 +106,7 @@ applied, or 852 refuses.
     stand-down logged with `code` 23505, exactly 1 fee journal; A rolls back → A 500, B posts,
     exactly 1 fee journal, no stand-down.
   - Company scope: a live fee journal for the SAME reference in another company does not stop
-    A's fee (pins `company_id` in `feeJournalExists`; killed by M12).
+    A's fee (pins `company_id` in `findFeeJournal`, then named `feeJournalExists`; killed by M12).
   - Index predicate: refuses a second live fee journal (posted/posted, draft/posted,
     NULL/posted). Admits two NULL-reference journals with the agent (receipts), another agent with
     the same reference, and a `reversed` row. Round 0's NULL case bound `status ?? 'posted'`, so it

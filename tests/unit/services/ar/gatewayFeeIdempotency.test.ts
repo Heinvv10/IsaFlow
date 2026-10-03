@@ -51,6 +51,7 @@ beforeEach(() => {
   post.mockReset().mockImplementation(async () => { h.calledIn.push(`post:${h.inSavepoint}`); });
   sqlMock.mockClear();
   vi.mocked(log.info).mockClear();
+  vi.mocked(log.warn).mockClear();
 });
 
 describe('postGatewayFee when the create+post fails', () => {
@@ -72,6 +73,29 @@ describe('postGatewayFee when the create+post fails', () => {
     await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
     expect(log.info).toHaveBeenCalledWith('Gateway fee already posted by a concurrent delivery',
       { reference: 'r185_ref', fee: 3, code: '40P01', error: 'deadlock detected' }, 'accounting');
+  });
+
+  it('a thrown null with the journal present: stands down, no TypeError reading its code', async () => {
+    create.mockRejectedValueOnce(null);
+    h.guardRows = [[], [{ id: 'je-winner', status: 'posted' }]];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(log.info).toHaveBeenCalledWith('Gateway fee already posted by a concurrent delivery',
+      { reference: 'r185_ref', fee: 3, code: undefined, error: 'null' }, 'accounting');
+  });
+
+  it('a thrown null with no fee journal on re-read: rethrows the null itself', async () => {
+    create.mockRejectedValueOnce(null);
+    h.guardRows = [[], []];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).rejects.toBeNull();
+  });
+
+  it('the row found is a DRAFT: stands down (same semantics) but warns that it is a draft, not posted', async () => {
+    create.mockRejectedValueOnce(uniqueViolation());
+    h.guardRows = [[], [{ id: 'je-draft', status: 'draft' }]];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(log.info).not.toHaveBeenCalledWith('Gateway fee already posted by a concurrent delivery', expect.anything(), 'accounting');
+    expect(log.warn).toHaveBeenCalledWith('Gateway fee not posted — a DRAFT fee journal already holds the reference',
+      expect.objectContaining({ reference: 'r185_ref', journalEntryId: 'je-draft', code: '23505' }), 'accounting');
   });
 
   it('23505 but no fee journal on re-read: rethrows the original error', async () => {
