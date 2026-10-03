@@ -20,7 +20,7 @@ import {
 assertDisposable();
 
 const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), stitch: randomUUID(), recorded: randomUUID(), outside: randomUUID(),
-  tenant: randomUUID(), foreign: randomUUID() };
+  tenant: randomUUID(), through: randomUUID(), foreign: randomUUID() };
 const companies = Object.values(co);
 const REFUSAL = /payment request/i;
 
@@ -131,5 +131,20 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     expect(result.invoicesSkipped).toBe(2);
     expect(await archivedInvoices(c)).toEqual([free]);
     expect(await liveInvoices(c)).toEqual([skipped, pointsAway].sort());
+  }, 40000);
+
+  it('does not walk a reversal chain THROUGH another company\'s journal back into this one', async () => {
+    const c = co.through;
+    const { skipped, free } = await skippedInvoice(c);
+    const own = await addJournal(c, LATE_DAY, 'posted');
+    await linkJournal(skipped, own);
+    // Forged: a foreign journal reverses ours, and an in-window journal of ours reverses the foreign one.
+    const foreign = await addJournal(co.foreign, LATE_DAY, 'posted', own);
+    await addJournal(c, OLD_DAY, 'posted', foreign);
+
+    const result = await drive(c, () => executeArchive(c, CUTOFF, user), { commit: true });
+
+    expect(result.invoicesSkipped).toBe(1);
+    expect(await archivedInvoices(c)).toEqual([free]);
   }, 40000);
 });
