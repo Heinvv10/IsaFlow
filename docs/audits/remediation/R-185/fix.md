@@ -115,13 +115,20 @@ applied, or 852 refuses.
 | `red.int.log` | int, HEAD code, no 852 | 2 failed / 2 passed (race: 2 fee journals; index probe: no 23505) |
 | `migration.fixture.log` | duplicates → RAISE (rolled back); clean → applied; re-run no-op | as stated |
 | `pg-23505.shape.log` | node-postgres error for the index | code 23505, constraint `ux_gl_je_gateway_fee_reference` |
-| `green.unit.log` | unit, fix | 9/9 (2 files) |
+| `green.unit.log` | unit, fix (round 0, `1910c157b` + working tree) | 9/9 (2 files) |
 | `green.int.log` | int, fix + 852 | 4/4 |
 | `mutations.log` | 8 mutants, baselines before and after green | 8/8 RED |
 | `regression.unit.log` | `tests/unit/services/ar/gateway*`, `tests/unit/services/billing/paystack*` | 9 files, 126/126 |
 | `regression.int.log` | r181-*, k-036, r167*, r178*, link-revoke*, k-035, k095*, k096*, r185 | 22 files, 207/211; the 4 failures are all in k-035 |
 | `regression.k035-attribution.int.log` | k-035 on HEAD code, no 852 | the same 4 failures: pre-existing |
 | `gates.log` | migration-naming, migration-rls, check-client-responses, agent-docs, type-check, lint | all exit 0 |
+| **Round 1, at committed `0c1543d33`** (code tree clean; only these logs untracked) | | |
+| `green.round1.unit.log` | unit | 9/9 (2 files) |
+| `green.round1.int.log` | int, 852 applied | 6/6 |
+| `mutations.round1.log` | M1-M10, baselines before and after green | 10/10 RED. M9 (`<> 'reversed'` in index and guard) is the NULL-status red; M10 (create/post outside the savepoint callback) the unit red. M1 kills the committed-winner race and the index probe; the uncommitted-winner interleavings survive M1 by design (their arbiter is the entry-number index) |
+| `regression.round1.unit.log` | same 9 files | 126/126 |
+| `regression.round1.int.log` | same 22 files | 209/213; the same 4 pre-existing k-035 failures |
+| `gates.round1.log` | type-check, lint, check-client-responses, agent-docs, migration-naming | all exit 0 |
 
 ## Recorded, not changed
 

@@ -1,0 +1,6 @@
+HEAD: 0c1543d33f6d3d01170a62351f92699594c31eb9 (clean tree: 0 changes); fixture none; load 37.55
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r185
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+   Start at  10:40:47
+   Duration  3.18s (transform 2.86s, setup 0ms, import 4.41s, tests 69ms, environment 9ms)
