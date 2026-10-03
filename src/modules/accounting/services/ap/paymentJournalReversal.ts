@@ -73,9 +73,12 @@ async function assertNotReconciled(companyId: string, row: DbRow, label: string)
 
 /**
  * FIRST, before the document lock: every pre-write refusal about the journal,
- * then a lock on each bank line matched to any journal of its chain. `label` names the document.
+ * then a lock on each bank line matched to any journal of its chain. `label` names the document; `requestedDate`
+ * is the reversal date a caller asked for (the MCP void's `reversal_date`, D10), checked as `reverseJournalEntry` will.
  */
-export async function lockBankLegOf(companyId: string, journalId: string, label: string): Promise<BankLeg> {
+export async function lockBankLegOf(
+  companyId: string, journalId: string, label: string, requestedDate?: string,
+): Promise<BankLeg> {
   const je = (await sql`
     SELECT entry_date, reversed_at, status FROM gl_journal_entries
     WHERE id = ${journalId}::UUID AND company_id = ${companyId}::UUID
@@ -103,15 +106,15 @@ export async function lockBankLegOf(companyId: string, journalId: string, label:
   if (je[0].status !== 'posted') {
     throw new SupplierPaymentRefusal(`${label}'s journal is ${String(je[0].status)}, not posted — there is nothing to reverse.`);
   }
-  // The date exactly as `reverseJournalEntry` will choose it: the original's if
+  // The date exactly as `reverseJournalEntry` will choose it: the one requested, else the original's if
   // that period is open, otherwise today. Closed or missing → 400, pre-write.
   // With the lines: a VAT-carrying journal whose default date is in a locked
   // VAT period rolls forward here exactly as it will in reverseJournalEntry,
   // and refuses pre-write when nothing up to today can take it.
   let reversalDate: string;
   try {
-    reversalDate = await resolveReversalDate(
-      companyId, fmtDate(target.entryDate as string | Date), undefined, await loadJournalVatLines(companyId, target.id));
+    reversalDate = await resolveReversalDate(companyId, fmtDate(target.entryDate as string | Date), requestedDate,
+      await loadJournalVatLines(companyId, target.id));
   } catch (err) {
     // R-012: the route answers only typed refusals with a 4xx; this one is too.
     if (err instanceof ReversalBeforeOriginalError) throw new SupplierPaymentRefusal(err.message);

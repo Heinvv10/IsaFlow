@@ -26,6 +26,7 @@ import {
 } from './bankTxLock';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
+import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -83,10 +84,11 @@ export class BankMatchTargetError extends Error {
  * Lock the row, then refuse if it has already been allocated. `verb` is the
  * caller's own word for what it was about to do, so the message reads naturally.
  */
-async function lockForStatusWrite(companyId: string, bankTxId: string, verb: string): Promise<Row> {
+async function lockForStatusWrite(companyId: string, bankTxId: string, verb: ProvisionalLineVerb): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
   assertFeedPosted(row, verb);
+  await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
     throw new BankTransactionAllocatedError(bankTxId, status, verb);
