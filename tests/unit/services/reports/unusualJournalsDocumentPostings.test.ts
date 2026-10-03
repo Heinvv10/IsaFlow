@@ -55,11 +55,14 @@ describe('the round-number test', () => {
       // future one is tested until someone decides otherwise.
       row('ec', 'auto_expense_claim'), row('ad', 'auto_asset_disposal'), row('lp', 'auto_loan_payment'),
       row('po', 'auto_purchase_order'), row('grn', 'auto_grn'),
+      // An expensed asset's cost: the capitalisation threshold is per company,
+      // so it is not always under the round-number floor.
+      row('ae', 'auto_asset_expense'),
     )).toEqual([
       ['m', 'round_number'], ['rec', 'round_number'], ['imp', 'round_number'], ['vat', 'round_number'],
       ['ob', 'round_number'], ['adj', 'round_number'], ['wo', 'round_number'], ['u', 'round_number'],
       ['n', 'round_number'], ['ec', 'round_number'], ['ad', 'round_number'], ['lp', 'round_number'],
-      ['po', 'round_number'], ['grn', 'round_number'],
+      ['po', 'round_number'], ['grn', 'round_number'], ['ae', 'round_number'],
     ]);
   });
 
@@ -77,7 +80,7 @@ describe('the round-number test', () => {
 describe('the classification', () => {
   it('names exactly these sources as postings generated from documents', () => {
     expect([...DOCUMENT_POSTING_SOURCES].sort()).toEqual([
-      'auto_asset_expense', 'auto_bank_recon', 'auto_bank_transfer', 'auto_batch_payment', 'auto_credit_note',
+      'auto_bank_recon', 'auto_bank_transfer', 'auto_batch_payment', 'auto_credit_note',
       'auto_depreciation', 'auto_expense_receipt', 'auto_invoice', 'auto_payment', 'auto_payroll',
       'auto_supplier_invoice', 'auto_supplier_payment', 'auto_vat_late_claim', 'auto_vat_submission', 'year_end',
     ]);

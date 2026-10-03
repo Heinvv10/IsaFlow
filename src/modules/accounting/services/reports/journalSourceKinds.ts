@@ -46,7 +46,7 @@ export const JOURNAL_SOURCE_KINDS: Record<GLEntrySource, JournalSourceKind> = {
   auto_expense_receipt: 'document',
   auto_bank_transfer: 'document', // the bank line's amount (bankAllocationService)
   auto_asset_disposal: 'entered',
-  auto_asset_expense: 'document', // under the capitalisation threshold, so under the R10 000 floor
+  auto_asset_expense: 'entered', // the asset's cost; the capitalisation threshold is per company, not a cap under the floor
   auto_gl_import: 'entered',
   year_end: 'document', // computed: the closing of the period's balances
   auto_vat_late_claim: 'document',
