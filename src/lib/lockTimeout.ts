@@ -1,3 +1,7 @@
+import { isLockContention } from '@/modules/accounting/services/core/lockContention';
+import { isReceiptHeldRow } from '@/modules/accounting/services/ar/receiptRefusal';
+import { isSupplierPaymentHeldRow } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+
 /**
  * Is this error one of the row-lock timeouts the services throw by hand?
  *
@@ -40,4 +44,22 @@ export function isLockTimeoutError(err: unknown): err is Error & { code: string 
 export function isCallerSafeError(err: unknown): err is Error {
   if (!(err instanceof Error)) return false;
   return (err as { code?: unknown }).code === undefined || isLockTimeoutError(err);
+}
+
+/**
+ * ONE predicate for "a peer held the row" — every way a lock wait surfaces (D11):
+ *   · a typed lock timeout (`isLockTimeoutError`);
+ *   · `CaptureEventLockedError` (`CAPTURE_EVENT_LOCKED`);
+ *   · a settlement refusal flagged `held` (a bill / invoice / provisional a peer holds);
+ *   · a raw SQLSTATE 55P03 (the lock_timeout elapsed) or 40P01 (this transaction was the deadlock victim).
+ *
+ * A route answers it 503 + Retry-After (`respondIfLockTimeout`); a service that catches around a savepoint and would
+ * otherwise treat any failure as a refusal must RE-THROW it, so the whole request rolls back and a retry succeeds.
+ * `retryable` WITHOUT `held` is a state conflict and is not in here.
+ */
+export function isHeldRowError(err: unknown): boolean {
+  if (isLockTimeoutError(err)) return true;
+  if (isReceiptHeldRow(err) || isSupplierPaymentHeldRow(err)) return true;
+  if (isLockContention(err)) return true;
+  return err instanceof Error && (err as { code?: unknown }).code === 'CAPTURE_EVENT_LOCKED';
 }
