@@ -41,6 +41,7 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', async 
   return { ...actual, matchTransaction: matchMock };
 });
 
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import {
   BankTransactionAllocatedError,
   BankMatchTargetError,
@@ -156,10 +157,32 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     });
     const result = await autoMatchTransactions(COMPANY, BANK_GL);
     expect(insideSavepoint, 'every matchTransaction ran inside a savepoint').toEqual([true, true, true]);
-    expect(sp.names.every((n) => n === 'auto_match_row')).toBe(true);
+    expect(sp.names.filter((n) => n === 'auto_match_row')).toHaveLength(3);
+    expect(sp.names[0]).toBe('auto_match_run');
     expect(sp.rolledBack, 'only the held candidate rolled back').toBe(1);
     expect(result.matched).toBe(2);
     expect(result.skippedRaced).toBe(1);
+  });
+
+  it('skips D10\'s provisional-line refusal (a typed BankAllocationRefusal) for one candidate', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankAllocationRefusal('This bank line is booked by provisional journal JE-1');
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRefused).toBe(1);
+  });
+
+  it('RECONCILIATION_NOT_FOUND (the session was cancelled) re-throws and rolls the whole run savepoint back', async () => {
+    const err = new BankMatchTargetError('RECONCILIATION_NOT_FOUND', 'Reconciliation r not found');
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw err;
+      return { id: txId };
+    });
+    await expect(autoMatchTransactions(COMPANY, BANK_GL, 'r')).rejects.toBe(err);
+    expect(sp.rolledBack, 'the run savepoint rolled back (the earlier match is discarded)').toBeGreaterThanOrEqual(1);
+    expect(sp.names).toContain('auto_match_run');
   });
 
   it('re-throws when EVERY attempted candidate was held', async () => {

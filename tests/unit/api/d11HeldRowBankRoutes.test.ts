@@ -36,8 +36,9 @@ vi.mock('@/modules/accounting/services/ar/receiptApplicationService', () => ({
 
 import { sql } from '@/lib/neon';
 import {
-  allocateTransaction, matchTransaction, unmatchTransaction, excludeTransaction, splitAllocateTransaction,
+  allocateTransaction, matchTransaction, unmatchTransaction, excludeTransaction, splitAllocateTransaction, autoMatchTransactions,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 import { undoAnyway } from '@/modules/accounting/services/bank/autoPostHandCorrection';
 import { confirmSupplierInvoiceMatch } from '@/modules/accounting/services/bank/confirmSupplierMatch';
@@ -216,5 +217,21 @@ describe('D11 supplier-allocations / customer-allocations', () => {
   it('customer: a retryable state conflict stays 409', async () => {
     vi.mocked(planReceiptApplication).mockRejectedValueOnce(stateRefusal());
     expect((await call(customerAllocations, cBody)).statusCode).toBe(409);
+  });
+});
+
+describe('D11 round 7: auto_match run-level failures', () => {
+  const body = { action: 'auto_match', bankAccountId: ID };
+  it('an unexpected (untyped) error is rethrown for withErrorHandler (500, rollback), never a 400 that commits', async () => {
+    vi.mocked(autoMatchTransactions).mockRejectedValueOnce(new Error('FK violation'));
+    await expect(call(bankAction, body)).rejects.toThrow('FK violation');
+  });
+  it('a cancelled session (RECONCILIATION_NOT_FOUND) -> 404', async () => {
+    vi.mocked(autoMatchTransactions).mockRejectedValueOnce(new BankMatchTargetError('RECONCILIATION_NOT_FOUND', 'gone'));
+    expect((await call(bankAction, { ...body, reconciliationId: ID2 })).statusCode).toBe(404);
+  });
+  it('a held row is still 503', async () => {
+    vi.mocked(autoMatchTransactions).mockRejectedValueOnce(bankLine());
+    expectHeld(await call(bankAction, body));
   });
 });

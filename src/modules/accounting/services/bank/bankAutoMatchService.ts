@@ -10,6 +10,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { isHeldRowError } from '@/lib/lockTimeout';
+import { isBankAllocationRefusal } from './bankAllocationRefusal';
 import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
@@ -37,6 +38,8 @@ export async function autoMatchTransactions(
         AND company_id = ${companyId}::UUID
         AND status = 'imported'
         AND feed_state = 'posted'
+        -- D11 round 7: a line still linked to a provisional journal is D10's to resolve (refused by its guard), never offered.
+        AND provisional_je_id IS NULL
         AND (${sessionId}::UUID IS NULL OR (
           (reconciliation_id IS NULL OR reconciliation_id = ${sessionId}::UUID)
           AND transaction_date <= (SELECT r.statement_date FROM bank_reconciliations r
@@ -90,52 +93,58 @@ export async function autoMatchTransactions(
     // order from a concurrent allocation deadlocks on the pair (40P01).
     const ordered = [...result.matches].sort((a, b) =>
       a.bankTransactionId < b.bankTransactionId ? -1 : a.bankTransactionId > b.bankTransactionId ? 1 : 0);
-    for (const match of ordered) {
-      if (match.confidence >= 0.9) {
-        attempted++;
-        try {
-          // Its own savepoint: `matchTransaction` locks the bank line outside one, so a held line's 55P03 (or a 40P01
-          // victim) would otherwise abort the REQUEST transaction — the matches already applied would roll back behind a
-          // 200 that counted them, and the next line would meet 25P02.
-          await withSavepoint('auto_match_row', () =>
-            matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId));
-          matchedCount++;
-        } catch (matchErr) {
-          if (isHeldRowError(matchErr)) { held++; firstHeld ??= matchErr; }
-          // The candidate query read these rows in bulk; one of them has been
-          // allocated since. Skip it and keep going — letting it escape would
-          // abort the loop, and because withAuth COMMITs on any handler that
-          // returns (the route catches and 400s), the matches already applied
-          // would persist while the remaining ones were silently dropped.
-          // Anything else is a real failure and must still reach the caller.
-          // BankMatchTargetError/LINE_CLAIMED is the same race seen from the
-          // other side: the candidate query above excludes already-claimed
-          // lines, so it can only fire when a peer bound this line between that
-          // read and this write — including via `uq_bank_tx_matched_line`,
-          // which is what catches the pair that both passed the check.
-          // BankTransactionLockTimeoutError is the same race seen slowly: the
-          // peer is holding the bank row past the 5s lock_timeout. Skipping it
-          // is the same decision as the two above — the run reports it and a
-          // re-run picks the row up — and letting it escape is the one outcome
-          // that loses the matches already applied.
-          const raced = matchErr instanceof BankTransactionAllocatedError
-            || matchErr instanceof BankTransactionLockTimeoutError || isHeldRowError(matchErr)
-            || (matchErr instanceof BankMatchTargetError && matchErr.code === 'LINE_CLAIMED');
-          // A locked TABLE is not a race and must never be reported as one:
-          // `skippedRaced` reaches the user as "allocated by another request",
-          // a factual claim about the row. The row is skipped the same way —
-          // the run must not lose the matches already applied — but it is
-          // counted apart so the caller can tell a contended line from a
-          // window in which nothing could be matched at all.
-          // D11 round 6: any OTHER typed refusal of one candidate (LINE_REVERSED on a broken chain, LINE_NOT_FOUND,
-          // RECONCILIATION_NOT_FOUND) is a state of that candidate, not of the run: skipped inside its savepoint and
-          // counted, so no run answers a 4xx after committing matches. An UNTYPED error still re-throws (500, rollback).
-          const refused = matchErr instanceof BankMatchTargetError;
-          if (!raced && !refused && !(matchErr instanceof BankMatchUnavailableError)) throw matchErr;
-          if (raced) skippedRaced++; else if (refused) skippedRefused++; else skippedUnavailable++;
+    // The whole loop is one savepoint: a run-level failure (the session gone, an unexpected error) discards the matches
+    // already applied, so the request never commits half a run behind a 4xx.
+    await withSavepoint('auto_match_run', async () => {
+      for (const match of ordered) {
+        if (match.confidence >= 0.9) {
+          attempted++;
+          try {
+            // Its own savepoint: `matchTransaction` locks the bank line outside one, so a held line's 55P03 (or a 40P01
+            // victim) would otherwise abort the REQUEST transaction — the matches already applied would roll back behind a
+            // 200 that counted them, and the next line would meet 25P02.
+            await withSavepoint('auto_match_row', () =>
+              matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId));
+            matchedCount++;
+          } catch (matchErr) {
+            if (isHeldRowError(matchErr)) { held++; firstHeld ??= matchErr; }
+            // The candidate query read these rows in bulk; one of them has been
+            // allocated since. Skip it and keep going — letting it escape would
+            // abort the loop, and because withAuth COMMITs on any handler that
+            // returns (the route catches and 400s), the matches already applied
+            // would persist while the remaining ones were silently dropped.
+            // Anything else is a real failure and must still reach the caller.
+            // BankMatchTargetError/LINE_CLAIMED is the same race seen from the
+            // other side: the candidate query above excludes already-claimed
+            // lines, so it can only fire when a peer bound this line between that
+            // read and this write — including via `uq_bank_tx_matched_line`,
+            // which is what catches the pair that both passed the check.
+            // BankTransactionLockTimeoutError is the same race seen slowly: the
+            // peer is holding the bank row past the 5s lock_timeout. Skipping it
+            // is the same decision as the two above — the run reports it and a
+            // re-run picks the row up — and letting it escape is the one outcome
+            // that loses the matches already applied.
+            const raced = matchErr instanceof BankTransactionAllocatedError
+              || matchErr instanceof BankTransactionLockTimeoutError || isHeldRowError(matchErr)
+              || (matchErr instanceof BankMatchTargetError && matchErr.code === 'LINE_CLAIMED');
+            // A locked TABLE is not a race and must never be reported as one:
+            // `skippedRaced` reaches the user as "allocated by another request",
+            // a factual claim about the row. The row is skipped the same way —
+            // the run must not lose the matches already applied — but it is
+            // counted apart so the caller can tell a contended line from a
+            // window in which nothing could be matched at all.
+            // D11 round 6: any OTHER typed refusal of one candidate (LINE_REVERSED on a broken chain, LINE_NOT_FOUND,
+            // RECONCILIATION_NOT_FOUND) is a state of that candidate, not of the run: skipped inside its savepoint and
+            // counted, so no run answers a 4xx after committing matches. An UNTYPED error still re-throws (500, rollback).
+            // RECONCILIATION_NOT_FOUND is the RUN's state (the session was cancelled), not the candidate's: re-throw it.
+          const refused = isBankAllocationRefusal(matchErr)
+            || (matchErr instanceof BankMatchTargetError && matchErr.code !== 'RECONCILIATION_NOT_FOUND');
+            if (!raced && !refused && !(matchErr instanceof BankMatchUnavailableError)) throw matchErr;
+            if (raced) skippedRaced++; else if (refused) skippedRefused++; else skippedUnavailable++;
+          }
         }
       }
-    }
+    });
     if (attempted > 0 && held === attempted) throw firstHeld;
     const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
     log.info('Auto-match completed', {
