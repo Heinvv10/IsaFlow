@@ -10,14 +10,30 @@ invoice such a request references raised 23514, and the whole run rolled back to
 
 ## Product consequence (for Hein)
 
-Under option (b), a GL-posted paid invoice keeps its `gl_journal_entry_id`. That journal stays
-`posted` (a reversal never changes the original's status; `journalEntryListService.ts:14`) and is
-dated on the invoice date, so before the cutoff. **So the run refuses whole for ANY company that has
-a GL-posted invoice before the cutoff referenced by a Paystack or Stitch request. In practice such a
-company cannot archive until R-053 and R-191 are redesigned.** Its receipt journal would fail the
-run on 23503 anyway (R-053). The only skipped invoices a completed run leaves behind are ones
-cancelled by today's `cancelCustomerInvoice`, which NULLs the link. The preview line says this: it
-does not suggest that the other invoices are archived anyway.
+Under option (b), a GL-posted invoice keeps its `gl_journal_entry_id` until it is cancelled. That
+journal stays `posted` (a reversal never changes the original's status; `journalEntryListService.ts:14`)
+and is dated on the invoice date (`r186-archive-current-cancel` asserts this for
+`postCustomerInvoiceToGL`), so it falls before the cutoff. **So any company with a PAID, GL-posted
+invoice before the cutoff that a Paystack or Stitch request references cannot archive at all: the
+whole run is refused. In practice such a company cannot archive past that date until R-053 and
+R-191 are redesigned.**
+
+What a run does with a skipped (request-referenced) invoice, checked against the code and pinned by
+the tests named:
+
+| Skipped invoice | Run outcome | Pinned by |
+|---|---|---|
+| Paid, GL-posted (link set, journal posted before the cutoff) | Refused whole: `ARCHIVE_SKIPPED_INVOICE_JOURNAL` | `r186-archive-paystack-settled` case 2, `r186-archive-skipped-closure` "own journal" and Stitch cases |
+| Paid through a real receipt, with or without its own journal | Fails whole anyway: the receipt journal raises 23503 `customer_payments_gl_journal_entry_id_fkey` (R-053 class). Case 2 refuses first, because the refusal runs at step 4 | `r186-archive-paystack-settled` case 1 |
+| Cancelled by today's `cancelCustomerInvoice` (link NULLed; original and reversal both posted) | Completes: invoice skipped, both journals archived, nothing left pointing at the archive | `r186-archive-current-cancel` |
+| LEGACY cancel: the link still points at a `status='reversed'` original, or into a chain with a posted journal before the cutoff | Refused whole | `r186-archive-skipped-closure` forward and backward cases |
+| LEGACY cancel whose chain has no posted journal before the cutoff | Completes | `r186-archive-skipped-closure` "completes" case |
+| Paid with no journal and no receipt (for example set paid by hand or by an import) | Completes, invoice skipped | `r186-archive-skips-paystack-invoices` |
+
+So a completed run leaves skipped invoices behind only when none of them has a journal before the
+cutoff. In practice those are invoices cancelled today, and paid invoices that were never posted
+and have no receipt. The preview line says that skipped invoices cannot be archived and that any
+journal of theirs refuses the whole archive. It does not suggest that the rest goes ahead.
 
 ## Current design (as of round 2)
 
