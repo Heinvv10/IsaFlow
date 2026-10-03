@@ -5,6 +5,7 @@
     "incremental": false,
     "types": ["node"]
   },
-  "include": ["tests/unit/services/billing/paystackClientExports.test.ts", "next-env.d.ts"],
+  "files": ["tests/unit/services/billing/paystackClientExports.test.ts", "next-env.d.ts"],
+  "include": [],
   "exclude": ["node_modules"]
 }

@@ -10,7 +10,7 @@ Hein, 2026-10-03 (`.claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md`): 
 | File | Lines | Holds |
 |---|---|---|
 | `paystackClient.ts` | 20 | Barrel: original header + `export *` from the two modules below. Entry point; unchanged path |
-| `paystackHttp.ts` | 74 | Base URL, `requireEnv`, `integrationName`, `paystackFetch` (the only copy) |
+| `paystackHttp.ts` | 75 | Base URL, `requireEnv`, `integrationName`, `paystackFetch` (the only copy) |
 | `paystackTransactions.ts` | 239 | initialise, verify, `mapStatus`, charge authorization + types |
 | `paystackSubscriptions.ts` | 119 | plans, subscriptions, disable + types |
 
@@ -34,12 +34,13 @@ call each other's functions except `paystackFetch` (not mocked anywhere).
 
 Pinned list captured from the unchanged file with `bun` before the split (first line of baseline log).
 Type exports: vitest strips `import type` and `tests/**` is outside `tsconfig.json`, so neither `type-check` nor the
-unit run checks the type half. `tsconfig.paystackexports.json` compiles the export test alone
+unit run checks the type half. `tsconfig.paystackexports.json` compiles the export test alone (`files`, empty `include`, so a missing test is TS6053 and not a vacuous pass)
 (`bun run type-check:paystack-exports`, a `run_step` in `scripts/ci/run-ci.sh`, same pattern as `pack-fixture-types`).
-The production importers do NOT cover the types: they use only a few of the 11.
+The step checks that each of the 11 type names is importable from the barrel, plus a 3-field `Pick` of
+`VerifyTransactionResult`; it is not a full shape check. The production importers do not cover the types either.
 
 Enforcement of "import the barrel, never the parts": ESLint `no-restricted-imports` in `eslint.config.mjs`
-(off only for `src/modules/billing/services/paystack*.ts`). See `mutations.log` M6, M7.
+(off only for the barrel and the three parts, `paystack{Client,Http,Transactions,Subscriptions}.ts`, so the consumers `paystackEventHandlers.ts` and `paystackMandateActivation.ts` are covered; also catches suffixed specifiers and dynamic `import()`; `tests/` and `scripts/` are not linted). See `mutations.log` M6, M7.
 
 ## Round 1 (review FIX on bff9e9794)
 Added the ESLint import restriction, the `paystack-export-types` CI step and the header note. Unit/gate logs
