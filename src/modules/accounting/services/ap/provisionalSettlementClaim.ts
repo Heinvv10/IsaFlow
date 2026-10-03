@@ -7,8 +7,8 @@
  * (D8: one reversed and re-reversed books its slip again through the second
  * contra, so it settles like any other), evidenced
  * (`needs_evidence = false`) by the invoice's own source document, in the same
- * company, and linked from `bank_transactions.provisional_je_id`. It is LOCKED
- * here (bounded) and only then read for a live payment already holding it
+ * company, and linked from `bank_transactions.provisional_je_id` by a line still 'matched' or 'reconciled' (D10).
+ * It is LOCKED here (bounded) and only then read for a live payment already holding it
  * (`supplier_payments.settles_provisional_je_id`, migration 711).
  *
  * Refusals, all `SupplierPaymentRefusal` (routes answer 400; MCP surfaces it):
@@ -69,6 +69,9 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
       SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount
       FROM gl_journal_entries je
       JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id
+        -- D10 O9: its line still on the statement as the provisional's cash. One already reset ('imported' /
+        -- 'excluded' before D10 refused that) is free to be allocated again: settling X against it books it twice.
+        AND bt.status IN ('matched', 'reconciled')
       WHERE je.company_id = ${companyId}::UUID
         AND je.source_document_id = ${documentId}::UUID
         AND je.status = 'posted'
