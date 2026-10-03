@@ -5,7 +5,7 @@
 
 import { createElement } from 'react';
 import { useRouter } from 'next/router';
-import { Mail, Copy, Download, CreditCard, CheckCircle2, Send, FileText, XCircle } from 'lucide-react';
+import { Mail, Copy, Download, CreditCard, CheckCircle2, Send, FileText, XCircle, Link2Off } from 'lucide-react';
 import type { InvoiceActionGroup } from '@/components/invoices/InvoiceActionBar';
 import type { ActionMenuItem } from '@/components/ui/ActionMenu';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
@@ -24,6 +24,7 @@ interface Options {
   onCopyPaymentLink: () => void;
   onAction: (action: string) => void;
   onShowCancelConfirm: () => void;
+  onShowRevokeConfirm: () => void;
 }
 
 export function useCustomerInvoiceActions(opts: Options | null): {
@@ -40,7 +41,7 @@ export function useCustomerInvoiceActions(opts: Options | null): {
     invoiceId, invoice, actionLoading, paymentLoading,
     portalLinkLoading, portalLinkCopied, linkCopied,
     onOpenEmailModal, onCopyPortalLink, onPayNow,
-    onCopyPaymentLink, onAction, onShowCancelConfirm,
+    onCopyPaymentLink, onAction, onShowCancelConfirm, onShowRevokeConfirm,
   } = opts;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
@@ -154,6 +155,14 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   };
 
   const overflowActions: ActionMenuItem[] = [
+    ...(invoice.payment_url || invoice.has_standing_link
+      ? [{
+          label: 'Revoke payment link',
+          icon: createElement(Link2Off, { className: 'h-4 w-4' }),
+          onClick: onShowRevokeConfirm,
+          tone: 'destructive' as const,
+        }]
+      : []),
     ...(canCancel
       ? [{
           label: 'Cancel Invoice',

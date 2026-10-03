@@ -119,7 +119,8 @@ describe('customer-invoice DATE serialization (UTC+2 rollback regression)', () =
     await (detailHandler as Function)(makeReq({ id: INVOICE_ID }), makeRes());
 
     expect(sqlTexts.length).toBeGreaterThan(0);
-    const detailQuery = sqlTexts[0];
+    // the expiry fragment is a sql call of its own, evaluated first: pick the detail query by content
+    const detailQuery = sqlTexts.find(t => /FROM customer_invoices ci/.test(t)) ?? '';
     expect(detailQuery).toMatch(/to_char\(ci\.invoice_date, 'YYYY-MM-DD'\)\s+AS\s+invoice_date/);
     expect(detailQuery).toMatch(/to_char\(ci\.due_date, 'YYYY-MM-DD'\)\s+AS\s+due_date/);
     expect(detailQuery).toMatch(

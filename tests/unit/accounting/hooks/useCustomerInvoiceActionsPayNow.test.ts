@@ -13,7 +13,7 @@ function labels(status: string, amountPaid = 0): string[] {
     invoiceId: 'inv-1',
     invoice: { status, total_amount: 115, amount_paid: amountPaid, client_id: 'c-1', online_payment_enabled: false, payment_url: null } as never,
     actionLoading: '', paymentLoading: false, portalLinkLoading: false, portalLinkCopied: false, linkCopied: false,
-    onOpenEmailModal: noop, onCopyPortalLink: noop, onPayNow: noop, onCopyPaymentLink: noop, onAction: noop, onShowCancelConfirm: noop,
+    onOpenEmailModal: noop, onCopyPortalLink: noop, onPayNow: noop, onCopyPaymentLink: noop, onAction: noop, onShowCancelConfirm: noop, onShowRevokeConfirm: noop,
   });
   return groups.flatMap((g) => g.actions.map((a) => a.label));
 }
