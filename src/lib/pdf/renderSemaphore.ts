@@ -8,7 +8,7 @@
 // headless browser it drives re-enters the same API to fetch the report, so
 // each render occupies at least two connections for tens of seconds. Twenty
 // concurrent exports from one viewer therefore exhaust the auth pool
-// (AUTH_POOL_MAX, default 20) and stall every API request for EVERY tenant —
+// (AUTH_POOL_MAX, default 10) and stall every API request for EVERY tenant —
 // the per-company export rate limit does not help, because the damage is
 // cross-tenant and a single tenant's allowance is already enough to do it.
 //

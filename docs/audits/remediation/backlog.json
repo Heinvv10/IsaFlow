@@ -15300,6 +15300,49 @@
       "title": "A cancelled gateway receipt does not stop a later charge.success for the same reference from banking a new one",
       "claim": "recordGatewayInvoiceReceipt dedupes on customer_payments (company_id, bank_reference) with status IS DISTINCT FROM 'cancelled', and ux_customer_payments_card_reference excludes cancelled rows too. If an accountant cancels a Paystack receipt and a charge.success for that reference is processed again in a different body (the webhook's already-completed branch reaches recordGatewayInvoiceReceipt), the cancelled row is invisible to both guards and a new receipt is banked. Fix options: (1) dedupe on ANY receipt for the reference, cancelled included: a cancelled one means a person decided, so a replay banks nothing and flags the request for review (code only for the dedupe; dropping the status predicate from ux_customer_payments_card_reference is a migration); or (2) record the settlement on the request itself (a settled-receipt id or settled_at on paystack_payment_requests, set once in the settlement transaction) and dedupe on that, so the receipt's later status cannot reopen it (migration).",
       "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181."
+    },
+    {
+      "area": "lib",
+      "affectedPaths": [
+        "src/lib/limits/poolLimits.ts",
+        "src/lib/pdf/renderSemaphore.ts",
+        "src/lib/auth/.claude.md",
+        "src/lib/pdf/.claude.md"
+      ],
+      "sourceLabel": "R-182 fix.md AUTH_POOL_MAX advice; 2026-10-02 Golden Paths 'remaining connection slots are reserved'",
+      "sourceIds": [
+        "R-182"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "A capacity default, not a wrong result: four pools at 20 gave 80 connections per process against a shared max_connections of 100, and the Golden Paths run hit 'remaining connection slots are reserved' on 2026-10-02.",
+      "auditedSha": "1910c157b",
+      "currentSha": "1910c157b",
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/unit/lib/poolSizeFromEnv.test.ts",
+        "tests/unit/lib/poolSizesBuilt.test.ts",
+        "tests/unit/lib/pdf/renderSemaphore.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-188/fix.md",
+        "docs/audits/remediation/R-188/red.unit.log",
+        "docs/audits/remediation/R-188/green.unit.log",
+        "docs/audits/remediation/R-188/mutations.log",
+        "docs/audits/remediation/R-188/regression.unit.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None.",
+      "canonicalItem": null,
+      "branch": "fix/pool-auth-max-10-20261003",
+      "id": "R-188",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "DEFAULT_AUTH_POOL_MAX of 20 sizes four pools to 80 connections per process; lower it to 10",
+      "claim": "AUTH_POOL_MAX sizes authPool, withExtensionToken, bearerPipeline and the platform-admin app pool, so the default of 20 is 80 connections per process on a Postgres shared with dev, CI and Supabase (max_connections 100). R-182's fix.md advised a default no higher than the budget allows.",
+      "processNotes": "2026-10-03: Hein decided to lower DEFAULT_AUTH_POOL_MAX from 20 to 10 (the goal file .claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md). RED 35/229 with the constant at 20, GREEN 229/229 (254/254 with the two neighbouring pool suites); 6 mutants, all killed. The pack-PDF render ceiling is floor(pool/4), so at the default it is 2 (was 5) and the default of 3 renders is clamped to 2 with a one-time warning. Plain whole numbers 11-100 are still honoured as given; a refused spelling above the default (15.0, 20.0) now gives 10. Prod leaves AUTH_POOL_MAX unset, so pool sizes change on the next deploy. Not measured under load: see fix.md."
     }
   ],
   "sourceInventory": [
