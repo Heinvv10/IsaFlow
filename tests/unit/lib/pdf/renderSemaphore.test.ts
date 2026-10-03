@@ -291,6 +291,10 @@ describe('bounds derived from the auth pool', () => {
     expect(sem.warn.mock.calls.some(c => String(c[0]).includes('clamped'))).toBe(false);
     expect(calls[0]![1]).toMatchObject({ setting: 'PDF_MAX_CONCURRENT_RENDERS', length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
     expect(calls[0]![1]).not.toHaveProperty('requested');
+    // Neutral about WHAT it fell back to (the default or a capped value): `using` says which.
+    expect(String(calls[0]![0])).toContain('falling back');
+    expect(String(calls[0]![0])).not.toContain('nearest');
+    expect(calls[0]![1]).toMatchObject({ using: expected });
     expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
   });
 
