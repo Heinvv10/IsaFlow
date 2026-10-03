@@ -29,7 +29,7 @@ import {
 } from './autoPostHandOffset';
 import { undoRow, type RowOutcome } from './autoPostUndoService';
 import { isRetryableContention } from '../core/retryableContention';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -165,7 +165,7 @@ export async function undoAnyway(
     });
   } catch (err) {
     // A lock timeout (the bank reversal's flow budget, D8 round 11) is contention too: the retry is the remedy.
-    if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isLockTimeoutError(err)) throw err;
+    if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isHeldRowError(err)) throw err;
     // The reversal itself refused — a closed period, say. The savepoint rolled
     // the declaration back with it, so this is a refusal with nothing written,
     // the same `failed` the undo counts; the cause goes to the log, not the user.

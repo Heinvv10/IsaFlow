@@ -13,7 +13,7 @@ import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 
 type Row = DbRow;
 
@@ -161,9 +161,10 @@ export async function attachEvidenceToProvisional(
       return { attachedJeId: jeId, bankTxId: btId };
     }));
   } catch (err) {
-    // A lock wait that ran out is not "nothing to attach" (D8 round 11): swallowed, the bill posted beside a
-    // provisional left unevidenced. The savepoint rolled the attach back; the route answers 503 and is retried.
-    if (isLockTimeoutError(err)) throw err;
+    // Contention is not "nothing to attach" (D8 round 11, D11 round 3): swallowed, the bill posts with its own journal
+    // beside a provisional left unevidenced — the slip booked twice. This covers a deadlock victim (40P01) as well as a
+    // timeout. The savepoint rolled the attach back; the route answers 503, withAuth rolls the whole request back, retry.
+    if (isHeldRowError(err)) throw err;
     log.warn('attachEvidenceToProvisional failed — continuing', {
       companyId,
       capturedDocumentId,

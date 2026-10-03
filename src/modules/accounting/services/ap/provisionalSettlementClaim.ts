@@ -62,7 +62,7 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
   if (!als.getStore()?.client) throw new Error('claimEvidencedProvisional requires a request transaction (withAuth / als.run)');
   const contended = () => new SupplierPaymentRefusal(
     'The bank-first provisional journal behind this slip is being settled by another request — retry in a moment.',
-    { retryable: true },
+    { retryable: true, held: true },
   );
   try {
     const rows = await withRowLockBudget(async () => (await sql`

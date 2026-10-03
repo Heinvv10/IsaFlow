@@ -53,9 +53,15 @@ describe('isLockTimeoutError', () => {
     expect(isLockTimeoutError(wip)).toBe(true);
     expect(isCallerSafeError(wip)).toBe(true);
     const res = { setHeader: () => res, status: () => res, json: () => res };
-    for (const err of [wip, new CustomerInvoiceLockTimeoutError('Invoice INV-1'), driverError('55P03'),
+    for (const err of [wip, new CustomerInvoiceLockTimeoutError('Invoice INV-1'),
       new Error('plain'), Object.assign(new Error('x'), { code: 'X_LOCK_TIMEOUT' }), null]) {
       expect(respondIfLockTimeout(res as never, err), String((err as Error | null)?.name)).toBe(isLockTimeoutError(err));
+    }
+    // D11 round 2: a raw driver 55P03 / 40P01 is NOT caller-safe text (isLockTimeoutError stays false, so an MCP agent
+    // never sees the driver message) but the ROUTE answers it 503 with a neutral message.
+    for (const code of ['55P03', '40P01']) {
+      expect(isLockTimeoutError(driverError(code))).toBe(false);
+      expect(respondIfLockTimeout(res as never, driverError(code)), code).toBe(true);
     }
   });
 

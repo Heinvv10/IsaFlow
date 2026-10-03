@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -97,6 +98,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
 
     return apiResponse.success(res, entry);
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     const raw = err instanceof Error ? err.message : '';
     // Postgres column-not-found errors sometimes surface as empty message; fall back to generic
     const message = raw || 'Failed to create journal entry';

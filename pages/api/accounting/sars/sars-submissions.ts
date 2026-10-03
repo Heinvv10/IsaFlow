@@ -11,6 +11,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withSavepoint } from '@/lib/neon';
 import {
@@ -78,6 +79,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         });
         return apiResponse.success(res, submission, 'Submission marked as submitted');
       } catch (err) {
+        if (respondIfLockTimeout(res, err)) return;
         if (respondIfImpersonationForbidden(res, err)) return;
         if (err instanceof VatGateOverrideForbiddenError) return apiResponse.forbidden(res, err.message);
         if (err instanceof VatGateBlockedError) return apiResponse.badRequest(res, err.message, { counts: err.counts });
