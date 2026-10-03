@@ -7,6 +7,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
+import { selectArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
 import type { DbRow } from '@/types/db';
 
 
@@ -18,6 +19,8 @@ export interface ArchiveResult {
   linesArchived: number;
   transactionsArchived: number;
   invoicesArchived: number;
+  /** Paid/cancelled pre-cutoff invoices kept live because a Paystack request references them (R-186). */
+  invoicesSkipped: number;
   supplierInvoicesArchived: number;
 }
 
@@ -100,7 +103,13 @@ export async function executeArchive(
     `) as DbRow[];
     const transactionsArchived = btRows.length;
 
-    // Step 4: Archive paid/cancelled customer invoices
+    // Step 4: Archive paid/cancelled customer invoices. The set is chosen ONCE
+    // and the copy and the delete both act on exactly these ids, so an invoice
+    // is never copied without being deleted (R-186: Paystack-referenced ones
+    // are skipped). Plain read, no FOR UPDATE: locking invoices here would take
+    // them before the bank lines step 6 deletes first.
+    const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
+    const invoicesSkipped = ciScope.skipped;
     const ciRows = (await sql`
       INSERT INTO archive_customer_invoices
         (id, invoice_number, customer_id, client_id, billing_period_start, billing_period_end,
@@ -123,8 +132,7 @@ export async function executeArchive(
              created_at, updated_at, company_id
       FROM customer_invoices
       WHERE company_id = ${companyId}
-        AND invoice_date < ${cutoffDate}::date
-        AND status IN ('paid', 'cancelled')
+        AND id = ANY(${ciScope.ids}::uuid[])
       ON CONFLICT (id) DO NOTHING
       RETURNING id
     `) as DbRow[];
@@ -173,8 +181,7 @@ export async function executeArchive(
     await sql`
       DELETE FROM customer_invoices
       WHERE company_id = ${companyId}
-        AND invoice_date < ${cutoffDate}::date
-        AND status IN ('paid', 'cancelled')
+        AND id = ANY(${ciScope.ids}::uuid[])
     `;
 
     await sql`
@@ -236,6 +243,7 @@ export async function executeArchive(
           linesArchived: String(linesArchived),
           transactionsArchived: String(transactionsArchived),
           invoicesArchived: String(invoicesArchived),
+          invoicesSkipped: String(invoicesSkipped),
           supplierInvoicesArchived: String(supplierInvoicesArchived),
         },
       },
@@ -243,10 +251,13 @@ export async function executeArchive(
 
     log.info('Archive run completed', {
       companyId, runId, entriesArchived, linesArchived,
-      transactionsArchived, invoicesArchived, supplierInvoicesArchived,
+      transactionsArchived, invoicesArchived, invoicesSkipped, supplierInvoicesArchived,
     }, COMPONENT);
 
-    return { runId, entriesArchived, linesArchived, transactionsArchived, invoicesArchived, supplierInvoicesArchived };
+    return {
+      runId, entriesArchived, linesArchived, transactionsArchived,
+      invoicesArchived, invoicesSkipped, supplierInvoicesArchived,
+    };
     });
   } catch (err) {
     // Own savepoint + logged catch: if even the failure mark cannot be

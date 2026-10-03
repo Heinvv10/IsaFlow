@@ -93,6 +93,12 @@ export function ArchiveWizardSection({
               <dd className="text-lg font-bold text-teal-800">{preview.totalRecords.toLocaleString()}</dd>
             </div>
           </dl>
+          {preview.customerInvoicesSkipped > 0 && (
+            <p className="mt-3 text-xs text-[var(--ff-text-muted)]">
+              {preview.customerInvoicesSkipped.toLocaleString()} paid or cancelled customer invoice(s) before the cutoff
+              stay live: a Paystack payment request refers to them.
+            </p>
+          )}
         </div>
       )}
     </div>
