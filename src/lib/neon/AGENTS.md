@@ -7,16 +7,16 @@
 The modules behind the `@/lib/neon` barrel (`src/lib/neon.ts`), split out of one 475-line file by R-184. The client's rules, exports and gotchas are documented once, in `src/lib/neon.claude.md`; read that first.
 
 ## Caller contract
-- Import `@/lib/neon`. Nothing outside `src/lib/neon.ts` and this directory imports, mocks or requires a module here: `vi.mock('@/lib/neon', ...)` intercepts the barrel only, so a direct import would bypass every such mock. Guarded by `tests/unit/lib/neonModuleShape.test.ts`.
-- Every file here and the barrel stay at or under 300 lines (same test).
+Callers import `@/lib/neon`, never a module here: see the first critical note in `src/lib/neon.claude.md`.
 
 ## Files
-- `pool.ts` — the lazy process-wide `pg.Pool` and its accessors; registers the DATE parser (`@/lib/pgTypes`).
-- `query.ts` — `DbRow`, `LazyQuery`, `buildQuery`.
-- `sql.ts` — `sql` and `transaction()`.
+- `pool.ts` — `getPool` (the lazy process-wide `pg.Pool`), `getPoolForTests`, `getDbPool`; registers the DATE parser (`@/lib/pgTypes`).
+- `query.ts` — `DbRow`, `LazyQuery` (awaitable query; routes to a bound client, else the ALS request client, else the pool), `buildQuery` (template to `$N`, splicing nested `LazyQuery`s).
+- `sql.ts` — `sql`, `sql.transaction`, `sql.unsafe`/`sql.query`, `transaction()`.
 - `transaction.ts` — `withTransaction`, `withSavepoint`, `TxSql`.
 
 ## Business rules
+- Every file here and the barrel stay at or under 300 lines (`tests/unit/lib/neonModuleShape.test.ts`).
 - One owner per piece of state: `_pool` in `pool.ts`, `alsBatchSeq` in `sql.ts`, `withTxSeq` in `transaction.ts`. The request context is `@/lib/als`, never a local `AsyncLocalStorage`. `tests/unit/lib/neonBarrelSurface.test.ts` fails if two entry points disagree on the pool or the context.
 - The R-176 rollback census counts unreadable queries only in files it sees open a transaction. `sql.ts` builds its `BEGIN` from clauses and `query.ts` opens none, so both are listed in that census's `COUNTED_ANYWAY` and their queries are still counted, as they were in the single file.
 

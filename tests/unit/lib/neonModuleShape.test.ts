@@ -11,8 +11,10 @@
  *
  * Limits: reads `git ls-files`, so an untracked file is not seen until it is added. Specifiers
  * are read with a regex over the source text (import/export from, import(), require(),
- * vi.mock/doMock, importActual), relative ones resolved against the file and `@/` against src/.
- * A specifier built at runtime is not seen; none exists today.
+ * vi.mock/doMock, importActual/importMock, jest.requireActual/requireMock), relative ones resolved
+ * against the file and `@/` against src/. Not seen: an absolute-path specifier
+ * ('/home/.../src/lib/neon/sql'), any other alias than `@/`, and a specifier built at runtime.
+ * None exists today.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -28,7 +30,7 @@ const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().s
 const modules = tracked.filter((f) => f.startsWith(MODULE_DIR) && /\.tsx?$/.test(f));
 const code = tracked.filter((f) => /\.(tsx?|mts|cts|mjs|cjs|js|jsx)$/.test(f) && f !== SELF);
 
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*|\b(?:vi|jest)\.(?:do)?[mM]ock\s*\(\s*|\bimportActual\s*(?:<.*?>)?\s*\(\s*)(['"`])([^'"`\n]+)\1/g;
+const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*|\b(?:vi|jest)\.(?:do)?[mM]ock\s*\(\s*|\b(?:importActual|importMock|requireActual|requireMock)\s*(?:<.*?>)?\s*\(\s*)(['"`])([^'"`\n]+)\1/g;
 
 /** The module-directory files a source text names, resolved from `file`. */
 function reachesIntoModuleDir(file: string, text: string): string[] {
@@ -73,6 +75,8 @@ describe('R-184: only the barrel imports the modules under src/lib/neon/', () =>
     ['scripts/x.ts', "const n = require('../src/lib/neon/pool');"],
     ['tests/unit/x.test.ts', "const real = await vi.importActual<typeof import('x')>('@/lib/neon/sql');"],
     ['src/lib/foo.ts', "import type { DbRow } from './neon/query';"],
+    ['tests/unit/x.test.ts', "const m = await vi.importMock<typeof import('x')>('@/lib/neon/pool');"],
+    ['tests/unit/x.test.ts', "const real = jest.requireActual('@/lib/neon/sql');"],
   ])('flags %s: %s', (file, text) => {
     expect(reachesIntoModuleDir(file, text)).toHaveLength(1);
   });

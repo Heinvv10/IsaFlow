@@ -3,11 +3,7 @@
 ## Purpose
 `pg.Pool`-backed tagged-template SQL client — the canonical DB entry point for the whole app. Preserves the public surface of the former Neon driver while running against vanilla Postgres (self-hosted Supabase via Supavisor on `:6543`). The legacy filename is kept so existing `@/lib/neon` imports across 300+ call sites don't need changing.
 
-`neon.ts` is a barrel (R-184); the code is in `src/lib/neon/`:
-- `pool.ts` — `getPool` (the lazy singleton `_pool`), `getPoolForTests`, `getDbPool`; imports `@/lib/pgTypes` for its side effect
-- `query.ts` — `DbRow`, `LazyQuery` (awaitable query; routes to a bound client, else the ALS request client, else the pool), `buildQuery` (template to `$N`, splicing nested `LazyQuery`s)
-- `sql.ts` — `sql`, `sql.transaction`, `sql.unsafe`/`sql.query`, `transaction()`; owns the `alsBatchSeq` savepoint counter
-- `transaction.ts` — `withTransaction`, `withSavepoint`, `TxSql`; owns the `withTxSeq` counter
+`neon.ts` is a barrel (R-184); the code is in `src/lib/neon/`. Which module holds what, and which owns each piece of state, is in `src/lib/neon/.claude.md`.
 
 ## Key exports
 - `type DbRow = Record<string, any>`
@@ -28,7 +24,7 @@
 - `@/lib/logger`
 
 ## Critical notes
-- **Import `@/lib/neon` only — never `@/lib/neon/<module>`.** Tests `vi.mock('@/lib/neon', factory)` with partial factories; a module that imported `src/lib/neon/sql.ts` directly would get the real `sql` under those tests. Only the barrel and its sibling modules may import the modules (`tests/unit/lib/neonModuleShape.test.ts`, which also holds every file to 300 lines). Each piece of module state (`_pool`, `alsBatchSeq`, `withTxSeq`) lives in exactly one module; the request context is `@/lib/als`'s one `AsyncLocalStorage` (`tests/unit/lib/neonBarrelSurface.test.ts`).
+- **Import `@/lib/neon` only — never `@/lib/neon/<module>`.** Tests `vi.mock('@/lib/neon', factory)` with partial factories; a module that imported `src/lib/neon/sql.ts` directly would get the real `sql` under those tests. Only the barrel and its sibling modules may import the modules (`tests/unit/lib/neonModuleShape.test.ts`).
 - **NEVER string-concat SQL**. Always use the tagged template: `` sql`SELECT ... WHERE id = ${id}` ``. Values become `$N` parameters automatically; `LazyQuery` values spliced in are renumbered so nested `` sql`...` `` fragments compose safely.
 - **Multi-tenant**: every query must include `company_id = ${companyId}` or route through an RLS-aware policy. RLS is enforced via `set_config('request.jwt.claims', $claims, true)` inside the request tx; `withAuth` applies this before the handler runs. A missing `company_id = $X` predicate is an IDOR — the pentest skill greps for this.
 - **ALS-aware**: if an outer `withAuth` transaction is in progress (ALS store has a `client`), `sql` awaited outside a savepoint runs ON that transaction client, so RLS GUCs are honoured. If you bypass `sql` and use your own pool, RLS sees no claims.

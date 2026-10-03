@@ -33,7 +33,7 @@ export async function resolveDispute(
   // Rolling the savepoint back undoes the claim whatever the route decides.
   //
   // Outside a request transaction withSavepoint degrades to a plain call (see
-  // src/lib/neon.ts) — there is no such caller today (`resolveDispute` is
+  // src/lib/neon/transaction.ts) — there is no such caller today (`resolveDispute` is
   // imported only by the resolve route); one would need its own transaction.
   return withSavepoint('dispute_resolve', () =>
     resolveClaimed(companyId, id, userId, input),

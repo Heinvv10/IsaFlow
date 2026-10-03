@@ -559,8 +559,8 @@ export async function validateOauthAccessToken(
  * We use a no-op `als.run` with empty store... no — simplest path is to call
  * sql() outside any transaction context. Since this function is invoked from
  * validateOauthAccessToken which itself runs BEFORE als.run() in the auth
- * wrapper, the bare `sql` template falls through to getPool() (see neon.ts
- * line 88-93). That's the privileged role.
+ * wrapper, the bare `sql` template falls through to getPool() (see
+ * src/lib/neon/query.ts, LazyQuery.run). That's the privileged role.
  */
 async function updateLastUsed(authorisationId: string, ip: string | null): Promise<void> {
   await sql`
