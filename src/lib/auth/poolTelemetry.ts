@@ -21,21 +21,27 @@ function counts(pool: pg.Pool, name: string) {
 }
 
 /** `pool.connect()` that reports saturation: a warning (at most once per 10 s
- *  per pool) when others are already waiting, an error naming the pool when the
- *  acquire fails (typically the connection timeout). */
+ *  per pool) when the acquire had to queue, an error naming the pool when it
+ *  fails (typically the connection timeout). pg-pool enqueues a waiter
+ *  synchronously inside connect(), so the check runs AFTER the call: before it,
+ *  the first waiter on a full pool would see an empty queue. The counts logged
+ *  with a failure are those taken at acquire time, not after the waiter left. */
 export async function connectObserved(pool: pg.Pool, name: string): Promise<pg.PoolClient> {
-  if (pool.waitingCount > 0) {
-    const now = Date.now();
-    const last = lastWarned.get(name);
-    if (last === undefined || now - last >= POOL_WARN_INTERVAL_MS) {
-      lastWarned.set(name, now);
-      log.warn(POOL_SATURATED_MESSAGE, counts(pool, name), 'pool');
-    }
-  }
+  let snapshot: ReturnType<typeof counts> | undefined;
   try {
-    return await pool.connect();
+    const pending = pool.connect();
+    snapshot = counts(pool, name);
+    if (pool.waitingCount > 0) {
+      const now = Date.now();
+      const last = lastWarned.get(name);
+      if (last === undefined || now - last >= POOL_WARN_INTERVAL_MS) {
+        lastWarned.set(name, now);
+        log.warn(POOL_SATURATED_MESSAGE, snapshot, 'pool');
+      }
+    }
+    return await pending;
   } catch (err) {
-    log.error(POOL_ACQUIRE_FAILED_MESSAGE, { ...counts(pool, name), message: err instanceof Error ? err.message : String(err) }, 'pool');
+    log.error(POOL_ACQUIRE_FAILED_MESSAGE, { ...(snapshot ?? counts(pool, name)), message: err instanceof Error ? err.message : String(err) }, 'pool');
     throw err;
   }
 }
