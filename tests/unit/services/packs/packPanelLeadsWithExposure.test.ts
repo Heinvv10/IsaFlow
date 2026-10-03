@@ -76,3 +76,13 @@ describe('page 11\'s "What was checked"', () => {
   });
 });
 
+describe('page 4\'s "How this page is prepared"', () => {
+  it('states the panel\'s order as the code takes it', () => {
+    const page = pageNamed(buildBoardPackPages(velocityInput), 'Commentary and actions');
+    const note = page.blocks.flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []))
+      .find((n) => n.heading === 'Action panel');
+    expect(note?.body).toContain('any check that could not run first, then the largest exposure, then matters with '
+      + 'no single rand amount, then the other exposures.');
+  });
+});
+
