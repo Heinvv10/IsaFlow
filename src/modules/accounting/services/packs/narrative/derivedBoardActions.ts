@@ -116,7 +116,19 @@ export function joinDecision(issue: string, decision: string): string {
  * disagreement `checkMattersCrossReference` exists to refuse, one page over.
  */
 export function boardActionMatters(selection: SelectedMatters): PackMatter[] {
-  return actionsThatFit(selection.printed);
+  // THE LARGEST EXPOSURE, THEN WHAT HAS NO AMOUNT, THEN THE REST. Page 11
+  // lists the matters with no single amount first, because they have none to
+  // fold into its "not printed" total; taken in that order, Velocity Fibre's
+  // panel was the bank backlog and the bulk load, and its R10 353k debtor
+  // concentration reached page 11 only. Ranked purely by money the other way,
+  // three R6m journals pushed the reload of the whole ledger off the page.
+  // So page 4 opens on the largest exposure, then the unquantified matters —
+  // a backlog, a reload, an overdue filing, a failed check: the book's state
+  // rather than one transaction — then the remaining exposures. Still a
+  // subset of page 11, in page 11's ranking within each group.
+  const quantified = selection.printed.filter((m) => m.quantum !== null);
+  const unquantified = selection.printed.filter((m) => m.quantum === null);
+  return actionsThatFit([...quantified.slice(0, 1), ...unquantified, ...quantified.slice(1)]);
 }
 
 export interface BoardActions {

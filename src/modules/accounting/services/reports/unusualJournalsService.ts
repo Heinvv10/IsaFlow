@@ -83,6 +83,20 @@ export const BACKDATE_DAYS = 5;
  */
 export const BULK_LOAD_MIN = 10;
 
+/**
+ * A POSTING GENERATED FROM A DOCUMENT — an invoice, a payment, a bank
+ * allocation — whose round amount is the document's, not an estimate.
+ *
+ * Velocity Fibre's board pack raised 880 matters off the round-number rule,
+ * and on the production copy 688 of its 693 round-number flags were these.
+ * Every system-generated source is `auto_*`; anything else — `manual`, an
+ * import, an unknown or missing source — is still tested, so a source this
+ * list has never seen fails towards being checked.
+ */
+function isDocumentPosting(source: unknown): boolean {
+  return typeof source === 'string' && source.startsWith('auto_');
+}
+
 /** SAST is UTC+2 all year — South Africa keeps no daylight saving. */
 const SAST_OFFSET_MS = 2 * 60 * 60 * 1000;
 
@@ -150,6 +164,7 @@ export async function getUnusualJournals(
       je.entry_number,
       je.entry_date,
       je.description,
+      je.source,
       je.created_at,
       COALESCE(SUM(jl.debit), 0) AS amount
     FROM gl_journal_entries je
@@ -165,7 +180,7 @@ export async function getUnusualJournals(
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
-    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.created_at
+    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
@@ -196,7 +211,7 @@ export async function getUnusualJournals(
       entryDate,
       amount,
       recordedOn: recorded ? recordedOn(createdAt) : '',
-      isRoundNumber: amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
+      isRoundNumber: !isDocumentPosting(row.source) && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
       isBackdated: recorded && isBackdated(entryDate, createdAt),
     };
   });
