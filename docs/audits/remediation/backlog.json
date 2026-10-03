@@ -15332,7 +15332,8 @@
         "tests/unit/api/aiRoutesFetchTimeout.test.ts",
         "tests/unit/services/afs/noteAiService.test.ts",
         "tests/unit/lib/pdf/renderSemaphoreEnv.test.ts",
-        "tests/unit/lib/auth/poolTelemetry.test.ts"
+        "tests/unit/lib/auth/poolTelemetry.test.ts",
+        "tests/unit/lib/auth/poolTelemetryWiring.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-188/fix.md",
@@ -15373,6 +15374,8 @@
         "docs/audits/remediation/R-188/green.r10.unit.log",
         "docs/audits/remediation/R-188/mutations.r10.log",
         "docs/audits/remediation/R-188/regression.r10.unit.log",
+        "docs/audits/remediation/R-188/green.r11.unit.log",
+        "docs/audits/remediation/R-188/mutations.r11.log",
         "docs/audits/remediation/R-188/regression.r9.unit.log"
       ],
       "fixCommit": null,
