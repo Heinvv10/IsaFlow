@@ -19,7 +19,7 @@
  * rare case where the gateway actually refunded the fee too.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -65,15 +65,7 @@ export async function postGatewayFee(
   // reference, so it cannot collide. IS DISTINCT FROM because status is nullable
   // and `NULL <> 'reversed'` is NULL — the row would escape the guard and the fee
   // would post twice.
-  const existing = await sql<{ id: string }>`
-    SELECT id FROM gl_journal_entries
-    WHERE company_id = ${receipt.companyId}::UUID
-      AND reference = ${receipt.reference}
-      AND posting_agent = ${GATEWAY_RECEIPT_AGENT}
-      AND status IS DISTINCT FROM 'reversed'
-    LIMIT 1
-  `;
-  if (existing[0]) return;
+  if (await feeJournalExists(receipt)) return;
 
   let expenseAccountId: string;
   try {
@@ -87,21 +79,52 @@ export async function postGatewayFee(
     return;
   }
 
-  const je = await createJournalEntry(
-    receipt.companyId,
-    {
-      entryDate: paymentDate,
-      description,
-      source: 'auto_payment',
-      reference: receipt.reference,
-      lines: [
-        { glAccountId: expenseAccountId, debit: fee, credit: 0, description: 'Paystack transaction fee' },
-        { glAccountId: bankAccountId, debit: 0, credit: fee, description: 'Paystack transaction fee' },
-      ],
-    },
-    actorId,
-    { postingAgent: GATEWAY_RECEIPT_AGENT },
-  );
-  await postJournalEntry(receipt.companyId, je.id, actorId);
-  log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId: je.id }, 'accounting');
+  // R-185: the SELECT above is a fast path, not the guarantee. Two deliveries can both pass it;
+  // the partial unique index (migration 852) refuses the second insert with 23505. The savepoint
+  // rolls back whatever this block wrote, including a draft left by a failed post, so the re-read
+  // sees only another delivery's journal. Decided by outcome: present means the fee is posted;
+  // absent means this error is the real failure.
+  let journalEntryId: string;
+  try {
+    journalEntryId = await withSavepoint('gateway_fee_post', async () => {
+      const je = await createJournalEntry(
+        receipt.companyId,
+        {
+          entryDate: paymentDate,
+          description,
+          source: 'auto_payment',
+          reference: receipt.reference,
+          lines: [
+            { glAccountId: expenseAccountId, debit: fee, credit: 0, description: 'Paystack transaction fee' },
+            { glAccountId: bankAccountId, debit: 0, credit: fee, description: 'Paystack transaction fee' },
+          ],
+        },
+        actorId,
+        { postingAgent: GATEWAY_RECEIPT_AGENT },
+      );
+      await postJournalEntry(receipt.companyId, je.id, actorId);
+      return je.id;
+    });
+  } catch (err) {
+    if (!(await feeJournalExists(receipt))) throw err;
+    log.info('Gateway fee already posted by a concurrent delivery', { reference: receipt.reference, fee }, 'accounting');
+    return;
+  }
+  log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId }, 'accounting');
+}
+
+/**
+ * The live fee journal for this reference. Same predicate as the partial unique index
+ * `ux_gl_je_gateway_fee_reference` (migration 852), so the guard and the index agree.
+ */
+async function feeJournalExists(receipt: GatewayInvoiceReceipt): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
+    SELECT id FROM gl_journal_entries
+    WHERE company_id = ${receipt.companyId}::UUID
+      AND reference = ${receipt.reference}
+      AND posting_agent = ${GATEWAY_RECEIPT_AGENT}
+      AND status IS DISTINCT FROM 'reversed'
+    LIMIT 1
+  `;
+  return rows.length > 0;
 }

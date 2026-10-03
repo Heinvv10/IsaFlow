@@ -1,0 +1,17 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 CLEAN (gatewayFeeService.ts at HEAD, 852 index dropped); fixture 127.0.0.1:55931; load 33.11
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts (6 tests | 4 failed) 329ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > commits the event row before processing, so a 500 leaves an unprocessed row behind
+AssertionError: expected 200 to be 500 // Object.is equality
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:119:36
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > must process the redelivered event rather than acking it as a duplicate
+AssertionError: expected 200 to be 500 // Object.is equality
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:127:36
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > processes the redelivery once the cause of the failure is cleared
+AssertionError: expected 200 to be 500 // Object.is equality
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:142:36
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > leaves the payment request marked completed even though processing failed
+AssertionError: expected 'completed' to be 'pending' // Object.is equality
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:177:28
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
