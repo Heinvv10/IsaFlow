@@ -18,16 +18,19 @@ const hooks = vi.hoisted(() => ({ afterSelection: null as null | (() => Promise<
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
-  const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    const rows = await realSql(strings, ...values);
+  // Every other call returns the real lazy query untouched, so nested `sql` fragments still splice.
+  const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const query = realSql(strings, ...values);
     const text = strings.join('?');
-    const hook = hooks.afterSelection;
-    if (hook && /^\s*SELECT ci\.id/.test(text) && text.includes('FROM customer_invoices ci')) {
+    if (!hooks.afterSelection || !/^\s*SELECT ci\.id/.test(text) || !text.includes('FROM customer_invoices ci')) return query;
+    return (async () => {
+      const rows = await query;
+      const hook = hooks.afterSelection;
       hooks.afterSelection = null;
       hooks.fired += 1;
-      await hook();
-    }
-    return rows;
+      if (hook) await hook();
+      return rows;
+    })();
   };
   Object.assign(sql, { transaction: (realSql as unknown as Record<string, unknown>).transaction });
   return { ...real, sql };

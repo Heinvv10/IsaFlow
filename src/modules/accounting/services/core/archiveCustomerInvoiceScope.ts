@@ -34,6 +34,25 @@ export function skippedInvoiceJournalMessage(count: number): string {
     + 'refers to them) are dated before the cutoff. An archive with this cutoff is refused; choose an earlier cutoff.';
 }
 
+/**
+ * The ONE definition of what the run may archive, over `customer_invoices ci`: this company, dated
+ * before the cutoff, paid or cancelled. The selection, the preview count and the move splice it
+ * in (a nested `sql` fragment), so they cannot drift apart.
+ */
+function eligibleInvoice(companyId: string, cutoffDate: string) {
+  return sql`(ci.company_id = ${companyId}
+    AND ci.invoice_date < ${cutoffDate}::date
+    AND ci.status IN ('paid', 'cancelled'))`;
+}
+
+/** The ONE definition of "a payment request of this company references `ci`" (R-186). */
+function gatewayReferenced(companyId: string) {
+  return sql`(EXISTS (SELECT 1 FROM paystack_payment_requests pr
+                      WHERE pr.company_id = ${companyId} AND pr.customer_invoice_id = ci.id)
+              OR EXISTS (SELECT 1 FROM stitch_payment_requests sr
+                         WHERE sr.company_id = ${companyId} AND sr.customer_invoice_id = ci.id))`;
+}
+
 export interface ArchivableCustomerInvoices {
   /** Paid or cancelled, dated before the cutoff, referenced by no payment request. */
   ids: string[];
@@ -46,23 +65,16 @@ export async function selectArchivableCustomerInvoices(
   cutoffDate: string,
 ): Promise<ArchivableCustomerInvoices> {
   const rows = (await sql`
-    SELECT ci.id,
-           (EXISTS (SELECT 1 FROM paystack_payment_requests pr
-                    WHERE pr.company_id = ${companyId} AND pr.customer_invoice_id = ci.id)
-            OR EXISTS (SELECT 1 FROM stitch_payment_requests sr
-                       WHERE sr.company_id = ${companyId} AND sr.customer_invoice_id = ci.id)
-           ) AS gateway_referenced
+    SELECT ci.id, ${gatewayReferenced(companyId)} AS gateway_referenced
     FROM customer_invoices ci
-    WHERE ci.company_id = ${companyId}
-      AND ci.invoice_date < ${cutoffDate}::date
-      AND ci.status IN ('paid', 'cancelled')
+    WHERE ${eligibleInvoice(companyId, cutoffDate)}
   `) as DbRow[];
   const ids = rows.filter((r) => !r.gateway_referenced).map((r) => r.id as string);
   const skippedIds = rows.filter((r) => r.gateway_referenced).map((r) => r.id as string);
   return { ids, skippedIds };
 }
 
-/** The preview's counts: the same predicate as the selection above, counted in SQL. */
+/** The preview's counts: the selection's predicates, counted in SQL. */
 export async function countArchivableCustomerInvoices(
   companyId: string,
   cutoffDate: string,
@@ -71,15 +83,9 @@ export async function countArchivableCustomerInvoices(
     SELECT COUNT(*) FILTER (WHERE NOT s.gateway_referenced)::int AS archivable,
            COUNT(*) FILTER (WHERE s.gateway_referenced)::int AS skipped
     FROM (
-      SELECT (EXISTS (SELECT 1 FROM paystack_payment_requests pr
-                      WHERE pr.company_id = ${companyId} AND pr.customer_invoice_id = ci.id)
-              OR EXISTS (SELECT 1 FROM stitch_payment_requests sr
-                         WHERE sr.company_id = ${companyId} AND sr.customer_invoice_id = ci.id)
-             ) AS gateway_referenced
+      SELECT ${gatewayReferenced(companyId)} AS gateway_referenced
       FROM customer_invoices ci
-      WHERE ci.company_id = ${companyId}
-        AND ci.invoice_date < ${cutoffDate}::date
-        AND ci.status IN ('paid', 'cancelled')
+      WHERE ${eligibleInvoice(companyId, cutoffDate)}
     ) s
   `) as DbRow[];
   return { archivable: Number(rows[0]?.archivable ?? 0), skipped: Number(rows[0]?.skipped ?? 0) };
@@ -100,12 +106,10 @@ export async function moveCustomerInvoicesToArchive(
 ): Promise<number> {
   const rows = (await sql`
     WITH moved AS (
-      DELETE FROM customer_invoices
-      WHERE company_id = ${companyId}
-        AND id = ANY(${ids}::uuid[])
-        AND invoice_date < ${cutoffDate}::date
-        AND status IN ('paid', 'cancelled')
-      RETURNING *
+      DELETE FROM customer_invoices ci
+      WHERE ${eligibleInvoice(companyId, cutoffDate)}
+        AND ci.id = ANY(${ids}::uuid[])
+      RETURNING ci.*
     ), archived AS (
       -- No currency: archive_customer_invoices has the column and
       -- customer_invoices does not (selecting it raised 42703 on every run).
