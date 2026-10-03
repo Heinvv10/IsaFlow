@@ -170,6 +170,9 @@ applied, or 852 refuses.
 | `green.round4.int.log` | int, verbose | 7/7 |
 | `mutations.round4.log` | M1-M15, baselines before and after green | 15/15 RED. M15 (guard silent on a draft) is the unit red |
 | `regression.round4.unit.log` | same 9 files | 132 passed (132) |
+| **Land (master 51f501bbe merged), throwaway commit `e8e0d81e6` (tree `30e6497bf`, = `git merge-tree --write-tree origin/master 35a09b2a3`; never pushed)** | | |
+| `regression.land.int.log` | same 22 files, 852 applied | 210/214; the same 4 pre-existing k-035 failures |
+| `regression.land.k035-master.int.log` | k-035 on clean master `51f501bbe`, no 852 | the same 4 failures (R-190) |
 
 ## Recorded, not changed
 
