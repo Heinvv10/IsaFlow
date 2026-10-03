@@ -33,6 +33,8 @@
  */
 
 import { sql, type TxSql } from '@/lib/neon';
+import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/types/db';
 
 type Fragment = ReturnType<typeof sql>;
@@ -98,28 +100,33 @@ export async function claimTransactionsForReconciliation(
   tx: TxSql, companyId: string, reconciliationId: string,
   bankAccountId: string, statementDate: string,
 ): Promise<ReconciliationClaim> {
-  const unallocated = (await tx`
-    UPDATE bank_transactions bt
-    SET reconciliation_id = ${reconciliationId}::UUID, updated_at = NOW()
-    WHERE bt.company_id = ${companyId}::UUID
-      AND bt.bank_account_id = ${bankAccountId}::UUID
-      AND bt.feed_state = 'posted'
-      AND bt.status = 'imported'
-      AND bt.transaction_date <= ${statementDate}::DATE
-      AND ${claimable(companyId)}
-    RETURNING bt.id`) as DbRow[];
-  const selfMatched = (await tx`
-    UPDATE bank_transactions bt
-    SET reconciliation_id = ${reconciliationId}::UUID, updated_at = NOW()
-    WHERE bt.company_id = ${companyId}::UUID
-      AND bt.bank_account_id = ${bankAccountId}::UUID
-      AND bt.feed_state = 'posted'
-      AND bt.status = 'allocated'
-      AND bt.matched_journal_line_id IS NOT NULL
-      AND bt.transaction_date <= ${statementDate}::DATE
-      AND ${claimable(companyId)}
-      AND ${ownJournalLineCounts(companyId, sql`${statementDate}::DATE`)}
-    RETURNING bt.id`) as DbRow[];
+  // D11 round 5: both bulk UPDATEs wait on any line a peer holds. Under the 5 s row-lock budget a held line is a
+  // typed retry (503 at the route, a retry refusal via MCP) with the session header rolled back, not an unbounded wait.
+  const { unallocated, selfMatched } = await withRowLockBudget(async () => {
+    const unallocated = (await tx`
+      UPDATE bank_transactions bt
+      SET reconciliation_id = ${reconciliationId}::UUID, updated_at = NOW()
+      WHERE bt.company_id = ${companyId}::UUID
+        AND bt.bank_account_id = ${bankAccountId}::UUID
+        AND bt.feed_state = 'posted'
+        AND bt.status = 'imported'
+        AND bt.transaction_date <= ${statementDate}::DATE
+        AND ${claimable(companyId)}
+      RETURNING bt.id`) as DbRow[];
+    const selfMatched = (await tx`
+      UPDATE bank_transactions bt
+      SET reconciliation_id = ${reconciliationId}::UUID, updated_at = NOW()
+      WHERE bt.company_id = ${companyId}::UUID
+        AND bt.bank_account_id = ${bankAccountId}::UUID
+        AND bt.feed_state = 'posted'
+        AND bt.status = 'allocated'
+        AND bt.matched_journal_line_id IS NOT NULL
+        AND bt.transaction_date <= ${statementDate}::DATE
+        AND ${claimable(companyId)}
+        AND ${ownJournalLineCounts(companyId, sql`${statementDate}::DATE`)}
+      RETURNING bt.id`) as DbRow[];
+    return { unallocated, selfMatched };
+  }, () => new RowLockTimeoutError('A bank transaction in this statement'), { isTimeout: isLockContention });
   return { claimedUnallocated: unallocated.length, selfMatched: selfMatched.length };
 }
 

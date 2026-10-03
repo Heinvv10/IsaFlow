@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -33,6 +34,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createAdjustment(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       // R-067 / R-068: both fences run before any write, so the 4xx commits
       // nothing; surface the typed message rather than the generic fallback.
       if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {

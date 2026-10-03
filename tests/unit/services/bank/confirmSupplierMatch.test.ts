@@ -214,6 +214,18 @@ describe('confirmSupplierInvoiceMatch', () => {
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 
+  it('a retryable refusal that is NOT held (state conflict) is `conflict` (409), not contended (503)', async () => {
+    bill(600);
+    validateBankSupplierPayment.mockRejectedValueOnce(new SupplierPaymentRefusal('changed — retry in a moment.', { retryable: true }));
+    expect(await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600)).toMatchObject({ ok: false, kind: 'conflict' });
+  });
+
+  it('a held refusal is contended', async () => {
+    bill(600);
+    validateBankSupplierPayment.mockRejectedValueOnce(new SupplierPaymentRefusal('held — retry in a moment.', { retryable: true, held: true }));
+    expect(await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600)).toMatchObject({ ok: false, kind: 'contended' });
+  });
+
   it('refuses a bill with nothing outstanding', async () => {
     bill(600, 600);
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);

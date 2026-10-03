@@ -111,8 +111,10 @@ describe.each(routes)('$name', ({ handler, method, body, service, ordinary }) =>
   });
 });
 
-// K-071's answer for a held bank line or payment stays 409 (core/retryableContention), as round 9 left it.
-it('bank-auto-post undo still answers a held bank line 409', async () => {
+// D11: K-071's 409 for a held bank line or payment (core/retryableContention) is now 503 + Retry-After, like every held row.
+it('bank-auto-post undo answers a held bank line 503 + Retry-After', async () => {
   vi.mocked(undoRun).mockRejectedValue(new BankTransactionLockTimeoutError(ID) as never);
-  expect((await call(bankAutoPost, 'POST', { action: 'undo', runId: ID })).statusCode).toBe(409);
+  const res = await call(bankAutoPost, 'POST', { action: 'undo', runId: ID });
+  expect(res.statusCode).toBe(503);
+  expect(res.headers['Retry-After']).toBe('2');
 });

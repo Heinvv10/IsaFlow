@@ -20,6 +20,7 @@
 
 import { sql } from '@/lib/neon';
 import type { PeriodWindow } from './priorPeriod';
+import { isDocumentPosting } from './journalSourceKinds';
 
 export type UnusualJournalReason = 'round_number' | 'backdated';
 
@@ -150,6 +151,7 @@ export async function getUnusualJournals(
       je.entry_number,
       je.entry_date,
       je.description,
+      je.source,
       je.created_at,
       COALESCE(SUM(jl.debit), 0) AS amount
     FROM gl_journal_entries je
@@ -165,7 +167,7 @@ export async function getUnusualJournals(
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
-    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.created_at
+    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
@@ -196,7 +198,7 @@ export async function getUnusualJournals(
       entryDate,
       amount,
       recordedOn: recorded ? recordedOn(createdAt) : '',
-      isRoundNumber: amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
+      isRoundNumber: !isDocumentPosting(row.source) && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
       isBackdated: recorded && isBackdated(entryDate, createdAt),
     };
   });

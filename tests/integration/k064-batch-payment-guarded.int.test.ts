@@ -102,7 +102,7 @@ describeIfDb('K-064 — a batch checks every bill line before it writes anything
       400, 'exceeds the R0.00 outstanding');
   });
 
-  it('answers a bill held by another request 409 — contention, not a validation error', async () => {
+  it('answers a bill held by another request 503 — contention, not a validation error (D11, was 409)', async () => {
     const b = await approved();
     const holder = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
     const client = await holder.connect();
@@ -110,7 +110,7 @@ describeIfDb('K-064 — a batch checks every bill line before it writes anything
       await client.query('BEGIN');
       await client.query('SELECT id FROM supplier_invoices WHERE id = $1 FOR UPDATE', [b]);
       await expectRefusedClean([{ supplierId: ids.SUP_A, lines: [{ invoiceId: b, amount: 100 }] }],
-        409, 'retry');
+        503, 'retry');
     } finally {
       await client.query('ROLLBACK');
       client.release();

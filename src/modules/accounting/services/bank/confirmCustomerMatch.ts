@@ -37,13 +37,14 @@ import {
   validateBankReceiptApplication,
 } from '../ar/receiptMatchConfirmService';
 import { EPS, round2 } from '../ar/receiptAllocationLines';
-import { isReceiptRefusal, isRetryableReceiptRefusal } from '../ar/receiptRefusal';
+import { isReceiptHeldRow, isReceiptRefusal, isRetryableReceiptRefusal } from '../ar/receiptRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 
 export type ConfirmCustomerMatchOutcome =
   | { ok: false; kind: 'not_found' }
   | { ok: false; kind: 'refused'; message: string }
   | { ok: false; kind: 'contended'; message: string }
+  | { ok: false; kind: 'conflict'; message: string }
   | { ok: true; customerPaymentId: string; allocated: number };
 
 /**
@@ -129,9 +130,9 @@ export async function confirmCustomerInvoiceMatch(
     // mistake rather than as the fault it is.
     if (!isReceiptRefusal(refusal)) throw refusal;
     // Contention is not a mis-match — the AP arm's comment applies verbatim.
-    if (isRetryableReceiptRefusal(refusal)) {
-      return { ok: false, kind: 'contended', message: refusal.message };
-    }
+    if (isReceiptHeldRow(refusal)) return { ok: false, kind: 'contended', message: refusal.message };
+    // Retryable but NOT held (the document changed under the caller): a state conflict, 409.
+    if (isRetryableReceiptRefusal(refusal)) return { ok: false, kind: 'conflict', message: refusal.message };
     return { ok: false, kind: 'refused', message: refusal.message };
   }
 
