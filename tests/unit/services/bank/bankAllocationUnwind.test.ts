@@ -309,7 +309,10 @@ describe('reverseReconciledTransaction — ordering', () => {
       })),
     }));
     vi.doMock('@/lib/neon', () => ({
-      sql: vi.fn(async () => [{ journal_entry_id: JOURNAL, entry_date: '2026-08-04' }]),
+      // D10: the line's journal read through its chain root (its own here); no payment document on that root, so the
+      // plain-journal path — the document path is pinned against a real ledger (d10-bank-reversal-chain).
+      sql: vi.fn(async (strings: readonly string[]) => (strings.join(' ').includes('supplier_payment_batches') ? []
+        : [{ id: JOURNAL, line_id: 'jl-1', je: JOURNAL, journal_entry_id: JOURNAL, entry_date: '2026-08-04' }])),
       withTransaction: vi.fn(async (fn: (t: unknown) => Promise<void>) => fn(vi.fn())),
       withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()),
     }));

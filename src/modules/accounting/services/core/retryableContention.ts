@@ -50,6 +50,7 @@ import { isBankTransactionLockTimeout } from '../bank/bankTxLock';
 import { isPaymentLockTimeout } from './paymentLock';
 import { isRetryableReceiptRefusal } from '../ar/receiptRefusal';
 import { isRetryableSupplierPaymentRefusal } from '../ap/supplierPaymentRefusal';
+import { isRetryableBankAllocationRefusal } from '../bank/bankAllocationRefusal';
 
 /**
  * TRUE for every contention event a bank- or payment-action route can catch.
@@ -60,5 +61,6 @@ export function isRetryableContention(err: unknown): boolean {
   return isBankTransactionLockTimeout(err)
     || isPaymentLockTimeout(err)
     || isRetryableReceiptRefusal(err)
-    || isRetryableSupplierPaymentRefusal(err);
+    || isRetryableSupplierPaymentRefusal(err)
+    || isRetryableBankAllocationRefusal(err);
 }
