@@ -15153,7 +15153,11 @@
     {
       "area": "lib",
       "affectedPaths": [
-        "src/lib/neon.ts"
+        "src/lib/neon.ts",
+        "src/lib/neon/pool.ts",
+        "src/lib/neon/query.ts",
+        "src/lib/neon/sql.ts",
+        "src/lib/neon/transaction.ts"
       ],
       "sourceLabel": "R-182 blind review, 2026-10-02",
       "sourceIds": [
@@ -15162,23 +15166,41 @@
       "correctedTrigger": null,
       "severityRationale": "Maintainability only: no behaviour defect; the file is over the repo's 300-line limit.",
       "auditedSha": "0c0c6c0a8",
-      "currentSha": "0c0c6c0a8",
-      "status": "candidate",
+      "currentSha": "1e601708fb6",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/unit/lib/neonModuleShape.test.ts",
+        "tests/unit/lib/neonBarrelSurface.test.ts",
+        "tests/unit/lib/rollbackCensus.test.ts",
+        "tests/unit/lib/releaseCensus.test.ts"
+      ],
+      "evidencePaths": [
+        "R-184/fix.md",
+        "R-184/red.unit.log",
+        "R-184/green.unit.log",
+        "R-184/mutations.log",
+        "R-184/bodyIdentity.log",
+        "R-184/baseline.exportSurface.log",
+        "R-184/after.exportSurface.log",
+        "R-184/exportSurface.diff.log",
+        "R-184/regression.unit.log",
+        "R-184/regression.int.log",
+        "R-184/regression.int.base-attribution.log",
+        "R-184/build.log"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "None.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "refactor/r184-split-neon-20261003",
       "id": "R-184",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "src/lib/neon.ts is 475 lines, over the 300-line file limit",
       "claim": "src/lib/neon.ts holds the pool, the lazy sql template, sql.transaction, withTransaction, withSavepoint and test helpers in one file of 475 lines (474 before R-182 added one import). CLAUDE.md sets a 300-line maximum. The oversize is older than R-182 and was left alone there.",
-      "processNotes": "2026-10-02: registered, not fixed. A split would need to keep every import path of @/lib/neon working."
+      "processNotes": "2026-10-02: registered, not fixed. A split would need to keep every import path of @/lib/neon working. 2026-10-03: fixed on refactor/r184-split-neon-20261003 (Hein's 2026-10-03 decision, goal file section 7): src/lib/neon.ts is a 39-line barrel over src/lib/neon/{pool,query,sql,transaction}.ts, every declaration moved byte-identical, the export names and checker-level types unchanged, and a guard test refuses any import of a src/lib/neon/ module from outside the barrel."
     },
     {
       "area": "billing",
