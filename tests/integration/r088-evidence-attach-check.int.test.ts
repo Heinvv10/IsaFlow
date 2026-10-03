@@ -105,7 +105,7 @@ describe('R-088 a manual evidence attach is refused when another upload of the f
     expect((await provisionalState(je)).needs_evidence).toBe(true);
   }, 30_000);
 
-  it('deadlock, A the victim: A is refused busy and writes nothing; B\'s own auto-attach evidences the provisional', async () => {
+  it('deadlock, A the victim: A is contended (retry) and writes nothing; B\'s own auto-attach evidences the provisional', async () => {
     const je = await seedProvisional(4025);
     const a = await upload('dead-4025', { total: 4025, invoice: true });
     const b = await upload('dead-4025', { total: 4025, invoice: true });
@@ -118,9 +118,9 @@ describe('R-088 a manual evidence attach is refused when another upload of the f
       const attach = inCtx(ca, () => attachDocumentToProvisional(company, je, a));
       expect(await waitUntilSomeoneWaits()).toBe(true);
       const auto = inCtx(cb, () => attachEvidenceToProvisional(company, b, null, 4025, today));
-      // The victim is A's wait on the fingerprint: a busy refusal, nothing written.
+      // The victim is A's wait on the fingerprint: a held lock, `contended` (D11; it was a `refused`), nothing written.
       const result = await attach;
-      expect(result.kind).toBe('refused');
+      expect(result.kind).toBe('contended');
       expect((result as { message: string }).message).toMatch(/retry/i);
       await ca.query('ROLLBACK');
       expect(await auto).toMatchObject({ attachedJeId: je });
