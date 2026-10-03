@@ -20,7 +20,10 @@ const { sqlMock, matchMock } = vi.hoisted(() => ({
   matchMock: vi.fn(),
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d),
+  withSavepoint: (_n: string, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -124,6 +127,33 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
     expect(result.skippedRaced).toBe(1);
+  });
+
+  // D11 round 4: a deadlock victim is a held row too (skipped, the rest apply); if EVERY attempted candidate was held
+  // nothing committed, so the first held error is re-thrown for the route's 503.
+  it('skips a raw 40P01 deadlock victim like a lock timeout', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  it('re-throws when EVERY attempted candidate was held', async () => {
+    const err = new BankTransactionLockTimeoutError(TX(1));
+    matchMock.mockImplementation(async () => { throw err; });
+    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toBe(err);
+  });
+
+  it('does not re-throw when only some were held and the others were raced or matched', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      if (txId === TX(2)) throw new BankTransactionAllocatedError(txId, 'allocated');
+      return { id: txId };
+    });
+    expect((await autoMatchTransactions(COMPANY, BANK_GL)).matched).toBe(1);
   });
 
   // A locked TABLE is skipped like a race — the run must not lose the matches
