@@ -73,6 +73,13 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID',
     ],
   },
+  'src/modules/accounting/services/bank/bankTxStatusMutations.ts': {
+    why: 'reads only: a match onto the bank leg of a provisional whose own line holds it is refused (D10 round 2)',
+    lines: [
+      '// D10 (brk-d10 O-a): a bank-first provisional\'s own statement line holds its cash through `provisional_je_id`, not',
+      'WHERE provisional_je_id = ${root}::UUID AND company_id = ${companyId}::UUID AND id <> ${bankTxId}::UUID',
+    ],
+  },
   'src/modules/accounting/services/bank/feed/bankIngestionPersistence.ts': {
     why: 'reads only: IS NULL / IS NOT NULL predicates',
     lines: ['OR provisional_je_id IS NOT NULL) AS processed', 'AND provisional_je_id IS NULL'],
