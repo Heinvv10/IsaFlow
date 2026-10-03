@@ -24,7 +24,8 @@ export async function addCompany(id: string, member = false): Promise<void> {
   }
 }
 
-export async function addInvoice(companyId: string, status: 'paid' | 'cancelled'): Promise<string> {
+export async function addInvoice(companyId: string, status: 'paid' | 'cancelled' | 'approved',
+  invoiceDate = OLD_DAY): Promise<string> {
   const id = randomUUID();
   const customer = randomUUID();
   await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, companyId, `R186 ${id.slice(0, 8)}`]);
@@ -32,7 +33,7 @@ export async function addInvoice(companyId: string, status: 'paid' | 'cancelled'
     `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,created_by,
        invoice_date,total_amount,amount_paid,status)
      VALUES($1,$2,$3,$4,$5,$6,100,$7,$8)`,
-    [id, companyId, `R186-${id.slice(0, 8)}`, customer, user, OLD_DAY, status === 'paid' ? 100 : 0, status],
+    [id, companyId, `R186-${id.slice(0, 8)}`, customer, user, invoiceDate, status === 'paid' ? 100 : 0, status],
   );
   return id;
 }

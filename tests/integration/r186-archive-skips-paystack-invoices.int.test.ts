@@ -30,7 +30,9 @@ const coB = randomUUID();
 const coC = randomUUID();
 /** D: one invoice, referenced only by B's Stitch request. */
 const coD = randomUUID();
-const companies = [coA, coB, coC, coD];
+/** E: one archivable invoice beside three the archive must not count: approved, paid after the cutoff, approved and referenced. */
+const coE = randomUUID();
+const companies = [coA, coB, coC, coD, coE];
 const inv = { aPaystack: '', aStitch: '', aFree: '', bRef: '', c: '', d: '' };
 const req = { aPaystack: '', aStitch: '' };
 
@@ -50,6 +52,10 @@ beforeAll(async () => {
   // invoice, and RLS shows it to a user who belongs to both. It must not decide C's archive.
   await addPaystackRequest(coB, inv.c);
   await addStitchRequest(coB, inv.d);
+  await addInvoice(coE, 'paid');
+  await addInvoice(coE, 'approved');
+  await addInvoice(coE, 'paid', '2010-01-01');
+  await addPaystackRequest(coE, await addInvoice(coE, 'approved'));
 });
 
 afterAll(async () => { await cleanup(companies); });
@@ -61,7 +67,7 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
     expect(preview.customerInvoicesSkipped).toBe(2);
     expect(preview.totalRecords).toBe(1);
 
-    for (const co of [coC, coD]) {
+    for (const co of [coC, coD, coE]) {
       const other = await drive(co, () => previewArchive(co, CUTOFF), { appUser: true });
       expect(other.customerInvoices).toBe(1);
       expect(other.customerInvoicesSkipped).toBe(0);
