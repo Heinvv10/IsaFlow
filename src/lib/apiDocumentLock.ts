@@ -22,6 +22,8 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isReceiptHeldRow } from '@/modules/accounting/services/ar/receiptRefusal';
+import { isSupplierPaymentHeldRow } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 
 /**
  * ONE predicate for every row-lock timeout (D8 round 9), `@/lib/lockTimeout`'s since round 11: each class carries a
@@ -30,9 +32,18 @@ import { isLockTimeoutError } from '@/lib/lockTimeout';
  * replaced missed BankTransactionLockTimeoutError: dismiss's bank-line lock answered 500.
  */
 export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolean {
-  if (!isLockTimeoutError(err)) return false;
-  respondRowHeld(res, err.message, err.code);
-  return true;
+  if (isLockTimeoutError(err)) {
+    respondRowHeld(res, err.message, err.code);
+    return true;
+  }
+  // D11: a settlement plan reports a held bill / invoice / provisional as a refusal carrying `held` (the code the
+  // typed lock errors would have), not a throw of its own. A `retryable` refusal that is NOT held is a state conflict
+  // ("changed while it was being reversed") and falls through to its route's 409.
+  if (isReceiptHeldRow(err) || isSupplierPaymentHeldRow(err)) {
+    respondRowHeld(res, (err as Error).message, 'ROW_LOCK_TIMEOUT');
+    return true;
+  }
+  return false;
 }
 
 /**

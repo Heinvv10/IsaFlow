@@ -21,7 +21,6 @@ import {
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { PayrollRunBusyError } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -80,10 +79,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
-    // A pay run's journal: the guard's wait ran out before anything was written.
-    // 400 with its code, as the payroll routes answer their lock timeouts.
-    if (err instanceof PayrollRunBusyError) return apiResponse.badRequest(res, err.message, { code: err.code });
-    // The reversal's chain-head claim (D8): 503 + Retry-After, not the 400 below.
+    // A pay run's journal (`PayrollRunBusyError`: the guard's wait ran out before anything was written) and the
+    // reversal's chain-head claim (D8) are held rows: 503 + Retry-After, not the 400 below.
     if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');

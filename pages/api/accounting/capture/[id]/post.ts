@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
@@ -33,7 +34,6 @@ import {
 import {
   CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCaptureEventForPosting,
   refusalForPosting,
@@ -75,7 +75,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     event = await lockCaptureEventForPosting(companyId, eventId);
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.conflict(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 

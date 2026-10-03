@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -26,7 +27,6 @@ import {
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import {
   CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   refusalForPosting,
@@ -66,7 +66,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     doc = (await lockCapturedDocumentForUpdate(companyId, documentId)) as Row | null;
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 

@@ -209,9 +209,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
     }
   } catch (err) {
-    // Bank reversal is a D8 flow: a held bank line or payment there is a lock timeout, 503 + Retry-After, as on every
-    // route into one (D8 round 17). The other verbs keep K-071's 409 below; registered, not changed here.
-    if (body.action === 'reverse' && respondIfLockTimeout(res, err)) return;
+    // A held bank line, payment, bill or invoice is a lock timeout on EVERY verb: 503 + Retry-After (D8 round 17 for
+    // reverse, D11 for the rest). Only a retryable STATE conflict keeps K-071's 409 below.
+    if (respondIfLockTimeout(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /
@@ -229,8 +229,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (isFeedNotPostedRefusal(err)) {
       return apiResponse.conflict(res, err.message);
     }
-    // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
-    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank transaction action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

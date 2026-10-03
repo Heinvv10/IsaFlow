@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -27,7 +28,6 @@ import { getRule, recordCoding } from '@/modules/accounting/services/capture/sup
 import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
 import {
   CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  CaptureRowLockTimeoutError,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   lockPostableCaptureEventIds,
@@ -81,7 +81,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     doc = await lockCapturedDocumentForUpdate(companyId, documentId);
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 
@@ -93,7 +93,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 
