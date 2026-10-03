@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["tests/unit/services/billing/paystackClientExports.test.ts", "next-env.d.ts"],
+  "exclude": ["node_modules"]
+}

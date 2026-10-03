@@ -5,3 +5,10 @@ M3 leak mapStatus as extra export -> ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯
 M4 drop disableSubscription re-export -> ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯  Test Files  2 failed (2)       Tests  2 failed | 17 passed (19) 
 M5 duplicate request core (own fetch/base URL) in subscriptions -> ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯  Test Files  1 failed | 1 passed (2)       Tests  3 failed | 16 passed (19) 
 BASELINE after:  Test Files  2 passed (2)       Tests  19 passed (19) 
+--- round 1 mutants (bff9e9794 + working tree)
+  1:1  error  './paystackHttp' import is restricted from being used by a pattern. Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client  no-restricted-imports
+M6a relative import of a part from a non-paystack file in services -> 1 hit(s)
+M6b alias import of a part from pages/api -> 1 hit(s)
+BASE lint after removal -> ✖ 12 problems (0 errors, 12 warnings) 
+M7 un-export PlanResult -> 1 tsc error(s) (rc=2)
+BASE type step after restore -> rc=0
