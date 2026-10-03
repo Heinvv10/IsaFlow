@@ -96,7 +96,7 @@ export function ArchiveWizardSection({
           {preview.customerInvoicesSkipped > 0 && (
             <p className="mt-3 text-xs text-[var(--ff-text-muted)]">
               {preview.customerInvoicesSkipped.toLocaleString()} paid or cancelled customer invoice(s) before the cutoff
-              stay live: a Paystack payment request refers to them.
+              stay live: a Paystack or Stitch payment request refers to them.
             </p>
           )}
         </div>
