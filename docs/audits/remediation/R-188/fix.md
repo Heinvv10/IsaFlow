@@ -10,14 +10,16 @@ app pool). At the default of 20 that is 80 connections per process against a sha
 Hein, 2026-10-03 (goal file `.claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md`): default 10.
 
 ## Fix
-`DEFAULT_AUTH_POOL_MAX = 10` in `src/lib/limits/poolLimits.ts`. Nothing else in code changes;
-every reader goes through `authPoolMax()`.
+`DEFAULT_AUTH_POOL_MAX = 10` in `src/lib/limits/poolLimits.ts`. The semaphore and two routes changed
+in review (rounds 1-3, below): the render-slot clamp is silent for an unset default, invalid values are
+logged as invalid, a value that floors below 1 (`0.5`) is invalid, and `ai-narrative`/`ai-forecast` bound
+their provider fetch. Every pool reader still goes through `authPoolMax()`.
 
 ## Behaviour changes (verified from code and tests)
 - Four AUTH pools: 80 -> 40 connections per process. Per-process total of every pool at the
   defaults: 117 -> 77 plus 2 per in-flight verify-email request (10 neon + 40 auth + 10 admin + 10 rate-limit + 5 invite + 2 accept).
   R-182/fix.md's budget table is historical and left as written.
-- `renderSemaphore` ceiling is `floor(authPoolMax() / 4)` (renderSemaphore.ts:92): 5 -> 2 at the
+- `renderSemaphore` ceiling is `floor(authPoolMax() / 4)` (`maxConcurrentCeiling()` in renderSemaphore.ts): 5 -> 2 at the
   default. Its own default of 3 renders is therefore clamped to 2, silently while `PDF_MAX_CONCURRENT_RENDERS` is unset or blank (round 1: prod runs on defaults, so a warning would fire on every process); an explicit value above the ceiling still warns once.
   3 renders need `AUTH_POOL_MAX` >= 12 written as plain digits (`12.0` is a refused spelling and
   gives 10). Setting `PDF_MAX_CONCURRENT_RENDERS=2` only silences the warning an explicit 3 would log.
@@ -63,6 +65,12 @@ Prod's env leaves `AUTH_POOL_MAX` unset, so this changes prod pool sizes on the 
 - The render queue bound (2 x the concurrency bound) drops from 6 to 4 at the defaults.
 - Rollback: set `AUTH_POOL_MAX=20` in the prod env and restart the service (restores pools of 20, ceiling 5, and the previous 3 renders / queue bound 6).
 
+## Round 3 review fixes
+- `ai-narrative.ts` and `ai-forecast.ts` are withAuth routes that called Anthropic with no abort, holding an authPool connection idle in transaction for undici's ~300 s default. At a pool of 10 a slow (not failing) provider plus 2 renders could exhaust the pool. Both now use an AbortController: 30 s for narrative (max_tokens 1024), 20 s for forecast (max_tokens 512, the figure nl-query uses for 512). The timer runs until the body is read and is cleared in `finally`. An abort lands in the existing catch, so the route answers 200 with its fallback and the existing quota mapping (an abort counts as use). Tests: `tests/unit/api/aiRoutesFetchTimeout.test.ts` (abort at exactly the bound, fallback answer, no timer left).
+- `usable` in `renderSemaphore.boundedInt` is now `Math.floor(n) >= 1`: `0.5` used to floor to 0 and refuse every export (or give a 0 ms wait) with no invalid log. Cases for both variables run through `acquireRenderSlot`; an acquire-level test at the defaults (2 active, 4 queued, 7th refused). Warn-once key is `name:invalid`; warning tests re-import the module per test.
+- `QUEUE_BOUND_FACTOR` of 2 is stated as a chosen length cap, not derived from timings.
+- Evidence r4: `red.r4.unit.log` and `red.r4.semaphore.unit.log` (red against the pre-fix code), `green.r4.unit.log` 318/318 at committed `28e1dd830`, `mutations.r4.log` M14-M20 all killed, `regression.r4.unit.log` 1280/1280.
+
 ## Not measured
 p99 before/after was NOT measured. The only load harness in the repo is
 `scripts/audit-2026-04-14/perf-autocannon.sh`; it needs a running app on :3200 and an admin token
@@ -70,3 +78,15 @@ file at `/tmp/isaflow-admin-token.env`, neither available here, and the effect (
 a shared Postgres) is not reproducible against an isolated fixture. Risk to watch after deploy:
 a pool of 10 per wrapper means a burst of more than 10 concurrent authed requests on one wrapper
 queues for up to the 15 s acquire timeout instead of up to 20.
+
+Remaining long pool holders under withAuth (found by grep, NOT individually verified to run under
+withAuth, NOT changed): `statement-bulk-email.ts` loops up to 100 sends in one transaction; server
+`fetch(` with no signal or timeout in `cashFlowForecastAiService.ts`, `llmCategorizationPass.ts`,
+`sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`,
+`weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts` and
+`imapMirrorService.ts`. Each is a candidate for the same exhaustion at a pool of 10 if a caller holds
+a connection across it.
+
+Not changed: pool `waitingCount` / `totalCount` is not logged anywhere. It is the signal to watch
+after deploy (a sustained non-zero `waitingCount` on authPool means the default of 10 is too small;
+the rollback is `AUTH_POOL_MAX=20` in the prod env and a restart).
