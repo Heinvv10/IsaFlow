@@ -31,7 +31,7 @@ import cashFlowForecast from '../../../pages/api/accounting/cash-flow-forecast';
 // The route's data reads are not under test: the provider call is.
 vi.mock('@/modules/accounting/services/reports/cashFlowForecastDataService', () => ({
   getActualCashFlow: async () => [], getBankBalance: async () => 0,
-  getUpcomingReceivablesAndPayables: async () => ({ receivables: [], payables: [] }),
+  getUpcomingReceivablesAndPayables: async () => [],
   getRecurringTemplates: async () => [], toNum: (v: unknown) => Number(v ?? 0),
 }));
 
