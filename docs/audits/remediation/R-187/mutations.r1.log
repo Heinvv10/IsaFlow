@@ -1,0 +1,19 @@
+--- batch MUTANTS[0:99] ---
+HEAD: 8d9c055b9ffaf05e422e018e9d5c8e7262a5fcaf; fixture 127.0.0.1:55933; load 18.70
+Suites per mutant: tests/unit/services/ar/gatewayReceiptWiring.test.ts (unit) + tests/integration/r187-cancelled-receipt-replay.int.test.ts tests/integration/r187-non-gateway-cancelled.int.test.ts (int, real fixture)
+BASELINE before: unit [19 passed (19)] int [8 passed (8)]
+M1 restore `status IS DISTINCT FROM 'cancelled'` (no cancelled row ever matches) -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 6 passed (8)])
+M2 drop the flag write on the cancelled path -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 6 passed (8)])
+M3 post the fee on the cancelled path -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 6 passed (8)])
+M4 drop the live-first ORDER BY -> RED (unit [19 passed (19)]; int [1 failed | 7 passed (8)])
+M5 invert the ORDER BY (cancelled first) -> RED (unit [19 passed (19)]; int [1 failed | 7 passed (8)])
+M6 the cancelled branch never taken (falls to the live dedupe path) -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 6 passed (8)])
+M7 the flag carries a different reason -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 6 passed (8)])
+M8 any cancelled receipt blocks (round 0: the gateway-agent test dropped) -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 5 passed (8)])
+M9 any journal counts as the gateway's (any agent) -> RED (unit [19 passed (19)]; int [3 failed | 5 passed (8)])
+M10 the fee figures dropped from the cancelled-path log detail -> RED (unit [1 failed | 18 passed (19)]; int [8 passed (8)])
+M11 INNER JOIN instead of LEFT JOIN (a live receipt with no journal stops matching) -> RED (unit [19 passed (19)]; int [2 failed | 6 passed (8)])
+M12 the journal join loses its company_id -> SURVIVED (unit [19 passed (19)]; int [8 passed (8)])
+BASELINE after: unit [19 passed (19)] int [8 passed (8)]
+source restored: yes
+M12 equivalent: gl_journal_entries.id is a random UUID primary key and the receipt's FK names exactly one journal; the company_id on the join is a tenant guard against a cross-tenant link no writer creates (confirmCustomerPayment and allocateTransaction stamp the company's own new journal). Same class as R-181's equivalent company_id mutant.

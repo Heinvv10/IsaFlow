@@ -348,9 +348,10 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   body, a new receipt is banked. Registered as R-187 with a census query and two fix options
   (dedupe on any receipt including cancelled, or record the settlement on the request); found in
   the D8 lock-timeout review of this PR, not introduced by R-181 and not fixed here.
-  **Fixed in R-187 (2026-10-03):** the dedupe reads any receipt for the reference, a live one first;
-  a cancelled-only match banks nothing, posts no fee and flags the request
-  `already_settled_cancelled_receipt`. The index is unchanged (`docs/audits/remediation/R-187/fix.md`).
+  **Fixed in R-187 (2026-10-03):** the dedupe reads a live receipt for the reference, else a
+  cancelled one the GATEWAY wrote (its journal's `posting_agent`); that match banks nothing, posts no
+  fee and flags the request `already_settled_cancelled_receipt`. A cancelled manual or bank-feed
+  receipt with the reference does not block. The index is unchanged (`docs/audits/remediation/R-187/fix.md`).
 
 ## Review round 3 (both reviewers: SHIP; residual LOWs)
 
