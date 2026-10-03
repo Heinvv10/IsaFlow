@@ -17,5 +17,5 @@ check() { # <orig-from> <orig-to> <new-file> <new-from>
 check 21 86   paystackHttp.ts          10
 check 88 319  paystackTransactions.ts  8
 check 321 432 paystackSubscriptions.ts 8
-diff <(sed -n 1,17p "$O") <(git show "$H:$S/paystackClient.ts" | sed -n 1,17p) >/dev/null && echo "OK   barrel header == orig 1-17"
+diff <(sed -n 1,17p "$O") <(git show "$H:$S/paystackClient.ts" | sed -n 1,17p) >/dev/null && echo "OK   barrel header == orig 1-17" || { echo "FAIL barrel header"; exit 1; }
 for f in paystackClient paystackHttp paystackTransactions paystackSubscriptions; do echo "lines $f.ts: $(git show "$H:$S/$f.ts" | wc -l)"; done
