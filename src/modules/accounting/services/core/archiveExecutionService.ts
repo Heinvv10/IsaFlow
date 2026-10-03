@@ -7,7 +7,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
-import { selectArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
+import { moveCustomerInvoicesToArchive, selectArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
 import type { DbRow } from '@/types/db';
 
 
@@ -19,7 +19,7 @@ export interface ArchiveResult {
   linesArchived: number;
   transactionsArchived: number;
   invoicesArchived: number;
-  /** Paid/cancelled pre-cutoff invoices kept live because a Paystack request references them (R-186). */
+  /** Paid/cancelled pre-cutoff invoices kept live because a Paystack or Stitch request references them (R-186). */
   invoicesSkipped: number;
   supplierInvoicesArchived: number;
 }
@@ -103,40 +103,13 @@ export async function executeArchive(
     `) as DbRow[];
     const transactionsArchived = btRows.length;
 
-    // Step 4: Archive paid/cancelled customer invoices. The set is chosen ONCE
-    // and the copy and the delete both act on exactly these ids, so an invoice
-    // is never copied without being deleted (R-186: Paystack-referenced ones
-    // are skipped). Plain read, no FOR UPDATE: locking invoices here would take
-    // them before the bank lines step 6 deletes first.
+    // Step 4: choose the paid/cancelled customer invoices to archive (R-186:
+    // ones a Paystack or Stitch request references are skipped). Plain read,
+    // no FOR UPDATE: locking invoices here would take them before the bank
+    // lines step 6 deletes first. Step 6 moves them in one statement and
+    // re-checks the predicate, so a concurrent change fails the run whole.
     const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
     const invoicesSkipped = ciScope.skipped;
-    const ciRows = (await sql`
-      INSERT INTO archive_customer_invoices
-        (id, invoice_number, customer_id, client_id, billing_period_start, billing_period_end,
-         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
-         invoice_date, due_date, sent_at, paid_at, notes, internal_notes,
-         project_id, gl_journal_entry_id, created_by, approved_by, approved_at,
-         created_at, updated_at, company_id)
-      -- No currency here: archive_customer_invoices has the column (nullable,
-      -- no default) and customer_invoices does NOT, so selecting it raised
-      -- 42703 column "currency" does not exist -- and an INSERT ... SELECT is
-      -- parsed whether or not it matches a row, so EVERY archive run threw,
-      -- for every company, and rolled back to the archive_body savepoint.
-      -- Found by the round-9 lock-order enumeration; unrelated to lock order,
-      -- but executeArchive could not be exercised at all until it was fixed.
-      -- The archived column stays NULL, which is all the source can supply.
-      SELECT id, invoice_number, customer_id, client_id, billing_period_start, billing_period_end,
-             subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
-             invoice_date, due_date, sent_at, paid_at, notes, internal_notes,
-             project_id, gl_journal_entry_id, created_by, approved_by, approved_at,
-             created_at, updated_at, company_id
-      FROM customer_invoices
-      WHERE company_id = ${companyId}
-        AND id = ANY(${ciScope.ids}::uuid[])
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `) as DbRow[];
-    const invoicesArchived = ciRows.length;
 
     // Step 5: Archive paid/cancelled supplier invoices
     const siRows = (await sql`
@@ -178,11 +151,7 @@ export async function executeArchive(
         AND status = 'reconciled'
     `;
 
-    await sql`
-      DELETE FROM customer_invoices
-      WHERE company_id = ${companyId}
-        AND id = ANY(${ciScope.ids}::uuid[])
-    `;
+    const invoicesArchived = await moveCustomerInvoicesToArchive(companyId, cutoffDate, ciScope.ids);
 
     await sql`
       DELETE FROM supplier_invoices
