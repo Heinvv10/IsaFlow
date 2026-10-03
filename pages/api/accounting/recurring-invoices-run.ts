@@ -7,7 +7,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
+import { itemFailureMessage, respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
 import {
@@ -55,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.invoice_ids = [invoiceId];
       log.info('Single recurring invoice run', { recurring_invoice_id, invoiceId }, 'recurring-run');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
+      const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${recurring_invoice_id}: ${msg}`);
       log.error('Recurring invoice run failed', { recurring_invoice_id, error: err }, 'recurring-run');
       assertTxUsable();
@@ -103,7 +103,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.generated += 1;
       result.invoice_ids.push(invoiceId);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
+      const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${id}: ${msg}`);
       if (isHeldRowError(err)) held += 1;
       log.error('Bulk recurring run — single item failed', { id, error: err }, 'recurring-run');

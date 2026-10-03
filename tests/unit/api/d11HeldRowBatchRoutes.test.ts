@@ -73,6 +73,30 @@ describe('recurring-invoices-run', () => {
   });
 });
 
+describe('mixed batches show NEUTRAL text for a raw held-row item, ok items unchanged', () => {
+  const raw = () => Object.assign(new Error('deadlock detected: relation "supplier_invoices" key (id)=(x)'), { code: '40P01' });
+  const clean = (r: Awaited<ReturnType<typeof call>>) => expect(JSON.stringify(r.sent)).not.toMatch(/deadlock|supplier_invoices|key \(id\)/);
+  it('recurring-invoices-run', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([{ id: A }, { id: B }] as never);
+    vi.mocked(generateInvoiceFromRecurring).mockResolvedValueOnce('inv').mockRejectedValueOnce(raw());
+    const r = await call(recurringRun, {});
+    expect(r.statusCode).toBe(200); clean(r);
+    expect(r.sent).toMatchObject({ data: { generated: 1, invoice_ids: ['inv'] } });
+    expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
+  });
+  it('supplier-invoices-bulk-action', async () => {
+    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(raw());
+    const r = await call(bulk, { action: 'post_gl', invoiceIds: [A, B] });
+    expect(r.statusCode).toBe(200); clean(r);
+    expect(r.sent).toMatchObject({ data: { succeeded: 1, failed: 1 } });
+    expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
+  });
+  it('an ordinary item failure keeps its own text', async () => {
+    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(new Error('not approved'));
+    expect(JSON.stringify((await call(bulk, { action: 'post_gl', invoiceIds: [A, B] })).sent)).toMatch(/not approved/);
+  });
+});
+
 describe('supplier-invoices-bulk-action', () => {
   it('a single held id -> 503 + Retry-After', async () => {
     vi.mocked(postSupplierInvoiceToGL).mockRejectedValueOnce(heldErr());
