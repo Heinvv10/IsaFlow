@@ -1,11 +1,11 @@
 # R-186 browser proof: the archive preview's skipped line
 
-Re-run on 2026-10-03 for the round-2 addendum copy. The first run, on `0ef5c9cd3` with the old
-copy, rendered the same counts.
+Re-captured on 2026-10-03 for the round-3 copy. Earlier captures, at `0ef5c9cd3` and `df8d76509`
+with older copy, rendered the same counts.
 
-- **Code:** `df8d76509e533da25ec85505eb5f5343e785fd42` (committed), worktree `.worktrees/r186`.
+- **Code:** `8f9cc4fbef354988e3c6398f8924661c527b2bce` (committed), worktree `.worktrees/r186`.
 - **Server:** `next dev` on port 3286, pointed at `isaflow-fixture-r186` (never dev or prod).
-- **Fixture data:** company "R186 Browser Proof" (`4aec2801-ad6b-4597-a4d7-6cf48d963da9`) with one admin member. It holds two paid
+- **Fixture data:** company "R186 Browser Proof" (`09915bfe-e761-4b34-b423-bbbebb5b4e37`) with one admin member. It holds two paid
   customer invoices dated 2001-01-01; a completed Paystack request (purpose
   `customer_invoice`) references one of them.
 - **Login:** a staff access token minted with `JWT_SECRET`, as the integration suites mint it.
@@ -39,12 +39,12 @@ copy, rendered the same counts.
     }
   },
   "meta": {
-    "timestamp": "2026-10-03T09:30:48.261Z"
+    "timestamp": "2026-10-03T09:49:16.931Z"
   }
 }
 ```
 
-- Line shown under the preview: "1 paid or cancelled customer invoice(s) before the cutoff cannot be archived: a Paystack or Stitch payment request refers to them. If any of them has a journal before the cutoff, the whole archive is refused; Validate reports it."
+- Line shown under the preview: "1 paid or cancelled customer invoice(s) before the cutoff cannot be archived: a Paystack or Stitch payment request refers to them. If one of them is still linked to a journal before the cutoff, the whole archive is refused; Validate checks this."
 - Console errors: none.
 
 Screenshot: `browser-proof-preview.png`. When the full-page shot was taken, the Storage Dashboard
