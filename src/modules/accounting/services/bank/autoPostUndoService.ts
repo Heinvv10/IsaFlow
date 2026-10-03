@@ -19,7 +19,7 @@ import { reverseReconciledTransaction } from './bankAllocationService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { isRetryableContention } from '../core/retryableContention';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
@@ -254,7 +254,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       // rows already reversed stand. Contention is skipped like any failure;
       // it is kept only to decide the answer below. Every lock timeout is contention (D8 round 11): the bank
       // reversal's flow budget refuses a held bill or invoice after 5 s, and that row is not "failed".
-      if (isRetryableContention(err) || isLockTimeoutError(err)) {
+      if (isRetryableContention(err) || isHeldRowError(err)) {
         contention ??= err;
         skippedBy.contended += 1;
         log.info('Auto-post undo skipped a contended transaction', { companyId, runId, txId }, 'auto-post-undo');

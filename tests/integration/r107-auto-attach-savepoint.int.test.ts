@@ -10,6 +10,10 @@
 // withAuth's COMMIT on an aborted transaction is a silent ROLLBACK — an invoice the
 // operator was told exists, gone.
 //
+// D11 round 3: the savepoint still protects the transaction (a SELECT works after the 40P01, no 25P02), but the
+// auto-attach no longer swallows the victim: the bill would post with its own journal beside the provisional (the slip
+// booked twice). It re-throws, the route answers 503 + Retry-After and withAuth rolls the whole request back.
+//
 // The deadlock is built by hand here so the POST side is the victim: it starts
 // waiting first, so its deadlock_timeout fires first and it aborts itself.
 import { describe, expect, it } from 'vitest';
@@ -41,7 +45,7 @@ async function waitUntilBlocked(pid: number): Promise<void> {
 }
 
 describe('R-107 / K-157: the automatic evidence attach cannot poison the posting transaction', () => {
-  it('a deadlock inside the auto-attach rolls back only the attach; the post keeps its transaction and commits', async () => {
+  it('a deadlock inside the auto-attach rolls back only the attach, is re-thrown, and the post transaction stays usable to roll back', async () => {
     const { je, bt } = await seedProvisional({ amount: 211.00 });
     const doc = await seedDoc(company);
     const post = await pool.connect();
@@ -60,12 +64,11 @@ describe('R-107 / K-157: the automatic evidence attach cannot poison the posting
       // The manual attach now reaches for the slip: a cycle. The post waited first, so it is the victim.
       const manualDoc = manual.query('SELECT 1 FROM captured_documents WHERE id=$1 FOR UPDATE', [doc]);
 
-      const result = await auto;
-
-      expect(result).toEqual({ attachedJeId: null, bankTxId: null });
-      // The post's transaction is still usable, and what it wrote before the attach commits.
+      await expect(auto).rejects.toMatchObject({ code: '40P01' });
+      // The savepoint rolled the attach back alone: the post's transaction is still usable (no 25P02), so the request
+      // can be rolled back cleanly and answered 503.
       await expect(post.query('SELECT 1')).resolves.toBeTruthy();
-      await post.query('COMMIT');
+      await post.query('ROLLBACK');
       await manualDoc;
       await manual.query('ROLLBACK');
     } finally {
@@ -74,7 +77,7 @@ describe('R-107 / K-157: the automatic evidence attach cannot poison the posting
       post.release();
       manual.release();
     }
-    expect(await docPostedAt(doc)).not.toBeNull();
+    expect(await docPostedAt(doc), 'the claim rolled back with the request: a retry works').toBeNull();
     expect((await jeState(je)).needs_evidence).toBe(true);
   }, 30_000);
 
