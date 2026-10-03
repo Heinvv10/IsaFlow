@@ -16,6 +16,7 @@ import {
   type WorkItem,
   type EntryTemplate,
 } from './practiceApi';
+import { JobBudgetPicker } from './JobBudgetPicker';
 
 export interface Client { id: string; legalName: string; tradingName?: string | null; }
 export interface Category { id: string; name: string; }
@@ -85,6 +86,8 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
   const [entryDate, setEntryDate] = useState(defaultDate);
   const [hours, setHours] = useState('');
   const [practiceClientId, setPracticeClientId] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [budgetRefresh, setBudgetRefresh] = useState(0);
   const [jobCategoryId, setJobCategoryId] = useState('');
   const [workItemId, setWorkItemId] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -107,6 +110,9 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
   }, []);
 
   useEffect(() => { void loadTemplates(); }, [loadTemplates]);
+
+  // A job belongs to one client: a new client clears the job.
+  useEffect(() => { setJobId(''); }, [practiceClientId]);
 
   // An empty Work Item list is indistinguishable from a broken fetch to the
   // user, and the field is required — so a load failure must say so rather than
@@ -153,7 +159,8 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
     if (!numHours || numHours <= 0 || numHours > 24) { setError('Hours must be between 0 and 24'); return; }
     setSubmitting(true); setError(''); setTemplateWarning('');
     try {
-      await onSubmit({ entryDate, hours: numHours, practiceClientId, jobCategoryId, workItemId, taskDescription, notes: notes || null, billable, origin: 'manual' });
+      await onSubmit({ entryDate, hours: numHours, practiceClientId, jobCategoryId, workItemId, taskDescription, notes: notes || null, billable, origin: 'manual', jobId: jobId || null });
+      setBudgetRefresh((n) => n + 1);
       if (saveAsTemplate && templateName.trim()) {
         // Re-read the list rather than appending the POST response: the entry
         // itself is already saved, so a shape surprise here must not corrupt
@@ -203,6 +210,10 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
             <option value="">Select client…</option>
             {clients.map((c) => <option key={c.id} value={c.id}>{c.tradingName ?? c.legalName}</option>)}
           </select>
+        </div>
+        <div className="md:col-span-6">
+          <JobBudgetPicker practiceClientId={practiceClientId} jobId={jobId} onChange={setJobId}
+            refreshKey={budgetRefresh} selectClassName={INPUT_CLS} labelClassName={LABEL_CLS} />
         </div>
         <div className="md:col-span-3">
           <label className={LABEL_CLS}>Category <span className="text-red-400">*</span></label>

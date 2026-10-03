@@ -17,10 +17,19 @@
  *
  * `assertClientGroupInCompany` (R-161) is the same fence for
  * `practice_clients.client_group_id` → `practice_client_groups`.
+ *
+ * `assertJobForPracticeClient` fences `time_entries.job_id` → `practice_jobs`
+ * (also tenant-agnostic): the job must be this company's AND the entry's own
+ * practice client's, since the Engagement Budget is spent by the job's time.
+ * Migration 851's composite FK holds the same pair in the database. A NEW link
+ * to a closed job (complete/cancelled/billed) is refused too; an entry that
+ * keeps the job it already has is not.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { UUID_RE } from '@/lib/validation';
+import { CLOSED_JOB_STATUSES } from './practiceJobBudget';
 
 /** Refusal raised when a practice client id is not this company's. Routes answer 400. */
 export class PracticeClientNotInCompanyError extends Error {
@@ -38,6 +47,47 @@ export class ClientGroupNotInCompanyError extends Error {
     super(`Client group ${groupId} was not found for this company`);
     this.name = 'ClientGroupNotInCompanyError';
   }
+}
+
+/** Refusal raised when a job id is not this company's job for this practice client. Routes answer 400. */
+export class PracticeJobNotForClientError extends Error {
+  readonly code = 'PRACTICE_JOB_NOT_FOUND';
+  /** Names the id only when it is a well-formed UUID: anything else is caller text of any length. */
+  constructor(jobId: unknown) {
+    super(typeof jobId === 'string' && UUID_RE.test(jobId)
+      ? `Job ${jobId} was not found for this client`
+      : 'The job was not found for this client');
+    this.name = 'PracticeJobNotForClientError';
+  }
+}
+
+/** Refusal raised when time is newly linked to a closed job. Routes answer 400. */
+export class PracticeJobClosedError extends Error {
+  readonly code = 'PRACTICE_JOB_CLOSED';
+  constructor(jobId: string, status: string) {
+    super(`Job ${jobId} is ${status}: time can no longer be captured against it`);
+    this.name = 'PracticeJobClosedError';
+  }
+}
+
+/** Either job-fence refusal: the routes answer both with 400 and the message. */
+export function isJobFenceRefusal(err: unknown): err is PracticeJobNotForClientError | PracticeJobClosedError {
+  return err instanceof PracticeJobNotForClientError || err instanceof PracticeJobClosedError;
+}
+
+/**
+ * The fence reads the job without a lock, so a job moved to another client
+ * between that read and the write reaches migration 851's FK as a 23503.
+ * Callers run the write in a savepoint and pass its error through here: that
+ * 23503 becomes the same refusal the fence would have raised; anything else is
+ * re-thrown as it is.
+ */
+export function rethrowJobFkAsRefusal(err: unknown, jobId: string | null): never {
+  const e = err as { code?: string; constraint?: string };
+  if (e.code === '23503' && e.constraint === 'time_entries_job_same_client_fkey') {
+    throw new PracticeJobNotForClientError(jobId);
+  }
+  throw err;
 }
 
 /** Sequenced: Postgres shadows a re-declared savepoint name. */
@@ -65,11 +115,42 @@ export async function assertClientGroupInCompany(
   if (!owned) throw new ClientGroupNotInCompanyError(groupId);
 }
 
+/**
+ * Returns the job id to store: null for an absent/null/'' id ("no job"), else
+ * the id once it is proven to be this company's job for `practiceClientId`.
+ * A non-string id is refused, never coerced. `newLink` (the entry did not
+ * already point at this job) also refuses a closed job.
+ */
+export async function assertJobForPracticeClient(
+  companyId: string,
+  practiceClientId: string,
+  jobId: unknown,
+  { newLink }: { newLink: boolean },
+): Promise<string | null> {
+  if (jobId === undefined || jobId === null || jobId === '') return null;
+  // Not a UUID (a number, a NUL, any malformed text): refused before any SQL, with a fixed sentence.
+  if (typeof jobId !== 'string' || !UUID_RE.test(jobId)) throw new PracticeJobNotForClientError(jobId);
+  const rows = await savepointedRows(async () => (await sql`
+    SELECT status FROM practice_jobs
+    WHERE id = ${jobId}::uuid AND company_id = ${companyId}::uuid
+      AND practice_client_id = ${practiceClientId}::uuid
+    LIMIT 1
+  `) as DbRow[]);
+  if (!rows[0]) throw new PracticeJobNotForClientError(jobId);
+  const status = String(rows[0].status);
+  if (newLink && CLOSED_JOB_STATUSES.includes(status)) throw new PracticeJobClosedError(jobId, status);
+  return jobId;
+}
+
 async function savepointedExists(read: () => Promise<DbRow[]>): Promise<boolean> {
-  return withSavepoint(`pc_own_${++fenceSeq}`, async () => (await read()).length > 0)
+  return (await savepointedRows(read)).length > 0;
+}
+
+async function savepointedRows(read: () => Promise<DbRow[]>): Promise<DbRow[]> {
+  return withSavepoint(`pc_own_${++fenceSeq}`, read)
     .catch((err: unknown) => {
       // 22P02 invalid_text_representation — the id is not even a UUID.
-      if ((err as { code?: string }).code === '22P02') return false;
+      if ((err as { code?: string }).code === '22P02') return [];
       throw err;
     });
 }

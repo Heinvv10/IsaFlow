@@ -5,7 +5,8 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// updateJob runs its UPDATE in a savepoint (mig 851 refusal); outside a request tx the real one just calls fn.
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

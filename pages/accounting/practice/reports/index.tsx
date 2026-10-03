@@ -4,7 +4,7 @@
  */
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Users, TrendingUp, Clock, BarChart3, ShieldCheck, PieChart, ArrowRight } from 'lucide-react';
+import { Users, TrendingUp, Clock, BarChart3, ShieldCheck, PieChart, Wallet, ArrowRight } from 'lucide-react';
 
 const REPORTS = [
   {
@@ -18,6 +18,12 @@ const REPORTS = [
     icon: TrendingUp,
     title: 'Client Profitability',
     description: 'Revenue vs cost per client. Compare billing rates against cost rates to see margin by engagement.',
+  },
+  {
+    href: '/accounting/practice/reports/engagement-budgets',
+    icon: Wallet,
+    title: 'Engagement Budgets',
+    description: 'Budget, time used and balance per job. See which engagements are near or over their approved value.',
   },
   {
     href: '/accounting/practice/reports/wip-aging',

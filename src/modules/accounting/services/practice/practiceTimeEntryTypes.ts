@@ -96,3 +96,17 @@ export function roundHours(hours: number): number {
 export function lineTotalFor(hours: number, appliedRate: number | null): number | null {
   return appliedRate == null ? null : Math.round(roundHours(hours) * appliedRate * 100) / 100;
 }
+
+/**
+ * A practice time entry refused for a reason the caller can act on: a bad date
+ * or hours, an inactive or foreign client/category/work item, an unusable
+ * template or range. Bulk fill reports these per date; anything else thrown
+ * while writing an entry is a server fault and propagates. Deliberately no
+ * `code`: `safeErrorText` shows a code-less Error's message, as before.
+ */
+export class PracticeEntryRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PracticeEntryRefusal';
+  }
+}

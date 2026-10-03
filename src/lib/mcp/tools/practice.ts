@@ -126,7 +126,7 @@ export const listWorkItemsTool: McpTool = {
 export const listTimeEntriesTool: McpTool = {
   name: 'list_time_entries',
   description:
-    'List logged time entries. Defaults to the calling user\'s own entries; pass all_users to see the whole practice. date_from/date_to are inclusive ISO dates (YYYY-MM-DD).',
+    'List logged time entries. Defaults to the calling user\'s own entries; pass all_users to see the whole practice. date_from/date_to are inclusive ISO dates (YYYY-MM-DD). Each entry carries job_id: the job (engagement) it was booked against, or null — the id log_time_entry\'s job_id takes.',
   scope: 'read:practice',
   write: false,
   inputSchema: {
@@ -180,6 +180,7 @@ export const listTimeEntriesTool: McpTool = {
         task_description: e.taskDescription,
         applied_rate: e.appliedRate,
         line_total: e.lineTotal,
+        job_id: e.jobId,
       })),
     });
   },
