@@ -1,0 +1,286 @@
+// tests/integration/practice-engagement-budget-routes.int.test.ts
+//
+// Engagement Budgets: every path that writes a time entry's job answers a
+// fence refusal with a 400 and its message, writes nothing, and a bad body is
+// a 400, not a 500. Covers the time-entries POST / [id] PUT / duplicate / GET,
+// the bulk fill-from-template route and the MCP log_time_entry tool (whose
+// PRACTICE_JOB_NOT_FOUND / PRACTICE_JOB_CLOSED messages reach the agent).
+// Fixture: practice-engagement-budget.helpers.ts (isaflow_dev, own companies).
+
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { randomUUID } from 'crypto';
+import timeEntriesRoute from '../../pages/api/accounting/practice/time-entries';
+import entryRoute from '../../pages/api/accounting/practice/time-entries/[id]';
+import duplicateRoute from '../../pages/api/accounting/practice/time-entries/duplicate';
+import bulkRoute from '../../pages/api/accounting/practice/time-entries/bulk';
+import { logTimeEntryTool } from '@/lib/mcp/tools/writePracticeTime';
+import type { McpToolContext } from '@/lib/mcp/types';
+import { createEbFixture, ebDbAvailable, type EbFixture } from './practice-engagement-budget.helpers';
+
+const describeIfDb = ebDbAvailable ? describe : describe.skip;
+
+describeIfDb('Engagement budgets — routes, bulk and MCP refuse a foreign or closed job', () => {
+  let f: EbFixture;
+  const J: Record<string, string> = {};
+  const base = () => ({ entryDate: '2026-01-12', hours: 1, practiceClientId: f.CLIENT, jobCategoryId: f.CAT, workItemId: f.ITEM });
+  const row = async (id: string) =>
+    (await f.pool.query('SELECT job_id, practice_client_id, hours, updated_at FROM time_entries WHERE id = $1', [id])).rows[0];
+
+  beforeAll(async () => {
+    f = await createEbFixture('EBR');
+    J.own = await f.job(f.A, f.CLIENT, 'EBR own');
+    J.client2 = await f.job(f.A, f.CLIENT2, 'EBR client 2');
+    J.b = await f.job(f.B, f.CLIENT_B, 'EBR B job');
+    J.done = await f.job(f.A, f.CLIENT, 'EBR complete', { status: 'complete' });
+  });
+
+  afterAll(async () => { if (f) await f.cleanup(); });
+
+  describe('POST /time-entries', () => {
+    it('answers a foreign job with 400 and its message, storing nothing; its own job with 201', async () => {
+      const refused = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR refused', jobId: J.b });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.body.error?.message).toMatch(/was not found for this client/);
+      expect(await f.entriesNamed('EBR refused')).toBe(0);
+      const ok = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR ok', jobId: J.own });
+      expect(ok.statusCode, JSON.stringify(ok.body)).toBe(201);
+      expect(await f.entriesNamed('EBR ok')).toBe(1);
+    });
+
+    it('a jobId that is not a UUID is refused before any SQL with a fixed sentence that does not echo it', async () => {
+      for (const jobId of ['a\u0000b', 'x'.repeat(5000)]) {
+        const r = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR junk job', jobId });
+        expect(r.statusCode, JSON.stringify(r.body).slice(0, 200)).toBe(400);
+        expect(r.body.error?.message).toBe('The job was not found for this client');
+      }
+      expect(await f.entriesNamed('EBR junk job')).toBe(0);
+    });
+
+    it('answers a closed job with 400 and its message', async () => {
+      const r = await f.call(timeEntriesRoute, 'POST', { ...base(), taskDescription: 'EBR closed', jobId: J.done });
+      expect(r.statusCode).toBe(400);
+      expect(r.body.error?.message).toMatch(/is complete/);
+      expect(await f.entriesNamed('EBR closed')).toBe(0);
+    });
+
+    it.each([['null', null], ['an array', [1]], ['a string', 'x']])('answers a body that is %s with 400 naming the body', async (_l, body) => {
+      const r = await f.call(timeEntriesRoute, 'POST', body);
+      expect(r.statusCode).toBe(400);
+      expect(r.body.error?.message).toBe('Request body must be a JSON object');
+    });
+  });
+
+  it.each([['bulk', () => bulkRoute], ['duplicate', () => duplicateRoute]])(
+    'POST /time-entries/%s answers a null or array body with 400 naming the body', async (_l, route) => {
+      for (const body of [null, []]) {
+        const r = await f.call(route(), 'POST', body);
+        expect(r.statusCode).toBe(400);
+        expect(r.body.error?.message).toBe('Request body must be a JSON object');
+      }
+    });
+
+  it('POST and PUT /time-entries refuse a year-10000 or impossible entry date with 400, storing nothing', async () => {
+    for (const entryDate of ['10000-01-05', '2026-02-31']) {
+      const r = await f.call(timeEntriesRoute, 'POST', { ...base(), entryDate, taskDescription: `EBR bad date ${entryDate}` });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+      expect(await f.entriesNamed(`EBR bad date ${entryDate}`)).toBe(0);
+    }
+    const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBR date put' });
+    const dateOf = async () => (await f.pool.query(
+      "SELECT to_char(entry_date, 'YYYY-MM-DD') AS d FROM time_entries WHERE id = $1", [id])).rows[0].d;
+    expect((await f.call(entryRoute, 'PUT', { entryDate: '10000-01-05' }, { id })).statusCode).toBe(400);
+    expect(await dateOf()).toBe('2026-01-10');
+    // null keeps meaning "unchanged".
+    const kept = await f.call(entryRoute, 'PUT', { entryDate: null, hours: 2 }, { id });
+    expect(kept.statusCode, JSON.stringify(kept.body)).toBe(200);
+    expect(await dateOf()).toBe('2026-01-10');
+  });
+
+  it('POST /duplicate refuses an id that is not a UUID with 400', async () => {
+    const r = await f.call(duplicateRoute, 'POST', { id: 'nope', newDate: '2026-01-20' });
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toBe('id must be a UUID');
+  });
+
+  it('POST /duplicate refuses an impossible newDate with 400 before any SQL, writing nothing', async () => {
+    const id = await f.entry({ job: null, hours: 1, rate: 1000, desc: 'EBR dup date' });
+    const r = await f.call(duplicateRoute, 'POST', { id, newDate: '2026-02-31' });
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toBe('newDate must be a real date (YYYY-MM-DD)');
+    expect(await f.entriesNamed('EBR dup date')).toBe(1);
+  });
+
+  it('GET /time-entries answers a malformed jobId with 400, a real one with 200', async () => {
+    expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: 'nope' })).statusCode).toBe(400);
+    expect((await f.call(timeEntriesRoute, 'GET', {}, { jobId: J.own! })).statusCode).toBe(200);
+  });
+
+  describe('PUT /time-entries/[id]', () => {
+    let id = '';
+    beforeAll(async () => { id = await f.entry({ job: J.own!, hours: 1, rate: 1000, desc: 'EBR put' }); });
+    const put = (body: unknown) => f.call(entryRoute, 'PUT', body, { id });
+
+    it.each([
+      ['the client only, keeping the job', () => ({ practiceClientId: f.CLIENT2 })],
+      ['a foreign company\'s job', () => ({ jobId: J.b })],
+      ['another client\'s job', () => ({ jobId: J.client2 })],
+      ['a closed job', () => ({ jobId: J.done })],
+      ['a number', () => ({ jobId: 5 })],
+      ['an array', () => ({ jobId: [J.own] })],
+      ['an object', () => ({ jobId: { id: J.own } })],
+      ['true', () => ({ jobId: true })],
+      ['a malformed uuid plus an hours change', () => ({ jobId: 'zz', hours: 7 })],
+      ['a mismatched client/job pair', () => ({ practiceClientId: f.CLIENT2, jobId: J.own })],
+    ])('refuses %s with 400 and changes nothing', async (_l, body) => {
+      const before = await row(id);
+      const r = await put(body());
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+      expect(await row(id)).toEqual(before);
+    });
+
+    it('answers a non-object body with 400 naming the body', async () => {
+      for (const body of [null, 'x']) expect((await put(body)).body.error?.message).toBe('Request body must be a JSON object');
+    });
+
+    it('accepts a matching client/job pair', async () => {
+      const r = await put({ practiceClientId: f.CLIENT2, jobId: J.client2 });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+      expect(await f.jobOf(id)).toBe(J.client2);
+    });
+  });
+
+  it('POST /duplicate answers a source on a now-closed job with 400 and its message', async () => {
+    const jobId = await f.job(f.A, f.CLIENT, 'EBR closes');
+    const id = await f.entry({ job: jobId, hours: 1, rate: 1000, desc: 'EBR dup src' });
+    await f.pool.query("UPDATE practice_jobs SET status = 'billed' WHERE id = $1", [jobId]);
+    const r = await f.call(duplicateRoute, 'POST', { id, newDate: '2026-01-20' });
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toMatch(/is billed/);
+    expect(await f.entriesNamed('EBR dup src')).toBe(1);
+  });
+
+  describe('POST /time-entries/bulk', () => {
+    let templateId = '';
+    beforeAll(async () => {
+      templateId = randomUUID();
+      await f.pool.query(
+        `INSERT INTO practice_entry_templates (id, company_id, user_id, name, practice_client_id, job_category_id,
+           work_item_id, default_hours, task_description, billable)
+         VALUES ($1, $2, $3, 'EBR tpl', $4, $5, $6, 2, 'EBR bulk', true)`,
+        [templateId, f.A, f.USER, f.CLIENT, f.CAT, f.ITEM]);
+    });
+    const bulk = (jobId: unknown) => f.call(bulkRoute, 'POST',
+      { templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', weekdays: [1, 2, 3], jobId });
+    const onJob = async (job: string) => Number((await f.pool.query(
+      "SELECT count(*) AS n FROM time_entries WHERE company_id = $1 AND task_description = 'EBR bulk' AND job_id = $2",
+      [f.A, job])).rows[0].n);
+
+    it.each([['a foreign job', () => J.b], ['another client\'s job', () => J.client2], ['a closed job', () => J.done]])(
+      'refuses %s with 400 and creates nothing', async (_l, job) => {
+        const r = await bulk(job());
+        expect(r.statusCode).toBe(400);
+        expect(r.body.error?.message).toMatch(/not found for this client|is complete/);
+        expect(await f.entriesNamed('EBR bulk')).toBe(0);
+      });
+
+    it('fills the range against the chosen job', async () => {
+      const r = await bulk(J.own);
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+      expect(await onJob(J.own!)).toBe(3);
+    });
+
+    it.each([
+      ...['not-a-uuid', 'zz'].map((templateId) => [`templateId ${templateId}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07' }), 'templateId must be a UUID'] as const),
+      ...[3, 5, {}, { 1: true }, [7], [1.5], ['1'], [-1]].map((weekdays) => [`weekdays ${JSON.stringify(weekdays)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', weekdays }),
+        'weekdays must be an array of whole numbers from 0 (Sunday) to 6 (Saturday)'] as const),
+      ...[['abc', '2026-01-07'], ['2026-13-45', '2026-01-07']].map(([dateFrom, dateTo]) => [`dateFrom ${dateFrom}`,
+        () => ({ templateId, dateFrom, dateTo }), 'dateFrom is required (YYYY-MM-DD)'] as const),
+      ['dateTo 2026-02-31', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-02-31' }), 'dateTo is required (YYYY-MM-DD)'],
+      ['a year before 1900 (Date.UTC maps 0050 to 1950)', () => ({ templateId, dateFrom: '0050-01-05', dateTo: '0050-01-07' }),
+        'dateFrom and dateTo must be in or after 1900'],
+      ['dateTo before 1900', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '1899-12-31' }), 'dateFrom and dateTo must be in or after 1900'],
+      ...[true, '2', {}].map((hoursOverride) => [`hoursOverride ${JSON.stringify(hoursOverride)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', hoursOverride }), 'hoursOverride must be a number'] as const),
+      ...['zz', 'a\u0000b', 5].map((jobId) => [`jobId ${JSON.stringify(jobId)}`,
+        () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', jobId }), 'jobId must be a UUID'] as const),
+      ['a NUL in taskOverride', () => ({ templateId, dateFrom: '2026-01-05', dateTo: '2026-01-07', taskOverride: 'a\u0000b' }),
+        'text must not contain a NUL (\\u0000) character, and arguments must not nest deeper than 8 levels or hold more than 100000 values'],
+      ['an inverted range', () => ({ templateId, dateFrom: '2026-01-07', dateTo: '2026-01-05' }), 'dateFrom must be on or before dateTo'],
+      ['a missing template', () => ({ templateId: randomUUID(), dateFrom: '2026-01-05', dateTo: '2026-01-07' }), 'template not found'],
+    ])('answers %s with 400 and its message, writing nothing', async (_l, body, message) => {
+      const before = await f.entriesNamed('EBR bulk');
+      const r = await f.call(bulkRoute, 'POST', body());
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+      expect(r.body.error?.message).toBe(message);
+      expect(await f.entriesNamed('EBR bulk')).toBe(before);
+    });
+
+    it('a refused date is that date\'s failure with its message; the other dates are written', async () => {
+      const tpl2 = randomUUID();
+      await f.pool.query(
+        `INSERT INTO practice_entry_templates (id, company_id, user_id, name, practice_client_id, job_category_id,
+           work_item_id, default_hours, task_description, billable)
+         VALUES ($1, $2, $3, 'EBR tpl 2', $4, $5, $6, 1, 'EBR bulk partial', true)`,
+        [tpl2, f.A, f.USER, f.CLIENT, f.CAT, f.ITEM]);
+      // Clock-independent: whatever day the service calls "today" (UTC or SAST, either side of midnight),
+      // day(-3)/day(-2) are past and day(+2)/day(+3) are future. Only day(-1)..day(+1) depend on the clock.
+      const day = (offset: number) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+      const r = await f.call(bulkRoute, 'POST',
+        { templateId: tpl2, dateFrom: day(-3), dateTo: day(3), weekdays: [0, 1, 2, 3, 4, 5, 6] });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+      const data = r.body.data as { created: number; skipped: number; failed: Array<{ date: string; error: string }> };
+      expect(data.created + data.failed.length).toBe(7);
+      for (const fl of data.failed) expect(fl.error).toBe('entry date cannot be in the future');
+      const failedDates = data.failed.map((x) => x.date);
+      expect(failedDates).toEqual(expect.arrayContaining([day(2), day(3)]));
+      expect(failedDates).not.toContain(day(-3));
+      expect(failedDates).not.toContain(day(-2));
+      expect(await f.entriesNamed('EBR bulk partial')).toBe(data.created);
+    });
+  });
+
+  describe('MCP log_time_entry job_id', () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const ctx = (): McpToolContext => ({
+      userId: f.USER, companyId: f.A, scopes: ['write:practice'], tokenJti: 'eb', oauthAppId: null, companyRole: 'admin',
+    });
+    const log = (extra: Record<string, unknown>) => f.inTx(() => logTimeEntryTool.handler({
+      entry_date: today, hours: 1, practice_client_id: f.CLIENT, job_category_id: f.CAT, work_item_id: f.ITEM,
+      task_description: 'EBR mcp', idempotency_key: randomUUID(), ...extra,
+    }, ctx()));
+
+    it('books the entry against an open job of the client', async () => {
+      const r = await log({ job_id: J.own });
+      expect(r.isError, r.content[0]?.text).toBeFalsy();
+      const id = String(JSON.parse(r.content[0]!.text).id);
+      expect(await f.jobOf(id)).toBe(J.own);
+    });
+
+    it.each([
+      ['a foreign job (PRACTICE_JOB_NOT_FOUND)', () => J.b, /was not found for this client/],
+      ['a closed job (PRACTICE_JOB_CLOSED)', () => J.done, /is complete/],
+    ])('surfaces the refusal for %s to the agent, live and in dry_run', async (_l, job, msg) => {
+      const before = await f.entriesNamed('EBR mcp');
+      for (const dry of [false, true]) {
+        const r = await log({ job_id: job(), dry_run: dry });
+        expect(r.isError).toBe(true);
+        expect(r.content[0]?.text).toMatch(msg);
+      }
+      expect(await f.entriesNamed('EBR mcp')).toBe(before);
+    });
+
+    it('refuses a non-string job_id', async () => {
+      const r = await log({ job_id: 7 });
+      expect(r.isError).toBe(true);
+      expect(r.content[0]?.text).toMatch(/job_id must be a string or null/);
+    });
+
+    it('treats job_id null as no job, as REST does', async () => {
+      const r = await log({ job_id: null });
+      expect(r.isError, r.content[0]?.text).toBeFalsy();
+      expect(await f.jobOf(String(JSON.parse(r.content[0]!.text).id))).toBeNull();
+    });
+  });
+});

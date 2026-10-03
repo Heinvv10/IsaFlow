@@ -1,16 +1,17 @@
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
 import {
-  mapEntry,
   validateClientCategoryWorkItem,
   createPracticeEntry,
 } from './practiceTimeEntryService';
+import { mapEntry } from './practiceTimeEntryMap';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
-import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor, PracticeEntryRefusal } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertJobForPracticeClient, isJobFenceRefusal, rethrowJobFkAsRefusal } from './practiceClientFence';
 
 export interface BulkFromTemplateInput {
   templateId: string;
@@ -19,6 +20,7 @@ export interface BulkFromTemplateInput {
   weekdays?: number[];         // 0=Sun..6=Sat; default [1,2,3,4,5] (Mon-Fri)
   hoursOverride?: number;      // falls back to template.default_hours
   taskOverride?: string;       // falls back to template.task_description
+  jobId?: string | null;       // optional; must be an open job of the template's client
 }
 
 export interface BulkFromTemplateResult {
@@ -27,27 +29,49 @@ export interface BulkFromTemplateResult {
   failed: Array<{ date: string; error: string }>;
 }
 
+/** Sequenced: Postgres shadows a re-declared savepoint name. */
+let workflowSeq = 0;
+
+/**
+ * Whether a failed bulk date is that date's own failure: only a refusal (the
+ * job fence, PracticeEntryRefusal), reported with its message. Every database
+ * error is a fault — on valid input no data error is reachable on this INSERT
+ * (no unique index but the pkey, hours range-checked first, 851's 23503 already
+ * mapped to the fence refusal, a NUL refused by the route) — so a statement
+ * timeout, a deadlock, schema drift (42703, 23502) or a code bug (22P02) is
+ * re-thrown: the request 500s and rolls back rather than answering a quiet 201.
+ * Refusals are JS-level or come from savepointed statements, so the
+ * transaction is still usable for the next date without a per-date savepoint.
+ */
+function isBulkDateRefusal(err: unknown): err is Error {
+  return isJobFenceRefusal(err) || err instanceof PracticeEntryRefusal;
+}
+
 export async function bulkCreateFromTemplate(
   companyId: string,
   userId: string,
   input: BulkFromTemplateInput,
 ): Promise<BulkFromTemplateResult> {
   const template = await getEntryTemplate(companyId, input.templateId);
-  if (!template) throw new Error('template not found');
+  if (!template) throw new PracticeEntryRefusal('template not found');
 
   if (!template.practiceClientId || !template.jobCategoryId || !template.workItemId) {
-    throw new Error('template is incomplete — client, category and work item required before bulk use');
+    throw new PracticeEntryRefusal('template is incomplete — client, category and work item required before bulk use');
   }
+  // Narrowed copies: the per-date closure below would otherwise see them as nullable again.
+  const { practiceClientId, jobCategoryId, workItemId } = template;
 
   const hours = input.hoursOverride ?? template.defaultHours;
   if (hours == null) {
-    throw new Error('hours required (template has no default_hours and no hoursOverride)');
+    throw new PracticeEntryRefusal('hours required (template has no default_hours and no hoursOverride)');
   }
 
   const taskDescription = input.taskOverride ?? template.taskDescription ?? template.name;
+  // Refused once, up front, rather than as one failure per date.
+  const jobId = await assertJobForPracticeClient(companyId, template.practiceClientId, input.jobId, { newLink: true });
 
   if (input.dateFrom > input.dateTo) {
-    throw new Error('dateFrom must be on or before dateTo');
+    throw new PracticeEntryRefusal('dateFrom must be on or before dateTo');
   }
 
   // Build inclusive date list using UTC to avoid DST drift
@@ -65,7 +89,7 @@ export async function bulkCreateFromTemplate(
   }
 
   if (allDates.length > 62) {
-    throw new Error('bulk range too large (max 62 days)');
+    throw new PracticeEntryRefusal('bulk range too large (max 62 days)');
   }
 
   const allowedWeekdays = input.weekdays ?? [1, 2, 3, 4, 5];
@@ -82,17 +106,22 @@ export async function bulkCreateFromTemplate(
       await createPracticeEntry(companyId, userId, {
         entryDate,
         hours,
-        practiceClientId: template.practiceClientId,
-        jobCategoryId: template.jobCategoryId,
-        workItemId: template.workItemId,
+        practiceClientId,
+        jobCategoryId,
+        workItemId,
         taskDescription,
         notes: template.notes ?? undefined,
         billable: template.billable,
         origin: 'recurring',
+        jobId,
       });
       created++;
     } catch (err) {
-      failed.push({ date: entryDate, error: err instanceof Error ? err.message : String(err) });
+      if (!isBulkDateRefusal(err)) throw err;
+      log.warn('Bulk time entry date not created', {
+        templateId: input.templateId, date: entryDate, error: err.message,
+      }, 'practice');
+      failed.push({ date: entryDate, error: err.message });
     }
   }
 
@@ -124,6 +153,7 @@ export async function duplicatePracticeEntry(
     String(src.job_category_id),
     String(src.work_item_id),
   );
+  const jobId = await assertJobForPracticeClient(companyId, String(src.practice_client_id), src.job_id, { newLink: true });
 
   const appliedRate = await resolveRate(
     companyId,
@@ -134,21 +164,21 @@ export async function duplicatePracticeEntry(
   const hours = roundHours(Number(src.hours));
   const lineTotal = lineTotalFor(hours, appliedRate);
 
-  const rows = (await sql`
+  const rows = await withSavepoint(`dup_ins_${++workflowSeq}`, async () => (await sql`
     INSERT INTO time_entries (
       company_id, user_id, entry_date, hours,
       practice_client_id, job_category_id, work_item_id,
       task_description, notes, billable,
       applied_rate, line_total, rate, amount,
-      origin, status
+      origin, status, job_id
     ) VALUES (
       ${companyId}::UUID, ${String(src.user_id)}::UUID, ${newDate}::DATE, ${hours},
       ${String(src.practice_client_id)}::UUID, ${String(src.job_category_id)}::UUID, ${String(src.work_item_id)}::UUID,
       ${String(src.task_description)}, ${src.notes ? String(src.notes) : null}, ${Boolean(src.billable)},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
-      'recurring', 'draft'
+      'recurring', 'draft', ${jobId}::UUID
     ) RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Duplicated practice time entry', { sourceId: id, newId: rows[0].id, newDate }, 'practice');

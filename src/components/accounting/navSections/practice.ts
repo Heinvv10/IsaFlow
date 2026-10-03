@@ -50,6 +50,7 @@ export const practiceTab: Tab = {
       items: [
         { label: 'Staff Utilisation', href: '/accounting/practice/reports/utilisation' },
         { label: 'Client Profitability', href: '/accounting/practice/reports/profitability' },
+        { label: 'Engagement Budgets', href: '/accounting/practice/reports/engagement-budgets' },
         { label: 'WIP Aging', href: '/accounting/practice/reports/wip-aging' },
         { label: 'Revenue Pipeline', href: '/accounting/practice/reports/revenue-pipeline' },
         { label: 'Compliance', href: '/accounting/practice/reports/compliance' },

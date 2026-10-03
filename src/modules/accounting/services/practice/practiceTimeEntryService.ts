@@ -1,5 +1,4 @@
-import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -15,43 +14,16 @@ import type {
   PracticeTimeEntry,
   PracticeTimeEntryInput,
   PracticeTimeEntryUpdateInput,
-  PracticeEntryFilters,
 } from './practiceTimeEntryTypes';
-import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor, PracticeEntryRefusal } from './practiceTimeEntryTypes';
+import { assertJobForPracticeClient, rethrowJobFkAsRefusal } from './practiceClientFence';
+import { mapEntry } from './practiceTimeEntryMap';
+import { isRealCalendarDate } from '@/lib/validation';
 
-/** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
-export function mapEntry(r: DbRow): PracticeTimeEntry {
-  return {
-    id: String(r.id),
-    companyId: String(r.company_id),
-    userId: String(r.user_id),
-    entryDate: fmtDate(r.entry_date),
-    hours: Number(r.hours),
-    practiceClientId: String(r.practice_client_id),
-    jobCategoryId: String(r.job_category_id),
-    workItemId: String(r.work_item_id),
-    taskDescription: String(r.task_description),
-    notes: r.notes ? String(r.notes) : null,
-    billable: Boolean(r.billable),
-    appliedRate: r.applied_rate != null ? Number(r.applied_rate) : null,
-    lineTotal: r.line_total != null ? Number(r.line_total) : null,
-    origin: String(r.origin) as PracticeTimeEntry['origin'],
-    status: String(r.status) as PracticeTimeEntry['status'],
-    approvedBy: r.approved_by ? String(r.approved_by) : null,
-    approvedAt: r.approved_at ? String(r.approved_at) : null,
-    billedAt: r.billed_at ? String(r.billed_at) : null,
-    invoiceId: r.invoice_id ? String(r.invoice_id) : null,
-    jobId: r.job_id ? String(r.job_id) : null,
-    writeOffReason: r.write_off_reason ? String(r.write_off_reason) : null,
-    writtenOffBy: r.written_off_by ? String(r.written_off_by) : null,
-    writtenOffAt: r.written_off_at ? String(r.written_off_at) : null,
-    practiceClientName: r.practice_client_name ? String(r.practice_client_name) : null,
-    jobCategoryName: r.job_category_name ? String(r.job_category_name) : null,
-    workItemName: r.work_item_name ? String(r.work_item_name) : null,
-    createdAt: String(r.created_at),
-    updatedAt: String(r.updated_at),
-  };
-}
+export { listPracticeEntries } from './practiceTimeEntryList';
+
+/** Sequenced: Postgres shadows a re-declared savepoint name. */
+let writeSeq = 0;
 
 /** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export async function validateClientCategoryWorkItem(
@@ -66,7 +38,7 @@ export async function validateClientCategoryWorkItem(
       AND company_id = ${companyId}::UUID
       AND status = 'active'
   `) as DbRow[];
-  if (!clientRows.length) throw new Error('practice client not found or not active');
+  if (!clientRows.length) throw new PracticeEntryRefusal('practice client not found or not active');
 
   const catRows = (await sql`
     SELECT id FROM practice_job_categories
@@ -74,7 +46,7 @@ export async function validateClientCategoryWorkItem(
       AND company_id = ${companyId}::UUID
       AND is_active = true
   `) as DbRow[];
-  if (!catRows.length) throw new Error('job category not found or not active');
+  if (!catRows.length) throw new PracticeEntryRefusal('job category not found or not active');
 
   const wiRows = (await sql`
     SELECT id FROM practice_work_items
@@ -84,7 +56,7 @@ export async function validateClientCategoryWorkItem(
       AND category_id = ${jobCategoryId}::UUID
   `) as DbRow[];
   if (!wiRows.length) {
-    throw new Error('work item not found, not active, or does not belong to selected category');
+    throw new PracticeEntryRefusal('work item not found, not active, or does not belong to selected category');
   }
 }
 
@@ -94,11 +66,13 @@ export async function createPracticeEntry(
   input: PracticeTimeEntryInput,
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
-  if (input.entryDate > today) throw new Error('entry date cannot be in the future');
+  // Strict first: the future check compares strings, and '10000-01-05' sorts before '2026-…'.
+  assertRealEntryDate(input.entryDate);
+  if (input.entryDate > today) throw new PracticeEntryRefusal('entry date cannot be in the future');
   // Range-check the ROUNDED value: 0.004 is > 0 here but 0.00 in the column.
   const hours = roundHours(input.hours);
   if (!(hours > 0 && hours <= 24)) {
-    throw new Error('hours must be between 0 and 24');
+    throw new PracticeEntryRefusal('hours must be between 0 and 24');
   }
 
   await validateClientCategoryWorkItem(
@@ -107,6 +81,7 @@ export async function createPracticeEntry(
     input.jobCategoryId,
     input.workItemId,
   );
+  const jobId = await assertJobForPracticeClient(companyId, input.practiceClientId, input.jobId, { newLink: true });
 
   const appliedRate = await resolveRate(companyId, userId, input.practiceClientId, input.entryDate);
   const lineTotal = lineTotalFor(hours, appliedRate);
@@ -114,21 +89,22 @@ export async function createPracticeEntry(
   const origin = input.origin ?? 'manual';
   const billable = input.billable !== false;
 
-  const rows = (await sql`
+  // Savepointed: a job moved since the fence read reaches 851's FK as a 23503 (see rethrowJobFkAsRefusal).
+  const rows = await withSavepoint(`te_ins_${++writeSeq}`, async () => (await sql`
     INSERT INTO time_entries (
       company_id, user_id, entry_date, hours,
       practice_client_id, job_category_id, work_item_id,
       task_description, notes, billable,
       applied_rate, line_total, rate, amount,
-      origin, status
+      origin, status, job_id
     ) VALUES (
       ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${hours},
       ${input.practiceClientId}::UUID, ${input.jobCategoryId}::UUID, ${input.workItemId}::UUID,
       ${input.taskDescription}, ${input.notes ?? null}, ${billable},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
-      ${origin}, 'draft'
+      ${origin}, 'draft', ${jobId}::UUID
     ) RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Created practice time entry', {
@@ -143,7 +119,7 @@ export async function updatePracticeEntry(
   input: PracticeTimeEntryUpdateInput,
 ): Promise<PracticeTimeEntry> {
   const existing = (await sql`
-    SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id
+    SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id, job_id
     FROM time_entries
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
@@ -152,10 +128,11 @@ export async function updatePracticeEntry(
 
   const row = existing[0]!;
 
-  // Validate entryDate if provided
-  if (input.entryDate !== undefined) {
+  // Validate entryDate if provided (null, like undefined, leaves it unchanged — the UPDATE COALESCEs it)
+  if (input.entryDate != null) {
+    assertRealEntryDate(input.entryDate);
     const today = new Date().toISOString().split('T')[0]!;
-    if (input.entryDate > today) throw new Error('entry date cannot be in the future');
+    if (input.entryDate > today) throw new PracticeEntryRefusal('entry date cannot be in the future');
   }
 
   // Validate hours if provided
@@ -187,6 +164,15 @@ export async function updatePracticeEntry(
   const entryDate = String(input.entryDate ?? row.entry_date);
   const userId = String(row.user_id);
 
+  // The job (absent/undefined = unchanged, null/'' = clear) must be the entry's client's — re-checked when
+  // the client moves. Only a CHANGED job is a new link, which a closed job refuses.
+  const updateJob = input.jobId !== undefined;
+  const keptJob = row.job_id ? String(row.job_id) : null;
+  const jobId = updateJob || changingClient
+    ? await assertJobForPracticeClient(companyId, clientId, updateJob ? input.jobId : keptJob,
+      { newLink: updateJob && !sameJobId(input.jobId, keptJob) })
+    : null;
+
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
   const effectiveHours = roundHours(input.hours ?? Number(row.hours));
   const lineTotal = lineTotalFor(effectiveHours, appliedRate);
@@ -195,7 +181,7 @@ export async function updatePracticeEntry(
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
 
-  const rows = (await sql`
+  const rows = await withSavepoint(`te_upd_${++writeSeq}`, async () => (await sql`
     UPDATE time_entries SET
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
       hours              = COALESCE(${input.hours !== undefined ? effectiveHours : null}, hours),
@@ -205,6 +191,7 @@ export async function updatePracticeEntry(
       task_description   = COALESCE(${input.taskDescription ?? null}, task_description),
       notes              = CASE WHEN ${updateNotes}::boolean THEN ${notesValue} ELSE notes END,
       billable           = COALESCE(${input.billable ?? null}, billable),
+      job_id             = CASE WHEN ${updateJob}::boolean THEN ${jobId}::UUID ELSE job_id END,
       applied_rate       = ${appliedRate},
       line_total         = ${lineTotal},
       rate               = ${appliedRate},
@@ -212,7 +199,7 @@ export async function updatePracticeEntry(
       updated_at         = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     RETURNING *
-  `) as DbRow[];
+  `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId ?? keptJob));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
 
   log.info('Updated practice time entry', { id, companyId }, 'practice');
@@ -275,57 +262,13 @@ export async function getEntryStatusesByIds(
   return new Map(rows.map((r) => [String(r.id), String(r.status) as PracticeTimeEntry['status']]));
 }
 
-export async function listPracticeEntries(
-  companyId: string,
-  filters: PracticeEntryFilters = {},
-): Promise<{ entries: PracticeTimeEntry[]; total: number }> {
-  const userId = filters.userId ?? null;
-  const practiceClientId = filters.practiceClientId ?? null;
-  const dateFrom = filters.dateFrom ?? null;
-  const dateTo = filters.dateTo ?? null;
-  const status = filters.status ?? null;
-  const jobId = filters.jobId ?? null;
-  const limit = filters.limit ?? null;
-  const offset = filters.offset ?? null;
-
-  const countRows = (await sql`
-    SELECT COUNT(*)::int AS cnt
-    FROM time_entries te
-    WHERE te.company_id = ${companyId}::UUID
-      AND (${userId}::UUID IS NULL       OR te.user_id            = ${userId}::UUID)
-      AND (${practiceClientId}::UUID IS NULL OR te.practice_client_id = ${practiceClientId}::UUID)
-      AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
-      AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
-      AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
-      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
-      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
-      AND te.practice_client_id IS NOT NULL
-  `) as DbRow[];
-
-  const rows = (await sql`
-    SELECT
-      te.*,
-      pc.legal_name AS practice_client_name,
-      pjc.name      AS job_category_name,
-      pwi.name      AS work_item_name
-    FROM time_entries te
-    LEFT JOIN practice_clients        pc  ON pc.id  = te.practice_client_id
-    LEFT JOIN practice_job_categories pjc ON pjc.id = te.job_category_id
-    LEFT JOIN practice_work_items     pwi ON pwi.id = te.work_item_id
-    WHERE te.company_id = ${companyId}::UUID
-      AND (${userId}::UUID IS NULL       OR te.user_id            = ${userId}::UUID)
-      AND (${practiceClientId}::UUID IS NULL OR te.practice_client_id = ${practiceClientId}::UUID)
-      AND (${dateFrom}::DATE IS NULL     OR te.entry_date        >= ${dateFrom}::DATE)
-      AND (${dateTo}::DATE IS NULL       OR te.entry_date        <= ${dateTo}::DATE)
-      AND (${status}::TEXT IS NULL       OR te.status             = ${status}::TEXT)
-      AND (${jobId}::UUID IS NULL        OR te.job_id             = ${jobId}::UUID)
-      -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
-      AND te.practice_client_id IS NOT NULL
-    ORDER BY te.entry_date DESC, te.created_at DESC
-    LIMIT ${limit}::INT OFFSET ${offset}::INT
-  `) as DbRow[];
-
-  return { entries: rows.map(mapEntry), total: Number(countRows[0]?.cnt ?? 0) };
+/** Ids compare case-insensitively (Postgres stores a uuid lowercase): an uppercase copy of the kept job is not a new link. */
+function sameJobId(next: unknown, kept: string | null): boolean {
+  return typeof next === 'string' && kept !== null && next.toLowerCase() === kept.toLowerCase();
 }
 
-
+function assertRealEntryDate(value: unknown): void {
+  if (typeof value !== 'string' || !isRealCalendarDate(value)) {
+    throw new PracticeEntryRefusal('entry date must be a real date (YYYY-MM-DD)');
+  }
+}

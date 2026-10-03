@@ -199,6 +199,12 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
   'HAND_CORRECTION_REFUSED',
+  // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
+  // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
+  'JOB_BUDGET_INVALID',
+  // Moving a job to another client while its time entries are its current client's (mig 851). Fixed sentence.
+  // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
+  'JOB_CLIENT_HAS_ENTRIES',
   'JOURNAL_REVERSAL_LOCK_TIMEOUT',
   'LOAN_POST_LOCK_TIMEOUT',
   // R-035: enabling approval enforcement for a type not yet wired. Names only the type.
@@ -211,6 +217,10 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'PAYROLL_RUN_LOCK_TIMEOUT',
   // R-073 practice client fence: names only the id the caller passed; raised before any write.
   'PRACTICE_CLIENT_NOT_FOUND',
+  // Engagement Budgets job fence (assertJobForPracticeClient): names only the job id the caller passed (and, for
+  // CLOSED, that job's status); raised before any write.
+  'PRACTICE_JOB_CLOSED',
+  'PRACTICE_JOB_NOT_FOUND',
   // Another request is posting a document with the same content (R-088): one
   // fixed "retry" sentence naming no document, raised before any write.
   'RECEIPT_POST_BUSY',

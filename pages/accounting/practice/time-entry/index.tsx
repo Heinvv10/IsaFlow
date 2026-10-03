@@ -101,6 +101,7 @@ export default function TimeEntryPage() {
 
   async function handleCreate(input: PracticeTimeEntryInput): Promise<void> {
     const res = await apiFetch('/api/accounting/practice/time-entries', { method: 'POST', body: JSON.stringify(input) });
+    // The 400 body is { error: { code, message } }; assertOk reads the message.
     await assertOk(res, 'Could not save the time entry - try again');
     await reloadEntries();
   }
