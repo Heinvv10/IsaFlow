@@ -361,6 +361,10 @@ failed next.
 `REFUSAL_CODES` (or, if it is not a refusal, in `NOT_A_REFUSAL_CODES`) in the same commit. Running
 only the item's own tests does not catch it; the full unit suite does.
 
+After the fix, at `136bf9848`: the full unit suite had 1336 files passed and 47 skipped, 18733 tests
+passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 files and
+3951/3951 tests (`full-components.r8.log`).
+
 ## Recorded, not changed
 
 - **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
