@@ -15285,7 +15285,7 @@
       "correctedTrigger": null,
       "severityRationale": "Pre-existing. Needs a person to cancel a gateway receipt AND a later charge.success for the same reference in a different body (a byte-identical redelivery is acked as a duplicate once processed). The effect is a second receipt banked: AR credited and Bank debited twice for one card payment.",
       "auditedSha": "df143819c",
-      "currentSha": "8d9c055b9",
+      "currentSha": "4d3362b96",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -15302,6 +15302,7 @@
         "docs/audits/remediation/R-187/k035.r1.int.log",
         "docs/audits/remediation/R-187/mutations.log",
         "docs/audits/remediation/R-187/mutations.r1.log",
+        "docs/audits/remediation/R-187/mutations.r2.log",
         "docs/audits/remediation/R-187/red.int.log",
         "docs/audits/remediation/R-187/red.r1.int.log",
         "docs/audits/remediation/R-187/red.r1.unit.log",
@@ -15309,6 +15310,7 @@
         "docs/audits/remediation/R-187/regression.int.log",
         "docs/audits/remediation/R-187/regression.r1.int.log",
         "docs/audits/remediation/R-187/regression.r1.unit.log",
+        "docs/audits/remediation/R-187/regression.r2.int.log",
         "docs/audits/remediation/R-187/regression.unit.log"
       ],
       "fixCommit": null,
@@ -15322,7 +15324,73 @@
       "reportedSeverity": "low",
       "title": "A cancelled gateway receipt does not stop a later charge.success for the same reference from banking a new one",
       "claim": "recordGatewayInvoiceReceipt dedupes on customer_payments (company_id, bank_reference) with status IS DISTINCT FROM 'cancelled', and ux_customer_payments_card_reference excludes cancelled rows too. If an accountant cancels a Paystack receipt and a charge.success for that reference is processed again in a different body (the webhook's already-completed branch reaches recordGatewayInvoiceReceipt), the cancelled row is invisible to both guards and a new receipt is banked. Fix options: (1) dedupe on ANY receipt for the reference, cancelled included: a cancelled one means a person decided, so a replay banks nothing and flags the request for review (code only for the dedupe; dropping the status predicate from ux_customer_payments_card_reference is a migration); or (2) record the settlement on the request itself (a settled-receipt id or settled_at on paystack_payment_requests, set once in the settlement transaction) and dedupe on that, so the receipt's later status cannot reopen it (migration).",
-      "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181. 2026-10-03: fixed per Hein's decision (goal file 2026-10-03-r183-r187-pool-budget-goal.md, option 1, code only, index unchanged): the dedupe reads any receipt for the reference, a live one first; a cancelled-only match banks nothing, posts no fee and flags the request already_settled_cancelled_receipt (webhook 200, verify answers completed). RED unit 1/18, int 2/4 on 1910c157b; GREEN 18/18 + 4/4; 7 mutants, 7 killed; regression unit 140/140, int 205/205 (r181-*, k-036, r167*, r178*, link-revoke*, k095*, k096*). Census not run (docs/audits/remediation/R-187/fix.md). Review round 1 on 0b6fbc95b (general SHIP 3 LOW, adversarial FIX 2 MEDIUM 1 LOW): only a cancelled receipt the GATEWAY wrote blocks (its journal's posting_agent = system:paystack-receipt:v1, which survives a cancel); a cancelled manual or bank-feed receipt carrying the reference no longer stops the first settlement banking. This narrows Hein's 'any receipt' to 'any gateway-written receipt', for him to confirm. The note-failure log no longer says the receipt stands; the cancelled-path log carries the fee figures. RED 1/19 unit, 3/7 int on 0b6fbc95b; GREEN 19/19 + 8/8; 12 mutants, 11 killed, 1 equivalent (the join's company_id); regression unit 141/141 (11 files listed), int 209/209 (22 files listed); k-035 4 failed / 2 passed identically on master source and the branch (pre-existing)."
+      "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181. 2026-10-03: fixed per Hein's decision (goal file 2026-10-03-r183-r187-pool-budget-goal.md, option 1, code only, index unchanged): the dedupe reads any receipt for the reference, a live one first; a cancelled-only match banks nothing, posts no fee and flags the request already_settled_cancelled_receipt (webhook 200, verify answers completed). RED unit 1/18, int 2/4 on 1910c157b; GREEN 18/18 + 4/4; 7 mutants, 7 killed; regression unit 140/140, int 205/205 (r181-*, k-036, r167*, r178*, link-revoke*, k095*, k096*). Census not run (docs/audits/remediation/R-187/fix.md). Review round 1 on 0b6fbc95b (general SHIP 3 LOW, adversarial FIX 2 MEDIUM 1 LOW): only a cancelled receipt the GATEWAY wrote blocks (its journal's posting_agent = system:paystack-receipt:v1, which survives a cancel); a cancelled manual or bank-feed receipt carrying the reference no longer stops the first settlement banking. This narrows Hein's 'any receipt' to 'any gateway-written receipt', for him to confirm. The note-failure log no longer says the receipt stands; the cancelled-path log carries the fee figures. RED 1/19 unit, 3/7 int on 0b6fbc95b; GREEN 19/19 + 8/8; 12 mutants, 11 killed, 1 equivalent (the join's company_id); regression unit 141/141 (11 files listed), int 209/209 (22 files listed); k-035 4 failed / 2 passed identically on master source and the branch (pre-existing). Review round 2 on a2e9cf93a (both SHIP, LOW only): the cancelled-and-live case gives the live row the highest id, so the live-first status key is what it pins (M13, ORDER BY cp.id alone, RED); a gateway receipt cancelled as a side effect of reverseReconciledTransaction still blocks a replay and is flagged (new case); docs say a cancelled gateway receipt may not be a deliberate decision (bank-line reversal, auto-post undo, MCP void_receipt); the draft-receipt case is a known gap, registered as R-189; the stale k-035 test registered as R-190. 13 mutants, 12 killed, 1 equivalent (mutations.r2.log at 4d3362b96); regression int 210/210 over 22 listed files (regression.r2.int.log)."
+    },
+    {
+      "area": "accounting/ar portal",
+      "affectedPaths": [
+        "src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts",
+        "src/modules/accounting/services/ar/gatewaySettledReceipt.ts",
+        "src/modules/accounting/services/ar/gatewayFeeService.ts"
+      ],
+      "sourceLabel": "R-187 round-2 blind review, 2026-10-03",
+      "sourceIds": [
+        "R-187"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Pre-existing (K-036 design, kept exactly by R-187). Needs a person to record a receipt by hand with the Paystack reference and leave it in draft before the gateway settles. The card payment is then never banked unless the draft is confirmed, and nothing flags it.",
+      "auditedSha": "4d3362b9649fc71a123dc0b6815b395e5292110c",
+      "currentSha": "4d3362b9649fc71a123dc0b6815b395e5292110c",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Unknown. Census (read-only): SELECT pr.company_id, pr.paystack_reference, pr.completed_at, cp.id AS draft_receipt_id, cp.total_amount, cp.bank_account_id, EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.company_id = pr.company_id AND je.reference = pr.paystack_reference AND je.posting_agent = 'system:paystack-receipt:v1' AND je.status IS DISTINCT FROM 'reversed') AS fee_leg_posted FROM paystack_payment_requests pr JOIN customer_payments cp ON cp.company_id = pr.company_id AND cp.bank_reference = pr.paystack_reference AND cp.status = 'draft' WHERE pr.purpose = 'customer_invoice' AND pr.status = 'completed' AND NOT EXISTS (SELECT 1 FROM customer_payments x WHERE x.company_id = pr.company_id AND x.bank_reference = pr.paystack_reference AND x.status IN ('confirmed', 'reconciled'));",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-189",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "A live DRAFT receipt carrying the Paystack reference makes the gateway bank nothing, with no flag",
+      "claim": "recordGatewayInvoiceReceipt's dedupe (gatewaySettledReceipt.findSettledReceipt) takes any LIVE customer_payments row for (company, bank_reference) as the settlement, whoever wrote it and in any status, a draft included. A draft manual receipt with the Paystack reference (customerPaymentService.createCustomerPayment accepts any bankReference) therefore sends the first charge.success down the second-report path: no receipt is banked, nothing is allocated, and no review reason is written unless the amounts disagree. If the report carries fees, postGatewayFee still posts the fee leg (DR admin_expense / CR Bank) against the draft's bank_account_id, so Bank is credited before any receipt debits it. If the draft is never confirmed the card payment is never banked and nothing says so; the request reads completed. Pinned, not fixed, by tests/integration/r187-non-gateway-cancelled.int.test.ts ('a LIVE receipt with no journal...'). Fix options: treat only a confirmed/reconciled receipt (or a gateway-written one) as the settlement and flag any other live match; or flag the draft case for review.",
+      "processNotes": "2026-10-03: recorded by the R-187 round-2 blind review on a2e9cf93a. Pre-existing; R-187 deliberately left a live match unchanged."
+    },
+    {
+      "area": "billing/paystack tests",
+      "affectedPaths": [
+        "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
+      ],
+      "sourceLabel": "R-187 round-2 blind review, 2026-10-03",
+      "sourceIds": [
+        "K-035"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Test-only: a stale integration test, red on master. It does not run on GitHub (integration tests skip there), so it hides behind local runs; any change it was meant to guard is unguarded while it is red.",
+      "auditedSha": "1910c157b",
+      "currentSha": "1910c157b",
+      "status": "candidate",
+      "dependencies": [],
+      "testNames": [
+        "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-187/k035.r1.int.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None: test code only.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-190",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "k-035 webhook-redelivery integration test fails 4/6 on clean master: its failure premise no longer produces a 500",
+      "claim": "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts fails 4 of 6 on clean master 1910c157b: 'expected 200 to be 500' three times and 'expected 'completed' to be 'pending'' once. Its premise, a ux_sub_mandates_company_active violation making the charge.success authorization branch throw (500, rolled back, redelivered), no longer holds: paystackMandateActivation makes that case a settled outcome (noteAuthorisationNotAttached, 200), so the test is stale. It needs a new way to make processing fail, or a rewrite against the current contract.",
+      "processNotes": "2026-10-03: recorded during R-187 round 2. Verified on two separate fixtures: by the orchestrator, and by the R-187 implementer on isaflow-fixture-r187 with master's source for the two R-187 services and on the R-187 branch (identical failures, docs/audits/remediation/R-187/k035.r1.int.log). Not caused by R-183..R-188."
     }
   ],
   "sourceInventory": [
