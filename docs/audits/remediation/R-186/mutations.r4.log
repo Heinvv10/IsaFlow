@@ -1,0 +1,23 @@
+HEAD: 0ef5c9cd3a41266b2ea49f7ed734329543735624 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 36.25; suite: tests/integration/r186-archive-current-cancel.int.test.ts tests/integration/r186-archive-move-race.int.test.ts tests/integration/r186-archive-paystack-settled.int.test.ts tests/integration/r186-archive-skipped-closure.int.test.ts tests/integration/r186-archive-skips-paystack-invoices.int.test.ts
+BASELINE before: 5 passed (5) / 17 passed (17)
+D1 kept-journal seed ignores the skipped ids [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+D2 run counts kept journals for no ids [src/modules/accounting/services/core/archiveExecutionService.ts]: 3 failed | 2 passed (5) / 6 failed | 11 passed (17) -> RED
+D3 validation counts kept journals for no ids [src/modules/accounting/services/core/archiveQueryService.ts]: 1 failed | 4 passed (5) / 4 failed | 13 passed (17) -> RED
+D4 skippedIds = every eligible invoice [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 3 failed | 2 passed (5) / 4 failed | 13 passed (17) -> RED
+D5 run reports invoicesSkipped 0 [src/modules/accounting/services/core/archiveExecutionService.ts]: 3 failed | 2 passed (5) / 4 failed | 13 passed (17) -> RED
+N1 selection ignores the gateway reference [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 4 failed | 1 passed (5) / 5 failed | 12 passed (17) -> RED
+N2 selection: Paystack EXISTS unscoped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+N3 selection: Stitch EXISTS dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 2 failed | 3 passed (5) / 2 failed | 15 passed (17) -> RED
+N4 selection: Stitch EXISTS unscoped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C1 run does not refuse [src/modules/accounting/services/core/archiveExecutionService.ts]: 3 failed | 2 passed (5) / 6 failed | 11 passed (17) -> RED
+C2 run refuses only above 1 [src/modules/accounting/services/core/archiveExecutionService.ts]: 3 failed | 2 passed (5) / 6 failed | 11 passed (17) -> RED
+C3 chain: reversals of a chain journal not followed [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C4 chain: the journal a chain journal reverses not followed [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C5 chain: recursion leaves the company [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C6 seed: invoice journal from any company [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C12 count: status filter dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+C13 count: cutoff filter dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 2 failed | 15 passed (17) -> RED
+C14 validation does not report it [src/modules/accounting/services/core/archiveQueryService.ts]: 1 failed | 4 passed (5) / 4 failed | 13 passed (17) -> RED
+BASELINE after: 5 passed (5) / 17 passed (17)
+tree after: ''
+Killed 18/18.
