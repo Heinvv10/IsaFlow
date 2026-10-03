@@ -16,7 +16,7 @@ const lastWarned = new Map<string, number>();
 function counts(pool: pg.Pool, name: string) {
   return {
     pool: name, waitingCount: pool.waitingCount, totalCount: pool.totalCount,
-    idleCount: pool.idleCount, max: (pool as unknown as { options: { max?: number } }).options.max,
+    idleCount: pool.idleCount, max: (pool as unknown as { options?: { max?: number } }).options?.max,
   };
 }
 
