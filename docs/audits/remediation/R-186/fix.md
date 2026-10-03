@@ -326,6 +326,14 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
 8. The R-186 register census (3) covers Stitch.
 9. The CASCADE loss is registered as R-194 (checked free on every ref and worktree).
 
+10. **Final LOW (adversarial reconfirm at e24c3644c).** Moving the refusal to step 0 widened the
+    window before the step-6 journal deletes. The kept-journal count now runs a second time, right
+    after the invoice move and before the `gl_journal_lines` delete, and throws the same refusal;
+    the savepoint rolls the copies back. Race case: a hook fires after the step-0 count and links
+    the skipped invoice to a posted pre-cutoff journal. The run refuses, the journal is still live
+    and not archived, and the hook fired. Red: `red.r7.int.log`, where the run completed and
+    archived the journal. Mutant: `mutations.r7.log`.
+
 | Round-3 evidence | Result |
 |---|---|
 | `red.r6.int.log` (c01557f36 code, round-3 tests) | 3 failed / 17 passed (20): raw 23514; three archive copies before the refusal; the generic message |

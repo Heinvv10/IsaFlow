@@ -154,6 +154,11 @@ export async function executeArchive(
     `;
 
     const invoicesArchived = await moveCustomerInvoicesToArchive(companyId, cutoffDate, ciScope.ids);
+    // Second kept-journal check, just before the GL deletes: a skipped invoice
+    // linked (or a chain journal posted) since step 0 must not escape. The
+    // throw rolls the copies above back with the savepoint.
+    const keptJournalsNow = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
+    if (keptJournalsNow > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournalsNow));
 
     await sql`
       DELETE FROM supplier_invoices
