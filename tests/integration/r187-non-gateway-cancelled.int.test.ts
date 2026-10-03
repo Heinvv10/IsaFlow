@@ -23,6 +23,8 @@ import { clearSystemAccountCache } from '@/modules/accounting/services/gl/system
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { cancelCustomerPayment, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { voidPaymentDocument } from '@/modules/accounting/services/core/paymentVoidService';
+import { books, feeJournals } from './r187-books.helpers';
 
 assertDisposable();
 
@@ -153,7 +155,7 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
   });
 });
 
-describe('R-187 round 2: a gateway receipt cancelled as a side effect of a bank-line reversal', () => {
+describe('R-187: a gateway receipt cancelled without a person deciding it (bank-line reversal, MCP void_receipt)', () => {
   it('reverseReconciledTransaction on the line matched to the receipt cancels it; a replay banks nothing and flags', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
@@ -169,9 +171,30 @@ describe('R-187 round 2: a gateway receipt cancelled as a side effect of a bank-
       [randomUUID(), A.id, bankId, `PAYSTACK ${ref}`, ref, leg])).rows[0]!.id;
     const unwound = await inTx(() => reverseReconciledTransaction(A.id, bt, A.user));
     expect(unwound.paymentsCancelled).toBe(1);
+    const before = await books();
 
     expect((await deliver(ref, 11500, 'ZAR', { id: Math.floor(Math.random() * 1e9), fees: 350 })).statusCode).toBe(200);
 
+    expect(await books()).toEqual(before);
+    expect(await feeJournals(ref)).toBe(0);
+    expect(await outcome(ref, id)).toMatchObject({
+      statuses: ['cancelled'], invoicePaid: '0.00', review: 'review:already_settled_cancelled_receipt' });
+  });
+
+  it('MCP void_receipt (voidPaymentDocument -> unwindOnePayment) cancels it, an agent not a person: a replay banks nothing and flags', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11500)).statusCode).toBe(200);
+    const receipt = (await pool.query<{ id: string }>(
+      'SELECT id FROM customer_payments WHERE company_id = $1 AND bank_reference = $2', [A.id, ref])).rows[0]!.id;
+    const voided = await inTx(() => voidPaymentDocument(A.id, 'customer', receipt, A.user, { postingAgent: 'mcp:r187-test' }));
+    expect(voided).toMatchObject({ paymentId: receipt, bankTransactionId: null });
+    const before = await books();
+
+    expect((await deliver(ref, 11500, 'ZAR', { id: Math.floor(Math.random() * 1e9), fees: 350 })).statusCode).toBe(200);
+
+    expect(await books()).toEqual(before);
+    expect(await feeJournals(ref)).toBe(0);
     expect(await outcome(ref, id)).toMatchObject({
       statuses: ['cancelled'], invoicePaid: '0.00', review: 'review:already_settled_cancelled_receipt' });
   });

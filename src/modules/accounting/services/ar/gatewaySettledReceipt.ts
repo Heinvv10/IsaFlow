@@ -8,9 +8,10 @@
  * cancelled as a side effect when the bank line matched to its journal is reversed
  * (`reverseReconciledTransaction`, or the auto-post undo, both through
  * `unwindBankAllocationApplication`), and by an agent through MCP `void_receipt`
- * (`unwindOnePayment`). Whoever handles the flag should check which it was. A cancelled receipt somebody else wrote (a manual receipt, a bank-feed
- * allocation, both free to carry the Paystack reference as `bank_reference`) says nothing about the
- * gateway's settlement and is ignored, so the first settlement still banks.
+ * (`unwindOnePayment`). Whoever handles the flag should check which it was. A cancelled receipt
+ * somebody else wrote (a manual receipt, a bank-feed allocation, both free to carry the Paystack
+ * reference as `bank_reference`) says nothing about the gateway's settlement and is ignored, so the
+ * first settlement still banks.
  *
  * "The gateway wrote it" is read from the receipt's journal: `customer_payments.gl_journal_entry_id`
  * -> `gl_journal_entries.posting_agent = GATEWAY_RECEIPT_AGENT`. Every gateway receipt has carried
