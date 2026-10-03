@@ -94,7 +94,7 @@ export default [
         selector: 'ImportExpression[source.value=/paystack(Http|Transactions|Subscriptions)/]',
         message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
       }, {
-        selector: 'ImportExpression > TemplateLiteral.source[quasis.0.value.raw=/paystack(Http|Transactions|Subscriptions)/]',
+        selector: 'ImportExpression > TemplateLiteral.source > TemplateElement[value.raw=/paystack(Http|Transactions|Subscriptions)/]',
         message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
       }],
     },
