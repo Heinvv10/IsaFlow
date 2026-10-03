@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: async (_n: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn(async () => ({ id: 'exp-1' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(async () => ({ id: 'je-fee' })),

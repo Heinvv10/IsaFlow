@@ -1,0 +1,79 @@
+/**
+ * R-185: postGatewayFee decides by OUTCOME when its create+post fails. The fee journal is guarded
+ * by a partial unique index (migration 852); a concurrent delivery that posted first makes this
+ * one's insert raise 23505. Whatever the error, the fee journal is re-read: present means another
+ * delivery posted it (stand down), absent means the original error is the answer (rethrow it).
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const h = vi.hoisted(() => ({ guardRows: [] as unknown[][], savepoints: [] as string[] }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(async () => h.guardRows.shift() ?? []),
+  withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => { h.savepoints.push(name); return fn(); }),
+}));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn(async () => ({ id: 'exp-1' })) }));
+vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
+  createJournalEntry: vi.fn(async () => ({ id: 'je-fee' })),
+  postJournalEntry: vi.fn(async () => undefined),
+}));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+
+import { postGatewayFee } from '@/modules/accounting/services/ar/gatewayFeeService';
+import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { sql } from '@/lib/neon';
+
+const create = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
+const post = postJournalEntry as unknown as ReturnType<typeof vi.fn>;
+const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
+const receipt = { companyId: 'co-1', invoiceId: 'inv-1', reference: 'r185_ref', requestedCents: 11500,
+  reported: { amountCents: 11500, currency: 'ZAR' }, feeRand: 3 };
+
+/** What node-postgres raises for the index, as captured from the fixture (docs/audits/remediation/R-185/pg-23505.shape.log). */
+function uniqueViolation(): Error {
+  return Object.assign(new Error('duplicate key value violates unique constraint "ux_gl_je_gateway_fee_reference"'), {
+    name: 'error', code: '23505', severity: 'ERROR', schema: 'public', table: 'gl_journal_entries',
+    constraint: 'ux_gl_je_gateway_fee_reference',
+    detail: 'Key (company_id, reference)=(00000000-0000-0000-0000-000000000001, r185_ref) already exists.',
+  });
+}
+
+beforeEach(() => {
+  h.guardRows = [];
+  h.savepoints = [];
+  create.mockReset().mockResolvedValue({ id: 'je-fee' });
+  post.mockReset().mockResolvedValue(undefined);
+  sqlMock.mockClear();
+});
+
+describe('postGatewayFee when the create+post fails', () => {
+  it('23505 and the fee journal now exists: stands down without throwing', async () => {
+    create.mockRejectedValueOnce(uniqueViolation());
+    h.guardRows = [[], [{ id: 'je-winner' }]]; // the guard finds nothing; the re-read finds the winner
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('23505 but no fee journal on re-read: rethrows the original error', async () => {
+    const err = uniqueViolation();
+    create.mockRejectedValueOnce(err);
+    h.guardRows = [[], []];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).rejects.toBe(err);
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('a post failure (not a 23505) with no fee journal on re-read: rethrows it', async () => {
+    const err = Object.assign(new Error('Cannot post to a closed fiscal period'), { name: 'ClosedFiscalPeriodError' });
+    post.mockRejectedValueOnce(err);
+    h.guardRows = [[], []];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).rejects.toBe(err);
+  });
+
+  it('runs the create and the post inside one savepoint', async () => {
+    h.guardRows = [[]];
+    await postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03');
+    expect(h.savepoints).toHaveLength(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+});

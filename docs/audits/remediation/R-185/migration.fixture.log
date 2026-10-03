@@ -1,0 +1,22 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 + working tree 852; fixture isaflow-fixture-r185 (127.0.0.1:55931), at 851; load 37.38
+## 1. two live fee journals (posted + draft) for one (company, reference), then 852, in one transaction -> refused; probe ends ROLLBACK
+BEGIN
+INSERT 0 1
+INSERT 0 2
+SET
+ERROR:  R-185: 1 (company_id, reference) group(s) already hold more than one live Paystack fee journal; run the census in the header of 852_gateway_fee_journal_unique.sql and repair them first
+CONTEXT:  PL/pgSQL function inline_code_block line 15 at RAISE
+exit=3
+index after probe: 0; probe rows left: 0
+## 2. clean table -> applied (psql -1, ON_ERROR_STOP)
+SET
+DO
+CREATE INDEX
+exit=0
+## 3. re-run is a no-op
+SET
+DO
+CREATE INDEX
+NOTICE:  relation "ux_gl_je_gateway_fee_reference" already exists, skipping
+exit=0
+CREATE UNIQUE INDEX ux_gl_je_gateway_fee_reference ON public.gl_journal_entries USING btree (company_id, reference) WHERE ((posting_agent = 'system:paystack-receipt:v1'::text) AND (reference IS NOT NULL) AND ((status)::text IS DISTINCT FROM 'reversed'::text))
