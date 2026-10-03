@@ -40,10 +40,20 @@ The step checks that each of the 11 type names is importable from the barrel, pl
 `VerifyTransactionResult`; it is not a full shape check. The production importers do not cover the types either.
 
 Enforcement of "import the barrel, never the parts": ESLint `no-restricted-imports` in `eslint.config.mjs`
-(off only for the barrel and the three parts, `paystack{Client,Http,Transactions,Subscriptions}.ts`, so the consumers `paystackEventHandlers.ts` and `paystackMandateActivation.ts` are covered; also catches suffixed specifiers and dynamic `import()`; `tests/` and `scripts/` are not linted). See `mutations.log` M6, M7.
+(off only for the barrel and the three parts, `paystack{Client,Http,Transactions,Subscriptions}.ts`; a broad `paystack*.ts` glob would also have exempted `paystackEventHandlers.ts` and `paystackMandateActivation.ts`, which do not import the client but are paystack-named, and k095-r5 loads them with the barrel mocked; also catches suffixed specifiers and dynamic `import()`; `tests/` and `scripts/` are not linted). See `mutations.log` M6a-M12.
 
 ## Round 1 (review FIX on bff9e9794)
-Added the ESLint import restriction, the `paystack-export-types` CI step and the header note. Unit/gate logs
-(`green.unit.log`, `regression.unit.log`, `gates.log`) are re-run at committed head 5944996dc. `full-unit.log`
-(split tree, pre-commit) and `regression.int.log` (f2320de6d) predate round 1; round 1 changed no moved code
-(lint config, a tsconfig, CI script, one comment), so they were not repeated.
+Added the ESLint import restriction (mutants M6a, M6b), the `paystack-export-types` CI step (M7) and the
+`paystackHttp.ts` header note.
+
+## Rounds 2 and 3
+- Round 2: `tsconfig.paystackexports.json` uses `files` + empty `include` (M8: missing test is TS6053);
+  the lint exception names only the barrel and the three parts (M9); suffixed specifiers (M11) and
+  dynamic `import()` (M10) are caught; export test renamed and its claims narrowed; `verify-move.sh`
+  reads new files with `git show <sha>:`.
+- Round 3 (HIGH): `next-env.d.ts` is gitignored and git-cleaned on GitHub's checkout, so listing it in
+  `files` would have failed the step with TS6053 there (and was the cause of an earlier unexplained rc=2).
+  Removed; proven in a `git archive` tree without it (`gates.log`: rc=0, and M8 still TS6053). Template-literal
+  `import(\`...paystackHttp\`)` is caught (M12). Known harmless gap: `typeof import('...')` type queries.
+- Mutants M1-M12 (+ M6a/M6b): all killed. Unit and gate logs are at 9662a10d3; `full-unit.log` and
+  `regression.int.log` predate rounds 1-3 (no moved code changed since).

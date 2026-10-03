@@ -1,6 +1,6 @@
-HEAD: e87c4cf2ac8fb6341a2d7da057bd9d91410e0a15 (committed)
-$ tsc -p tsconfig.paystackexports.json
-paystack-exports rc=0
-$ tsc --noEmit
-
+HEAD: 9662a10d3f898a45b4c7697d487ecc7742c04bb4 (committed)
+type-check rc=0
+type-check:paystack-exports rc=0 (worktree)
+type-check:paystack-exports rc=0 in a git-archive tree of 9662a10d3f898a45b4c7697d487ecc7742c04bb4 with next-env.d.ts ABSENT (node_modules hardlink copy), as on a GitHub checkout
+M8 (missing test path) in that same archive tree: TS6053, rc=2
 lint: ✖ 12 problems (0 errors, 12 warnings)
