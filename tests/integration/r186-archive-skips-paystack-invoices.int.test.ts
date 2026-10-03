@@ -61,9 +61,11 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
     expect(preview.customerInvoicesSkipped).toBe(2);
     expect(preview.totalRecords).toBe(1);
 
-    const previewC = await drive(coC, () => previewArchive(coC, CUTOFF), { appUser: true });
-    expect(previewC.customerInvoices).toBe(1);
-    expect(previewC.customerInvoicesSkipped).toBe(0);
+    for (const co of [coC, coD]) {
+      const other = await drive(co, () => previewArchive(co, CUTOFF), { appUser: true });
+      expect(other.customerInvoices).toBe(1);
+      expect(other.customerInvoicesSkipped).toBe(0);
+    }
   }, 40000);
 
   it('as app_user: archives the free invoice, skips both referenced ones, leaves them and their requests intact', async () => {
