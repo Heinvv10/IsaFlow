@@ -46,6 +46,14 @@ describe('recurring-invoices-run', () => {
     vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(heldErr());
     held(await call(recurringRun, { recurring_invoice_id: A }));
   });
+  it.each(['40P01', '55P03'])('a single id held as a raw %s answers 503 WITHOUT the driver text', async (code) => {
+    vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(
+      Object.assign(new Error('deadlock detected: relation "recurring_invoices" key (id)=(x)'), { code }));
+    const r = await call(recurringRun, { recurring_invoice_id: A });
+    held(r);
+    expect(JSON.stringify(r.sent)).not.toMatch(/deadlock|recurring_invoices|relation|key \(id\)/);
+    expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
+  });
   it('a single id that fails ordinarily keeps 200 with the error in the body', async () => {
     vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(new Error('bad template'));
     const r = await call(recurringRun, { recurring_invoice_id: A });
