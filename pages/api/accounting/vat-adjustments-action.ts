@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess, withVatVendor} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -56,13 +57,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof VatAdjustmentRefusal) {
       if (err.kind === 'not_found') return apiResponse.notFound(res, 'VAT adjustment', String(req.body?.id));
-      if (err.kind === 'contended') return apiResponse.conflict(res, err.message);
+      if (err.kind === 'contended') return respondRowHeld(res, err.message, 'VAT_ADJUSTMENT_LOCK_TIMEOUT');
       return apiResponse.badRequest(res, err.message);
     }
     // Everything below was raised inside approve's savepoint (rolled back) or aborted the
     // transaction, so none of these answers commits a write. PRECONDITION: approve writes
     // nothing before its savepoint. A write added before it would be COMMITted behind these 4xx.
-    if (isLockContention(err) || isEntryNumberCollision(err)) {
+    // A held row (55P03) or a deadlock victim (40P01) is 503 + Retry-After (D11); a numbering collision stays 409.
+    if (isLockContention(err)) {
+      return respondRowHeld(res, 'Another posting was in progress — retry in a moment.', 'ROW_LOCK_TIMEOUT');
+    }
+    if (isEntryNumberCollision(err)) {
       return apiResponse.conflict(res, 'Another posting was in progress — retry in a moment.');
     }
     if (err instanceof ClosedFiscalPeriodError || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError) {

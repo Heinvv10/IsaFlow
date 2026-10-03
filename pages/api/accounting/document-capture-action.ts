@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -18,7 +19,6 @@ import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
 } from '@/modules/accounting/services/capture/captureLifecycleGate';
-import { CaptureRowLockTimeoutError } from '@/modules/accounting/services/capture/captureRowLock';
 
 function mapRow(row: Record<string, unknown>): CapturedDocument {
   return {
@@ -87,7 +87,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       try {
         gate = await releaseClaimForLifecycleAction(companyId, id);
       } catch (err) {
-        if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+        if (respondIfLockTimeout(res, err)) return;
         throw err;
       }
       if (gate === 'missing') return apiResponse.notFound(res, 'Captured document', id);
