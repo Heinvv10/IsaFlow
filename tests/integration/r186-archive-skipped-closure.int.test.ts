@@ -157,7 +157,13 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     await holder.query('SELECT id FROM customer_invoices WHERE id = $1 FOR UPDATE', [skipped]);
     // Released after the budget whatever happens, so a run without the bound cannot hang the suite.
     const release = new Promise<void>((resolve) => {
-      setTimeout(() => { void holder.query('ROLLBACK').finally(() => { holder.release(); resolve(); }); }, 9000);
+      // A failed ROLLBACK destroys the client (release(err)) instead of escaping as an unhandled rejection.
+      setTimeout(() => {
+        void holder.query('ROLLBACK').then(
+          () => holder.release(),
+          (err: unknown) => holder.release(err instanceof Error ? err : new Error(String(err))),
+        ).finally(resolve);
+      }, 9000);
     });
 
     const started = Date.now();
