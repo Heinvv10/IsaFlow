@@ -107,7 +107,13 @@ export async function postGatewayFee(
     });
   } catch (err) {
     if (!(await feeJournalExists(receipt))) throw err;
-    log.info('Gateway fee already posted by a concurrent delivery', { reference: receipt.reference, fee }, 'accounting');
+    log.info('Gateway fee already posted by a concurrent delivery', {
+      reference: receipt.reference,
+      fee,
+      // What this delivery's attempt raised (normally 23505 on ux_gl_je_gateway_fee_reference); no stack.
+      code: (err as { code?: unknown }).code,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'accounting');
     return;
   }
   log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId }, 'accounting');

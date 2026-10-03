@@ -54,15 +54,32 @@ outcome, in its own savepoint.
   load-bearing. `sql.transaction`'s own batch savepoint already contains a 23505 on the INSERT,
   but a failed POST leaves this call's own draft. Without the rollback the re-read would find that
   draft and swallow the failure (mutant M3).
-- **Lock order** is unchanged. The loser's INSERT waits on the winner's uncommitted index entry,
-  then raises 23505 once the winner commits, and the re-read (READ COMMITTED, new statement) sees
-  the winner's row. The winner holds nothing the loser holds on the dedupe path (no request
-  UPDATE; the link spend is a no-op once spent).
+- **Lock order** is unchanged. Two interleavings, both tested:
+  - The winner COMMITTED between the loser's guard and its insert: the loser's insert raises 23505
+    on `ux_gl_je_gateway_fee_reference`. This is the window that posted the fee twice before 852.
+  - The winner is still UNCOMMITTED at the loser's insert: the loser blocks and raises 23505 on
+    `uq_gl_je_company_entry_number` when the winner commits, not on 852's index. The entry-number
+    trigger (`generate_journal_entry_number`) is MAX+1 over committed rows, so both compute one
+    number, and that older index is checked first. This is deterministic, and it held before 852
+    too: pre-fix, that loser answered 500 and was redelivered. If the winner rolls back, the
+    loser's insert proceeds and posts the one fee.
+  - Either way the re-read (READ COMMITTED, new statement) decides by outcome; it does not care
+    which constraint fired. The winner holds nothing the loser needs before its insert on the
+    dedupe path (no request UPDATE; the link spend is a no-op once spent).
+- **Logs on a lost race:** `journalEntryCrudService` logs `error` "Failed to create journal entry"
+  with the 23505, then the stand-down `info` "Gateway fee already posted by a concurrent delivery"
+  carries the swallowed `code` and message (no stack). The shared service is not changed; the error
+  line is expected noise on this path (also in `ar/.claude.md`).
 
-## Census (G2): PENDING
+## Census (G2/G3): dev 0, prod PENDING
 
-Not run against dev or prod (the brief reserves that for the orchestrator). Query in the header of
-`852_gateway_fee_journal_unique.sql`; it must return 0 rows before 852 is applied, or 852 refuses.
+Query in the header of `852_gateway_fee_journal_unique.sql`; it must return 0 rows before 852 is
+applied, or 852 refuses.
+
+- **dev (`isaflow_dev`), 2026-10-03, read-only, run by the orchestrator:** 0 duplicate groups, and 0
+  journals with the agent at all.
+- **prod: not checked.** A read-only query on prod is gate G3 and needs Hein. R-185 stays
+  `in-progress` until it is run.
 
 ## Tests
 
@@ -74,13 +91,20 @@ Not run against dev or prod (the brief reserves that for the orchestrator). Quer
     after the fee path).
   - Closed period: the fee post fails. Asserts: 500, no journal with the reference (not even a
     draft), event unprocessed with `processing_error`.
+  - B inserts while A holds its uncommitted fee journal (A paused at its processed stamp; B seen
+    lock-waiting on its INSERT in `pg_stat_activity`; hook asserted fired): A commits → B 200,
+    stand-down logged with `code` 23505, exactly 1 fee journal; A rolls back → A 500, B posts,
+    exactly 1 fee journal, no stand-down.
   - Index predicate: refuses a second live fee journal (posted/posted, draft/posted,
     NULL/posted). Admits two NULL-reference journals with the agent (receipts), another agent with
-    the same reference, and a `reversed` row.
+    the same reference, and a `reversed` row. Round 0's NULL case bound `status ?? 'posted'`, so it
+    inserted 'posted', not NULL; the NULL claim was false until round 1 (`'status' in row`, killed
+    by M9).
 - `tests/unit/services/ar/gatewayFeeIdempotency.test.ts`: the error shape Postgres raises
   (`pg-23505.shape.log`, captured from the fixture). 23505 with the journal present stands down.
   23505 with it absent rethrows the same error object. A post failure with no journal rethrows.
-  The create and post run in one savepoint.
+  The create and post run inside the savepoint callback (the mock records an in-savepoint flag
+  per call). The stand-down log carries `code` and message.
 - `tests/unit/services/ar/gatewayFeeLeg.test.ts`: neon mock gains `withSavepoint` (new import).
 
 ## Evidence
@@ -105,5 +129,8 @@ Not run against dev or prod (the brief reserves that for the orchestrator). Quer
   mandate/authorization path, not the fee path. It expects a 500 from
   `ux_sub_mandates_company_active`; the authorization branch now avoids that 23505 by design
   (`paystackEventHandlers.ts`, "never at the cost of a 23505 on ux_sub_mandates_company_active").
+- **A lost race drops the loser's `fees`.** If the two deliveries report different fees, the
+  winner's figure stands and the loser's is not compared or flagged (pre-existing: the sequential
+  dedupe path behaves the same).
 - A fee post that fails for a non-race reason (for example a closed period) still fails the whole
   delivery (500, redelivered), as before. This is unchanged by design.
