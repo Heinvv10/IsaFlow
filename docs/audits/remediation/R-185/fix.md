@@ -92,9 +92,12 @@ applied, or 852 refuses.
   - Closed period: the fee post fails. Asserts: 500, no journal with the reference (not even a
     draft), event unprocessed with `processing_error`.
   - B inserts while A holds its uncommitted fee journal (A paused at its processed stamp; B seen
-    lock-waiting on its INSERT in `pg_stat_activity`; hook asserted fired): A commits → B 200,
+    in `pg_stat_activity`, in this database, blocked by A's backend pid, on its INSERT; hook
+    asserted fired): A commits → B 200,
     stand-down logged with `code` 23505, exactly 1 fee journal; A rolls back → A 500, B posts,
     exactly 1 fee journal, no stand-down.
+  - Company scope: a live fee journal for the SAME reference in another company does not stop
+    A's fee (pins `company_id` in `feeJournalExists`; killed by M12).
   - Index predicate: refuses a second live fee journal (posted/posted, draft/posted,
     NULL/posted). Admits two NULL-reference journals with the agent (receipts), another agent with
     the same reference, and a `reversed` row. Round 0's NULL case bound `status ?? 'posted'`, so it
@@ -103,7 +106,8 @@ applied, or 852 refuses.
 - `tests/unit/services/ar/gatewayFeeIdempotency.test.ts`: the error shape Postgres raises
   (`pg-23505.shape.log`, captured from the fixture). 23505 with the journal present stands down.
   23505 with it absent rethrows the same error object. A post failure with no journal rethrows.
-  The create and post run inside the savepoint callback (the mock records an in-savepoint flag
+  Any error, not only 23505 (a 40P01 from the post), with the journal present stands down (pins
+  "no code matched"; killed by M11). The create and post run inside the savepoint callback (the mock records an in-savepoint flag
   per call). The stand-down log carries `code` and message.
 - `tests/unit/services/ar/gatewayFeeLeg.test.ts`: neon mock gains `withSavepoint` (new import).
 

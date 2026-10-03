@@ -66,6 +66,14 @@ describe('postGatewayFee when the create+post fails', () => {
     }, 'accounting');
   });
 
+  it('any error, not only 23505 (a 40P01 from the post), with the journal present: stands down', async () => {
+    post.mockRejectedValueOnce(Object.assign(new Error('deadlock detected'), { name: 'error', code: '40P01', severity: 'ERROR' }));
+    h.guardRows = [[], [{ id: 'je-winner' }]];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(log.info).toHaveBeenCalledWith('Gateway fee already posted by a concurrent delivery',
+      { reference: 'r185_ref', fee: 3, code: '40P01', error: 'deadlock detected' }, 'accounting');
+  });
+
   it('23505 but no fee journal on re-read: rethrows the original error', async () => {
     const err = uniqueViolation();
     create.mockRejectedValueOnce(err);

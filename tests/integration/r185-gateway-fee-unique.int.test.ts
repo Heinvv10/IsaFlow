@@ -13,9 +13,10 @@
 import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement } from './r181-settlement.helpers';
+import { A, B, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 
 assertDisposable();
 
@@ -67,13 +68,13 @@ const isFeeGuard = (text: string) => /^\s*SELECT/.test(text) && text.includes('F
 /** The webhook's processed stamp: after the whole fee path, before COMMIT. */
 const isProcessedStamp = (text: string) => text.includes('UPDATE paystack_webhook_events') && text.includes('SET processed = TRUE');
 
-/** Wait until another backend is blocked on a lock while inserting a journal (B behind A's index entry). */
-async function insertBlockedOnLock(): Promise<void> {
+/** Wait until a backend in this database is blocked BY A's backend while inserting a journal (B behind A). */
+async function insertBlockedBy(aPid: number): Promise<void> {
   for (let i = 0; i < 200; i += 1) {
     const { rows } = await pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM pg_stat_activity
-       WHERE pid <> pg_backend_pid() AND state = 'active' AND wait_event_type = 'Lock'
-         AND query ILIKE '%INSERT INTO gl_journal_entries%'`);
+       WHERE datname = current_database() AND $1::int = ANY(pg_blocking_pids(pid))
+         AND state = 'active' AND query ILIKE '%INSERT INTO gl_journal_entries%'`, [aPid]);
     if (Number(rows[0]!.n) > 0) return;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -92,10 +93,11 @@ async function bankedWithoutFee(): Promise<{ id: string; ref: string }> {
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
   await seed(A);
+  await seed(B);
   clearSystemAccountCache();
 });
 beforeEach(() => { h.hook = null; h.fired = 0; standDowns.mockClear(); });
-afterAll(async () => { vi.unstubAllEnvs(); await cleanup([A]); });
+afterAll(async () => { vi.unstubAllEnvs(); await cleanup([A, B]); });
 
 describe('R-185: two dedupe-path deliveries for one reference', () => {
   it('post the fee once; the loser answers 200 and its transaction commits', async () => {
@@ -143,8 +145,11 @@ describe('R-185: B inserts while A holds its uncommitted fee journal', () => {
     const { ref } = await bankedWithoutFee();
     let reached!: () => void;
     let release!: () => void;
+    let aPid = 0;
     const inWindow = new Promise<void>((r) => { reached = r; });
-    h.hook = { match: isProcessedStamp, run: () => {
+    h.hook = { match: isProcessedStamp, run: async () => {
+      // Runs inside A's transaction, so this is A's backend.
+      aPid = Number((await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
       reached();
       return new Promise<void>((resolve, reject) => {
         release = aEnds === 'commit' ? resolve : () => reject(new Error('r185: A rolls back'));
@@ -153,7 +158,7 @@ describe('R-185: B inserts while A holds its uncommitted fee journal', () => {
     const a = deliver(ref, 11500, 'ZAR', { id: 1854, fees: 300 });
     await inWindow;
     const b = deliver(ref, 11500, 'ZAR', { id: 1855, fees: 300 });
-    await insertBlockedOnLock();
+    await insertBlockedBy(aPid);
     release();
     const [aRes, bRes] = await Promise.all([a, b]);
     expect(h.fired).toBe(1);
@@ -183,16 +188,30 @@ describe('R-185: B inserts while A holds its uncommitted fee journal', () => {
   });
 });
 
+describe('R-185: the guard is scoped to the company', () => {
+  it("another company's live fee journal for the same reference does not stop A's fee", async () => {
+    const { ref } = await bankedWithoutFee();
+    await pool.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, reference, posting_agent, created_by)
+       VALUES ($1, CURRENT_DATE, 'r185 other company fee', 'auto_payment', 'posted', $2, $3, $4)`, [B.id, ref, AGENT, B.user]);
+    expect((await deliver(ref, 11500, 'ZAR', { id: 1856, fees: 300 })).statusCode).toBe(200);
+    expect(await feeJournals(ref)).toBe(1);
+    expect(await ledger(A, ref)).toMatchObject({ bankNet: '112.00', feeExpense: '3.00', balanced: true });
+  });
+});
+
 describe('R-185: a fee post that fails for any other reason still fails', () => {
   it('a closed period: the delivery answers 500 and leaves no fee journal, not even a draft', async () => {
     const { ref } = await bankedWithoutFee();
-    await pool.query(
+    const closed = (await pool.query<{ id: string }>(
       `UPDATE fiscal_periods SET status = 'closed'
-       WHERE company_id = $1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE`, [A.id]);
+       WHERE company_id = $1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE AND status <> 'closed'
+       RETURNING id`, [A.id])).rows.map((r) => r.id);
+    expect(closed.length).toBeGreaterThan(0);
     try {
       expect((await deliver(ref, 11500, 'ZAR', { id: 1853, fees: 300 })).statusCode).toBe(500);
     } finally {
-      await pool.query(`UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1 AND status = 'closed'`, [A.id]);
+      await pool.query(`UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1 AND id = ANY($2::uuid[])`, [A.id, closed]);
     }
     expect(await anyJournals(ref)).toBe(0);
     const events = await eventsOf(ref);
