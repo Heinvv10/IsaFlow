@@ -64,6 +64,29 @@ export async function findJournalChainHead(
   return { kind: 'head', id: String(open[0]!.id), standing: Number(open[0]!.depth) % 2 === 1 };
 }
 
+/**
+ * The ROOT of the reversal chain `journalEntryId` sits in — walked UP `reversal_of_id` (after O <- R1 <- R2, the root
+ * of R1 and of R2 is O) with the walk down's guard: the path, so a forged loop stops at its first repeat, and
+ * MAX_CHAIN_DEPTH. The document a chain belongs to carries its root, so a statement line matched to a middle or head
+ * reversal names its payment through this (D10 O1). Null when the entry is not this company's or the walk reaches no
+ * top (a loop). The one walk up; whether the chain stands is still `findJournalChainHead` from the root.
+ */
+export async function findJournalChainRoot(companyId: string, journalEntryId: string): Promise<string | null> {
+  const [row] = (await sql`
+    WITH RECURSIVE up AS (
+      SELECT id, reversal_of_id, ARRAY[id] AS path FROM gl_journal_entries
+      WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT p.id, p.reversal_of_id, up.path || p.id FROM gl_journal_entries p
+      JOIN up ON p.id = up.reversal_of_id
+      WHERE p.company_id = ${companyId}::UUID
+        AND NOT p.id = ANY(up.path) AND cardinality(up.path) < ${MAX_CHAIN_DEPTH}
+    )
+    SELECT id FROM up WHERE reversal_of_id IS NULL LIMIT 1
+  `) as DbRow[];
+  return row ? String(row.id) : null;
+}
+
 /** One wording for a broken chain; each flow throws it as its own refusal type. */
 export function brokenChainMessage(rootId: string, chain: { unreversed: number; cyclic: boolean }): string {
   const why = chain.cyclic
