@@ -54,7 +54,8 @@ async function hooked<T>(fn: () => Promise<T>, match: (t: string) => boolean, fi
   }
 }
 const isHeadLock = (t: string) => t.includes('SELECT status, reversed_at FROM gl_journal_entries') && t.includes('FOR UPDATE');
-const isChainWalk = (t: string) => t.includes('ARRAY[id] AS path');
+// The walk DOWN to the head (findJournalChainHead), the target's pre-write read — not the walk UP to the root (D10).
+const isChainWalk = (t: string) => t.includes('ARRAY[id] AS path') && t.includes('RECURSIVE chain AS');
 
 describe.skipIf(!process.env.DATABASE_URL)('D8 round 6: one lock order, decisions under the head lock', () => {
   beforeAll(async () => {
