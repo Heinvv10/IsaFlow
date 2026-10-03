@@ -96,6 +96,8 @@ Evidence r7 (queue-timeout follow-up): `red.r7.unit.log` (6/40 red), `green.r7.u
 
 Evidence r8: admission and `renderQueueBound` read the count through one `maxConcurrent()` helper, and an admission-level test (`'1.0'` at pool 40: one active, one queued) pins it. `green.r8.unit.log` 299/299 at `0f75f64cd`, `mutations.r8.log` M40-M41 killed. No red run: the refactor changes no behaviour, so the test passes on the old code too.
 
+Evidence r9: the invalid-value warning says "falling back" (the `using` field says to what), not "nearest allowed value". `red.r9.unit.log`, `green.r9.unit.log` 41/41 at `75324f2fe`, `mutations.r9.log` M42 killed, wider regression `regression.r9.unit.log` 1751/1751 at the same sha.
+
 ## Remaining long pool holders under withAuth
 - **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
 - Server `fetch(` with no signal or timeout, found by grep and NOT individually verified to run under withAuth: `llmCategorizationPass.ts`, `sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`, `weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts`, `imapMirrorService.ts`.
