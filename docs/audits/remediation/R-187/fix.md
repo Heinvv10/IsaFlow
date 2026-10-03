@@ -88,6 +88,30 @@ request row last) is unchanged; the cancelled branch takes only the request row 
    (`expected 200 to be 500` x3, `expected 'completed' to be 'pending'`). Pre-existing, not R-187.
 6. **L — fixCommit** left null for the orchestrator.
 
+## Review round 2 (a2e9cf93a: both reviewers SHIP, LOW only)
+
+1. The cancelled-and-live case now gives the live row an id starting `ffffffff-ffff-4fff-bfff-`
+   (random tail), so `ORDER BY cp.id` alone would pick the cancelled row; M13 (drop only the status
+   key) is RED.
+2. The replay test's header describes the round-1 rule.
+3. **A cancelled gateway receipt is not always a deliberate decision.** Besides
+   `cancelCustomerPayment`, it is cancelled as a side effect when the bank line matched to its journal
+   is reversed (`reverseReconciledTransaction`, and the auto-post undo, both through
+   `unwindBankAllocationApplication` -> `unwindOnePayment`), and by an agent through MCP
+   `void_receipt` (`paymentVoidService` -> `unwindOnePayment`). Whoever handles
+   `already_settled_cancelled_receipt` should check which it was. Said in the service, in
+   `gatewaySettledReceipt.ts` and in `ar/.claude.md`. New case: a bank line matched to the gateway
+   receipt's bank leg, reversed with `reverseReconciledTransaction` (one payment cancelled), then a
+   replay: nothing banked, flagged.
+4. The draft-receipt case no longer asserts `review: null` and says it is a known pre-existing gap,
+   registered as **R-189** (a live draft receipt with the reference makes the gateway bank nothing,
+   unflagged; a fee leg can post against the draft's bank account).
+5. The stale k-035 test is registered as **R-190**.
+
+`mutations.r2.log` (at 4d3362b96): 13 mutants, 12 RED, M12 equivalent (as round 1); baselines
+unit 19/19, int 9/9 before and after.
+`regression.r2.int.log` (at 4d3362b96): 210/210 over 22 listed files.
+
 ## Tests
 
 - Unit (`tests/unit/services/ar/gatewayReceiptWiring.test.ts`, two cases added; the mock models the
@@ -134,6 +158,6 @@ no writer creates, the same class as R-181's equivalent company_id mutant).
   existing double-banked references, if any, need a person.
 - The flag has no UI (R-181); the `log.error` line and `failure_reason` surface it.
 - Pre-existing, kept exactly: a LIVE receipt of any kind with the reference (even a draft manual
-  one) is taken as the settlement, so the gateway banks nothing. Pinned by a test, not changed.
+  one) is taken as the settlement, so the gateway banks nothing. A known gap, registered as R-189.
 - A gateway receipt whose journal was later deleted cannot exist (FK); one never confirmed cannot be
   committed (the INSERT and the confirm share the settlement transaction).
