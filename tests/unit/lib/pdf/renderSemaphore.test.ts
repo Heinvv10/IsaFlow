@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { acquireRenderSlot, RenderCapacityError, RenderQueueFullError, renderSlotStats, renderSlotCeilings, renderQueueBound } from '@/lib/pdf/renderSemaphore';
-import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
+import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX, authPoolMax } from '@/lib/limits/poolLimits';
 import { log } from '@/lib/logger';
 
 const ORIGINAL = {
@@ -177,6 +177,23 @@ describe('bounds derived from the auth pool', () => {
     expect(renderSlotCeilings().maxConcurrent).toBe(10);
     process.env.AUTH_POOL_MAX = '8';
     expect(renderSlotCeilings().maxConcurrent).toBe(2);
+  });
+
+  it('an invalid AUTH_POOL_MAX gives a pool of 10, so the ceiling is a quarter of that', () => {
+    for (const bad of ['abc', '0', '-3']) {
+      process.env.AUTH_POOL_MAX = bad;
+      expect(renderSlotCeilings().maxConcurrent).toBe(2);
+    }
+  });
+
+  it('a pool of 1 is raised to 2, so a render\'s re-entry can get a second connection; the ceiling stays 1', () => {
+    for (const small of ['1', '1.0', '0.5']) {
+      process.env.AUTH_POOL_MAX = small;
+      // The ceiling alone cannot tell a pool of 1 from a pool of 2 (both give 1);
+      // the raised size is what this asserts.
+      expect(authPoolMax()).toBe(2);
+      expect(renderSlotCeilings().maxConcurrent).toBe(1);
+    }
   });
 
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {

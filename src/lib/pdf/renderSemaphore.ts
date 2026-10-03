@@ -90,7 +90,6 @@ function maxWaitCeilingMs(): number {
 
 function maxConcurrentCeiling(): number {
   const poolMax = authPoolMax();
-  if (!Number.isFinite(poolMax) || poolMax <= 0) return DEFAULT_MAX_CONCURRENT;
   return Math.max(1, Math.floor(poolMax / POOL_SHARE_DIVISOR));
 }
 
