@@ -71,19 +71,51 @@ row of the same company, and reports how many it skipped. Requests are never arc
    other. A third case puts an id that is already in the archive. In each, the hook fired (where
    used), the run failed with `ARCHIVE_SET_CHANGED`, the invoice is live, and nothing new was
    archived.
-2. **[M] Closure of a skipped invoice: PENDING the orchestrator's decision** (census sent
-   2026-10-03). The probe used the realistic shape: a real Paystack settlement through the R-181
-   helpers, a cancelled unreferenced invoice beside it, and cutoff 2999-01-01. The run failed whole
-   on `23503 customer_payments_gl_journal_entry_id_fkey`. `executeArchive` never archives
-   `customer_payments` but deletes their posted journals by date, so any receipt journal in the
-   window fails the run (R-053 class), with or without Paystack. Half-archiving needs a skipped
-   invoice whose own journal is in the window with no FK holding it:
-   `customer_invoices.gl_journal_entry_id` has no FK (checked with `\d` on the fixture). Example: an
-   approved invoice with an abandoned checkout, then cancelled.
-   - The closure reaches the receipt journals (FK, fails closed), the fee journal (linked by
-     `reference` only), and the reconciled bank lines matched to receipt journal lines.
-   - Options sent: (a) keep the whole closure, (b) refuse the run when a skipped invoice's journal
-     chain is in the window, (c) pin the 23503 and record it.
+2. **[M] Closure of a skipped invoice: option (b), the orchestrator's choice.**
+   - **Census, sent 2026-10-03.**
+     - Probe: a real Paystack settlement through the R-181 helpers, a cancelled unreferenced
+       invoice beside it, cutoff 2999-01-01. The run fails whole on
+       `23503 customer_payments_gl_journal_entry_id_fkey`. `executeArchive` never archives
+       `customer_payments` but deletes their posted journals by date. So any receipt journal before
+       the cutoff fails the run, Paystack or not (R-053 class).
+     - Closure of a skipped invoice:
+       - its own journal: `customer_invoices.gl_journal_entry_id`, no FK, checked with `\d` on the
+         fixture;
+       - that journal's reversal chain: `reversal_of_id`, NO ACTION;
+       - its allocations (NO ACTION) and its receipts (never archived);
+       - the receipts' journals (FK, NO ACTION);
+       - the gateway fee journal, tied only by `reference`;
+       - reconciled bank lines matched to receipt journal lines (`matched_journal_line_id`).
+   - **The fix.** `countSkippedInvoiceJournalsInWindow` counts how many journals the run would move
+     (posted, before the cutoff, this company) belong to a skipped invoice. That means the
+     invoice's own journal plus its reversal chain, walked through `reversal_of_id` in both
+     directions inside the company. It is a recursive CTE; `UNION` ends a forged cycle.
+     - If the count is not 0, `executeArchive` throws `ArchiveSkippedInvoiceJournalError`
+       (`ARCHIVE_SKIPPED_INVOICE_JOURNAL`) at step 4, before anything is deleted, and the run rolls
+       back whole.
+     - `validateArchive` reports the same count as an error, so the page's Validate predicts the
+       refusal. The preview's counts do not change: a refusal is a reason the run won't happen,
+       not a number of records.
+   - **Receipt, fee and bank closure: recorded, not kept out (R-053 class, fails closed).** A
+     receipt journal before the cutoff fails the run on 23503 before the fee journal or bank line
+     can matter. A fee journal always comes with a receipt journal.
+   - **Pins.**
+     - `r186-archive-skipped-closure.int.test.ts` (6 cases). Refused shapes: the realistic cancel
+       (the invoice's journal 'reversed', its reversal posted in the window); the journal it
+       reverses in the window; its own journal in the window; the same with Stitch. Each asserts
+       the code, that nothing moved (journals, invoices, archive) and that validation reports it.
+       It completes when no chain journal is one the run moves, and the free invoice's own journal
+       moves with it. It does not reach into another company's journals.
+     - `r186-archive-paystack-settled.int.test.ts` (2 cases, the realistic Paystack shape through
+       the real webhook). With no invoice journal (as the R-181 helper books it): 23503
+       `customer_payments_gl_journal_entry_id_fkey`, pre-existing. With the invoice posted to the
+       GL: the new refusal, before any delete. Nothing moves in either.
+   - **Route.** Neither `ARCHIVE_SKIPPED_INVOICE_JOURNAL` nor `ARCHIVE_SET_CHANGED` can reach a
+     response today: `POST /api/accounting/data-archiving` returns 403 before it calls
+     `executeArchive` (`tests/unit/api/dataArchivingExecuteDisabled.test.ts`, green in
+     `regression.r3.unit.log`). `withErrorHandler` would answer an unmapped error with a 500, so
+     whoever re-enables archiving must map both codes to 409. I did not add that mapping to a
+     route that never calls the service; it is noted in `core/.claude.md`.
 3. **[M] Stitch.** `stitch_payment_requests` has the same shape (`ON DELETE SET NULL` plus
    `stitch_pr_invoice_has_invoice`), so the skip now covers it too (an `OR EXISTS` scoped to the
    same company), with its own cases.
@@ -116,9 +148,21 @@ row of the same company, and reports how many it skipped. Requests are never arc
 | `mutations.r2.log` (90c05b908) | 20 mutants: 18 killed, 2 equivalent (N12, N16). Baselines before and after green, tree clean |
 | `regression.r2.int.log` | k071 + r101 + both r186 files: 11/11 |
 | `regression.r2.unit.log` | 5 unit files 77/77. Components 29/29 |
+| `red.r3.int.log`: code at 15a59be48, item-2 tests | 4 failed / 3 passed (7). Two shapes completed and half-archived. The other two (backward chain; Paystack with invoice journal) hit a pre-existing 23503 instead of the refusal |
+| `green.r3.int.log` (5864081d2) | four r186 files: 15/15 |
+| `mutations.r3.log` (5864081d2) | 14 mutants: 12 killed, 2 argued (C10, C11: widening the seed only refuses more). Baselines before and after green, tree clean |
+| `regression.r3.int.log` | k071 + r101 + r181-settlement-amount + four r186 files: 38/38 |
+| `regression.r3.unit.log` | 5 unit files 77/77. Components 29/29 |
+
+The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8 shows it is needed.
 
 ## Recorded, not changed
 
+- **Journals of LIVE invoices (pre-existing, outside R-186).** Steps 1, 2 and 6 move every
+  posted pre-cutoff journal by date, including the journal of an invoice the run never selects
+  (approved, sent, partly paid). That invoice stays live and points at the archive. The refusal
+  covers only skipped invoices, per option (b). Mutants C10 and C11 widen it to every referenced
+  invoice and survive; a test that killed them would have to assert this half-archive as correct.
 - **Cross-tenant reference.** `customer_invoice_id` is a single-column FK with no trigger, so a
   request can name another company's invoice. That request does not shield the invoice. The
   reference still fails the run on 23514, for Paystack and for Stitch (pinned under app_user).

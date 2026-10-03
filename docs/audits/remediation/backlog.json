@@ -15261,6 +15261,8 @@
       "testNames": [
         "tests/integration/r186-archive-skips-paystack-invoices.int.test.ts",
         "tests/integration/r186-archive-move-race.int.test.ts",
+        "tests/integration/r186-archive-skipped-closure.int.test.ts",
+        "tests/integration/r186-archive-paystack-settled.int.test.ts",
         "tests/integration/r186-archive.helpers.ts",
         "tests/unit/components/archiveWizardSkippedInvoices.test.tsx"
       ],
@@ -15268,15 +15270,20 @@
         "docs/audits/remediation/R-186/fix.md",
         "docs/audits/remediation/R-186/green.int.log",
         "docs/audits/remediation/R-186/green.r2.int.log",
+        "docs/audits/remediation/R-186/green.r3.int.log",
         "docs/audits/remediation/R-186/mutations.log",
         "docs/audits/remediation/R-186/mutations.r2.log",
+        "docs/audits/remediation/R-186/mutations.r3.log",
         "docs/audits/remediation/R-186/red.component.log",
         "docs/audits/remediation/R-186/red.int.log",
         "docs/audits/remediation/R-186/red.r2.component.log",
         "docs/audits/remediation/R-186/red.r2.int.log",
+        "docs/audits/remediation/R-186/red.r3.int.log",
         "docs/audits/remediation/R-186/regression.int.log",
         "docs/audits/remediation/R-186/regression.r2.int.log",
         "docs/audits/remediation/R-186/regression.r2.unit.log",
+        "docs/audits/remediation/R-186/regression.r3.int.log",
+        "docs/audits/remediation/R-186/regression.r3.unit.log",
         "docs/audits/remediation/R-186/regression.unit.log"
       ],
       "fixCommit": null,
@@ -15290,7 +15297,7 @@
       "reportedSeverity": "low",
       "title": "Archive execution hard-deletes customer invoices that a Paystack payment request still references",
       "claim": "archiveExecutionService DELETEs customer_invoices (paid or cancelled, before the cutoff). paystack_payment_requests.customer_invoice_id references them ON DELETE SET NULL, and paystack_pr_invoice_has_invoice requires it for purpose customer_invoice. As reported: a request whose invoice was archived could be completed and never banked (handleChargeSuccess settles only when customer_invoice_id is set). As probed: the SET NULL violates the CHECK, so the archive DELETE fails with 23514 instead. Fix: exclude invoices referenced by a Paystack request from the archive (or archive the requests with them), and decide what an archived invoice's open checkout should do.",
-      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout. 2026-10-03: fixed on the goal file's default (§2a item 5, not put to Hein). The archive skips invoices a Paystack request of the same company references and reports the count (ArchiveResult.invoicesSkipped, ArchivePreview.customerInvoicesSkipped, a line under the page's preview). The run and the preview share one id-set selection (archiveCustomerInvoiceScope), and the copy and the delete act on exactly those ids. RED 2/3 int on 1910c157b (23514; preview 2 vs 1), 1/2 component; GREEN 3/3 + 2/2. 12 mutants: 10 killed, 2 equivalent (company_id on the id-set copy and delete). A cross-tenant request does not shield, so it still fails the run on 23514. Not changed: Stitch requests have the same CHECK + SET NULL shape and are not skipped; archive_runs has no skipped column; archiving stays switched off. 2026-10-03 review round 1 (two blind reviewers, FIX): the copy and the delete are now one statement (DELETE ... RETURNING feeding the archive INSERT) that re-applies company, cutoff and status on top of the id set. A move that deletes fewer rows than it selected, or archives fewer than it deletes, throws ARCHIVE_SET_CHANGED and the run rolls back whole (race test: a hook after the selecting SELECT). Stitch-referenced invoices are skipped too. The preview counts in SQL. The main cases run as app_user; the request tables' policy admits every member company, so the company_id predicate is what stops a cross-tenant shield. Attribution corrected: the goal file's default, not put to Hein. RED 5/7 on 02e4e1224; GREEN 7/7 at 90c05b908; 20 mutants, 18 killed, 2 equivalent. Recorded, not changed: the other NO ACTION FKs into customer_invoices (credit_notes, allocations, quotes, sales orders, write-offs, delivery notes) still fail the run whole, so the preview can show invoices a run cannot move; items, views, disputes and dunning sends are lost by CASCADE. OPEN: the closure of a skipped invoice (its own journal, which has no FK, plus its receipts' journals, the fee journal and matched bank lines) waits on the orchestrator. Realistic probe: a Paystack-settled invoice fails the run on 23503 customer_payments_gl_journal_entry_id_fkey (R-053 class)."
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout. 2026-10-03: fixed on the goal file's default (§2a item 5, not put to Hein). The archive skips invoices a Paystack request of the same company references and reports the count (ArchiveResult.invoicesSkipped, ArchivePreview.customerInvoicesSkipped, a line under the page's preview). The run and the preview share one id-set selection (archiveCustomerInvoiceScope), and the copy and the delete act on exactly those ids. RED 2/3 int on 1910c157b (23514; preview 2 vs 1), 1/2 component; GREEN 3/3 + 2/2. 12 mutants: 10 killed, 2 equivalent (company_id on the id-set copy and delete). A cross-tenant request does not shield, so it still fails the run on 23514. Not changed: Stitch requests have the same CHECK + SET NULL shape and are not skipped; archive_runs has no skipped column; archiving stays switched off. 2026-10-03 review round 1 (two blind reviewers, FIX): the copy and the delete are now one statement (DELETE ... RETURNING feeding the archive INSERT) that re-applies company, cutoff and status on top of the id set. A move that deletes fewer rows than it selected, or archives fewer than it deletes, throws ARCHIVE_SET_CHANGED and the run rolls back whole (race test: a hook after the selecting SELECT). Stitch-referenced invoices are skipped too. The preview counts in SQL. The main cases run as app_user; the request tables' policy admits every member company, so the company_id predicate is what stops a cross-tenant shield. Attribution corrected: the goal file's default, not put to Hein. RED 5/7 on 02e4e1224; GREEN 7/7 at 90c05b908; 20 mutants, 18 killed, 2 equivalent. Recorded, not changed: the other NO ACTION FKs into customer_invoices (credit_notes, allocations, quotes, sales orders, write-offs, delivery notes) still fail the run whole, so the preview can show invoices a run cannot move; items, views, disputes and dunning sends are lost by CASCADE. Item 2, option b (orchestrator): when a skipped invoice's journal, or any journal in its reversal chain, is posted before the cutoff, the run refuses with ARCHIVE_SKIPPED_INVOICE_JOURNAL before deleting anything, and validation reports it. The receipt, fee and bank closure is recorded as R-053 class, failing closed: a Paystack-settled invoice fails the run on 23503 customer_payments_gl_journal_entry_id_fkey (pinned). RED 4/7 on 15a59be48; GREEN 15/15 at 5864081d2; 14 mutants, 12 killed, 2 argued (widening the seed only refuses more). No route maps the refusals: POST is 403 before executeArchive, so re-enabling must map them to 409. Pre-existing and outside scope: the run archives journals of live, unselected invoices by date."
     },
     {
       "area": "accounting/ar portal",
