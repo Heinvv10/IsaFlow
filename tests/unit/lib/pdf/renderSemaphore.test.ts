@@ -304,7 +304,7 @@ describe('bounds derived from the auth pool', () => {
   });
 
   it.each(['abc', '0', '-1', '0.5', '1.9', '2.5', '0x3', '3e0', '+3'])(
-    'a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS %j is logged once as invalid and renders still run (R-188)', async (bad) => {
+    'a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS %j is logged once as invalid and the wait stays the 10 s default (R-188)', async (bad) => {
       delete process.env.AUTH_POOL_MAX;
       delete process.env.PDF_MAX_CONCURRENT_RENDERS;
       process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = bad;
@@ -319,6 +319,20 @@ describe('bounds derived from the auth pool', () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]![1]).toMatchObject({ setting: 'PDF_RENDER_QUEUE_TIMEOUT_MS' });
       expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
+
+      // The wait is the 10 s default, not a rounded-up fragment of it: a waiter is still queued
+      // just before 10 s and refused at 10 s. (0.5 rounded up would refuse every waiter at 1 ms.)
+      vi.useFakeTimers();
+      try {
+        const refused = sem.acquireRenderSlot(deferred().run).then(() => 'ran', (e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(9_999);
+        expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await refused).toBeInstanceOf(sem.RenderCapacityError);
+        expect(sem.renderSlotStats().queued).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
 
       held.forEach(d => d.finish());
       await Promise.all(running);

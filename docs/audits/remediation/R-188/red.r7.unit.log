@@ -1,0 +1,47 @@
+HEAD: 4707f2139e219b11c3daabedbe109ba502b505eb (new test, round-5 code); fixture none; load 42.36
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (40 tests | 6 failed) 222ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0.5" is logged once as invalid and the wait stays the 10 s default (R-188) 9ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged once as invalid and the wait stays the 10 s default (R-188) 4ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged once as invalid and the wait stays the 10 s default (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged once as invalid and the wait stays the 10 s default (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged once as invalid and the wait stays the 10 s default (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged once as invalid and the wait stays the 10 s default (R-188) 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0.5" is logged once as invalid and the wait stays the 10 s default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged once as invalid and the wait stays the 10 s default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged once as invalid and the wait stays the 10 s default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged once as invalid and the wait stays the 10 s default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged once as invalid and the wait stays the 10 s default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged once as invalid and the wait stays the 10 s default (R-188)
+AssertionError: expected { active: 2, queued: +0 } to deeply equal { active: 2, queued: 1 }
+
+- Expected
++ Received
+
+  {
+    "active": 2,
+-   "queued": 1,
++   "queued": 0,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:329:39
+    327|         const refused = sem.acquireRenderSlot(deferred().run).then(() …
+    328|         await vi.advanceTimersByTimeAsync(9_999);
+    329|         expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 }…
+       |                                       ^
+    330|         await vi.advanceTimersByTimeAsync(1);
+    331|         expect(await refused).toBeInstanceOf(sem.RenderCapacityError);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 34 passed (40)
+   Start at  11:11:23
+   Duration  391ms (transform 42ms, setup 0ms, import 55ms, tests 222ms, environment 0ms)
+

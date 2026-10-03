@@ -110,7 +110,7 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
  *  `ceiling` is the derived pool bound, not a taste preference — an env value
  *  above it is clamped and logged, never honoured. An UNSET or blank variable
  *  has nothing to report: its default is clamped without a log line. */
-function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
+function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number, smallerIsSafer: boolean): number {
   const text = raw?.trim() ?? '';
   const unset = text === '';
   const n = Number(text);
@@ -123,7 +123,9 @@ function boundedInt(name: string, raw: string | undefined, fallback: number, cei
     // min(default, ceil(value)) (so `1.0` stays 1 and `1.9` gives 2, never above the default);
     // anything else gives the default. Warned as invalid, never as a clamp, and never with
     // the text (an env var can hold anything pasted into it).
-    requested = Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.ceil(n)) : fallback;
+    // Only for a COUNT, where smaller is safer. A refused TIME (the queue wait) gives the default:
+    // rounding `0.5` up to a 1 ms wait would refuse every waiter at once.
+    requested = smallerIsSafer && Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.ceil(n)) : fallback;
     warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the nearest allowed value', {
       setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), using: Math.min(requested, ceiling),
     });
@@ -171,8 +173,8 @@ function release(): void {
  * Call this OUTSIDE withAuth. See this file's header and withRenderSlot.ts.
  */
 export async function acquireRenderSlot<T>(fn: () => Promise<T>): Promise<T> {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
-  const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs());
+  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
+  const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs(), false);
 
   if (active < max) {
     active += 1;
@@ -218,6 +220,6 @@ export function renderSlotStats(): { active: number; queued: number } {
 /** The most requests that may be WAITING for a slot at the current bound.
  *  Derived from the concurrency bound, so it moves with it. */
 export function renderQueueBound(): number {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
+  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
   return max * QUEUE_BOUND_FACTOR;
 }
