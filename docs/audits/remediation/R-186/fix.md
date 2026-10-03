@@ -444,8 +444,8 @@ own tests cover it. (Superseded: the follow-up below pins the archive's own time
 Evidence at 4d4b17881: `green.r10.int.log` has five r186 files at 24/24, plus the move-race file
 run shuffled (seed 186) at 8/8. `regression.r10.int.log`: 47/47.
 
-Merge with master 51f501bbe (D10 #628, D11 #627) at d7622edde: only the core `.claude.md` entry
-conflicted (both kept). D11's `apiDocumentLock` still answers `ROW_LOCK_TIMEOUT` with 503 + Retry-After and
+Merge with master 51f501bbe (D10 #628, D11 #627) at d7622edde: only the core `.claude.md` entry (and its
+`AGENTS.md` mirror) conflicted (both kept). D11's `apiDocumentLock` still answers `ROW_LOCK_TIMEOUT` with 503 + Retry-After and
 the typed message. `regression.land.int.log`: r186-*, k071-*, r101-* and r181-settlement-amount, 18 files
 94/94, on a fixture at master's migrations (851, without R-185's 852).
 
