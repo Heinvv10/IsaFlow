@@ -1,23 +1,23 @@
-HEAD: da4be9dd2a2a81c33d83906df601f10c82e8d44a (round-4 tests against the round-3 code); fixture none; load 29.47
+HEAD: b7cef1b1147b08596d83fc4097ca321e5b13b817 with src/modules/accounting/services/reports/cashFlowForecastAiService.ts and noteAiService/renderSemaphore at da4be9dd2 (round-3 code); fixture none; load 24.13
 
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
 
  ❯ tests/unit/services/afs/noteAiService.test.ts (5 tests | 1 failed) 8ms
      × builds its client with no retries and a 30 s timeout: it runs under withAuth, and the SDK default is 600 s (R-188) 5ms
- ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts (12 tests | 2 failed) 24ms
-     × aborts the provider call after 30000 ms and answers as it does for any provider failure 3ms
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts (12 tests | 2 failed) 27ms
+     × aborts the provider call after 30000 ms and answers as it does for any provider failure 4ms
      × the timer runs until the body is read: a body that never arrives is aborted at 30000 ms 1ms
- ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (36 tests | 10 failed) 277ms
-     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
-     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
-     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 10ms
-     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
-     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
-     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
-     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
-     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
-     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
-     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (36 tests | 10 failed) 231ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 5ms
 
 ⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
 
@@ -162,6 +162,6 @@ The latest test that might've caused the error is "a set but invalid PDF_RENDER_
  Test Files  3 failed (3)
       Tests  13 failed | 40 passed (53)
      Errors  1 error
-   Start at  10:57:36
-   Duration  469ms (transform 202ms, setup 0ms, import 256ms, tests 309ms, environment 2ms)
+   Start at  11:00:48
+   Duration  461ms (transform 295ms, setup 0ms, import 360ms, tests 266ms, environment 0ms)
 

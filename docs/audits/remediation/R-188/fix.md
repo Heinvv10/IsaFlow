@@ -17,7 +17,7 @@ their provider fetch. Every pool reader still goes through `authPoolMax()`.
 
 ## Behaviour changes (verified from code and tests)
 - Four AUTH pools: 80 -> 40 connections per process. Per-process total of every pool at the
-  defaults: 117 -> 77 plus 2 per in-flight verify-email request (10 neon + 40 auth + 10 admin + 10 rate-limit + 5 invite + 2 accept).
+  defaults: 117 -> 77 plus 2 per in-flight verify-email request and 1 per impersonation write (10 neon + 40 auth + 10 admin + 10 rate-limit + 5 invite + 2 accept).
   R-182/fix.md's budget table is historical and left as written.
 - `renderSemaphore` ceiling is `floor(authPoolMax() / 4)` (`maxConcurrentCeiling()` in renderSemaphore.ts): 5 -> 2 at the
   default. Its own default of 3 renders is therefore clamped to 2, silently while `PDF_MAX_CONCURRENT_RENDERS` is unset or blank (round 1: prod runs on defaults, so a warning would fire on every process); an explicit value above the ceiling still warns once.
@@ -79,13 +79,18 @@ a shared Postgres) is not reproducible against an isolated fixture. Risk to watc
 a pool of 10 per wrapper means a burst of more than 10 concurrent authed requests on one wrapper
 queues for up to the 15 s acquire timeout instead of up to 20.
 
-Remaining long pool holders under withAuth (found by grep, NOT individually verified to run under
-withAuth, NOT changed): `statement-bulk-email.ts` loops up to 100 sends in one transaction; server
-`fetch(` with no signal or timeout in `cashFlowForecastAiService.ts`, `llmCategorizationPass.ts`,
-`sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`,
-`weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts` and
-`imapMirrorService.ts`. Each is a candidate for the same exhaustion at a pool of 10 if a caller holds
-a connection across it.
+## Round 4 review fixes
+- `cashFlowForecastAiService.ts` (route `cash-flow-forecast.ts` `?horizon`, under withAuth) now bounds its Anthropic fetch with an AbortController, 30 s (max_tokens 1000), cleared in `finally` so the `!ok` and `json()` paths are covered. An abort throws, which is the service's failure behaviour for any provider error; the route answers `apiResponse.databaseError` (the DATABASE_ERROR envelope, "Failed to generate cash flow forecast"). Tested through the route.
+- `noteAiService.ts` (AFS section ai-narrative, under withAuth): `new Anthropic({ maxRetries: 0, timeout: 30_000 })`; the SDK default is 600 s. Pinned by a constructor-options test. The other `new Anthropic(` is `packAiSummaryService.ts`, which already passes a per-call `AbortController` (30 s and 20 s).
+- Tests for all three AI call sites: abort at exactly the bound, a body that never arrives is aborted at the bound (a mutant that clears the timer once headers arrive is red: M27-M29), and no timer is left after an unreachable provider.
+- `renderSemaphore` env values must be plain digits >= 1 (`1.9`, `2.5`, `0x3`, `3e0`, `+3` are invalid, as `poolSizeFromEnv` treats pool sizes); the invalid log's `length` is now the trimmed text's length. `fresh()` instances' `renderSlotStats` are asserted empty in `afterEach` (no mutant: it guards against a leak, it does not detect a code defect).
+- Register: `ai-narrative.ts`/`ai-forecast.ts` and the new files are in R-188's `affectedPaths`; R-182's entry is byte-identical to origin/master.
+- Evidence r5: `red.r5.unit.log` (13/53 red against the round-3 code; the first red attempt had a wrong data mock, fixed and redone), `green.r5.unit.log` 362/362 at `b7cef1b11`, `mutations.r5.log` M21-M29 killed with baselines 53/53 before and after, `regression.r5.unit.log` 1745/1745.
+
+## Remaining long pool holders under withAuth
+- **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
+- Server `fetch(` with no signal or timeout, found by grep and NOT individually verified to run under withAuth: `llmCategorizationPass.ts`, `sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`, `weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts`, `imapMirrorService.ts`.
+- `cash-flow-forecast.ts` has no `checkAiRateLimit`, and concurrent cache misses are not de-duplicated (each miss makes its own provider call). Not changed.
 
 Not changed: pool `waitingCount` / `totalCount` is not logged anywhere. It is the signal to watch
 after deploy (a sustained non-zero `waitingCount` on authPool means the default of 10 is too small;
