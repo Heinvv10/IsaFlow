@@ -1,0 +1,20 @@
+HEAD: 5864081d2f8ec9b97cff6e6e7b1782f145759fa9 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 63.55; suite: the four r186 integration files
+BASELINE before: 15 passed (15)
+C1 run does not refuse [src/modules/accounting/services/core/archiveExecutionService.ts]: 5 failed | 10 passed (15) -> RED
+C2 run refuses only above 1 [src/modules/accounting/services/core/archiveExecutionService.ts]: 5 failed | 10 passed (15) -> RED
+C3 chain: reversals of a chain journal not followed [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C4 chain: the journal a chain journal reverses not followed [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C5 chain: recursion leaves the company [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C6 seed: invoice journal from any company [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C7 seed: every eligible invoice, referenced or not [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C8 seed: Stitch reference ignored [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C9 seed: Paystack reference ignored [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 4 failed | 11 passed (15) -> RED
+C10 seed: status predicate dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 15 passed (15) -> SURVIVED
+C11 seed: cutoff predicate dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 15 passed (15) -> SURVIVED
+C12 count: status filter dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 14 passed (15) -> RED
+C13 count: cutoff filter dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 2 failed | 13 passed (15) -> RED
+C14 validation does not report it [src/modules/accounting/services/core/archiveQueryService.ts]: 4 failed | 11 passed (15) -> RED
+BASELINE after: 15 passed (15)
+tree after: ''
+Not killed, argued: C10 and C11 drop the seed's eligibility (status, cutoff). The seed then also takes referenced invoices the run does NOT move, such as an approved invoice with an open checkout. The only effect is that the run refuses more (fail closed). A test that kills them would have to assert that a run completes while archiving a LIVE invoice's in-window journal. That is a pre-existing half-archive covering every live pre-cutoff invoice, referenced or not, and is outside R-186's scope (recorded in fix.md). Pinning it as correct would be wrong.
+Killed 12/14; 2 argued (C10, C11).
