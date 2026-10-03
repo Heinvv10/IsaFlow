@@ -94,6 +94,12 @@ function maxConcurrentCeiling(): number {
   return Math.max(1, Math.floor(poolMax / POOL_SHARE_DIVISOR));
 }
 
+/** The concurrency bound in force: the one place the count is read, so admission and
+ *  `renderQueueBound` cannot disagree about how a spelling is parsed. */
+function maxConcurrent(): number {
+  return boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
+}
+
 // Warn once per distinct clamp: this runs on every render, and a misconfigured
 // env would otherwise fill the log with one line per PDF export.
 const warned = new Set<string>();
@@ -173,7 +179,7 @@ function release(): void {
  * Call this OUTSIDE withAuth. See this file's header and withRenderSlot.ts.
  */
 export async function acquireRenderSlot<T>(fn: () => Promise<T>): Promise<T> {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
+  const max = maxConcurrent();
   const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs(), false);
 
   if (active < max) {
@@ -220,6 +226,6 @@ export function renderSlotStats(): { active: number; queued: number } {
 /** The most requests that may be WAITING for a slot at the current bound.
  *  Derived from the concurrency bound, so it moves with it. */
 export function renderQueueBound(): number {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
+  const max = maxConcurrent();
   return max * QUEUE_BOUND_FACTOR;
 }
