@@ -21,7 +21,11 @@ vi.mock('@/lib/neon', () => ({
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');
     h.calls.push({ text, values });
-    if (text.includes('FROM customer_payments') && text.includes('bank_reference')) return Promise.resolve(h.already ? [h.already] : []);
+    if (text.includes('FROM customer_payments') && text.includes('bank_reference')) {
+      // As Postgres would: a read that excludes cancelled receipts does not see one (R-187).
+      const hidden = h.already?.status === 'cancelled' && text.includes("IS DISTINCT FROM 'cancelled'");
+      return Promise.resolve(h.already && !hidden ? [h.already] : []);
+    }
     if (text.includes('FROM customer_invoices')) return Promise.resolve([{ client_id: CUSTOMER, created_by: USER }]);
     if (text.includes('company_users')) return Promise.resolve([{ user_id: USER }]);
     return Promise.resolve([]);
@@ -181,6 +185,18 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
     const repoint = h.calls.find((c) => c.text.includes('UPDATE customer_payments SET client_id'));
     expect(repoint?.values[0]).toBe(SURVIVOR);
+  });
+
+  it('R-187: a CANCELLED receipt for the reference banks nothing, posts no fee, and flags the request', async () => {
+    h.already = { id: 'p-cancelled', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring [CANCELLED]', status: 'cancelled' };
+    const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
+      reported: { amountCents: 11500, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
+    expect(out).toBeNull();
+    expect(receiptInsert()).toBeUndefined();
+    expect(allocate).not.toHaveBeenCalled();
+    expect(fee).not.toHaveBeenCalled();
+    expect(reasons()).toEqual([['already_settled_cancelled_receipt']]);
   });
 
   it('a one-cent allocation is inserted', async () => {
