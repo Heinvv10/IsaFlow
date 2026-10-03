@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { selectArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
+import { countArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
 
 
 const COMPONENT = 'data-archiving';
@@ -25,7 +25,7 @@ export interface ArchivePreview {
   journalLines: number;
   bankTransactions: number;
   customerInvoices: number;
-  /** Kept live: a Paystack request references them (R-186). Not in totalRecords. */
+  /** Kept live: a Paystack or Stitch request references them (R-186). Not in totalRecords. */
   customerInvoicesSkipped: number;
   supplierInvoices: number;
   totalRecords: number;
@@ -163,8 +163,8 @@ export async function previewArchive(companyId: string, cutoffDate: string): Pro
           AND transaction_date < ${cutoffDate}::date
           AND status = 'reconciled'
       ` as Promise<DbRow[]>,
-      // The run's own selection, so the preview predicts its skip (R-186).
-      selectArchivableCustomerInvoices(companyId, cutoffDate),
+      // The run's own predicate, so the preview predicts its skip (R-186).
+      countArchivableCustomerInvoices(companyId, cutoffDate),
       sql`
         SELECT COUNT(*) AS cnt
         FROM supplier_invoices
@@ -187,7 +187,7 @@ export async function previewArchive(companyId: string, cutoffDate: string): Pro
 
     const journalLines = Number(jlRows[0]?.cnt ?? 0);
     const bankTransactions = Number(btRows[0]?.cnt ?? 0);
-    const customerInvoices = ciScope.ids.length;
+    const customerInvoices = ciScope.archivable;
     const supplierInvoices = Number(siRows[0]?.cnt ?? 0);
 
     return {
