@@ -15243,7 +15243,10 @@
     {
       "area": "accounting/core archiving",
       "affectedPaths": [
-        "src/modules/accounting/services/core/archiveExecutionService.ts"
+        "src/modules/accounting/services/core/archiveExecutionService.ts",
+        "src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts",
+        "src/modules/accounting/services/core/archiveQueryService.ts",
+        "src/components/accounting/ArchiveWizardSection.tsx"
       ],
       "sourceLabel": "R-181 PR #618 review at 7c0e9c407, 2026-10-02",
       "sourceIds": [
@@ -15252,23 +15255,34 @@
       "correctedTrigger": "Probed on isaflow-fixture-r181 in a rolled-back transaction: deleting a paid customer invoice referenced by a customer_invoice paystack_payment_requests row fails with 23514 (paystack_pr_invoice_has_invoice), because the FK's ON DELETE SET NULL would null customer_invoice_id. So the reported outcome (request completed with a NULL invoice and never banked) cannot arise while that CHECK is validated; the reachable outcome is the archive DELETE failing.",
       "severityRationale": "Pre-existing. Either outcome needs an archivable (paid or cancelled, before the cutoff) invoice that a Paystack request references. Unverified whether archiving reaches such an invoice in practice, or whether prod has the CHECK validated.",
       "auditedSha": "195aba969",
-      "currentSha": "195aba969",
-      "status": "candidate",
+      "currentSha": "7dff8714d6690223fe26238c6f1aa72145635f08",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/integration/r186-archive-skips-paystack-invoices.int.test.ts",
+        "tests/unit/components/archiveWizardSkippedInvoices.test.tsx"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-186/fix.md",
+        "docs/audits/remediation/R-186/green.int.log",
+        "docs/audits/remediation/R-186/mutations.log",
+        "docs/audits/remediation/R-186/red.component.log",
+        "docs/audits/remediation/R-186/red.int.log",
+        "docs/audits/remediation/R-186/regression.int.log",
+        "docs/audits/remediation/R-186/regression.unit.log"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Unknown. Census (read-only): (1) the reported shape, expected 0 while the CHECK holds: SELECT pr.id, pr.company_id, pr.paystack_reference FROM paystack_payment_requests pr WHERE pr.purpose = 'customer_invoice' AND pr.customer_invoice_id IS NULL AND pr.status = 'completed' AND NOT EXISTS (SELECT 1 FROM customer_payments cp WHERE cp.company_id = pr.company_id AND cp.bank_reference = pr.paystack_reference AND cp.status IS DISTINCT FROM 'cancelled'); (2) whether the CHECK is validated: SELECT convalidated FROM pg_constraint WHERE conname = 'paystack_pr_invoice_has_invoice'; (3) invoices an archive run would fail on: SELECT ci.company_id, ci.id FROM customer_invoices ci JOIN paystack_payment_requests pr ON pr.customer_invoice_id = ci.id WHERE ci.status IN ('paid','cancelled').",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r186-archive-skip-paystack-20261003",
       "id": "R-186",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "Archive execution hard-deletes customer invoices that a Paystack payment request still references",
       "claim": "archiveExecutionService DELETEs customer_invoices (paid or cancelled, before the cutoff). paystack_payment_requests.customer_invoice_id references them ON DELETE SET NULL, and paystack_pr_invoice_has_invoice requires it for purpose customer_invoice. As reported: a request whose invoice was archived could be completed and never banked (handleChargeSuccess settles only when customer_invoice_id is set). As probed: the SET NULL violates the CHECK, so the archive DELETE fails with 23514 instead. Fix: exclude invoices referenced by a Paystack request from the archive (or archive the requests with them), and decide what an archived invoice's open checkout should do.",
-      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout."
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout. 2026-10-03: fixed on the goal file's default (§2a item 5, not put to Hein). The archive skips invoices a Paystack request of the same company references and reports the count (ArchiveResult.invoicesSkipped, ArchivePreview.customerInvoicesSkipped, a line under the page's preview). The run and the preview share one id-set selection (archiveCustomerInvoiceScope), and the copy and the delete act on exactly those ids. RED 2/3 int on 1910c157b (23514; preview 2 vs 1), 1/2 component; GREEN 3/3 + 2/2. 12 mutants: 10 killed, 2 equivalent (company_id on the id-set copy and delete). A cross-tenant request does not shield, so it still fails the run on 23514. Not changed: Stitch requests have the same CHECK + SET NULL shape and are not skipped; archive_runs has no skipped column; archiving stays switched off."
     },
     {
       "area": "accounting/ar portal",
