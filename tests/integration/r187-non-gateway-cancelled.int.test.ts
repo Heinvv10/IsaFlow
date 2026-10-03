@@ -7,8 +7,12 @@
  * receipt as usual. Round 0 let any cancelled row block it, and the request stayed completed with no
  * receipt for ever (verify skips completed requests).
  *
- * Real Postgres (isaflow-fixture-r187), real routes, the real manual-receipt, bank-allocation and
- * cancel services; only the Paystack client is stubbed.
+ * Round 2: a GATEWAY receipt can also be cancelled with no person deciding it, as a side effect of
+ * reversing the bank line matched to its journal (`reverseReconciledTransaction` unwinds the
+ * receipt). It still blocks a replay, and the flag is what tells a person to look.
+ *
+ * Real Postgres (isaflow-fixture-r187), real routes, the real manual-receipt, bank-allocation,
+ * bank-reversal and cancel services; only the Paystack client is stubbed.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -18,7 +22,7 @@ import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement,
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { cancelCustomerPayment, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 assertDisposable();
 
@@ -122,7 +126,9 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
   });
 
   it('a LIVE receipt with no journal (a draft manual receipt with the reference) still dedupes, as before R-187', async () => {
-    // Pre-existing behaviour kept exactly (the brief: a live match is unchanged); it pins the LEFT JOIN.
+    // A KNOWN PRE-EXISTING GAP (R-189), not expected behaviour: the gateway banks nothing behind a
+    // draft and nothing flags it. Kept unchanged because a live match is unchanged (R-187's scope);
+    // this case pins the LEFT JOIN (a live receipt with no journal is still a match), nothing more.
     const id = await invoice(A);
     const ref = await checkout(A, id);
     await inTx(() => createCustomerPayment(A.id, {
@@ -132,7 +138,7 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
 
     expect((await deliver(ref, 11500)).statusCode).toBe(200);
 
-    expect(await outcome(ref, id)).toMatchObject({ statuses: ['draft'], invoicePaid: '0.00', review: null });
+    expect(await outcome(ref, id)).toMatchObject({ statuses: ['draft'], invoicePaid: '0.00' });
   });
 
   it('webhook after a cancelled BANK-FEED allocation whose line carried the reference: banks as usual', async () => {
@@ -144,5 +150,29 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
 
     expect(await outcome(ref, id)).toMatchObject({
       statuses: ['cancelled', 'confirmed'], live: [{ total: '115.00', allocated: '115.00' }], invoicePaid: '115.00', review: null });
+  });
+});
+
+describe('R-187 round 2: a gateway receipt cancelled as a side effect of a bank-line reversal', () => {
+  it('reverseReconciledTransaction on the line matched to the receipt cancels it; a replay banks nothing and flags', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11500)).statusCode).toBe(200);
+    // The statement line matched to the gateway receipt's bank leg, as reconciliation leaves it.
+    const leg = (await pool.query<{ id: string }>(
+      `SELECT l.id FROM customer_payments cp JOIN gl_journal_lines l ON l.journal_entry_id = cp.gl_journal_entry_id
+       WHERE cp.company_id = $1 AND cp.bank_reference = $2 AND l.gl_account_id = $3 AND l.debit > 0`, [A.id, ref, bankId])).rows[0]!.id;
+    const bt = (await pool.query<{ id: string }>(
+      `INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, reference,
+         status, matched_journal_line_id)
+       VALUES ($1, $2, $3, CURRENT_DATE, 115, $4, $5, 'matched', $6) RETURNING id`,
+      [randomUUID(), A.id, bankId, `PAYSTACK ${ref}`, ref, leg])).rows[0]!.id;
+    const unwound = await inTx(() => reverseReconciledTransaction(A.id, bt, A.user));
+    expect(unwound.paymentsCancelled).toBe(1);
+
+    expect((await deliver(ref, 11500, 'ZAR', { id: Math.floor(Math.random() * 1e9), fees: 350 })).statusCode).toBe(200);
+
+    expect(await outcome(ref, id)).toMatchObject({
+      statuses: ['cancelled'], invoicePaid: '0.00', review: 'review:already_settled_cancelled_receipt' });
   });
 });

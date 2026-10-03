@@ -87,10 +87,11 @@ interface InvoiceRow {
  * Idempotent on `reference`: a second call for the same Paystack reference
  * (webhook and verify route both firing, or a webhook redelivery) banks nothing,
  * posts only a missing fee, compares its amount with what was banked, and
- * returns null. A CANCELLED receipt the gateway wrote counts too (R-187): a person
- * decided, so a later report banks nothing, posts no fee, flags the request
- * `already_settled_cancelled_receipt` and returns null. A cancelled receipt
- * anyone else wrote is ignored.
+ * returns null. A CANCELLED receipt the gateway wrote counts too (R-187): its
+ * settlement was undone, so a later report banks nothing, posts no fee, flags the
+ * request `already_settled_cancelled_receipt` for a person and returns null. The
+ * cancel may not have been deliberate (gatewaySettledReceipt). A cancelled
+ * receipt anyone else wrote is ignored.
  */
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
@@ -104,8 +105,8 @@ export async function recordGatewayInvoiceReceipt(
 
   // A live receipt first, else a cancelled one the gateway wrote (gatewaySettledReceipt, R-187).
   const already = await findSettledReceipt(companyId, reference);
-  // Only a cancelled gateway receipt: a person reversed this settlement, so a later report
-  // (another body, or verify) banks nothing and posts no fee.
+  // Only a cancelled gateway receipt: this settlement was undone (by a person, or as a side effect),
+  // so a later report (another body, or verify) banks nothing, posts no fee, and is flagged.
   if (already?.status === 'cancelled') {
     await flagSettlementForReview(companyId, reference, ['already_settled_cancelled_receipt'], {
       cancelledPaymentId: already.id, invoiceId, reportedCents: receipt.reported.amountCents,

@@ -4,8 +4,9 @@
  * A person cancels a Paystack receipt; a charge.success for that reference then arrives in a
  * different body (a byte-identical redelivery is acked as a duplicate), through the webhook's
  * already-completed branch or the verify route. Before the fix the dedupe ignored cancelled
- * receipts and banked a second one: AR credited and Bank debited twice. Now any receipt for the
- * reference dedupes; a cancelled-only match banks nothing, posts no fee and flags the request
+ * receipts and banked a second one: AR credited and Bank debited twice. Now the dedupe matches a
+ * live receipt for the reference, else a cancelled one the gateway wrote (review round 1); that
+ * cancelled match banks nothing, posts no fee and flags the request
  * `already_settled_cancelled_receipt` (Hein, 2026-10-03). A live match behaves as before.
  *
  * Real Postgres (isaflow-fixture-r187), real routes and the real cancel service; only the Paystack
@@ -129,13 +130,16 @@ describe('R-187: a cancelled receipt blocks re-banking', () => {
     const ref = await checkout(A, id);
     expect((await deliver(ref, 11500)).statusCode).toBe(200);
     await cancelReceipt(ref);
-    // What the pre-R-187 dedupe left behind: a second, live receipt for the same reference.
+    // What the pre-R-187 dedupe left behind: a second, live receipt for the same reference. Its id
+    // sorts after any other (ffffffff-...), so `ORDER BY cp.id` alone would pick the cancelled row:
+    // the live-first status key is what this case pins (round 2).
+    const liveId = `ffffffff-ffff-4fff-bfff-${randomUUID().slice(-12)}`;
     await pool.query(
       `INSERT INTO customer_payments (id, company_id, client_id, payment_date, total_amount, payment_method,
          bank_reference, bank_account_id, description, created_by, status)
        SELECT $3, company_id, client_id, payment_date, total_amount, payment_method, bank_reference, bank_account_id,
               'Paystack card payment ' || bank_reference, created_by, 'confirmed'
-       FROM customer_payments WHERE company_id = $1 AND bank_reference = $2`, [A.id, ref, randomUUID()]);
+       FROM customer_payments WHERE company_id = $1 AND bank_reference = $2`, [A.id, ref, liveId]);
 
     expect((await deliver(ref, 11500, 'ZAR', replayBody())).statusCode).toBe(200);
 
