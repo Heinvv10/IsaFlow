@@ -77,7 +77,8 @@ export default [
   // Flat config REPLACES rule options (it does not merge them): any future no-restricted-imports
   // or no-restricted-syntax entry for these files must be merged into this block. tests/ and
   // scripts/ are not covered by `bun run lint`.
-  // Known harmless gap: `typeof import('…paystackHttp')` (a type query) is not caught.
+  // Known harmless gap: `typeof import('…paystackHttp')` (a type query) is not caught,
+  // nor is `require('…paystackHttp')` (it needs a deliberate no-require-imports disable first).
   {
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
