@@ -19,4 +19,7 @@ M9 part import added to paystackEventHandlers.ts -> 1 hit(s)
 M10 dynamic import() of a part in paystackEventHandlers.ts -> 1 hit(s)
 M11 suffixed specifier ./paystackSubscriptions.js -> 1 hit(s)
 BASE after: ✖ 12 problems (0 errors, 12 warnings) ; type step rc=0
+M12 template-literal dynamic import of a part (import(`@/x/paystackHttp`)) in paystackEventHandlers.ts, TemplateElement selector, re-run in round 4 -> 1 hit(s) no-restricted-syntax (the round-2 string-literal selector cannot match a template literal)
 NOTE (explained in round 3): the first BASE run's rc=2 came from tsconfig.paystackexports.json listing the gitignored next-env.d.ts in `files`; a missing next-env.d.ts is TS6053, and that file exists in a worktree only when something has generated it. Removed in round 3; the step now passes in a git-archive tree with next-env.d.ts absent (gates.log).
+M13 TemplateElement selector, run via eslint on paystackEventHandlers.ts: import(`@/x/paystackHttp`) -> 1 hit(s); import(`${b}/paystackTransactions`) -> 1 hit(s); import(`./paystackClient`) -> 0 hit(s) (must be 0); string-literal import('./paystackHttp') still -> 1 hit(s)
+lint after M13 selector (src+pages+all linted): ✖ 12 problems (0 errors, 12 warnings)
