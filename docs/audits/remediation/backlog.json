@@ -15283,23 +15283,35 @@
       "correctedTrigger": null,
       "severityRationale": "Pre-existing. Needs a person to cancel a gateway receipt AND a later charge.success for the same reference in a different body (a byte-identical redelivery is acked as a duplicate once processed). The effect is a second receipt banked: AR credited and Bank debited twice for one card payment.",
       "auditedSha": "df143819c",
-      "currentSha": "df143819c",
-      "status": "candidate",
+      "currentSha": "6a4ab4933",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/integration/r187-cancelled-receipt-replay.int.test.ts",
+        "tests/unit/services/ar/gatewayReceiptWiring.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-187/fix.md",
+        "docs/audits/remediation/R-187/green.int.log",
+        "docs/audits/remediation/R-187/green.unit.log",
+        "docs/audits/remediation/R-187/mutations.log",
+        "docs/audits/remediation/R-187/red.int.log",
+        "docs/audits/remediation/R-187/red.unit.log",
+        "docs/audits/remediation/R-187/regression.int.log",
+        "docs/audits/remediation/R-187/regression.unit.log"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Unknown. Census (read-only): SELECT cp.company_id, cp.bank_reference, count(*) FILTER (WHERE cp.status = 'cancelled') AS cancelled, count(*) FILTER (WHERE cp.status IS DISTINCT FROM 'cancelled') AS live FROM customer_payments cp WHERE cp.payment_method = 'card' AND cp.bank_reference IS NOT NULL GROUP BY cp.company_id, cp.bank_reference HAVING count(*) FILTER (WHERE cp.status = 'cancelled') > 0 AND count(*) FILTER (WHERE cp.status IS DISTINCT FROM 'cancelled') > 0;",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r187-cancelled-receipt-dedupe-20261003",
       "id": "R-187",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A cancelled gateway receipt does not stop a later charge.success for the same reference from banking a new one",
       "claim": "recordGatewayInvoiceReceipt dedupes on customer_payments (company_id, bank_reference) with status IS DISTINCT FROM 'cancelled', and ux_customer_payments_card_reference excludes cancelled rows too. If an accountant cancels a Paystack receipt and a charge.success for that reference is processed again in a different body (the webhook's already-completed branch reaches recordGatewayInvoiceReceipt), the cancelled row is invisible to both guards and a new receipt is banked. Fix options: (1) dedupe on ANY receipt for the reference, cancelled included: a cancelled one means a person decided, so a replay banks nothing and flags the request for review (code only for the dedupe; dropping the status predicate from ux_customer_payments_card_reference is a migration); or (2) record the settlement on the request itself (a settled-receipt id or settled_at on paystack_payment_requests, set once in the settlement transaction) and dedupe on that, so the receipt's later status cannot reopen it (migration).",
-      "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181."
+      "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181. 2026-10-03: fixed per Hein's decision (goal file 2026-10-03-r183-r187-pool-budget-goal.md, option 1, code only, index unchanged): the dedupe reads any receipt for the reference, a live one first; a cancelled-only match banks nothing, posts no fee and flags the request already_settled_cancelled_receipt (webhook 200, verify answers completed). RED unit 1/18, int 2/4 on 1910c157b; GREEN 18/18 + 4/4; 7 mutants, 7 killed; regression unit 140/140, int 205/205 (r181-*, k-036, r167*, r178*, link-revoke*, k095*, k096*). Census not run (docs/audits/remediation/R-187/fix.md)."
     }
   ],
   "sourceInventory": [
