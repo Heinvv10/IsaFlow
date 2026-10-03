@@ -28,16 +28,17 @@ export class ArchiveSkippedInvoiceJournalError extends Error {
   readonly code = 'ARCHIVE_SKIPPED_INVOICE_JOURNAL';
 }
 
+/** Said by validation before a run and stored as the refused run's error, so true for both. */
 export function skippedInvoiceJournalMessage(count: number): string {
   return `${count} journal(s) of customer invoices the archive keeps (a Paystack or Stitch payment request `
-    + 'refers to them) are dated before the cutoff, so the archive would refuse. Choose an earlier cutoff.';
+    + 'refers to them) are dated before the cutoff. An archive with this cutoff is refused; choose an earlier cutoff.';
 }
 
 export interface ArchivableCustomerInvoices {
   /** Paid or cancelled, dated before the cutoff, referenced by no payment request. */
   ids: string[];
   /** Would be archived, but a Paystack or Stitch request of this company references them. */
-  skipped: number;
+  skippedIds: string[];
 }
 
 export async function selectArchivableCustomerInvoices(
@@ -57,7 +58,8 @@ export async function selectArchivableCustomerInvoices(
       AND ci.status IN ('paid', 'cancelled')
   `) as DbRow[];
   const ids = rows.filter((r) => !r.gateway_referenced).map((r) => r.id as string);
-  return { ids, skipped: rows.length - ids.length };
+  const skippedIds = rows.filter((r) => r.gateway_referenced).map((r) => r.id as string);
+  return { ids, skippedIds };
 }
 
 /** The preview's counts: the same predicate as the selection above, counted in SQL. */
@@ -136,24 +138,24 @@ export async function moveCustomerInvoicesToArchive(
 }
 
 /**
- * How many journals the run would move (posted, before the cutoff, this company) belong to an
- * invoice it skips: the invoice's own journal and every journal in its reversal chain, followed
- * through `reversal_of_id` in both directions. The run refuses when this is not 0; validation
- * reports it. UNION (not UNION ALL) ends a forged reversal cycle.
+ * How many journals the run would move (posted, before the cutoff, this company) belong to the
+ * invoices the selection skipped: each one's own journal and every journal in its reversal chain,
+ * followed through `reversal_of_id` in both directions. Seeded from the selection's own ids, so an
+ * invoice changed since the selection cannot escape. The run refuses when this is not 0;
+ * validation reports it. UNION (not UNION ALL) ends a forged reversal cycle.
  */
-export async function countSkippedInvoiceJournalsInWindow(companyId: string, cutoffDate: string): Promise<number> {
+export async function countSkippedInvoiceJournalsInWindow(
+  companyId: string,
+  cutoffDate: string,
+  skippedIds: string[],
+): Promise<number> {
   const rows = (await sql`
     WITH RECURSIVE chain (id, reversal_of_id, entry_date, status) AS (
       SELECT je.id, je.reversal_of_id, je.entry_date, je.status
       FROM customer_invoices ci
       JOIN gl_journal_entries je ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}
       WHERE ci.company_id = ${companyId}
-        AND ci.invoice_date < ${cutoffDate}::date
-        AND ci.status IN ('paid', 'cancelled')
-        AND (EXISTS (SELECT 1 FROM paystack_payment_requests pr
-                     WHERE pr.company_id = ${companyId} AND pr.customer_invoice_id = ci.id)
-             OR EXISTS (SELECT 1 FROM stitch_payment_requests sr
-                        WHERE sr.company_id = ${companyId} AND sr.customer_invoice_id = ci.id))
+        AND ci.id = ANY(${skippedIds}::uuid[])
       UNION
       SELECT je.id, je.reversal_of_id, je.entry_date, je.status
       FROM chain c

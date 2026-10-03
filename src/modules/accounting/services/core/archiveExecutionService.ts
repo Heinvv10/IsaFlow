@@ -112,10 +112,10 @@ export async function executeArchive(
     // lines step 6 deletes first. Step 6 moves them in one statement and
     // re-checks the predicate, so a concurrent change fails the run whole.
     const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
-    const invoicesSkipped = ciScope.skipped;
+    const invoicesSkipped = ciScope.skippedIds.length;
     // A skipped invoice keeps its journals: refuse (rolling back whole) rather
     // than archive a journal the live invoice still points at.
-    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate);
+    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
     if (keptJournals > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournals));
 
     // Step 5: Archive paid/cancelled supplier invoices
