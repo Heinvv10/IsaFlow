@@ -1,0 +1,33 @@
+HEAD: 1657bcb59de51c77e1ae90d02a92bdf9da4d9d8f (runner scripts/apply-migrations.ts unchanged on this branch); fixture isaflow-fixture-r185 (127.0.0.1:55931) only; load 41.38
+## applyOne in the runner (git show HEAD:scripts/apply-migrations.ts, lines 122-136):
+async function applyOne(client: pg.PoolClient, file: MigrationFile): Promise<void> {
+  await client.query('BEGIN');
+  try {
+    await client.query(file.content);
+    await client.query(
+      `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)
+         ON CONFLICT (name) DO UPDATE SET version = EXCLUDED.version, checksum = EXCLUDED.checksum, applied_at = now()`,
+      [file.version, file.name, file.checksum]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+## the probe's copy is identical to it (diff, empty = identical):
+(identical)
+## probe file (scratchpad, not a migration): /tmp/claude-1003/-home-hein-Workspace-IsaFlow/30932292-b08f-4ff8-9c11-6eeb8134fa99/scratchpad/999_r185_runner_probe.sql
+## run
+{
+ "probe": "999_r185_runner_probe.sql",
+ "content": "SET LOCAL statement_timeout = '1s';\nCREATE TABLE r185_runner_probe_sentinel (id int);\nSELECT pg_sleep(3);\n",
+ "result": "FAILED",
+ "code": "57014",
+ "message": "canceling statement due to statement timeout",
+ "elapsedMs": 1006,
+ "sentinelTableAfter": null,
+ "schemaMigrationsRowAfter": 0,
+ "statementTimeoutAfterOnSameConnection": "0"
+}
+exit=0

@@ -54,6 +54,24 @@ beforeEach(() => {
   vi.mocked(log.warn).mockClear();
 });
 
+describe('postGatewayFee fast-path guard', () => {
+  it('a DRAFT fee journal already holds the reference: posts nothing and warns with its id', async () => {
+    h.guardRows = [[{ id: 'je-stuck', status: 'draft' }]];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(create).not.toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalledWith('Gateway fee not posted — a DRAFT fee journal already holds the reference',
+      { reference: 'r185_ref', fee: 3, journalEntryId: 'je-stuck' }, 'accounting');
+  });
+
+  it('a posted fee journal: posts nothing and logs nothing', async () => {
+    h.guardRows = [[{ id: 'je-posted', status: 'posted' }]];
+    await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
+    expect(create).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info).not.toHaveBeenCalled();
+  });
+});
+
 describe('postGatewayFee when the create+post fails', () => {
   it('23505 and the fee journal now exists: stands down without throwing', async () => {
     create.mockRejectedValueOnce(uniqueViolation());

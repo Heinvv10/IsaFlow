@@ -64,8 +64,15 @@ export async function postGatewayFee(
   // wording changed. The receipt's own journal carries the same agent with a NULL
   // reference, so it cannot collide. IS DISTINCT FROM because status is nullable
   // and `NULL <> 'reversed'` is NULL — the row would escape the guard and the fee
-  // would post twice.
-  if (await findFeeJournal(receipt)) return;
+  // would post twice. A DRAFT holding the reference stops the post too (same semantics), but it is
+  // not a posted fee, so say so rather than return silently.
+  const existing = await findFeeJournal(receipt);
+  if (existing) {
+    if (existing.status === 'draft') {
+      log.warn(DRAFT_HOLDS_REFERENCE, { reference: receipt.reference, fee, journalEntryId: existing.id }, 'accounting');
+    }
+    return;
+  }
 
   let expenseAccountId: string;
   try {
@@ -122,8 +129,7 @@ export async function postGatewayFee(
     if (found.status === 'draft') {
       // Same semantics as the guard (a draft holds the reference), but it is not a posted fee: Bank
       // stays above the deposit by the fee until someone posts or deletes that draft.
-      log.warn('Gateway fee not posted — a DRAFT fee journal already holds the reference',
-        { ...standDown, journalEntryId: found.id }, 'accounting');
+      log.warn(DRAFT_HOLDS_REFERENCE, { ...standDown, journalEntryId: found.id }, 'accounting');
       return;
     }
     log.info('Gateway fee already posted by a concurrent delivery', standDown, 'accounting');
@@ -131,6 +137,12 @@ export async function postGatewayFee(
   }
   log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId }, 'accounting');
 }
+
+/**
+ * A draft fee journal holds the reference: the fee is not posted, and Bank stays above the deposit
+ * by the fee until someone posts or deletes that draft. Logged by the guard and by the stand-down.
+ */
+const DRAFT_HOLDS_REFERENCE = 'Gateway fee not posted — a DRAFT fee journal already holds the reference';
 
 /**
  * The live fee journal for this reference, or null. Same predicate as the partial unique index
