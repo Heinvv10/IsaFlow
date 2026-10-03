@@ -1,0 +1,28 @@
+isaflow (prod, isaflow-supabase-db :7772) read-only census for 852, approved by Hein (G3) 2026-10-04; PGOPTIONS default_transaction_read_only=on, statement_timeout=60s; query = the header of scripts/migrations/sql/852_gateway_fee_journal_unique.sql verbatim
+=== session
+   db    | read_only |              at               
+---------+-----------+-------------------------------
+ isaflow | on        | 2026-10-03 23:20:19.726202+00
+(1 row)
+
+=== 852 header census (must be 0 rows)
+ company_id | reference | n | ids 
+------------+-----------+---+-----
+(0 rows)
+
+=== context counts
+ journals_with_agent | with_reference | in_index_predicate 
+---------------------+----------------+--------------------
+                   0 |              0 |                  0
+(1 row)
+
+ gl_journal_entries_rows 
+-------------------------
+                   38166
+(1 row)
+
+ index_already_present 
+-----------------------
+                     0
+(1 row)
+
