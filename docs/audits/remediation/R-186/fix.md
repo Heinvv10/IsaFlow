@@ -436,9 +436,13 @@ own tests cover it.
      `ROW_LOCK_BUDGET_MS` without a production change, so the case outlasts the real 5 s budget.
    - The run throws `ROW_LOCK_TIMEOUT` in under 9 s. Its row is committed as `failed`, with the
      "being changed by another request" message. Nothing moved (savepoint rollback).
-   - Mutants: `mutations.r10.log`.
+   - Mutants (`mutations.r10.log`, 4d4b17881): `onTimeout` returning a plain Error; `isTimeout` never
+     matching (raw 55P03); the wait unbounded. All 3 red.
 4. `r186-archive-move-race` disarms every hook and resets `keptCounts`, `fired` and `issued` in a
    `beforeEach`, so no case depends on file order.
+
+Evidence at 4d4b17881: `green.r10.int.log` has five r186 files at 24/24, plus the move-race file
+run shuffled (seed 186) at 8/8. `regression.r10.int.log`: 47/47.
 
 ## Recorded, not changed
 
