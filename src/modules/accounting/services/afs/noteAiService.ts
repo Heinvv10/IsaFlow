@@ -35,12 +35,14 @@ export async function generateNoteNarrative(
     .replace('{framework}', companyContext.framework)
     .replace('{sectionType}', sectionType);
 
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), NOTE_AI_TIMEOUT_MS);
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
-    }, { signal: AbortSignal.timeout(NOTE_AI_TIMEOUT_MS) });
+    }, { signal: abort.signal });
     // The provider answered: the request's daily AI unit is spent (R-175).
     markQuotaUsed('ai');
 
@@ -50,5 +52,7 @@ export async function generateNoteNarrative(
     const message = err instanceof Error ? err.message : String(err);
     log.error('AI narrative generation failed', { sectionType, companyName: companyContext.name, error: message }, 'noteAiService');
     throw new Error(`AI narrative generation failed: ${message}`);
+  } finally {
+    clearTimeout(timer);
   }
 }

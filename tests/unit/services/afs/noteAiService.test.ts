@@ -44,18 +44,39 @@ describe('noteAiService', () => {
     expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 60_000 }]);
   });
 
-  it('passes a per-call AbortSignal.timeout of 60 s, so the bound covers the body read, not only the headers (R-188)', async () => {
-    const mockCreate = await getCreateMock();
-    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] });
-    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+  it('aborts the call after 60 s, so the bound covers the body read, not only the headers (R-188)', async () => {
+    vi.useFakeTimers();
     try {
-      await generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT);
-      expect(timeoutSpy).toHaveBeenCalledWith(60_000);
-      const options = mockCreate.mock.calls[0]![1] as { signal?: AbortSignal };
-      expect(options.signal).toBeInstanceOf(AbortSignal);
-      expect(options.signal).toBe(timeoutSpy.mock.results[0]!.value);
+      const mockCreate = await getCreateMock();
+      let signal: AbortSignal | undefined;
+      mockCreate.mockImplementationOnce((_body: unknown, opts: { signal: AbortSignal }) => new Promise((_res, rej) => {
+        signal = opts.signal;
+        opts.signal.addEventListener('abort', () => rej(new Error('aborted')));
+      }));
+      const done = generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT).catch((e: Error) => e);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(signal!.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signal!.aborted).toBe(true);
+      expect(((await done) as Error).message).toContain('AI narrative generation failed');
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
-      timeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves no timer running after a success or a failure (R-188)', async () => {
+    vi.useFakeTimers();
+    try {
+      const mockCreate = await getCreateMock();
+      mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] });
+      await generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT);
+      expect(vi.getTimerCount()).toBe(0);
+      mockCreate.mockRejectedValueOnce(new Error('boom'));
+      await expect(generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT)).rejects.toThrow();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

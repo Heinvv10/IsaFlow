@@ -1,5 +1,6 @@
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withPlatformAdmin.ts
+import { connectObserved } from './poolTelemetry';
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import { verifyToken } from './gotrue';
@@ -65,7 +66,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     const startedAt = Date.now();
 
     // ── Gate: super-admin check via app_user + RLS ────────────────────────────
-    const appClient = await getAppPool().connect();
+    const appClient = await connectObserved(getAppPool(), 'platformAdminApp');
     let role: string | undefined;
     let standing: UserAccountRow | null = null;
     let gateUnusable = false;

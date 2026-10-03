@@ -26,7 +26,7 @@ their provider fetch. Every pool reader still goes through `authPoolMax()`.
 - `poolSizeFromEnv` (unchanged code), `AUTH_POOL_MAX` outcomes:
   - unset/blank: 10 (was 20).
   - plain digits 2-100 (incl. 11-100): as given, unchanged, silent.
-  - refused spelling with a finite positive value: `min(10, ceil(value))`. `15.0`, `20.0`, `+20`,
+  - refused spelling with a finite positive value: `min(10, ceil(value))` for `AUTH_POOL_MAX` (poolSizeFromEnv, unchanged). `15.0`, `20.0`, `+20`,
     `2e1`, `50.0` now give 10 (were 15, 20, 20, 20, 20); `10.0`, `+10`, `1e1` give 10.
   - NaN, 0, negative, Infinity: 10 (unchanged). Floor of 2 unchanged.
 - Docs/comments updated: poolLimits.ts JSDoc, renderSemaphore.ts, withAuthPrint.ts,
@@ -63,7 +63,7 @@ Prod's env leaves `AUTH_POOL_MAX` unset, so this changes prod pool sizes on the 
 - Each render holds 2 auth-pool connections (its withAuth one plus the print page's re-entry). At the default, 2 renders take 4 of 10 (40%, leaving 6); before, 6 of 20 (30%, leaving 14). The ceiling formula `floor(pool/4)` is kept: the owner's goal set ceiling 2 at pool 10. The alternative is `floor(pool/8)` = 1 at the default (2 of 10, 20%).
 - No pool `waitingCount` is logged anywhere, so pool saturation after the change cannot be seen in the logs.
 - The render queue bound (2 x the concurrency bound) drops from 6 to 4 at the defaults.
-- Rollback: set `AUTH_POOL_MAX=20` in the prod env and restart the service (restores pools of 20, ceiling 5, and the previous 3 renders / queue bound 6).
+- Rollback: set `AUTH_POOL_MAX=20` (plain `20`; `20.0` gives 10) in the prod env and restart the service (restores pools of 20, ceiling 5, and the previous 3 renders / queue bound 6).
 
 ## Round 3 review fixes
 - `ai-narrative.ts` and `ai-forecast.ts` are withAuth routes that called Anthropic with no abort, holding an authPool connection idle in transaction for undici's ~300 s default. At a pool of 10 a slow (not failing) provider plus 2 renders could exhaust the pool. Both now use an AbortController: 30 s for narrative (max_tokens 1024), 20 s for forecast (max_tokens 512, the figure nl-query uses for 512). The timer runs until the body is read and is cleared in `finally`. An abort lands in the existing catch, so the route answers 200 with its fallback and the existing quota mapping (an abort counts as use). Tests: `tests/unit/api/aiRoutesFetchTimeout.test.ts` (abort at exactly the bound, fallback answer, no timer left).
@@ -97,6 +97,13 @@ Evidence r7 (queue-timeout follow-up): `red.r7.unit.log` (6/40 red), `green.r7.u
 Evidence r8: admission and `renderQueueBound` read the count through one `maxConcurrent()` helper, and an admission-level test (`'1.0'` at pool 40: one active, one queued) pins it. `green.r8.unit.log` 299/299 at `0f75f64cd`, `mutations.r8.log` M40-M41 killed. No red run: the refactor changes no behaviour, so the test passes on the old code too.
 
 Evidence r9: the invalid-value warning says "falling back" (the `using` field says to what), not "nearest allowed value". `red.r9.unit.log`, `green.r9.unit.log` 41/41 at `75324f2fe`, `mutations.r9.log` M42 killed, wider regression `regression.r9.unit.log` 1751/1751 at the same sha.
+
+## PR #630 review fixes
+- Post-deploy signal (new `src/lib/auth/poolTelemetry.ts`, `connectObserved`, used at the connect sites of authPool, bearerPipeline, extensionToken and the platform-admin app pool): warn `auth pool saturated: an acquire had to queue` with `{pool, waitingCount, totalCount, idleCount, max}` when `waitingCount > 0` at acquire time, at most once per 10 s per pool; error `auth pool acquire failed` naming the pool when an acquire fails (the 15 s connection timeout). Watch for the warning after deploy; sustained occurrences mean 10 is too small: set `AUTH_POOL_MAX=20` (plain digits) and restart. The four wiring edits are not individually tested (the helper is); the existing withAuth/bearer/extension suites still pass through it. The platform-admin ADMIN pool is not observed.
+- Concurrency count: refused spellings now give `min(default, max(1, floor(n)))` as master's floor did (`0.5`, `1.0`, `1.9` -> 1; `2.5` -> 2); the timeout keeps default-on-refused. ceil was the unsafe direction.
+- `noteAiService`: AbortController + setTimeout cleared in `finally` (AbortSignal.timeout cannot be cleared); tests for the abort at 60 s and no timer left.
+- The env-parsing tests moved to `renderSemaphoreEnv.test.ts` (202 lines; `renderSemaphore.test.ts` 294).
+- Evidence r10: `red.r10.unit.log`, `green.r10.unit.log`, `mutations.r10.log`, `regression.r10.unit.log`.
 
 ## Remaining long pool holders under withAuth
 - **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
