@@ -44,7 +44,7 @@ describe('CLAIM 5 — locks', () => {
     expect.soft(calc.answeredWhileHeld, 'calculate bounded').toBe(true);
     expect.soft(appr.answeredWhileHeld, 'approve bounded').toBe(true);
     expect.soft(reop.answeredWhileHeld, 'reopen bounded').toBe(true);
-    expect.soft([calc.finalStatus, appr.finalStatus, reop.finalStatus]).toEqual([400, 400, 400]);
+    expect.soft([calc.finalStatus, appr.finalStatus, reop.finalStatus]).toEqual([503, 503, 503]);
   }, 90000);
 
   it('C5-B: calculate / approve / reopen / reverse / loan application at once — no deadlock, no 5xx', async () => {

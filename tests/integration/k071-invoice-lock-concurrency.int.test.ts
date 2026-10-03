@@ -111,7 +111,7 @@ it('a held invoice lock times out into a retry refusal that wrote nothing', asyn
   // mistake, and 400 is the status this codebase reserves for the latter and
   // monitors as such. Same status the route answers when the peer holds the
   // BANK LINE instead — one event, one answer, on every screen.
-  expect(result.status).toBe(409);
+  expect(result.status).toBe(503);
   expect(JSON.stringify(result.body)).toMatch(/retry in a moment/i);
   // Refused before the first write, so the 4xx withAuth COMMITs commits nothing.
   expect(await amountPaid(invoice)).toBe(0);

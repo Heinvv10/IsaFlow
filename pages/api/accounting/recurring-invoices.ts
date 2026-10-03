@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -36,6 +37,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createRecurringInvoice(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring invoice create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
@@ -77,6 +79,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Recurring invoice updated', { id });
       return apiResponse.success(res, { updated: true });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring invoice update failed', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, 'Update failed');
     }

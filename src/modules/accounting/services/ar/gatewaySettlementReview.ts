@@ -177,8 +177,9 @@ export function composeReviewNote(previous: string | null, reviews: string[]): s
 /**
  * Flag the completed request for review and say so at error level. Tenant-scoped.
  *
- * The note is bookkeeping about money already banked, so it must never cost the
- * receipt: the write runs in its own savepoint and a failure is logged, not
+ * The note is bookkeeping about a settlement (money banked, or a replay of a
+ * cancelled receipt that banked nothing, R-187), so it must never cost the
+ * settlement: the write runs in its own savepoint and a failure is logged, not
  * thrown. Outside a savepoint a failed UPDATE aborts the settlement transaction
  * and the webhook's next statement rolls the whole receipt back.
  */
@@ -206,7 +207,7 @@ export async function flagSettlementForReview(
     });
   } catch (err) {
     log.error(
-      'Gateway settlement review note could not be written; the receipt stands',
+      'Gateway settlement review note could not be written; the settlement is not rolled back',
       { companyId, reference, reviews, error: err instanceof Error ? err.message : String(err) },
       'accounting',
     );

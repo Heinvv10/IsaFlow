@@ -88,16 +88,23 @@ describe('bankAllocationService — first bank_transactions read is locked', () 
     expect(text).toContain(TX_ID);
   });
 
-  it('reverseReconciledTransaction reads FOR UPDATE, scoped to the company', async () => {
+  // D10: one UNLOCKED read comes first — the line's matched journal, to find its reversal chain and lock every line
+  // of it in id order with this one. It reads no status and decides nothing: the locked read below does, and the
+  // reversal re-checks the matched line it peeked under that lock.
+  it('reverseReconciledTransaction decides from a FOR UPDATE read, scoped to the company', async () => {
     await expect(
       reverseReconciledTransaction(COMPANY_ID, TX_ID, USER_ID),
     ).rejects.toThrow(/not found/i);
 
-    const text = sqlTextOf(0);
-    expect(text).toMatch(/FROM bank_transactions/);
-    expect(text).toMatch(/FOR UPDATE/);
-    expect(text).toContain(COMPANY_ID);
-    expect(text).toContain(TX_ID);
+    const texts = vi.mocked(sql).mock.calls.map((_c, i) => sqlTextOf(i));
+    const locked = texts.findIndex((t) => /FROM bank_transactions/.test(t) && /FOR UPDATE/.test(t));
+    expect(locked).toBeGreaterThan(-1);
+    expect(texts[locked]).toContain(COMPANY_ID);
+    expect(texts[locked]).toContain(TX_ID);
+    for (const t of texts.slice(0, locked)) {
+      expect(t).not.toMatch(/\bstatus\b/);
+      expect(t).toContain(COMPANY_ID);
+    }
   });
 });
 

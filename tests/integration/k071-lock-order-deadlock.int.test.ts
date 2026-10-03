@@ -189,9 +189,9 @@ it('a bank line held past the 5s budget is a retry refusal, not a fault', async 
     holder.release();
   }
 
-  // 409, the status `bank-match-confirm` answers a contended line — pre-write,
+  // 503 + Retry-After (D11; it was 409), the status `bank-match-confirm` answers a contended line — pre-write,
   // with the retry wording, and never a 500.
-  expect(result.status).toBe(409);
+  expect(result.status).toBe(503);
   expect(JSON.stringify(result.body)).toMatch(/retry in a moment/i);
 
   const inv = await pool.query('SELECT amount_paid FROM customer_invoices WHERE id=$1', [invoice]);
