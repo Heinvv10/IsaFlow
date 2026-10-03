@@ -94,6 +94,8 @@ queues for up to the 15 s acquire timeout instead of up to 20.
 
 Evidence r7 (queue-timeout follow-up): `red.r7.unit.log` (6/40 red), `green.r7.unit.log` 316/316 at `c7d707d71`, `mutations.r7.log` M37-M39 killed.
 
+Evidence r8: admission and `renderQueueBound` read the count through one `maxConcurrent()` helper, and an admission-level test (`'1.0'` at pool 40: one active, one queued) pins it. `green.r8.unit.log` 299/299 at `0f75f64cd`, `mutations.r8.log` M40-M41 killed. No red run: the refactor changes no behaviour, so the test passes on the old code too.
+
 ## Remaining long pool holders under withAuth
 - **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
 - Server `fetch(` with no signal or timeout, found by grep and NOT individually verified to run under withAuth: `llmCategorizationPass.ts`, `sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`, `weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts`, `imapMirrorService.ts`.
