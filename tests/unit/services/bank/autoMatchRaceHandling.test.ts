@@ -15,14 +15,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, matchMock } = vi.hoisted(() => ({
+const { sqlMock, matchMock, sp } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }),
   matchMock: vi.fn(),
+  // Records savepoint use: which names were opened, how many are open now, and how many rolled back (the callback threw).
+  sp: { names: [] as string[], open: 0, rolledBack: 0 },
 }));
 
 vi.mock('@/lib/neon', () => ({
   sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d),
-  withSavepoint: (_n: string, fn: () => unknown) => fn(),
+  withSavepoint: async (name: string, fn: () => Promise<unknown>) => {
+    sp.names.push(name); sp.open++;
+    try { return await fn(); } catch (e) { sp.rolledBack++; throw e; } finally { sp.open--; }
+  },
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -51,6 +56,7 @@ const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')
 
 describe('autoMatchTransactions — one raced row must not abort the run', () => {
   beforeEach(() => {
+    sp.names.length = 0; sp.open = 0; sp.rolledBack = 0;
     vi.clearAllMocks();
     // The candidate rows come back in a deliberately jumbled id order (3, 1, 2)
     // so the sort has something to do; every one is an exact-reference match,
@@ -137,6 +143,21 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
     const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  it('runs each candidate inside its own savepoint, which is rolled back for the held one', async () => {
+    const insideSavepoint: boolean[] = [];
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      insideSavepoint.push(sp.open > 0);
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(insideSavepoint, 'every matchTransaction ran inside a savepoint').toEqual([true, true, true]);
+    expect(sp.names.every((n) => n === 'auto_match_row')).toBe(true);
+    expect(sp.rolledBack, 'only the held candidate rolled back').toBe(1);
     expect(result.matched).toBe(2);
     expect(result.skippedRaced).toBe(1);
   });
