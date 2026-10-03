@@ -26,8 +26,9 @@ import { refusesUnattendedApproval } from '@/modules/accounting/services/core/un
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   lockPostableCaptureEventIds,
@@ -198,7 +199,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // matched no row.
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)

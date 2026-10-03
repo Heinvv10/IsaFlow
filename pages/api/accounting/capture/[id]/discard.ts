@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -14,7 +15,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
   lockCaptureEventRow,
-  CaptureEventLockedError,
 } from '@/modules/accounting/services/capture/captureEventLock';
 
 type Row = Record<string, unknown>;
@@ -42,9 +42,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     existing = await lockCaptureEventRow(companyId, eventId);
   } catch (lockErr) {
-    if (lockErr instanceof CaptureEventLockedError) {
-      return apiResponse.conflict(res, lockErr.message);
-    }
+    if (respondIfLockTimeout(res, lockErr)) return;
     throw lockErr;
   }
 

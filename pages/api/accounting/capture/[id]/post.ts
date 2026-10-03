@@ -31,8 +31,8 @@ import {
   runCapturePostFollowUps,
   type PublishedDecision,
 } from '@/modules/accounting/services/capture/capturePostFollowUps';
+import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE,
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
   lockCaptureEventForPosting,
@@ -205,7 +205,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // SELECT or a pure function, and a refusal matched no row.
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
   // ONE producer of duplicate_fingerprint, never an inline expression. This

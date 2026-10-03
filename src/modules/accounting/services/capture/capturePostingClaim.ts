@@ -9,6 +9,9 @@
  * callers import from one place.
  */
 
+import type { NextApiResponse } from 'next';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
+import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -47,6 +50,17 @@ export const CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE: Record<CapturedDocumentRefusa
   content_posted: ErrorCode.CONFLICT,
   content_busy: ErrorCode.CONFLICT,
 };
+
+/**
+ * Answer a refusal. `content_busy` is a lock the claim waited on past its bounded wait and a peer still held (D11):
+ * 503 + Retry-After like every held row. The others keep the status in `CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE`.
+ */
+export function respondCapturedDocumentRefusal(
+  res: NextApiResponse, refusal: CapturedDocumentRefusal, message: string = CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal],
+): void {
+  if (refusal === 'content_busy') return respondRowHeld(res, message, 'RECEIPT_POST_BUSY');
+  apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[refusal], message);
+}
 
 /**
  * The refusal a locked document row earns, or null when it may be posted.

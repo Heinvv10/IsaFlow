@@ -295,7 +295,7 @@ it('answers 409 when another request holds the line', async () => {
     holder.release();
   }
 
-  expect(status).toBe(409);
+  expect(status).toBe(503);
   expect(JSON.stringify(body)).toMatch(/retry/i);
   expect(committed).toBe(true);
   expect(await arLineCount()).toBe(arLinesBefore);

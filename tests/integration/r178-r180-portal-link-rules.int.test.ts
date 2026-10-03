@@ -141,7 +141,7 @@ describe('the enable-online-payment route shares the standing link and its lock'
       await holder.query('BEGIN');
       await holder.query('SELECT 1 FROM customer_invoices WHERE id = $1 FOR UPDATE', [id]);
       const r = await enableRoute(id);
-      expect(r.statusCode).toBe(400);
+      expect(r.statusCode).toBe(503);
       expect(JSON.stringify(r.body)).toContain('CUSTOMER_INVOICE_LOCK_TIMEOUT');
     } finally { await holder.query('ROLLBACK'); holder.release(); }
     expect(await links(id)).toEqual([]);
