@@ -13,21 +13,21 @@ import { executeArchive } from '@/modules/accounting/services/core/archiveExecut
 import { validateArchive } from '@/modules/accounting/services/core/archiveQueryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  CUTOFF, LATE_DAY, OLD_DAY, addCompany, addInvoice, addJournal, addPaystackRequest, addUser, cleanup, drive, failureOf,
-  ids, linkJournal, user,
+  CUTOFF, LATE_DAY, OLD_DAY, addCompany, addInvoice, addJournal, addPaystackRequest, addStitchRequest, addUser, cleanup,
+  drive, failureOf, ids, linkJournal, user,
 } from './r186-archive.helpers';
 
 assertDisposable();
 
-const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), outside: randomUUID(),
+const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), stitch: randomUUID(), outside: randomUUID(),
   tenant: randomUUID(), foreign: randomUUID() };
 const companies = Object.values(co);
 const REFUSAL = /payment request/i;
 
-/** A cancelled invoice a Paystack request references (skipped), plus a free one beside it. */
-async function skippedInvoice(company: string): Promise<{ skipped: string; free: string }> {
+/** A cancelled invoice a payment request references (skipped), plus a free one beside it. */
+async function skippedInvoice(company: string, stitch = false): Promise<{ skipped: string; free: string }> {
   const skipped = await addInvoice(company, 'cancelled');
-  await addPaystackRequest(company, skipped);
+  await (stitch ? addStitchRequest : addPaystackRequest)(company, skipped);
   return { skipped, free: await addInvoice(company, 'cancelled') };
 }
 const journals = (c: string) => ids('SELECT id FROM gl_journal_entries WHERE company_id=$1', [c]);
@@ -56,9 +56,11 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
       return addJournal(c, LATE_DAY, 'posted', reversed);
     }],
     ['its own journal is in the window', 'direct', async (c: string) => addJournal(c, OLD_DAY, 'posted')],
+    ['a Stitch request refers to it and its own journal is in the window', 'stitch',
+      async (c: string) => addJournal(c, OLD_DAY, 'posted')],
   ] as const)('refuses whole when %s', async (_shape, key, journalOf) => {
     const c = co[key];
-    const { skipped, free } = await skippedInvoice(c);
+    const { skipped, free } = await skippedInvoice(c, key === 'stitch');
     await linkJournal(skipped, await journalOf(c));
     const unrelated = await addJournal(c, OLD_DAY, 'posted');
     const before = await journals(c);
@@ -82,6 +84,9 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     const original = await addJournal(c, OLD_DAY, 'reversed');
     await addJournal(c, LATE_DAY, 'posted', original);
     await linkJournal(skipped, original);
+    // The free invoice's own in-window journal moves with it: no reason to refuse.
+    const freeJournal = await addJournal(c, OLD_DAY, 'posted');
+    await linkJournal(free, freeJournal);
 
     expect(await validationErrors(c)).not.toEqual(expect.arrayContaining([expect.stringMatching(REFUSAL)]));
     const result = await drive(c, () => executeArchive(c, CUTOFF, user), { commit: true });
@@ -90,7 +95,8 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     expect(result.invoicesArchived).toBe(1);
     expect(await liveInvoices(c)).toEqual([skipped]);
     expect(await archivedInvoices(c)).toEqual([free]);
-    expect(await archivedJournals(c)).toEqual([]);
+    expect(await archivedJournals(c)).toEqual([freeJournal]);
+    expect(await journals(c)).toEqual(expect.arrayContaining([original]));
   }, 40000);
 
   it('does not reach into another company\'s journals, which the run never moves', async () => {
