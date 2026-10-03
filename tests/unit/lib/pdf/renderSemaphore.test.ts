@@ -338,6 +338,25 @@ describe('bounds derived from the auth pool', () => {
       await Promise.all(running);
     });
 
+  it("admission follows the same parsing: PDF_MAX_CONCURRENT_RENDERS '1.0' at a pool of 40 runs one render and queues the second (R-188)", async () => {
+    process.env.AUTH_POOL_MAX = '40';
+    process.env.PDF_MAX_CONCURRENT_RENDERS = '1.0';
+    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
+    const sem = await fresh();
+
+    const first = deferred();
+    const second = deferred();
+    const running = [sem.acquireRenderSlot(first.run), sem.acquireRenderSlot(second.run)];
+    await settle();
+    expect(first.started.value).toBe(true);
+    expect(second.started.value).toBe(false);
+    expect(sem.renderSlotStats()).toEqual({ active: 1, queued: 1 });
+
+    first.finish();
+    second.finish();
+    await Promise.all(running);
+  });
+
   it('an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)', async () => {
     delete process.env.AUTH_POOL_MAX;
     process.env.PDF_MAX_CONCURRENT_RENDERS = '3';
