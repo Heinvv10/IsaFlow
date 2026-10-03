@@ -53,6 +53,23 @@ export async function addStitchRequest(companyId: string, invoiceId: string): Pr
   )).rows[0]!.id as string;
 }
 
+export const LATE_DAY = '2010-01-01';
+
+/** A journal in `companyId` (no lines: the archive copies whatever lines exist). */
+export async function addJournal(companyId: string, entryDate: string, status: 'posted' | 'reversed',
+  reversalOf: string | null = null): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,description,status,created_by,source,reversal_of_id)
+     VALUES($1,$2,$3,$4,'R-186 closure probe',$5,$6,'auto_invoice',$7)`,
+    [id, companyId, `R186-${id.slice(0, 8)}`, entryDate, status, user, reversalOf]);
+  return id;
+}
+
+export async function linkJournal(invoiceId: string, journalId: string): Promise<void> {
+  await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [invoiceId, journalId]);
+}
+
 /** Runs `fn` in one transaction for `companyId`; commits only when asked. */
 export async function drive<T>(companyId: string, fn: () => Promise<T>,
   opts: { commit?: boolean; appUser?: boolean } = {}): Promise<T> {
@@ -92,8 +109,10 @@ export async function ids(sqlText: string, params: unknown[]): Promise<string[]>
 
 export async function cleanup(companies: string[]): Promise<void> {
   try {
+    // Reversals first: gl_journal_entries.reversal_of_id is NO ACTION, and may cross companies.
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[]) AND reversal_of_id IS NOT NULL', [companies]);
     for (const id of companies) {
-      for (const t of ['paystack_payment_requests', 'stitch_payment_requests', 'archive_customer_invoices', 'archive_runs',
+      for (const t of ['archive_gl_journal_entries', 'gl_journal_entries', 'paystack_payment_requests', 'stitch_payment_requests', 'archive_customer_invoices', 'archive_runs',
         'audit_log', 'customer_invoices', 'customers', 'company_users']) {
         await pool.query(`DELETE FROM ${t} WHERE company_id=$1`, [id]);
       }

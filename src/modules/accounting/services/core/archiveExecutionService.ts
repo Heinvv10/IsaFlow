@@ -7,7 +7,10 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
-import { moveCustomerInvoicesToArchive, selectArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
+import {
+  ArchiveSkippedInvoiceJournalError, countSkippedInvoiceJournalsInWindow, moveCustomerInvoicesToArchive,
+  selectArchivableCustomerInvoices, skippedInvoiceJournalMessage,
+} from './archiveCustomerInvoiceScope';
 import type { DbRow } from '@/types/db';
 
 
@@ -110,6 +113,10 @@ export async function executeArchive(
     // re-checks the predicate, so a concurrent change fails the run whole.
     const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
     const invoicesSkipped = ciScope.skipped;
+    // A skipped invoice keeps its journals: refuse (rolling back whole) rather
+    // than archive a journal the live invoice still points at.
+    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate);
+    if (keptJournals > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournals));
 
     // Step 5: Archive paid/cancelled supplier invoices
     const siRows = (await sql`
