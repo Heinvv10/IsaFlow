@@ -148,4 +148,16 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D11 round
     expect(out.status, JSON.stringify(out)).toBe(200);
     expect((await state(first.bt)).matched, 'the earlier match committed behind a 200, not a 400').toBe(true);
   }, 60000);
+
+  it('auto_match: an imported line still linked to a provisional (D10 pre-fix data) is not offered; earlier match commits, 200', async () => {
+    const a = await seedPair(1111.11, '2026-06-10', 'p1');
+    const b = await seedPair(1212.12, '2026-06-11', 'p2');
+    const [first, second] = a.bt < b.bt ? [a, b] : [b, a];
+    await sql`UPDATE bank_transactions SET provisional_je_id = ${second.je}::UUID WHERE id = ${second.bt}::UUID`;
+    const out = await call(bankTransactionsAction as Route, { action: 'auto_match', bankAccountId: c.fx.bankAccountId });
+    expect(out.status, JSON.stringify(out)).toBe(200);
+    expect((await state(first.bt)).matched, 'the earlier match committed behind a 200, not a 400').toBe(true);
+    expect((await state(second.bt)).matched).toBe(false);
+    expect(out.body).not.toMatch(/"skippedRefused":[1-9]/);
+  }, 60000);
 });

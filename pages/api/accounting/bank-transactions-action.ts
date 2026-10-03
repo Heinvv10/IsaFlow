@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import {
   BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
@@ -228,6 +229,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // Every throw site decides this before its first write.
     if (isFeedNotPostedRefusal(err)) {
       return apiResponse.conflict(res, err.message);
+    }
+    // auto_match's loop skips every per-candidate refusal inside its own savepoint; what reaches here is a RUN-level
+    // failure. A session that no longer exists is 404 (the run's savepoint already discarded its matches); anything else is
+    // a fault: 500 through withErrorHandler (rollback), never a 400 that COMMITs what the loop applied (D11 round 7).
+    if (body.action === 'auto_match') {
+      if (err instanceof BankMatchTargetError && err.code === 'RECONCILIATION_NOT_FOUND') {
+        return apiResponse.notFound(res, 'Reconciliation', body.reconciliationId);
+      }
+      throw err;
     }
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank transaction action failed', { error: err }, 'accounting-api');
