@@ -204,6 +204,18 @@ describe('confirmCustomerInvoiceMatch', () => {
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 
+  it('a retryable refusal that is NOT held (state conflict) is `conflict` (409), not contended (503)', async () => {
+    invoice(600);
+    validateBankReceiptApplication.mockRejectedValueOnce(new ReceiptRefusal('changed — retry in a moment.', { retryable: true }));
+    expect(await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600)).toMatchObject({ ok: false, kind: 'conflict' });
+  });
+
+  it('a held refusal is contended', async () => {
+    invoice(600);
+    validateBankReceiptApplication.mockRejectedValueOnce(new ReceiptRefusal('held — retry in a moment.', { retryable: true, held: true }));
+    expect(await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600)).toMatchObject({ ok: false, kind: 'contended' });
+  });
+
   it('re-throws an infrastructure failure instead of reporting it as a refusal', async () => {
     invoice(600);
     validateBankReceiptApplication.mockRejectedValueOnce(Object.assign(

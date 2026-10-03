@@ -10,7 +10,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { resolveCaptureExpenseAccount } from '@/modules/accounting/services/capture/captureExpenseAccount';
-import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
+import { respondCapturedDocumentRefusal, respondReceiptDuplicate } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CapturedDocumentAlreadyPostedError,
@@ -75,7 +75,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // there is no cycle to deadlock on. The event lock is what makes the status
   // refusal below meaningful (R-058): two concurrent requests both read a
   // postable status and both post. Under the locks the refusals read settled
-  // values; nothing is written yet, so contention is a retryable 409.
+  // values; nothing is written yet, so a held row is a 503 + Retry-After.
   let event;
   try {
     event = await lockCaptureEventForPosting(companyId, eventId);
@@ -147,9 +147,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // R-088: the same slip already posted from ANOTHER upload. Before any write, so the 409 commits nothing.
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
-  // A fingerprint a peer holds past the bounded wait is a held lock: 503 + Retry-After (D11). A real duplicate is 409.
-  if (duplicate.kind === 'busy') return respondRowHeld(res, duplicate.message, 'RECEIPT_POST_BUSY');
-  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
+  if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
   // ------------------------------------------------------------------
   // 3a. Employee path → create expense claim + auto-submit

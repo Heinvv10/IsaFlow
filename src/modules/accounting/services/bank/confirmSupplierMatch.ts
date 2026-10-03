@@ -27,6 +27,7 @@ import { round2 } from '../ap/supplierAllocationLines';
 import { toCents } from '../ap/billAllocatable';
 import {
   isRetryableSupplierPaymentRefusal,
+  isSupplierPaymentHeldRow,
   isSupplierPaymentRefusal,
 } from '../ap/supplierPaymentRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -35,6 +36,7 @@ export type ConfirmSupplierMatchOutcome =
   | { ok: false; kind: 'not_found' }
   | { ok: false; kind: 'refused'; message: string }
   | { ok: false; kind: 'contended'; message: string }
+  | { ok: false; kind: 'conflict'; message: string }
   | { ok: true; supplierPaymentId: string; paymentNumber: string; allocated: number };
 
 /**
@@ -128,9 +130,9 @@ export async function confirmSupplierInvoiceMatch(
     // did something wrong when the truth is "try again" — while the same
     // instant of contention on the bank LINE already answers 409. Separated
     // here so the route can answer both the same way.
-    if (isRetryableSupplierPaymentRefusal(refusal)) {
-      return { ok: false, kind: 'contended', message: refusal.message };
-    }
+    if (isSupplierPaymentHeldRow(refusal)) return { ok: false, kind: 'contended', message: refusal.message };
+    // Retryable but NOT held (the document changed under the caller): a state conflict, 409.
+    if (isRetryableSupplierPaymentRefusal(refusal)) return { ok: false, kind: 'conflict', message: refusal.message };
     return { ok: false, kind: 'refused', message: refusal.message };
   }
 

@@ -6,7 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -25,7 +25,7 @@ import {
   mealsVatNeedsAPerson,
   MEALS_VAT_HELD_SUFFIX,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
-import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
+import { respondCapturedDocumentRefusal, respondReceiptDuplicate } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
@@ -235,9 +235,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // the checks above are all about this row, and a second upload is a second
   // row. Still before the first write, so the 409 commits nothing.
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
-  // A fingerprint a peer holds past the bounded wait is a held lock: 503 + Retry-After (D11). A real duplicate is 409.
-  if (duplicate.kind === 'busy') return respondRowHeld(res, duplicate.message, 'RECEIPT_POST_BUSY');
-  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
+  if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
   if (refusal) {
