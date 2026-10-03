@@ -40,3 +40,9 @@ The production importers do NOT cover the types: they use only a few of the 11.
 
 Enforcement of "import the barrel, never the parts": ESLint `no-restricted-imports` in `eslint.config.mjs`
 (off only for `src/modules/billing/services/paystack*.ts`). See `mutations.log` M6, M7.
+
+## Round 1 (review FIX on bff9e9794)
+Added the ESLint import restriction, the `paystack-export-types` CI step and the header note. Unit/gate logs
+(`green.unit.log`, `regression.unit.log`, `gates.log`) are re-run at committed head 5944996dc. `full-unit.log`
+(split tree, pre-commit) and `regression.int.log` (f2320de6d) predate round 1; round 1 changed no moved code
+(lint config, a tsconfig, CI script, one comment), so they were not repeated.

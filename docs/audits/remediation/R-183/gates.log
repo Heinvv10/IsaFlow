@@ -1,0 +1,5 @@
+HEAD: 5944996dcd04f7399f6bcff1b2eb04c94296ca5b (committed, clean tree)
+$ tsc -p tsconfig.paystackexports.json
+$ tsc --noEmit
+✖ 12 problems (0 errors, 12 warnings)
+
