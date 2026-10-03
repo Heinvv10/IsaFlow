@@ -110,17 +110,20 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
  *  above it is clamped and logged, never honoured. An UNSET or blank variable
  *  has nothing to report: its default is clamped without a log line. */
 function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
-  const n = Number(raw);
-  const unset = raw === undefined || raw.trim() === '';
-  const usable = Number.isFinite(n) && Math.floor(n) >= 1;
+  const text = raw?.trim() ?? '';
+  const n = Number(text);
+  const unset = text === '';
+  // Plain decimal digits only, as poolSizeFromEnv reads a pool size: `1.9`, `0x3`, `3e0` and `+3`
+  // are not silently floored or reinterpreted, they are invalid.
+  const usable = /^[0-9]+$/.test(text) && Number.isFinite(n) && n >= 1;
   if (!unset && !usable) {
     // Set but unusable: say so as invalid, never as a clamp of the default, and
     // never with the text (an env var can hold anything pasted into it).
-    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a positive number); using the default', {
-      setting: name, length: raw.length, digitsOnly: /^[0-9]+$/.test(raw.trim()), default: Math.min(fallback, ceiling),
+    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the default', {
+      setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), default: Math.min(fallback, ceiling),
     });
   }
-  const requested = usable ? Math.floor(n) : fallback;
+  const requested = usable ? n : fallback;
   if (requested > ceiling) {
     // The built-in default above the ceiling is not an operator's mistake: clamp
     // it silently (R-188: the default of 3 against a ceiling of 2 at the default pool).

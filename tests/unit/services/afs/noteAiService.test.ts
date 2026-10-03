@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@anthropic-ai/sdk', () => {
   const mockCreate = vi.fn();
+  const constructed: unknown[] = [];
   class MockAnthropic {
     messages = { create: mockCreate };
+    constructor(options: unknown) { constructed.push(options); }
   }
   return {
     default: MockAnthropic,
     __mockCreate: mockCreate,
+    __constructed: constructed,
   };
 });
 
@@ -35,6 +38,11 @@ async function getCreateMock() {
 
 describe('noteAiService', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('builds its client with no retries and a 30 s timeout: it runs under withAuth, and the SDK default is 600 s (R-188)', async () => {
+    const mod = await import('@anthropic-ai/sdk') as unknown as { __constructed: unknown[] };
+    expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 30_000 }]);
+  });
 
   it('returns narrative text on success', async () => {
     const mockCreate = await getCreateMock();
