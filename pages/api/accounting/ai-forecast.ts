@@ -15,6 +15,10 @@ import {
   buildForecastNarrativePrompt, parseForecastNarrative,
 } from '@/modules/accounting/services/reports/cashFlowAIService';
 
+// A withAuth route holds a pool connection (idle in transaction) for the whole provider call, so
+// the call is bounded (R-188). max_tokens 512 matches nl-query's 20 s; undici's default is ~300 s.
+const AI_TIMEOUT_MS = 20_000;
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
@@ -47,6 +51,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   let narrative = null;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey && lastBase) {
+    const aiAbort = new AbortController();
+    const aiTimeout = setTimeout(() => aiAbort.abort(), AI_TIMEOUT_MS);
     try {
       const prompt = buildForecastNarrativePrompt({
         currentBalance: cashBalance, projectedBalance: lastBase.closingBalance,
@@ -57,6 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+        signal: aiAbort.signal,
       });
       if (response.ok) {
         markQuotaUsed('ai'); // the provider answered: the daily unit is spent (R-175)
@@ -66,6 +73,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         markAnthropicUsedForStatus(response.status); // a 5xx may follow the work; a 4xx or 529 did none (R-175)
       }
     } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Forecast narrative failed', { error: err }, 'ai'); }
+    finally { clearTimeout(aiTimeout); }
   }
 
   const allAlerts = [...scenarios.optimistic.alerts, ...scenarios.base.alerts, ...scenarios.pessimistic.alerts];
