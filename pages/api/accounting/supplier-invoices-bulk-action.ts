@@ -23,7 +23,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondRowHeld } from '@/lib/apiDocumentLock';
+import { itemFailureMessage, respondRowHeld } from '@/lib/apiDocumentLock';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
 import {
@@ -112,7 +112,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
       if (err instanceof ImpersonationForbiddenError) throw err;
-      const message = err instanceof Error ? err.message : 'Action failed';
+      const message = itemFailureMessage(err, 'Action failed');
       log.warn('Bulk supplier invoice action failed for one id', {
         action, invoiceId, error: message,
       }, 'accounting-api');
