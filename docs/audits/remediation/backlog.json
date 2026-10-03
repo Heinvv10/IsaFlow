@@ -15329,6 +15329,38 @@
       "title": "A cancelled gateway receipt does not stop a later charge.success for the same reference from banking a new one",
       "claim": "recordGatewayInvoiceReceipt dedupes on customer_payments (company_id, bank_reference) with status IS DISTINCT FROM 'cancelled', and ux_customer_payments_card_reference excludes cancelled rows too. If an accountant cancels a Paystack receipt and a charge.success for that reference is processed again in a different body (the webhook's already-completed branch reaches recordGatewayInvoiceReceipt), the cancelled row is invisible to both guards and a new receipt is banked. Fix options: (1) dedupe on ANY receipt for the reference, cancelled included: a cancelled one means a person decided, so a replay banks nothing and flags the request for review (code only for the dedupe; dropping the status predicate from ux_customer_payments_card_reference is a migration); or (2) record the settlement on the request itself (a settled-receipt id or settled_at on paystack_payment_requests, set once in the settlement transaction) and dedupe on that, so the receipt's later status cannot reopen it (migration).",
       "processNotes": "2026-10-02: recorded during R-181's D8 lock-timeout review (PR #618). Pre-existing (K-036 design); not fixed in R-181."
+    },
+    {
+      "area": "accounting/core archiving",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/archiveExecutionService.ts"
+      ],
+      "sourceLabel": "R-186 round-1 implementation, 2026-10-03",
+      "sourceIds": [
+        "R-186"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Low while archiving is switched off: POST /api/accounting/data-archiving returns 403 before it calls executeArchive (2026-09-24), so there is no live path. Every run also already failed on any receipt journal in the window (R-053 class). If archiving is re-enabled, this becomes a high: a live receivable would silently lose its journal from every report.",
+      "auditedSha": "5864081d2",
+      "currentSha": "5864081d2",
+      "status": "candidate",
+      "dependencies": [
+        "R-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Expected none: archiving has been off since 2026-09-24, and before that every run failed while any receipt journal or allocation was in the window. Census (read-only): (1) live customer invoices whose journal is archived and gone: SELECT ci.company_id, ci.id, ci.status, ci.gl_journal_entry_id FROM customer_invoices ci JOIN archive_gl_journal_entries a ON a.id = ci.gl_journal_entry_id AND a.company_id = ci.company_id WHERE NOT EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id); (2) runs that ever completed: SELECT company_id, count(*) FROM archive_runs WHERE status = 'completed' GROUP BY company_id.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-191",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "Archive moves the journals of live invoices it never selects",
+      "claim": "executeArchive steps 1, 2 and 6 copy and delete EVERY posted gl_journal_entries row (and its lines) dated before the cutoff, by date alone. That includes the journal of a customer invoice the run does not select because it is approved, sent or partly paid. customer_invoices.gl_journal_entry_id has no FK, so the delete succeeds and the live invoice is left pointing at an archived journal, which no report reads. R-186 option b refuses only for invoices the run skips because a payment request references them. supplier_invoices.gl_journal_entry_id has an FK (NO ACTION), so there the delete fails the run whole (23503), not silently.",
+      "processNotes": "2026-10-03: recorded while implementing R-186 round 1 (option b). Pre-existing, outside R-186. Pinned indirectly: R-186 mutants C10/C11, which widen the refusal to referenced invoices the run does not select, survive because a test that killed them would have to assert this behavior as correct. Not fixed. The fix belongs with the archiving redesign the 2026-09-24 switch-off asks for."
     }
   ],
   "sourceInventory": [
