@@ -63,6 +63,17 @@ export function respondCapturedDocumentRefusal(
 }
 
 /**
+ * Answer a `checkReceiptDuplicate` result that is not `clear`. `busy` (a fingerprint lock a peer holds past the bounded
+ * wait) is a held lock: 503 + Retry-After (D11). A real duplicate is a 409 carrying its details.
+ */
+export function respondReceiptDuplicate(
+  res: NextApiResponse, duplicate: { kind: 'duplicate' | 'busy'; message: string; details: Record<string, unknown> },
+): void {
+  if (duplicate.kind === 'busy') return respondRowHeld(res, duplicate.message, 'RECEIPT_POST_BUSY');
+  apiResponse.conflict(res, duplicate.message, duplicate.details);
+}
+
+/**
  * The refusal a locked document row earns, or null when it may be posted.
  *
  * `posted_at` is the fence; `status` is consulted for one value only, the

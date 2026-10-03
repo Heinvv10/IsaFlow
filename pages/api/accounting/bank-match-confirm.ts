@@ -116,6 +116,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         // Contention on the BILL is the same event as contention on the bank
         // line: a held row, 503 + Retry-After (D11, was 409). Nothing is written.
         if (outcome.kind === 'contended') return respondRowHeld(res, outcome.message, 'ROW_LOCK_TIMEOUT');
+        if (outcome.kind === 'conflict') return apiResponse.conflict(res, outcome.message);
         return apiResponse.badRequest(res, outcome.message);
       }
       settlement = {
@@ -141,6 +142,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         }
         // Contention — see the supplier arm above.
         if (outcome.kind === 'contended') return respondRowHeld(res, outcome.message, 'ROW_LOCK_TIMEOUT');
+        if (outcome.kind === 'conflict') return apiResponse.conflict(res, outcome.message);
         return apiResponse.badRequest(res, outcome.message);
       }
       receipt = {

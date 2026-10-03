@@ -164,6 +164,17 @@ describe('D11 bank-match-confirm', () => {
     vi.mocked(confirmCustomerInvoiceMatch).mockResolvedValueOnce({ ok: false, kind: 'contended', message: 'held — retry' });
     expectHeld(await call(bankMatchConfirm, arm('customer_invoice')));
   });
+  it('supplier arm retryable state conflict -> 409, no Retry-After', async () => {
+    vi.mocked(confirmSupplierInvoiceMatch).mockResolvedValueOnce({ ok: false, kind: 'conflict', message: 'changed' });
+    const r = await call(bankMatchConfirm, arm('supplier_invoice'));
+    expect(r.statusCode).toBe(409); expect(r.headers['Retry-After']).toBeUndefined();
+  });
+  it('customer arm retryable state conflict -> 409, no Retry-After', async () => {
+    vi.mocked(sql).mockResolvedValue([{ amount: '100' }] as never);
+    vi.mocked(confirmCustomerInvoiceMatch).mockResolvedValueOnce({ ok: false, kind: 'conflict', message: 'changed' });
+    const r = await call(bankMatchConfirm, arm('customer_invoice'));
+    expect(r.statusCode).toBe(409); expect(r.headers['Retry-After']).toBeUndefined();
+  });
   it('supplier arm refused stays 400', async () => {
     vi.mocked(confirmSupplierInvoiceMatch).mockResolvedValueOnce({ ok: false, kind: 'refused', message: 'cancelled' });
     expect((await call(bankMatchConfirm, arm('supplier_invoice'))).statusCode).toBe(400);

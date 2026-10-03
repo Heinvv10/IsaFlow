@@ -78,25 +78,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // The `uq_gl_je_capture_source_document` index behind the application claim
   // does NOT reach here: it is a unique index on `gl_journal_entries`, and this
   // route writes `supplier_invoices`. On this path the claim IS the whole fence.
+  // R-169: no event id of its own, so the event(s) tied to the document are locked with it. None (a straight upload)
+  // is an empty array, not a refusal.
   let doc;
+  let postableEventIds: string[] = [];
   try {
     doc = await lockCapturedDocumentForUpdate(companyId, documentId);
+    if (doc) postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
-
-  // R-169: no event id of its own, so lock whatever event(s) are tied to the
-  // document here. None (a straight upload) is an empty array, not a refusal.
-  let postableEventIds: string[];
-  try {
-    postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
-  } catch (err) {
-    if (respondIfLockTimeout(res, err)) return;
-    throw err;
-  }
 
   const readRefusal = refusalForPosting(doc);
   if (readRefusal) {
