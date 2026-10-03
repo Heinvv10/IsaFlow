@@ -7,7 +7,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondRowHeld } from '@/lib/apiDocumentLock';
+import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
 import {
@@ -59,7 +59,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.errors.push(`${recurring_invoice_id}: ${msg}`);
       log.error('Recurring invoice run failed', { recurring_invoice_id, error: err }, 'recurring-run');
       assertTxUsable();
-      if (isHeldRowError(err)) return respondRowHeld(res, msg, 'ROW_LOCK_TIMEOUT');
+      if (respondIfLockTimeout(res, err)) return;
     }
     return apiResponse.success(res, result);
   }
