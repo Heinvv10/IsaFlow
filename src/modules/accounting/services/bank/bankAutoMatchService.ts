@@ -8,7 +8,8 @@
  * table that is locked by DDL (infrastructure, counted separately).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import {
@@ -74,6 +75,11 @@ export async function autoMatchTransactions(
     let matchedCount = 0;
     let skippedRaced = 0;
     let skippedUnavailable = 0;
+    // D11: how many candidates were attempted, how many were a HELD row, and the first held error. If EVERY attempted
+    // line was held nothing committed, so the request answers 503 + Retry-After (re-thrown below) instead of a 200.
+    let attempted = 0;
+    let held = 0;
+    let firstHeld: unknown = null;
     // Locked in transaction-id order: matchTransaction takes a row lock that is
     // held to the end of the request, so a run walking its rows in a different
     // order from a concurrent allocation deadlocks on the pair (40P01).
@@ -81,10 +87,16 @@ export async function autoMatchTransactions(
       a.bankTransactionId < b.bankTransactionId ? -1 : a.bankTransactionId > b.bankTransactionId ? 1 : 0);
     for (const match of ordered) {
       if (match.confidence >= 0.9) {
+        attempted++;
         try {
-          await matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId);
+          // Its own savepoint: `matchTransaction` locks the bank line outside one, so a held line's 55P03 (or a 40P01
+          // victim) would otherwise abort the REQUEST transaction — the matches already applied would roll back behind a
+          // 200 that counted them, and the next line would meet 25P02.
+          await withSavepoint('auto_match_row', () =>
+            matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId));
           matchedCount++;
         } catch (matchErr) {
+          if (isHeldRowError(matchErr)) { held++; firstHeld ??= matchErr; }
           // The candidate query read these rows in bulk; one of them has been
           // allocated since. Skip it and keep going — letting it escape would
           // abort the loop, and because withAuth COMMITs on any handler that
@@ -102,7 +114,7 @@ export async function autoMatchTransactions(
           // re-run picks the row up — and letting it escape is the one outcome
           // that loses the matches already applied.
           const raced = matchErr instanceof BankTransactionAllocatedError
-            || matchErr instanceof BankTransactionLockTimeoutError
+            || matchErr instanceof BankTransactionLockTimeoutError || isHeldRowError(matchErr)
             || (matchErr instanceof BankMatchTargetError && matchErr.code === 'LINE_CLAIMED');
           // A locked TABLE is not a race and must never be reported as one:
           // `skippedRaced` reaches the user as "allocated by another request",
@@ -115,6 +127,7 @@ export async function autoMatchTransactions(
         }
       }
     }
+    if (attempted > 0 && held === attempted) throw firstHeld;
     const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
     log.info('Auto-match completed', {
       bankAccountId, autoMatched: matchedCount, skippedRaced, skippedUnavailable,
