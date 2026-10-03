@@ -7,6 +7,8 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { itemFailureMessage, respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -53,10 +55,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.invoice_ids = [invoiceId];
       log.info('Single recurring invoice run', { recurring_invoice_id, invoiceId }, 'recurring-run');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
+      const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${recurring_invoice_id}: ${msg}`);
       log.error('Recurring invoice run failed', { recurring_invoice_id, error: err }, 'recurring-run');
       assertTxUsable();
+      if (respondIfLockTimeout(res, err)) return;
     }
     return apiResponse.success(res, result);
   }
@@ -92,6 +95,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   }
 
+  let held = 0;
   for (const row of dueRows) {
     const id = String(row.id);
     try {
@@ -99,8 +103,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       result.generated += 1;
       result.invoice_ids.push(invoiceId);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate invoice';
+      const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${id}: ${msg}`);
+      if (isHeldRowError(err)) held += 1;
       log.error('Bulk recurring run — single item failed', { id, error: err }, 'recurring-run');
       // A per-template failure is normally a skip. But if the failure ALSO
       // poisoned the shared request transaction (a savepoint rollback that
@@ -111,6 +116,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // rolls back explicitly.
       assertTxUsable();
     }
+  }
+
+  // D11: when EVERY template attempted was a held row nothing was committed, so answer 503 + Retry-After instead of a
+  // 200 a client cannot tell from success. Mixed results keep the 200 with per-item outcomes.
+  if (held === dueRows.length) {
+    return respondRowHeld(res, 'Every recurring invoice due is being run by another request — retry in a moment.', 'ROW_LOCK_TIMEOUT');
   }
 
   log.info('Bulk recurring invoice run complete', {

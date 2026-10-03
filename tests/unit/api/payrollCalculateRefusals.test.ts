@@ -75,12 +75,12 @@ describe('POST /api/payroll/runs/[id]/calculate — loan refusals', () => {
     expect(JSON.stringify(res.sent)).toContain('PAYROLL_RUN_JOURNAL_POSTED');
   });
 
-  it('answers a loan lock timeout with 400 and the retry instruction', async () => {
+  it('answers a loan lock timeout with 503 and the retry instruction (D11, was 400)', async () => {
     vi.mocked(calculatePayrollRun).mockRejectedValueOnce(new PayrollLoanLockTimeoutError(RUN));
     const { req, res } = mockReqRes();
 
     await handler(req, res);
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toContain('retry in a moment');
     expect(JSON.stringify(res.sent)).toContain('PAYROLL_LOAN_LOCK_TIMEOUT');
   });

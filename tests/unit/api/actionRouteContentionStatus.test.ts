@@ -105,45 +105,45 @@ beforeEach(() => { vi.resetAllMocks(); });
 
 describe('POST /api/accounting/bank-transactions-action', () => {
   // The bank line's own lock — `allocateTransaction`'s first act.
-  it('answers a contended BANK LINE 409 with the retry wording', async () => {
+  it('answers a contended BANK LINE 503 + Retry-After with the retry wording (D11, was 409)', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(new BankTransactionLockTimeoutError(TX));
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
   });
 
   // The transitive edge the census missed: allocateTransaction →
   // recordSupplierBankPayment → planSupplierPaymentApplication → the payment lock.
-  it('answers a contended PAYMENT reached through recordSupplierBankPayment 409', async () => {
+  it('answers a contended PAYMENT reached through recordSupplierBankPayment 503 + Retry-After (D11, was 409)', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
   });
 
   // And the BILL, raised one call deeper still as a refusal carrying the flag.
-  it('answers a contended BILL 409, not the 400 its class would otherwise get', async () => {
+  it('answers a contended BILL 503 + Retry-After, not the 400 its class would otherwise get (D11, was 409)', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(
-      new SupplierPaymentRefusal('Another request is paying one of these bills — retry in a moment.', { retryable: true }),
+      new SupplierPaymentRefusal('Another request is paying one of these bills — retry in a moment.', { retryable: true, held: true }),
     );
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
   });
 
-  it('answers a contended INVOICE 409, reached through autoApplyCustomerReceipt', async () => {
+  it('answers a contended INVOICE 503 + Retry-After, reached through autoApplyCustomerReceipt (D11, was 409)', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(
-      new ReceiptRefusal('Another request is applying cash to one of these invoices — retry in a moment.', { retryable: true }),
+      new ReceiptRefusal('Another request is applying cash to one of these invoices — retry in a moment.', { retryable: true, held: true }),
     );
     const { req, res } = mockReqRes(ALLOCATE_BODY);
     await bankAction(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
   });
 
   // THE OTHER DIRECTION. A books refusal is the caller's own mistake and keeps
@@ -174,12 +174,12 @@ describe('POST /api/accounting/bank-transactions-manual', () => {
     vi.mocked(sql).mockResolvedValue([{ id: TX }] as never);
   });
 
-  it('answers contention 409 rather than the 500 that hid the retry wording', async () => {
+  it('answers contention 503 + Retry-After rather than the 500 that hid the retry wording (D11, was 409)', async () => {
     vi.mocked(allocateTransaction).mockRejectedValue(new BankTransactionLockTimeoutError(TX));
     const { req, res } = mockReqRes(MANUAL_BODY);
     await bankManual(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
   });
 

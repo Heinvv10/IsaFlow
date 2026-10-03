@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -53,7 +54,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     } catch (err) {
       // Refused before anything was written, so a 400 commits nothing.
       if (err instanceof ClaimSourceDocumentError) {
-        return err.refusal === 'busy' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+        // A receipt fingerprint a peer holds past the bounded wait is a held lock: 503 + Retry-After (D11).
+        if (err.refusal === 'busy') return respondRowHeld(res, err.message, 'RECEIPT_POST_BUSY');
+        return apiResponse.badRequest(res, err.message);
       }
       if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
       throw err;

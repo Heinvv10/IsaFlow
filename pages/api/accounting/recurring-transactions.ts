@@ -8,6 +8,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -53,6 +54,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
       return apiResponse.success(res, item);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring template create failed', { error: err }, 'recurring-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
@@ -68,6 +70,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       return apiResponse.success(res, item);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring template update failed', { error: err }, 'recurring-api');
       return apiResponse.badRequestFromError(res, err, 'Update failed');
     }
@@ -80,6 +83,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await deleteRecurringTemplate(companyId, id);
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Recurring template delete failed', { error: err }, 'recurring-api');
       return apiResponse.badRequestFromError(res, err, 'Delete failed');
     }

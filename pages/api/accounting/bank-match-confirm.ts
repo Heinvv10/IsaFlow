@@ -15,6 +15,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -112,13 +113,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         if (outcome.kind === 'not_found') {
           return apiResponse.notFound(res, 'Supplier invoice', candidateId);
         }
-        // 409, not 400: contention on the BILL is the same event as contention
-        // on the bank line, which `lockBankTransactionForUpdate` already
-        // answers 409. Both are pre-write, so the 4xx `withAuth` COMMITs
-        // commits nothing.
-        return outcome.kind === 'contended'
-          ? apiResponse.conflict(res, outcome.message)
-          : apiResponse.badRequest(res, outcome.message);
+        // Contention on the BILL is the same event as contention on the bank
+        // line: a held row, 503 + Retry-After (D11, was 409). Nothing is written.
+        if (outcome.kind === 'contended') return respondRowHeld(res, outcome.message, 'ROW_LOCK_TIMEOUT');
+        if (outcome.kind === 'conflict') return apiResponse.conflict(res, outcome.message);
+        return apiResponse.badRequest(res, outcome.message);
       }
       settlement = {
         supplierPaymentId: outcome.supplierPaymentId,
@@ -141,10 +140,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         if (outcome.kind === 'not_found') {
           return apiResponse.notFound(res, 'Customer invoice', candidateId);
         }
-        // 409 for contention — see the supplier arm above.
-        return outcome.kind === 'contended'
-          ? apiResponse.conflict(res, outcome.message)
-          : apiResponse.badRequest(res, outcome.message);
+        // Contention — see the supplier arm above.
+        if (outcome.kind === 'contended') return respondRowHeld(res, outcome.message, 'ROW_LOCK_TIMEOUT');
+        if (outcome.kind === 'conflict') return apiResponse.conflict(res, outcome.message);
+        return apiResponse.badRequest(res, outcome.message);
       }
       receipt = {
         customerPaymentId: outcome.customerPaymentId,
@@ -243,6 +242,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // EVERY 4xx this route may give lives in `bankMatchRefusalStatus`, and the
     // default there is "not classified" — see its header for why the status is
     // the transaction's fate rather than presentation.
+    // A held row (bank line, payment, bill, invoice) is 503 + Retry-After (D11); a retryable STATE conflict is 409 below.
+    if (respondIfLockTimeout(res, err)) {
+      log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
+      return;
+    }
     const refusal = classifyBankMatchRefusal(err);
     if (refusal) {
       if (refusal.contended) {

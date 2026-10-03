@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -37,6 +38,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     });
     return apiResponse.created(res, { id: invoiceId, invoiceNumber });
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
     if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);

@@ -83,7 +83,7 @@ export async function fetchOpenCustomerInvoices(
     if (isLockContention(err)) {
       throw new ReceiptRefusal(
         'Another request is applying cash to one of these invoices — retry in a moment.',
-        { retryable: true },
+        { retryable: true, held: true },
       );
     }
     throw err;

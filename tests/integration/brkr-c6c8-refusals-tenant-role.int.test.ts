@@ -119,7 +119,7 @@ describe('CLAIM 6 — a 4xx commits nothing', () => {
        VALUES($1,2,2026,6,9000,0,1000,1000,8000,false)`, [loan]);
     const holder = await r.pool.connect();
     await holder.query('BEGIN'); await holder.query('SELECT 1 FROM payroll_loans WHERE id = $1 FOR UPDATE', [loan]);
-    await refused('calculate: loan row lock timeout', () => r.api.calculate(june), [400]);
+    await refused('calculate: loan row lock timeout', () => r.api.calculate(june), [503]);
     await holder.query('ROLLBACK'); holder.release();
     // and the request after a timeout is healthy
     expect((await r.api.calculate(june)).statusCode).toBe(200);

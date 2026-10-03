@@ -277,7 +277,7 @@ it('refuses an already-allocated line with the reason, not a bare 500', async ()
  * same row and gives up at the 5s `lock_timeout`. 409, not 500: nothing was
  * acquired, so nothing was written.
  */
-it('answers 409 when another request holds the line', async () => {
+it('answers 503 when another request holds the line', async () => {
   const invoice = await seedInvoice(pool, fx, 650);
   const bankTx = await seedBankLine(pool, fx, 650);
   const arLinesBefore = await arLineCount();
@@ -295,9 +295,10 @@ it('answers 409 when another request holds the line', async () => {
     holder.release();
   }
 
-  expect(status).toBe(409);
+  expect(status).toBe(503);
   expect(JSON.stringify(body)).toMatch(/retry/i);
-  expect(committed).toBe(true);
+  // D11: a held row is a 503, which withAuth ROLLBACKs (the 409 it replaced COMMITted an empty transaction).
+  expect(committed).toBe(false);
   expect(await arLineCount()).toBe(arLinesBefore);
   expect(Number((await invoiceRow(invoice)).amount_paid)).toBe(0);
   const { rows } = await pool.query('SELECT status FROM bank_transactions WHERE id=$1', [bankTx]);

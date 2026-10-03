@@ -118,6 +118,8 @@ export async function attachDocumentToProvisional(
   // The claim: one predicated UPDATE, so a refusal (already claimed, or rejected) writes nothing.
   // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'evidence' });
+  // `content_busy` is a lock a peer still held after the bounded wait (D11): contended, retryable, never a refusal.
+  if (claimRefusal === 'content_busy') return { kind: 'contended', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
   if (claimRefusal) return { kind: 'refused', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
 
   // captured_documents keeps the file hash in raw_bytes_sha256 (mig 410) and the

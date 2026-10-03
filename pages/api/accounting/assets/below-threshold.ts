@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -88,7 +89,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       await client.query('SET LOCAL lock_timeout = DEFAULT');
     } catch (err) {
       if ((err as { code?: string }).code === LOCK_NOT_AVAILABLE) {
-        return apiResponse.conflict(res, 'Asset is being expensed by another request — retry in a moment.');
+        // A held asset row is a lock timeout: 503 + Retry-After (D11), not the 409 of a state conflict below.
+        return respondRowHeld(res, 'Asset is being expensed by another request — retry in a moment.', 'ASSET_LOCK_TIMEOUT');
       }
       throw err;
     }

@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -24,9 +25,9 @@ import {
   mealsVatNeedsAPerson,
   MEALS_VAT_HELD_SUFFIX,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
+import { respondCapturedDocumentRefusal, respondReceiptDuplicate } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  CaptureRowLockTimeoutError,
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   refusalForPosting,
@@ -66,7 +67,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   try {
     doc = (await lockCapturedDocumentForUpdate(companyId, documentId)) as Row | null;
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 
@@ -234,11 +235,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // the checks above are all about this row, and a second upload is a second
   // row. Still before the first write, so the 409 commits nothing.
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
-  if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
+  if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
   if (refusal) {
-    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[refusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[refusal]);
+    return respondCapturedDocumentRefusal(res, refusal);
   }
 
   const entry = await createJournalEntry(companyId, {
