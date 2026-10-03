@@ -15166,14 +15166,15 @@
       "correctedTrigger": null,
       "severityRationale": "Maintainability only: no behaviour defect; the file is over the repo's 300-line limit.",
       "auditedSha": "0c0c6c0a8",
-      "currentSha": "1e601708fb6",
+      "currentSha": "76a7bb9d6a9",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/lib/neonModuleShape.test.ts",
         "tests/unit/lib/neonBarrelSurface.test.ts",
         "tests/unit/lib/rollbackCensus.test.ts",
-        "tests/unit/lib/releaseCensus.test.ts"
+        "tests/unit/lib/releaseCensus.test.ts",
+        "tests/unit/lib/poolErrorListenerCensus.test.ts"
       ],
       "evidencePaths": [
         "R-184/fix.md",
@@ -15187,6 +15188,9 @@
         "R-184/regression.unit.log",
         "R-184/regression.int.log",
         "R-184/regression.int.base-attribution.log",
+        "R-184/regression.int.isaflow_test.log",
+        "R-184/regression.int.isaflow_test.base.log",
+        "R-184/regression.unit.round1.log",
         "R-184/build.log"
       ],
       "fixCommit": null,
@@ -15200,7 +15204,7 @@
       "reportedSeverity": "low",
       "title": "src/lib/neon.ts is 475 lines, over the 300-line file limit",
       "claim": "src/lib/neon.ts holds the pool, the lazy sql template, sql.transaction, withTransaction, withSavepoint and test helpers in one file of 475 lines (474 before R-182 added one import). CLAUDE.md sets a 300-line maximum. The oversize is older than R-182 and was left alone there.",
-      "processNotes": "2026-10-02: registered, not fixed. A split would need to keep every import path of @/lib/neon working. 2026-10-03: fixed on refactor/r184-split-neon-20261003 (Hein's 2026-10-03 decision, goal file section 7): src/lib/neon.ts is a 39-line barrel over src/lib/neon/{pool,query,sql,transaction}.ts, every declaration moved byte-identical, the export names and checker-level types unchanged, and a guard test refuses any import of a src/lib/neon/ module from outside the barrel."
+      "processNotes": "2026-10-02: registered, not fixed. A split would need to keep every import path of @/lib/neon working. 2026-10-03: fixed on refactor/r184-split-neon-20261003 (Hein's 2026-10-03 decision, goal file section 7): src/lib/neon.ts is a 39-line barrel over src/lib/neon/{pool,query,sql,transaction}.ts, every declaration moved byte-identical, the export names and checker-level types unchanged, and a guard test refuses any import of a src/lib/neon/ module from outside the barrel. 2026-10-03 review round 1 (two blind reviewers, SHIP, LOWs only): the rollback census counts all 8 unreadable queries again, the raw-transaction gate and the no-console rule no longer exempt neon.ts, and the 8 integration files that refused the fixture DB name ran on an isaflow_test clone: 43/43 on the split and on the unsplit source."
     },
     {
       "area": "billing",

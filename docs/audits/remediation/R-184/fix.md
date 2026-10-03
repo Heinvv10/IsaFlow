@@ -38,13 +38,22 @@ elsewhere in this file" clause, and (e) `src/lib/alsTransaction.ts`'s header, wh
 neon.ts being "well over the 300-line cap".
 
 Test infrastructure the split touched:
-- `rollbackCensus.test.ts` pinned `src/lib/neon.ts` (8 unreadable queries, a transaction owner).
-  Now `sql.ts` (3) and `transaction.ts` (2). `sql.ts` builds its BEGIN from clauses, so the census
-  would no longer see it as an owner and would stop counting its queries. It is named in a new
-  `UNREADABLE_BEGIN` set so it still is (mutant M13). The other 3 of the original 8 are
-  `LazyQuery.run` in `query.ts`, which owns no transaction and is correctly not counted.
+- `rollbackCensus.test.ts` pinned `src/lib/neon.ts` (8 unreadable queries; the file opened a
+  transaction, so all of them counted). Now `query.ts` (3, `LazyQuery.run`), `sql.ts` (3) and
+  `transaction.ts` (2): the same 8. `sql.ts` builds its BEGIN from clauses and `query.ts` opens
+  none, so the census would no longer count either; both are named in a new `COUNTED_ANYWAY` set
+  (mutants M13, R1, R2).
 - `releaseCensus.test.ts`'s "tree was read" anchor named `src/lib/neon.ts`; now `sql.ts` and
-  `transaction.ts`, where the releases are.
+  `transaction.ts`, where the releases are. `poolErrorListenerCensus.test.ts`'s anchor is now
+  `pool.ts`, where the pool is built.
+- `scripts/ci/check-raw-transaction-control.ts` exempted `src/lib/neon.ts`. The rule matched
+  nothing there or in any new module (`withTransaction`/`sql.transaction` call `.query('BEGIN')`
+  on their own client), so the exemption is removed rather than retargeted: no file is exempt now
+  (mutants R3, R4).
+- `eslint.config.mjs`'s no-console exemption no longer names `src/lib/neon.ts`; nothing in the
+  barrel or the modules logs to console (mutants R5, R6).
+- Comments citing `src/lib/neon.ts:<line>` in four tests, and `rawTransactionRules.ts`, now name
+  the module the code moved to.
 
 ## Tests
 
@@ -66,9 +75,10 @@ Test infrastructure the split touched:
 | `green.unit.log` | New tests + 3 censuses + existing neon/als/pool unit tests: 12 files, 324 passed, 3 skipped |
 | `bodyIdentity.log` (`bodyIdentity.mts`) | All 19 top-level declarations of the old file present once, byte-identical (bar `export` on 2); none added |
 | `baseline.exportSurface.log`, `after.exportSurface.log`, `exportSurface.diff.log` (`exportSurface.mts`) | tsc checker view of every export, value and type, with signatures and `LazyQuery`'s members: empty diff |
-| `mutations.log` | 13 code mutants + 1 evidence-script mutant, all RED; baselines 66/66 before and after |
-| `regression.int.log` | 84 integration files that name a neon helper (incl. nestedSavepoint, r129, r181, k-036, r167, r178, link-revoke) on fixture r184: 73 files passed, 11 failed |
+| `mutations.log` | First batch: 13 code mutants + 1 evidence-script mutant, all RED; baselines 66/66 before and after. Round 1: R1-R6 (census, raw-transaction gate, no-console), all RED; baselines green before and after |
+| `regression.int.log` | 84 integration files that name a neon helper (incl. nestedSavepoint, r129, r181, k-036, r167, r178, link-revoke) on fixture r184: 73 files passed, 11 failed. With the 8 re-run below, 81 of 84 files ran green; the other 3 fail identically on the unsplit source |
 | `regression.int.base-attribution.log` | The same 11 files on the unsplit source: the same 11 failures. 8 refuse any database not named isaflow_dev/isaflow_test; `financialFiguresScoping` needs Brightsphere data the fixture lacks; the two k064 files expect the Sage-import refusal wording and get the completed-reconciliation one. Not caused by the split; not investigated further |
+| `regression.int.isaflow_test.log`, `regression.int.isaflow_test.base.log` | The 8 files that refused `isaflow_schema_fixture` (so tested nothing above), re-run on `isaflow_test`, a `createdb -T` clone in the same container: 8 files, 43/43 passed on the split, and 43/43 on the unsplit source. Among them `customer-ownership-fence` (withSavepoint inside and outside a request tx) |
 | `regression.unit.log` | Full unit suite |
 | `build.log` | `bun run build` (webpack resolution of `@/lib/neon`) |
 
@@ -76,8 +86,7 @@ Test infrastructure the split touched:
 
 ## Recorded, not changed
 
-- `check-raw-transaction-control.ts` still allows `src/lib/neon.ts`. That allowance was already
-  moot: `findRawTransactionControl` finds nothing in the unsplit file or in any new module.
-- `eslint.config.mjs` still lets `src/lib/neon.ts` use `console`. Nothing in the barrel or the
-  modules does.
-- Comments in other files and handoffs that cite `src/lib/neon.ts:<line>` now point into a barrel.
+- Handoffs and `.claude.md` change logs that cite `src/lib/neon.ts` describe history and are left
+  as written.
+- The 3 integration files still failing (`financialFiguresScoping`, two k064) fail identically on
+  the unsplit source; not investigated.
