@@ -11,6 +11,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -44,6 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : await submitVAT201ToSars(companyId, submissionId, userId);
     return apiResponse.success(res, result);
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     if (respondIfImpersonationForbidden(res, err)) return;
     if (err instanceof EfilingSubmissionNotFoundError) {
       return apiResponse.notFound(res, 'SARS submission', submissionId);

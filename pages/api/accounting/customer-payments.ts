@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -91,6 +92,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
 
     return apiResponse.created(res, payment);
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to create customer payment';
     log.error('Failed to create customer payment', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

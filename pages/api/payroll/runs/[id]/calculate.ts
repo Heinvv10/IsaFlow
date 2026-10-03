@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -16,7 +17,6 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/payrollRunLock';
 import {
-  PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 
@@ -47,8 +47,9 @@ async function handler(
     // Both are refusals raised before anything is written, and both messages
     // tell the user what to do next. Without this they reach withErrorHandler
     // as a 500 and the instruction is lost.
-    if (err instanceof PayrollRunJournalPostedError
-      || err instanceof PayrollLoanLockTimeoutError) {
+    // A held loan row is a lock timeout (D11): 503 + Retry-After, not the 400 of a refusal.
+    if (respondIfLockTimeout(res, err)) return;
+    if (err instanceof PayrollRunJournalPostedError) {
       return apiResponse.badRequest(res, err.message, { code: err.code });
     }
     throw err;

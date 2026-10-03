@@ -10,6 +10,7 @@
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -23,7 +24,6 @@ import {
   PayrollApprovalRefusedError,
   approvePayrollRun,
 } from '@/modules/accounting/services/payroll/payrollApprovalService';
-import { PayrollLoanLockTimeoutError } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,7 +55,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // 500 rolls the request back rather than stranding an approved run (K-079).
     // The 5s wait for the run or its journal ran out: raised before any write,
     // answered as calculate answers it.
-    if (err instanceof PayrollLoanLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollApprovalConflictError) return apiResponse.conflict(res, err.message);
     if (err instanceof PayrollApprovalRefusedError) return apiResponse.badRequest(res, err.message);
     throw err;

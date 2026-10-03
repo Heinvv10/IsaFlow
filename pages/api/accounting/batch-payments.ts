@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -69,7 +70,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // R-068: refused before the batch row is written; surface the typed message.
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
       // K-064: every bill line is checked before the first write, so both
-      // answers COMMIT nothing. Contention on a bill is a retry, not a mistake.
+      // answers COMMIT nothing. Contention on a bill is a retry, not a mistake: a held bill is 503 + Retry-After
+      // (D11); a retryable state conflict stays 409.
+      if (respondIfLockTimeout(res, err)) return;
       if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
       if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
       log.error('Batch payment create failed', { error: err }, 'accounting-api');

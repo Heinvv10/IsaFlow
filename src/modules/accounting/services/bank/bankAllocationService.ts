@@ -27,7 +27,8 @@ import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
 import { underFlowLockBudget } from '../core/rowLockBudget';
-import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
+import { refuseResettingProvisionalLine } from './provisionalLineGuard';
+import { isoDay, lockChainLines, peekLineChain, resetBankLine, reverseDocumentChainLine } from './bankChainLineReversal';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
@@ -774,13 +775,6 @@ export async function splitAllocateTransaction(
 
 // ── Reverse Reconciled ────────────────────────────────────────────────────────
 
-/** A pg DATE (Date or string) as YYYY-MM-DD; null when absent. */
-function isoDay(v: unknown): string | null {
-  if (v == null) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v).slice(0, 10);
-}
-
 /**
  * Undo an allocation: post the contra for the matched journal, then return the
  * bank transaction to 'imported'.
@@ -797,9 +791,22 @@ export async function reverseReconciledTransaction(
 async function reverseReconciledInner(
   companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<BankAllocationUnwindResult> {
+  // D10: the line's journal is read through its chain's ROOT, which a document carries. A document's chain has every
+  // statement line of it locked FIRST, in id order with this one (bank/bankChainLineReversal), as the HTTP void does.
+  const chain = await peekLineChain(companyId, bankTxId);
+  const chainLines = chain?.doc ? await lockChainLines(companyId, chain) : [];
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
-  if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
+  // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
+  // journal the GL already took out is only freed below, its link cleared, nothing posted.
+  const deadProvisional = await refuseResettingProvisionalLine(companyId, tx, 'reverse');
+  // Changed since the peek (matched, unmatched or re-matched by another request): a state conflict, nothing written,
+  // 409 — before the status refusal, which would otherwise answer an unmatch in between as a 400.
+  if (String(tx.matched_journal_line_id ?? '') !== (chain?.lineId ?? '')) {
+    throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
+      undefined, { retryable: true });
+  }
+  if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
   // Cash on a COMPLETED reconciliation (or reconciled in the Sage import) is
@@ -807,22 +814,14 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
-  await refuseSettledProvisionalLine(companyId, tx); // R-127: a settled provisional's own line
-  let journalEntryId: string | null = null, reverseId: string | null = null;
-  let originalEntryDate: string | null = null;
-  if (tx.matched_journal_line_id) {
-    const jlRows = (await sql`
-      SELECT jl.journal_entry_id, je.entry_date FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
-      WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
-    if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
-      journalEntryId = String(jlRows[0]!.journal_entry_id);
-      reverseId = await peekReversalTarget(companyId, journalEntryId); // D8: the head, null when out; locked after the unwind
-      if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
-      // The contra defaults to the date of the journal it reverses (D8: the chain head); date_moved compares to it.
-      originalEntryDate = isoDay(reverseId && reverseId !== journalEntryId ? await entryDateOf(companyId, reverseId) : jlRows[0]!.entry_date);
-    }
-  }
+  if (chain?.doc) return reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts);
+  // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
+  // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
+  const journalEntryId = chain?.rootId ?? null;
+  const reverseId = journalEntryId ? await peekReversalTarget(companyId, journalEntryId) : null; // locked after the unwind
+  if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
+  // The contra defaults to the date of the journal it reverses (D8: the chain head); date_moved compares to it.
+  const originalEntryDate = journalEntryId ? isoDay(await entryDateOf(companyId, reverseId ?? journalEntryId)) : null;
 
   // Every WRITE below runs inside one savepoint. The unwind has to precede the
   // contra (see the comment on it), so without this a throw from the contra
@@ -869,17 +868,7 @@ async function reverseReconciledInner(
     // Reset the bank transaction. If this fails after a successful GL reversal,
     // log the inconsistency; the savepoint then takes the reversal back with it.
     try {
-      await sql`
-        UPDATE bank_transactions
-        SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
-            linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
-            allocation_rule_id = NULL, allocation_rule_name = NULL,
-            -- Reversing one line takes it OUT of its batch: the batch no longer
-            -- owns a journal here, and a later re-allocation must not be swept
-            -- up by reverse_bank_allocation_batch.
-            allocation_batch_id = NULL,
-            updated_at = NOW()
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
+      await resetBankLine(companyId, bankTxId, deadProvisional);
     } catch (resetErr) {
       log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
         { bankTxId, journalEntryId, error: resetErr }, 'accounting');

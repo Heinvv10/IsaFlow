@@ -22,6 +22,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withSavepoint } from '@/lib/neon';
 import {
@@ -31,7 +32,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import {
-  VatLockTimeoutError, VatPeriodLockRefusal, VatPeriodUnlockRefusal, getVatPeriodLock, listVatPeriodLocks, lockVatPeriod, unlockVatPeriod,
+  VatPeriodLockRefusal, VatPeriodUnlockRefusal, getVatPeriodLock, listVatPeriodLocks, lockVatPeriod, unlockVatPeriod,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
 import { computeVatLockFigures } from '@/modules/accounting/services/reports/vatPeriodLockFigures';
 import {
@@ -73,7 +74,7 @@ async function lock(req: NextApiRequest, res: NextApiResponse, body: LockBody) {
     if (err instanceof VatGateOverrideForbiddenError) return apiResponse.forbidden(res, err.message);
     if (err instanceof VatGateBlockedError) return apiResponse.badRequest(res, err.message, { counts: err.counts });
     if (err instanceof VatPeriodLockRefusal) return apiResponse.badRequest(res, err.message);
-    if (err instanceof VatLockTimeoutError) return apiResponse.conflict(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 }
@@ -122,7 +123,7 @@ async function unlock(req: NextApiRequest, res: NextApiResponse, body: UnlockBod
   } catch (err) {
     // Refused before any write: blank reason, not this company's lock, or already unlocked.
     if (err instanceof VatPeriodUnlockRefusal) return apiResponse.badRequest(res, err.message);
-    if (err instanceof VatLockTimeoutError) return apiResponse.conflict(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 }

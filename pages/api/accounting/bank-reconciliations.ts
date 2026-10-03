@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -64,6 +65,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
       return apiResponse.created(res, recon);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       const message = err instanceof Error ? err.message : 'Failed to start reconciliation';
       log.error('Failed to start reconciliation', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);

@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -45,6 +46,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     log.error('Recurring invoice action failed', { error: err }, 'accounting-api');
     // A 4xx is COMMITted by withAuth. That is right for a refusal, which writes
     // nothing — but not when the failure poisoned the request transaction, so
