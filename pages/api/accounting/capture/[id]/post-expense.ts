@@ -10,7 +10,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -18,8 +18,9 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { resolveCaptureExpenseAccount } from '@/modules/accounting/services/capture/captureExpenseAccount';
+import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   CapturedDocumentAlreadyPostedError,
   claimCapturedDocumentForPosting,
   lockCaptureEventForPosting,
@@ -146,6 +147,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // R-088: the same slip already posted from ANOTHER upload. Before any write, so the 409 commits nothing.
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
+  // A fingerprint a peer holds past the bounded wait is a held lock: 503 + Retry-After (D11). A real duplicate is 409.
+  if (duplicate.kind === 'busy') return respondRowHeld(res, duplicate.message, 'RECEIPT_POST_BUSY');
   if (duplicate.kind !== 'clear') return apiResponse.conflict(res, duplicate.message, duplicate.details);
 
   // ------------------------------------------------------------------
@@ -202,7 +205,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // `withAuth`'s commit-on-4xx commits nothing.
     const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...duplicate.fingerprint });
     if (claimRefusal) {
-      return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+      return respondCapturedDocumentRefusal(res, claimRefusal);
     }
 
     // The pre-check above holds its FOR SHARE lock to commit, so this cannot
@@ -272,7 +275,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // The service claims the document after its last SELECT, so this is a 4xx
     // that commits nothing either.
     if (err instanceof CapturedDocumentAlreadyPostedError) {
-      return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[err.refusal], err.message);
+      return respondCapturedDocumentRefusal(res, err.refusal, err.message);
     }
     // A receipt dated in a locked (filed) VAT period. The service refuses it
     // before claiming the document — its first write — so this 4xx commits

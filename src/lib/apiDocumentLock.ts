@@ -36,6 +36,11 @@ export function respondIfLockTimeout(res: NextApiResponse, err: unknown): boolea
     respondRowHeld(res, err.message, err.code);
     return true;
   }
+  // D11: the capture inbox's discard waits on the event row under its own typed error (`CaptureEventLockedError`).
+  if (err instanceof Error && (err as { code?: unknown }).code === 'CAPTURE_EVENT_LOCKED') {
+    respondRowHeld(res, err.message, 'CAPTURE_EVENT_LOCKED');
+    return true;
+  }
   // D11: a settlement plan reports a held bill / invoice / provisional as a refusal carrying `held` (the code the
   // typed lock errors would have), not a throw of its own. A `retryable` refusal that is NOT held is a state conflict
   // ("changed while it was being reversed") and falls through to its route's 409.

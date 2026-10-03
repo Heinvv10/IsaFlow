@@ -200,7 +200,7 @@ it('answers 409 with the retry wording when another request holds the line', asy
     holder.release();
   }
 
-  expect(status).toBe(409);
+  expect(status).toBe(503);
   expect(JSON.stringify(body)).toMatch(/retry/i);
   expect(JSON.stringify(body)).not.toMatch(/An internal error occurred/);
   // A 4xx COMMITs under withAuth. That is only safe because the lock was never
