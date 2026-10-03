@@ -6,21 +6,26 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ guardRows: [] as unknown[][], savepoints: [] as string[] }));
+const h = vi.hoisted(() => ({ guardRows: [] as unknown[][], savepoints: [] as string[], inSavepoint: false, calledIn: [] as string[] }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async () => h.guardRows.shift() ?? []),
-  withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => { h.savepoints.push(name); return fn(); }),
+  withSavepoint: vi.fn(async (name: string, fn: () => Promise<unknown>) => {
+    h.savepoints.push(name);
+    h.inSavepoint = true;
+    try { return await fn(); } finally { h.inSavepoint = false; }
+  }),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccount: vi.fn(async () => ({ id: 'exp-1' })) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
-  createJournalEntry: vi.fn(async () => ({ id: 'je-fee' })),
-  postJournalEntry: vi.fn(async () => undefined),
+  createJournalEntry: vi.fn(),
+  postJournalEntry: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { postGatewayFee } from '@/modules/accounting/services/ar/gatewayFeeService';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
 const create = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
 const post = postJournalEntry as unknown as ReturnType<typeof vi.fn>;
@@ -40,9 +45,12 @@ function uniqueViolation(): Error {
 beforeEach(() => {
   h.guardRows = [];
   h.savepoints = [];
-  create.mockReset().mockResolvedValue({ id: 'je-fee' });
-  post.mockReset().mockResolvedValue(undefined);
+  h.calledIn = [];
+  // Records whether each call ran inside the savepoint callback.
+  create.mockReset().mockImplementation(async () => { h.calledIn.push(`create:${h.inSavepoint}`); return { id: 'je-fee' }; });
+  post.mockReset().mockImplementation(async () => { h.calledIn.push(`post:${h.inSavepoint}`); });
   sqlMock.mockClear();
+  vi.mocked(log.info).mockClear();
 });
 
 describe('postGatewayFee when the create+post fails', () => {
@@ -52,6 +60,10 @@ describe('postGatewayFee when the create+post fails', () => {
     await expect(postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03')).resolves.toBeUndefined();
     expect(sqlMock).toHaveBeenCalledTimes(2);
     expect(post).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith('Gateway fee already posted by a concurrent delivery', {
+      reference: 'r185_ref', fee: 3, code: '23505',
+      error: 'duplicate key value violates unique constraint "ux_gl_je_gateway_fee_reference"',
+    }, 'accounting');
   });
 
   it('23505 but no fee journal on re-read: rethrows the original error', async () => {
@@ -72,8 +84,7 @@ describe('postGatewayFee when the create+post fails', () => {
   it('runs the create and the post inside one savepoint', async () => {
     h.guardRows = [[]];
     await postGatewayFee(receipt, 'user-1', 'bank-1', '2026-10-03');
-    expect(h.savepoints).toHaveLength(1);
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(post).toHaveBeenCalledTimes(1);
+    expect(h.savepoints).toEqual(['gateway_fee_post']);
+    expect(h.calledIn).toEqual(['create:true', 'post:true']);
   });
 });
