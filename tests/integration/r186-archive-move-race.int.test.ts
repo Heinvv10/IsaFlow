@@ -6,7 +6,7 @@
  * deterministically: straight after the selecting SELECT, another connection changes the
  * invoice and commits.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { executeArchive } from '@/modules/accounting/services/core/archiveExecutionService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -64,6 +64,10 @@ beforeAll(async () => {
   for (const id of companies) await addCompany(id);
 });
 afterAll(async () => { await cleanup(companies); });
+// No case may depend on file order: every hook and counter starts disarmed.
+beforeEach(() => {
+  Object.assign(hooks, { afterSelection: null, afterKeptCount: null, afterSecondKeptCount: null, keptCounts: 0, fired: 0, issued: null });
+});
 
 const live = (co: string) => ids('SELECT id FROM customer_invoices WHERE company_id=$1', [co]);
 const archived = (co: string) => ids('SELECT id FROM archive_customer_invoices WHERE company_id=$1', [co]);
