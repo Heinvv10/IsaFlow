@@ -1,0 +1,7 @@
+HEAD: e5a50021f5514a80ae56b453a81158f799d6ebc5 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 9.47; suite: tests/integration/r186-archive-current-cancel.int.test.ts tests/integration/r186-archive-move-race.int.test.ts tests/integration/r186-archive-paystack-settled.int.test.ts tests/integration/r186-archive-skipped-closure.int.test.ts tests/integration/r186-archive-skips-paystack-invoices.int.test.ts tests/integration/k071-archive-delete-order.int.test.ts
+BASELINE before: 6 passed (6) / 23 passed (23)
+G1 second kept-journal check dropped [src/modules/accounting/services/core/archiveExecutionService.ts]: 1 failed | 5 passed (6) / 1 failed | 22 passed (23) -> RED
+G2 step-0 check dropped (second check alone) [src/modules/accounting/services/core/archiveExecutionService.ts]: 1 failed | 5 passed (6) / 1 failed | 22 passed (23) -> RED
+BASELINE after: 6 passed (6) / 23 passed (23)
+tree after: ''
+Killed 2/2.

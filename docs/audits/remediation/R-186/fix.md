@@ -332,7 +332,9 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
     the savepoint rolls the copies back. Race case: a hook fires after the step-0 count and links
     the skipped invoice to a posted pre-cutoff journal. The run refuses, the journal is still live
     and not archived, and the hook fired. Red: `red.r7.int.log`, where the run completed and
-    archived the journal. Mutant: `mutations.r7.log`.
+    archived the journal. Mutants (`mutations.r7.log`, e5a50021f): dropping the second check, or
+    the step-0 check, each turns the suite red (2/2). Green 21/21 (`green.r7.int.log`); regression
+    integration 44/44, unit 77/77, components 29/29 (`regression.r7.*.log`).
 
 | Round-3 evidence | Result |
 |---|---|
