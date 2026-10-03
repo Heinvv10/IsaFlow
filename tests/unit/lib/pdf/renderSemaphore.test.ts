@@ -214,55 +214,103 @@ describe('bounds derived from the auth pool', () => {
     }
   });
 
+  /** A fresh module instance: the semaphore's warn-once memory is module state, so tests that
+   *  assert on warnings must not share it. The logger mock is re-created with the module graph. */
+  async function fresh() {
+    vi.resetModules();
+    const sem = await import('@/lib/pdf/renderSemaphore');
+    const { log: freshLog } = await import('@/lib/logger');
+    vi.mocked(freshLog.warn).mockClear();
+    return { ...sem, warn: vi.mocked(freshLog.warn) };
+  }
+
   it('at the defaults (both env vars unset) admits 2 renders and does NOT warn: nobody set anything to clamp (R-188)', async () => {
     delete process.env.AUTH_POOL_MAX;
     delete process.env.PDF_MAX_CONCURRENT_RENDERS;
-    vi.mocked(log.warn).mockClear();
-    expect(renderQueueBound()).toBe(4);
+    const sem = await fresh();
+    expect(sem.renderQueueBound()).toBe(4);
 
     const held = [deferred(), deferred()];
-    const running = held.map(d => acquireRenderSlot(d.run));
+    const running = held.map(d => sem.acquireRenderSlot(d.run));
     await settle();
-    expect(renderSlotStats().active).toBe(2);
+    expect(sem.renderSlotStats().active).toBe(2);
 
     process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '20';
-    await expect(acquireRenderSlot(deferred().run)).rejects.toBeInstanceOf(RenderCapacityError);
-    expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
-      expect.stringContaining('clamped'), expect.anything(), 'pdf',
-    );
+    await expect(sem.acquireRenderSlot(deferred().run)).rejects.toBeInstanceOf(sem.RenderCapacityError);
+    expect(sem.warn).not.toHaveBeenCalledWith(expect.stringContaining('clamped'), expect.anything(), 'pdf');
 
     held.forEach(d => d.finish());
     await Promise.all(running);
   });
 
-  it('a blank PDF_MAX_CONCURRENT_RENDERS is unset, not an explicit 3: no warning (R-188)', () => {
+  it('at the defaults the queue holds 4 behind 2 active and the 7th request is refused outright (R-188)', async () => {
+    delete process.env.AUTH_POOL_MAX;
+    delete process.env.PDF_MAX_CONCURRENT_RENDERS;
+    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
+    const sem = await fresh();
+
+    const held = [deferred(), deferred()];
+    const waiters = Array.from({ length: 4 }, () => deferred());
+    const running = [...held, ...waiters].map(d => sem.acquireRenderSlot(d.run));
+    await settle();
+    expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 4 });
+
+    const seventh = deferred();
+    await expect(sem.acquireRenderSlot(seventh.run)).rejects.toBeInstanceOf(sem.RenderQueueFullError);
+    expect(seventh.started.value).toBe(false);
+
+    held.forEach(d => d.finish());
+    waiters.forEach(w => w.finish());
+    await Promise.all(running);
+  });
+
+  it('a blank PDF_MAX_CONCURRENT_RENDERS is unset, not an explicit 3: no warning (R-188)', async () => {
     delete process.env.AUTH_POOL_MAX;
     process.env.PDF_MAX_CONCURRENT_RENDERS = '   ';
-    vi.mocked(log.warn).mockClear();
-    expect(renderQueueBound()).toBe(4);
-    expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+    const sem = await fresh();
+    expect(sem.renderQueueBound()).toBe(4);
+    expect(sem.warn).not.toHaveBeenCalled();
   });
 
-  it.each(['abc', '0', '-1'])('a set but invalid PDF_MAX_CONCURRENT_RENDERS %j is logged as invalid, not as a clamp of the default (R-188)', (bad) => {
+  it.each([
+    ['PDF_MAX_CONCURRENT_RENDERS', 'abc'], ['PDF_MAX_CONCURRENT_RENDERS', '0'], ['PDF_MAX_CONCURRENT_RENDERS', '-1'], ['PDF_MAX_CONCURRENT_RENDERS', '0.5'],
+    ['PDF_RENDER_QUEUE_TIMEOUT_MS', 'abc'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '-1'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0.5'],
+  ])('a set but invalid %s %j is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)', async (name, bad) => {
     delete process.env.AUTH_POOL_MAX;
-    process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
-    vi.mocked(log.warn).mockClear();
-    expect(renderQueueBound()).toBe(4);   // the default, clamped silently to the ceiling of 2
-    const calls = vi.mocked(log.warn).mock.calls;
+    delete process.env.PDF_MAX_CONCURRENT_RENDERS;
+    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
+    process.env[name] = bad;
+    const sem = await fresh();
+
+    // One render runs (the default, clamped silently to 2) and a second is admitted at once,
+    // so neither a concurrency of 0 nor a 0 ms wait is in force.
+    const held = [deferred(), deferred()];
+    const running = held.map(d => sem.acquireRenderSlot(d.run));
+    await settle();
+    expect(sem.renderSlotStats().active).toBe(2);
+    const waiter = deferred();
+    const queued = sem.acquireRenderSlot(waiter.run);
+    await settle();
+    expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 });
+
+    const calls = sem.warn.mock.calls.filter(c => String(c[0]).includes('invalid'));
     expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toContain('invalid');
-    expect(calls[0]![0]).not.toContain('clamped');
-    expect(calls[0]![1]).toMatchObject({ setting: 'PDF_MAX_CONCURRENT_RENDERS', length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
-    expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
+    expect(sem.warn.mock.calls.some(c => String(c[0]).includes('clamped'))).toBe(false);
+    expect(calls[0]![1]).toMatchObject({ setting: name, length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
     expect(calls[0]![1]).not.toHaveProperty('requested');
+    expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
+
+    held.forEach(d => d.finish());
+    waiter.finish();
+    await Promise.all([...running, queued]);
   });
 
-  it('an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)', () => {
+  it('an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)', async () => {
     delete process.env.AUTH_POOL_MAX;
     process.env.PDF_MAX_CONCURRENT_RENDERS = '3';
-    vi.mocked(log.warn).mockClear();
-    expect(renderQueueBound()).toBe(4);
-    expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+    const sem = await fresh();
+    expect(sem.renderQueueBound()).toBe(4);
+    expect(sem.warn).toHaveBeenCalledWith(
       expect.stringContaining('clamped'),
       expect.objectContaining({ setting: 'PDF_MAX_CONCURRENT_RENDERS', requested: 3, ceiling: 2 }),
       'pdf',

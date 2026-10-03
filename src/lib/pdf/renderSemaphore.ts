@@ -78,12 +78,10 @@ const POOL_TIMEOUT_MARGIN_MS = 2_000;
  *  is for ordinary traffic. */
 const POOL_SHARE_DIVISOR = 4;
 
-/** How many requests may WAIT, as a multiple of the concurrency bound. It caps
- *  the queue's length, not its wait: a request past `QUEUE_BOUND_FACTOR x max`
- *  waiters is refused up front rather than queued, because a queue that long
- *  could not drain inside the wait bound (10s by default, 13s at most) when a
- *  render runs for up to 30s. Waiters within it may still time out and get the
- *  retryable 503. */
+/** How many requests may WAIT, as a multiple of the concurrency bound. 2 is a
+ *  chosen length cap, not a figure derived from timings: it keeps the backlog
+ *  short so a request past it is refused up front instead of queued. Waiters
+ *  within it may still time out and get the retryable 503. */
 const QUEUE_BOUND_FACTOR = 2;
 
 function maxWaitCeilingMs(): number {
@@ -114,11 +112,11 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
 function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
   const n = Number(raw);
   const unset = raw === undefined || raw.trim() === '';
-  const usable = Number.isFinite(n) && n > 0;
+  const usable = Number.isFinite(n) && Math.floor(n) >= 1;
   if (!unset && !usable) {
     // Set but unusable: say so as invalid, never as a clamp of the default, and
     // never with the text (an env var can hold anything pasted into it).
-    warnOnce(`${name}:invalid:${raw.length}`, 'renderSemaphore: env value is invalid (not a positive number); using the default', {
+    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a positive number); using the default', {
       setting: name, length: raw.length, digitsOnly: /^[0-9]+$/.test(raw.trim()), default: Math.min(fallback, ceiling),
     });
   }
