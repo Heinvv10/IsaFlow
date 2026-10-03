@@ -13,6 +13,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { RowLockTimeoutError, withRowLockBudget } from './rowLockBudget';
 import type { DbRow } from '@/types/db';
 
 /** The invoices the run selected are not the ones it could move: the run must roll back whole. */
@@ -154,6 +155,23 @@ export async function moveCustomerInvoicesToArchive(
     throw new ArchiveSetChangedError(`${moved - archived} invoice id(s) already in the archive; nothing was moved`);
   }
   return archived;
+}
+
+/**
+ * Holds the skipped invoices' rows FOR SHARE until the run ends, so no other request can change their
+ * `gl_journal_entry_id` between the second kept-journal check and the GL deletes. Taken after the
+ * invoice move (invoices before GL, the canonical order); the wait is bounded like the D8 locks
+ * (ROW_LOCK_BUDGET_MS, then RowLockTimeoutError).
+ */
+export async function lockSkippedInvoices(companyId: string, skippedIds: string[]): Promise<void> {
+  if (skippedIds.length === 0) return;
+  await withRowLockBudget(async () => {
+    await sql`
+      SELECT ci.id FROM customer_invoices ci
+      WHERE ci.company_id = ${companyId} AND ci.id = ANY(${skippedIds}::uuid[])
+      FOR SHARE
+    `;
+  }, () => new RowLockTimeoutError('A customer invoice the archive keeps'));
 }
 
 /**

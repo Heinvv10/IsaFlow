@@ -15453,6 +15453,38 @@
       "title": "Archiving an invoice CASCADE-deletes its items, views, disputes and dunning sends, which no archive table keeps",
       "claim": "The archive deletes customer_invoices (moveCustomerInvoicesToArchive since R-186). customer_invoice_items.invoice_id, customer_invoice_views.customer_invoice_id, customer_invoice_disputes.customer_invoice_id and dunning_sends.customer_invoice_id are all ON DELETE CASCADE, so their rows go with the invoice. archive_customer_invoices keeps only the header; there is no archive table for any of the four. An archived invoice cannot be re-printed with its lines, and its dispute and dunning history is lost.",
       "processNotes": "2026-10-03: recorded from the R-186 round-3 review (it was already in R-186 fix.md as recorded-not-changed). Pre-existing. Not fixed; it belongs with the archive redesign (R-053, R-191, R-192)."
+    },
+    {
+      "area": "accounting/core archiving",
+      "affectedPaths": [
+        "src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts"
+      ],
+      "sourceLabel": "R-186 PR #632 review, 2026-10-03",
+      "sourceIds": [
+        "R-186"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "Needs forged data: no code path creates a payment request for another company's invoice. Low while archiving is switched off (POST is 403). Even if re-enabled, the effect is a whole-run refusal (fails closed), not data loss.",
+      "auditedSha": "1daa3eb88",
+      "currentSha": "1daa3eb88",
+      "status": "candidate",
+      "dependencies": [
+        "R-053"
+      ],
+      "testNames": [],
+      "evidencePaths": [],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Census (read-only), expected 0 rows: SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id.",
+      "canonicalItem": null,
+      "branch": null,
+      "id": "R-195",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "A payment request in another company naming this company's invoice blocks this company's whole archive",
+      "claim": "paystack_payment_requests.customer_invoice_id and stitch_payment_requests.customer_invoice_id are single-column FKs (ON DELETE SET NULL), and no constraint requires the request's company_id to equal the invoice's. The archive skips only invoices that a request of the SAME company references (R-186; the RLS policy admits every member company, so the predicate decides). A request in company B naming company C's invoice therefore does not shield it: deleting the invoice fires the SET NULL on B's row, and paystack_pr_invoice_has_invoice / stitch_pr_invoice_has_invoice reject it with 23514. C's whole archive run fails. A fix is a composite FK (customer_invoice_id, company_id) or a trigger that refuses cross-company references.",
+      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration."
     }
   ],
   "sourceInventory": [

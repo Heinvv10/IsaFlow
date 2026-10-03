@@ -15,7 +15,10 @@ import {
 } from './r186-archive.helpers';
 
 type Hook = null | (() => Promise<void>);
-const hooks = vi.hoisted(() => ({ afterSelection: null as Hook, afterKeptCount: null as Hook, fired: 0, issued: null as null | string[] }));
+const hooks = vi.hoisted(() => ({
+  afterSelection: null as Hook, afterKeptCount: null as Hook, afterSecondKeptCount: null as Hook,
+  keptCounts: 0, fired: 0, issued: null as null | string[],
+}));
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
@@ -26,11 +29,14 @@ vi.mock('@/lib/neon', async (orig) => {
     hooks.issued?.push(text);
     const isSelection = /^\s*SELECT ci\.id/.test(text) && text.includes('FROM customer_invoices ci');
     const isKeptCount = text.includes('WITH RECURSIVE chain');
-    const hook = isSelection ? hooks.afterSelection : isKeptCount ? hooks.afterKeptCount : null;
+    if (isKeptCount) hooks.keptCounts += 1;
+    const keptHook = hooks.keptCounts === 2 ? hooks.afterSecondKeptCount : hooks.afterKeptCount;
+    const hook = isSelection ? hooks.afterSelection : isKeptCount ? keptHook : null;
     if (!hook) return query;
     return (async () => {
       const rows = await query;
       if (isSelection) hooks.afterSelection = null;
+      else if (hooks.keptCounts === 2) hooks.afterSecondKeptCount = null;
       else hooks.afterKeptCount = null;
       hooks.fired += 1;
       await hook();
@@ -50,7 +56,8 @@ const coEscape = randomUUID();
 const coRequested = randomUUID();
 const coEarly = randomUUID();
 const coLinkedLate = randomUUID();
-const companies = [coReopen, coRedate, coConflict, coEscape, coRequested, coEarly, coLinkedLate];
+const coLinkedLater = randomUUID();
+const companies = [coReopen, coRedate, coConflict, coEscape, coRequested, coEarly, coLinkedLate, coLinkedLater];
 
 beforeAll(async () => {
   await addUser();
@@ -151,6 +158,7 @@ describe('R-186: the move re-checks what it selected', () => {
     await addPaystackRequest(coLinkedLate, skipped);
     const journal = await addJournal(coLinkedLate, OLD_DAY, 'posted');
     hooks.fired = 0;
+    hooks.keptCounts = 0;
     hooks.afterKeptCount = async () => { await linkJournal(skipped, journal); };
 
     const failure = await failureOf(coLinkedLate, () => executeArchive(coLinkedLate, CUTOFF, user));
@@ -161,4 +169,40 @@ describe('R-186: the move re-checks what it selected', () => {
     expect(await ids('SELECT id FROM archive_gl_journal_entries WHERE company_id=$1', [coLinkedLate])).toEqual([]);
     expect(await live(coLinkedLate)).toEqual([skipped]);
   }, 40000);
+
+  it('a link written by another connection after the second check waits for the run (FOR SHARE)', async () => {
+    const skipped = await addInvoice(coLinkedLater, 'paid');
+    await addPaystackRequest(coLinkedLater, skipped);
+    const journal = await addJournal(coLinkedLater, OLD_DAY, 'posted');
+    const writer = { blocked: false, done: false, pending: null as null | Promise<void> };
+    hooks.fired = 0;
+    hooks.keptCounts = 0;
+    hooks.afterSecondKeptCount = async () => {
+      const c2 = await pool.connect();
+      const pid = (await c2.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid as number;
+      writer.pending = (async () => {
+        try {
+          await c2.query("SET statement_timeout = '20s'");
+          await c2.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [skipped, journal]);
+          writer.done = true;
+        } finally {
+          c2.release();
+        }
+      })();
+      for (let i = 0; i < 60 && !writer.done && !writer.blocked; i += 1) {
+        const waits = (await pool.query('SELECT cardinality(pg_blocking_pids($1)) AS n', [pid])).rows[0]!.n as number;
+        writer.blocked = waits > 0;
+        if (!writer.blocked) await new Promise((r) => setTimeout(r, 50));
+      }
+    };
+
+    const failure = await failureOf(coLinkedLater, () => executeArchive(coLinkedLater, CUTOFF, user));
+    await writer.pending;
+
+    expect(hooks.fired, 'the hook did not fire').toBe(1);
+    expect(writer.blocked, 'the linking UPDATE did not wait for the run').toBe(true);
+    // The run saw no link when it moved the journal; the writer's UPDATE landed after the commit.
+    expect(failure).toEqual({});
+    expect(await ids('SELECT id FROM archive_gl_journal_entries WHERE company_id=$1', [coLinkedLater])).toEqual([journal]);
+  }, 60000);
 });

@@ -8,7 +8,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
 import {
-  ArchiveSkippedInvoiceJournalError, countSkippedInvoiceJournalsInWindow, moveCustomerInvoicesToArchive,
+  ArchiveSkippedInvoiceJournalError, countSkippedInvoiceJournalsInWindow, lockSkippedInvoices, moveCustomerInvoicesToArchive,
   movedJournal, selectArchivableCustomerInvoices, skippedInvoiceJournalMessage,
 } from './archiveCustomerInvoiceScope';
 import type { DbRow } from '@/types/db';
@@ -154,9 +154,12 @@ export async function executeArchive(
     `;
 
     const invoicesArchived = await moveCustomerInvoicesToArchive(companyId, cutoffDate, ciScope.ids);
-    // Second kept-journal check, just before the GL deletes: a skipped invoice
-    // linked (or a chain journal posted) since step 0 must not escape. The
-    // throw rolls the copies above back with the savepoint.
+    // Second kept-journal check, just before the GL deletes, with the skipped
+    // invoices held FOR SHARE: a link written since step 0 is seen here, and
+    // none can be written after it until the run ends. The throw rolls the
+    // copies above back with the savepoint. A chain journal POSTED after step 1
+    // is not protected: it is deleted without having been copied (R-192 class).
+    await lockSkippedInvoices(companyId, ciScope.skippedIds);
     const keptJournalsNow = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
     if (keptJournalsNow > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournalsNow));
 

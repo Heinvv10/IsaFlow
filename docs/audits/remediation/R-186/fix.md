@@ -35,7 +35,7 @@ cutoff. In practice those are invoices cancelled today, and paid invoices that w
 and have no receipt. The preview line says that skipped invoices cannot be archived and that any
 journal of theirs refuses the whole archive. It does not suggest that the rest goes ahead.
 
-## Current design (as of round 3)
+## Current design (as of the PR #632 review)
 
 **Decision.** This is the goal file's default, not a decision put to Hein
 (`.claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md`, §2a item 5 and §4, marked "default,
@@ -56,6 +56,9 @@ invoice's journals (item 2).
     (`ARCHIVE_SKIPPED_INVOICE_JOURNAL`) at step 0, before any copy or delete.
   - `validateArchive` reports the same count, with a message that is true both before a run and as
     a refused run's stored error.
+- A second kept-journal count runs just before the GL deletes, with the skipped invoices held `FOR
+  SHARE` (`lockSkippedInvoices`, bounded). Links are protected; a chain journal posted after step 1
+  is not (R-192 class).
 - `moveCustomerInvoicesToArchive` is one statement at step 6:
   `WITH moved AS (DELETE ... RETURNING *) INSERT INTO archive ... SELECT FROM moved`. On top of the
   ids it re-applies `eligibleInvoice` and `NOT gatewayReferenced`. It throws `ArchiveSetChangedError`
@@ -364,6 +367,40 @@ only the item's own tests does not catch it; the full unit suite does.
 After the fix, at `136bf9848`: the full unit suite had 1336 files passed and 47 skipped, 18733 tests
 passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 files and
 3951/3951 tests (`full-components.r8.log`).
+
+## PR #632 review (blind /review APPROVED with 2 MEDIUMs and LOWs, at 1daa3eb88)
+
+1. **[M] The second check was an unlocked read.** A concurrent `UPDATE customer_invoices SET
+   gl_journal_entry_id = X` on a skipped invoice could commit after it, and step 6 would then delete
+   X (the link has no FK). `lockSkippedInvoices` now takes the skipped rows `FOR SHARE` just before
+   the second count and holds them until the run ends.
+   - Lock order: invoices before GL. The lock comes after the invoice move and before the GL
+     deletes.
+   - The wait is bounded like the D8 locks (`withRowLockBudget`, 5 s, then `RowLockTimeoutError`,
+     `ROW_LOCK_TIMEOUT`, already in `REFUSAL_CODES`). Before this, the archive bounded none of its
+     locks.
+   - Race case: a second connection writes the link after the second check. The test watches
+     `pg_blocking_pids` and sees the UPDATE wait for the run. The run, which saw no link, completes
+     and archives the journal; the UPDATE lands after the commit. Red: `red.r9.int.log`, where the
+     UPDATE did not wait.
+   - Recorded: once the run has committed, a writer can still link an invoice to an archived
+     journal's id, because there is no FK (R-191 class).
+2. **[M] Docs overclaimed "cannot escape".** That now holds for LINKS only. A chain journal POSTED
+   after step 1 (a reversal posted during the copies) is deleted by step 6 without having been
+   copied (R-192 class). `core/.claude.md`, the `archiveExecutionService` comment and this file now
+   say exactly that.
+3. **[L] R-195 registered:** a payment request in company B naming company C's invoice blocks C's
+   whole archive with 23514. The FK is single-column, it needs forged data, and the entry includes a
+   census query. R-195 was checked free on every ref and worktree.
+4. **[L] The recursive arm's `je.company_id` filter is pinned:** own journal, then a foreign
+   journal reversing it, then an in-window journal of ours reversing the foreign one. The chain must
+   not be walked through the foreign journal, so the run completes.
+5. **[L] Coverage.** The core coverage (every `r186-*` file) is integration-only. Integration tests
+   SKIP on GitHub (empty `DATABASE_URL`), so CI's green does not exercise them. They were run
+   locally on `isaflow-fixture-r186`: logs `green.r*.int.log` and `regression.r*.int.log`, each
+   headed with its sha. Only the component test and the unit suites run on GitHub.
+6. No change for the product-decision LOW (documented above) or the `.claude.md` length (predates
+   this PR).
 
 ## Recorded, not changed
 
