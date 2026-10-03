@@ -39,9 +39,24 @@ async function getCreateMock() {
 describe('noteAiService', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('builds its client with no retries and a 30 s timeout: it runs under withAuth, and the SDK default is 600 s (R-188)', async () => {
+  it('builds its client with no retries and the same timeout as the per-call bound; the SDK default is 600 s (R-188)', async () => {
     const mod = await import('@anthropic-ai/sdk') as unknown as { __constructed: unknown[] };
-    expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 30_000 }]);
+    expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 60_000 }]);
+  });
+
+  it('passes a per-call AbortSignal.timeout of 60 s, so the bound covers the body read, not only the headers (R-188)', async () => {
+    const mockCreate = await getCreateMock();
+    mockCreate.mockResolvedValueOnce({ content: [{ type: 'text', text: 'ok' }] });
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      await generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT);
+      expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+      const options = mockCreate.mock.calls[0]![1] as { signal?: AbortSignal };
+      expect(options.signal).toBeInstanceOf(AbortSignal);
+      expect(options.signal).toBe(timeoutSpy.mock.results[0]!.value);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it('returns narrative text on success', async () => {

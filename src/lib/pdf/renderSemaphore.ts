@@ -6,9 +6,10 @@
 // Why it exists: a pack render holds a withAuth pool connection for its whole
 // duration (up to the 30s print-ready gate plus transport overhead) AND the
 // headless browser it drives re-enters the same API to fetch the report, so
-// each render occupies at least two connections for tens of seconds. Twenty
-// concurrent exports from one viewer therefore exhaust the auth pool
-// (AUTH_POOL_MAX, default 10) and stall every API request for EVERY tenant —
+// each render occupies at least two connections for tens of seconds. Five
+// unbounded concurrent exports therefore exhaust the auth pool at its
+// default (AUTH_POOL_MAX 10; twenty did when it was 20) and stall every API
+// request for EVERY tenant —
 // the per-company export rate limit does not help, because the damage is
 // cross-tenant and a single tenant's allowance is already enough to do it.
 //
@@ -111,23 +112,26 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
  *  has nothing to report: its default is clamped without a log line. */
 function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
   const text = raw?.trim() ?? '';
-  const n = Number(text);
   const unset = text === '';
-  // Plain decimal digits only, as poolSizeFromEnv reads a pool size: `1.9`, `0x3`, `3e0` and `+3`
-  // are not silently floored or reinterpreted, they are invalid.
-  const usable = /^[0-9]+$/.test(text) && Number.isFinite(n) && n >= 1;
-  if (!unset && !usable) {
-    // Set but unusable: say so as invalid, never as a clamp of the default, and
-    // never with the text (an env var can hold anything pasted into it).
-    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the default', {
-      setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), default: Math.min(fallback, ceiling),
+  const n = Number(text);
+  const plain = /^[0-9]+$/.test(text) && Number.isFinite(n) && n >= 1;
+  let requested = fallback;
+  if (plain) {
+    requested = n;
+  } else if (!unset) {
+    // poolSizeFromEnv's rule for a spelling it refuses: a finite value above 0 gives
+    // min(default, ceil(value)) (so `1.0` stays 1 and `1.9` gives 2, never above the default);
+    // anything else gives the default. Warned as invalid, never as a clamp, and never with
+    // the text (an env var can hold anything pasted into it).
+    requested = Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.ceil(n)) : fallback;
+    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the nearest allowed value', {
+      setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), using: Math.min(requested, ceiling),
     });
   }
-  const requested = usable ? n : fallback;
   if (requested > ceiling) {
-    // The built-in default above the ceiling is not an operator's mistake: clamp
-    // it silently (R-188: the default of 3 against a ceiling of 2 at the default pool).
-    if (!usable) return ceiling;
+    // Not an operator's plain choice, so nothing more to say: the built-in default above the
+    // ceiling (R-188: 3 against 2 at the default pool), or an invalid value already logged.
+    if (!plain) return ceiling;
     warnOnce(`${name}:${requested}`, 'renderSemaphore: env value clamped to the auth-pool-derived ceiling', {
       setting: name, requested, ceiling,
     });
