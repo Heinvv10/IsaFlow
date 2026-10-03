@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -32,6 +33,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await createWriteOff(companyId, req.body, userId);
       return apiResponse.success(res, item);
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Write-off create failed', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }

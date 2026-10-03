@@ -13,7 +13,7 @@ import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 
 type Row = DbRow;
 
@@ -163,7 +163,7 @@ export async function attachEvidenceToProvisional(
   } catch (err) {
     // A lock wait that ran out is not "nothing to attach" (D8 round 11): swallowed, the bill posted beside a
     // provisional left unevidenced. The savepoint rolled the attach back; the route answers 503 and is retried.
-    if (isLockTimeoutError(err)) throw err;
+    if (isHeldRowError(err)) throw err;
     log.warn('attachEvidenceToProvisional failed — continuing', {
       companyId,
       capturedDocumentId,
