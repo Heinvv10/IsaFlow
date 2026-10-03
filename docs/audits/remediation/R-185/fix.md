@@ -133,6 +133,10 @@ applied, or 852 refuses.
 | `regression.round1.unit.log` | same 9 files | 126/126 |
 | `regression.round1.int.log` | same 22 files | 209/213; the same 4 pre-existing k-035 failures |
 | `gates.round1.log` | type-check, lint, check-client-responses, agent-docs, migration-naming | all exit 0 |
+| **Round 2, at committed `552eac043`** (clean tree; only these logs untracked) | | |
+| `green.round2.unit.log` | unit, verbose | 10/10 (2 files) |
+| `green.round2.int.log` | int, verbose, 852 applied | 7/7 |
+| `mutations.round2.log` | M1-M12, baselines before and after green | 12/12 RED. M11 (non-23505 rethrown before the re-read) is the unit red; M12 (no `company_id` in `feeJournalExists`) the company-scope int red |
 
 ## Recorded, not changed
 
