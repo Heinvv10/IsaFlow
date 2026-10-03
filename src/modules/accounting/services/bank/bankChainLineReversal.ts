@@ -90,17 +90,20 @@ export async function reverseDocumentChainLine(
   const txId = String(tx.id); // the caller has checked it is still matched to the line it peeked
   const others = lines.filter((l) => String(l.id) !== txId);
   for (const l of others) refuseLockedCash(await reconciliationLockOf(companyId, l), 'Another bank line of this journal chain');
-  if (others.some((l) => l.status === 'allocated')) {
-    throw new BankAllocationRefusal(`${chain.doc.label}'s journal chain is claimed by more than one allocated bank line — `
-      + 'it cannot be reversed from one of them. Contact support.');
+  // The line a bank ALLOCATION posted the root with may be this one or another of the chain (the root's, with this
+  // one matched to the head): either way it is reset with this one. Only two allocated lines are ambiguous.
+  const allocated = lines.filter((l) => l.status === 'allocated').map((l) => String(l.id));
+  if (allocated.length > 1) {
+    throw new BankAllocationRefusal(`${chain.doc.label}'s journal chain is claimed by ${allocated.length} allocated bank `
+      + 'lines — it cannot be reversed from one of them. Contact support.');
   }
   const reverseId = await peekReversalTarget(companyId, chain.rootId); // the head while the chain stands, else null
   if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate);
   const originalEntryDate = isoDay(await entryDateOf(companyId, reverseId ?? chain.rootId));
   const leg: BankLeg = {
     alreadyReversed: reverseId === null, reverseId: reverseId ?? chain.rootId,
-    bankLineIds: others.map((l) => String(l.id)), seenLineIds: lines.map((l) => String(l.id)),
-    allocatedLineIds: tx.status === 'allocated' ? [txId] : [],
+    bankLineIds: others.filter((l) => l.status !== 'allocated').map((l) => String(l.id)),
+    seenLineIds: lines.map((l) => String(l.id)), allocatedLineIds: allocated,
   };
   return withSavepoint('bank_reverse_chain_line', async () => {
     let result: BankAllocationUnwindResult;
@@ -114,7 +117,7 @@ export async function reverseDocumentChainLine(
       await lockJournalAndUnmatch(companyId, chain.rootId, leg, chain.doc.label);
       reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, opts);
     }
-    await resetBankLine(companyId, txId, false);
+    for (const id of new Set([txId, ...allocated])) await resetBankLine(companyId, id, false);
     return {
       ...result, vatLockRoll: reversal?.vatLockRoll ?? null,
       originalEntryDate, reversalEntryDate: reversal ? isoDay(reversal.entryDate) : null,

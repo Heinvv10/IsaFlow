@@ -54,6 +54,13 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'WHERE provisional_je_id = ${payment.settlesProvisionalJeId}::UUID AND company_id = ${companyId}::UUID',
     ],
   },
+  'src/modules/accounting/services/bank/bankReconciliationCancelService.ts': {
+    why: 'reads only: the cancel leaves an evidenced provisional\'s line out of its revert (D10 round 2); never writes the link',
+    lines: [
+      "AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)) AS matched",
+      "AND status = 'matched' AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)",
+    ],
+  },
   'src/modules/accounting/services/bank/bankChainLineReversal.ts': {
     why: 'unlink only (= NULL) or unchanged: the bank reversal clears the link of a line whose provisional the GL already took out (D10 O9)',
     lines: ['provisional_je_id = CASE WHEN ${clearProvisional} THEN NULL ELSE provisional_je_id END,'],
