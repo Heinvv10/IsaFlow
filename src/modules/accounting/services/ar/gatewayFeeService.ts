@@ -110,7 +110,10 @@ export async function postGatewayFee(
     log.info('Gateway fee already posted by a concurrent delivery', {
       reference: receipt.reference,
       fee,
-      // What this delivery's attempt raised (normally 23505 on ux_gl_je_gateway_fee_reference); no stack.
+      // What this delivery's attempt raised; no stack. On a lost race, a 23505 on either
+      // uq_gl_je_company_entry_number (the winner still uncommitted at this insert: the entry-number
+      // trigger is MAX+1 over committed rows, so both take one number; the common case) or
+      // ux_gl_je_gateway_fee_reference (the winner committed after this call's guard).
       code: (err as { code?: unknown }).code,
       error: err instanceof Error ? err.message : String(err),
     }, 'accounting');
