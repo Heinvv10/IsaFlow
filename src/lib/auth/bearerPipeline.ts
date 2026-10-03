@@ -16,6 +16,7 @@ import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
+import { authPoolMax } from '@/lib/limits/poolLimits';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getClientIp } from '@/lib/rateLimit';
@@ -46,7 +47,7 @@ function getAuthPool(): pg.Pool {
   if (!url) throw new Error('DATABASE_URL required');
   _pool = new pg.Pool({
     connectionString: url,
-    max: Number(process.env.AUTH_POOL_MAX ?? 20),
+    max: authPoolMax(),
     connectionTimeoutMillis: 15000,
     idleTimeoutMillis: 30000,
     ssl:

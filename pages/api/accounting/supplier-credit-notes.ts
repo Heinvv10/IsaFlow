@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   getCreditNotes,
   getCreditNoteById,
@@ -173,6 +174,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError) {
         return apiResponse.badRequest(res, err.message);
       }
+      // 'reverse' runs under the credit-note cancel's flow lock budget (D8 round 10): 503 + Retry-After.
+      if (respondIfLockTimeout(res, err)) return;
       log.error('supplier-credit-notes PATCH failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to update supplier credit note');
     }

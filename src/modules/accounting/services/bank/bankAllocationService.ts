@@ -25,7 +25,8 @@ import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { assertReversalDatePostable } from './reversalDatePostable';
+import { assertReversalDatePostable, entryDateOf, lockPeekedReversalTarget, peekReversalTarget } from './reversalDatePostable';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 import { refuseSettledProvisionalLine } from '../ap/provisionalSettlementGuards';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { assertPostedForAllocation } from './bankFeedStateGuard';
@@ -789,8 +790,12 @@ function isoDay(v: unknown): string | null {
  * auto-post-undo call site — leaves the contra on the `human:<userId>` default.
  */
 export async function reverseReconciledTransaction(
-  companyId: string, bankTxId: string, userId: string,
-  opts?: PostingActorOpts & { reversalDate?: string },
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
+): Promise<BankAllocationUnwindResult> { // every lock under ONE budget, plain UPDATEs included (D8 round 10)
+  return underFlowLockBudget(`Bank transaction ${bankTxId}`, () => reverseReconciledInner(companyId, bankTxId, userId, opts));
+}
+async function reverseReconciledInner(
+  companyId: string, bankTxId: string, userId: string, opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<BankAllocationUnwindResult> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
@@ -803,7 +808,7 @@ export async function reverseReconciledTransaction(
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   await refuseSettledProvisionalLine(companyId, tx); // R-127: a settled provisional's own line
-  let journalEntryId: string | null = null;
+  let journalEntryId: string | null = null, reverseId: string | null = null;
   let originalEntryDate: string | null = null;
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
@@ -812,9 +817,10 @@ export async function reverseReconciledTransaction(
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
-      originalEntryDate = isoDay(jlRows[0]!.entry_date);
-      // Read-only, and before the first write of this function.
-      await assertReversalDatePostable(companyId, journalEntryId, opts?.reversalDate);
+      reverseId = await peekReversalTarget(companyId, journalEntryId); // D8: the head, null when out; locked after the unwind
+      if (reverseId) await assertReversalDatePostable(companyId, reverseId, opts?.reversalDate); // read-only, pre-write
+      // The contra defaults to the date of the journal it reverses (D8: the chain head); date_moved compares to it.
+      originalEntryDate = isoDay(reverseId && reverseId !== journalEntryId ? await entryDateOf(companyId, reverseId) : jlRows[0]!.entry_date);
     }
   }
 
@@ -825,12 +831,8 @@ export async function reverseReconciledTransaction(
   // makes a refusal mean "nothing happened"; the bank-line reset joins them so
   // a failure there cannot strand a reset line either.
   //
-  // This depends on there BEING a request transaction: withSavepoint degrades to
-  // a bare fn() outside one, and each bare `sql` then auto-commits on its own.
-  // lockBankTransactionForUpdate above throws outside a request transaction, so
-  // no caller can reach this line without one — that refusal is what keeps this
-  // guarantee true, and a future cron caller would hit it rather than silently
-  // getting the pre-fix behaviour back.
+  // This depends on there BEING a request transaction (withSavepoint degrades to a bare fn() outside one);
+  // lockBankTransactionForUpdate above throws outside one, which is what keeps this guarantee true.
   const unwound = await withSavepoint('bank_reverse_reconciled', async () => {
     let result: BankAllocationUnwindResult = {
       invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
@@ -842,17 +844,17 @@ export async function reverseReconciledTransaction(
       // settled, which widens the subledger-to-control gap behind an
       // ordinary-looking reversal.
       result = await unwindBankAllocationApplication(companyId, journalEntryId);
+      await lockPeekedReversalTarget(companyId, journalEntryId, reverseId); // the journal locked last (D8 round 6)
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        const reversal = await reverseJournalEntry(companyId, journalEntryId, userId, opts);
-        // Carried out so reverse_bank_allocation / void_receipt can say the
-        // contra was dated past a locked VAT period.
-        // and, with the two dates, that a CLOSED fiscal period moved it to today
+        const reversal = reverseId ? await reverseJournalEntry(companyId, reverseId, userId, opts) : null;
+        // Carried out so reverse_bank_allocation / void_receipt can say the contra was dated past a locked VAT
+        // period and, with the two dates, that a CLOSED fiscal period moved it to today
         // (2026-10-02: nine April-2025 contras landed in October while the reply
-        // said nothing had moved).
+        // said nothing had moved). A chain already out (D8) posts no contra: no date.
         result = {
-          ...result, vatLockRoll: reversal.vatLockRoll ?? null,
-          originalEntryDate, reversalEntryDate: isoDay(reversal.entryDate),
+          ...result, vatLockRoll: reversal?.vatLockRoll ?? null,
+          originalEntryDate, reversalEntryDate: reversal ? isoDay(reversal.entryDate) : null,
         };
       } catch (e) {
         // A CODED refusal (VatPeriodLockedError and its kin: a string code that

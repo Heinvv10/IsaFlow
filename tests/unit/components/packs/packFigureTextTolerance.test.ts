@@ -13,11 +13,13 @@ import type { PackFigure } from '@/modules/accounting/services/packs/figures/pac
 const fig = (value: number, format: PackFigure['format']): PackFigure => ({ value, format, source: 's.f' });
 
 describe('formatFigureText nil handling by unit', () => {
-  it('prints a small non-zero ratio as that ratio, not as nil', () => {
-    expect(formatFigureText(fig(0.004, 'ratio'), 'R')).toBe('0.00×');
+  // Not nil, and not "0.00×" or "0 days" either, which a reader takes for the
+  // same nil: a bound, as `formatMoney` states `<1` (see `belowPrecision`).
+  it('prints a small non-zero ratio as a bound, not as nil', () => {
+    expect(formatFigureText(fig(0.004, 'ratio'), 'R')).toBe('<0.01×');
   });
-  it('prints a small non-zero day count as days, not as nil', () => {
-    expect(formatFigureText(fig(0.004, 'days'), 'R')).toBe('0 days');
+  it('prints a small non-zero day count as a bound, not as nil', () => {
+    expect(formatFigureText(fig(0.004, 'days'), 'R')).toBe('<1 day');
   });
   it('still prints an exact zero ratio, percentage and day count as the nil glyph', () => {
     for (const format of ['ratio', 'pct', 'days'] as const) {

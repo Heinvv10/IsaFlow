@@ -21,6 +21,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { journalStandsFragment } from '../../shared/journalInForceAsAt';
 import type { ReclassCandidate } from './candidates';
 import type { ReclassImpact } from './impact';
 import type { ClassifiedFigures } from '../accountClassification';
@@ -241,7 +242,7 @@ export async function targetPriorSources(
              ON je.id = l.journal_entry_id AND je.company_id = l.company_id
           WHERE l.company_id = b.company_id
             AND l.batch_id   = b.id
-            AND je.reversed_at IS NULL
+            AND ${journalStandsFragment('je.id', companyId)}
        )
   `) as DbRow[];
   return Number(rows[0]?.n ?? 0);

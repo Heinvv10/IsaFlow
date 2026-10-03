@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getLedgerVAT201 } from './vat201LedgerFields';
+import { journalInForceAsAtFragment } from '../shared/journalInForceAsAt';
 import {
   mapBillTaxCodeWarning, mapMismatch, mapTaxIssue, mapUncodedLine, mapUnpostedInvoice, r2, toNum, totalCount,
 } from './vatExceptionsTypes';
@@ -153,7 +154,8 @@ export async function getVatExceptions(
         WHERE si.company_id = ${companyId}::UUID
           AND COALESCE((SELECT lc.entry_date FROM gl_journal_entries lc
                 WHERE lc.company_id = ${companyId}::UUID AND lc.late_claim_of_id = si.gl_journal_entry_id
-                  AND lc.status = 'posted' AND lc.reversed_at IS NULL LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
+                  AND lc.status = 'posted'
+                  AND ${journalInForceAsAtFragment('lc.id', periodEnd, companyId)} LIMIT 1), si.invoice_date) BETWEEN ${periodStart}::DATE AND ${periodEnd}::DATE
           AND si.status != 'cancelled'
           AND si.gl_journal_entry_id IS NOT NULL
         GROUP BY si.id, si.invoice_number, si.invoice_date, si.tax_amount, s.name, je_any.status

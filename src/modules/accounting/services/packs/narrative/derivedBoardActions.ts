@@ -5,6 +5,7 @@
  * `derivedCaptions.ts` re-exports every exported name here.
  */
 
+import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 
@@ -157,10 +158,10 @@ export function boardActionItems(selection: SelectedMatters): BoardActions {
   const alsoOnPage = printed.length - shown.length;
   const tail: string[] = [];
   if (alsoOnPage > 0) {
-    tail.push(`${alsoOnPage} further ${alsoOnPage === 1 ? 'matter follows' : 'matters follow'} on the matters page.`);
+    tail.push(`${groupedCount(alsoOnPage)} further ${alsoOnPage === 1 ? 'matter follows' : 'matters follow'} on the matters page.`);
   }
   if (omitted.length > 0) {
-    tail.push(`${omitted.length} further ${omitted.length === 1 ? 'matter is' : 'matters are'} not printed in this pack; the matters page states what they come to.`);
+    tail.push(`${groupedCount(omitted.length)} further ${omitted.length === 1 ? 'matter is' : 'matters are'} not printed in this pack; the matters page states what they come to.`);
   }
   return { items, tail };
 }

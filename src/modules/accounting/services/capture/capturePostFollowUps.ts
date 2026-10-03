@@ -80,8 +80,9 @@ export async function runCapturePostFollowUps(input: CapturePostFollowUpInput): 
   // Attach evidence to a matching provisional JE; an auto-approved invoice is then
   // settled against it (R-127), or posted on its own when it evidences none (R-131).
   // Not caught: the attach and the settlement handle their own failures, so the
-  // only throw is the draft revert failing — the request
-  // must fail then (≥500), not answer 200 over a COMMIT that became a ROLLBACK.
+  // only throws are the draft revert failing — the request
+  // must fail then (≥500), not answer 200 over a COMMIT that became a ROLLBACK —
+  // and a lock timeout (D8 round 11), which the route answers 503 to be retried.
   const provisionalAttach: CapturePostFollowUps['provisionalAttach'] = await attachEvidenceAndSettleApproved({
     companyId,
     userId,

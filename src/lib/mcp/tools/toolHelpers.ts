@@ -243,9 +243,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
+  'ROW_LOCK_TIMEOUT', // D8 round 9 (core/rowLockBudget): names the document; nothing acquired, retry.
   'RULE_AUTHORITY_REQUIRED',
-  // A refund larger than the contact's on-account credit (migration 681). One
-  // fixed sentence written for the user, naming the contact, the two amounts
+  // A refund larger than the contact's on-account credit (migration 681). One fixed sentence written for the user, naming the contact, the two amounts
   // and the as-at date the caller itself supplied — no id, no table — and
   // raised BEFORE the journal posts, so there is nothing written to leak.
   'SUPPLIER_REFUND_REFUSED',

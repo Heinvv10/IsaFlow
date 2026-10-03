@@ -8,11 +8,13 @@
  *
  * Both refusals are `SupplierPaymentRefusal` (routes answer 400, MCP surfaces
  * the message, the auto-post undo counts the line as failed and keeps the run
- * open), raised before any write.
+ * open), raised before any write — `refuseReversingSettlementJournal` right
+ * after `reverseJournalEntry`'s reversal claim (D8 round 4), which it releases.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { MAX_CHAIN_DEPTH } from '../shared/journalChainHead';
 
 /** How every settlement refusal names the undo — the UI action first. */
 export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
@@ -20,18 +22,32 @@ export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_suppl
 /** Only these sources can be either half; anything else is decided without a query. */
 const SETTLEMENT_SOURCES = new Set(['auto_bank_recon', 'auto_supplier_payment']);
 
-/** Called by `reverseJournalEntry` for every entry it is about to reverse. */
+/** Called by `reverseJournalEntry` for every entry it reverses, once its claim holds the row. */
 export async function refuseReversingSettlementJournal(
   companyId: string,
   entry: { id: string; entryNumber: string; source?: string | null },
 ): Promise<void> {
   if (!entry.source || !SETTLEMENT_SOURCES.has(entry.source)) return;
+  // The entry OR any entry it reverses (D8): a provisional reversed and
+  // re-reversed settles through its chain, and reversing the head R2 takes it
+  // out of the ledger exactly as reversing it would. Walked up `reversal_of_id`
+  // with the same guard as shared/journalChainHead: the path, so a forged loop
+  // stops at its first repeat, and MAX_CHAIN_DEPTH.
   const [row] = (await sql`
-    SELECT payment_number, settles_provisional_je_id = ${entry.id}::UUID AS is_provisional
+    WITH RECURSIVE up AS (
+      SELECT id, reversal_of_id, ARRAY[id] AS path FROM gl_journal_entries
+      WHERE id = ${entry.id}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT p.id, p.reversal_of_id, up.path || p.id FROM gl_journal_entries p
+      JOIN up ON p.id = up.reversal_of_id
+      WHERE p.company_id = ${companyId}::UUID
+        AND NOT p.id = ANY(up.path) AND cardinality(up.path) < ${MAX_CHAIN_DEPTH}
+    )
+    SELECT payment_number, settles_provisional_je_id IN (SELECT id FROM up) AS is_provisional
     FROM supplier_payments
     WHERE company_id = ${companyId}::UUID AND status <> 'cancelled'
       AND settles_provisional_je_id IS NOT NULL
-      AND (settles_provisional_je_id = ${entry.id}::UUID OR gl_journal_entry_id = ${entry.id}::UUID)
+      AND (settles_provisional_je_id IN (SELECT id FROM up) OR gl_journal_entry_id IN (SELECT id FROM up))
     LIMIT 1
   `) as DbRow[];
   if (!row) return;

@@ -55,8 +55,9 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
     ],
   },
   'src/modules/accounting/services/bank/provisionalDismissService.ts': {
-    why: 'unlink only (= NULL), keyed on the link',
+    why: 'unlink only (= NULL), keyed on the link; the lock peek reads it (D8 round 6)',
     lines: [
+      'WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id',
       "SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()",
       'WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID',
     ],

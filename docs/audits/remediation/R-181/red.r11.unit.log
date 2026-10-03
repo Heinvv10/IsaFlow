@@ -1,0 +1,119 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.107Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"626d147b-d2f6-421e-bb74-e42c75ff6959","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.109Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"3d6789c6-6596-4c3f-b6f1-cdb392850a58","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.110Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"70467c69-1c9e-4008-8e08-5b1a3ef8c47a","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T19:44:37.110Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T19:44:37.110Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.111Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"9639c615-b456-4fd4-a51b-5d9ec3b1e160","allocated":50,"unallocated":65,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.111Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"586e1f3d-b497-4a3f-9861-60e7c8470d09","allocated":50,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.111Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"d2592630-7a55-4639-a2b6-761201d0419f","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T19:44:37.111Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T19:44:37.112Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.112Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"0ffdf3b4-0959-4566-a716-9321a7b7b7ea","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.112Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"9af6c024-8398-4f14-bd45-8be98c90de4d","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T19:44:37.112Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"75cb2ce3-533c-4bf5-925d-8f694e18d6b6","allocated":0.01,"unallocated":114.99,"journalEntryId":"je-1"}}
+ ❯ tests/unit/services/ar/gatewayReceiptWiring.test.ts (13 tests | 1 failed) 10ms
+     × a one-cent allocation is inserted 3ms
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts (58 tests | 3 failed) 13ms
+     × one cent over (R2.01 on R2.00 owed) 5ms
+     × one cent owed (R2.01 total, R2.00 paid) 1ms
+     × one cent owed on a large invoice (R20000.01, R20000.00 paid), one cent banked 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > a one-cent allocation is inserted
+AssertionError: expected undefined to be 0.01 // Object.is equality
+
+- Expected:
+0.01
+
++ Received:
+undefined
+
+ ❯ tests/unit/services/ar/gatewayReceiptWiring.test.ts:162:43
+    160|     h.allocated = 0.01;
+    161|     await recordGatewayInvoiceReceipt({ ...base, feeRand: null, report…
+    162|     expect(allocationInsert()?.values[2]).toBe(0.01);
+       |                                           ^
+    163|   });
+    164| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent over (R2.01 on R2.00 owed)
+AssertionError: expected { allocated: 2, …(2) } to deeply equal { allocated: 2, …(2) }
+
+- Expected
++ Received
+
+  {
+    "allocated": 2,
+    "invoiceBlock": null,
+-   "overpaid": true,
++   "overpaid": false,
+  }
+
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts:144:52
+    142|       { allocated: 20000.01, invoiceBlock: null, overpaid: false }],
+    143|   ] as const)('%s', (_label, change, plan) => {
+    144|     expect(allocationPlan({ ...base, ...change })).toEqual(plan);
+       |                                                    ^
+    145|   });
+    146| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent owed (R2.01 total, R2.00 paid)
+AssertionError: expected { …(3) } to deeply equal { allocated: 0.01, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "allocated": 0.01,
++   "allocated": 0.009999999999999787,
+    "invoiceBlock": null,
+    "overpaid": true,
+  }
+
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts:144:52
+    142|       { allocated: 20000.01, invoiceBlock: null, overpaid: false }],
+    143|   ] as const)('%s', (_label, change, plan) => {
+    144|     expect(allocationPlan({ ...base, ...change })).toEqual(plan);
+       |                                                    ^
+    145|   });
+    146| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent owed on a large invoice (R20000.01, R20000.00 paid), one cent banked
+AssertionError: expected { Object (allocated, invoiceBlock, ...) } to deeply equal { allocated: 0.01, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "allocated": 0.01,
++   "allocated": 0.00999999999839929,
+    "invoiceBlock": null,
+    "overpaid": false,
+  }
+
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts:144:52
+    142|       { allocated: 20000.01, invoiceBlock: null, overpaid: false }],
+    143|   ] as const)('%s', (_label, change, plan) => {
+    144|     expect(allocationPlan({ ...base, ...change })).toEqual(plan);
+       |                                                    ^
+    145|   });
+    146| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 67 passed (71)
+   Start at  21:44:36
+   Duration  209ms (transform 103ms, setup 0ms, import 148ms, tests 23ms, environment 0ms)
+

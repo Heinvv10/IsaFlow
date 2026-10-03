@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { approveCreditNote, cancelCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
@@ -82,6 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Credit note action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

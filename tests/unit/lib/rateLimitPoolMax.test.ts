@@ -1,7 +1,9 @@
 /**
  * R-175: the limiter pool's size comes from RATE_LIMIT_POOL_MAX (default 10),
  * like the other pools, so it can be lowered without a deploy. An invalid value
- * falls back to the default: a NaN `max` would leave a pg pool unbounded.
+ * (R-182: through the shared poolSizeFromEnv) gives min(default,
+ * ceil(Number(text))) when Number(text) is finite and above 0, else
+ * min(default, 10).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -31,11 +33,22 @@ describe('RATE_LIMIT_POOL_MAX (R-175)', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it.each(['abc', '0', '-2', '2.5', '101', '1e9', 'NaN', 'Infinity'])('falls back to 10, with a warning, for %j', (raw) => {
+  it.each(['abc', '0', '-2', '101', '1e9', 'NaN', 'Infinity'])('falls back to 10, with a warning, for %j', (raw) => {
     vi.stubEnv('RATE_LIMIT_POOL_MAX', raw);
     expect(rateLimitPoolMax()).toBe(10);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![1]).toMatchObject({ value: raw, default: 10 });
+    expect(warn.mock.calls[0]![1]).toMatchObject({ name: 'RATE_LIMIT_POOL_MAX', default: 10, using: 10 });
+    expect(warn.mock.calls[0]![2]).toBe('rateLimit');
+  });
+
+  // The R-175 reader accepted '5.0', '+5', '1e1' and '10.0' as given, without a warning
+  // (Number() is an integer). Since R-182 each is refused with one warning under the
+  // 'rateLimit' category and gives min(10, ceil(n)).
+  it.each([['2.5', 3], ['5.0', 5], ['+5', 5], ['1e1', 10], ['10.0', 10]])('%j is refused with one warning and gives %j (R-182)', (raw, expected) => {
+    vi.stubEnv('RATE_LIMIT_POOL_MAX', raw);
+    expect(rateLimitPoolMax()).toBe(expected);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![2]).toBe('rateLimit');
   });
 
   it('the pool is built with the configured size', async () => {

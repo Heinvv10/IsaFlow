@@ -13,6 +13,7 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { updateSession, type MigrationError } from './migrationService';
 import { lockMigrationImport } from './migrationPostingSupport';
 import { canonicalSubtype } from '../gl/accountSubtypes';
+import { lockStandingChainHead } from '../shared/journalChainHead';
 import type { DbRow } from '@/types/db';
 
 export interface OpeningBalanceRow {
@@ -37,6 +38,10 @@ const OPENING_BALANCE_DESCRIPTION = 'Opening balances — migration import';
  * Scoped to the session by `created_at >= started_at`, the same way
  * recordClearingResidual scopes its residual, so a company running the wizard a
  * second time never reverses the first run's take-on.
+ *
+ * Every prior entry is judged by its reversal CHAIN, not its `reversed_at` (D8,
+ * shared/journalChainHead): one whose reversal was itself reversed stands in the
+ * ledger again, so its chain HEAD is reversed; one whose chain is out is left.
  */
 async function reversePriorOpeningBalances(
   companyId: string,
@@ -52,16 +57,17 @@ async function reversePriorOpeningBalances(
       AND e.source = 'auto_migration'
       AND e.description = ${OPENING_BALANCE_DESCRIPTION}
       AND e.status = 'posted'
-      AND e.reversed_at IS NULL
       AND e.created_at >= s.started_at
     ORDER BY e.created_at
   `) as DbRow[];
   for (const row of rows) {
     const id = String(row.id);
+    const head = await lockStandingChainHead(companyId, id);
+    if (!head) continue;
     log.info('Reversing a previous opening-balance entry before re-importing', {
-      companyId, sessionId, journalEntryId: id,
+      companyId, sessionId, journalEntryId: id, reversingEntryId: head,
     }, 'migration');
-    await reverseJournalEntry(companyId, id, userId);
+    await reverseJournalEntry(companyId, head, userId);
   }
 }
 

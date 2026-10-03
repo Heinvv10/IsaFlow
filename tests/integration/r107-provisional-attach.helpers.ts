@@ -21,7 +21,10 @@ const expenseGl = crypto.randomUUID();
 const today = new Date().toISOString().slice(0, 10);
 let token = '';
 
-type Out = { statusCode: number; body: { data?: Record<string, unknown>; error?: { message?: string } } };
+type Out = {
+  statusCode: number; body: { data?: Record<string, unknown>; error?: { message?: string } };
+  retryAfter: unknown;
+};
 
 async function call(
   route: (req: never, res: never) => Promise<unknown> | unknown,
@@ -36,7 +39,7 @@ async function call(
   req.body = body;
   const out = response();
   await route(req as never, out.res as never);
-  return out.state as Out;
+  return { ...(out.state as Omit<Out, 'retryAfter'>), retryAfter: out.headers.get('retry-after') ?? null };
 }
 export const attach = (jeId: string, capturedDocumentId: string) =>
   call(attachRoute, `/api/accounting/provisional/${jeId}/attach`, { jeId }, { capturedDocumentId });

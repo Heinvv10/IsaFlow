@@ -10,6 +10,10 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
+import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
+import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
+import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
+import { isLockTimeoutError } from '@/lib/lockTimeout';
 
 type Row = DbRow;
 
@@ -41,7 +45,8 @@ export async function attachEvidenceToProvisional(
   // these callers hold the slip first — aborted that transaction, the route answered
   // 200, and withAuth's COMMIT became a silent ROLLBACK of the invoice (R-107 r1, K-157).
   try {
-    return await withSavepoint('evidence_attach', async () => {
+    // Its UPDATEs wait under ONE lock budget (D8 round 10): the bank line and the journal are not pre-locked here.
+    return await withSavepoint('evidence_attach', () => underFlowLockBudget(`Captured document ${capturedDocumentId}`, async () => {
       // Fetch raw_bytes_sha256 + confidence from the captured_documents row.
       // captured_documents stores the file hash under raw_bytes_sha256 (mig-410);
       // extraction_confidence lives in extracted_data JSON (set by VLM service).
@@ -110,6 +115,8 @@ export async function attachEvidenceToProvisional(
       // journal (e.g. the invoice this same request just raised) is not
       // re-attached here; the caller's try/catch treats this as no match.
       await assertDocumentNotAlreadyPosted(companyId, capturedDocumentId, jeId);
+      // A broken reversal chain is no candidate: the flip's fragment sees a broken ROOT only (D8 round 6, brk-d8b F3).
+      if ((await findJournalChainHead(companyId, jeId))?.kind === 'broken') return nothing;
 
       // (1) THE BANK LINE FIRST, then (4) the journal — the canonical order in
       // `bank/.claude.md`, and the twin of the same reorder in
@@ -126,17 +133,19 @@ export async function attachEvidenceToProvisional(
       // Flip the JE to evidenced — only if it still needs evidence. The match above read it
       // unlocked; a manual attach that committed while this waited on the bank line has
       // evidenced it already, and must not be overwritten. Throwing rolls the bank UPDATE back.
+      // Standing by its reversal chain, not its stamp (D8): a provisional reversed and
+      // re-reversed books the bank line again and still needs its evidence.
       const flipped = (await sql`
-        UPDATE gl_journal_entries
+        UPDATE gl_journal_entries je
         SET source_document_id   = ${capturedDocumentId}::UUID,
             source_document_hash = ${docHash},
             posting_agent        = 'ai-evidenced:v1',
             needs_evidence       = false,
             evidenced_at         = NOW(),
             extraction_confidence = COALESCE(${docConfidence}, extraction_confidence)
-        WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
-          AND needs_evidence = true AND reversed_at IS NULL
-        RETURNING id
+        WHERE je.id = ${jeId}::UUID AND je.company_id = ${companyId}::UUID
+          AND je.needs_evidence = true AND ${journalStandsUnbrokenFragment('je.id', companyId)}
+        RETURNING je.id
       `) as Row[];
       if (flipped.length === 0) throw new Error(`Provisional journal ${jeId} was evidenced by another request`);
 
@@ -150,8 +159,11 @@ export async function attachEvidenceToProvisional(
       }, 'evidence-attachment');
 
       return { attachedJeId: jeId, bankTxId: btId };
-    });
+    }));
   } catch (err) {
+    // A lock wait that ran out is not "nothing to attach" (D8 round 11): swallowed, the bill posted beside a
+    // provisional left unevidenced. The savepoint rolled the attach back; the route answers 503 and is retried.
+    if (isLockTimeoutError(err)) throw err;
     log.warn('attachEvidenceToProvisional failed — continuing', {
       companyId,
       capturedDocumentId,

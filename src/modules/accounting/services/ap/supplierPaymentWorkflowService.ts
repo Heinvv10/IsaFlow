@@ -21,6 +21,7 @@ import {
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { underFlowLockBudget } from '../core/rowLockBudget';
 type Row = DbRow;
 
 /**
@@ -208,11 +209,10 @@ export async function voidSupplierPayment(
   id: string,
   userId: string,
 ): Promise<SupplierPayment> {
-  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx — a
-  // failure after the reversal's draft INSERTs must roll them back.
-  return withSavepoint('void_supplier_payment', () =>
-    voidSupplierPaymentInner(companyId, id, userId),
-  );
+  // SAVEPOINT: callers map errors to 400 and withAuth commits on <5xx (a failure after the reversal's draft INSERTs
+  // must roll them back). Every lock under ONE budget, plain UPDATEs included (D8 round 10).
+  return withSavepoint('void_supplier_payment', () => underFlowLockBudget(`Payment ${id}`, () =>
+    voidSupplierPaymentInner(companyId, id, userId)));
 }
 
 async function voidSupplierPaymentInner(
@@ -244,7 +244,7 @@ async function voidSupplierPaymentInner(
     assertSameJournal(journalId, payment.glJournalEntryId);
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).
-    if (leg && !leg.alreadyReversed
+    if (leg // an OUT chain too: the bank path frees the line and reverses nothing (D8)
       && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
       return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
@@ -273,11 +273,11 @@ async function voidSupplierPaymentInner(
       `;
     }
 
-    // (4) Free the bank line, then reverse the payment journal. Skipped when the
-    // journal already carries a reversal claim (`reversed_at`).
-    if (journalId && leg && !leg.alreadyReversed) {
+    // (4) Free the bank line, then reverse the payment journal — its chain head
+    // (`leg.reverseId`, D8). The line is freed even when the chain is already out.
+    if (journalId && leg) {
       await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
-      await reverseJournalEntry(companyId, journalId, userId);
+      if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
     }
 
     // Guarded flip: the status re-assertion is now redundant against a
