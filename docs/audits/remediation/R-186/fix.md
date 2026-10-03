@@ -346,6 +346,21 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
 | `regression.r6.unit.log` | 5 unit files 77/77. Components 29/29 |
 | `browser-proof.md` (8f9cc4fbe) | Preview 200, 1 archivable and 1 skipped, the round-3 line rendered, no console errors |
 
+## CI at 59ffae6bf: the REFUSAL_CODES census
+
+`tests/unit/mcp/typedRefusalReachesAgent.test.ts` failed: "ARCHIVE_SET_CHANGED is declared in src/
+but missing from REFUSAL_CODES in toolHelpers.ts". `ARCHIVE_SKIPPED_INVOICE_JOURNAL` would have
+failed next.
+- Both are now listed in `REFUSAL_CODES` (`src/lib/mcp/tools/toolHelpers.ts`), so their messages
+  reach an agent instead of the fallback. Both carry fixed text plus counts only: no id, amount or
+  table name.
+- No MCP tool runs an archive today.
+- `toolHelpers.ts` was already 385 lines on origin/master; this adds 2.
+
+**Lesson:** a new class with `readonly code = '...'` under `src/` must be registered in
+`REFUSAL_CODES` (or, if it is not a refusal, in `NOT_A_REFUSAL_CODES`) in the same commit. Running
+only the item's own tests does not catch it; the full unit suite does.
+
 ## Recorded, not changed
 
 - **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
