@@ -25,3 +25,4 @@ R4 raw sql COMMIT in the barrel src/lib/neon.ts [src/lib/neon.ts] -> RED (exit 1
 R5 console.log in the barrel (no-console exemption dropped) [src/lib/neon.ts] -> RED (exit 1: 41:38  error  Unexpected console statement  no-console)
 R6 console.log in src/lib/neon/pool.ts [src/lib/neon/pool.ts] -> RED (exit 1: 70:38  error  Unexpected console statement  no-console)
 BASELINE after: census 36 passed (36); gate exit 0: OK: no raw transaction control in 3288 files.; lint barrel exit 0: no no-console error; lint pool exit 0: no no-console error
+PR #631 review: R7 neonModuleShape regex without importMock/requireActual/requireMock [tests/unit/lib/neonModuleShape.test.ts] -> RED (2 failed | 24 passed (26)); baseline after restore 26 passed (26)

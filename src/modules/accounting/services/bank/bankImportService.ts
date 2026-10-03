@@ -15,7 +15,7 @@ import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './ba
  * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
  * already live SHADOWS the outer one rather than erroring, so the inner RELEASE
  * would release its parent's — the same idiom `withTransaction` uses in
- * `neon.ts`. Sequential calls in one request are safe today; a re-entrant one
+ * `src/lib/neon/transaction.ts`. Sequential calls in one request are safe today; a re-entrant one
  * would not be, and the failure would be silent.
  */
 let autoPostSeq = 0;

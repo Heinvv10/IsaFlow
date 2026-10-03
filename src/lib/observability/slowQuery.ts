@@ -13,7 +13,7 @@
  *   2. A cheap "shadow `.then` on the instance" approach fails on native
  *      Promises: V8's fast path for `await <native Promise>` bypasses
  *      the `.then` property lookup entirely, so instance-level shadowing
- *      never fires. Custom thenables (like `LazyQuery` in `lib/neon.ts`)
+ *      never fires. Custom thenables (like `LazyQuery` in `lib/neon/query.ts`)
  *      would hit it, but the wrapper has to work for both shapes.
  *
  * Current implementation uses a `Proxy`:

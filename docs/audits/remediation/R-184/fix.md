@@ -53,7 +53,16 @@ Test infrastructure the split touched:
 - `eslint.config.mjs`'s no-console exemption no longer names `src/lib/neon.ts`; nothing in the
   barrel or the modules logs to console (mutants R5, R6).
 - Comments citing `src/lib/neon.ts:<line>` in four tests, and `rawTransactionRules.ts`, now name
-  the module the code moved to.
+  the module the code moved to. After the PR #631 review, so do the other comments that point at
+  code no longer in the barrel (`LazyQuery`, the ALS branch, the pool, `withSavepoint`'s degrade path,
+  `sp_sqltx_`, `connectionString`): slowQuery, packFigureSet, disputeResolution, k140, fixtureDbGuard,
+  pgTypes (whose `fmtDate` lives in `src/lib/fmtDate.ts`), oauth, recurringInvoiceService,
+  bankImportService, the invite-accept route, four payroll services and vatInputSupportQuery.
+  Comments that name `neon.ts` for something it still exports, or for import order, are left.
+- The import guard also reads `vi.importMock` and `jest.requireActual`/`requireMock` (mutant R7);
+  absolute-path specifiers and other aliases are listed as limits in its header.
+- The caller contract lives once, in `src/lib/neon.claude.md`; `src/lib/neon/.claude.md` points to
+  it and holds the module map, state ownership and the census note.
 
 ## Tests
 
