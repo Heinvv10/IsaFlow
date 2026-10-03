@@ -12,3 +12,11 @@ M6b alias import of a part from pages/api -> 1 hit(s)
 BASE lint after removal -> ✖ 12 problems (0 errors, 12 warnings) 
 M7 un-export PlanResult -> 1 tsc error(s) (rc=2)
 BASE type step after restore -> rc=0
+--- round 2 mutants (working tree on 64865eafc)
+BASE lint: ✖ 12 problems (0 errors, 12 warnings)  ; type step rc=2
+M8 tsconfig points at a missing test -> rc=2 TS6053
+M9 part import added to paystackEventHandlers.ts -> 1 hit(s)
+M10 dynamic import() of a part in paystackEventHandlers.ts -> 1 hit(s)
+M11 suffixed specifier ./paystackSubscriptions.js -> 1 hit(s)
+BASE after: ✖ 12 problems (0 errors, 12 warnings) ; type step rc=0
+NOTE: the first BASE line above shows type step rc=2 on its first run; it was not reproduced (5 later runs rc=0, incl. BASE after). Cause not identified; M8's rc and TS6053 are distinct (TS6053 only appears for the missing path).

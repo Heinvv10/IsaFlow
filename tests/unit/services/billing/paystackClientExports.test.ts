@@ -1,7 +1,10 @@
 /**
  * Pins the public surface of the Paystack client barrel (R-183). The file was
  * split by concern; `@/modules/billing/services/paystackClient` must keep
- * exporting exactly these runtime names and these types.
+ * exporting exactly these runtime names and these type names. The type half is
+ * enforced by `bun run type-check:paystack-exports` (vitest strips `import type`);
+ * it checks that each type name is importable, plus the shape of three
+ * VerifyTransactionResult fields, not the full shape of every type.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -43,7 +46,7 @@ describe('paystackClient — export surface', () => {
     }
   });
 
-  it('every exported type is importable and shaped as before', () => {
+  it('every exported type name is importable', () => {
     const status: PaystackTransactionStatus = 'success';
     const init: InitializeTransactionInput = { email: 'a@b.co.za', amountCents: 1, reference: 'r' };
     const initRes: InitializeTransactionResult = { authorizationUrl: 'u', accessCode: 'a', reference: 'r' };
