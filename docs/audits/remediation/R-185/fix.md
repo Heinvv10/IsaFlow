@@ -89,15 +89,17 @@ outcome, in its own savepoint.
   carries the swallowed `code` and message (no stack). The shared service is not changed; the error
   line is expected noise on this path (also in `ar/.claude.md`).
 
-## Census (G2/G3): dev 0, prod PENDING
+## Census (G2/G3): dev 0, prod 0
 
 Query in the header of `852_gateway_fee_journal_unique.sql`; it must return 0 rows before 852 is
 applied, or 852 refuses.
 
 - **dev (`isaflow_dev`), 2026-10-03, read-only, run by the orchestrator:** 0 duplicate groups, and 0
   journals with the agent at all.
-- **prod: not checked.** A read-only query on prod is gate G3 and needs Hein. R-185 stays
-  `in-progress` until it is run.
+- **prod (`isaflow`), 2026-10-04 01:20 SAST, read-only (G3, approved by Hein):** 0 duplicate
+  groups, and 0 journals with the agent at all, out of 38,166 `gl_journal_entries` rows. The index
+  is not present yet. So 852 will build. The race has never posted a duplicate fee on prod, because
+  no Paystack fee journal exists there. `census.prod.log`.
 
 ## Tests
 

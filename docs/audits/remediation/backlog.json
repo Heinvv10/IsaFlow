@@ -15223,8 +15223,8 @@
       "correctedTrigger": null,
       "severityRationale": "Needs two dedupe-path settlements for one reference to run at the same moment; the effect is a duplicated fee expense and Bank understated by the fee, visible on reconciliation.",
       "auditedSha": "c18bb8606",
-      "currentSha": "1910c157b",
-      "status": "in-progress",
+      "currentSha": "39dbe8a9c770e9a303bdba6bba54eebf08d1ed48",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/r185-gateway-fee-unique.int.test.ts",
@@ -15267,7 +15267,8 @@
         "docs/audits/remediation/R-185/regression.k035-attribution.int.log",
         "docs/audits/remediation/R-185/regression.unit.log",
         "docs/audits/remediation/R-185/regression.land.int.log",
-        "docs/audits/remediation/R-185/regression.land.k035-master.int.log"
+        "docs/audits/remediation/R-185/regression.land.k035-master.int.log",
+        "docs/audits/remediation/R-185/census.prod.log"
       ],
       "fixCommit": null,
       "pr": null,
