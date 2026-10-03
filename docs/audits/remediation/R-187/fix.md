@@ -112,6 +112,26 @@ request row last) is unchanged; the cancelled branch takes only the request row 
 unit 19/19, int 9/9 before and after.
 `regression.r2.int.log` (at 4d3362b96): 210/210 over 22 listed files.
 
+## PR #625 blind /review (APPROVE, 5 LOW)
+
+1. **Live read, then a concurrent cancel (pre-existing): registered as R-193.** A replay reads the
+   LIVE gateway receipt, a `cancelCustomerPayment` of it commits, and the replay's live path posts a
+   missing fee leg against the now-cancelled receipt with no flag. Not fixed here: the candidate fix,
+   `FOR UPDATE` on the matched receipt in `findSettledReceipt`, changes the lock order and needs
+   analysis against R-181's order and the cancel's (bank line -> payment -> invoices -> journal).
+2. The bank-line-reversal case now asserts company Bank/AR/expense and receipt/journal counts
+   unchanged and no fee journal after the replay (which carries `fees: 350`).
+3. MCP `void_receipt` is exercised: a new case voids the gateway receipt through
+   `voidPaymentDocument` (the function the tool calls; with a journal and no bank line it reaches
+   `unwindBankAllocationApplication` -> `unwindOnePayment`), then replays: books unchanged, no fee
+   journal, flagged. M3 (fee on the cancelled path) is now red in four integration cases, not two.
+4. `gatewaySettledReceipt.ts`'s over-long comment line is rewrapped.
+5. Recorded, not changed: see below (import cycle).
+
+`mutations.r3.log` (at 0911f12ac): 13 mutants, 12 RED, M12 equivalent; baselines unit 19/19, int
+10/10 before and after. `regression.r3.int.log`: 211/211 over 22 listed files. `books()` and
+`feeJournals()` moved to `tests/integration/r187-books.helpers.ts`, shared by both r187 suites.
+
 ## Tests
 
 - Unit (`tests/unit/services/ar/gatewayReceiptWiring.test.ts`, two cases added; the mock models the
@@ -157,6 +177,12 @@ no writer creates, the same class as R-181's equivalent company_id mutant).
 - The census in the register (references with both a cancelled and a live receipt) was not run;
   existing double-banked references, if any, need a person.
 - The flag has no UI (R-181); the `log.error` line and `failure_reason` surface it.
+- R-193: a replay that reads a live receipt while a cancel of it commits posts the fee unflagged
+  (pre-existing; see the PR #625 section).
+- `gatewaySettledReceipt.ts` imports `GATEWAY_RECEIPT_AGENT` from `gatewayInvoiceReceiptService.ts`,
+  which imports `findSettledReceipt` back: an import cycle, the same pattern `gatewayFeeService`
+  already has with that service. Harmless (the constant is read only at call time). Not moved,
+  because the parallel R-185 branch edits `gatewayFeeService`'s imports and moving it would conflict.
 - Pre-existing, kept exactly: a LIVE receipt of any kind with the reference (even a draft manual
   one) is taken as the settlement, so the gateway banks nothing. A known gap, registered as R-189.
 - A gateway receipt whose journal was later deleted cannot exist (FK); one never confirmed cannot be
