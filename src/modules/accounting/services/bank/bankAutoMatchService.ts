@@ -10,6 +10,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { isHeldRowError } from '@/lib/lockTimeout';
+import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import {
@@ -50,6 +51,9 @@ export async function autoMatchTransactions(
       WHERE jl.gl_account_id = ${bankAccountId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+        -- D11 round 5: only journals that STAND (not reversed out of the ledger): matchTransaction refuses a line on a
+        -- reversed chain, which answered 400 with the earlier matches committed behind it.
+        AND ${journalStandsFragment('je.id', companyId)}
         -- company_id on the subquery: unscoped it read every tenant's rows.
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
