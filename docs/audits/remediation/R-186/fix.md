@@ -275,6 +275,15 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
     selection, so the nested fragments still splice.
   - Mutants on the single definitions are in `mutations.r5.log`.
 
+| Addendum evidence | Result |
+|---|---|
+| `red.r5.component.log` (ac625482a component, new test) | 1 failed / 1 passed (2): the old copy did not mention the refusal |
+| `mutations.r5.log` (b34ba09c2; E10 re-run at df8d76509) | 12 mutants on `eligibleInvoice`, `gatewayReferenced`, the move, the preview count and the line: 12 killed. E10 (the preview count ignoring eligibility) first SURVIVED; company E was added to the preview case (an approved invoice, one paid after the cutoff, an approved referenced one), and it is now RED |
+| `green.r5.int.log` (df8d76509) | five r186 files: 17/17 |
+| `regression.r5.int.log` | k071 + r101 + r181-settlement-amount + five r186 files: 40/40 |
+| `regression.r5.unit.log` | 5 unit files 77/77. Components 29/29 |
+| `browser-proof.md` (df8d76509) | Preview 200, 1 archivable and 1 skipped, the new line rendered, no console errors |
+
 ## Recorded, not changed
 
 - **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
