@@ -29,10 +29,11 @@
 - **Date handling**: `row.some_date` can be `Date` or `string` depending on the column type (`date` → Date via pg, `timestamptz` → Date). Callers normalise via `fmtDate()` or `String(row.col).slice(0, 10)`.
 - **`any` in DbRow**: kept to match the old Neon shape so `row.status` type-checks without casting. Prefer explicit casts at the mapping boundary (`String(row.status) as Loan['status']`). Tighten per-row by parameterising `sql<Row>\`...\``.
 - **SSL**: `DATABASE_SSL=strict` enforces CA verification; `disable` turns SSL off; default is `{ rejectUnauthorized: false }` for self-hosted Supabase's self-signed cert.
-- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size. Do not call `pool.end()` from app code.
+- **Pool lifetime**: Singleton — `_pool` is lazily created on first `getPool()` call and reused. `PG_POOL_MAX` env (default 10) controls size; read through `poolSizeFromEnv` (`@/lib/limits/poolLimits`), so only a whole number 2-100 is honoured (a `1` is raised to 2, because `withTransaction` outside a request holds one connection and a bare `sql` in its callback needs a second; a floor, not a safe size). Anything else gives `min(default, ceil(Number(text)))` when `Number(text)` is finite and above 0, else `min(default, 10)`, never below 2, with one warning (R-182). Do not call `pool.end()` from app code.
 - **File is `neon.ts` but is NOT Neon**: don't trust the name. `@neondatabase/serverless` is not on the hot path anymore.
 - `sql.transaction` array-form queries execute sequentially inside one BEGIN; callback-form receives a `tx`-bound `SqlFunction` so you can build the list from earlier row data.
 
 ## Recent changes
+- 2026-10-02 (R-182): `PG_POOL_MAX` is read through `poolSizeFromEnv` with a floor of 2 (`MIN_PG_POOL_MAX`): outside a request `withTransaction` holds one connection and a bare `sql` in its callback takes a second, so a pool of 1 timed out. A refused spelling gives the size it meant, never more than 10.
 - 2026-04-24: Supabase-cutover drift fixes; duplicate-prefix/ghost-row tracking hardening.
 - 2026-04-18: ALS-aware routing — bare `sql` inside `withAuth` now uses the request tx client so RLS GUCs are honoured; pg.Pool driver replaced Neon serverless.
