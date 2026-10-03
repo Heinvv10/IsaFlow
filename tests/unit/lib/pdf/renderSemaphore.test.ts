@@ -279,7 +279,7 @@ describe('bounds derived from the auth pool', () => {
   // poolSizeFromEnv's rule: plain digits >= 1 as given; any other finite value > 0 gives
   // min(default, ceil(value)); anything else gives the default. Always warned as invalid.
   it.each([
-    ['abc', 3], ['0', 3], ['-1', 3], ['0.5', 1], ['1.0', 1], ['1.9', 2], ['2.5', 3], ['0x3', 3], ['3e0', 3], ['+3', 3],
+    ['abc', 3], ['0', 3], ['-1', 3], ['5.5', 3], ['50.0', 3], ['0.5', 1], ['1.0', 1], ['1.9', 2], ['2.5', 3], ['0x3', 3], ['3e0', 3], ['+3', 3],
   ])('a set but invalid PDF_MAX_CONCURRENT_RENDERS %j gives %i and is logged once as invalid, never as a clamp (R-188)', async (bad, expected) => {
     process.env.AUTH_POOL_MAX = '40';     // ceiling 10, so only the parsing rule decides
     process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
