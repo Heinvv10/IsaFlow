@@ -45,6 +45,17 @@ function eligibleInvoice(companyId: string, cutoffDate: string) {
     AND ci.status IN ('paid', 'cancelled'))`;
 }
 
+/**
+ * The ONE definition of "the run moves this journal", over `gl_journal_entries je`: this company,
+ * posted, dated before the cutoff. Steps 1, 2 and 6 of executeArchive and the kept-journal refusal
+ * all splice it in.
+ */
+export function movedJournal(companyId: string, cutoffDate: string) {
+  return sql`(je.company_id = ${companyId}
+    AND je.entry_date < ${cutoffDate}::date
+    AND je.status = 'posted')`;
+}
+
 /** The ONE definition of "a payment request of this company references `ci`" (R-186). */
 function gatewayReferenced(companyId: string) {
   return sql`(EXISTS (SELECT 1 FROM paystack_payment_requests pr
@@ -93,9 +104,10 @@ export async function countArchivableCustomerInvoices(
 
 /**
  * Deletes the selected invoices and copies exactly the deleted rows into the
- * archive, in one statement. The eligibility predicate is applied again, because
- * the selection was an unlocked read: an invoice reopened since (say an
- * allocation unwind put it back to 'approved') must stay. If fewer rows moved
+ * archive, in one statement. The eligibility and gateway predicates are applied
+ * again, because the selection was an unlocked read: an invoice reopened since
+ * (say an allocation unwind put it back to 'approved'), or one a payment request
+ * was opened on since, must stay. If fewer rows moved
  * than were selected, or fewer were archived than deleted (an id already in the
  * archive), it throws, so the run rolls back whole.
  */
@@ -108,6 +120,7 @@ export async function moveCustomerInvoicesToArchive(
     WITH moved AS (
       DELETE FROM customer_invoices ci
       WHERE ${eligibleInvoice(companyId, cutoffDate)}
+        AND NOT ${gatewayReferenced(companyId)}
         AND ci.id = ANY(${ids}::uuid[])
       RETURNING ci.*
     ), archived AS (
@@ -133,10 +146,12 @@ export async function moveCustomerInvoicesToArchive(
   `) as DbRow[];
   const moved = Number(rows[0]?.moved ?? 0);
   const archived = Number(rows[0]?.archived ?? 0);
-  if (moved !== ids.length || archived !== moved) {
-    throw new ArchiveSetChangedError(
-      `Customer invoices changed during the archive run: selected ${ids.length}, deleted ${moved}, archived ${archived}`,
-    );
+  if (moved !== ids.length) {
+    throw new ArchiveSetChangedError(`Customer invoices changed during the archive run: selected ${ids.length}, `
+      + `${moved} still eligible (reopened, re-dated, or a payment request opened on them since)`);
+  }
+  if (archived !== moved) {
+    throw new ArchiveSetChangedError(`${moved - archived} invoice id(s) already in the archive; nothing was moved`);
   }
   return archived;
 }
@@ -154,22 +169,22 @@ export async function countSkippedInvoiceJournalsInWindow(
   skippedIds: string[],
 ): Promise<number> {
   const rows = (await sql`
-    WITH RECURSIVE chain (id, reversal_of_id, entry_date, status) AS (
-      SELECT je.id, je.reversal_of_id, je.entry_date, je.status
+    WITH RECURSIVE chain (id, reversal_of_id) AS (
+      SELECT je.id, je.reversal_of_id
       FROM customer_invoices ci
       JOIN gl_journal_entries je ON je.id = ci.gl_journal_entry_id AND je.company_id = ${companyId}
       WHERE ci.company_id = ${companyId}
         AND ci.id = ANY(${skippedIds}::uuid[])
       UNION
-      SELECT je.id, je.reversal_of_id, je.entry_date, je.status
+      SELECT je.id, je.reversal_of_id
       FROM chain c
       JOIN gl_journal_entries je ON je.reversal_of_id = c.id OR je.id = c.reversal_of_id
       WHERE je.company_id = ${companyId}
     )
-    SELECT COUNT(DISTINCT id)::int AS n
-    FROM chain
-    WHERE entry_date < ${cutoffDate}::date
-      AND status = 'posted'
+    SELECT COUNT(DISTINCT je.id)::int AS n
+    FROM chain c
+    JOIN gl_journal_entries je ON je.id = c.id
+    WHERE ${movedJournal(companyId, cutoffDate)}
   `) as DbRow[];
   return Number(rows[0]?.n ?? 0);
 }

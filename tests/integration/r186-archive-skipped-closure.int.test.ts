@@ -14,12 +14,12 @@ import { validateArchive } from '@/modules/accounting/services/core/archiveQuery
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   CUTOFF, LATE_DAY, OLD_DAY, addCompany, addInvoice, addJournal, addPaystackRequest, addStitchRequest, addUser, cleanup,
-  drive, failureOf, ids, linkJournal, user,
+  drive, failureCommitted, failureOf, ids, linkJournal, pool, user,
 } from './r186-archive.helpers';
 
 assertDisposable();
 
-const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), stitch: randomUUID(), outside: randomUUID(),
+const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), stitch: randomUUID(), recorded: randomUUID(), outside: randomUUID(),
   tenant: randomUUID(), foreign: randomUUID() };
 const companies = Object.values(co);
 const REFUSAL = /payment request/i;
@@ -76,6 +76,19 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     expect(await archivedJournals(c)).toEqual([]);
     expect(await liveInvoices(c)).toEqual([skipped, free].sort());
     expect(await archivedInvoices(c)).toEqual([]);
+  }, 40000);
+
+  it('a refused run is recorded as failed, with the reason', async () => {
+    const c = co.recorded;
+    const { skipped } = await skippedInvoice(c);
+    await linkJournal(skipped, await addJournal(c, OLD_DAY, 'posted'));
+
+    const failure = await failureCommitted(c, () => executeArchive(c, CUTOFF, user));
+
+    expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+    const runs = (await pool.query('SELECT status, error_message FROM archive_runs WHERE company_id=$1', [c])).rows;
+    expect(runs).toEqual([{ status: 'failed', error_message: expect.stringMatching(REFUSAL) }]);
+    expect(await archivedJournals(c)).toEqual([]);
   }, 40000);
 
   it('completes when no journal of the skipped invoice is one the run moves (legacy status=reversed original)', async () => {
