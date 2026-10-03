@@ -1,6 +1,6 @@
 /**
  * R-186: the archive preview says how many customer invoices stay live because a
- * Paystack payment request refers to them, and says nothing when there are none.
+ * Paystack or Stitch payment request refers to them, and says nothing when there are none.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -22,14 +22,14 @@ const base: ArchivePreview = {
   customerInvoicesSkipped: 0, supplierInvoices: 0, totalRecords: 1,
 };
 
-describe('ArchiveWizardSection: Paystack-skipped invoices', () => {
+describe('ArchiveWizardSection: gateway-skipped invoices', () => {
   it('names the skipped count', () => {
     renderWith({ ...base, customerInvoicesSkipped: 2 });
-    expect(screen.getByText(/^2 paid or cancelled customer invoice\(s\) before the cutoff\s+stay live: a Paystack payment request refers to them\.$/)).toBeTruthy();
+    expect(screen.getByText(/^2 paid or cancelled customer invoice\(s\) before the cutoff\s+stay live: a Paystack or Stitch payment request refers to them\.$/)).toBeTruthy();
   });
 
   it('says nothing when none are skipped', () => {
     renderWith(base);
-    expect(screen.queryByText(/Paystack payment request/)).toBeNull();
+    expect(screen.queryByText(/payment request/)).toBeNull();
   });
 });
