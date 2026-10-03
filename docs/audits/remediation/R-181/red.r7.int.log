@@ -1,0 +1,321 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_431cef8e-bbd","timestamp":"2026-10-02T17:01:50.737Z","component":"API","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_431cef8e-bbd","query":{"ref":"r181_431cef8e-bbd"}}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:50.749Z","component":"API","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-10-02T17:01:50.865Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-10-02T17:01:50.865Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","year":2027}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-10-02T17:01:50.865Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"companyId":"9a3d99a6-8420-42b3-815f-5eb5d1e9f425","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-10-02T17:01:50.865Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"companyId":"9a3d99a6-8420-42b3-815f-5eb5d1e9f425","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.884Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"entryId":"33dbcbac-ea9c-4c32-973f-c3f6a619b5b2","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.885Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"entryId":"b4ab3c69-88fd-49c8-ac4f-107ea02b8183","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.905Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"id":"33dbcbac-ea9c-4c32-973f-c3f6a619b5b2","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.907Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"id":"b4ab3c69-88fd-49c8-ac4f-107ea02b8183","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:50.907Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"id":"3f49bed5-449d-4cab-bf89-afc01c8cd3d3","journalEntryId":"33dbcbac-ea9c-4c32-973f-c3f6a619b5b2"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:50.908Z","component":"accounting","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"reference":"r181_431cef8e-bbd","invoiceId":"d21f6e82-8c08-42c1-b0ca-f5ac3c79a431","paymentId":"3f49bed5-449d-4cab-bf89-afc01c8cd3d3","allocated":115,"unallocated":0,"journalEntryId":"33dbcbac-ea9c-4c32-973f-c3f6a619b5b2"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:50.909Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"id":"da0aee5f-3094-4d31-b5f7-9d954f6948e8","journalEntryId":"b4ab3c69-88fd-49c8-ac4f-107ea02b8183"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_431cef8e-bbd - 200 (174ms)","timestamp":"2026-10-02T17:01:50.910Z","component":"API","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_431cef8e-bbd","statusCode":200,"duration":"174ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:50.911Z","component":"http","requestId":"01M3YS19RG37ZHCKHXXWW5DARD","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":175,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.913Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"entryId":"1cfd2302-ca4a-4786-bdeb-2f7e4c3d9166","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.916Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"id":"1cfd2302-ca4a-4786-bdeb-2f7e4c3d9166","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:50.916Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"reference":"r181_598a3cdc-01a","fee":3,"journalEntryId":"1cfd2302-ca4a-4786-bdeb-2f7e4c3d9166"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:50.917Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_598a3cdc-01a","reviews":["amount_mismatch","requested_amount_exceeds_fee"],"previousFailureReason":null,"paymentId":"da0aee5f-3094-4d31-b5f7-9d954f6948e8","invoiceId":"8006db47-fd6f-483f-83a3-4cbebc0cc630","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":10000,"reportedCents":10300,"requestedAmountCents":5000,"reportedCurrency":"ZAR","bankedRand":103,"allocated":103}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:50.917Z","component":"accounting","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"reference":"r181_598a3cdc-01a","invoiceId":"8006db47-fd6f-483f-83a3-4cbebc0cc630","paymentId":"da0aee5f-3094-4d31-b5f7-9d954f6948e8","allocated":103,"unallocated":0,"journalEntryId":"b4ab3c69-88fd-49c8-ac4f-107ea02b8183"}}
+{"level":"info","message":"API Response: POST  - 200 (172ms)","timestamp":"2026-10-02T17:01:50.920Z","component":"API","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"172ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:50.920Z","component":"http","requestId":"01M3YS19RWRTYHG98Q9K9JX0M5","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":172,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_21e439ea-e6c","timestamp":"2026-10-02T17:01:50.926Z","component":"API","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_21e439ea-e6c","query":{"ref":"r181_21e439ea-e6c"}}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:50.935Z","component":"API","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.944Z","component":"accounting","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"entryId":"a3decee1-dd21-4a22-8113-2f0d524a71ce","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.949Z","component":"accounting","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"id":"a3decee1-dd21-4a22-8113-2f0d524a71ce","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:50.950Z","component":"accounting","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"id":"ee17760b-da1b-4b0c-b6a9-a8866da53821","journalEntryId":"a3decee1-dd21-4a22-8113-2f0d524a71ce"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:50.950Z","component":"accounting","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"reference":"r181_21e439ea-e6c","invoiceId":"913e6d2a-afab-4c86-9cee-977b7c35e1b0","paymentId":"ee17760b-da1b-4b0c-b6a9-a8866da53821","allocated":115,"unallocated":0,"journalEntryId":"a3decee1-dd21-4a22-8113-2f0d524a71ce"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.951Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"entryId":"e8897b91-2aa8-4aba-a6fa-58d586e20054","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_21e439ea-e6c - 200 (27ms)","timestamp":"2026-10-02T17:01:50.953Z","component":"API","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_21e439ea-e6c","statusCode":200,"duration":"27ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:50.953Z","component":"http","requestId":"01M3YS19YEP527THDNJZ5VQEZH","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":27,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:50.958Z","component":"API","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.963Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"id":"e8897b91-2aa8-4aba-a6fa-58d586e20054","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:50.965Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"id":"f10cb18c-f7a3-4456-bd27-c1c21f77dc49","journalEntryId":"e8897b91-2aa8-4aba-a6fa-58d586e20054"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:50.966Z","component":"accounting","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"reference":"r181_21e439ea-e6c","invoiceId":"913e6d2a-afab-4c86-9cee-977b7c35e1b0"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.969Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"entryId":"ee2a818a-220f-4b11-ada9-fd14aeb45de1","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:50.970Z","component":"accounting","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"entryId":"5f093722-cc1c-44c8-9739-dd624fe6e825","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.973Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"id":"ee2a818a-220f-4b11-ada9-fd14aeb45de1","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:50.973Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"reference":"r181_2faef79c-ec3","fee":2,"journalEntryId":"ee2a818a-220f-4b11-ada9-fd14aeb45de1"}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:50.973Z","component":"accounting","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"id":"5f093722-cc1c-44c8-9739-dd624fe6e825","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:50.973Z","component":"accounting","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"reference":"r181_21e439ea-e6c","fee":3.5,"journalEntryId":"5f093722-cc1c-44c8-9739-dd624fe6e825"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:50.974Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_2faef79c-ec3","reviews":["amount_mismatch","requested_amount_exceeds_fee"],"previousFailureReason":null,"paymentId":"f10cb18c-f7a3-4456-bd27-c1c21f77dc49","invoiceId":"73b2bd56-0ca3-4177-b5dc-9048c435ee62","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":10000,"reportedCents":10300,"requestedAmountCents":10000,"reportedCurrency":"ZAR","bankedRand":103,"allocated":103}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:50.974Z","component":"accounting","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"reference":"r181_2faef79c-ec3","invoiceId":"73b2bd56-0ca3-4177-b5dc-9048c435ee62","paymentId":"f10cb18c-f7a3-4456-bd27-c1c21f77dc49","allocated":103,"unallocated":0,"journalEntryId":"e8897b91-2aa8-4aba-a6fa-58d586e20054"}}
+{"level":"info","message":"API Response: POST  - 200 (18ms)","timestamp":"2026-10-02T17:01:50.976Z","component":"API","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"18ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:50.976Z","component":"http","requestId":"01M3YS19ZEWQ0K9DMJCF0E9Y4D","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":18,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Response: POST  - 200 (43ms)","timestamp":"2026-10-02T17:01:50.978Z","component":"API","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"43ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:50.978Z","component":"http","requestId":"01M3YS19YQN7415W0J23C5YHC0","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":43,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:50.995Z","component":"API","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_152bbaa5-e79","timestamp":"2026-10-02T17:01:50.999Z","component":"API","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_152bbaa5-e79","query":{"ref":"r181_152bbaa5-e79"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.011Z","component":"accounting","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"entryId":"71cfa288-d93c-416c-8e45-9d71fed44979","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.015Z","component":"accounting","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"id":"71cfa288-d93c-416c-8e45-9d71fed44979","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.015Z","component":"accounting","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"id":"2d28e1a0-2410-4dd5-ba0d-0a74fbb52d34","journalEntryId":"71cfa288-d93c-416c-8e45-9d71fed44979"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.015Z","component":"accounting","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"reference":"r181_42d69ff8-544","invoiceId":"44f13e8e-77b7-40fc-8c19-7e5475913d55","paymentId":"2d28e1a0-2410-4dd5-ba0d-0a74fbb52d34","allocated":null,"unallocated":null,"journalEntryId":"71cfa288-d93c-416c-8e45-9d71fed44979"}}
+{"level":"warn","message":"Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt","timestamp":"2026-10-02T17:01:51.016Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"reference":"r181_152bbaa5-e79","invoiceId":"2c8186e7-8e6b-4530-a471-d05d8736ceef","amountRand":118.5,"outstanding":115,"pending":0,"unallocated":3.5}}
+{"level":"info","message":"API Response: POST  - 200 (28ms)","timestamp":"2026-10-02T17:01:51.023Z","component":"API","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"28ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.023Z","component":"http","requestId":"01M3YS1A0KWMMAZC6D7K87X3QQ","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":28,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.024Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"entryId":"20d72b3d-2f71-423e-8cbf-ac3689714bc5","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.026Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"id":"20d72b3d-2f71-423e-8cbf-ac3689714bc5","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.027Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"id":"97af0b38-5d2c-49b1-adc0-6548ffd86e09","journalEntryId":"20d72b3d-2f71-423e-8cbf-ac3689714bc5"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.029Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_152bbaa5-e79","reviews":["amount_mismatch","requested_amount_unverified","overpaid_unapplied"],"previousFailureReason":null,"paymentId":"97af0b38-5d2c-49b1-adc0-6548ffd86e09","invoiceId":"2c8186e7-8e6b-4530-a471-d05d8736ceef","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":11500,"reportedCents":11850,"requestedAmountCents":11500,"reportedCurrency":"ZAR","bankedRand":118.5,"allocated":115}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.029Z","component":"accounting","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"reference":"r181_152bbaa5-e79","invoiceId":"2c8186e7-8e6b-4530-a471-d05d8736ceef","paymentId":"97af0b38-5d2c-49b1-adc0-6548ffd86e09","allocated":115,"unallocated":3.5,"journalEntryId":"20d72b3d-2f71-423e-8cbf-ac3689714bc5"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_152bbaa5-e79 - 200 (34ms)","timestamp":"2026-10-02T17:01:51.033Z","component":"API","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_152bbaa5-e79","statusCode":200,"duration":"34ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.033Z","component":"http","requestId":"01M3YS1A0Q2BY2RB2W2ND7N0TR","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":34,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.037Z","component":"API","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_61b17228-c43","timestamp":"2026-10-02T17:01:51.037Z","component":"API","requestId":"01M3YS1A1XA77M6KHA5NVG74TP","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_61b17228-c43","query":{"ref":"r181_61b17228-c43"}}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.041Z","component":"accounting","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"reference":"r181_152bbaa5-e79","invoiceId":"2c8186e7-8e6b-4530-a471-d05d8736ceef"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.044Z","component":"accounting","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"entryId":"c6ef68dc-36d4-45e9-86f4-9ff74870f202","entryNumber":"JE-2026-00006","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.046Z","component":"accounting","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"id":"c6ef68dc-36d4-45e9-86f4-9ff74870f202","entryNumber":"JE-2026-00006"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:51.046Z","component":"accounting","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"reference":"r181_152bbaa5-e79","fee":3.5,"journalEntryId":"c6ef68dc-36d4-45e9-86f4-9ff74870f202"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.047Z","component":"accounting","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_152bbaa5-e79","reviews":["amount_disagrees_with_first_report"],"previousFailureReason":"review:amount_mismatch,requested_amount_unverified,overpaid_unapplied","paymentId":"97af0b38-5d2c-49b1-adc0-6548ffd86e09","invoiceId":"2c8186e7-8e6b-4530-a471-d05d8736ceef","bankedRand":118.5,"reportedRand":115,"reportedCents":11850,"reportedCurrency":"ZAR"}}
+{"level":"info","message":"API Response: POST  - 200 (12ms)","timestamp":"2026-10-02T17:01:51.049Z","component":"API","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"12ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.049Z","component":"http","requestId":"01M3YS1A1XDD85360RHEHNKR0H","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":12,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_1343013f-0d3","timestamp":"2026-10-02T17:01:51.057Z","component":"API","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_1343013f-0d3","query":{"ref":"r181_1343013f-0d3"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.067Z","component":"accounting","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"entryId":"e0788f8d-c44b-4819-9123-9f2834c86d9b","entryNumber":"JE-2026-00007","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.070Z","component":"accounting","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"id":"e0788f8d-c44b-4819-9123-9f2834c86d9b","entryNumber":"JE-2026-00007"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.075Z","component":"accounting","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"id":"c1e08126-5abe-46f5-a1e5-abc89c194dfd","journalEntryId":"e0788f8d-c44b-4819-9123-9f2834c86d9b"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.076Z","component":"accounting","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"reference":"r181_1343013f-0d3","invoiceId":"b95bffe0-0586-4b95-8a1f-17946ad67e55","paymentId":"c1e08126-5abe-46f5-a1e5-abc89c194dfd","allocated":115,"unallocated":0,"journalEntryId":"e0788f8d-c44b-4819-9123-9f2834c86d9b"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_1343013f-0d3 - 200 (21ms)","timestamp":"2026-10-02T17:01:51.078Z","component":"API","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_1343013f-0d3","statusCode":200,"duration":"21ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.078Z","component":"http","requestId":"01M3YS1A2HVSNCV0YW84DJKM60","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":21,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_f3978f49-f8e","timestamp":"2026-10-02T17:01:51.094Z","component":"API","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_f3978f49-f8e","query":{"ref":"r181_f3978f49-f8e"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.106Z","component":"accounting","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"entryId":"d34a73d7-7785-4119-a231-c44ecc311cb2","entryNumber":"JE-2026-00008","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.109Z","component":"accounting","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"id":"d34a73d7-7785-4119-a231-c44ecc311cb2","entryNumber":"JE-2026-00008"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.110Z","component":"accounting","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"id":"0066e65c-64aa-4f32-bc6b-47d962c7acc3","journalEntryId":"d34a73d7-7785-4119-a231-c44ecc311cb2"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.110Z","component":"accounting","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"reference":"r181_f3978f49-f8e","invoiceId":"b3ac847e-79a7-4ac2-8fb5-02358f3d02eb","paymentId":"0066e65c-64aa-4f32-bc6b-47d962c7acc3","allocated":115,"unallocated":0,"journalEntryId":"d34a73d7-7785-4119-a231-c44ecc311cb2"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_f3978f49-f8e - 200 (18ms)","timestamp":"2026-10-02T17:01:51.112Z","component":"API","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_f3978f49-f8e","statusCode":200,"duration":"18ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.112Z","component":"http","requestId":"01M3YS1A3PR2877249EZBMXPMN","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":18,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_1fbd0f2b-f94","timestamp":"2026-10-02T17:01:51.121Z","component":"API","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_1fbd0f2b-f94","query":{"ref":"r181_1fbd0f2b-f94"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.131Z","component":"accounting","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"entryId":"4b182169-937f-417d-aa50-a7a91ccd583f","entryNumber":"JE-2026-00009","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.133Z","component":"accounting","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"id":"4b182169-937f-417d-aa50-a7a91ccd583f","entryNumber":"JE-2026-00009"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.139Z","component":"accounting","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"id":"91ef683b-ca62-4b94-b9db-68e403a35fbb","journalEntryId":"4b182169-937f-417d-aa50-a7a91ccd583f"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.141Z","component":"accounting","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_1fbd0f2b-f94","reviews":["amount_mismatch"],"previousFailureReason":null,"paymentId":"91ef683b-ca62-4b94-b9db-68e403a35fbb","invoiceId":"44c36812-89f4-49c1-8d6f-8e6c4fffbafc","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":10000,"reportedCents":10300,"reportedCurrency":"ZAR","bankedRand":103,"allocated":103}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.141Z","component":"accounting","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"reference":"r181_1fbd0f2b-f94","invoiceId":"44c36812-89f4-49c1-8d6f-8e6c4fffbafc","paymentId":"91ef683b-ca62-4b94-b9db-68e403a35fbb","allocated":103,"unallocated":0,"journalEntryId":"4b182169-937f-417d-aa50-a7a91ccd583f"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_1fbd0f2b-f94 - 200 (22ms)","timestamp":"2026-10-02T17:01:51.143Z","component":"API","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_1fbd0f2b-f94","statusCode":200,"duration":"22ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.144Z","component":"http","requestId":"01M3YS1A4HZDD9F3E4DD2AWBFZ","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":23,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.144Z","component":"API","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.148Z","component":"accounting","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"reference":"r181_1fbd0f2b-f94","invoiceId":"44c36812-89f4-49c1-8d6f-8e6c4fffbafc"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.150Z","component":"accounting","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"entryId":"f14203d5-1890-4f7f-9fb6-b2d78ee00295","entryNumber":"JE-2026-00010","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.154Z","component":"accounting","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"id":"f14203d5-1890-4f7f-9fb6-b2d78ee00295","entryNumber":"JE-2026-00010"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:51.154Z","component":"accounting","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"reference":"r181_1fbd0f2b-f94","fee":3,"journalEntryId":"f14203d5-1890-4f7f-9fb6-b2d78ee00295"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.154Z","component":"accounting","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_1fbd0f2b-f94","reviews":["amount_disagrees_with_first_report"],"previousFailureReason":"review:amount_mismatch","paymentId":"91ef683b-ca62-4b94-b9db-68e403a35fbb","invoiceId":"44c36812-89f4-49c1-8d6f-8e6c4fffbafc","bankedRand":103,"reportedRand":100,"reportedCents":10300,"reportedCurrency":"ZAR"}}
+{"level":"info","message":"API Response: POST  - 200 (13ms)","timestamp":"2026-10-02T17:01:51.157Z","component":"API","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.157Z","component":"http","requestId":"01M3YS1A589GBAHKNX6GK0ADJR","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":13,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_b9d752bf-1b7","timestamp":"2026-10-02T17:01:51.165Z","component":"API","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_b9d752bf-1b7","query":{"ref":"r181_b9d752bf-1b7"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.178Z","component":"accounting","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"entryId":"cc5cc56d-9c9e-47fb-b66e-b50afbef0612","entryNumber":"JE-2026-00011","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.179Z","component":"accounting","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"id":"cc5cc56d-9c9e-47fb-b66e-b50afbef0612","entryNumber":"JE-2026-00011"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.180Z","component":"accounting","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"id":"3a9a86fa-ec93-4f9d-9d3d-2114f09b223a","journalEntryId":"cc5cc56d-9c9e-47fb-b66e-b50afbef0612"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.180Z","component":"accounting","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"reference":"r181_b9d752bf-1b7","invoiceId":"f9da1161-d998-4a86-89db-e944ae9dc4a6","paymentId":"3a9a86fa-ec93-4f9d-9d3d-2114f09b223a","allocated":100,"unallocated":0,"journalEntryId":"cc5cc56d-9c9e-47fb-b66e-b50afbef0612"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_b9d752bf-1b7 - 200 (18ms)","timestamp":"2026-10-02T17:01:51.183Z","component":"API","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_b9d752bf-1b7","statusCode":200,"duration":"18ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.183Z","component":"http","requestId":"01M3YS1A5X1SGC4DPHDE15E3SB","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":18,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.183Z","component":"API","requestId":"01M3YS1A6FXQ79237HV8SM9P8W","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.187Z","component":"accounting","requestId":"01M3YS1A6FXQ79237HV8SM9P8W","data":{"reference":"r181_b9d752bf-1b7","invoiceId":"f9da1161-d998-4a86-89db-e944ae9dc4a6"}}
+{"level":"info","message":"API Response: POST  - 200 (6ms)","timestamp":"2026-10-02T17:01:51.189Z","component":"API","requestId":"01M3YS1A6FXQ79237HV8SM9P8W","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.189Z","component":"http","requestId":"01M3YS1A6FXQ79237HV8SM9P8W","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":6,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_a91639a2-f6c","timestamp":"2026-10-02T17:01:51.202Z","component":"API","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_a91639a2-f6c","query":{"ref":"r181_a91639a2-f6c"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.219Z","component":"accounting","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"entryId":"2ba592ad-530f-4b75-86ce-1a3ef01e0612","entryNumber":"JE-2026-00012","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.226Z","component":"accounting","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"id":"2ba592ad-530f-4b75-86ce-1a3ef01e0612","entryNumber":"JE-2026-00012"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.227Z","component":"accounting","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"id":"a1a5ccfb-d7b3-47c6-9b7a-ab6857758655","journalEntryId":"2ba592ad-530f-4b75-86ce-1a3ef01e0612"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.228Z","component":"accounting","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"reference":"r181_a91639a2-f6c","invoiceId":"387265cb-c086-4e4f-9246-1058b63010af","paymentId":"a1a5ccfb-d7b3-47c6-9b7a-ab6857758655","allocated":100,"unallocated":0,"journalEntryId":"2ba592ad-530f-4b75-86ce-1a3ef01e0612"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_a91639a2-f6c - 200 (28ms)","timestamp":"2026-10-02T17:01:51.230Z","component":"API","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_a91639a2-f6c","statusCode":200,"duration":"28ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.230Z","component":"http","requestId":"01M3YS1A72YJPC71JF908D9FN4","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":28,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.231Z","component":"API","requestId":"01M3YS1A7ZJ73Q5S8H7MY72CEG","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.235Z","component":"accounting","requestId":"01M3YS1A7ZJ73Q5S8H7MY72CEG","data":{"reference":"r181_a91639a2-f6c","invoiceId":"387265cb-c086-4e4f-9246-1058b63010af"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.235Z","component":"accounting","requestId":"01M3YS1A7ZJ73Q5S8H7MY72CEG","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_a91639a2-f6c","reviews":["amount_mismatch","amount_disagrees_with_first_report"],"previousFailureReason":null,"paymentId":"a1a5ccfb-d7b3-47c6-9b7a-ab6857758655","invoiceId":"387265cb-c086-4e4f-9246-1058b63010af","bankedRand":100,"reportedRand":103,"reportedCents":10300,"reportedCurrency":"ZAR"}}
+{"level":"info","message":"API Response: POST  - 200 (7ms)","timestamp":"2026-10-02T17:01:51.238Z","component":"API","requestId":"01M3YS1A7ZJ73Q5S8H7MY72CEG","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"7ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.238Z","component":"http","requestId":"01M3YS1A7ZJ73Q5S8H7MY72CEG","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":7,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_521076e9-4c5","timestamp":"2026-10-02T17:01:51.247Z","component":"API","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_521076e9-4c5","query":{"ref":"r181_521076e9-4c5"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.261Z","component":"accounting","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"entryId":"7568f158-6089-4344-9446-cfb46176c57a","entryNumber":"JE-2026-00013","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.268Z","component":"accounting","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"id":"7568f158-6089-4344-9446-cfb46176c57a","entryNumber":"JE-2026-00013"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.269Z","component":"accounting","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"id":"d491a1c6-2a3a-423f-ab5f-67ca6b681dbe","journalEntryId":"7568f158-6089-4344-9446-cfb46176c57a"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.270Z","component":"accounting","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"reference":"r181_521076e9-4c5","invoiceId":"77dc813d-59ff-42be-b468-74bfcdf4647e","paymentId":"d491a1c6-2a3a-423f-ab5f-67ca6b681dbe","allocated":100,"unallocated":0,"journalEntryId":"7568f158-6089-4344-9446-cfb46176c57a"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_521076e9-4c5 - 200 (25ms)","timestamp":"2026-10-02T17:01:51.272Z","component":"API","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_521076e9-4c5","statusCode":200,"duration":"25ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.272Z","component":"http","requestId":"01M3YS1A8F1FWC8909949GMR65","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":25,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.273Z","component":"API","requestId":"01M3YS1A997NJEQCB2EVEV87VS","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.279Z","component":"accounting","requestId":"01M3YS1A997NJEQCB2EVEV87VS","data":{"reference":"r181_521076e9-4c5","invoiceId":"77dc813d-59ff-42be-b468-74bfcdf4647e"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.280Z","component":"accounting","requestId":"01M3YS1A997NJEQCB2EVEV87VS","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_521076e9-4c5","reviews":["amount_mismatch","requested_amount_exceeds_fee","amount_disagrees_with_first_report","fee_clamped"],"previousFailureReason":null,"paymentId":"d491a1c6-2a3a-423f-ab5f-67ca6b681dbe","invoiceId":"77dc813d-59ff-42be-b468-74bfcdf4647e","bankedRand":100,"reportedRand":105,"reportedCents":10500,"reportedCurrency":"ZAR"}}
+{"level":"info","message":"API Response: POST  - 200 (13ms)","timestamp":"2026-10-02T17:01:51.286Z","component":"API","requestId":"01M3YS1A997NJEQCB2EVEV87VS","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.286Z","component":"http","requestId":"01M3YS1A997NJEQCB2EVEV87VS","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":13,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.302Z","component":"API","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.311Z","component":"accounting","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"entryId":"4c543ac2-cc5d-431e-bb4f-e410a3d403aa","entryNumber":"JE-2026-00014","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.313Z","component":"accounting","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"id":"4c543ac2-cc5d-431e-bb4f-e410a3d403aa","entryNumber":"JE-2026-00014"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.314Z","component":"accounting","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"id":"05466e6a-286d-4803-8420-1819e3a2372b","journalEntryId":"4c543ac2-cc5d-431e-bb4f-e410a3d403aa"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.315Z","component":"accounting","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_a1dbaeed-1cc","reviews":["currency_mismatch","unapplied_currency"],"previousFailureReason":null,"paymentId":"05466e6a-286d-4803-8420-1819e3a2372b","invoiceId":"32a21d8b-0a72-415c-8a16-545f24d72c5e","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":11500,"reportedCents":11500,"reportedCurrency":"USD","bankedRand":115,"allocated":0}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.315Z","component":"accounting","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"reference":"r181_a1dbaeed-1cc","invoiceId":"32a21d8b-0a72-415c-8a16-545f24d72c5e","paymentId":"05466e6a-286d-4803-8420-1819e3a2372b","allocated":0,"unallocated":115,"journalEntryId":"4c543ac2-cc5d-431e-bb4f-e410a3d403aa"}}
+{"level":"info","message":"API Response: POST  - 200 (21ms)","timestamp":"2026-10-02T17:01:51.323Z","component":"API","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"21ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.323Z","component":"http","requestId":"01M3YS1AA6A6YN0ZT4J316TYWH","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":21,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.348Z","component":"API","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.369Z","component":"accounting","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"entryId":"6265176a-9e68-47d8-85c5-d32db2a43dc9","entryNumber":"JE-2026-00015","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.371Z","component":"accounting","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"id":"6265176a-9e68-47d8-85c5-d32db2a43dc9","entryNumber":"JE-2026-00015"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.372Z","component":"accounting","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"id":"fe09b525-e81c-4d91-84f6-10a2fe91f918","journalEntryId":"6265176a-9e68-47d8-85c5-d32db2a43dc9"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.372Z","component":"accounting","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"reference":"r181_bbaa3847-822","invoiceId":"d0796057-1954-40a8-9272-dcc1ec61e85a","paymentId":"fe09b525-e81c-4d91-84f6-10a2fe91f918","allocated":115,"unallocated":0,"journalEntryId":"6265176a-9e68-47d8-85c5-d32db2a43dc9"}}
+{"level":"info","message":"API Response: POST  - 200 (29ms)","timestamp":"2026-10-02T17:01:51.377Z","component":"API","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"29ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.377Z","component":"http","requestId":"01M3YS1ABMTGYSJCP7JZMPQPAR","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":29,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.393Z","component":"API","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.405Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"entryId":"2f08baba-5406-47dd-8182-87c5792a4dbb","entryNumber":"JE-2026-00016","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.407Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"id":"2f08baba-5406-47dd-8182-87c5792a4dbb","entryNumber":"JE-2026-00016"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.407Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"id":"dc49f9c0-6357-4efd-8be2-a5590cd93ec4","journalEntryId":"2f08baba-5406-47dd-8182-87c5792a4dbb"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.409Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"entryId":"8b50fa77-5466-4a03-b031-128e0432bf7a","entryNumber":"JE-2026-00017","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.416Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"id":"8b50fa77-5466-4a03-b031-128e0432bf7a","entryNumber":"JE-2026-00017"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-02T17:01:51.416Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"reference":"r181_c4f2326a-d6d","fee":100,"journalEntryId":"8b50fa77-5466-4a03-b031-128e0432bf7a"}}
+{"level":"error","message":"Gateway settlement needs review","timestamp":"2026-10-02T17:01:51.417Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"companyId":"bdd4f90b-ad84-44a4-9352-94d80bf261e9","reference":"r181_c4f2326a-d6d","reviews":["fee_exceeds_receipt"],"previousFailureReason":null,"paymentId":"dc49f9c0-6357-4efd-8be2-a5590cd93ec4","invoiceId":"dc86d989-c9f6-4cd3-8196-0f8dc5a9ed28","invoiceStatus":"sent","invoiceDeleted":false,"expectedCents":10000,"reportedCents":10000,"reportedCurrency":"ZAR","bankedRand":100,"allocated":100}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.417Z","component":"accounting","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"reference":"r181_c4f2326a-d6d","invoiceId":"dc86d989-c9f6-4cd3-8196-0f8dc5a9ed28","paymentId":"dc49f9c0-6357-4efd-8be2-a5590cd93ec4","allocated":100,"unallocated":0,"journalEntryId":"2f08baba-5406-47dd-8182-87c5792a4dbb"}}
+{"level":"info","message":"API Response: POST  - 200 (26ms)","timestamp":"2026-10-02T17:01:51.419Z","component":"API","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"26ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.419Z","component":"http","requestId":"01M3YS1AD127QQ2ZYQ9G3G303F","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":26,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_52e3dfd4-4a8","timestamp":"2026-10-02T17:01:51.428Z","component":"API","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_52e3dfd4-4a8","query":{"ref":"r181_52e3dfd4-4a8"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:51.442Z","component":"accounting","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"entryId":"b9302f3f-4dbe-4572-b958-9899332c745f","entryNumber":"JE-2026-00018","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:51.447Z","component":"accounting","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"id":"b9302f3f-4dbe-4572-b958-9899332c745f","entryNumber":"JE-2026-00018"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:51.448Z","component":"accounting","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"id":"64ad292c-71d3-41c7-b1f9-34c6a4617970","journalEntryId":"b9302f3f-4dbe-4572-b958-9899332c745f"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:51.448Z","component":"accounting","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"reference":"r181_52e3dfd4-4a8","invoiceId":"15ffb3bf-adb5-4dd5-8be0-36378f4c5e79","paymentId":"64ad292c-71d3-41c7-b1f9-34c6a4617970","allocated":100,"unallocated":0,"journalEntryId":"b9302f3f-4dbe-4572-b958-9899332c745f"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_52e3dfd4-4a8 - 200 (22ms)","timestamp":"2026-10-02T17:01:51.450Z","component":"API","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_52e3dfd4-4a8","statusCode":200,"duration":"22ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.450Z","component":"http","requestId":"01M3YS1AE4VWP1P6VQ1ZGK6N3A","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":22,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:51.453Z","component":"API","requestId":"01M3YS1AEXM4PT9XPDX4QRG3E6","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:51.456Z","component":"accounting","requestId":"01M3YS1AEXM4PT9XPDX4QRG3E6","data":{"reference":"r181_52e3dfd4-4a8","invoiceId":"15ffb3bf-adb5-4dd5-8be0-36378f4c5e79"}}
+{"level":"info","message":"API Response: POST  - 200 (6ms)","timestamp":"2026-10-02T17:01:51.459Z","component":"API","requestId":"01M3YS1AEXM4PT9XPDX4QRG3E6","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:51.459Z","component":"http","requestId":"01M3YS1AEXM4PT9XPDX4QRG3E6","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":6,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/r181-review-round2.int.test.ts (13 tests | 1 failed) 1992ms
+     × verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100, the two amounts flagged (PR #618 LOW-5) 36ms
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-02T17:01:56.050Z","component":"PaystackPortal","requestId":"01M3YS1A1XA77M6KHA5NVG74TP","data":{"prId":"c7176e58-6cbc-4bb2-99c2-7248a66eb5c6","err":"Invoice b23f6ee9-9f25-46e4-a94c-e3e1f729062d is being processed by another request — retry in a moment."}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_61b17228-c43 - 200 (5013ms)","timestamp":"2026-10-02T17:01:56.050Z","component":"API","requestId":"01M3YS1A1XA77M6KHA5NVG74TP","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_61b17228-c43","statusCode":200,"duration":"5013ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:56.050Z","component":"http","requestId":"01M3YS1A1XA77M6KHA5NVG74TP","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":5013,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=r181_88b61e53-dbd","timestamp":"2026-10-02T17:01:56.058Z","component":"API","requestId":"01M3YS1EYTNT8DF2S9JF5Y2SKA","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_88b61e53-dbd","query":{"ref":"r181_88b61e53-dbd"}}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-02T17:01:56.063Z","component":"API","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-02T17:01:56.111Z","component":"accounting","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"entryId":"0c9df4bb-85fa-4f65-890d-3e6c51342521","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-02T17:01:56.114Z","component":"accounting","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"id":"0c9df4bb-85fa-4f65-890d-3e6c51342521","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-02T17:01:56.116Z","component":"accounting","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"id":"fc4025c0-3abf-44be-b061-a8dd0c0eb73d","journalEntryId":"0c9df4bb-85fa-4f65-890d-3e6c51342521"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-02T17:01:56.116Z","component":"accounting","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"reference":"r181_88b61e53-dbd","invoiceId":"c1ec62bd-8490-4efd-99bb-256657eb331d","paymentId":"fc4025c0-3abf-44be-b061-a8dd0c0eb73d","allocated":100,"unallocated":0,"journalEntryId":"0c9df4bb-85fa-4f65-890d-3e6c51342521"}}
+{"level":"info","message":"API Response: POST  - 200 (61ms)","timestamp":"2026-10-02T17:01:56.124Z","component":"API","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"61ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:56.124Z","component":"http","requestId":"01M3YS1EYYC6AV2Z4JJAATJXKB","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":61,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-02T17:01:56.126Z","component":"accounting","requestId":"01M3YS1EYTNT8DF2S9JF5Y2SKA","data":{"reference":"r181_88b61e53-dbd","invoiceId":"c1ec62bd-8490-4efd-99bb-256657eb331d"}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=r181_88b61e53-dbd - 200 (68ms)","timestamp":"2026-10-02T17:01:56.126Z","component":"API","requestId":"01M3YS1EYTNT8DF2S9JF5Y2SKA","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=r181_88b61e53-dbd","statusCode":200,"duration":"68ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-02T17:01:56.126Z","component":"http","requestId":"01M3YS1EYTNT8DF2S9JF5Y2SKA","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":68,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/r181-pr618.int.test.ts (5 tests | 4 failed) 6343ms
+     × verify alone (the webhook never lands) books the R3.50 fee: Bank nets R111.50 833ms
+     × takes nothing, is flagged invoice_balance_invalid, and the receipt is banked unapplied 45ms
+     × a failed request Paystack says succeeded, whose settlement times out on the invoice lock, answers pending 5025ms
+     × webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100 78ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r181-pr618.int.test.ts > LOW-1: verify posts the fee it knows, once > verify alone (the webhook never lands) books the R3.50 fee: Bank nets R111.50
+AssertionError: expected { bankNet: '115.00', …(4) } to match object { bankNet: '111.50', …(2) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "balanced": true,
+-   "bankNet": "111.50",
+-   "feeExpense": "3.50",
++   "bankNet": "115.00",
++   "feeExpense": "0.00",
+  }
+
+ ❯ tests/integration/r181-pr618.int.test.ts:46:34
+     44|     paystackSays(11500, { feesCents: 350 });
+     45|     expect((await verify(ref)).body.data?.status).toBe('completed');
+     46|     expect(await ledger(A, ref)).toMatchObject({ bankNet: '111.50', fe…
+       |                                  ^
+     47|   });
+     48|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/r181-pr618.int.test.ts > LOW-2: a NaN invoice balance > takes nothing, is flagged invoice_balance_invalid, and the receipt is banked unapplied
+AssertionError: expected { payments: [ { …(3) } ], …(3) } to match object { payments: [ { …(3) } ], …(1) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+@@ -4,7 +4,7 @@
+        "allocated": "0.00",
+        "status": "confirmed",
+        "total": "115.00",
+      },
+    ],
+-   "review": "review:invoice_balance_invalid",
++   "review": null,
+  }
+
+ ❯ tests/integration/r181-pr618.int.test.ts:78:42
+     76|     const ref = await checkout(A, id);
+     77|     expect((await deliver(ref, 11500)).statusCode).toBe(200);
+     78|     expect(await settlement(A, ref, id)).toMatchObject({
+       |                                          ^
+     79|       payments: [{ total: '115.00', allocated: '0.00', status: 'confir…
+     80|     expect(await ledger(A, ref)).toMatchObject({ bankNet: '115.00', re…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/r181-pr618.int.test.ts > LOW-4: a charged payer is never told "failed" > a failed request Paystack says succeeded, whose settlement times out on the invoice lock, answers pending
+AssertionError: expected 'failed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "failed"
+
+ ❯ tests/integration/r181-pr618.int.test.ts:94:53
+     92|       await holder.query('BEGIN');
+     93|       await holder.query('SELECT 1 FROM customer_invoices WHERE id = $…
+     94|       expect((await verify(ref)).body.data?.status).toBe('pending');
+       |                                                     ^
+     95|     } finally {
+     96|       await holder.query('ROLLBACK');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/integration/r181-pr618.int.test.ts > LOW-5: two different Paystack amounts for one transaction are flagged > webhook R103 (requested_amount R100, fees R3) while verify is asking, which then reports amount R100
+AssertionError: expected { payments: [ { …(3) } ], …(3) } to match object { …(2) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+@@ -2,7 +2,7 @@
+    "payments": [
+      {
+        "total": "100.00",
+      },
+    ],
+-   "review": "review:amount_disagrees_with_first_report",
++   "review": null,
+  }
+
+ ❯ tests/integration/r181-pr618.int.test.ts:112:42
+    110|     });
+    111|     expect((await verify(ref)).body.data?.status).toBe('completed');
+    112|     expect(await settlement(A, ref, id)).toMatchObject({
+       |                                          ^
+    113|       payments: [{ total: '100.00' }], review: 'review:amount_disagree…
+    114|     expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', fe…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  tests/integration/r181-review-round2.int.test.ts > LOW: the fee leg is fees - (amount - banked), clamped to [0, fees] > verify banks R100, then the webhook reports R103 with R3 fees: no fee expense, Bank nets R100, the two amounts flagged (PR #618 LOW-5)
+AssertionError: expected null to be 'review:amount_disagrees_with_first_re…' // Object.is equality
+
+- Expected:
+"review:amount_disagrees_with_first_report"
+
++ Received:
+null
+
+ ❯ tests/integration/r181-review-round2.int.test.ts:122:51
+    120|     expect((await deliver(ref, 10300, 'ZAR', { requested_amount: 10000…
+    121|     expect(await ledger(A, ref)).toMatchObject({ bankNet: '100.00', fe…
+    122|     expect((await settlement(A, ref, id)).review).toBe('review:amount_…
+       |                                                   ^
+    123|   });
+    124|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 13 passed (18)
+   Start at  19:01:49
+   Duration  6.66s (transform 872ms, setup 0ms, import 348ms, tests 8.34s, environment 0ms)
+

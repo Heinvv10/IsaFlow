@@ -25,6 +25,9 @@
  * journal row when it reaches an invoice is `cancelCreditNote`, and the journal
  * it holds is the NOTE's, never the invoice's. The rule to keep is the narrow
  * one: never take a note or payment lock while holding an invoice lock.
+ * One exception (R-181, Paystack settlement): `confirmCustomerPayment` locks the
+ * settlement's OWN new, uncommitted payment row while the invoice is held. Safe:
+ * that row is invisible to every other transaction, so nothing holds or waits on it.
  */
 
 import { als, assertTxUsable } from '@/lib/als';

@@ -26,20 +26,33 @@ import { confirmCustomerPayment } from './customerPaymentAllocationService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { postGatewayFee } from './gatewayFeeService';
 import { spendPaymentLinkOfRequest } from './portalLinkCharge';
+import {
+  firstReportedAmountCents,
+  flagSettlementForReview,
+  isBookCurrency,
+  merchantFee,
+  receiptDescription,
+  settledCharge,
+  type ReportedCharge,
+} from './gatewaySettlementReview';
+import { decideGatewayAllocation } from './gatewayReceiptAllocation';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
 
-/** A cent. Matches confirmCustomerPayment's own settle tolerance. */
-export const EPS = 0.01;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface GatewayInvoiceReceipt {
   companyId: string;
   invoiceId: string;
-  /** Settled amount in rand (Paystack reports cents). */
-  amountRand: number;
+  /** What the checkout asked for: `paystack_payment_requests.amount_cents`. */
+  requestedCents: number;
+  /**
+   * What Paystack reports it received. This, not the request, is banked
+   * (R-181); a difference is flagged for review. See gatewaySettlementReview.
+   */
+  reported: ReportedCharge;
   /** Paystack reference — the idempotency key, stored as bank_reference. */
   reference: string;
   /**
@@ -48,43 +61,53 @@ export interface GatewayInvoiceReceipt {
    * payment into October — the wrong fiscal and VAT period.
    */
   paidAt?: string | null;
-  /** Gateway fee in rand, deducted from the deposit. See postGatewayFee. */
+  /**
+   * Gateway fee in rand, deducted from the deposit. The part the customer paid on
+   * top of `requested_amount` is not the merchant's expense (`merchantFee`). See
+   * postGatewayFee.
+   */
   feeRand?: number | null;
 }
 
 interface InvoiceRow {
   client_id: string | null;
   created_by: string;
-  total_amount: string;
-  amount_paid: string | null;
 }
 
 /**
  * Record a settled gateway payment against a customer invoice: one confirmed
  * `customer_payments` row for the WHOLE receipt, allocated to the invoice up to
- * what the invoice still owes, and posted to the ledger by the same code path a
- * manual receipt uses.
+ * what the invoice still owes (decided under the invoice's row lock), and posted
+ * to the ledger by the same code path a manual receipt uses. The receipt is what
+ * Paystack reported; an invoice outside the ledger (draft, pending approval,
+ * cancelled, soft-deleted) is allocated nothing, and any review reason flags the
+ * request (R-181).
  *
  * Idempotent on `reference`: a second call for the same Paystack reference
- * (webhook and verify route both firing, or a webhook redelivery) records
- * nothing and returns null.
+ * (webhook and verify route both firing, or a webhook redelivery) banks nothing,
+ * posts only a missing fee, compares its amount with what was banked, and
+ * returns null.
  */
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
-  const { companyId, invoiceId, amountRand, reference } = receipt;
+  const { companyId, invoiceId, reference } = receipt;
   // R-167: a settled charge spends the portal link it came from, whichever of the webhook and
   // the verify route gets here first (both run this in their settlement transaction).
   await spendPaymentLinkOfRequest(companyId, reference);
+  const charge = settledCharge(receipt.requestedCents, receipt.reported);
+  const amountRand = charge.cents / 100;
 
   const already = await sql<{
     id: string;
     created_by: string;
     bank_account_id: string | null;
     payment_date: string;
+    total_amount: string;
+    description: string | null;
   }>`
     SELECT id, created_by::text AS created_by, bank_account_id::text AS bank_account_id,
-           payment_date::text AS payment_date
+           payment_date::text AS payment_date, total_amount::text AS total_amount, description
     FROM customer_payments
     WHERE company_id = ${companyId}::UUID
       AND bank_reference = ${reference}
@@ -93,23 +116,42 @@ export async function recordGatewayInvoiceReceipt(
   `;
   if (already[0]) {
     // The receipt is already banked — by the webhook, a redelivery, or the
-    // portal verify route. The FEE still may not be: verify carries no fee and
-    // exists to beat the webhook, so returning here used to lose the fee leg
-    // for every customer who reached the return page. Post it against the
-    // receipt that already exists, in that receipt's period.
+    // portal verify route. The FEE still may not be: verify's response may carry
+    // no `fees`, and returning here used to lose the fee leg for every customer
+    // who reached the return page. Post it (once; postGatewayFee is idempotent)
+    // against the receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
+    const bankedRand = Number(already[0].total_amount);
+    // Two disagreements: the figure each would bank, and Paystack's own `amount` (PR #618 LOW-5).
+    const firstAmountCents = firstReportedAmountCents(already[0].description, Math.round(bankedRand * 100));
+    const reportedAmountCents = typeof receipt.reported.amountCents === 'number' ? receipt.reported.amountCents : null;
+    // In whole cents: a float rand difference misses a cent (2.01 - 2.00 > 0.01 is false).
+    const disagrees = Math.round(bankedRand * 100) !== charge.cents
+      || (reportedAmountCents !== null && reportedAmountCents !== firstAmountCents);
+    const fee = merchantFee(receipt.feeRand, receipt.reported, Math.round(bankedRand * 100));
     await postGatewayFee(
-      receipt,
+      { ...receipt, feeRand: fee.feeRand },
       already[0].created_by,
       already[0].bank_account_id,
       already[0].payment_date,
     );
+    // This report's own reasons too (a currency or a missing amount the first report did not have).
+    const reviews = [
+      ...charge.reviews,
+      ...(disagrees ? ['amount_disagrees_with_first_report'] : []),
+      ...fee.reviews,
+    ];
+    if (reviews.length > 0) {
+      await flagSettlementForReview(companyId, reference, reviews, {
+        paymentId: already[0].id, invoiceId, bankedRand, reportedRand: amountRand, firstAmountCents,
+        reportedCents: receipt.reported.amountCents, reportedCurrency: receipt.reported.currency,
+      });
+    }
     return null;
   }
 
   const invRows = await sql<InvoiceRow>`
-    SELECT COALESCE(client_id, customer_id) AS client_id, created_by,
-           total_amount::text AS total_amount, amount_paid::text AS amount_paid
+    SELECT COALESCE(client_id, customer_id) AS client_id, created_by
     FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
   `;
@@ -118,44 +160,17 @@ export async function recordGatewayInvoiceReceipt(
     throw new Error(`Gateway receipt: invoice ${invoiceId} not found for company ${companyId}`);
   }
 
-  // `amount_paid` counts CONFIRMED payments only. Draft receipts an accountant
-  // has open already claim part of the balance, and confirming both would drive
-  // amount_paid past total_amount — the W3/P2.1 invariant createCustomerPayment
-  // enforces, which has to be carried here now that it is not called.
-  const pendingRows = await sql<{ pending: string }>`
-    SELECT COALESCE(SUM(cpa.amount_allocated), 0)::text AS pending
-    FROM customer_payment_allocations cpa
-    JOIN customer_payments cp ON cp.id = cpa.payment_id
-    WHERE cpa.invoice_id = ${invoiceId}::UUID
-      AND cp.company_id = ${companyId}::UUID
-      AND cp.status = 'draft'
-  `;
-  const pending = Number(pendingRows[0]?.pending ?? 0);
-
-  // The gateway can settle more than the invoice still owes — an EFT part-payment
-  // landing between the payment link and the card charge is enough. The excess is
-  // real cash in the bank, so the receipt is banked in full and only the part the
-  // invoice can absorb is allocated; the remainder stays on the customer as an
-  // unapplied receipt. Truncating the receipt to fit would drop that cash.
-  const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0) - pending;
-  const allocated = Math.max(0, Math.min(amountRand, outstanding));
-  const unallocated = amountRand - allocated;
-  if (unallocated > EPS) {
-    log.warn(
-      'Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt',
-      { reference, invoiceId, amountRand, outstanding, pending, unallocated },
-      'accounting',
-    );
-  }
-
   const bankAccount = await getSystemAccount('bank', companyId);
   const actorId = await resolveCompanyActor(companyId, String(invoice.created_by));
   const paymentDate = settlementDate(receipt);
+  // A non-ZAR charge is banked as reported (Hein) and says so on the receipt.
+  const description = receiptDescription(reference, receipt.reported, charge.cents);
 
   // Written here rather than through createCustomerPayment: that service
   // requires allocations to equal the payment total, an invariant an
   // over-settlement cannot satisfy, and the only way to satisfy it is to drop
-  // the excess. Its balance validation is carried by the clamp above.
+  // the excess. Its balance validation is carried by decideGatewayAllocation.
+  // The payment row comes BEFORE the invoice lock: payment-then-invoice.
   const paymentId = randomUUID();
   await sql`
     INSERT INTO customer_payments (
@@ -164,24 +179,50 @@ export async function recordGatewayInvoiceReceipt(
     ) VALUES (
       ${paymentId}::UUID, ${companyId}::UUID, ${invoice.client_id}::UUID, ${paymentDate},
       ${amountRand}, 'card', ${reference}, ${String(bankAccount.id)}::UUID,
-      ${`Paystack card payment ${reference}`}, ${actorId}::UUID
+      ${description}, ${actorId}::UUID
     )
   `;
-  if (allocated > EPS) {
+  // A non-ZAR figure never settles a ZAR invoice: banked (Hein), left unapplied, flagged.
+  const plan = await decideGatewayAllocation(companyId, invoiceId, amountRand, reference,
+    isBookCurrency(receipt.reported) ? null : 'unapplied_currency');
+  // The customer as read under the lock: a merge committed since the unlocked read moved the
+  // invoice, and the receipt follows it rather than staying on the merged-away customer.
+  if (plan.clientId && plan.clientId !== invoice.client_id) {
+    await sql`
+      UPDATE customer_payments SET client_id = ${plan.clientId}::UUID
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+  if (Math.round(plan.allocated * 100) > 0) {
     await sql`
       INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
-      VALUES (${paymentId}::UUID, ${invoiceId}::UUID, ${allocated})
+      VALUES (${paymentId}::UUID, ${invoiceId}::UUID, ${plan.allocated})
     `;
   }
 
+  const fee = merchantFee(receipt.feeRand, receipt.reported, charge.cents);
   const confirmed = await confirmCustomerPayment(companyId, paymentId, actorId, {
     postingAgent: GATEWAY_RECEIPT_AGENT,
   });
-  await postGatewayFee(receipt, actorId, String(bankAccount.id), paymentDate);
+  await postGatewayFee({ ...receipt, feeRand: fee.feeRand }, actorId, String(bankAccount.id), paymentDate);
+  const reviews = [
+    ...charge.reviews,
+    ...(plan.invoiceBlock ? [plan.invoiceBlock] : []),
+    ...(plan.overpaid ? ['overpaid_unapplied'] : []),
+    ...fee.reviews,
+  ];
+  if (reviews.length > 0) {
+    await flagSettlementForReview(companyId, reference, reviews, {
+      paymentId, invoiceId, invoiceStatus: plan.status, invoiceDeleted: plan.deleted,
+      expectedCents: receipt.requestedCents, reportedCents: receipt.reported.amountCents,
+      requestedAmountCents: receipt.reported.requestedAmountCents,
+      reportedCurrency: receipt.reported.currency, bankedRand: amountRand, allocated: plan.allocated,
+    });
+  }
 
   log.info(
     'Recorded gateway invoice receipt',
-    { reference, invoiceId, paymentId, allocated, unallocated,
+    { reference, invoiceId, paymentId, allocated: plan.allocated, unallocated: amountRand - plan.allocated,
       journalEntryId: confirmed.glJournalEntryId },
     'accounting',
   );

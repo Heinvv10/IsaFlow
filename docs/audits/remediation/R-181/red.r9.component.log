@@ -1,0 +1,37 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+ ❯ tests/unit/components/paystackPortalReturn.test.tsx (4 tests | 1 failed) 56ms
+     × completed and applied: the banked amount, against the invoice 25ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > completed and applied: the banked amount, against the invoice
+AssertionError: expected <p …(1)></p> to be null
+
+- Expected:
+null
+
++ Received:
+<p
+  class="mt-6 text-xs text-slate-400"
+>
+  A receipt has been emailed to you. You can close this window.
+</p>
+
+ ❯ tests/unit/components/paystackPortalReturn.test.tsx:39:43
+     37|     expect(screen.getByText(/50,00 has been received against invoice I…
+     38|     // Nothing the settlement does emails a receipt, so the page must …
+     39|     expect(screen.queryByText(/emailed/)).toBeNull();
+       |                                           ^
+     40|     expect(screen.getByText('You can close this window.')).toBeDefined…
+     41|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  20:44:52
+   Duration  470ms (transform 45ms, setup 58ms, import 127ms, tests 56ms, environment 156ms)
+

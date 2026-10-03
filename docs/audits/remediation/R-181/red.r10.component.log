@@ -1,0 +1,88 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+ ❯ tests/unit/components/paystackPortalReturn.test.tsx (5 tests | 1 failed) 63ms
+     × completed in a foreign currency: no rand figure, a plain "received" 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > completed in a foreign currency: no rand figure, a plain "received"
+TestingLibraryElementError: Unable to find an element with the text: /Your payment has been received\./. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"min-h-screen bg-slate-50 flex items-center justify-center px-4"[39m
+    [36m>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"max-w-md w-full bg-white rounded-2xl shadow-sm border border-slate-200 p-8"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"text-center"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"lucide lucide-circle-check w-14 h-14 text-emerald-600 mx-auto"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mheight[39m=[32m"24"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"2"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"24"[39m
+            [33mxmlns[39m=[32m"http://www.w3.org/2000/svg"[39m
+          [36m>[39m
+            [36m<circle[39m
+              [33mcx[39m=[32m"12"[39m
+              [33mcy[39m=[32m"12"[39m
+              [33mr[39m=[32m"10"[39m
+            [36m/>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m9 12 2 2 4-4"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<h1[39m
+            [33mclass[39m=[32m"mt-4 text-2xl font-semibold text-slate-900"[39m
+          [36m>[39m
+            [0mPayment received[0m
+          [36m</h1>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-2 text-slate-600"[39m
+          [36m>[39m
+            [0mThank you. [0m
+            [0mR 115,00[0m
+            [0m has been received[0m
+            [0m.[0m
+          [36m</p>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-6 text-xs text-slate-400"[39m
+          [36m>[39m
+            [0mYou can close this window.[0m
+          [36m</p>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ tests/unit/components/paystackPortalReturn.test.tsx:55:19
+     53|     render(<PaystackReturnPage />);
+     54|     await waitFor(() => expect(screen.getByText('Payment received')).t…
+     55|     expect(screen.getByText(/Your payment has been received\./)).toBeD…
+       |                   ^
+     56|     expect(screen.queryByText(/115,00/)).toBeNull();
+     57|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  21:05:52
+   Duration  532ms (transform 60ms, setup 63ms, import 155ms, tests 63ms, environment 163ms)
+
