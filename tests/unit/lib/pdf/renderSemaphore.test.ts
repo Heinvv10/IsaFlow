@@ -22,12 +22,17 @@ const ORIGINAL = {
   poolMax: process.env.AUTH_POOL_MAX,
 };
 
+/** Every render a test started and may have left held: finished in afterEach,
+ *  so a failed assertion cannot leave slots taken and cascade into later tests. */
+const everyDeferred: Array<() => void> = [];
+
 /** A render we can finish on demand. */
 function deferred() {
   let finish!: () => void;
   const started = { value: false };
   const promise = new Promise<void>((resolve) => { finish = resolve; });
   const run = async () => { started.value = true; await promise; return 'done'; };
+  everyDeferred.push(() => finish());
   return { run, finish, started };
 }
 
@@ -41,7 +46,10 @@ beforeEach(() => {
   process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '10000';
 });
 
-afterEach(() => {
+afterEach(async () => {
+  while (everyDeferred.length > 0) everyDeferred.pop()!();
+  await settle();
+  await settle();
   if (ORIGINAL.max === undefined) delete process.env.PDF_MAX_CONCURRENT_RENDERS;
   else process.env.PDF_MAX_CONCURRENT_RENDERS = ORIGINAL.max;
   if (ORIGINAL.wait === undefined) delete process.env.PDF_RENDER_QUEUE_TIMEOUT_MS;
@@ -233,6 +241,32 @@ describe('bounds derived from the auth pool', () => {
     vi.mocked(log.warn).mockClear();
     expect(renderQueueBound()).toBe(4);
     expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+  });
+
+  it.each(['abc', '0', '-1'])('a set but invalid PDF_MAX_CONCURRENT_RENDERS %j is logged as invalid, not as a clamp of the default (R-188)', (bad) => {
+    delete process.env.AUTH_POOL_MAX;
+    process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
+    vi.mocked(log.warn).mockClear();
+    expect(renderQueueBound()).toBe(4);   // the default, clamped silently to the ceiling of 2
+    const calls = vi.mocked(log.warn).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toContain('invalid');
+    expect(calls[0]![0]).not.toContain('clamped');
+    expect(calls[0]![1]).toMatchObject({ setting: 'PDF_MAX_CONCURRENT_RENDERS', length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
+    expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
+    expect(calls[0]![1]).not.toHaveProperty('requested');
+  });
+
+  it('an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)', () => {
+    delete process.env.AUTH_POOL_MAX;
+    process.env.PDF_MAX_CONCURRENT_RENDERS = '3';
+    vi.mocked(log.warn).mockClear();
+    expect(renderQueueBound()).toBe(4);
+    expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+      expect.stringContaining('clamped'),
+      expect.objectContaining({ setting: 'PDF_MAX_CONCURRENT_RENDERS', requested: 3, ceiling: 2 }),
+      'pdf',
+    );
   });
 
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {

@@ -19,8 +19,8 @@ every reader goes through `authPoolMax()`.
   R-182/fix.md's budget table is historical and left as written.
 - `renderSemaphore` ceiling is `floor(authPoolMax() / 4)` (renderSemaphore.ts:92): 5 -> 2 at the
   default. Its own default of 3 renders is therefore clamped to 2, silently while `PDF_MAX_CONCURRENT_RENDERS` is unset or blank (round 1: prod runs on defaults, so a warning would fire on every process); an explicit value above the ceiling still warns once.
-  Operators who want 3 renders need `AUTH_POOL_MAX` >= 12 or `PDF_MAX_CONCURRENT_RENDERS=2`
-  if an explicit value warns.
+  3 renders need `AUTH_POOL_MAX` >= 12 written as plain digits (`12.0` is a refused spelling and
+  gives 10). Setting `PDF_MAX_CONCURRENT_RENDERS=2` only silences the warning an explicit 3 would log.
 - `poolSizeFromEnv` (unchanged code), `AUTH_POOL_MAX` outcomes:
   - unset/blank: 10 (was 20).
   - plain digits 2-100 (incl. 11-100): as given, unchanged, silent.
@@ -51,6 +51,11 @@ Prod's env leaves `AUTH_POOL_MAX` unset, so this changes prod pool sizes on the 
 - Default clamp is silent (see above); tests: defaults admit 2 renders, `renderQueueBound() === 4`, no warning; blank value likewise. Red `red.r2.unit.log`, green `green.r2.unit.log` (278/278 over the pool, withRenderSlot and packsDownloadRoutes files), mutants M7-M9 killed in `mutations.r2.log`.
 - Stale "three"/"quarter, three-quarters" statements corrected (renderSemaphore.ts, withRenderSlot.ts, pdf.ts, packsDownloadRoutes.test.ts, pdf and auth `.claude.md`); the R-182 entry in `src/lib/pdf/.claude.md` restored verbatim.
 - Prod env (checked by the orchestrator 2026-10-03, `/home/velo/isaflow/.env.local`) sets none of `AUTH_POOL_MAX`, `PDF_MAX_CONCURRENT_RENDERS`, `PG_POOL_MAX`: prod is on the defaults.
+
+## Round 2 review fixes
+- A set but unusable `PDF_MAX_CONCURRENT_RENDERS`/queue-timeout value (`abc`, `0`, `-1`) is logged once as invalid (name, length, digits-only flag, never the text) and the default applies; it is no longer reported as a clamp of the default. An explicit `3` over the default pool still warns `{requested: 3, ceiling: 2}`.
+- Tests release every held render in `afterEach`, so a failed assertion no longer cascades. Mutants re-recorded as independent detections in `mutations.r3.log` (M7'-M9', M10-M13). Red `red.r3.unit.log` (4 new tests), green `green.r3.unit.log` 282/282, regression `regression.r3.unit.log` 1120/1120.
+- Pool-share wording corrected: bound is up to half the pool; old ceiling 5 renders = 10 of 20 (50%), old default of 3 = 6 of 20, now 2 = 4 of 10 (40%). `QUEUE_BOUND_FACTOR` JSDoc now states it caps queue length, not wait. PPTX route and packs `.claude.md` wording fixed.
 
 ## Recorded, not changed
 - Each render holds 2 auth-pool connections (its withAuth one plus the print page's re-entry). At the default, 2 renders take 4 of 10 (40%, leaving 6); before, 6 of 20 (30%, leaving 14). The ceiling formula `floor(pool/4)` is kept: the owner's goal set ceiling 2 at pool 10. The alternative is `floor(pool/8)` = 1 at the default (2 of 10, 20%).

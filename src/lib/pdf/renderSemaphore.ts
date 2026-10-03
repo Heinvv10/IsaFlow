@@ -71,18 +71,19 @@ const DEFAULT_WAIT_MS = 10_000;
 const POOL_TIMEOUT_MARGIN_MS = 2_000;
 
 /** A render holds two auth-pool connections (the request's withAuth one, plus
- *  the print page's re-entry), so the concurrency ceiling of a quarter of the
- *  pool lets renders take up to half the pool: 4 of 10 (40%) at the default pool,
- *  where 6 of 20 (30%) when it was 20 (R-188). What is left is for ordinary
- *  traffic. */
+ *  the print page's re-entry), so a ceiling of a quarter of the pool bounds
+ *  renders to up to half the pool. At the default pool of 10 the ceiling is 2
+ *  renders = 4 connections (40%); at the old pool of 20 it was 5 renders = 10
+ *  (50%), and the old default of 3 renders took 6 of 20 (R-188). What is left
+ *  is for ordinary traffic. */
 const POOL_SHARE_DIVISOR = 4;
 
-/** How many requests may WAIT, as a multiple of the concurrency bound. Two
- *  deep is a queue that drains: at the bound (3 slots asked for, 2 at the
- *  default pool) and a 30s render, the last waiter is served inside a minute, which is under the queue's own wait bound
- *  so it will not be refused after burning the wait. A third layer would be,
- *  so it is refused up front instead of being told to wait for something that
- *  cannot arrive in time. */
+/** How many requests may WAIT, as a multiple of the concurrency bound. It caps
+ *  the queue's length, not its wait: a request past `QUEUE_BOUND_FACTOR x max`
+ *  waiters is refused up front rather than queued, because a queue that long
+ *  could not drain inside the wait bound (10s by default, 13s at most) when a
+ *  render runs for up to 30s. Waiters within it may still time out and get the
+ *  retryable 503. */
 const QUEUE_BOUND_FACTOR = 2;
 
 function maxWaitCeilingMs(): number {
@@ -113,11 +114,19 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
 function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
   const n = Number(raw);
   const unset = raw === undefined || raw.trim() === '';
-  const requested = Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  const usable = Number.isFinite(n) && n > 0;
+  if (!unset && !usable) {
+    // Set but unusable: say so as invalid, never as a clamp of the default, and
+    // never with the text (an env var can hold anything pasted into it).
+    warnOnce(`${name}:invalid:${raw.length}`, 'renderSemaphore: env value is invalid (not a positive number); using the default', {
+      setting: name, length: raw.length, digitsOnly: /^[0-9]+$/.test(raw.trim()), default: Math.min(fallback, ceiling),
+    });
+  }
+  const requested = usable ? Math.floor(n) : fallback;
   if (requested > ceiling) {
     // The built-in default above the ceiling is not an operator's mistake: clamp
     // it silently (R-188: the default of 3 against a ceiling of 2 at the default pool).
-    if (unset) return ceiling;
+    if (!usable) return ceiling;
     warnOnce(`${name}:${requested}`, 'renderSemaphore: env value clamped to the auth-pool-derived ceiling', {
       setting: name, requested, ceiling,
     });
