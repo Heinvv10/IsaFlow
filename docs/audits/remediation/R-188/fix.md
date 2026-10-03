@@ -103,7 +103,7 @@ Evidence r9: the invalid-value warning says "falling back" (the `using` field sa
 - Concurrency count: refused spellings now give `min(default, max(1, floor(n)))` as master's floor did (`0.5`, `1.0`, `1.9` -> 1; `2.5` -> 2); the timeout keeps default-on-refused. ceil was the unsafe direction.
 - `noteAiService`: AbortController + setTimeout cleared in `finally` (AbortSignal.timeout cannot be cleared); tests for the abort at 60 s and no timer left.
 - The env-parsing tests moved to `renderSemaphoreEnv.test.ts` (202 lines; `renderSemaphore.test.ts` 294).
-- Evidence r10: `red.r10.unit.log`, `green.r10.unit.log`, `mutations.r10.log`, `regression.r10.unit.log`.
+- Evidence r10: `red.r10.unit.log`, `green.r10.unit.log` 52/52 at `17cb49ffb`, `mutations.r10.log` M43-M49 killed, `regression.r10.unit.log` 1756/1756 (the first regression run caught the helper crashing on test pool mocks without `options`; fixed). The red run covered the floor rule, the note call and the missing telemetry module (3 tests plus a failed import); the telemetry tests were written with the module, so their red is the mutants.
 
 ## Remaining long pool holders under withAuth
 - **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
