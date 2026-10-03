@@ -1,0 +1,23 @@
+HEAD: b34ba09c2da52c539a85e66338d3a057c765a5b6 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 42.80; int suite: tests/integration/r186-archive-current-cancel.int.test.ts tests/integration/r186-archive-move-race.int.test.ts tests/integration/r186-archive-paystack-settled.int.test.ts tests/integration/r186-archive-skipped-closure.int.test.ts tests/integration/r186-archive-skips-paystack-invoices.int.test.ts; component: tests/unit/components/archiveWizardSkippedInvoices.test.tsx
+BASELINE before (int): 5 passed (5) / 17 passed (17)
+BASELINE before (component): 1 passed (1) / 2 passed (2)
+E1 eligibility: company dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 3 passed (5) / 6 failed | 11 passed (17) -> RED
+E2 eligibility: cutoff dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+E3 eligibility: status dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 4 passed (5) / 1 failed | 16 passed (17) -> RED
+E4 eligibility: cancelled not eligible [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 3 failed | 2 passed (5) / 10 failed | 7 passed (17) -> RED
+E5 gateway: Paystack EXISTS unscoped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 4 passed (5) / 2 failed | 15 passed (17) -> RED
+E6 gateway: Stitch EXISTS unscoped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 4 passed (5) / 2 failed | 15 passed (17) -> RED
+E7 gateway: Stitch EXISTS dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 3 passed (5) / 3 failed | 14 passed (17) -> RED
+E8 gateway: Paystack EXISTS dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 5 failed (5) / 11 failed | 6 passed (17) -> RED
+E9 move: eligibility not re-applied [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 4 passed (5) / 2 failed | 15 passed (17) -> RED
+E10 preview count: eligibility not applied [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 5 passed (5) / 17 passed (17) -> SURVIVED
+E11 UI line shown at 0 [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed (1) / 1 failed | 1 passed (2) -> RED
+E12 UI line drops the refusal sentence [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed (1) / 1 failed | 1 passed (2) -> RED
+BASELINE after (int): 5 passed (5) / 17 passed (17)
+BASELINE after (component): 1 passed (1) / 2 passed (2)
+tree after: ''
+E10 re-run after adding company E to the preview case, HEAD df8d76509e533da25ec85505eb5f5343e785fd42 (committed):
+BASELINE before: 17 passed (17)
+E10 preview count: eligibility not applied [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 16 passed (17) -> RED
+BASELINE after: 17 passed (17)
+Killed 12/12 (E10 after the added case).
