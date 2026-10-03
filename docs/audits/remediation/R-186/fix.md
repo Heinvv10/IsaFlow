@@ -158,7 +158,7 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
 
 ## Recorded, not changed
 
-- **Journals of LIVE invoices (pre-existing, outside R-186).** Steps 1, 2 and 6 move every
+- **Journals of LIVE invoices (pre-existing, outside R-186; registered as R-191).** Steps 1, 2 and 6 move every
   posted pre-cutoff journal by date, including the journal of an invoice the run never selects
   (approved, sent, partly paid). That invoice stays live and points at the archive. The refusal
   covers only skipped invoices, per option (b). Mutants C10 and C11 widen it to every referenced
