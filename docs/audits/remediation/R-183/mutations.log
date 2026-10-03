@@ -20,3 +20,4 @@ M10 dynamic import() of a part in paystackEventHandlers.ts -> 1 hit(s)
 M11 suffixed specifier ./paystackSubscriptions.js -> 1 hit(s)
 BASE after: ✖ 12 problems (0 errors, 12 warnings) ; type step rc=0
 NOTE: the first BASE line above shows type step rc=2 on its first run; it was not reproduced (5 later runs rc=0, incl. BASE after). Cause not identified; M8's rc and TS6053 are distinct (TS6053 only appears for the missing path).
+M12 template-literal dynamic import of a part (import(`@/…/paystackHttp`)) in paystackEventHandlers.ts -> 1 hit(s) no-restricted-syntax (the round-2 selector reads source.value and cannot match a template literal)

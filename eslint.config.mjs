@@ -77,6 +77,7 @@ export default [
   // Flat config REPLACES rule options (it does not merge them): any future no-restricted-imports
   // or no-restricted-syntax entry for these files must be merged into this block. tests/ and
   // scripts/ are not covered by `bun run lint`.
+  // Known harmless gap: `typeof import('…paystackHttp')` (a type query) is not caught.
   {
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
@@ -91,6 +92,9 @@ export default [
       }],
       'no-restricted-syntax': ['error', {
         selector: 'ImportExpression[source.value=/paystack(Http|Transactions|Subscriptions)/]',
+        message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
+      }, {
+        selector: 'ImportExpression > TemplateLiteral.source[quasis.0.value.raw=/paystack(Http|Transactions|Subscriptions)/]',
         message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
       }],
     },
