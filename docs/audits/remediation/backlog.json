@@ -15216,7 +15216,8 @@
       "fixCommit": null,
       "deployedSha": null,
       "testNames": [
-        "tests/unit/services/billing/paystackClientExports.test.ts"
+        "tests/unit/services/billing/paystackClientExports.test.ts",
+        "tsconfig.paystackexports.json"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-183/baseline.unit.log",
@@ -15224,6 +15225,7 @@
         "docs/audits/remediation/R-183/mutations.log",
         "docs/audits/remediation/R-183/regression.unit.log",
         "docs/audits/remediation/R-183/full-unit.log",
+        "docs/audits/remediation/R-183/gates.log",
         "docs/audits/remediation/R-183/regression.int.log",
         "docs/audits/remediation/R-183/verify-move.log",
         "docs/audits/remediation/R-183/fix.md"
