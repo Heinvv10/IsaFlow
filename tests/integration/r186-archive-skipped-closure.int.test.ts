@@ -20,7 +20,7 @@ import {
 assertDisposable();
 
 const co = { forward: randomUUID(), backward: randomUUID(), direct: randomUUID(), stitch: randomUUID(), recorded: randomUUID(), outside: randomUUID(),
-  tenant: randomUUID(), through: randomUUID(), foreign: randomUUID() };
+  tenant: randomUUID(), through: randomUUID(), held: randomUUID(), foreign: randomUUID() };
 const companies = Object.values(co);
 const REFUSAL = /payment request/i;
 
@@ -147,4 +147,29 @@ describe('R-186: a skipped invoice keeps its journals, or the run refuses', () =
     expect(result.invoicesSkipped).toBe(1);
     expect(await archivedInvoices(c)).toEqual([free]);
   }, 40000);
+
+  // The real 5 s budget (ROW_LOCK_BUDGET_MS): there is no seam to shorten it, so the holder outlasts it.
+  it('a skipped invoice held FOR UPDATE past the lock budget: ROW_LOCK_TIMEOUT, run failed, nothing moved', async () => {
+    const c = co.held;
+    const { skipped, free } = await skippedInvoice(c);
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT id FROM customer_invoices WHERE id = $1 FOR UPDATE', [skipped]);
+    // Released after the budget whatever happens, so a run without the bound cannot hang the suite.
+    const release = new Promise<void>((resolve) => {
+      setTimeout(() => { void holder.query('ROLLBACK').finally(() => { holder.release(); resolve(); }); }, 9000);
+    });
+
+    const started = Date.now();
+    const failure = await failureCommitted(c, () => executeArchive(c, CUTOFF, user));
+    const waited = Date.now() - started;
+    await release;
+
+    expect(failure.code).toBe('ROW_LOCK_TIMEOUT');
+    expect(waited).toBeLessThan(9000);
+    const runs = (await pool.query('SELECT status, error_message FROM archive_runs WHERE company_id=$1', [c])).rows;
+    expect(runs).toEqual([{ status: 'failed', error_message: expect.stringMatching(/being changed by another request/) }]);
+    expect(await liveInvoices(c)).toEqual([skipped, free].sort());
+    expect(await archivedInvoices(c)).toEqual([]);
+  }, 30000);
 });

@@ -57,8 +57,11 @@ invoice's journals (item 2).
   - `validateArchive` reports the same count, with a message that is true both before a run and as
     a refused run's stored error.
 - A second kept-journal count runs just before the GL deletes, with the skipped invoices held `FOR
-  SHARE` (`lockSkippedInvoices`, bounded). Links are protected; a chain journal posted after step 1
-  is not (R-192 class).
+  SHARE` (`lockSkippedInvoices`, bounded). The lock protects the INVOICE ROW only, so the link
+  cannot change until the run ends. Any journal of the chain is still deleted without a copy if it
+  is posted, or re-dated into the window, after the second count; that includes the invoice's own
+  linked journal (R-192 class). A chain journal posted between step 1 and the second count IS
+  caught: the second count sees it and the run refuses.
 - `moveCustomerInvoicesToArchive` is one statement at step 6:
   `WITH moved AS (DELETE ... RETURNING *) INSERT INTO archive ... SELECT FROM moved`. On top of the
   ids it re-applies `eligibleInvoice` and `NOT gatewayReferenced`. It throws `ArchiveSetChangedError`
@@ -197,7 +200,12 @@ row of the same company, and reports how many it skipped. Requests are never arc
      `executeArchive` (`tests/unit/api/dataArchivingExecuteDisabled.test.ts`, green in
      `regression.r3.unit.log`). `withErrorHandler` would answer an unmapped error with a 500, so
      whoever re-enables archiving must map both codes to 409. I did not add that mapping to a
-     route that never calls the service; it is noted in `core/.claude.md`.
+     route that never calls the service; it is noted in `core/.claude.md`. The lock wait's
+     `ROW_LOCK_TIMEOUT` (`RowLockTimeoutError`, PR review) is different: it is a held row, not a
+     refusal. It must answer 503 + Retry-After, as the other D8 routes do, through
+     `respondIfLockTimeout` (`@/lib/apiDocumentLock`), never 409 or 500. `withErrorHandler`
+     already does that for any `*_LOCK_TIMEOUT` (`respondToUnhandledError` calls
+     `respondIfLockTimeout`).
 3. **[M] Stitch.** `stitch_payment_requests` has the same shape (`ON DELETE SET NULL` plus
    `stitch_pr_invoice_has_invoice`), so the skip now covers it too (an `OR EXISTS` scoped to the
    same company), with its own cases.
@@ -385,9 +393,8 @@ passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 
      UPDATE did not wait.
    - Recorded: once the run has committed, a writer can still link an invoice to an archived
      journal's id, because there is no FK (R-191 class).
-2. **[M] Docs overclaimed "cannot escape".** That now holds for LINKS only. A chain journal POSTED
-   after step 1 (a reversal posted during the copies) is deleted by step 6 without having been
-   copied (R-192 class). `core/.claude.md`, the `archiveExecutionService` comment and this file now
+2. **[M] Docs overclaimed "cannot escape".** That now holds for LINKS only. Corrected again in the
+   follow-up below: the gap is AFTER the second count, not after step 1. `core/.claude.md`, the `archiveExecutionService` comment and this file now
    say exactly that.
 3. **[L] R-195 registered:** a payment request in company B naming company C's invoice blocks C's
    whole archive with 23514. The FK is single-column, it needs forged data, and the entry includes a
@@ -413,6 +420,25 @@ passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 
 Not tested: the lock wait running out (another request holding a skipped invoice FOR UPDATE for
 over 5 s gives `RowLockTimeoutError`). That path is `withRowLockBudget`'s own, and that function's
 own tests cover it.
+
+## PR #632 follow-up review (APPROVED with 4 LOWs, at 3920aa5a6)
+
+1. The re-enable note (here and in `core/.claude.md`) adds that `ROW_LOCK_TIMEOUT` must answer
+   503 + Retry-After through `respondIfLockTimeout`, never 409 or 500. `withErrorHandler` already
+   does this for any `*_LOCK_TIMEOUT`.
+2. Wording: the `FOR SHARE` protects the invoice row only. A chain journal, the linked one
+   included, that is posted or re-dated into the window after the second count is deleted without
+   a copy (R-192 class). One posted between step 1 and the second count is caught. Fixed in the
+   current-design section, `core/.claude.md` and the `executeArchive` comment.
+3. Lock-timeout composition pinned: `r186-archive-skipped-closure`, "held FOR UPDATE past the lock
+   budget".
+   - Another connection holds a skipped invoice `FOR UPDATE` for 9 s. No seam shortens
+     `ROW_LOCK_BUDGET_MS` without a production change, so the case outlasts the real 5 s budget.
+   - The run throws `ROW_LOCK_TIMEOUT` in under 9 s. Its row is committed as `failed`, with the
+     "being changed by another request" message. Nothing moved (savepoint rollback).
+   - Mutants: `mutations.r10.log`.
+4. `r186-archive-move-race` disarms every hook and resets `keptCounts`, `fired` and `issued` in a
+   `beforeEach`, so no case depends on file order.
 
 ## Recorded, not changed
 

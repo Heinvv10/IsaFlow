@@ -157,8 +157,9 @@ export async function executeArchive(
     // Second kept-journal check, just before the GL deletes, with the skipped
     // invoices held FOR SHARE: a link written since step 0 is seen here, and
     // none can be written after it until the run ends. The throw rolls the
-    // copies above back with the savepoint. A chain journal POSTED after step 1
-    // is not protected: it is deleted without having been copied (R-192 class).
+    // copies above back with the savepoint. The lock covers the invoice row only:
+    // a chain journal posted or re-dated into the window AFTER this count is
+    // deleted without a copy (R-192 class).
     await lockSkippedInvoices(companyId, ciScope.skippedIds);
     const keptJournalsNow = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
     if (keptJournalsNow > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournalsNow));
