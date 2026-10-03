@@ -32,9 +32,18 @@
 -- Existing duplicates are NOT repaired here (a ledger correction is Hein's call):
 -- the DO block below refuses with the count, before the index is attempted.
 --
--- The build takes a SHARE lock on gl_journal_entries; queued behind a long
--- transaction it would block every journal write, so fail instead.
+-- Two separate risks, two bounds. The build takes a SHARE lock on
+-- gl_journal_entries, which blocks every journal write:
+--   * lock_timeout bounds only the WAIT for that lock: queued behind a long
+--     transaction, the build would hold every later writer behind it too.
+--   * statement_timeout bounds how long the build (and the census scan in the DO
+--     block) may then run while it HOLDS the lock: a full scan of the table.
+-- Either one firing cancels the statement and the runner rolls the whole file
+-- back (no half-built index). The prod row count was not measured from here; if
+-- 120s is not enough, 852 fails cleanly and needs a quieter window or a CONCURRENTLY
+-- build outside the runner's transaction, not a larger number by default.
 SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '120s';
 
 DO $$
 DECLARE

@@ -65,7 +65,7 @@ export async function postGatewayFee(
   // reference, so it cannot collide. IS DISTINCT FROM because status is nullable
   // and `NULL <> 'reversed'` is NULL — the row would escape the guard and the fee
   // would post twice.
-  if (await feeJournalExists(receipt)) return;
+  if (await findFeeJournal(receipt)) return;
 
   let expenseAccountId: string;
   try {
@@ -106,34 +106,44 @@ export async function postGatewayFee(
       return je.id;
     });
   } catch (err) {
-    if (!(await feeJournalExists(receipt))) throw err;
-    log.info('Gateway fee already posted by a concurrent delivery', {
+    const found = await findFeeJournal(receipt);
+    if (!found) throw err;
+    const standDown = {
       reference: receipt.reference,
       fee,
       // What this delivery's attempt raised; no stack. On a lost race, a 23505 on either
       // uq_gl_je_company_entry_number (the winner still uncommitted at this insert: the entry-number
       // trigger is MAX+1 over committed rows, so both take one number; the common case) or
-      // ux_gl_je_gateway_fee_reference (the winner committed after this call's guard).
-      code: (err as { code?: unknown }).code,
+      // ux_gl_je_gateway_fee_reference (the winner committed after this call's guard). Null-safe:
+      // a thrown null or primitive has no code.
+      code: typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined,
       error: err instanceof Error ? err.message : String(err),
-    }, 'accounting');
+    };
+    if (found.status === 'draft') {
+      // Same semantics as the guard (a draft holds the reference), but it is not a posted fee: Bank
+      // stays above the deposit by the fee until someone posts or deletes that draft.
+      log.warn('Gateway fee not posted — a DRAFT fee journal already holds the reference',
+        { ...standDown, journalEntryId: found.id }, 'accounting');
+      return;
+    }
+    log.info('Gateway fee already posted by a concurrent delivery', standDown, 'accounting');
     return;
   }
   log.info('Posted gateway fee', { reference: receipt.reference, fee, journalEntryId }, 'accounting');
 }
 
 /**
- * The live fee journal for this reference. Same predicate as the partial unique index
+ * The live fee journal for this reference, or null. Same predicate as the partial unique index
  * `ux_gl_je_gateway_fee_reference` (migration 852), so the guard and the index agree.
  */
-async function feeJournalExists(receipt: GatewayInvoiceReceipt): Promise<boolean> {
-  const rows = await sql<{ id: string }>`
-    SELECT id FROM gl_journal_entries
+async function findFeeJournal(receipt: GatewayInvoiceReceipt): Promise<{ id: string; status: string | null } | null> {
+  const rows = await sql<{ id: string; status: string | null }>`
+    SELECT id, status FROM gl_journal_entries
     WHERE company_id = ${receipt.companyId}::UUID
       AND reference = ${receipt.reference}
       AND posting_agent = ${GATEWAY_RECEIPT_AGENT}
       AND status IS DISTINCT FROM 'reversed'
     LIMIT 1
   `;
-  return rows.length > 0;
+  return rows[0] ?? null;
 }
