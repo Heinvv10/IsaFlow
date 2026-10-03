@@ -419,7 +419,7 @@ passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 
 
 Not tested: the lock wait running out (another request holding a skipped invoice FOR UPDATE for
 over 5 s gives `RowLockTimeoutError`). That path is `withRowLockBudget`'s own, and that function's
-own tests cover it.
+own tests cover it. (Superseded: the follow-up below pins the archive's own timeout composition.)
 
 ## PR #632 follow-up review (APPROVED with 4 LOWs, at 3920aa5a6)
 
