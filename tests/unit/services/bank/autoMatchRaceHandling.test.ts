@@ -211,15 +211,18 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     expect(result.skippedUnavailable).toBe(1);
   });
 
-  // Adjacent case: the type alone is not the licence to continue. A target the
-  // company does not own is a real failure and must still reach the caller.
-  it('propagates a LINE_NOT_FOUND target error', async () => {
+  // D11 round 6: a TYPED refusal of one candidate (a reversed / missing journal line) is a state of that candidate, not of
+  // the run: skipped inside its savepoint and counted, never a 4xx after earlier matches committed.
+  it.each(['LINE_REVERSED', 'LINE_NOT_FOUND'] as const)('skips a typed %s refusal mid-run, counts it, earlier match stands', async (code) => {
     matchMock.mockImplementation(async (_c: string, txId: string) => {
-      if (txId === TX(2)) throw new BankMatchTargetError('LINE_NOT_FOUND', 'Journal line jl-2 not found');
+      if (txId === TX(2)) throw new BankMatchTargetError(code, `Journal line jl-2: ${code}`);
       return { id: txId };
     });
-
-    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toThrow('not found');
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRefused).toBe(1);
+    expect(result.skippedRaced).toBe(0);
   });
 
   it('still propagates a failure that is not a race', async () => {

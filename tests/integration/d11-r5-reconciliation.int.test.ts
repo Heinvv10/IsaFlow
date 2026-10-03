@@ -117,4 +117,35 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D11 round
     expect((await state(first.bt)).matched, 'the earlier line matched and committed').toBe(true);
     expect((await state(second.bt)).matched).toBe(false);
   }, 60000);
+
+  it('auto_match: a BROKEN journal (stamped reversed, no posted contra) is not offered; earlier match commits, no 400', async () => {
+    const a = await seedPair(606.06, '2026-06-06', 'b1');
+    const b = await seedPair(707.07, '2026-06-07', 'b2');
+    const [first, second] = a.bt < b.bt ? [a, b] : [b, a];
+    await sql`UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = ${second.je}::UUID`;
+    const out = await call(bankTransactionsAction as Route, { action: 'auto_match', bankAccountId: c.fx.bankAccountId });
+    expect(out.status, JSON.stringify(out)).toBe(200);
+    expect((await state(first.bt)).matched).toBe(true);
+    expect((await state(second.bt)).matched).toBe(false);
+    expect(out.body, 'not OFFERED (a skipped refusal would count in skippedRefused)').not.toMatch(/"skippedRefused":[1-9]/);
+  }, 60000);
+
+  it('auto_match: a candidate refused for a typed reason AFTER the offer is skipped; the run is 200, the earlier match stands', async () => {
+    const a = await seedPair(808.08, '2026-06-08', 't1');
+    const b = await seedPair(909.09, '2026-06-09', 't2');
+    const [first, second] = a.bt < b.bt ? [a, b] : [b, a];
+    // The journal is offered (it stands at read time), then reversed by a peer before this candidate's match: use a
+    // trigger-free equivalent — the reversal lands between the read and the write because the line is held while we
+    // reverse, so matchTransaction meets LINE_REVERSED for `second`.
+    const h: PoolClient = await c.fx.pool.connect();
+    await h.query('BEGIN');
+    await h.query('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [second.je]);
+    const pending = call(bankTransactionsAction as Route, { action: 'auto_match', bankAccountId: c.fx.bankAccountId });
+    await new Promise((r) => setTimeout(r, 1500));
+    await h.query('UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = $1', [second.je]);
+    await h.query('COMMIT'); h.release();
+    const out = await pending;
+    expect(out.status, JSON.stringify(out)).toBe(200);
+    expect((await state(first.bt)).matched, 'the earlier match committed behind a 200, not a 400').toBe(true);
+  }, 60000);
 });

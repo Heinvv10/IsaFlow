@@ -34,6 +34,7 @@
 
 import { sql, type TxSql } from '@/lib/neon';
 import { RowLockTimeoutError, withRowLockBudget } from '../core/rowLockBudget';
+import { isLockContention } from '../core/lockContention';
 import type { DbRow } from '@/types/db';
 
 type Fragment = ReturnType<typeof sql>;
@@ -125,7 +126,7 @@ export async function claimTransactionsForReconciliation(
         AND ${ownJournalLineCounts(companyId, sql`${statementDate}::DATE`)}
       RETURNING bt.id`) as DbRow[];
     return { unallocated, selfMatched };
-  }, () => new RowLockTimeoutError('A bank transaction in this statement'));
+  }, () => new RowLockTimeoutError('A bank transaction in this statement'), { isTimeout: isLockContention });
   return { claimedUnallocated: unallocated.length, selfMatched: selfMatched.length };
 }
 

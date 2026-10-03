@@ -10,7 +10,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { isHeldRowError } from '@/lib/lockTimeout';
-import { journalStandsFragment } from '../shared/journalInForceAsAt';
+import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import {
@@ -53,7 +53,7 @@ export async function autoMatchTransactions(
         AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
         -- D11 round 5: only journals that STAND (not reversed out of the ledger): matchTransaction refuses a line on a
         -- reversed chain, which answered 400 with the earlier matches committed behind it.
-        AND ${journalStandsFragment('je.id', companyId)}
+        AND ${journalStandsUnbrokenFragment('je.id', companyId)}
         -- company_id on the subquery: unscoped it read every tenant's rows.
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
@@ -79,6 +79,7 @@ export async function autoMatchTransactions(
     let matchedCount = 0;
     let skippedRaced = 0;
     let skippedUnavailable = 0;
+    let skippedRefused = 0;
     // D11: how many candidates were attempted, how many were a HELD row, and the first held error. If EVERY attempted
     // line was held nothing committed, so the request answers 503 + Retry-After (re-thrown below) instead of a 200.
     let attempted = 0;
@@ -126,20 +127,24 @@ export async function autoMatchTransactions(
           // the run must not lose the matches already applied — but it is
           // counted apart so the caller can tell a contended line from a
           // window in which nothing could be matched at all.
-          if (!raced && !(matchErr instanceof BankMatchUnavailableError)) throw matchErr;
-          if (raced) skippedRaced++; else skippedUnavailable++;
+          // D11 round 6: any OTHER typed refusal of one candidate (LINE_REVERSED on a broken chain, LINE_NOT_FOUND,
+          // RECONCILIATION_NOT_FOUND) is a state of that candidate, not of the run: skipped inside its savepoint and
+          // counted, so no run answers a 4xx after committing matches. An UNTYPED error still re-throws (500, rollback).
+          const refused = matchErr instanceof BankMatchTargetError;
+          if (!raced && !refused && !(matchErr instanceof BankMatchUnavailableError)) throw matchErr;
+          if (raced) skippedRaced++; else if (refused) skippedRefused++; else skippedUnavailable++;
         }
       }
     }
     if (attempted > 0 && held === attempted) throw firstHeld;
     const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
     log.info('Auto-match completed', {
-      bankAccountId, autoMatched: matchedCount, skippedRaced, skippedUnavailable,
+      bankAccountId, autoMatched: matchedCount, skippedRaced, skippedUnavailable, skippedRefused,
       candidates: lowConfidence.length, unmatched: result.unmatched.length,
     }, 'accounting');
     return {
       matched: matchedCount, unmatched: result.unmatched.length,
-      candidates: lowConfidence, skippedRaced, skippedUnavailable,
+      candidates: lowConfidence, skippedRaced, skippedUnavailable, skippedRefused,
     };
   } catch (err) {
     log.error('Failed to auto-match transactions', { error: err }, 'accounting');
