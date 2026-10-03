@@ -1,0 +1,9 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17; fixture none; load 41.75
+{"level":"info","message":"API Response: GET  - 200 (3ms)","timestamp":"2026-10-03T08:19:11.398Z","component":"API","requestId":"01M40DH0D3CRAB5G95Q2NP84J8","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:19:11.398Z","component":"http","requestId":"01M40DH0D3CRAB5G95Q2NP84J8","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":3,"userId":null,"companyId":null,"outcome":"ok"}}
+
+ Test Files  8 passed (8)
+      Tests  90 passed (90)
+   Start at  10:19:08
+   Duration  2.57s (transform 5.11s, setup 0ms, import 6.93s, tests 1.27s, environment 1ms)
+
