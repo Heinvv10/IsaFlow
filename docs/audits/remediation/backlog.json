@@ -15224,6 +15224,7 @@
         "docs/audits/remediation/R-183/mutations.log",
         "docs/audits/remediation/R-183/regression.unit.log",
         "docs/audits/remediation/R-183/full-unit.log",
+        "docs/audits/remediation/R-183/regression.int.log",
         "docs/audits/remediation/R-183/verify-move.log",
         "docs/audits/remediation/R-183/fix.md"
       ]
