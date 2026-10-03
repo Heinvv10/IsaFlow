@@ -126,9 +126,14 @@ export function boardActionMatters(selection: SelectedMatters): PackMatter[] {
   // a backlog, a reload, an overdue filing, a failed check: the book's state
   // rather than one transaction — then the remaining exposures. Still a
   // subset of page 11, in page 11's ranking within each group.
-  const quantified = selection.printed.filter((m) => m.quantum !== null);
-  const unquantified = selection.printed.filter((m) => m.quantum === null);
-  return actionsThatFit([...quantified.slice(0, 1), ...unquantified, ...quantified.slice(1)]);
+  //
+  // A CHECK THAT COULD NOT RUN GOES FIRST OF ALL: the title says one failed,
+  // and the panel must name which, before the lead exposure takes the room.
+  const failed = selection.printed.filter((m) => m.kind === 'checkFailed');
+  const rest = selection.printed.filter((m) => m.kind !== 'checkFailed');
+  const quantified = rest.filter((m) => m.quantum !== null);
+  const unquantified = rest.filter((m) => m.quantum === null);
+  return actionsThatFit([...failed, ...quantified.slice(0, 1), ...unquantified, ...quantified.slice(1)]);
 }
 
 export interface BoardActions {

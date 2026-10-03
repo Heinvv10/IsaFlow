@@ -54,6 +54,13 @@ describe('the panel\'s order', () => {
       .toEqual(['big', 'none-a', 'none-b', 'small']);
   });
 
+  it('puts a failed check before everything, so the panel names which check could not run', () => {
+    const failed: PackMatter = { ...matter('aged debtors could not be assessed', null), kind: 'checkFailed' };
+    const printed = [matter('none-a', null), failed, matter('big', 900)];
+    expect(boardActionMatters({ printed, omitted: [], source: printed }).map((m) => m.issue))
+      .toEqual(['aged debtors could not be assessed', 'big', 'none-a']);
+  });
+
   it('is unchanged where nothing carries an amount', () => {
     const printed = [matter('a', null), matter('b', null)];
     expect(boardActionMatters({ printed, omitted: [], source: printed }).map((m) => m.issue)).toEqual(['a', 'b']);

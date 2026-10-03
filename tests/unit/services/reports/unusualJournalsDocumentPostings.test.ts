@@ -6,8 +6,10 @@
  * matters off it, and on the production copy 688 of its 693 round-number
  * flags were postings generated from documents — a customer invoice, a
  * supplier payment, a bank allocation — whose round amount is the document's.
- * Those are not tested for a round number any more; every other source,
- * including an unknown or missing one, still is.
+ * Those are not tested for a round number any more. Every source whose amount
+ * a person or an agent keys in — a manual journal, a recurring template, a
+ * GL import, a VAT adjustment, an opening balance — still is, and so is an
+ * unknown or missing one.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +17,8 @@ const sqlSpy = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/neon', () => ({ sql: sqlSpy }));
 
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
+import { DOCUMENT_POSTING_SOURCES, JOURNAL_SOURCE_KINDS } from '@/modules/accounting/services/reports/journalSourceKinds';
+import { GL_ENTRY_SOURCES } from '@/modules/accounting/types/gl.types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const WINDOW = { start: '2026-01-01', end: '2026-10-02' };
@@ -38,9 +42,18 @@ describe('the round-number test', () => {
     )).toEqual([]);
   });
 
-  it('flags a hand-entered journal, and one whose source is unknown or missing', async () => {
-    expect(await reasons(row('m', 'manual'), row('s', 'sage_import'), row('n', null))).toEqual([
-      ['m', 'round_number'], ['s', 'round_number'], ['n', 'round_number'],
+  it('flags a journal whose amount a person or an agent keyed in, and one whose source is unknown or missing', async () => {
+    // Recurring templates, GL imports, VAT adjustments and opening balances
+    // all carry an `auto_` source and all are typed figures — a monthly
+    // R50 000 recurring accrual is exactly the estimate this rule is for.
+    expect(await reasons(
+      row('m', 'manual'), row('rec', 'auto_recurring'), row('imp', 'auto_gl_import'),
+      row('vat', 'auto_vat_adjustment'), row('ob', 'auto_migration'), row('adj', 'auto_adjustment'),
+      row('wo', 'auto_write_off'), row('u', 'not_a_known_source'), row('n', null),
+    )).toEqual([
+      ['m', 'round_number'], ['rec', 'round_number'], ['imp', 'round_number'], ['vat', 'round_number'],
+      ['ob', 'round_number'], ['adj', 'round_number'], ['wo', 'round_number'], ['u', 'round_number'],
+      ['n', 'round_number'],
     ]);
   });
 
@@ -54,3 +67,23 @@ describe('the round-number test', () => {
 // back whatever row it is given, so dropping the column from the query would
 // leave this file green while production flagged every source alike. The
 // read-only run against the production copy is the evidence for the query.
+
+describe('the classification', () => {
+  it('names exactly these sources as postings generated from documents', () => {
+    expect([...DOCUMENT_POSTING_SOURCES].sort()).toEqual([
+      'auto_asset_disposal', 'auto_asset_expense', 'auto_bank_recon', 'auto_bank_transfer', 'auto_batch_payment',
+      'auto_credit_note', 'auto_depreciation', 'auto_expense_claim', 'auto_expense_receipt', 'auto_grn',
+      'auto_invoice', 'auto_loan_payment', 'auto_payment', 'auto_payroll', 'auto_purchase_order',
+      'auto_supplier_invoice', 'auto_supplier_payment', 'auto_vat_late_claim', 'auto_vat_submission', 'year_end',
+    ]);
+  });
+
+  it('classifies every source the ledger admits, one way or the other', () => {
+    // The compile-time half is `Record<GLEntrySource, …>`; this is the run-time
+    // half, against the CHECK constraint's own list.
+    for (const source of GL_ENTRY_SOURCES) {
+      expect(typeof JOURNAL_SOURCE_KINDS[source], source).toBe('string');
+    }
+  });
+});
+

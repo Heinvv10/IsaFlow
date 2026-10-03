@@ -20,6 +20,7 @@
 
 import { sql } from '@/lib/neon';
 import type { PeriodWindow } from './priorPeriod';
+import { isDocumentPosting } from './journalSourceKinds';
 
 export type UnusualJournalReason = 'round_number' | 'backdated';
 
@@ -82,20 +83,6 @@ export const BACKDATE_DAYS = 5;
  * pack sees a few journals of a reload whose bulk is dated before it opens.
  */
 export const BULK_LOAD_MIN = 10;
-
-/**
- * A POSTING GENERATED FROM A DOCUMENT — an invoice, a payment, a bank
- * allocation — whose round amount is the document's, not an estimate.
- *
- * Velocity Fibre's board pack raised 880 matters off the round-number rule,
- * and on the production copy 688 of its 693 round-number flags were these.
- * Every system-generated source is `auto_*`; anything else — `manual`, an
- * import, an unknown or missing source — is still tested, so a source this
- * list has never seen fails towards being checked.
- */
-function isDocumentPosting(source: unknown): boolean {
-  return typeof source === 'string' && source.startsWith('auto_');
-}
 
 /** SAST is UTC+2 all year — South Africa keeps no daylight saving. */
 const SAST_OFFSET_MS = 2 * 60 * 60 * 1000;
