@@ -12,7 +12,7 @@ check() { # <orig-from> <orig-to> <new-file> <new-from>
     echo "OK   orig $1-$2 == $3 $4-$(( $4 + n - 1 ))"
   else echo "FAIL orig $1-$2 vs $3"; exit 1; fi
 }
-check 21 86   paystackHttp.ts          9
+check 21 86   paystackHttp.ts          10
 check 88 319  paystackTransactions.ts  8
 check 321 432 paystackSubscriptions.ts 8
 diff <(sed -n 1,17p "$O") <(sed -n 1,17p $S/paystackClient.ts) >/dev/null && echo "OK   barrel header == orig 1-17"

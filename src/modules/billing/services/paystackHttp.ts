@@ -1,7 +1,8 @@
 /**
  * Paystack REST client — shared request core (base URL, env, fetch wrapper).
- * The single instance every Paystack endpoint module imports; the public
- * surface is re-exported from ./paystackClient.
+ * The single instance every Paystack endpoint module imports. `paystackFetch` is internal
+ * to the Paystack modules and is NOT re-exported by ./paystackClient (the public
+ * surface is exactly what the barrel re-exports from the endpoint modules).
  */
 
 import { log } from '@/lib/logger';

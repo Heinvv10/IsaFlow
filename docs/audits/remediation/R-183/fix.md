@@ -20,7 +20,7 @@ there is no singleton to duplicate; the request core lives only in `paystackHttp
 
 ## Importers and mocks
 All 8 production importers (6 routes via `@/modules/billing/services/paystackClient`, 2 services via
-`./paystackClient`) and every `vi.mock` (3 unit, 19 integration) use the barrel path. Nothing outside
+`./paystackClient`) and every `vi.mock` (3 unit, 20 integration) use the barrel path. Nothing outside
 the barrel imports the parts, so mocks of the barrel still intercept every caller. The new files do not
 call each other's functions except `paystackFetch` (not mocked anywhere).
 
@@ -33,6 +33,10 @@ call each other's functions except `paystackFetch` (not mocked anywhere).
 | `regression.unit.log` | tests/unit/services/billing |
 
 Pinned list captured from the unchanged file with `bun` before the split (first line of baseline log).
-Type exports: the test `import type`s all 11 types, but `tests/**` is outside tsconfig, so `type-check` does
-not cover that half; the production importers (type-checked against the barrel) do. `bun run type-check` clean,
-`bun run lint` 0 errors.
+Type exports: vitest strips `import type` and `tests/**` is outside `tsconfig.json`, so neither `type-check` nor the
+unit run checks the type half. `tsconfig.paystackexports.json` compiles the export test alone
+(`bun run type-check:paystack-exports`, a `run_step` in `scripts/ci/run-ci.sh`, same pattern as `pack-fixture-types`).
+The production importers do NOT cover the types: they use only a few of the 11.
+
+Enforcement of "import the barrel, never the parts": ESLint `no-restricted-imports` in `eslint.config.mjs`
+(off only for `src/modules/billing/services/paystack*.ts`). See `mutations.log` M6, M7.

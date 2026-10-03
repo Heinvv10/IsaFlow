@@ -72,6 +72,24 @@ export default [
     },
   },
 
+  // R-183: paystackClient.ts is the only entry point to the Paystack client. Its parts are
+  // internal, and a vi.mock of the barrel only intercepts callers that import the barrel.
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/paystackHttp', '**/paystackTransactions', '**/paystackSubscriptions'],
+          message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
+        }],
+      }],
+    },
+  },
+  {
+    files: ['src/modules/billing/services/paystack*.ts'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+
   // Files allowed to use console (logger internals).
   {
     files: ['src/lib/logger.ts', 'src/lib/api-error-handler.ts', 'src/lib/neon.ts'],

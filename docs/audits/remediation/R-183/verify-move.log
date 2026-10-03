@@ -1,5 +1,5 @@
-OK   orig 21-86 == paystackHttp.ts 9-74
+OK   orig 21-86 == paystackHttp.ts 10-75
 OK   orig 88-319 == paystackTransactions.ts 8-239
 OK   orig 321-432 == paystackSubscriptions.ts 8-119
 OK   barrel header == orig 1-17
-line counts:    20 src/modules/billing/services/paystackClient.ts    74 src/modules/billing/services/paystackHttp.ts   239 src/modules/billing/services/paystackTransactions.ts   119 src/modules/billing/services/paystackSubscriptions.ts   452 total 
+line counts:    20 src/modules/billing/services/paystackClient.ts    75 src/modules/billing/services/paystackHttp.ts   239 src/modules/billing/services/paystackTransactions.ts   119 src/modules/billing/services/paystackSubscriptions.ts   453 total 
