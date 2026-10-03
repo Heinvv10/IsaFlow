@@ -1,0 +1,167 @@
+HEAD: da4be9dd2a2a81c33d83906df601f10c82e8d44a (round-4 tests against the round-3 code); fixture none; load 29.47
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts (5 tests | 1 failed) 8ms
+     × builds its client with no retries and a 30 s timeout: it runs under withAuth, and the SDK default is 600 s (R-188) 5ms
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts (12 tests | 2 failed) 24ms
+     × aborts the provider call after 30000 ms and answers as it does for any provider failure 3ms
+     × the timer runs until the body is read: a body that never arrives is aborted at 30000 ms 1ms
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (36 tests | 10 failed) 277ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 10ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 9ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 6ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/api/aiRoutesFetchTimeout.test.ts > 'cash-flow-forecast' provider call is bounded (R-188) > aborts the provider call after 30000 ms and answers as it does for any provider failure
+AssertionError: expected undefined to be an instance of AbortSignal
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts:97:20
+     95|     const done = call();
+     96|     await vi.advanceTimersByTimeAsync(route.timeoutMs - 1);
+     97|     expect(signal).toBeInstanceOf(AbortSignal);
+       |                    ^
+     98|     expect(signal!.aborted).toBe(false);
+     99|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  tests/unit/api/aiRoutesFetchTimeout.test.ts > 'cash-flow-forecast' provider call is bounded (R-188) > the timer runs until the body is read: a body that never arrives is aborted at 30000 ms
+TypeError: Cannot read properties of undefined (reading 'aborted')
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts:111:20
+    109|     const done = call();
+    110|     await vi.advanceTimersByTimeAsync(route.timeoutMs - 1);
+    111|     expect(signal!.aborted).toBe(false);
+       |                    ^
+    112|     await vi.advanceTimersByTimeAsync(1);
+    113|     expect(signal!.aborted).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:296:42
+    294|     const running = held.map(d => sem.acquireRenderSlot(d.run));
+    295|     await settle();
+    296|     expect(sem.renderSlotStats().active).toBe(2);
+       |                                          ^
+    297|     const waiter = deferred();
+    298|     const queued = sem.acquireRenderSlot(waiter.run);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "2.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0x3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "3e0" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "+3" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:303:19
+    301|
+    302|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+    303|     expect(calls).toHaveLength(1);
+       |                   ^
+    304|     expect(sem.warn.mock.calls.some(c => String(c[0]).includes('clampe…
+    305|     expect(calls[0]![1]).toMatchObject({ setting: name, length: bad.le…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+AssertionError: expected { active: 2, queued: +0 } to deeply equal { active: 2, queued: 1 }
+
+- Expected
++ Received
+
+  {
+    "active": 2,
+-   "queued": 1,
++   "queued": 0,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:300:35
+    298|     const queued = sem.acquireRenderSlot(waiter.run);
+    299|     await settle();
+    300|     expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 });
+       |                                   ^
+    301|
+    302|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  tests/unit/services/afs/noteAiService.test.ts > noteAiService > builds its client with no retries and a 30 s timeout: it runs under withAuth, and the SDK default is 600 s (R-188)
+AssertionError: expected [ { maxRetries: +0 } ] to deeply equal [ { maxRetries: +0, timeout: 30000 } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "maxRetries": 0,
+-     "timeout": 30000,
+    },
+  ]
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts:44:31
+     42|   it('builds its client with no retries and a 30 s timeout: it runs un…
+     43|     const mod = await import('@anthropic-ai/sdk') as unknown as { __co…
+     44|     expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 30_00…
+       |                               ^
+     45|   });
+     46|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderCapacityError: No PDF render slot became available within 1ms
+ ❯ Timeout._onTimeout src/lib/pdf/renderSemaphore.ts:185:25
+    183|           if (i >= 0) queue.splice(i, 1);
+    184|           log.warn('renderSemaphore: refused, no slot within the wait …
+    185|           waiter.refuse(new RenderCapacityError(waitMs));
+       |                         ^
+    186|         }, waitMs),
+    187|       };
+ ❯ listOnTimeout node:internal/timers:581:17
+ ❯ processTimers node:internal/timers:519:7
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "1.9" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  3 failed (3)
+      Tests  13 failed | 40 passed (53)
+     Errors  1 error
+   Start at  10:57:36
+   Duration  469ms (transform 202ms, setup 0ms, import 256ms, tests 309ms, environment 2ms)
+

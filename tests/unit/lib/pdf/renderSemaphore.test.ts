@@ -25,6 +25,8 @@ const ORIGINAL = {
 /** Every render a test started and may have left held: finished in afterEach,
  *  so a failed assertion cannot leave slots taken and cascade into later tests. */
 const everyDeferred: Array<() => void> = [];
+/** The renderSlotStats of every fresh() module instance, so afterEach can see slots they leaked. */
+const freshInstances: Array<() => { active: number; queued: number }> = [];
 
 /** A render we can finish on demand. */
 function deferred() {
@@ -57,6 +59,7 @@ afterEach(async () => {
   if (ORIGINAL.poolMax === undefined) delete process.env.AUTH_POOL_MAX;
   else process.env.AUTH_POOL_MAX = ORIGINAL.poolMax;
   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
+  for (const stats of freshInstances.splice(0)) expect(stats()).toEqual({ active: 0, queued: 0 });
 });
 
 describe('acquireRenderSlot', () => {
@@ -221,6 +224,7 @@ describe('bounds derived from the auth pool', () => {
     const sem = await import('@/lib/pdf/renderSemaphore');
     const { log: freshLog } = await import('@/lib/logger');
     vi.mocked(freshLog.warn).mockClear();
+    freshInstances.push(sem.renderSlotStats);
     return { ...sem, warn: vi.mocked(freshLog.warn) };
   }
 
@@ -274,7 +278,9 @@ describe('bounds derived from the auth pool', () => {
 
   it.each([
     ['PDF_MAX_CONCURRENT_RENDERS', 'abc'], ['PDF_MAX_CONCURRENT_RENDERS', '0'], ['PDF_MAX_CONCURRENT_RENDERS', '-1'], ['PDF_MAX_CONCURRENT_RENDERS', '0.5'],
+    ['PDF_MAX_CONCURRENT_RENDERS', '1.9'], ['PDF_MAX_CONCURRENT_RENDERS', '2.5'], ['PDF_MAX_CONCURRENT_RENDERS', '0x3'], ['PDF_MAX_CONCURRENT_RENDERS', '3e0'], ['PDF_MAX_CONCURRENT_RENDERS', '+3'],
     ['PDF_RENDER_QUEUE_TIMEOUT_MS', 'abc'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '-1'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0.5'],
+    ['PDF_RENDER_QUEUE_TIMEOUT_MS', '1.9'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '2.5'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0x3'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '3e0'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '+3'],
   ])('a set but invalid %s %j is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)', async (name, bad) => {
     delete process.env.AUTH_POOL_MAX;
     delete process.env.PDF_MAX_CONCURRENT_RENDERS;

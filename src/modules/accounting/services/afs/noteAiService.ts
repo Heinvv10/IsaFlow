@@ -15,7 +15,9 @@ export interface CompanyContext {
 // and the daily AI unit given back (R-175), and the SDK's errors do not say
 // whether a retry happened. The one caller (the AFS section ai-narrative route)
 // reports the failure and the user can try again.
-const client = new Anthropic({ maxRetries: 0 });
+// The route runs under withAuth, so the call is bounded: the SDK's default timeout is 600 s (R-188).
+export const NOTE_AI_TIMEOUT_MS = 30_000;
+const client = new Anthropic({ maxRetries: 0, timeout: NOTE_AI_TIMEOUT_MS });
 
 export async function generateNoteNarrative(
   sectionType: SectionType,

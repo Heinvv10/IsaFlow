@@ -15096,8 +15096,6 @@
     {
       "area": "lib",
       "affectedPaths": [
-        "pages/api/accounting/ai-narrative.ts",
-        "pages/api/accounting/ai-forecast.ts",
         "src/lib/limits/poolLimits.ts",
         "src/lib/neon.ts",
         "src/lib/rateLimitPool.ts",
@@ -15306,6 +15304,10 @@
     {
       "area": "lib",
       "affectedPaths": [
+        "pages/api/accounting/ai-narrative.ts",
+        "pages/api/accounting/ai-forecast.ts",
+        "src/modules/accounting/services/reports/cashFlowForecastAiService.ts",
+        "src/modules/accounting/services/afs/noteAiService.ts",
         "src/lib/limits/poolLimits.ts",
         "src/lib/pdf/renderSemaphore.ts",
         "src/lib/auth/.claude.md",
@@ -15327,7 +15329,8 @@
         "tests/unit/lib/pdf/renderSemaphore.test.ts",
         "tests/unit/lib/pdf/withRenderSlot.test.ts",
         "tests/unit/api/packsDownloadRoutes.test.ts",
-        "tests/unit/api/aiRoutesFetchTimeout.test.ts"
+        "tests/unit/api/aiRoutesFetchTimeout.test.ts",
+        "tests/unit/services/afs/noteAiService.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/R-188/fix.md",
