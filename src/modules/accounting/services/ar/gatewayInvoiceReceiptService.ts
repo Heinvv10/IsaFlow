@@ -86,7 +86,9 @@ interface InvoiceRow {
  * Idempotent on `reference`: a second call for the same Paystack reference
  * (webhook and verify route both firing, or a webhook redelivery) banks nothing,
  * posts only a missing fee, compares its amount with what was banked, and
- * returns null.
+ * returns null. A CANCELLED receipt counts too (R-187): a person decided, so a
+ * later report banks nothing, posts no fee, flags the request
+ * `already_settled_cancelled_receipt` and returns null.
  */
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
@@ -105,15 +107,25 @@ export async function recordGatewayInvoiceReceipt(
     payment_date: string;
     total_amount: string;
     description: string | null;
+    status: string | null;
   }>`
     SELECT id, created_by::text AS created_by, bank_account_id::text AS bank_account_id,
-           payment_date::text AS payment_date, total_amount::text AS total_amount, description
+           payment_date::text AS payment_date, total_amount::text AS total_amount, description, status
     FROM customer_payments
     WHERE company_id = ${companyId}::UUID
       AND bank_reference = ${reference}
-      AND status IS DISTINCT FROM 'cancelled'
+    ORDER BY (status IS NOT DISTINCT FROM 'cancelled'), id
     LIMIT 1
   `;
+  // Any receipt for the reference, a live one first (R-187). Only cancelled: a person reversed
+  // this settlement, so a later report (another body, or verify) banks nothing and posts no fee.
+  if (already[0]?.status === 'cancelled') {
+    await flagSettlementForReview(companyId, reference, ['already_settled_cancelled_receipt'], {
+      cancelledPaymentId: already[0].id, invoiceId, reportedCents: receipt.reported.amountCents,
+      reportedCurrency: receipt.reported.currency,
+    });
+    return null;
+  }
   if (already[0]) {
     // The receipt is already banked — by the webhook, a redelivery, or the
     // portal verify route. The FEE still may not be: verify's response may carry
