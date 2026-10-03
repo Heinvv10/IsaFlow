@@ -2,8 +2,9 @@
  * R-188: ai-narrative, ai-forecast and cash-flow-forecast (AI weekly mode) hold a withAuth pool connection (idle in
  * transaction) for the whole provider call. With no timeout a slow provider held
  * it for undici's default (~300 s); at a pool of 10 a few of those starve every
- * cookie-auth request. Both bound the call with an AbortController, and an abort
- * lands in the existing catch: the route answers 200 with its fallback.
+ * cookie-auth request. Each bounds the call with an AbortController, and an abort
+ * lands in the existing catch: ai-narrative and ai-forecast answer 200 with their fallback;
+ * cash-flow-forecast answers its DATABASE_ERROR.
  *
  * The provider is a fetch that never answers and rejects only when its signal aborts.
  * cash-flow-forecast has no fallback: a failure there is its existing databaseError answer.

@@ -276,40 +276,53 @@ describe('bounds derived from the auth pool', () => {
     expect(sem.warn).not.toHaveBeenCalled();
   });
 
+  // poolSizeFromEnv's rule: plain digits >= 1 as given; any other finite value > 0 gives
+  // min(default, ceil(value)); anything else gives the default. Always warned as invalid.
   it.each([
-    ['PDF_MAX_CONCURRENT_RENDERS', 'abc'], ['PDF_MAX_CONCURRENT_RENDERS', '0'], ['PDF_MAX_CONCURRENT_RENDERS', '-1'], ['PDF_MAX_CONCURRENT_RENDERS', '0.5'],
-    ['PDF_MAX_CONCURRENT_RENDERS', '1.9'], ['PDF_MAX_CONCURRENT_RENDERS', '2.5'], ['PDF_MAX_CONCURRENT_RENDERS', '0x3'], ['PDF_MAX_CONCURRENT_RENDERS', '3e0'], ['PDF_MAX_CONCURRENT_RENDERS', '+3'],
-    ['PDF_RENDER_QUEUE_TIMEOUT_MS', 'abc'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '-1'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0.5'],
-    ['PDF_RENDER_QUEUE_TIMEOUT_MS', '1.9'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '2.5'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '0x3'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '3e0'], ['PDF_RENDER_QUEUE_TIMEOUT_MS', '+3'],
-  ])('a set but invalid %s %j is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)', async (name, bad) => {
-    delete process.env.AUTH_POOL_MAX;
-    delete process.env.PDF_MAX_CONCURRENT_RENDERS;
-    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
-    process.env[name] = bad;
+    ['abc', 3], ['0', 3], ['-1', 3], ['0.5', 1], ['1.0', 1], ['1.9', 2], ['2.5', 3], ['0x3', 3], ['3e0', 3], ['+3', 3],
+  ])('a set but invalid PDF_MAX_CONCURRENT_RENDERS %j gives %i and is logged once as invalid, never as a clamp (R-188)', async (bad, expected) => {
+    process.env.AUTH_POOL_MAX = '40';     // ceiling 10, so only the parsing rule decides
+    process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
     const sem = await fresh();
-
-    // One render runs (the default, clamped silently to 2) and a second is admitted at once,
-    // so neither a concurrency of 0 nor a 0 ms wait is in force.
-    const held = [deferred(), deferred()];
-    const running = held.map(d => sem.acquireRenderSlot(d.run));
-    await settle();
-    expect(sem.renderSlotStats().active).toBe(2);
-    const waiter = deferred();
-    const queued = sem.acquireRenderSlot(waiter.run);
-    await settle();
-    expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 });
+    expect(sem.renderQueueBound()).toBe(expected * 2);
 
     const calls = sem.warn.mock.calls.filter(c => String(c[0]).includes('invalid'));
     expect(calls).toHaveLength(1);
     expect(sem.warn.mock.calls.some(c => String(c[0]).includes('clamped'))).toBe(false);
-    expect(calls[0]![1]).toMatchObject({ setting: name, length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
+    expect(calls[0]![1]).toMatchObject({ setting: 'PDF_MAX_CONCURRENT_RENDERS', length: bad.length, digitsOnly: /^[0-9]+$/.test(bad) });
     expect(calls[0]![1]).not.toHaveProperty('requested');
     expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
-
-    held.forEach(d => d.finish());
-    waiter.finish();
-    await Promise.all([...running, queued]);
   });
+
+  it('an invalid value above the ceiling is clamped to it silently: the invalid log already said so (R-188)', async () => {
+    delete process.env.AUTH_POOL_MAX;     // ceiling 2
+    process.env.PDF_MAX_CONCURRENT_RENDERS = '2.5';
+    const sem = await fresh();
+    expect(sem.renderQueueBound()).toBe(4);
+    expect(sem.warn.mock.calls.filter(c => String(c[0]).includes('invalid'))).toHaveLength(1);
+    expect(sem.warn.mock.calls.some(c => String(c[0]).includes('clamped'))).toBe(false);
+  });
+
+  it.each(['abc', '0', '-1', '0.5', '1.9', '2.5', '0x3', '3e0', '+3'])(
+    'a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS %j is logged once as invalid and renders still run (R-188)', async (bad) => {
+      delete process.env.AUTH_POOL_MAX;
+      delete process.env.PDF_MAX_CONCURRENT_RENDERS;
+      process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = bad;
+      const sem = await fresh();
+
+      const held = [deferred(), deferred()];
+      const running = held.map(d => sem.acquireRenderSlot(d.run));
+      await settle();
+      expect(sem.renderSlotStats().active).toBe(2);
+
+      const calls = sem.warn.mock.calls.filter(c => String(c[0]).includes('invalid'));
+      expect(calls).toHaveLength(1);
+      expect(calls[0]![1]).toMatchObject({ setting: 'PDF_RENDER_QUEUE_TIMEOUT_MS' });
+      expect(JSON.stringify(calls[0])).not.toContain(`"${bad}"`);
+
+      held.forEach(d => d.finish());
+      await Promise.all(running);
+    });
 
   it('an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)', async () => {
     delete process.env.AUTH_POOL_MAX;
