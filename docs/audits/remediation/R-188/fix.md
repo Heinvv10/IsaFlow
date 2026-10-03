@@ -61,7 +61,7 @@ Prod's env leaves `AUTH_POOL_MAX` unset, so this changes prod pool sizes on the 
 
 ## Recorded, not changed
 - Each render holds 2 auth-pool connections (its withAuth one plus the print page's re-entry). At the default, 2 renders take 4 of 10 (40%, leaving 6); before, 6 of 20 (30%, leaving 14). The ceiling formula `floor(pool/4)` is kept: the owner's goal set ceiling 2 at pool 10. The alternative is `floor(pool/8)` = 1 at the default (2 of 10, 20%).
-- No pool `waitingCount` is logged anywhere, so pool saturation after the change cannot be seen in the logs.
+- Pool saturation is visible through the `auth pool saturated: an acquire had to queue` warning (see PR #630 review fixes). Before that, no pool `waitingCount` was logged anywhere.
 - The render queue bound (2 x the concurrency bound) drops from 6 to 4 at the defaults.
 - Rollback: set `AUTH_POOL_MAX=20` (plain `20`; `20.0` gives 10) in the prod env and restart the service (restores pools of 20, ceiling 5, and the previous 3 renders / queue bound 6).
 
@@ -105,11 +105,12 @@ Evidence r9: the invalid-value warning says "falling back" (the `using` field sa
 - The env-parsing tests moved to `renderSemaphoreEnv.test.ts` (202 lines; `renderSemaphore.test.ts` 294).
 - Evidence r10: `red.r10.unit.log`, `green.r10.unit.log` 52/52 at `17cb49ffb`, `mutations.r10.log` M43-M49 killed, `regression.r10.unit.log` 1756/1756 (the first regression run caught the helper crashing on test pool mocks without `options`; fixed). The red run covered the floor rule, the note call and the missing telemetry module (3 tests plus a failed import); the telemetry tests were written with the module, so their red is the mutants.
 
+## PR #630 follow-up review fixes
+- The saturation check ran BEFORE `pool.connect()`, so the first waiter on a full pool (empty queue) was never logged; pg-pool enqueues synchronously inside `connect()`, so the check now runs after the call (`const pending = pool.connect()`), and a synchronous throw takes the same error path. Verified with a real `pg.Pool` (fake Client, max 1): `poolTelemetryRealPool.test.ts`. The failure log carries the counts taken at acquire time. The wiring census states its limit (aliased acquires are not matched) and matches `pool()` only in `withExtensionToken.ts`. Evidence r12: `red.r12.unit.log`, `green.r12.unit.log`, `mutations.r12.log`, `regression.r12.unit.log`.
+
 ## Remaining long pool holders under withAuth
 - **Confirmed risk, not changed:** `statement-bulk-email.ts` is `withAuth(withErrorHandler(withCsrf(withWriteAccess(...))))`, called from `useStatementEmail.ts`, and sends up to 100 emails sequentially inside one request transaction (one pool connection idle in transaction for the whole loop). Follow-up: move the sends to `runAfterCommit`.
 - Server `fetch(` with no signal or timeout, found by grep and NOT individually verified to run under withAuth: `llmCategorizationPass.ts`, `sentMirrorService.ts`, `sageAutoImportService.ts`, `signumIntegrationService.ts`, `weasyprintService.ts`, `twilioMediaFetch.ts`, `sarsEfilingClient.ts`, `vfStorageAdapter.ts`, `imapMirrorService.ts`.
 - `cash-flow-forecast.ts` has no `checkAiRateLimit`, and concurrent cache misses are not de-duplicated (each miss makes its own provider call). Not changed.
 
-Not changed: pool `waitingCount` / `totalCount` is not logged anywhere. It is the signal to watch
-after deploy (a sustained non-zero `waitingCount` on authPool means the default of 10 is too small;
-the rollback is `AUTH_POOL_MAX=20` in the prod env and a restart).
+The saturation warn (`auth pool saturated: an acquire had to queue`, with the counts) is the signal to watch after deploy: a sustained stream of it on authPool means the default of 10 is too small; the rollback is `AUTH_POOL_MAX=20` (plain digits) in the prod env and a restart.

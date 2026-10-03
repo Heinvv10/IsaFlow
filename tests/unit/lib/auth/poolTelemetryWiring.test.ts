@@ -6,7 +6,8 @@
  *  - withAuth and withPlatformAdmin need a verified session to reach their acquire, so
  *    they are pinned by a census over `git ls-files`: no `.connect()` on one of the four
  *    pools outside connectObserved (it fails on a new or reverted site; an untracked file
- *    is not seen until added).
+ *    is not seen until added). Limit: only a direct `getter().connect(` is
+ *    matched; an aliased acquire (`const p = getAuthPool(); p.connect()`) is not.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -55,10 +56,12 @@ describe('connectObserved is wired at the pool acquires (R-188)', () => {
 
   it('no acquire on an auth pool bypasses connectObserved (withAuth, withPlatformAdmin, and any new site)', () => {
     const files = execFileSync('git', ['ls-files', 'src', 'pages'], { encoding: 'utf8' })
-      .split('\n').filter(f => /\.(ts|tsx)$/.test(f) && !f.endsWith('poolTelemetry.ts')
-        && f !== 'src/lib/auth/withInviteToken.ts' /* its own 5-connection pool, not sized by AUTH_POOL_MAX */);
-    const bare = /\b(getAuthPool|getAppPool|pool)\(\)\s*\.connect\(/;
-    const offenders = files.filter(f => bare.test(readFileSync(f, 'utf8')));
+      .split('\n').filter(f => /\.(ts|tsx)$/.test(f) && !f.endsWith('poolTelemetry.ts'));
+    const offenders = files.filter(f => {
+      const text = readFileSync(f, 'utf8');
+      return /\b(getAuthPool|getAppPool)\(\)\s*\.connect\(/.test(text)
+        || (f === 'src/lib/auth/withExtensionToken.ts' && /\bpool\(\)\s*\.connect\(/.test(text));
+    });
     expect(offenders).toEqual([]);
     const wired = (f: string, name: string) => readFileSync(f, 'utf8').includes(`, '${name}')`) && readFileSync(f, 'utf8').includes('connectObserved(');
     expect(wired('src/lib/auth/withAuth.ts', 'authPool')).toBe(true);
