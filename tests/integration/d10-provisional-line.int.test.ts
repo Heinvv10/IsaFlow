@@ -15,8 +15,9 @@ import { reverseBankAllocationTool } from '@/lib/mcp/tools/writeBankAllocate';
 import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
 import { als } from '@/lib/als';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import bankReconciliationsAction from '../../pages/api/accounting/bank-reconciliations-action';
 import {
-  callRoute, company, inTx, invoiceState, pool, seedDoc, seedInvoice, seedProvisional, useR127Fixture, user,
+  bankGl, callRoute, company, inTx, invoiceState, pool, seedDoc, seedInvoice, seedProvisional, today, useR127Fixture, user,
 } from './r127-double-booking.helpers';
 
 useR127Fixture();
@@ -143,4 +144,48 @@ describe('D10 O9: a provisional\'s statement line is not reset while its journal
     expect(await settlements(s.x)).toHaveLength(1);
     expect((await line(s.bt)).status).toBe('matched');
   });
+
+  // F2 (brk-d10): cancelling an in-progress reconciliation reset every 'matched' line it held — an evidenced
+  // provisional's line too (status 'matched', no matched journal line), with X standing and the link kept. Such a line
+  // exists independently of the session, like an allocated one: it is detached only. The cancel stays usable.
+  it('reconciliation cancel detaches an evidenced provisional\'s line (stays matched, linked) and still reverts a real match', async () => {
+    const s = await scenario(true);
+    const [rec] = (await pool.query(`INSERT INTO bank_reconciliations (company_id, bank_account_id, statement_date, statement_balance,
+      status, started_by) VALUES ($1, $2, CURRENT_DATE, 0, 'in_progress', $3) RETURNING id`, [company, bankGl, user])).rows;
+    const other = await seedProvisional({ totalAmount: 60 });
+    const [leg] = (await pool.query('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2', [other.je, bankGl])).rows;
+    // A real match in the same session: a second journal's bank leg, as matchTransaction leaves it.
+    const [plain] = (await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description,
+      status, matched_journal_line_id, reconciliation_id) VALUES ($1, $2, $3, -60, 'd10 plain match', 'matched', $4, $5) RETURNING id`,
+    [company, bankGl, today, leg.id, rec.id])).rows;
+    await pool.query('UPDATE bank_transactions SET provisional_je_id = NULL WHERE id = $1', [other.bt]);
+    await pool.query('UPDATE bank_transactions SET reconciliation_id = $1 WHERE id = $2', [rec.id, s.bt]);
+    const r = await callRoute(bankReconciliationsAction as never, '/api/accounting/bank-reconciliations-action',
+      { action: 'cancel', reconciliationId: String(rec.id) });
+    expect(r.statusCode, text(r)).toBe(200);
+    expect(await line(s.bt)).toMatchObject({ status: 'matched', prov: s.x });
+    expect((await pool.query('SELECT reconciliation_id FROM bank_transactions WHERE id = $1', [s.bt])).rows[0].reconciliation_id).toBeNull();
+    expect((await pool.query('SELECT status FROM bank_transactions WHERE id = $1', [plain.id])).rows[0].status).toBe('imported');
+    await inTx(() => approveSupplierInvoice(company, s.bill, user));
+    expect(await settlements(s.x)).toHaveLength(1);
+  });
+
+  // O-a (brk-d10): a SECOND statement line matched to a standing provisional's bank leg — at k = 0 X itself, at k = 2
+  // the head R2 that carries X again — while X's own line still holds that cash through provisional_je_id.
+  for (const k of [0, 2]) {
+    it(`a second line matched to the bank leg of a standing provisional's chain (k=${k}) is refused; nothing changed`, async () => {
+      const s = await scenario(true);
+      let target = s.x;
+      for (let i = 0; i < k; i++) target = String((await inTx(() => reverseJournalEntry(company, target, user))).id);
+      const [leg] = (await pool.query('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2', [target, bankGl])).rows;
+      const [l2] = (await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
+        VALUES ($1, $2, $3, ${k % 2 === 0 ? -115 : 115}, 'd10 second line', 'imported') RETURNING id`, [company, bankGl, today])).rows;
+      const r = await callRoute(route as never, '/api/accounting/bank-transactions-action',
+        { action: 'match', bankTransactionId: String(l2.id), journalLineId: String(leg.id) });
+      expect(r.statusCode, text(r)).toBe(400);
+      expect(text(r)).toMatch(/provisional/i);
+      expect((await pool.query('SELECT status, matched_journal_line_id FROM bank_transactions WHERE id = $1', [l2.id])).rows[0])
+        .toEqual({ status: 'imported', matched_journal_line_id: null });
+    });
+  }
 });

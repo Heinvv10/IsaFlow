@@ -800,6 +800,12 @@ async function reverseReconciledInner(
   // D10 O9 (with R-127's settled case): a provisional's own line is refused while its journal stands; one whose
   // journal the GL already took out is only freed below, its link cleared, nothing posted.
   const deadProvisional = await refuseResettingProvisionalLine(companyId, tx, 'reverse');
+  // Changed since the peek (matched, unmatched or re-matched by another request): a state conflict, nothing written,
+  // 409 — before the status refusal, which would otherwise answer an unmatch in between as a 400.
+  if (String(tx.matched_journal_line_id ?? '') !== (chain?.lineId ?? '')) {
+    throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.',
+      undefined, { retryable: true });
+  }
   if (!deadProvisional && tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
@@ -808,9 +814,6 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
-  if (String(tx.matched_journal_line_id ?? '') !== (chain?.lineId ?? '')) {
-    throw new BankAllocationRefusal('This bank line was changed by another request while it was being reversed — retry in a moment.');
-  }
   if (chain?.doc) return reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts);
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
   // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).

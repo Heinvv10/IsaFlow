@@ -18,7 +18,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
 import { refuseSettledProvisionalLine, UNAPPLY_REMEDY } from '../ap/provisionalSettlementGuards';
-import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
+import { lockChainHead } from '../shared/journalChainHead';
 
 export type ProvisionalLineVerb = 'reverse' | 'unmatch' | 'exclude' | 'match';
 const VERBING: Record<ProvisionalLineVerb, string> = {
@@ -38,8 +38,10 @@ export async function refuseResettingProvisionalLine(
     SELECT entry_number, needs_evidence FROM gl_journal_entries
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  const chain = je ? await findJournalChainHead(companyId, jeId) : null;
-  if (chain?.kind === 'broken') throw new BankAllocationRefusal(brokenChainMessage(jeId, chain));
+  // Decided under X's chain-head LOCK, taken after the line (the D8 order: line -> document -> head) and held to the
+  // end of the request: a GL re-reversal waits for the reset instead of putting X back in force under a line this
+  // has just freed, where an approval would then settle X against it (D10 round 2, brk-d10 F1). Bounded (503).
+  const chain = je ? await lockChainHead(companyId, jeId, (m) => new BankAllocationRefusal(m)) : null;
   const n = String(je?.entry_number ?? jeId);
   if (!chain?.standing) {
     if (verb === 'reverse') return true;

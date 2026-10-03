@@ -129,3 +129,4 @@ export function expectOut(s: Awaited<ReturnType<typeof docState>>): string | nul
   for (const l of s.lines) if (l.status !== 'imported' || l.matched) errs.push(`line ${String(l.id).slice(0, 8)} ${String(l.status)}`);
   return errs.length ? errs.join('; ') : null;
 }
+
