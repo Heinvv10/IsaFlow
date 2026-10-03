@@ -15208,7 +15208,25 @@
       "reportedSeverity": "low",
       "title": "paystackClient.ts is over the 300-line file limit (432 lines)",
       "claim": "src/modules/billing/services/paystackClient.ts was 425 lines at 82bd2afdc, already over CLAUDE.md's 300-line limit. R-181 added 7 (verifyTransaction maps requested_amount and fees), making 432. A split (for example transactions, subscriptions and plans into separate modules) is out of R-181's scope.",
-      "processNotes": "2026-10-02: recorded by the R-181 round 3 review. Pre-existing; not fixed."
+      "processNotes": "2026-10-02: recorded by the R-181 round 3 review. Pre-existing; not fixed. 2026-10-03: Hein decided to split by concern as a pure move. paystackClient.ts is now a 20-line barrel (export * from paystackTransactions.ts 239 lines and paystackSubscriptions.ts 119 lines; shared request core paystackHttp.ts 74 lines); function bodies byte-identical (verify-move.sh), only change is `export` on paystackFetch. Export surface pinned by paystackClientExports.test.ts (baseline green on the unsplit file); 5 mutants, 5 killed. Every importer and vi.mock still use the paystackClient path. See docs/audits/remediation/R-183/.",
+      "status": "fixed",
+      "currentSha": null,
+      "branch": "refactor/r183-split-paystack-client-20261003",
+      "pr": null,
+      "fixCommit": null,
+      "deployedSha": null,
+      "testNames": [
+        "tests/unit/services/billing/paystackClientExports.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-183/baseline.unit.log",
+        "docs/audits/remediation/R-183/green.unit.log",
+        "docs/audits/remediation/R-183/mutations.log",
+        "docs/audits/remediation/R-183/regression.unit.log",
+        "docs/audits/remediation/R-183/full-unit.log",
+        "docs/audits/remediation/R-183/verify-move.log",
+        "docs/audits/remediation/R-183/fix.md"
+      ]
     },
     {
       "area": "accounting/ar portal",
