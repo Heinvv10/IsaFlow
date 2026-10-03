@@ -1,6 +1,6 @@
-HEAD: 9662a10d3f898a45b4c7697d487ecc7742c04bb4 (committed)
+HEAD: 81c4d0466305cd79243208b182487a2b5d308162 (committed; final code head)
 type-check rc=0
-type-check:paystack-exports rc=0 (worktree)
-type-check:paystack-exports rc=0 in a git-archive tree of 9662a10d3f898a45b4c7697d487ecc7742c04bb4 with next-env.d.ts ABSENT (node_modules hardlink copy), as on a GitHub checkout
-M8 (missing test path) in that same archive tree: TS6053, rc=2
-lint: 12 problems (0 errors, 12 warnings) (round 4, 0 no-restricted hits)
+type-check:paystack-exports rc=0
+lint: ✖ 12 problems (0 errors, 12 warnings)
+OK: 81 agent document mirror(s) match canonical sources.
+(archive-tree proof of next-env.d.ts absence is from 9662a10d3; tsconfig unchanged since)

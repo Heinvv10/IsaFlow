@@ -23,3 +23,5 @@ M12 template-literal dynamic import of a part (import(`@/x/paystackHttp`)) in pa
 NOTE (explained in round 3): the first BASE run's rc=2 came from tsconfig.paystackexports.json listing the gitignored next-env.d.ts in `files`; a missing next-env.d.ts is TS6053, and that file exists in a worktree only when something has generated it. Removed in round 3; the step now passes in a git-archive tree with next-env.d.ts absent (gates.log).
 M13 TemplateElement selector, run via eslint on paystackEventHandlers.ts: import(`@/x/paystackHttp`) -> 1 hit(s); import(`${b}/paystackTransactions`) -> 1 hit(s); import(`./paystackClient`) -> 0 hit(s) (must be 0); string-literal import('./paystackHttp') still -> 1 hit(s)
 lint after M13 selector (src+pages+all linted): ✖ 12 problems (0 errors, 12 warnings)
+M14 later `src/**` block overriding no-restricted-imports (paystackImportGuardConfig.test.ts) -> RED (2 failed | 3 passed); baseline 5/5 green before and after
+M15 verify-move.sh header comparison shifted to orig lines 2-18 -> "FAIL barrel header", exit 1 (was silent under `&& echo`)
