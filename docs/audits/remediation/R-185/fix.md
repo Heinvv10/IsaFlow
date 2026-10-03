@@ -146,6 +146,14 @@ applied, or 852 refuses.
 | `green.round2.unit.log` | unit, verbose | 10/10 (2 files) |
 | `green.round2.int.log` | int, verbose, 852 applied | 7/7 |
 | `mutations.round2.log` | M1-M12, baselines before and after green | 12/12 RED. M11 (non-23505 rethrown before the re-read) is the unit red; M12 (no `company_id` in `feeJournalExists`) the company-scope int red |
+| **Round 3 (PR #626 review), at committed `7915ecb76`** (clean tree; only these logs untracked) | | |
+| `red.round3.unit.log` | new unit cases against the pre-round-3 service | 2 failed / 6 passed: thrown null raised a TypeError; a draft logged "already posted" |
+| `migration.round3.fixture.log` | DROP INDEX, re-apply 852 with `statement_timeout` | built, exit 0; settings were `2min` / `5s` inside the run; the fixture has 0 journal rows, so the timing says nothing about prod |
+| `green.round3.unit.log` | unit, verbose | 13/13 (2 files) |
+| `green.round3.int.log` | int, verbose, 852 re-applied | 7/7 |
+| `mutations.round3.log` | M1-M14, baselines before and after green | 14/14 RED. M13 (draft logs "already posted") and M14 (code read without the null check) are unit reds |
+| `regression.round3.unit.log` | same 9 files | 130/130 |
+| `regression.round3.int.log` | same 22 files | 210/214; the same 4 pre-existing k-035 failures |
 
 ## Recorded, not changed
 
