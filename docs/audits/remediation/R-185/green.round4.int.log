@@ -1,0 +1,10 @@
+HEAD: 39dbe8a9c770e9a303bdba6bba54eebf08d1ed48 (clean tree: 0 changes); fixture postgresql://postgres@127.0.0.1:55931/isaflow_schema_fixture (851 + 852); load 46.85
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: two dedupe-path deliveries for one reference > post the fee once; the loser answers 200 and its transaction commits 1014ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: B inserts while A holds its uncommitted fee journal > A commits: B stands down with 200, exactly one fee journal 127ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: B inserts while A holds its uncommitted fee journal > A rolls back: B posts the fee, exactly one fee journal 137ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: the guard is scoped to the company > another company's live fee journal for the same reference does not stop A's fee 75ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: a fee post that fails for any other reason still fails > a closed period: the delivery answers 500 and leaves no fee journal, not even a draft 73ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: the index targets fee journals only > refuses a second live fee journal for one (company, reference), draft or posted 8ms
+ ✓ tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: the index targets fee journals only > admits the receipt journals (same agent, NULL reference), another agent, a reversed row 5ms
+ Test Files  1 passed (1)
+      Tests  7 passed (7)

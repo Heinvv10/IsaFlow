@@ -163,6 +163,13 @@ applied, or 852 refuses.
 | `mutations.round3.log` | M1-M14, baselines before and after green | 14/14 RED. M13 (draft logs "already posted") and M14 (code read without the null check) are unit reds |
 | `regression.round3.unit.log` | same 9 files | 130/130 |
 | `regression.round3.int.log` | same 22 files | 210/214; the same 4 pre-existing k-035 failures |
+| **Round 4 (PR #626 reconfirm), at committed `39dbe8a9c`** (clean tree; only these logs untracked) | | |
+| `red.round4.unit.log` | new guard cases against the pre-round-4 service | 1 failed / 9 passed: the guard returned silently on a draft |
+| `migration.round4.runner-probe.log` | `SET LOCAL statement_timeout='1s'` + sleep, via a verbatim copy of `applyOne` (diffed identical), fixture | 57014 after 1006 ms; rolled back; no `schema_migrations` row; setting did not leak |
+| `green.round4.unit.log` | unit, verbose | 15/15 (2 files) |
+| `green.round4.int.log` | int, verbose | 7/7 |
+| `mutations.round4.log` | M1-M15, baselines before and after green | 15/15 RED. M15 (guard silent on a draft) is the unit red |
+| `regression.round4.unit.log` | same 9 files | 132 passed (132) |
 
 ## Recorded, not changed
 
