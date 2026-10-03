@@ -8,14 +8,58 @@
 invoice such a request references raised 23514, and the whole run rolled back to its savepoint
 (`red.int.log`: `executeArchive threw 23514 ... paystack_pr_invoice_has_invoice`).
 
-## Decision
+## Current design (as of round 2)
+
+**Decision.** This is the goal file's default, not a decision put to Hein
+(`.claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md`, §2a item 5 and §4, marked "default,
+not asked"). The archive skips the customer invoices a Paystack or Stitch payment request of the
+same company references, and reports how many it skipped. Requests are never archived or deleted.
+Review round 1 extended it to Stitch (item 3). The orchestrator chose option (b) for the skipped
+invoice's journals (item 2).
+
+**Fix.** Everything lives in `core/archiveCustomerInvoiceScope.ts`:
+- `selectArchivableCustomerInvoices` → `{ ids, skippedIds }`. One unlocked read at step 4: paid or
+  cancelled, before the cutoff, and an `EXISTS` on each request table scoped to the company.
+- `countSkippedInvoiceJournalsInWindow(companyId, cutoff, skippedIds)`. Seeded from the selection's
+  `skippedIds`, so an invoice changed after the selection cannot escape. It walks each invoice's
+  `gl_journal_entry_id` and that journal's `reversal_of_id` chain, both directions, inside the
+  company, and counts the journals the run would move (posted, before the cutoff).
+  - If the count is not 0, the run throws `ArchiveSkippedInvoiceJournalError`
+    (`ARCHIVE_SKIPPED_INVOICE_JOURNAL`) before any delete.
+  - `validateArchive` reports the same count, with a message that is true both before a run and as
+    a refused run's stored error.
+- `moveCustomerInvoicesToArchive` is one statement at step 6:
+  `WITH moved AS (DELETE ... RETURNING *) INSERT INTO archive ... SELECT FROM moved`. It re-applies
+  company, cutoff and status on top of the ids. It throws `ArchiveSetChangedError`
+  (`ARCHIVE_SET_CHANGED`) when it deletes fewer rows than it selected, or archives fewer than it
+  deletes.
+- `countArchivableCustomerInvoices` drives the preview: `customerInvoices` and
+  `customerInvoicesSkipped`, counted in SQL.
+- `ArchiveResult.invoicesSkipped` is in the result, the audit metadata and the log.
+- The page shows one line under the preview when the skipped count is above 0 (browser proof:
+  `browser-proof.md`).
+
+**Tests.**
+
+| File | Covers |
+|---|---|
+| `r186-archive-skips-paystack-invoices` | Runs as app_user. Paystack and Stitch skips. Preview counts. Cross-tenant requests don't shield (23514) |
+| `r186-archive-move-race` | Hook after the selection: an invoice reopened or re-dated, an id already in the archive (`ARCHIVE_SET_CHANGED`), a skipped invoice reopened (still refused) |
+| `r186-archive-skipped-closure` | Option (b) on hand-built rows. The `status='reversed'` shapes are LEGACY cancels |
+| `r186-archive-current-cancel` | Today's cancel, built by the real `postCustomerInvoiceToGL` and `cancelCustomerInvoice` |
+| `r186-archive-paystack-settled` | Settlement through the real Paystack webhook |
+| `archiveWizardSkippedInvoices` (component) | The preview line |
+
+## Round 0 (superseded; kept as history)
+
+### Decision (round 0)
 
 Goal file `.claude/handoffs/2026-10-03-r183-r187-pool-budget-goal.md`, §2a item 5 and §4. The
 goal file marks this item "default, not asked": unlike the other §2a items, it was not put to Hein
 as a question. The archive skips customer invoices referenced by any `paystack_payment_requests`
 row of the same company, and reports how many it skipped. Requests are never archived or deleted.
 
-## Fix
+### Fix (round 0)
 
 - New `core/archiveCustomerInvoiceScope.selectArchivableCustomerInvoices(companyId, cutoff)`
   returns `{ ids, skipped }`. That is one select: paid or cancelled, before the cutoff, plus an
@@ -31,7 +75,7 @@ row of the same company, and reports how many it skipped. Requests are never arc
 - **UI change:** `ArchiveWizardSection` adds one muted line under the preview when
   `customerInvoicesSkipped > 0`. It needs browser proof.
 
-## Tests
+### Tests (round 0)
 
 - `tests/integration/r186-archive-skips-paystack-invoices.int.test.ts` (3 cases), with three
   companies.
@@ -100,14 +144,15 @@ row of the same company, and reports how many it skipped. Requests are never arc
      receipt journal before the cutoff fails the run on 23503 before the fee journal or bank line
      can matter. A fee journal always comes with a receipt journal.
    - **Pins.**
-     - `r186-archive-skipped-closure.int.test.ts` (6 cases). Refused shapes: the realistic cancel
-       (the invoice's journal 'reversed', its reversal posted in the window); the journal it
+     - `r186-archive-skipped-closure.int.test.ts` (6 cases). Refused shapes: a LEGACY cancel
+       (the invoice still points at an original left at status='reversed', its reversal posted in
+       the window; today's cancel does not leave this shape, see round 2); the journal it
        reverses in the window; its own journal in the window; the same with Stitch. Each asserts
        the code, that nothing moved (journals, invoices, archive) and that validation reports it.
        It completes when no chain journal is one the run moves, and the free invoice's own journal
        moves with it. It does not reach into another company's journals.
-     - `r186-archive-paystack-settled.int.test.ts` (2 cases, the realistic Paystack shape through
-       the real webhook). With no invoice journal (as the R-181 helper books it): 23503
+     - `r186-archive-paystack-settled.int.test.ts` (2 cases: a settlement through the real Paystack
+       webhook; the invoice row and its optional journal are seeded). With no invoice journal (as the R-181 helper books it): 23503
        `customer_payments_gl_journal_entry_id_fkey`, pre-existing. With the invoice posted to the
        GL: the new refusal, before any delete. Nothing moves in either.
    - **Route.** Neither `ARCHIVE_SKIPPED_INVOICE_JOURNAL` nor `ARCHIVE_SET_CHANGED` can reach a
@@ -155,6 +200,44 @@ row of the same company, and reports how many it skipped. Requests are never arc
 | `regression.r3.unit.log` | 5 unit files 77/77. Components 29/29 |
 
 The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8 shows it is needed.
+
+## Review round 2 (general reviewer on bbf439af4: no code defect, FIX on these)
+
+1. **[M] Browser proof.** `browser-proof.md` and `browser-proof-preview.png`. On
+   `isaflow-fixture-r186` at `0ef5c9cd3`, the preview answered 200 with `customerInvoices: 1` and
+   `customerInvoicesSkipped: 1`, the line rendered, and there were no console errors.
+2. **[L] Current cancel shape.** `cancelCustomerInvoice` keeps the original journal `posted` and
+   stamps `reversed_at`, posts the reversal with `reversal_of_id` on the same date, and NULLs
+   `gl_journal_entry_id`. `r186-archive-current-cancel.int.test.ts` builds that shape with the real
+   `postCustomerInvoiceToGL` and `cancelCustomerInvoice`, asserts the shape, and then runs the
+   archive.
+   - The run completes: `invoicesSkipped 1`, `invoicesArchived 1`, `entriesArchived 2`. Both
+     journals move, and the live cancelled invoice points at nothing, so nothing dangles.
+   - So for a cancelled invoice, the refusal bites only on LEGACY rows: an invoice still pointing
+     at a `status='reversed'` original. Those cases in the closure suite are now labelled legacy,
+     and the round-1 "realistic" wording above is corrected.
+   - It passed on the round-1 code as well. It pins behaviour; it is not a red-first fix.
+3. **[L]** The "Current design" section above replaces the round-0 Decision, Fix and Tests, which
+   are kept, headed as superseded.
+4. **[L] Non-atomic selection and count.** The journal count is now seeded from the ids the
+   selection skipped, not from its own read of the request predicate.
+   - Red: `red.r4.int.log` on bbf439af4. A skipped invoice reopened to `approved` after the
+     selection escaped the refusal, and its in-window journal was archived.
+   - Validation uses the same selection, so it loads the eligible ids; the preview still only
+     counts.
+   - Still not atomic, and recorded: a journal posted or reversed between the count (step 4) and
+     the GL deletes (step 6) is not re-checked.
+5. **[L] Message wording.** `skippedInvoiceJournalMessage` now reads "... are dated before the
+   cutoff. An archive with this cutoff is refused; choose an earlier cutoff." That is true from
+   Validate and as `archive_runs.error_message`.
+
+| Round-2 evidence | Result |
+|---|---|
+| `red.r4.int.log` (bbf439af4, new race case) | 1 failed / 3 passed (4): the run completed and archived the reopened invoice's journal |
+| `green.r4.int.log` (0ef5c9cd3) | five r186 files: 17/17 |
+| `mutations.r4.log` (0ef5c9cd3) | 18 mutants over the selection, the seed, the chain, the count, the refusal and validation: 18 killed. Baselines before and after green, tree clean |
+| `regression.r4.int.log` | k071 + r101 + r181-settlement-amount + five r186 files: 40/40. `d8-r2-chain-head-cancel-void` refuses any DB but isaflow_dev, so it cannot run on the fixture; the cancel service is unchanged here |
+| `regression.r4.unit.log` | 5 unit files 77/77. Components 29/29 |
 
 ## Recorded, not changed
 
