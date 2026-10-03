@@ -402,6 +402,18 @@ passed and 290 skipped (`full-unit.r8.log`). The component suite passed 403/403 
 6. No change for the product-decision LOW (documented above) or the `.claude.md` length (predates
    this PR).
 
+| PR-review evidence | Result |
+|---|---|
+| `red.r9.int.log` (1daa3eb88 code, new tests) | 1 failed / 15 passed (16): the linking UPDATE did not wait. The cross-company-chain pin passes on that code, which already filters (it pins the filter) |
+| `mutations.r9.log` (6dd2bd87c) | 3 mutants: `FOR SHARE` dropped, the lock call dropped, the recursive arm's company filter dropped. 3 killed |
+| `green.r9.int.log` (6dd2bd87c) | five r186 files: 23/23 |
+| `regression.r9.int.log` | k071 + r101 + r181-settlement-amount + five r186 files: 46/46 |
+| `full-unit.r9.log` (6dd2bd87c) | 1336 files passed, 47 skipped; 18733 tests passed, 290 skipped |
+
+Not tested: the lock wait running out (another request holding a skipped invoice FOR UPDATE for
+over 5 s gives `RowLockTimeoutError`). That path is `withRowLockBudget`'s own, and that function's
+own tests cover it.
+
 ## Recorded, not changed
 
 - **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
