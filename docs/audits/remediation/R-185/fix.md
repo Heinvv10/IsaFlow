@@ -50,6 +50,14 @@ outcome, in its own savepoint.
   statement_timeout = '120s'` (PR #626 review) bounds how long the census scan and the build may
   then run while holding it. Either cancels the statement and the file rolls back. The prod row
   count was not measured here; the fixture has 0 rows, so its timing proves nothing about prod.
+  Proven through the runner's own path (`migration.round4.runner-probe.log`): `applyOne` sends the
+  whole file as ONE multi-statement simple query inside BEGIN. A probe file with `SET LOCAL
+  statement_timeout = '1s'; CREATE TABLE ...; SELECT pg_sleep(3);`, run through a verbatim copy of
+  `applyOne` (it is not exported) on the fixture, failed with 57014 after ~1.0s and rolled back:
+  no sentinel table, no `schema_migrations` row, and the setting did not outlive the transaction.
+  So a `SET LOCAL` in the file arms the timeout for the statements after it. The probe does not
+  show whether the limit runs per statement or across the rest of the string; either way the
+  index build is bounded by 120s.
   Not `CONCURRENTLY`, because the runner wraps each file in a transaction.
 - **Code:** the guard SELECT stays as the fast path (`findFeeJournal`, same predicate as the
   index). The create and post run in `withSavepoint('gateway_fee_post')`. On ANY failure the
@@ -71,7 +79,8 @@ outcome, in its own savepoint.
     which constraint fired. The winner holds nothing the loser needs before its insert on the
     dedupe path (no request UPDATE; the link spend is a no-op once spent).
 - **Stand-down detail (PR #626 review):** the re-read returns the row. A DRAFT row stops the post
-  exactly as before (same semantics as the guard) but logs `warn` "a DRAFT fee journal already
+  exactly as before (same semantics as the guard) but logs `warn` (the fast-path guard too, since
+  round 4: a draft already stuck when the delivery arrives is the realistic case) "a DRAFT fee journal already
   holds the reference" with its id, not `info` "already posted". The swallowed error's `code` is
   read null-safely: a thrown `null` used to raise a TypeError in the log line instead of standing
   down; with no journal found it is rethrown as the same `null`.

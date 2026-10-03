@@ -1,0 +1,16 @@
+HEAD: 1657bcb59de51c77e1ae90d02a92bdf9da4d9d8f service at HEAD (pre round 4), round-4 unit tests from the working tree; fixture none; load 46.74
+ × tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee fast-path guard > a DRAFT fee journal already holds the reference: posts nothing and warns with its id 6ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee fast-path guard > a posted fee journal: posts nothing and logs nothing 1ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > 23505 and the fee journal now exists: stands down without throwing 1ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > any error, not only 23505 (a 40P01 from the post), with the journal present: stands down 1ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a thrown null with the journal present: stands down, no TypeError reading its code 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a thrown null with no fee journal on re-read: rethrows the null itself 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > the row found is a DRAFT: stands down (same semantics) but warns that it is a draft, not posted 1ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > 23505 but no fee journal on re-read: rethrows the original error 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a post failure (not a 23505) with no fee journal on re-read: rethrows it 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > runs the create and the post inside one savepoint 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee fast-path guard > a DRAFT fee journal already holds the reference: posts nothing and warns with its id
+AssertionError: expected "vi.fn()" to be called with arguments: [ …(3) ]
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
