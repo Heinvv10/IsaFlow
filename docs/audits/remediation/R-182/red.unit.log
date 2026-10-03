@@ -1,0 +1,435 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r182-pool-size
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts (27 tests | 27 failed) 66ms
+     × returns the default, silently, when unset or blank 10ms
+     × takes a valid value: "1" 1ms
+     × takes a valid value: "3" 0ms
+     × takes a valid value: "25" 0ms
+     × takes a valid value: "100" 0ms
+     × takes a valid value: " 7 " 0ms
+     × falls back to the default, with one warning, for "0" 0ms
+     × falls back to the default, with one warning, for "-2" 0ms
+     × falls back to the default, with one warning, for "-0" 0ms
+     × falls back to the default, with one warning, for "2.5" 0ms
+     × falls back to the default, with one warning, for "1.0" 6ms
+     × falls back to the default, with one warning, for "101" 0ms
+     × falls back to the default, with one warning, for "1000000" 7ms
+     × falls back to the default, with one warning, for "abc" 0ms
+     × falls back to the default, with one warning, for "12abc" 0ms
+     × falls back to the default, with one warning, for "NaN" 10ms
+     × falls back to the default, with one warning, for "Infinity" 0ms
+     × falls back to the default, with one warning, for "-Infinity" 0ms
+     × falls back to the default, with one warning, for "0x10" 0ms
+     × falls back to the default, with one warning, for "0b11" 0ms
+     × falls back to the default, with one warning, for "0o7" 0ms
+     × falls back to the default, with one warning, for "1e1" 0ms
+     × falls back to the default, with one warning, for "1E2" 0ms
+     × falls back to the default, with one warning, for "+5" 0ms
+     × falls back to the default, with one warning, for "5_0" 0ms
+     × falls back to the default, with one warning, for "٣" 4ms
+     × authPoolMax is validated and keeps its default of 20 19ms
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts (63 tests | 41 failed) 2577ms
+     × is bounded by the default for "abc", never NaN 33ms
+     × is bounded by the default for "0", never NaN 2ms
+     × is bounded by the default for "-3", never NaN 4ms
+     × is bounded by the default for "2.5", never NaN 1ms
+     × is bounded by the default for "500", never NaN 7ms
+     × is bounded by the default for "0x10", never NaN 10ms
+     × is bounded by the default for "abc", never NaN 30ms
+     × is bounded by the default for "0", never NaN 1ms
+     × is bounded by the default for "-3", never NaN 24ms
+     × is bounded by the default for "2.5", never NaN 2ms
+     × is bounded by the default for "500", never NaN 7ms
+     × is bounded by the default for "0x10", never NaN 1ms
+     × is bounded by the default for "1e1", never NaN 1ms
+     × is bounded by the default for "abc", never NaN 10ms
+     × is bounded by the default for "0", never NaN 4ms
+     × is bounded by the default for "-3", never NaN 5ms
+     × is bounded by the default for "2.5", never NaN 1ms
+     × is bounded by the default for "500", never NaN 1ms
+     × is bounded by the default for "0x10", never NaN 8ms
+     × is bounded by the default for "1e1", never NaN 3ms
+     × is bounded by the default for "abc", never NaN 4ms
+     × is bounded by the default for "0", never NaN 1ms
+     × is bounded by the default for "-3", never NaN 2ms
+     × is bounded by the default for "2.5", never NaN 1ms
+     × is bounded by the default for "500", never NaN 1ms
+     × is bounded by the default for "0x10", never NaN 1ms
+     × is bounded by the default for "0x10", never NaN 2ms
+     × is bounded by the default for "abc", never NaN 14ms
+     × is bounded by the default for "0", never NaN 5ms
+     × is bounded by the default for "-3", never NaN 4ms
+     × is bounded by the default for "2.5", never NaN 4ms
+     × is bounded by the default for "500", never NaN 54ms
+     × is bounded by the default for "0x10", never NaN 36ms
+     × is bounded by the default for "1e1", never NaN 53ms
+     × is bounded by the default for "abc", never NaN 10ms
+     × is bounded by the default for "0", never NaN 41ms
+     × is bounded by the default for "-3", never NaN 4ms
+     × is bounded by the default for "2.5", never NaN 4ms
+     × is bounded by the default for "500", never NaN 6ms
+     × is bounded by the default for "0x10", never NaN 5ms
+     × is bounded by the default for "1e1", never NaN 25ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 68 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > returns the default, silently, when unset or blank
+TypeError: poolSizeFromEnv is not a function
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:23:12
+     21|   it('returns the default, silently, when unset or blank', () => {
+     22|     vi.stubEnv(NAME, undefined as unknown as string);
+     23|     expect(poolSizeFromEnv(NAME, 7)).toBe(7);
+       |            ^
+     24|     vi.stubEnv(NAME, '');
+     25|     expect(poolSizeFromEnv(NAME, 7)).toBe(7);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/68]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > takes a valid value: "1"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > takes a valid value: "3"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > takes a valid value: "25"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > takes a valid value: "100"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > takes a valid value: " 7 "
+TypeError: poolSizeFromEnv is not a function
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:33:12
+     31|   it.each([['1', 1], ['3', 3], ['25', 25], ['100', 100], [' 7 ', 7]])(…
+     32|     vi.stubEnv(NAME, raw);
+     33|     expect(poolSizeFromEnv(NAME, 20)).toBe(expected);
+       |            ^
+     34|     expect(warn).not.toHaveBeenCalled();
+     35|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/68]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "0"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "-2"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "-0"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "2.5"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "1.0"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "101"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "1000000"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "abc"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "12abc"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "NaN"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "Infinity"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "-Infinity"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "0x10"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "0b11"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "0o7"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "1e1"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "1E2"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "+5"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "5_0"
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > falls back to the default, with one warning, for "٣"
+TypeError: poolSizeFromEnv is not a function
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:40:12
+     38|     '0x10', '0b11', '0o7', '1e1', '1E2', '+5', '5_0', '٣'])('falls bac…
+     39|     vi.stubEnv(NAME, raw);
+     40|     expect(poolSizeFromEnv(NAME, 20)).toBe(20);
+       |            ^
+     41|     expect(warn).toHaveBeenCalledTimes(1);
+     42|     expect(warn.mock.calls[0]![1]).toMatchObject({ name: NAME, value: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/68]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > authPoolMax is validated and keeps its default of 20
+AssertionError: expected NaN to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ NaN
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:52:27
+     50|     expect(authPoolMax()).toBe(8);
+     51|     vi.stubEnv('AUTH_POOL_MAX', 'twenty');
+     52|     expect(authPoolMax()).toBe(20);
+       |                           ^
+     53|     vi.stubEnv('AUTH_POOL_MAX', '0');
+     54|     expect(authPoolMax()).toBe(20);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "abc", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "abc", never NaN
+AssertionError: expected NaN to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ NaN
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "0", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "0", never NaN
+AssertionError: expected +0 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 0
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "-3", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "-3", never NaN
+AssertionError: expected -3 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ -3
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "2.5", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "2.5", never NaN
+AssertionError: expected 2.5 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 2.5
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "500", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "500", never NaN
+AssertionError: expected 500 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 500
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > neon getPool pool size (R-182) > is bounded by the default for "0x10", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getPlatformAdminPool pool size (R-182) > is bounded by the default for "0x10", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > rateLimitPool getRateLimitPool pool size (R-182) > is bounded by the default for "0x10", never NaN
+AssertionError: expected 16 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 16
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "abc", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "abc", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "abc", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "abc", never NaN
+AssertionError: expected NaN to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ NaN
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "0", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "0", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "0", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "0", never NaN
+AssertionError: expected +0 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 0
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "-3", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "-3", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "-3", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "-3", never NaN
+AssertionError: expected -3 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ -3
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "2.5", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "2.5", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "2.5", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "2.5", never NaN
+AssertionError: expected 2.5 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 2.5
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "500", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "500", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "500", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "500", never NaN
+AssertionError: expected 500 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 500
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "0x10", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "0x10", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "0x10", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "0x10", never NaN
+AssertionError: expected 16 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 16
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/68]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded by the default for "1e1", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded by the default for "1e1", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded by the default for "1e1", never NaN
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded by the default for "1e1", never NaN
+AssertionError: expected 10 to be 20 // Object.is equality
+
+- Expected
++ Received
+
+- 20
++ 10
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:102:30
+    100|   it.each(BAD)('is bounded by the default for %j, never NaN', async (r…
+    101|     vi.stubEnv(site.env, raw);
+    102|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    103|   });
+    104| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/68]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  68 failed | 37 passed (105)
+   Start at  10:23:23
+   Duration  3.97s (transform 1.96s, setup 0ms, import 1.57s, tests 2.68s, environment 7ms)
+

@@ -1,0 +1,44 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r181-settlement
+
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts (53 tests | 10 failed) 8ms
+     × the balance 2ms
+     × a part-payment 0ms
+     × an overpayment 0ms
+     × an invoice already paid 0ms
+     × draft receipts already claim part 0ms
+     × a draft invoice 0ms
+     × a soft-deleted invoice 0ms
+     × a held (non-ZAR) receipt 0ms
+     × a NaN total 0ms
+     × a NaN amount_paid 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > the balance
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a part-payment
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > an overpayment
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > an invoice already paid
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > draft receipts already claim part
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a draft invoice
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a soft-deleted invoice
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a held (non-ZAR) receipt
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a NaN total
+ FAIL  tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a NaN amount_paid
+TypeError: allocationPlan is not a function
+ ❯ tests/unit/services/ar/gatewaySettlementRules.test.ts:132:12
+    130|     ['a NaN amount_paid', { amountPaid: 'NaN' }, { allocated: 0, invoi…
+    131|   ] as const)('%s', (_label, change, plan) => {
+    132|     expect(allocationPlan({ ...base, ...change })).toEqual(plan);
+       |            ^
+    133|   });
+    134| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 43 passed (53)
+   Start at  20:30:07
+   Duration  207ms (transform 54ms, setup 0ms, import 77ms, tests 8ms, environment 0ms)
+

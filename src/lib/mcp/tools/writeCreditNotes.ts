@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryService';
+import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
 import { ReversalBeforeOriginalError, resolveReversalDateDetailed, type VatLockRoll } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { fmtDate } from '@/lib/fmtDate';
@@ -175,8 +176,12 @@ export const cancelCreditNoteTool: McpTool = {
     // resolves it the same way, so this is the roll past a locked (filed) VAT
     // period it will make — or the refusal it would raise mid-write when no
     // date up to today can take the contra.
+    // The entry is the journal's reversal-chain HEAD while the chain stands, as
+    // the cancel reverses it (D8); a broken chain is refused here, from the read.
     let roll: VatLockRoll | null = null;
-    const je = note.glJournalEntryId ? await getJournalEntryById(ctx.companyId, note.glJournalEntryId) : null;
+    const chain = note.glJournalEntryId ? await findJournalChainHead(ctx.companyId, note.glJournalEntryId) : null;
+    if (chain?.kind === 'broken') return toolError(brokenChainMessage(note.glJournalEntryId!, chain));
+    const je = chain?.standing ? await getJournalEntryById(ctx.companyId, chain.id) : null;
     if (je && je.status === 'posted' && !je.reversedAt && je.lines && je.lines.length > 0) {
       try {
         roll = (await resolveReversalDateDetailed(ctx.companyId, fmtDate(je.entryDate), undefined, je.lines)).vatLockRoll;

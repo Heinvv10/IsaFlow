@@ -13,6 +13,11 @@ import { DocumentNumberLockTimeoutError } from '@/modules/accounting/services/co
 import { TimeEntryLockTimeoutError } from '@/modules/accounting/services/practice/timeEntryLock';
 import { DocumentClaimLockTimeoutError } from '@/modules/accounting/services/core/documentClaimLock';
 import { RecurringTemplateLockTimeoutError } from '@/modules/accounting/services/core/recurringTemplateLock';
+import { JournalReversalLockTimeoutError } from '@/modules/accounting/services/gl/journalEntryReversalClaim';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
+import { RowLockTimeoutError } from '@/modules/accounting/services/core/rowLockBudget';
+import { CreditNoteLockTimeoutError } from '@/modules/accounting/services/ar/creditNoteLock';
+import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 
 function mockRes() {
   const res = {
@@ -34,6 +39,13 @@ describe('respondIfLockTimeout', () => {
     // r9 LOW-2: raised from the same 55P03, but the execute route answered it
     // 409 — no `Retry-After`, and a client retrying on 503 skipped it.
     ['RecurringTemplateLockTimeoutError', new RecurringTemplateLockTimeoutError('t1')],
+    // D8 round 6: lockChainHead raises it on every cancel / void / dismiss.
+    ['JournalReversalLockTimeoutError', new JournalReversalLockTimeoutError('je-1')],
+    // D8 round 9: one predicate for every lock timeout — dismiss's bank-line lock answered 500.
+    ['BankTransactionLockTimeoutError', new BankTransactionLockTimeoutError('bt-1')],
+    ['RowLockTimeoutError', new RowLockTimeoutError('Invoice i-1')],
+    ['CreditNoteLockTimeoutError', new CreditNoteLockTimeoutError('cn-1')],
+    ['PaymentLockTimeoutError', new PaymentLockTimeoutError('p-1')],
   ];
 
   it.each(cases)('answers %s with a 503 the caller can retry', (_name, err) => {
@@ -50,7 +62,8 @@ describe('respondIfLockTimeout', () => {
   });
 
   it('leaves every other error to the caller, answering nothing', () => {
-    for (const err of [new Error('boom'), { code: '23505' }, null]) {
+    const coded = Object.assign(new Error('a refusal'), { code: 'SUPPLIER_PAYMENT_REFUSED' });
+    for (const err of [new Error('boom'), { code: '23505' }, { code: 'X_LOCK_TIMEOUT' }, coded, null]) {
       const res = mockRes();
       expect(respondIfLockTimeout(res as unknown as NextApiResponse, err)).toBe(false);
       expect(res.status).not.toHaveBeenCalled();

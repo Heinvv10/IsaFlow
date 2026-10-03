@@ -13,6 +13,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { sql } from '@/lib/neon';
 import {
   getAutoPostSettings,
@@ -141,6 +142,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
         return apiResponse.conflict(res, (err as Error).message);
       }
+      // Any other lock timeout (the bank reversal's flow budget, a chain-head claim, D8): 503 + Retry-After.
+      if (respondIfLockTimeout(res, err)) return;
       return apiResponse.badRequestFromError(res, err, 'Undo failed');
     }
   }

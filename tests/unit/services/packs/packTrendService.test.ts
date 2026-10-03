@@ -142,6 +142,26 @@ describe('getPackTrend', () => {
     expect(points[0]!.grossMarginPct).toBeNull();
   });
 
+  // THE SCORECARD'S RULE, MONTH BY MONTH. A month whose receivables stand in
+  // net credit has no debtor book to count days of: Velocity Fibre's page 10
+  // panel bottomed at "(10 days)", the monthly twin of the "(30 days)" its
+  // scorecard printed. Not measured, so the panel drops the month.
+  it('reports debtor days as not meaningful on a month whose receivables are a net credit', async () => {
+    sqlMock.mockResolvedValue([
+      { month: '2026-03', revenue_and_other_income: '31000', expenses: '0', receivable_movement: '-1000' },
+    ]);
+    const points = await getPackTrend(COMPANY, '2026-03-31', 1);
+    expect(points[0]!.accountsReceivable).toBe(-1000);
+    expect(points[0]!.debtorDays).toBeNull();
+  });
+
+  it('still measures nil receivables as nil days', async () => {
+    sqlMock.mockResolvedValue([
+      { month: '2026-03', revenue_and_other_income: '31000', expenses: '0', receivable_movement: '0' },
+    ]);
+    expect((await getPackTrend(COMPANY, '2026-03-31', 1))[0]!.debtorDays).toBe(0);
+  });
+
   it('computes operating expenses as total expenses less cost of sales and below-the-line expense', async () => {
     sqlMock.mockResolvedValue([
       { month: '2026-03', revenue_and_other_income: '1000', expenses: '600', cost_of_sales: '400', below_operating_line: '50' },

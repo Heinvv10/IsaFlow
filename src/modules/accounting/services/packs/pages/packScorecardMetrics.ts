@@ -74,6 +74,21 @@ function cycleNotStated(r: ExtendedRatioResult, raw: ReportPackFigures): PackMet
   return { value: null, unavailable: r.notMeaningful.cashConversionCycle ?? CYCLE_NOT_STATED };
 }
 
+/**
+ * THE ENGINE'S CYCLE, BUT ONLY OVER DAY COUNTS THIS PAGE STATES. The engine
+ * adds and subtracts the signed day counts, so a net-credit debtor book gave
+ * "(45 days)" — and negative creditor days inflated it — on the row beneath a
+ * day count the page calls not measurable. The failing count's reason is
+ * taken verbatim, as `cycleNotStated` does.
+ */
+function cycleOf(r: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
+  const debtor = readDebtorDays(r, raw);
+  if (debtor.value === null) return debtor;
+  const creditor = readCreditorDays(r, raw);
+  if (creditor.value === null) return creditor;
+  return { value: r.cashConversionCycle };
+}
+
 export const NO_INVENTORY_CLASSIFIED =
   'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.';
 
@@ -216,7 +231,7 @@ export const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: Metr
                 unavailable: NO_INVENTORY_CLASSIFIED,
                 notRecorded: true,
               }
-            : r.cashConversionCycle === null ? cycleNotStated(r, raw) : { value: r.cashConversionCycle },
+            : r.cashConversionCycle === null ? cycleNotStated(r, raw) : cycleOf(r, raw),
       },
     ],
   },

@@ -13,6 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { applyDRCVat, getDRCEligibleInvoices } from '@/modules/accounting/services/reports/drcVatService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
+import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import { dropFixture, inTx, runOn, seedBill, seedFixture, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -158,8 +159,11 @@ describeIfDb('applyDRCVat — approved bills only, once, all-or-nothing', () => 
     expect(await state(taxed)).toEqual({ isDrc: false, journals: 0 });
 
     // A negative figure (bad data) is not a clean reverse-charge bill either.
+    // Migration 692 now refuses WRITING one, so the row is seeded the way a
+    // pre-692 row looks (its trigger suppressed); such rows are in production.
     const negative = await bill('approved');
-    await sql`UPDATE supplier_invoices SET subtotal = 1000, tax_amount = -5 WHERE id = ${negative}::UUID`;
+    await insertPreConstraintRow(fx.pool,
+      'UPDATE supplier_invoices SET subtotal = 1000, tax_amount = -5 WHERE id = $1::UUID', [negative]);
     expect(await refusal(inTx(fx, () => applyDRCVat(fx.companyId, negative, fx.userId)))).toContain('R-5.00');
 
     const listed = (await inTx(fx, () => getDRCEligibleInvoices(fx.companyId))).map((i) => i.id);

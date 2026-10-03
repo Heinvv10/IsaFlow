@@ -244,7 +244,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const reference = 'k036_verify_ref';
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
-      status: 'success', id: 555000111, channel: 'card',
+      status: 'success', id: 555000111, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
       authorization: { authorizationCode: 'AUTH_k036' },
     });
 
@@ -259,7 +259,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const reference = 'k036_both_ref';
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
-      status: 'success', id: 555000222, channel: 'card',
+      status: 'success', id: 555000222, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
       authorization: { authorizationCode: 'AUTH_k036b' },
     });
 
@@ -292,7 +292,8 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
       [companyId, invoiceId, reference, partialCents],
     );
 
-    const result = await deliverWebhook(reference);
+    // R-181: the receipt is what Paystack reports, so the delivery reports the part-payment too.
+    const result = await deliverWebhook(reference, { amount: partialCents });
     expect(result.state.statusCode).toBe(200);
 
     const after = await expectBalancedReceipt(partialCents / 100);
@@ -326,7 +327,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const settledRand = INVOICE_TOTAL + 500;
     await seedPaymentRequest(reference, Math.round(settledRand * 100));
 
-    const result = await deliverWebhook(reference);
+    const result = await deliverWebhook(reference, { amount: Math.round(settledRand * 100) });
     expect(result.state.statusCode).toBe(200);
 
     const after = await ledgerFootprint();
@@ -465,7 +466,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const feeRand = 29.0;
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
-      status: 'success', id: 555000333, channel: 'card',
+      status: 'success', id: 555000333, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
       authorization: { authorizationCode: 'AUTH_k036c' },
     });
 

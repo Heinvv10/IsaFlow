@@ -161,6 +161,9 @@ export interface VerifyTransactionResult {
   /** Numeric Paystack transaction id. */
   id: number;
   amountCents: number;
+  /** Paystack's `requested_amount`: the charge before a fee the customer paid. */
+  requestedAmountCents: number | null;
+  feesCents: number | null;
   currency: string;
   channel: string | null;
   paidAt: string | null;
@@ -187,6 +190,8 @@ interface VerifyRaw {
   reference: string;
   id: number;
   amount: number;
+  requested_amount?: number | null;
+  fees?: number | null;
   currency: string;
   channel: string | null;
   paid_at: string | null;
@@ -221,6 +226,8 @@ export async function verifyTransaction(
     reference: data.reference,
     id: data.id,
     amountCents: data.amount,
+    requestedAmountCents: data.requested_amount ?? null,
+    feesCents: data.fees ?? null,
     currency: data.currency,
     channel: data.channel,
     paidAt: data.paid_at,

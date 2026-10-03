@@ -8,8 +8,9 @@
  * third line, to leave the canonical AR posting untouched.
  *
  * Separate from the receipt's own idempotency on purpose: the portal verify
- * route banks the receipt but carries no fee, and it exists to beat the webhook,
- * so the fee arrives on a delivery that finds the receipt already there.
+ * route exists to beat the webhook, and its response may carry no `fees`, so the
+ * fee can arrive on a delivery that finds the receipt already there. Whichever of
+ * the two carries `fees` first posts the leg; this idempotency stops the other.
  *
  * Being a separate entry also means `cancelCustomerPayment` does not reverse it:
  * it reverses only the receipt's own `gl_journal_entry_id`. That is deliberate
@@ -22,7 +23,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import { GATEWAY_RECEIPT_AGENT, EPS, type GatewayInvoiceReceipt } from './gatewayInvoiceReceiptService';
+import { GATEWAY_RECEIPT_AGENT, type GatewayInvoiceReceipt } from './gatewayInvoiceReceiptService';
 
 /**
  * The expense account is the `admin_expense` system role — there is no
@@ -42,7 +43,9 @@ export async function postGatewayFee(
   paymentDate: string,
 ): Promise<void> {
   const fee = Number(receipt.feeRand ?? 0);
-  if (!Number.isFinite(fee) || fee <= EPS) return;
+  // Any whole cent posts (R-181): `fee <= 0.01` dropped a merchant's R0.01 share and left Bank a
+  // cent above the deposit. Less than a whole cent is nothing to post.
+  if (!Number.isFinite(fee) || Math.round(fee * 100) < 1) return;
   if (!bankAccountId) {
     log.warn(
       'Gateway fee not posted — the receipt has no bank account',

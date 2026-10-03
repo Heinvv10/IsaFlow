@@ -41,8 +41,9 @@
  * exactly that, on a pack that went to a board.
  */
 
+import { pctLevelWithWord } from '@/lib/format/pctLevelWithWord';
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { pctWithWord, type MoneyScale } from '@/lib/format/money';
+import type { MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { scoredTargetsSentence } from './derivedCaptions';
@@ -135,7 +136,7 @@ export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const margin = marginPct(operatingProfitOf(current), current.revenue);
   const marginClause = margin === null
     ? NO_OPERATING_MARGIN_SENTENCE
-    : `Operating margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')}.`;
+    : `Operating margin is ${pctLevelWithWord(margin, 'a positive', 'a negative', 'nil')}.`;
 
   return `${revenueClause} ${marginClause}`;
 }
@@ -205,6 +206,6 @@ export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): str
   const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
   return margin === null
     ? `Revenue of ${money(current.revenue, scale)} gives no meaningful margin base.`
-    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative', 'nil')} on revenue of `
+    : `Gross margin is ${pctLevelWithWord(margin, 'a positive', 'a negative', 'nil')} on revenue of `
       + `${money(current.revenue, scale)}.`;
 }

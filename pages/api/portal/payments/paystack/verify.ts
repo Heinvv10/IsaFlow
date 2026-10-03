@@ -21,6 +21,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
+import { receiptCurrency } from '@/modules/accounting/services/ar/gatewaySettlementReview';
 
 interface PrRow {
   id: string;
@@ -68,9 +69,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!pr) return apiResponse.notFound(res, 'Payment');
 
   let status = pr.status;
+  let paystackSaidSuccess = false;
+  let paystackAnswered = false;
   if (pr.purpose === 'customer_invoice' && (status === 'pending' || status === 'failed')) {
     try {
       const live = await verifyTransaction(pr.paystack_reference, { timeoutMs: GATEWAY_TIMEOUT_MS });
+      paystackAnswered = true;
+      paystackSaidSuccess = live.status === 'success';
       let mapped: 'completed' | 'failed' | 'cancelled' | 'pending' = 'pending';
       if (live.status === 'success') mapped = 'completed';
       else if (live.status === 'failed') mapped = 'failed';
@@ -84,6 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `;
         status = current[0]?.status === 'pending' ? 'cancelled' : (current[0]?.status ?? status);
       }
+      // Paystack has not settled it either way: a request swept to 'failed' is reported pending,
+      // never "failed" (R-181). Only Paystack's own failed/abandoned/reversed keeps the stored failed.
+      else if (live.status === 'pending' && status === 'failed') status = 'pending';
       const isTerminal = mapped !== 'pending';
       if (mapped !== status && isTerminal) {
         // One transaction: the status change and the ledger posting stand or
@@ -112,11 +120,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             await recordGatewayInvoiceReceipt({
               companyId: pr.company_id,
               invoiceId: pr.customer_invoice_id,
-              amountRand: Number(pr.amount_cents) / 100,
+              requestedCents: Number(pr.amount_cents),
+              // R-181: bank what Paystack verified, the same figure the webhook reports.
+              reported: {
+                amountCents: live.amountCents,
+                currency: live.currency,
+                requestedAmountCents: live.requestedAmountCents,
+                feeCents: live.feesCents,
+              },
               reference: pr.paystack_reference,
-              // verifyTransaction reports paidAt but no fee. The webhook does
-              // carry `fees`, and postGatewayFee runs on its dedupe path too, so
-              // the fee is still booked against the receipt created here.
+              // The fee leg too, from the verify response's own `fees` (null when absent),
+              // so Bank is right even if the webhook never lands. postGatewayFee is
+              // idempotent on reference + posting agent: the webhook does not post it again.
+              feeRand: typeof live.feesCents === 'number' ? live.feesCents / 100 : null,
               paidAt: live.paidAt ?? null,
             });
           }
@@ -134,8 +150,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         { prId: pr.id, err: err instanceof Error ? err.message : String(err) },
         'PaystackPortal',
       );
+      // Paystack took the money and only our settlement failed (it rolled back; the webhook
+      // settles it), or Paystack never answered (timeout, 5xx) on a request stored 'failed':
+      // a possibly charged payer must never be told "failed" and invited to pay again.
+      if (paystackSaidSuccess || (!paystackAnswered && status === 'failed')) status = 'pending';
     }
   }
+
+  // What was actually banked, and whether the invoice took any of it (R-181, PR #618 LOW-2):
+  // the receipt can differ from the request, and an invoice outside the ledger takes nothing.
+  const receipt = pr.purpose === 'customer_invoice'
+    ? await sql<{ total: string; applied: string; description: string | null }>`
+        SELECT cp.total_amount::text AS total, cp.description,
+               COALESCE(SUM(a.amount_allocated) FILTER (WHERE a.invoice_id = ${pr.customer_invoice_id}::UUID), 0)::text AS applied
+        FROM customer_payments cp
+        LEFT JOIN customer_payment_allocations a ON a.payment_id = cp.id
+        WHERE cp.company_id = ${pr.company_id}::UUID AND cp.bank_reference = ${pr.paystack_reference}
+          AND cp.status IS DISTINCT FROM 'cancelled'
+        GROUP BY cp.id
+        LIMIT 1
+      `
+    : [];
+  const banked = receipt[0];
 
   const publicStatus =
     status === 'completed' ? 'completed'
@@ -145,7 +181,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   return apiResponse.success(res, {
     status: publicStatus,
-    amountCents: Number(pr.amount_cents),
+    amountCents: banked ? Math.round(Number(banked.total) * 100) : Number(pr.amount_cents),
+    appliedToInvoice: banked ? Math.round(Number(banked.applied) * 100) > 0 : false,
+    // The currency the money was reported in: a non-ZAR receipt's figure is not rand.
+    currency: banked ? receiptCurrency(banked.description) : 'ZAR',
     invoiceNumber: pr.invoice_number ?? undefined,
     companyName: pr.company_name ?? undefined,
   });

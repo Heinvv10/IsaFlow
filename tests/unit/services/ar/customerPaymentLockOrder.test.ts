@@ -58,6 +58,18 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acc-ar' }),
 }));
+// D8: the journal reversed is its chain head (real-ledger proof: tests/integration/d8-r4-matrix, M-RCPT); here, itself.
+// D8 round 6: the bank leg is locked before the receipt (real-ledger proof: tests/integration/d8-r6-receipt-bank-line).
+vi.mock('@/modules/accounting/services/ar/receiptBankLeg', () => ({
+  lockReceiptBankLeg: vi.fn(async () => ({ journalId: 'dddddddd-0000-4000-8000-dddddddddddd', leg: {
+    alreadyReversed: false, reverseId: 'dddddddd-0000-4000-8000-dddddddddddd', bankLineIds: [], seenLineIds: [], allocatedLineIds: [],
+  } })),
+}));
+vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', () => ({
+  assertSameJournal: vi.fn(),
+  lockJournalAndUnmatch: vi.fn(async () => undefined),
+  voidViaBankAllocation: vi.fn(async () => false),
+}));
 
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   getCustomerPaymentById: vi.fn(),
@@ -66,6 +78,7 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getCustomerPaymentById } from '@/modules/accounting/services/ar/customerPaymentService';
+import { lockReceiptBankLeg } from '@/modules/accounting/services/ar/receiptBankLeg';
 import {
   confirmCustomerPayment,
   cancelCustomerPayment,
@@ -132,6 +145,16 @@ describe('cancelCustomerPayment — canonical lock order', () => {
     const reverseCallOrder = vi.mocked(reverseJournalEntry).mock.invocationCallOrder[0]!;
     const invoiceCallOrder = mockSql.mock.invocationCallOrder[invoices]!;
     expect(reverseCallOrder).toBeGreaterThan(invoiceCallOrder);
+  });
+
+  it('locks the bank leg before the receipt row (bank line -> payment, D8 round 6)', async () => {
+    mockGetPayment.mockResolvedValue(payment());
+    const texts = recordSql();
+
+    await cancelCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
+
+    const lockCall = mockSql.mock.invocationCallOrder[indexOf(texts, PAYMENT_LOCK)]!;
+    expect(vi.mocked(lockReceiptBankLeg).mock.invocationCallOrder[0]!).toBeLessThan(lockCall);
   });
 
   it('rolls invoices back in ascending id, not capture order', async () => {

@@ -25,6 +25,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from './lockContention';
+import { currentLockTimeout, restoreLockTimeout } from './rowLockBudget';
 
 /**
  * Raised when another request holds the payment row longer than the 5s
@@ -101,7 +102,9 @@ export async function lockCustomerPaymentForUpdate(
   paymentId: string,
 ): Promise<DbRow | null> {
   const client = requireRequestTransaction('lockCustomerPaymentForUpdate');
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const rows = (await sql`
       SELECT cp.*,
@@ -114,16 +117,13 @@ export async function lockCustomerPaymentForUpdate(
       WHERE cp.id = ${paymentId}::UUID AND cp.company_id = ${companyId}::UUID
       FOR UPDATE OF cp
     `) as DbRow[];
-    // Restore the default on the SUCCESS path only. `SET LOCAL` lasts to the end
-    // of the TRANSACTION, so without this the 5s budget silently governs every
-    // lock taken afterwards in the same request. Deliberately NOT in a
-    // `finally`: after a timeout the transaction is aborted and this statement
-    // would itself throw 25P02, replacing the typed error with an opaque one.
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
 
@@ -142,7 +142,9 @@ export async function lockSupplierPaymentForUpdate(
   paymentId: string,
 ): Promise<DbRow | null> {
   const client = requireRequestTransaction('lockSupplierPaymentForUpdate');
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const rows = (await sql`
       SELECT sp.*,
@@ -155,11 +157,13 @@ export async function lockSupplierPaymentForUpdate(
       WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID
       FOR UPDATE OF sp
     `) as DbRow[];
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     if (isLockContention(err)) throw new PaymentLockTimeoutError(paymentId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }
 
@@ -205,7 +209,9 @@ export async function lockContactForRefund(
   contactId: string,
 ): Promise<DbRow | null> {
   const client = requireRequestTransaction('lockContactForRefund');
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const rows = (kind === 'supplier'
       ? await sql`
@@ -216,10 +222,12 @@ export async function lockContactForRefund(
         SELECT c.id, c.name FROM customers c
         WHERE c.id = ${contactId}::UUID AND c.company_id = ${companyId}::UUID
         FOR UPDATE OF c`) as DbRow[];
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
+    failure = err;
     if (isLockContention(err)) throw new PaymentLockTimeoutError(contactId);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }

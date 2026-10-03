@@ -13,8 +13,8 @@
  *      which does not read as retryable. This one says "retry".
  *
  * Mirrors `creditNoteLock.ts` / `core/paymentLock.ts` deliberately: same
- * discipline, same reasons, including why the DEFAULT is restored on the
- * success path only.
+ * discipline, same reasons. The caller's lock_timeout is put back in a `finally`
+ * (core/rowLockBudget.restoreLockTimeout — skipped on an aborted transaction).
  *
  * ORDER: every path that takes a credit-note, payment or bank-line lock takes
  * it BEFORE the invoice — note-then-invoice, payment-then-invoice,
@@ -25,9 +25,13 @@
  * journal row when it reaches an invoice is `cancelCreditNote`, and the journal
  * it holds is the NOTE's, never the invoice's. The rule to keep is the narrow
  * one: never take a note or payment lock while holding an invoice lock.
+ * One exception (R-181, Paystack settlement): `confirmCustomerPayment` locks the
+ * settlement's OWN new, uncommitted payment row while the invoice is held. Safe:
+ * that row is invisible to every other transaction, so nothing holds or waits on it.
  */
 
 import { als, assertTxUsable } from '@/lib/als';
+import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -68,18 +72,17 @@ export async function withCustomerInvoiceLock<T>(
   }
 
   assertTxUsable();
+  const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
+  let failure: unknown = null;
   try {
     const result = await run();
-    // Success path ONLY. `SET LOCAL` lasts to the end of the TRANSACTION, so
-    // leaving it set would put every later lock in the request on a 5s budget
-    // and surface a bare 55P03 nothing maps. Not in a `finally`: after a lock
-    // timeout the transaction is aborted and this statement would throw 25P02,
-    // replacing the typed error with an opaque one.
-    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return result;
   } catch (err) {
+    failure = err;
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(subject);
     throw err;
+  } finally {
+    await restoreLockTimeout(client, previousLockTimeout, failure);
   }
 }

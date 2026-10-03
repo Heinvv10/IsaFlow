@@ -110,7 +110,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     mockSql.mockResolvedValue([{ id: PAYMENT_ID, status: 'cancelled' }]);
     mockReverse.mockResolvedValue({ id: 'je-rev' });
     vi.mocked(lockPaymentBankLeg).mockResolvedValue({
-      journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] },
+      journalId: JOURNAL_ID, leg: { alreadyReversed: false, reverseId: JOURNAL_ID, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] },
     });
   });
 
@@ -204,7 +204,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
     });
     vi.mocked(lockPaymentBankLeg).mockImplementation(async () => {
       texts.push('BANK-LEG');
-      return { journalId: JOURNAL_ID, leg: { alreadyReversed: false, bankLineIds: [] } };
+      return { journalId: JOURNAL_ID, leg: { alreadyReversed: false, reverseId: JOURNAL_ID, bankLineIds: [] } };
     });
     vi.mocked(lockJournalAndUnmatch).mockImplementation(async () => { texts.push('JOURNAL-LOCK'); });
 
@@ -253,7 +253,7 @@ describe('voidSupplierPayment (P2.1 / audit W4)', () => {
   it('skips the GL reversal when the journal is already reversed', async () => {
     mockGetPayment.mockResolvedValue(payment());
     vi.mocked(lockPaymentBankLeg).mockResolvedValue({
-      journalId: JOURNAL_ID, leg: { alreadyReversed: true, bankLineIds: [] },
+      journalId: JOURNAL_ID, leg: { alreadyReversed: true, reverseId: JOURNAL_ID, bankLineIds: [] },
     });
     mockSql.mockImplementation((strings: TemplateStringsArray) => {
       const text = (strings as unknown as string[]).join('?');

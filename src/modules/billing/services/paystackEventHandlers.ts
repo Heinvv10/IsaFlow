@@ -24,6 +24,8 @@ export interface PaystackWebhookEvent {
     reference?: string;
     status?: string;
     amount?: number;
+    /** The charge before a fee the customer paid (charges passed to the customer). */
+    requested_amount?: number;
     currency?: string;
     channel?: string;
     paid_at?: string;
@@ -91,6 +93,13 @@ async function handleChargeSuccess(
 ): Promise<void> {
   const auth = event.data.authorization ?? {};
   const customer = event.data.customer ?? {};
+  // R-181: what Paystack received is what is banked, not the request's amount_cents.
+  const reported = {
+    amountCents: event.data.amount,
+    currency: event.data.currency,
+    requestedAmountCents: event.data.requested_amount,
+    feeCents: event.data.fees,
+  };
 
   const prRows = await sql<{
     id: string;
@@ -118,10 +127,11 @@ async function handleChargeSuccess(
   if (!pr) {
     // The guarded UPDATE matched nothing because the request is ALREADY
     // completed — normally because the portal return page's verify route got
-    // there first. That route banks the receipt but carries no fee, and this
-    // delivery does, so the settlement still needs the fee leg. Re-read the row
-    // and let recordGatewayInvoiceReceipt decide: it is idempotent on the
-    // reference and will post only what is missing.
+    // there first. That route banks the receipt and posts the fee only when its
+    // response carried `fees`; this delivery does carry them, and its amount is
+    // compared with the first report's. Re-read the row and let
+    // recordGatewayInvoiceReceipt decide: it is idempotent on the reference and
+    // posts only what is missing.
     const settled = await sql<{
       id: string;
       company_id: string;
@@ -139,7 +149,8 @@ async function handleChargeSuccess(
       await recordGatewayInvoiceReceipt({
         companyId: done.company_id,
         invoiceId: done.customer_invoice_id,
-        amountRand: Number(done.amount_cents) / 100,
+        requestedCents: Number(done.amount_cents),
+        reported,
         reference,
         paidAt: event.data.paid_at ?? null,
         feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
@@ -160,7 +171,8 @@ async function handleChargeSuccess(
     await recordGatewayInvoiceReceipt({
       companyId: pr.company_id,
       invoiceId: pr.customer_invoice_id,
-      amountRand: Number(pr.amount_cents) / 100,
+      requestedCents: Number(pr.amount_cents),
+      reported,
       reference,
       paidAt: event.data.paid_at ?? null,
       feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,

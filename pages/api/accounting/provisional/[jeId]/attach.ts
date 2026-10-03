@@ -16,6 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
 import { attachDocumentToProvisional } from '@/modules/accounting/services/capture/provisionalEvidenceAttach';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,7 +42,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     case 'refused':
       return apiResponse.badRequest(res, result.message);
     case 'contended':
-      return apiResponse.conflict(res, result.message);
+      // A held bank line or captured document (a lock timeout or deadlock, nothing written): 503 + Retry-After,
+      // as on every route into a D8 flow (round 18). Refusals about the document's state are 'refused', 400.
+      return respondRowHeld(res, result.message, 'PROVISIONAL_ATTACH_CONTENDED');
     case 'attached':
       break;
   }

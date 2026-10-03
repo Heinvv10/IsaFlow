@@ -64,13 +64,14 @@ describe('a monthly series that ends on a part month', () => {
     expect(text).toContain(`${last} (part)`);
     // The closing row of sheet 5, which SUMS the stub into the window total.
     expect(text).toMatch(new RegExp(`\\d+ months to ${last} \\(part\\)`));
-    // AND EVERY PANEL THAT ENDS ON IT NAMES IT INSIDE ITS OWN MOVEMENT
-    // SENTENCE. "Revenue rose from nil to 30 over 12 periods" states a current
-    // position measured over seven days; six panels' worth of a separate
-    // explanatory sentence is 21mm page 10 does not have, so the marker rides
-    // in the sentence and what it MEANS is stated once, on page 12.
-    const named = text.match(new RegExp(`to [^.]+ in ${last} \\(part\\) over \\d+ periods`, 'g')) ?? [];
-    expect(named.length, 'the panel titles do not name the part month').toBeGreaterThanOrEqual(4);
+    // AND NO PANEL ENDS ON IT. Panel titles named the stub — "…to nil in
+    // Oct 2026 (part)" — and a marked comparison is still a comparison of a
+    // whole month with a few days: Velocity Fibre's page 10 headlined
+    // "Revenue is down 100.0%" off two days of October. The panels draw whole
+    // months only, and page 10 says which month it left out.
+    const named = text.match(new RegExp(`in ${last} \\(part\\) over \\d+ periods`, 'g')) ?? [];
+    expect(named, 'a panel title compares against the part month').toEqual([]);
+    expect(text).toContain(`${last} is a part month and is not drawn.`);
     // The page-8 cash line has the room for the full sentence and carries it.
     expect(text).toMatch(/is a part month: it covers 7 of its 30 days/);
   });

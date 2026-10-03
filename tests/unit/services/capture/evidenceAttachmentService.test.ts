@@ -43,6 +43,11 @@ vi.mock('@/lib/neon', () => ({
   // pinned by tests/integration/r107-auto-attach-savepoint.int.test.ts.
   withSavepoint: <T>(_name: string, fn: () => Promise<T>) => fn(),
 }));
+// D8 round 6: the broken-chain walk (real-ledger proof: tests/integration/d8-r6-broken-permit); here, an intact chain.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (original) => ({
+  ...await original<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));

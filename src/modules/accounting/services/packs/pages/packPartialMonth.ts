@@ -15,18 +15,18 @@
  * panel, the operating-expenses panel and the debtor-days panel, and the last
  * row of page 5's table.
  *
- * THE MONTH IS KEPT AND MARKED, rather than dropped. It is real posted
- * movement inside the period the pack reports on, and a series that stopped
- * at the last whole month would end in August on a pack whose footer says
- * 7 September — reporting a different window from the one it names. What was
- * missing was the marking, so this module owns it: one form of words, used by
- * the row label, the panel axes, the sentences that quote a terminal value,
- * and the basis of preparation.
+ * THE MONTH IS A ROW, NEVER AN END POINT. It is real posted movement inside
+ * the period the pack reports on, so where it is a row — page 5's table, page
+ * 8's closing-cash line, the basis page's Period fact — it is kept and marked.
+ * Where a figure is compared first-to-last — page 10's panels and headline,
+ * page 3's sparklines — it is left out (`wholeMonthsOf`) and page 10 names
+ * it: marking alone did not stop Velocity Fibre's page 10 headlining "Revenue
+ * is down 100.0%" off two days of October.
  *
- * ONE MODULE BECAUSE IT IS ONE CLAIM. The marker appears on four pages; four
- * copies of it is four chances for the sheet and the sentence to describe the
- * same seven days differently, which is the defect class this pack has spent
- * a dozen commits closing.
+ * ONE MODULE BECAUSE IT IS ONE CLAIM. Several pages mark or leave out the
+ * same month; copies of the wording are chances for the sheet and the
+ * sentence to describe the same days differently, which is the defect class
+ * this pack has spent a dozen commits closing.
  */
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
@@ -36,6 +36,25 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
  *  assuming the position. */
 export function partialMonthOf(trend: PackTrendPoint[]): PackTrendPoint | null {
   return trend.find((point) => point.partial) ?? null;
+}
+
+/**
+ * THE SERIES A START-TO-END COMPARISON IS TAKEN OVER: whole months only.
+ *
+ * Velocity Fibre's pack ran to 2 October 2026 and page 10 headlined "Revenue
+ * is down 100.0% from the first month of the 12-month series to the last" —
+ * November's whole month against two days of October with no revenue posted
+ * in them yet. Four panel titles ended on that stub and page 3's sparklines
+ * dropped to nil at their right edge. A part month is a true ROW (page 5
+ * prints it, marked) and a false END POINT, so every reading that compares a
+ * first month with a last one — page 10's panels and headline, page 3's
+ * sparklines — takes the series through here and says what it left out.
+ *
+ * Chosen over defaulting the to-date to the last month-end, which would fix
+ * the default and leave a director who picks 2 October with the same page.
+ */
+export function wholeMonthsOf(trend: readonly PackTrendPoint[]): PackTrendPoint[] {
+  return trend.filter((point) => !point.partial);
 }
 
 /**
@@ -62,6 +81,16 @@ export function monthLabel(point: PackTrendPoint): string {
 export function partialMonthClause(point: PackTrendPoint): string {
   return `${point.label} is a part month: it covers ${point.daysCovered} of its `
     + `${point.daysInMonth} days, so its figure is not comparable with the months before it.`;
+}
+
+/**
+ * The clause for page 5, the one sheet that prints the stub as a row while
+ * page 10 leaves it out (`wholeMonthsOf`): it says both, in fewer characters
+ * than `partialMonthClause`, because page 5's note has none to spare.
+ */
+export function partialMonthUndrawnClause(point: PackTrendPoint): string {
+  return `${point.label} is a part month: it covers ${point.daysCovered} of its `
+    + `${point.daysInMonth} days, so it is not comparable and page 10 does not draw it.`;
 }
 
 /** The same clause, or nothing, for a caller holding a whole series. */

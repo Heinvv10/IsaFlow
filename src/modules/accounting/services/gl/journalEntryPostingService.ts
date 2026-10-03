@@ -19,6 +19,7 @@ import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingCl
 import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { postJournalEntry } from './journalEntryPostService';
+import { cleanUpAfter } from './reversalCleanup';
 import {
   LateClaimCompanionReversalError, copyLateClaimBaseToReversal, planLateClaimCompanionReversal,
 } from './vatLateClaimSplit';
@@ -31,6 +32,7 @@ export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, 
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
+
 
 import {
   ClosedFiscalPeriodError,
@@ -96,7 +98,6 @@ async function reverseJournalEntryInner(
     if (entry.source === 'auto_vat_late_claim' && !opts?.lateClaimCascade) {
       throw new LateClaimCompanionReversalError(entry.entryNumber);
     }
-    await refuseReversingSettlementJournal(companyId, entry); // R-127: either half of a bank-first settlement
     await refuseReversalAgainstPayRun(companyId, entry); // W3-01: a pay run's journal, judged by the ledger, under its locks
 
     // Debits and credits swap; every dimension and the VAT classification come
@@ -125,6 +126,18 @@ async function reverseJournalEntryInner(
     if (!await claimJournalReversal(companyId, id, userId)) {
       throw new Error('Journal entry already reversed');
     }
+    // R-127: either half of a bank-first settlement — AFTER the claim (D8 round
+    // 4, B1). Before it, this was an unlocked read of supplier_payments that an
+    // approval settling the provisional (which locks it, and since D8 its chain
+    // head) could commit right past. Now the claim's row lock waits for that
+    // approval and this read sees its settlement. A refusal releases the claim:
+    // withAuth COMMITs a 4xx, and a stranded claim reads as reversed.
+    try {
+      await refuseReversingSettlementJournal(companyId, entry);
+    } catch (err) {
+      await releaseJournalReversalClaim(companyId, id);
+      throw err;
+    }
 
     let reversalEntry: JournalEntry;
     try {
@@ -145,7 +158,7 @@ async function reverseJournalEntryInner(
       // Nothing exists yet, but the claim does. Inside a request transaction the
       // rollback undoes it; outside one (cron, scripts) this is what stops a
       // failed attempt from leaving the entry permanently un-reversible.
-      await releaseJournalReversalClaim(companyId, id);
+      await cleanUpAfter(err, () => releaseJournalReversalClaim(companyId, id));
       throw err;
     }
 
@@ -165,13 +178,14 @@ async function reverseJournalEntryInner(
       // matches nothing. gl_journal_lines cascades from this row
       // (gl_journal_lines_journal_entry_id_fkey ON DELETE CASCADE), so the draft's
       // lines go with it and no posted line is ever reachable from here.
-      const deleted = (await sql`
+      // On an aborted transaction (a lock timeout in the post) `cleanUpAfter` re-throws the post's error.
+      const deleted = await cleanUpAfter(err, async () => (await sql`
         DELETE FROM gl_journal_entries
         WHERE id         = ${reversalEntry.id}::UUID
           AND company_id = ${companyId}::UUID
           AND status     = 'draft'
         RETURNING id
-      `) as Row[];
+      `) as Row[]);
 
       // Release the claim ONLY when the contra is genuinely gone. If
       // postJournalEntry threw AFTER its status UPDATE landed, the DELETE above
