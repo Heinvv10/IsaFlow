@@ -95,6 +95,10 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
     expect(stitch).toEqual({ customer_invoice_id: inv.aStitch });
     const run = (await pool.query('SELECT status, invoices_archived FROM archive_runs WHERE company_id=$1', [coA])).rows;
     expect(run).toEqual([{ status: 'completed', invoices_archived: 1 }]);
+    const audit = (await pool.query(
+      "SELECT changes->'metadata'->>'invoicesSkipped' AS skipped FROM audit_log WHERE company_id=$1 AND entity_type='archive_run'",
+      [coA])).rows;
+    expect(audit).toEqual([{ skipped: '2' }]);
 
     expect(await ids('SELECT id FROM customer_invoices WHERE company_id=$1', [coB])).toEqual([inv.bRef]);
   }, 40000);

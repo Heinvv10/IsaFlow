@@ -94,14 +94,31 @@ export async function drive<T>(companyId: string, fn: () => Promise<T>,
 }
 
 /** The error a run threw (code, constraint), or {} when it completed. */
-export async function failureOf(companyId: string, fn: () => Promise<unknown>,
-  appUser = false): Promise<{ code?: string; constraint?: string }> {
+export interface Failure { code?: string; constraint?: string; message?: string }
+
+const failure = (err: unknown): Failure => ({ code: (err as { code?: string }).code,
+  constraint: (err as { constraint?: string }).constraint, message: (err as Error).message });
+
+/** The error a run threw (code, constraint, message), or {} when it completed. Rolls back on error. */
+export async function failureOf(companyId: string, fn: () => Promise<unknown>, appUser = false): Promise<Failure> {
   try {
     await drive(companyId, fn, { commit: true, appUser });
     return {};
   } catch (err) {
-    return { code: (err as { code?: string }).code, constraint: (err as { constraint?: string }).constraint };
+    return failure(err);
   }
+}
+
+/** As failureOf, but the error is caught INSIDE the transaction, which then commits (the run's failure mark persists). */
+export async function failureCommitted(companyId: string, fn: () => Promise<unknown>): Promise<Failure> {
+  return drive(companyId, async () => {
+    try {
+      await fn();
+      return {};
+    } catch (err) {
+      return failure(err);
+    }
+  }, { commit: true });
 }
 
 export async function ids(sqlText: string, params: unknown[]): Promise<string[]> {

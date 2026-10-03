@@ -9,7 +9,7 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow } from './auditTrailService';
 import {
   ArchiveSkippedInvoiceJournalError, countSkippedInvoiceJournalsInWindow, moveCustomerInvoicesToArchive,
-  selectArchivableCustomerInvoices, skippedInvoiceJournalMessage,
+  movedJournal, selectArchivableCustomerInvoices, skippedInvoiceJournalMessage,
 } from './archiveCustomerInvoiceScope';
 import type { DbRow } from '@/types/db';
 
@@ -50,6 +50,17 @@ export async function executeArchive(
   // INSERT above sits OUTSIDE the savepoint so it survives the rollback.
   try {
     return await withSavepoint('archive_body', async (): Promise<ArchiveResult> => {
+    // Step 0 (was step 4; R-186 round 3), before anything is copied: choose the
+    // paid/cancelled customer invoices to archive (ones a Paystack or Stitch
+    // request references are skipped) and refuse if a skipped one still points
+    // into the journals the run moves.
+    // Reads only, no FOR UPDATE, so the lock order of step 6 is unchanged; step 6
+    // moves the invoices in one statement and re-checks both predicates.
+    const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
+    const invoicesSkipped = ciScope.skippedIds.length;
+    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
+    if (keptJournals > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournals));
+
     // Step 1: Archive GL journal entries
     const jeRows = (await sql`
       INSERT INTO archive_gl_journal_entries
@@ -61,10 +72,8 @@ export async function executeArchive(
              source_document_id, status, posted_by, posted_at, reversed_by, reversed_at,
              reversal_of_id, created_by, created_at, updated_at, reference,
              project_id, cost_center_id, company_id
-      FROM gl_journal_entries
-      WHERE company_id = ${companyId}
-        AND entry_date < ${cutoffDate}::date
-        AND status = 'posted'
+      FROM gl_journal_entries je
+      WHERE ${movedJournal(companyId, cutoffDate)}
       ON CONFLICT (id) DO NOTHING
       RETURNING id
     `) as DbRow[];
@@ -79,10 +88,8 @@ export async function executeArchive(
              jl.description, jl.project_id, jl.cost_center_id, jl.created_at
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      WHERE je.company_id = ${companyId}
+      WHERE ${movedJournal(companyId, cutoffDate)}
         AND jl.company_id = ${companyId}::UUID
-        AND je.entry_date < ${cutoffDate}::date
-        AND je.status = 'posted'
       ON CONFLICT (id) DO NOTHING
       RETURNING id
     `) as DbRow[];
@@ -105,18 +112,6 @@ export async function executeArchive(
       RETURNING id
     `) as DbRow[];
     const transactionsArchived = btRows.length;
-
-    // Step 4: choose the paid/cancelled customer invoices to archive (R-186:
-    // ones a Paystack or Stitch request references are skipped). Plain read,
-    // no FOR UPDATE: locking invoices here would take them before the bank
-    // lines step 6 deletes first. Step 6 moves them in one statement and
-    // re-checks the predicate, so a concurrent change fails the run whole.
-    const ciScope = await selectArchivableCustomerInvoices(companyId, cutoffDate);
-    const invoicesSkipped = ciScope.skippedIds.length;
-    // A skipped invoice keeps its journals: refuse (rolling back whole) rather
-    // than archive a journal the live invoice still points at.
-    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate, ciScope.skippedIds);
-    if (keptJournals > 0) throw new ArchiveSkippedInvoiceJournalError(skippedInvoiceJournalMessage(keptJournals));
 
     // Step 5: Archive paid/cancelled supplier invoices
     const siRows = (await sql`
@@ -173,17 +168,13 @@ export async function executeArchive(
       WHERE jl.company_id = ${companyId}::UUID
         AND jl.journal_entry_id IN (
           SELECT je.id FROM gl_journal_entries je
-          WHERE je.company_id = ${companyId}
-            AND je.entry_date < ${cutoffDate}::date
-            AND je.status = 'posted'
+          WHERE ${movedJournal(companyId, cutoffDate)}
         )
     `;
 
     await sql`
-      DELETE FROM gl_journal_entries
-      WHERE company_id = ${companyId}
-        AND entry_date < ${cutoffDate}::date
-        AND status = 'posted'
+      DELETE FROM gl_journal_entries je
+      WHERE ${movedJournal(companyId, cutoffDate)}
     `;
 
     // Step 7: Update run record to completed

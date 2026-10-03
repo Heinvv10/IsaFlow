@@ -14,7 +14,7 @@ import {
   CUTOFF, OLD_DAY, addCompany, addInvoice, addJournal, addPaystackRequest, addUser, cleanup, failureOf, ids, linkJournal, pool, user,
 } from './r186-archive.helpers';
 
-const hooks = vi.hoisted(() => ({ afterSelection: null as null | (() => Promise<void>), fired: 0 }));
+const hooks = vi.hoisted(() => ({ afterSelection: null as null | (() => Promise<void>), fired: 0, issued: null as null | string[] }));
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
   const realSql = real.sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
@@ -22,6 +22,7 @@ vi.mock('@/lib/neon', async (orig) => {
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const query = realSql(strings, ...values);
     const text = strings.join('?');
+    hooks.issued?.push(text);
     if (!hooks.afterSelection || !/^\s*SELECT ci\.id/.test(text) || !text.includes('FROM customer_invoices ci')) return query;
     return (async () => {
       const rows = await query;
@@ -42,7 +43,9 @@ const coReopen = randomUUID();
 const coRedate = randomUUID();
 const coConflict = randomUUID();
 const coEscape = randomUUID();
-const companies = [coReopen, coRedate, coConflict, coEscape];
+const coRequested = randomUUID();
+const coEarly = randomUUID();
+const companies = [coReopen, coRedate, coConflict, coEscape, coRequested, coEarly];
 
 beforeAll(async () => {
   await addUser();
@@ -83,6 +86,7 @@ describe('R-186: the move re-checks what it selected', () => {
     const failure = await failureOf(coConflict, () => executeArchive(coConflict, CUTOFF, user));
 
     expect(failure.code).toBe('ARCHIVE_SET_CHANGED');
+    expect(failure.message).toMatch(/1 invoice id\(s\) already in the archive/);
     expect(await live(coConflict)).toEqual([clash]);
     const kept = (await pool.query('SELECT invoice_number FROM archive_customer_invoices WHERE id=$1', [clash])).rows;
     expect(kept).toEqual([{ invoice_number: 'R186-OLD' }]);
@@ -104,5 +108,36 @@ describe('R-186: the move re-checks what it selected', () => {
     expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
     expect(await ids('SELECT id FROM gl_journal_entries WHERE company_id=$1', [coEscape])).toEqual([journal]);
     expect(await ids('SELECT id FROM archive_gl_journal_entries WHERE company_id=$1', [coEscape])).toEqual([]);
+  }, 40000);
+
+  it('a request opened on a selected invoice after the selection: ARCHIVE_SET_CHANGED, not a raw 23514', async () => {
+    const requested = await addInvoice(coRequested, 'paid');
+    const other = await addInvoice(coRequested, 'cancelled');
+    hooks.fired = 0;
+    hooks.afterSelection = async () => { await addPaystackRequest(coRequested, requested); };
+
+    const failure = await failureOf(coRequested, () => executeArchive(coRequested, CUTOFF, user));
+
+    expect(hooks.fired, 'the hook did not fire').toBe(1);
+    expect(failure.code).toBe('ARCHIVE_SET_CHANGED');
+    expect(await live(coRequested)).toEqual([requested, other].sort());
+    expect(await archived(coRequested)).toEqual([]);
+  }, 40000);
+
+  it('a refused run copies and deletes nothing before it refuses', async () => {
+    const skipped = await addInvoice(coEarly, 'paid');
+    await addPaystackRequest(coEarly, skipped);
+    await linkJournal(skipped, await addJournal(coEarly, OLD_DAY, 'posted'));
+    await addJournal(coEarly, OLD_DAY, 'posted');
+    hooks.afterSelection = null;
+    hooks.issued = [];
+
+    const failure = await failureOf(coEarly, () => executeArchive(coEarly, CUTOFF, user));
+    const issued = hooks.issued;
+    hooks.issued = null;
+
+    expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+    expect(issued.some((t) => t.includes('FROM customer_invoices ci')), 'the selection did not run').toBe(true);
+    expect(issued.filter((t) => /INSERT INTO archive_(gl|bank|supplier|customer)|DELETE FROM/.test(t))).toEqual([]);
   }, 40000);
 });
