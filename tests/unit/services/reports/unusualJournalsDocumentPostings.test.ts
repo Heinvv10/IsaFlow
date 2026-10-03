@@ -50,10 +50,16 @@ describe('the round-number test', () => {
       row('m', 'manual'), row('rec', 'auto_recurring'), row('imp', 'auto_gl_import'),
       row('vat', 'auto_vat_adjustment'), row('ob', 'auto_migration'), row('adj', 'auto_adjustment'),
       row('wo', 'auto_write_off'), row('u', 'not_a_known_source'), row('n', null),
+      // A claim's amount is typed by the employee it pays (receipt optional);
+      // disposal proceeds are typed; three sources have no writer yet, and a
+      // future one is tested until someone decides otherwise.
+      row('ec', 'auto_expense_claim'), row('ad', 'auto_asset_disposal'), row('lp', 'auto_loan_payment'),
+      row('po', 'auto_purchase_order'), row('grn', 'auto_grn'),
     )).toEqual([
       ['m', 'round_number'], ['rec', 'round_number'], ['imp', 'round_number'], ['vat', 'round_number'],
       ['ob', 'round_number'], ['adj', 'round_number'], ['wo', 'round_number'], ['u', 'round_number'],
-      ['n', 'round_number'],
+      ['n', 'round_number'], ['ec', 'round_number'], ['ad', 'round_number'], ['lp', 'round_number'],
+      ['po', 'round_number'], ['grn', 'round_number'],
     ]);
   });
 
@@ -71,9 +77,8 @@ describe('the round-number test', () => {
 describe('the classification', () => {
   it('names exactly these sources as postings generated from documents', () => {
     expect([...DOCUMENT_POSTING_SOURCES].sort()).toEqual([
-      'auto_asset_disposal', 'auto_asset_expense', 'auto_bank_recon', 'auto_bank_transfer', 'auto_batch_payment',
-      'auto_credit_note', 'auto_depreciation', 'auto_expense_claim', 'auto_expense_receipt', 'auto_grn',
-      'auto_invoice', 'auto_loan_payment', 'auto_payment', 'auto_payroll', 'auto_purchase_order',
+      'auto_asset_expense', 'auto_bank_recon', 'auto_bank_transfer', 'auto_batch_payment', 'auto_credit_note',
+      'auto_depreciation', 'auto_expense_receipt', 'auto_invoice', 'auto_payment', 'auto_payroll',
       'auto_supplier_invoice', 'auto_supplier_payment', 'auto_vat_late_claim', 'auto_vat_submission', 'year_end',
     ]);
   });

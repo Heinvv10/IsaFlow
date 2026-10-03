@@ -12,6 +12,11 @@
  * write-offs and adjustments. Classified one source at a time, and typed as
  * `Record<GLEntrySource, …>`, so a source added to `GL_ENTRY_SOURCES` does not
  * compile until someone decides which it is. An unknown source is 'entered'.
+ *
+ * 'entered' also covers an expense claim (the employee types the amount it
+ * pays them; a receipt is optional), disposal proceeds, and three sources no
+ * code writes yet (`auto_grn`, `auto_purchase_order`, `auto_loan_payment`): a
+ * future writer of typed amounts is tested until someone decides otherwise.
  */
 import type { GLEntrySource } from '@/modules/accounting/types/gl.types';
 
@@ -21,7 +26,7 @@ export const JOURNAL_SOURCE_KINDS: Record<GLEntrySource, JournalSourceKind> = {
   manual: 'entered',
   auto_invoice: 'document',
   auto_payment: 'document',
-  auto_grn: 'document',
+  auto_grn: 'entered',
   auto_credit_note: 'document',
   auto_bank_recon: 'document',
   auto_supplier_invoice: 'document',
@@ -32,15 +37,15 @@ export const JOURNAL_SOURCE_KINDS: Record<GLEntrySource, JournalSourceKind> = {
   auto_vat_submission: 'document',
   auto_batch_payment: 'document',
   auto_recurring: 'entered',
-  auto_purchase_order: 'document',
+  auto_purchase_order: 'entered',
   auto_depreciation: 'document',
   auto_payroll: 'document',
   auto_migration: 'entered',
-  auto_loan_payment: 'document',
-  auto_expense_claim: 'document',
+  auto_loan_payment: 'entered',
+  auto_expense_claim: 'entered',
   auto_expense_receipt: 'document',
   auto_bank_transfer: 'document',
-  auto_asset_disposal: 'document',
+  auto_asset_disposal: 'entered',
   auto_asset_expense: 'document',
   auto_gl_import: 'entered',
   year_end: 'document',
