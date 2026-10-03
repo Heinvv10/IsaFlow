@@ -24,8 +24,8 @@
 //
 // TWO BOUNDS, NOT ONE. Excess requests WAIT rather than fail — a second export
 // queued behind a first is normal and should succeed. But the queue itself was
-// unbounded, so an arbitrary number of requests could pile up against three
-// slots; past `QUEUE_BOUND_FACTOR × max` waiters a request is refused
+// unbounded, so an arbitrary number of requests could pile up against the
+// concurrency bound; past `QUEUE_BOUND_FACTOR × max` waiters a request is refused
 // IMMEDIATELY, with no wait and nothing started. Both refusals reach the caller
 // as a retryable 503, which is the honest answer: the work never began, so
 // nothing is half-done.
@@ -70,15 +70,16 @@ const DEFAULT_WAIT_MS = 10_000;
  *  failed the request — the queue would be refusing work that had died. */
 const POOL_TIMEOUT_MARGIN_MS = 2_000;
 
-/** Renders take at least two connections each (this request, plus the browser
- *  re-entering the API), and the pool must stay usable for every other tenant
- *  meanwhile. A quarter of the pool leaves three-quarters for ordinary
+/** A render holds two auth-pool connections (the request's withAuth one, plus
+ *  the print page's re-entry), so the concurrency ceiling of a quarter of the
+ *  pool lets renders take up to half the pool: 4 of 10 (40%) at the default pool,
+ *  where 6 of 20 (30%) when it was 20 (R-188). What is left is for ordinary
  *  traffic. */
 const POOL_SHARE_DIVISOR = 4;
 
 /** How many requests may WAIT, as a multiple of the concurrency bound. Two
- *  deep is a queue that drains: at three slots and a 30s render, the last
- *  waiter is served inside a minute, which is under the queue's own wait bound
+ *  deep is a queue that drains: at the bound (3 slots asked for, 2 at the
+ *  default pool) and a 30s render, the last waiter is served inside a minute, which is under the queue's own wait bound
  *  so it will not be refused after burning the wait. A third layer would be,
  *  so it is refused up front instead of being told to wait for something that
  *  cannot arrive in time. */
@@ -107,11 +108,16 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
  *  that production would never call.
  *
  *  `ceiling` is the derived pool bound, not a taste preference — an env value
- *  above it is clamped and logged, never honoured. */
+ *  above it is clamped and logged, never honoured. An UNSET or blank variable
+ *  has nothing to report: its default is clamped without a log line. */
 function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
   const n = Number(raw);
+  const unset = raw === undefined || raw.trim() === '';
   const requested = Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
   if (requested > ceiling) {
+    // The built-in default above the ceiling is not an operator's mistake: clamp
+    // it silently (R-188: the default of 3 against a ceiling of 2 at the default pool).
+    if (unset) return ceiling;
     warnOnce(`${name}:${requested}`, 'renderSemaphore: env value clamped to the auth-pool-derived ceiling', {
       setting: name, requested, ceiling,
     });

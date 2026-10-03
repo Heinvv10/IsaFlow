@@ -206,6 +206,35 @@ describe('bounds derived from the auth pool', () => {
     }
   });
 
+  it('at the defaults (both env vars unset) admits 2 renders and does NOT warn: nobody set anything to clamp (R-188)', async () => {
+    delete process.env.AUTH_POOL_MAX;
+    delete process.env.PDF_MAX_CONCURRENT_RENDERS;
+    vi.mocked(log.warn).mockClear();
+    expect(renderQueueBound()).toBe(4);
+
+    const held = [deferred(), deferred()];
+    const running = held.map(d => acquireRenderSlot(d.run));
+    await settle();
+    expect(renderSlotStats().active).toBe(2);
+
+    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '20';
+    await expect(acquireRenderSlot(deferred().run)).rejects.toBeInstanceOf(RenderCapacityError);
+    expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
+      expect.stringContaining('clamped'), expect.anything(), 'pdf',
+    );
+
+    held.forEach(d => d.finish());
+    await Promise.all(running);
+  });
+
+  it('a blank PDF_MAX_CONCURRENT_RENDERS is unset, not an explicit 3: no warning (R-188)', () => {
+    delete process.env.AUTH_POOL_MAX;
+    process.env.PDF_MAX_CONCURRENT_RENDERS = '   ';
+    vi.mocked(log.warn).mockClear();
+    expect(renderQueueBound()).toBe(4);
+    expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
+  });
+
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {
     process.env.AUTH_POOL_MAX = '20';       // ceiling 5
     process.env.PDF_MAX_CONCURRENT_RENDERS = '50';

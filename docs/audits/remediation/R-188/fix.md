@@ -15,12 +15,12 @@ every reader goes through `authPoolMax()`.
 
 ## Behaviour changes (verified from code and tests)
 - Four AUTH pools: 80 -> 40 connections per process. Per-process total of every pool at the
-  defaults: 117 -> 77 (10 neon + 40 auth + 10 admin + 10 rate-limit + 5 invite + 2 accept).
+  defaults: 117 -> 77 plus 2 per in-flight verify-email request (10 neon + 40 auth + 10 admin + 10 rate-limit + 5 invite + 2 accept).
   R-182/fix.md's budget table is historical and left as written.
 - `renderSemaphore` ceiling is `floor(authPoolMax() / 4)` (renderSemaphore.ts:92): 5 -> 2 at the
-  default. Its own default of 3 renders is therefore clamped to 2, with a one-time warning.
+  default. Its own default of 3 renders is therefore clamped to 2, silently while `PDF_MAX_CONCURRENT_RENDERS` is unset or blank (round 1: prod runs on defaults, so a warning would fire on every process); an explicit value above the ceiling still warns once.
   Operators who want 3 renders need `AUTH_POOL_MAX` >= 12 or `PDF_MAX_CONCURRENT_RENDERS=2`
-  to silence the warning.
+  if an explicit value warns.
 - `poolSizeFromEnv` (unchanged code), `AUTH_POOL_MAX` outcomes:
   - unset/blank: 10 (was 20).
   - plain digits 2-100 (incl. 11-100): as given, unchanged, silent.
@@ -46,6 +46,17 @@ Prod's env leaves `AUTH_POOL_MAX` unset, so this changes prod pool sizes on the 
 | green.unit.log | 254/254 (adds rateLimitPoolMax, pgPoolMaxPremise) |
 | regression.unit.log | 1071/1071 over tests/unit/{lib/pdf,lib/auth,auth} + the pool suites; withRenderSlot.test.ts needed AUTH_POOL_MAX=20 pinned (its 3-render test was clamped to 2) |
 | mutations.log | M1-M6 all killed; baselines 229/229 before and after |
+
+## Round 1 review fixes
+- Default clamp is silent (see above); tests: defaults admit 2 renders, `renderQueueBound() === 4`, no warning; blank value likewise. Red `red.r2.unit.log`, green `green.r2.unit.log` (278/278 over the pool, withRenderSlot and packsDownloadRoutes files), mutants M7-M9 killed in `mutations.r2.log`.
+- Stale "three"/"quarter, three-quarters" statements corrected (renderSemaphore.ts, withRenderSlot.ts, pdf.ts, packsDownloadRoutes.test.ts, pdf and auth `.claude.md`); the R-182 entry in `src/lib/pdf/.claude.md` restored verbatim.
+- Prod env (checked by the orchestrator 2026-10-03, `/home/velo/isaflow/.env.local`) sets none of `AUTH_POOL_MAX`, `PDF_MAX_CONCURRENT_RENDERS`, `PG_POOL_MAX`: prod is on the defaults.
+
+## Recorded, not changed
+- Each render holds 2 auth-pool connections (its withAuth one plus the print page's re-entry). At the default, 2 renders take 4 of 10 (40%, leaving 6); before, 6 of 20 (30%, leaving 14). The ceiling formula `floor(pool/4)` is kept: the owner's goal set ceiling 2 at pool 10. The alternative is `floor(pool/8)` = 1 at the default (2 of 10, 20%).
+- No pool `waitingCount` is logged anywhere, so pool saturation after the change cannot be seen in the logs.
+- The render queue bound (2 x the concurrency bound) drops from 6 to 4 at the defaults.
+- Rollback: set `AUTH_POOL_MAX=20` in the prod env and restart the service (restores pools of 20, ceiling 5, and the previous 3 renders / queue bound 6).
 
 ## Not measured
 p99 before/after was NOT measured. The only load harness in the repo is
