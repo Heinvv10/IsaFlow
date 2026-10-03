@@ -36,6 +36,7 @@ import {
   type ReportedCharge,
 } from './gatewaySettlementReview';
 import { decideGatewayAllocation } from './gatewayReceiptAllocation';
+import { findSettledReceipt } from './gatewaySettledReceipt';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
@@ -86,9 +87,10 @@ interface InvoiceRow {
  * Idempotent on `reference`: a second call for the same Paystack reference
  * (webhook and verify route both firing, or a webhook redelivery) banks nothing,
  * posts only a missing fee, compares its amount with what was banked, and
- * returns null. A CANCELLED receipt counts too (R-187): a person decided, so a
- * later report banks nothing, posts no fee, flags the request
- * `already_settled_cancelled_receipt` and returns null.
+ * returns null. A CANCELLED receipt the gateway wrote counts too (R-187): a person
+ * decided, so a later report banks nothing, posts no fee, flags the request
+ * `already_settled_cancelled_receipt` and returns null. A cancelled receipt
+ * anyone else wrote is ignored.
  */
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
@@ -100,42 +102,27 @@ export async function recordGatewayInvoiceReceipt(
   const charge = settledCharge(receipt.requestedCents, receipt.reported);
   const amountRand = charge.cents / 100;
 
-  const already = await sql<{
-    id: string;
-    created_by: string;
-    bank_account_id: string | null;
-    payment_date: string;
-    total_amount: string;
-    description: string | null;
-    status: string | null;
-  }>`
-    SELECT id, created_by::text AS created_by, bank_account_id::text AS bank_account_id,
-           payment_date::text AS payment_date, total_amount::text AS total_amount, description, status
-    FROM customer_payments
-    WHERE company_id = ${companyId}::UUID
-      AND bank_reference = ${reference}
-    ORDER BY (status IS NOT DISTINCT FROM 'cancelled'), id
-    LIMIT 1
-  `;
-  // Any receipt for the reference, a live one first (R-187). Only cancelled: a person reversed
-  // this settlement, so a later report (another body, or verify) banks nothing and posts no fee.
-  if (already[0]?.status === 'cancelled') {
+  // A live receipt first, else a cancelled one the gateway wrote (gatewaySettledReceipt, R-187).
+  const already = await findSettledReceipt(companyId, reference);
+  // Only a cancelled gateway receipt: a person reversed this settlement, so a later report
+  // (another body, or verify) banks nothing and posts no fee.
+  if (already?.status === 'cancelled') {
     await flagSettlementForReview(companyId, reference, ['already_settled_cancelled_receipt'], {
-      cancelledPaymentId: already[0].id, invoiceId, reportedCents: receipt.reported.amountCents,
-      reportedCurrency: receipt.reported.currency,
+      cancelledPaymentId: already.id, invoiceId, reportedCents: receipt.reported.amountCents,
+      reportedCurrency: receipt.reported.currency, feeRand: receipt.feeRand, reportedFeeCents: receipt.reported.feeCents,
     });
     return null;
   }
-  if (already[0]) {
+  if (already) {
     // The receipt is already banked — by the webhook, a redelivery, or the
     // portal verify route. The FEE still may not be: verify's response may carry
     // no `fees`, and returning here used to lose the fee leg for every customer
     // who reached the return page. Post it (once; postGatewayFee is idempotent)
     // against the receipt that already exists, in that receipt's period.
     log.info('Gateway receipt already recorded', { reference, invoiceId }, 'accounting');
-    const bankedRand = Number(already[0].total_amount);
+    const bankedRand = Number(already.total_amount);
     // Two disagreements: the figure each would bank, and Paystack's own `amount` (PR #618 LOW-5).
-    const firstAmountCents = firstReportedAmountCents(already[0].description, Math.round(bankedRand * 100));
+    const firstAmountCents = firstReportedAmountCents(already.description, Math.round(bankedRand * 100));
     const reportedAmountCents = typeof receipt.reported.amountCents === 'number' ? receipt.reported.amountCents : null;
     // In whole cents: a float rand difference misses a cent (2.01 - 2.00 > 0.01 is false).
     const disagrees = Math.round(bankedRand * 100) !== charge.cents
@@ -143,9 +130,9 @@ export async function recordGatewayInvoiceReceipt(
     const fee = merchantFee(receipt.feeRand, receipt.reported, Math.round(bankedRand * 100));
     await postGatewayFee(
       { ...receipt, feeRand: fee.feeRand },
-      already[0].created_by,
-      already[0].bank_account_id,
-      already[0].payment_date,
+      already.created_by,
+      already.bank_account_id,
+      already.payment_date,
     );
     // This report's own reasons too (a currency or a missing amount the first report did not have).
     const reviews = [
@@ -155,7 +142,7 @@ export async function recordGatewayInvoiceReceipt(
     ];
     if (reviews.length > 0) {
       await flagSettlementForReview(companyId, reference, reviews, {
-        paymentId: already[0].id, invoiceId, bankedRand, reportedRand: amountRand, firstAmountCents,
+        paymentId: already.id, invoiceId, bankedRand, reportedRand: amountRand, firstAmountCents,
         reportedCents: receipt.reported.amountCents, reportedCurrency: receipt.reported.currency,
       });
     }

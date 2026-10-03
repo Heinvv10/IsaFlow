@@ -22,9 +22,13 @@ vi.mock('@/lib/neon', () => ({
     const text = strings.join('?');
     h.calls.push({ text, values });
     if (text.includes('FROM customer_payments') && text.includes('bank_reference')) {
-      // As Postgres would: a read that excludes cancelled receipts does not see one (R-187).
-      const hidden = h.already?.status === 'cancelled' && text.includes("IS DISTINCT FROM 'cancelled'");
-      return Promise.resolve(h.already && !hidden ? [h.already] : []);
+      // As Postgres would (R-187): a read that admits a cancelled receipt only when the gateway's
+      // journal stamp is on it sees only `gateway` ones; a read that excludes cancelled sees none.
+      const row = h.already;
+      const cancelled = row?.status === 'cancelled';
+      const gatewayOnly = text.includes('posting_agent') && values.includes('system:paystack-receipt:v1');
+      const hidden = cancelled && (gatewayOnly ? row?.gateway !== true : text.includes("IS DISTINCT FROM 'cancelled'"));
+      return Promise.resolve(row && !hidden ? [row] : []);
     }
     if (text.includes('FROM customer_invoices')) return Promise.resolve([{ client_id: CUSTOMER, created_by: USER }]);
     if (text.includes('company_users')) return Promise.resolve([{ user_id: USER }]);
@@ -189,7 +193,8 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
 
   it('R-187: a CANCELLED receipt for the reference banks nothing, posts no fee, and flags the request', async () => {
     h.already = { id: 'p-cancelled', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
-      total_amount: '115.00', description: 'Paystack card payment r181_wiring [CANCELLED]', status: 'cancelled' };
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring [CANCELLED]', status: 'cancelled',
+      gateway: true };
     const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
       reported: { amountCents: 11500, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
     expect(out).toBeNull();
@@ -197,6 +202,17 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     expect(allocate).not.toHaveBeenCalled();
     expect(fee).not.toHaveBeenCalled();
     expect(reasons()).toEqual([['already_settled_cancelled_receipt']]);
+    // What this report says about the fee, so a person can see what was NOT posted (round 1 L4).
+    expect(flag.mock.calls[0]![3]).toMatchObject({ cancelledPaymentId: 'p-cancelled', feeRand: 3.5, reportedFeeCents: 350 });
+  });
+
+  it('R-187 round 1: a cancelled receipt the gateway did NOT write (manual, bank feed) does not block: it banks', async () => {
+    h.already = { id: 'p-manual', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paid by card [CANCELLED]', status: 'cancelled', gateway: false };
+    const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(out).not.toBeNull();
+    expect(receiptInsert()!.values[4]).toBe(115);
+    expect(reasons()).toEqual([]);
   });
 
   it('a one-cent allocation is inserted', async () => {
