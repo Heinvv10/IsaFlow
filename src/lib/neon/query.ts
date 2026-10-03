@@ -12,8 +12,8 @@ import type pg from 'pg';
 // Static, not an `await import`: assertTxUsable
 // must be synchronous, and it lives in als.ts because the flag it reads is on
 // RequestContext — keeping it there also keeps it out of every test's
-// `vi.mock('@/lib/neon')`. Safe: als.ts imports only node:async_hooks and pg
-// types, so there is no cycle back to this module.
+// `vi.mock('@/lib/neon')`. Safe: als.ts imports only node:async_hooks,
+// @/lib/logger and pg types, so there is no cycle back to this module.
 import { als, assertTxUsable } from '@/lib/als';
 import { getPool } from './pool';
 

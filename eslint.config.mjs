@@ -74,7 +74,7 @@ export default [
 
   // Files allowed to use console (logger internals).
   {
-    files: ['src/lib/logger.ts', 'src/lib/api-error-handler.ts', 'src/lib/neon.ts'],
+    files: ['src/lib/logger.ts', 'src/lib/api-error-handler.ts'],
     rules: {
       'no-console': 'off',
     },
