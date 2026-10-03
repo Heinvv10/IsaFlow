@@ -132,7 +132,7 @@ function boundedInt(name: string, raw: string | undefined, fallback: number, cei
     // Only for a COUNT, where smaller is safer. A refused TIME (the queue wait) gives the default:
     // rounding `0.5` up to a 1 ms wait would refuse every waiter at once.
     requested = smallerIsSafer && Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.ceil(n)) : fallback;
-    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the nearest allowed value', {
+    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); falling back', {
       setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), using: Math.min(requested, ceiling),
     });
   }
