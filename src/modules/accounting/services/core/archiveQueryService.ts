@@ -7,7 +7,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
-import { countArchivableCustomerInvoices } from './archiveCustomerInvoiceScope';
+import { countArchivableCustomerInvoices, countSkippedInvoiceJournalsInWindow, skippedInvoiceJournalMessage } from './archiveCustomerInvoiceScope';
 
 
 const COMPONENT = 'data-archiving';
@@ -251,6 +251,8 @@ export async function validateArchive(companyId: string, cutoffDate: string): Pr
       );
     }
 
+    const keptJournals = await countSkippedInvoiceJournalsInWindow(companyId, cutoffDate);
+    if (keptJournals > 0) errors.push(skippedInvoiceJournalMessage(keptJournals));
     const preview = await previewArchive(companyId, cutoffDate);
     if (preview.totalRecords === 0) {
       errors.push('No records found before the cutoff date that are eligible for archiving.');
