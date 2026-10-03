@@ -23,9 +23,11 @@
  * Also not seen: a literal with a leading comment or another statement before the ROLLBACK
  * ('-- why\nROLLBACK', 'SELECT 1; ROLLBACK'); a call through element access
  * (client['query']('ROLLBACK')); and unreadable text in a file whose own BEGIN is itself
- * unreadable or absent, which is therefore not seen as owning a transaction. One such file exists,
- * src/lib/neon/sql.ts (`sql.transaction` builds its BEGIN from clauses), and it is named in
- * UNREADABLE_BEGIN so it is counted as an owner anyway.
+ * unreadable or absent, which is therefore not seen as owning a transaction. Two such files exist,
+ * both from the R-184 split of src/lib/neon.ts (which owned a transaction and was counted whole):
+ * src/lib/neon/sql.ts (`sql.transaction` builds its BEGIN from clauses) and src/lib/neon/query.ts
+ * (`LazyQuery.run` sends its caller's text on whichever client the transaction is on). Both are
+ * named in COUNTED_ANYWAY so their queries are still counted.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -47,11 +49,12 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
   'scripts/apply-migrations.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/migrations/resolve-checksum-conflicts.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/_pg.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
+  'src/lib/neon/query.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/transaction.ts': { rollbacks: 0, unreadable: 2, reason: PASSES_TEXT_ON },
 };
-/** Files that own a transaction through a BEGIN whose text this census cannot read (R-184). */
-const UNREADABLE_BEGIN = new Set(['src/lib/neon/sql.ts']);
+/** Files counted as transaction owners although no readable BEGIN is in them (R-184). */
+const COUNTED_ANYWAY = new Set(['src/lib/neon/query.ts', 'src/lib/neon/sql.ts']);
 
 const sources = execFileSync('git', ['ls-files', 'src', 'pages', 'scripts', 'middleware.ts', 'instrumentation.ts'],
   { encoding: 'utf8' }).trim().split('\n').filter((f) => /\.(tsx?|mjs|cjs|js)$/.test(f));
@@ -126,7 +129,7 @@ describe('R-176: no bare ROLLBACK', () => {
     for (const file of sources) {
       const text = readFileSync(file, 'utf8');
       if (!/rollback|abort|begin|start transaction/i.test(text)) continue;
-      const c = census(text, UNREADABLE_BEGIN.has(file));
+      const c = census(text, COUNTED_ANYWAY.has(file));
       if (c.rollbacks + c.unreadable > 0) found[file] = c;
     }
     expect(found, 'roll back with rollbackFailed(client, source), or pin the file in PINNED with the reason')
