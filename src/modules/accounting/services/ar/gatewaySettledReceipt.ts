@@ -2,8 +2,13 @@
  * The receipt a gateway settlement dedupes on (R-187).
  *
  * A live receipt for the reference, whoever wrote it: today's dedupe, unchanged. Failing that, a
- * CANCELLED receipt the gateway itself wrote: a person reversed that settlement, so a later report
- * must not bank it again. A cancelled receipt somebody else wrote (a manual receipt, a bank-feed
+ * CANCELLED receipt the gateway itself wrote: that settlement was undone, so a later report must not
+ * bank it again; it is flagged `already_settled_cancelled_receipt` for a person instead. The cancel
+ * is not always a person's decision about this receipt: besides `cancelCustomerPayment`, it is
+ * cancelled as a side effect when the bank line matched to its journal is reversed
+ * (`reverseReconciledTransaction`, or the auto-post undo, both through
+ * `unwindBankAllocationApplication`), and by an agent through MCP `void_receipt`
+ * (`unwindOnePayment`). Whoever handles the flag should check which it was. A cancelled receipt somebody else wrote (a manual receipt, a bank-feed
  * allocation, both free to carry the Paystack reference as `bank_reference`) says nothing about the
  * gateway's settlement and is ignored, so the first settlement still banks.
  *
