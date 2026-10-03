@@ -147,7 +147,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D11: ever
     await sql`INSERT INTO users (id, email, first_name) VALUES (${c.fx.userId}, ${`d11-${c.fx.tag}@example.invalid`}, 'd11')
               ON CONFLICT (id) DO NOTHING`;
     await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${c.fx.companyId}::UUID, ${c.fx.userId}, 'admin')`;
-    token = await new SignJWT({ sub: c.fx.userId, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+    token = await new SignJWT({ sub: c.fx.userId, aal: 'aal2', session_id: randomUUID() }).setProtectedHeader({ alg: 'HS256' })
       .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
   }, 120000);
   afterAll(async () => {
