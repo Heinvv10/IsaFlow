@@ -15,6 +15,7 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
+import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
 
 /**
  * Connections per process: RATE_LIMIT_POOL_MAX, default 10, like PG_POOL_MAX
@@ -27,22 +28,16 @@ import { log } from '@/lib/logger';
  * 250 ms and a thousand on one key hit the connect timeout; with 10, 97 ms and
  * none. Idle connections close after 30 s.
  *
- * Unlike the plain `Number(...)` the other pools use, a value that is not a
- * whole number from 1 to 100 falls back to the default with a warning: a NaN
- * `max` would leave a pg pool never full, that is unbounded.
+ * A value that is not a whole number from 1 to 100 gives, with one warning (the
+ * shared reader, `poolSizeFromEnv`, which every pool uses),
+ * min(default, ceil(Number(text))) when Number(text) is finite and above 0,
+ * else min(default, 10). Plain decimal digits only: `5.0` gives 5, `1e1` gives
+ * 10, `2.5` gives 3.
  */
 export const DEFAULT_RATE_LIMIT_POOL_MAX = 10;
-const LARGEST_RATE_LIMIT_POOL = 100;
 
 export function rateLimitPoolMax(): number {
-  const raw = process.env.RATE_LIMIT_POOL_MAX;
-  if (raw === undefined || raw.trim() === '') return DEFAULT_RATE_LIMIT_POOL_MAX;
-  const n = Number(raw);
-  if (Number.isInteger(n) && n >= 1 && n <= LARGEST_RATE_LIMIT_POOL) return n;
-  log.warn('RATE_LIMIT_POOL_MAX is not a whole number from 1 to 100; using the default', {
-    value: raw, default: DEFAULT_RATE_LIMIT_POOL_MAX,
-  }, 'rateLimit');
-  return DEFAULT_RATE_LIMIT_POOL_MAX;
+  return poolSizeFromEnv('RATE_LIMIT_POOL_MAX', DEFAULT_RATE_LIMIT_POOL_MAX, 'rateLimit');
 }
 
 /**

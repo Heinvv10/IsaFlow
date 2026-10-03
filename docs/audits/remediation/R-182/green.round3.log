@@ -1,0 +1,15 @@
+# Round 3 final run
+# cmd: env -u DATABASE_URL ./node_modules/.bin/vitest run tests/unit/lib/poolSizeFromEnv.test.ts tests/unit/lib/poolSizesBuilt.test.ts tests/unit/lib/pgPoolMaxPremise.test.ts tests/unit/lib/rateLimitPoolMax.test.ts tests/unit/lib/pdf/renderSemaphore.test.ts
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r182-pool-size
+
+
+ Test Files  5 passed (5)
+      Tests  178 passed (178)
+   Start at  11:14:37
+   Duration  1.06s (transform 801ms, setup 0ms, import 800ms, tests 986ms, environment 3ms)
+
+
+# cmd: env -u DATABASE_URL ./node_modules/.bin/vitest run tests/unit/auth tests/unit/lib tests/unit/security
+ Test Files  168 passed (168)
+      Tests  1888 passed | 6 skipped (1894)

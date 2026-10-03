@@ -1,0 +1,7 @@
+# rateLimitPoolMax.test.ts against the OLD R-175 reader logic (Number + isInteger accepted '5.0', '+5', '1e1', '10.0' as given, no warning)
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/unit/lib/rateLimitPoolMax.test.ts > RATE_LIMIT_POOL_MAX (R-175) > "5.0" is refused with one warning and gives 5 (R-182)
+ FAIL  tests/unit/lib/rateLimitPoolMax.test.ts > RATE_LIMIT_POOL_MAX (R-175) > "+5" is refused with one warning and gives 5 (R-182)
+ FAIL  tests/unit/lib/rateLimitPoolMax.test.ts > RATE_LIMIT_POOL_MAX (R-175) > "1e1" is refused with one warning and gives 10 (R-182)
+ FAIL  tests/unit/lib/rateLimitPoolMax.test.ts > RATE_LIMIT_POOL_MAX (R-175) > "10.0" is refused with one warning and gives 10 (R-182)
+      Tests  4 failed | 15 passed (19)
