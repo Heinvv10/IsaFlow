@@ -54,6 +54,10 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
       'WHERE provisional_je_id = ${payment.settlesProvisionalJeId}::UUID AND company_id = ${companyId}::UUID',
     ],
   },
+  'src/modules/accounting/services/bank/bankChainLineReversal.ts': {
+    why: 'unlink only (= NULL) or unchanged: the bank reversal clears the link of a line whose provisional the GL already took out (D10 O9)',
+    lines: ['provisional_je_id = CASE WHEN ${clearProvisional} THEN NULL ELSE provisional_je_id END,'],
+  },
   'src/modules/accounting/services/bank/provisionalDismissService.ts': {
     why: 'unlink only (= NULL), keyed on the link; the lock peek reads it (D8 round 6)',
     lines: [

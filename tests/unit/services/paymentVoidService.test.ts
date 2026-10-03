@@ -74,8 +74,14 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => {
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn(),
 }));
-// D8: the chain head (real-ledger proof: d8-r2-chain-head-cancel-void) is the journal itself here.
-vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({ lockStandingChainHead: async (_c: string, id: string) => id }));
+// D10 O5: shapes 2/3 take the HTTP void's bank leg and its re-check under the journal lock (real-ledger proof:
+// d10-mcp-void). Here the chain stands, its head is the journal itself, and no line is matched to it.
+vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', () => ({
+  lockBankLegOf: vi.fn(async (_c: string, journalId: string) => ({
+    alreadyReversed: false, reverseId: journalId, bankLineIds: [], seenLineIds: [], allocatedLineIds: [],
+  })),
+  lockJournalAndUnmatch: vi.fn(async () => undefined),
+}));
 // D8 rounds 10/12: lines matched to another journal of the chain (real-ledger proof: d8-r12-chain-bank-lines); none here.
 vi.mock('@/modules/accounting/services/bank/chainBankLines', () => ({ findChainBankLines: vi.fn(async () => []) }));
 
@@ -91,6 +97,7 @@ import {
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { lockBankLegOf, lockJournalAndUnmatch } from '@/modules/accounting/services/ap/paymentJournalReversal';
 import {
   isVoidRefusal,
   voidPaymentDocument,
@@ -313,10 +320,19 @@ describe('voidPaymentDocument', () => {
       order.push('reverse');
       return { vatLockRoll: null } as never;
     });
+    vi.mocked(lockBankLegOf).mockImplementationOnce(async () => {
+      order.push('leg');
+      return { alreadyReversed: false, reverseId: JE, bankLineIds: [], seenLineIds: [], allocatedLineIds: [] };
+    });
+    vi.mocked(lockCustomerPaymentForUpdate).mockImplementationOnce(async () => {
+      order.push('payment'); return paymentRow() as never;
+    });
+    vi.mocked(lockJournalAndUnmatch).mockImplementationOnce(async () => { order.push('journal'); });
 
     const r = asResult(await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER));
 
-    expect(order).toEqual(['unwind', 'reverse']);
+    // D10 O5: the bank leg first, the journal locked and re-checked after the unwind and before the contra.
+    expect(order).toEqual(['leg', 'payment', 'unwind', 'journal', 'reverse']);
     expect(reverseReconciledTransaction).not.toHaveBeenCalled();
     expect(r.invoicesReopened).toBe(2);
     expect(r.amountUnapplied).toBe(1500);
@@ -378,5 +394,16 @@ describe('voidPaymentDocument', () => {
     const opts = { postingAgent: 'mcp:void_receipt:v1', reversalDate: '2026-03-01' };
     await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER, opts as never);
     expect(reverseJournalEntry).toHaveBeenCalledWith(COMPANY, JE, USER, opts);
+    // D10: the leg's pre-write date check checks the date asked for, as reverseJournalEntry will use it.
+    expect(lockBankLegOf).toHaveBeenCalledWith(COMPANY, JE, 'This receipt', '2026-03-01');
+  });
+
+  it('D10 O2: REFUSES a member of a payment batch — it moves money only through its batch', async () => {
+    given(paymentRow({ status: 'processed', gl_journal_entry_id: null, batch_id: 'batch-1', payment_number: 'SP-1' }));
+    const r = await voidPaymentDocument(COMPANY, 'supplier', PAYMENT, USER);
+    expect(r).toEqual({ refusal: 'batch_member', paymentNumber: 'SP-1', batchId: 'batch-1' });
+    expect(unwindOnePayment).not.toHaveBeenCalled();
+    expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
   });
 });
