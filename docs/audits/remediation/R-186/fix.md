@@ -8,6 +8,17 @@
 invoice such a request references raised 23514, and the whole run rolled back to its savepoint
 (`red.int.log`: `executeArchive threw 23514 ... paystack_pr_invoice_has_invoice`).
 
+## Product consequence (for Hein)
+
+Under option (b), a GL-posted paid invoice keeps its `gl_journal_entry_id`. That journal stays
+`posted` (a reversal never changes the original's status; `journalEntryListService.ts:14`) and is
+dated on the invoice date, so before the cutoff. **So the run refuses whole for ANY company that has
+a GL-posted invoice before the cutoff referenced by a Paystack or Stitch request. In practice such a
+company cannot archive until R-053 and R-191 are redesigned.** Its receipt journal would fail the
+run on 23503 anyway (R-053). The only skipped invoices a completed run leaves behind are ones
+cancelled by today's `cancelCustomerInvoice`, which NULLs the link. The preview line says this: it
+does not suggest that the other invoices are archived anyway.
+
 ## Current design (as of round 2)
 
 **Decision.** This is the goal file's default, not a decision put to Hein
@@ -33,6 +44,9 @@ invoice's journals (item 2).
   company, cutoff and status on top of the ids. It throws `ArchiveSetChangedError`
   (`ARCHIVE_SET_CHANGED`) when it deletes fewer rows than it selected, or archives fewer than it
   deletes.
+- **One definition each** (round-2 addendum C): `eligibleInvoice` (company, before the cutoff, paid or
+  cancelled) and `gatewayReferenced` (an `EXISTS` on each request table, same company) are nested
+  `sql` fragments, spliced into the selection, the preview count and the move.
 - `countArchivableCustomerInvoices` drives the preview: `customerInvoices` and
   `customerInvoicesSkipped`, counted in SQL.
 - `ArchiveResult.invoicesSkipped` is in the result, the audit metadata and the log.
@@ -239,8 +253,31 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
 | `regression.r4.int.log` | k071 + r101 + r181-settlement-amount + five r186 files: 40/40. `d8-r2-chain-head-cancel-void` refuses any DB but isaflow_dev, so it cannot run on the fixture; the cancel service is unchanged here |
 | `regression.r4.unit.log` | 5 unit files 77/77. Components 29/29 |
 
+## Review round 2 addendum (adversarial reviewer, no HIGH)
+
+- **A. [M, pre-existing] registered as R-192.** Steps 1, 2, 3 and 5 copy rows (`ON CONFLICT DO
+  NOTHING`), and step 6 deletes them by predicate in a separate statement, each statement on its own
+  READ COMMITTED snapshot. A supplier invoice, bank line or journal that changes in between is lost
+  or left as a stale copy. The fix is the same `DELETE ... RETURNING` into `INSERT`, with count
+  checks per table, in the archive redesign. Not fixed here. R-192 was checked free on every ref and
+  worktree first; r187 already holds R-193.
+- **B. [L]** The legacy relabel and the current cancel shape were done in round 2 item 2. The
+  product consequence is now stated above, in `core/.claude.md` and in the register. The preview
+  line now reads: "N paid or cancelled customer invoice(s) before the cutoff cannot be archived: a
+  Paystack or Stitch payment request refers to them. If any of them has a journal before the
+  cutoff, the whole archive is refused; Validate reports it." `red.r5.component.log` shows the
+  test failing on the old copy. Browser proof was re-run: `browser-proof.md`.
+- **C. [L]** `eligibleInvoice` and `gatewayReferenced` are each defined once, and the selection, the
+  preview count and the move splice them in. The refusal seed has used the selection's
+  `skippedIds` since round 2, so it has no copy of its own. That is why C10 and C11 (which mutated
+  the seed's status and cutoff) no longer exist: there is nothing left for them to mutate.
+  - The move-race test's `sql` mock now returns the real lazy query for every call except the
+    selection, so the nested fragments still splice.
+  - Mutants on the single definitions are in `mutations.r5.log`.
+
 ## Recorded, not changed
 
+- **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
 - **Journals of LIVE invoices (pre-existing, outside R-186; registered as R-191).** Steps 1, 2 and 6 move every
   posted pre-cutoff journal by date, including the journal of an invoice the run never selects
   (approved, sent, partly paid). That invoice stays live and points at the archive. The refusal

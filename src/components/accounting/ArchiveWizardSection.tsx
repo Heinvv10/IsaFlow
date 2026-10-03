@@ -95,8 +95,9 @@ export function ArchiveWizardSection({
           </dl>
           {preview.customerInvoicesSkipped > 0 && (
             <p className="mt-3 text-xs text-[var(--ff-text-muted)]">
-              {preview.customerInvoicesSkipped.toLocaleString()} paid or cancelled customer invoice(s) before the cutoff
-              stay live: a Paystack or Stitch payment request refers to them.
+              {preview.customerInvoicesSkipped.toLocaleString()} paid or cancelled customer invoice(s) before the cutoff cannot
+              be archived: a Paystack or Stitch payment request refers to them. If any of them has a journal before the
+              cutoff, the whole archive is refused; Validate reports it.
             </p>
           )}
         </div>
