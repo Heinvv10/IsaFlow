@@ -15363,7 +15363,11 @@
         "docs/audits/remediation/R-188/green.r7.unit.log",
         "docs/audits/remediation/R-188/mutations.r7.log",
         "docs/audits/remediation/R-188/green.r8.unit.log",
-        "docs/audits/remediation/R-188/mutations.r8.log"
+        "docs/audits/remediation/R-188/mutations.r8.log",
+        "docs/audits/remediation/R-188/red.r9.unit.log",
+        "docs/audits/remediation/R-188/green.r9.unit.log",
+        "docs/audits/remediation/R-188/mutations.r9.log",
+        "docs/audits/remediation/R-188/regression.r9.unit.log"
       ],
       "fixCommit": null,
       "pr": null,
