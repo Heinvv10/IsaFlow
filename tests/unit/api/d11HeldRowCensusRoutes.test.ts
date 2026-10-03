@@ -14,6 +14,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: vi.fn().mockResolvedValue(true), checkRateLimit: vi.fn().mockResolvedValue(true) }));
 vi.mock('@/lib/billing/withFlowMeter', () => ({ withFlowMeter: () => (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/core/companySettingsService', async (orig) => ({ ...(await orig<object>()), reserveNextDocumentNumber: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/companyService', async (orig) => ({ ...(await orig<object>()), reserveNextDocumentNumber: vi.fn() }));
