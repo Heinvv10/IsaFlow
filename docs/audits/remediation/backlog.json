@@ -15216,10 +15216,10 @@
       "fixCommit": null,
       "deployedSha": null,
       "testNames": [
-        "tests/unit/services/billing/paystackClientExports.test.ts",
-        "tsconfig.paystackexports.json"
+        "tests/unit/services/billing/paystackClientExports.test.ts"
       ],
       "evidencePaths": [
+        "tsconfig.paystackexports.json",
         "docs/audits/remediation/R-183/baseline.unit.log",
         "docs/audits/remediation/R-183/green.unit.log",
         "docs/audits/remediation/R-183/mutations.log",
