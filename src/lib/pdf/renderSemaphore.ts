@@ -126,12 +126,13 @@ function boundedInt(name: string, raw: string | undefined, fallback: number, cei
     requested = n;
   } else if (!unset) {
     // poolSizeFromEnv's rule for a spelling it refuses: a finite value above 0 gives
-    // min(default, ceil(value)) (so `1.0` stays 1 and `1.9` gives 2, never above the default);
+    // min(default, max(1, floor(value))) (so `1.0` and `1.9` give 1, as a plain
+    // floor did before; never above the default);
     // anything else gives the default. Warned as invalid, never as a clamp, and never with
     // the text (an env var can hold anything pasted into it).
     // Only for a COUNT, where smaller is safer. A refused TIME (the queue wait) gives the default:
     // rounding `0.5` up to a 1 ms wait would refuse every waiter at once.
-    requested = smallerIsSafer && Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.ceil(n)) : fallback;
+    requested = smallerIsSafer && Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.max(1, Math.floor(n))) : fallback;
     warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); falling back', {
       setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), using: Math.min(requested, ceiling),
     });

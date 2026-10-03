@@ -1,0 +1,91 @@
+HEAD: 038b5ab810d54fe321aa420e4d9fb3bf9d7b0f7a (new tests; old count rule, old note call, no telemetry module)
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/auth/poolTelemetry.test.ts (0 test)
+ ❯ tests/unit/services/afs/noteAiService.test.ts (7 tests | 1 failed) 9ms
+     × aborts the call after 60 s, so the bound covers the body read, not only the headers (R-188) 4ms
+ ❯ tests/unit/lib/pdf/renderSemaphoreEnv.test.ts (27 tests | 2 failed) 136ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 1 and is logged once as invalid, never as a clamp (R-188) 5ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" gives 2 and is logged once as invalid, never as a clamp (R-188) 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/auth/poolTelemetry.test.ts [ tests/unit/lib/auth/poolTelemetry.test.ts ]
+Error: Cannot find package '@/lib/auth/poolTelemetry' imported from /home/hein/Workspace/IsaFlow/.worktrees/pool/tests/unit/lib/auth/poolTelemetry.test.ts
+ ❯ tests/unit/lib/auth/poolTelemetry.test.ts:11:1
+      9| vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn, error } }…
+     10|
+     11| import { connectObserved, POOL_WARN_INTERVAL_MS, POOL_SATURATED_MESSAG…
+       | ^
+     12|
+     13| function fakePool(over: Partial<{ waitingCount: number; connect: () =>…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphoreEnv.test.ts > render env parsing at the default pool (R-188) > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 1 and is logged once as invalid, never as a clamp (R-188)
+AssertionError: expected 4 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 4
+
+ ❯ tests/unit/lib/pdf/renderSemaphoreEnv.test.ts:113:36
+    111|     process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
+    112|     const sem = await fresh();
+    113|     expect(sem.renderQueueBound()).toBe(expected * 2);
+       |                                    ^
+    114|
+    115|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphoreEnv.test.ts > render env parsing at the default pool (R-188) > a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" gives 2 and is logged once as invalid, never as a clamp (R-188)
+AssertionError: expected 6 to be 4 // Object.is equality
+
+- Expected
++ Received
+
+- 4
++ 6
+
+ ❯ tests/unit/lib/pdf/renderSemaphoreEnv.test.ts:113:36
+    111|     process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
+    112|     const sem = await fresh();
+    113|     expect(sem.renderQueueBound()).toBe(expected * 2);
+       |                                    ^
+    114|
+    115|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/unit/services/afs/noteAiService.test.ts > noteAiService > aborts the call after 60 s, so the bound covers the body read, not only the headers (R-188)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts:60:31
+     58|       expect(signal!.aborted).toBe(false);
+     59|       await vi.advanceTimersByTimeAsync(1);
+     60|       expect(signal!.aborted).toBe(true);
+       |                               ^
+     61|       expect(((await done) as Error).message).toContain('AI narrative …
+     62|       expect(vi.getTimerCount()).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  3 failed | 31 passed (34)
+   Start at  12:32:07
+   Duration  275ms (transform 105ms, setup 0ms, import 88ms, tests 145ms, environment 0ms)
+

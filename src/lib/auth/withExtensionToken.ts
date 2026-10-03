@@ -14,6 +14,7 @@
 //   4. Open a tx pinned to app_user role with company GUC set, run handler
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
+import { connectObserved } from './poolTelemetry';
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
 // in this process. This file builds its own Pool, so it must not depend on
@@ -93,7 +94,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       });
     }
 
-    const client = await pool().connect();
+    const client = await connectObserved(pool(), 'extensionToken');
     let deferred: DeferredEnd | null = null;
     let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
