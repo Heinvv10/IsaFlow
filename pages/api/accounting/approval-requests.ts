@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -23,7 +24,6 @@ import {
 import {
   ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
 } from '@/modules/accounting/services/gl/approvalDecideDocument';
-import { ApprovalRequestLockTimeoutError } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { isUuidParam } from '@/lib/validation';
 
 const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
@@ -138,10 +138,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return apiResponse.notFound(res, error.message);
         }
         // Another request held the row past the 5s budget — the decide never
-        // ran, so it is a retry, not a fault.
-        if (error instanceof ApprovalRequestLockTimeoutError) {
-          return apiResponse.conflict(res, error.message, { reason: error.code });
-        }
+        // ran, so it is a retry, not a fault: 503 + Retry-After (D11).
+        if (respondIfLockTimeout(res, error)) return;
         // The document was edited after the request was raised: approving would
         // vouch for figures it no longer carries. Nothing was written.
         if (error instanceof ApprovalDocumentChangedError) {

@@ -26,6 +26,8 @@ import {
 } from './bankTxLock';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
+import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
+import { findJournalChainRoot } from '../shared/journalChainHead';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -83,10 +85,11 @@ export class BankMatchTargetError extends Error {
  * Lock the row, then refuse if it has already been allocated. `verb` is the
  * caller's own word for what it was about to do, so the message reads naturally.
  */
-async function lockForStatusWrite(companyId: string, bankTxId: string, verb: string): Promise<Row> {
+async function lockForStatusWrite(companyId: string, bankTxId: string, verb: ProvisionalLineVerb): Promise<Row> {
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
   assertFeedPosted(row, verb);
+  await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
     throw new BankTransactionAllocatedError(bankTxId, status, verb);
@@ -143,6 +146,18 @@ async function assertMatchTargets(
       'LINE_CLAIMED',
       `Journal line ${journalLineId} is already matched to bank transaction ${String(claimed[0]!.id)}`,
     );
+  }
+  // D10 (brk-d10 O-a): a bank-first provisional's own statement line holds its cash through `provisional_je_id`, not
+  // `matched_journal_line_id` — on X itself or, once re-reversed, on the head that carries X again (same chain root).
+  // A second line matched to that bank leg is two statement lines for one GL bank entry.
+  const root = (await findJournalChainRoot(companyId, jeId)) ?? jeId;
+  const [held] = (await sql`
+    SELECT id FROM bank_transactions
+    WHERE provisional_je_id = ${root}::UUID AND company_id = ${companyId}::UUID AND id <> ${bankTxId}::UUID
+    LIMIT 1`) as Row[];
+  if (held) {
+    throw new BankMatchTargetError('LINE_CLAIMED', `Journal line ${journalLineId} is the bank leg of a provisional `
+      + `journal whose own bank transaction ${String(held.id)} already carries it — use that line.`);
   }
 
   if (reconciliationId) {

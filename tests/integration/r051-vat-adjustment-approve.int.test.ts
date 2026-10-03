@@ -177,7 +177,7 @@ describe('R-051: approving a VAT adjustment posts its journal once', () => {
       c.release();
     }
 
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(409);
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(503);
     expect(await journals(id)).toHaveLength(0);
     expect((await adjustment(id)).status).toBe('draft');
   }, 30_000);

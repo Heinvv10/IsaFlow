@@ -55,6 +55,9 @@ beforeEach(() => {
 describe.each([
   ['RowLockTimeoutError (the flow budget)', () => new RowLockTimeoutError('Bank transaction t2')],
   ['JournalReversalLockTimeoutError (the chain head)', () => new JournalReversalLockTimeoutError('je-of-line')],
+  // D11 round 3: a deadlock victim is contention too, not a permanent "manual reversal required" failure.
+  ['a raw 40P01 deadlock victim', () => Object.assign(new Error('deadlock detected'), { code: '40P01' })],
+  ['a raw 55P03 lock timeout', () => Object.assign(new Error('lock timeout'), { code: '55P03' })],
 ])('undoRun meets a %s', (_name, make) => {
   it('skips the row as contended, not failed, and keeps the reversed one', async () => {
     reverseReconciledTransaction.mockResolvedValueOnce({}).mockRejectedValueOnce(make());

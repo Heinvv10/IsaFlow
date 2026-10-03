@@ -2,6 +2,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -33,6 +34,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const warnings = body.decision === 'reject' ? [] : await claimInputVatWarnings(id, companyId);
     return apiResponse.success(res, { claim, warnings });
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     if (respondIfImpersonationForbidden(res, err)) return;
     return apiResponse.badRequestFromError(res, err, 'Request failed');
   }

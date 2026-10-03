@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -88,8 +89,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
   } catch (err) {
     // R-068: raised before the first write, so the 400's COMMIT commits nothing.
     if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
-    // A bill held by another request: a retry, not the user's mistake — 409, as
-    // batch-payments POST answers the same lock. Pre-write, like every refusal.
+    // A bill held by another request: a retry, not the user's mistake — 503 + Retry-After (D11), as batch-payments
+    // POST answers the same lock; a retryable state conflict stays 409. Pre-write, like every refusal.
+    if (respondIfLockTimeout(res, err)) return;
     if (isRetryableSupplierPaymentRefusal(err)) return apiResponse.conflict(res, (err as Error).message);
     // K-066: a bill that is not this supplier's, or not payable. Also pre-write.
     if (isSupplierPaymentRefusal(err)) return apiResponse.badRequest(res, err.message);
