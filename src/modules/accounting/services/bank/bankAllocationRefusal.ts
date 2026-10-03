@@ -20,9 +20,16 @@ export class BankAllocationRefusal extends Error {
    * answer that one 409 (as it answers the bare BankTransactionNotPostedError)
    * while every other allocation refusal keeps its 400.
    */
-  constructor(message: string, readonly feedState?: 'pending' | 'removed') {
+  /**
+   * TRUE only when another request changed the line while this one was deciding (D10): nothing was written and the
+   * same request succeeds on a retry, so the routes answer it 409 (`core/retryableContention`), not 400.
+   */
+  readonly retryable: boolean;
+
+  constructor(message: string, readonly feedState?: 'pending' | 'removed', opts?: { retryable?: boolean }) {
     super(message);
     this.name = 'BankAllocationRefusal';
+    this.retryable = opts?.retryable === true;
   }
 }
 
@@ -30,4 +37,9 @@ export class BankAllocationRefusal extends Error {
 export function isBankAllocationRefusal(err: unknown): err is BankAllocationRefusal {
   return err instanceof Error
     && (err as { code?: unknown }).code === 'BANK_ALLOCATION_REFUSED';
+}
+
+/** A refusal the caller should answer 409-and-retry rather than 400. */
+export function isRetryableBankAllocationRefusal(err: unknown): boolean {
+  return isBankAllocationRefusal(err) && (err as { retryable?: unknown }).retryable === true;
 }
