@@ -326,6 +326,16 @@ The Stitch case of the closure suite was added after `red.r3.int.log`. Mutant C8
 8. The R-186 register census (3) covers Stitch.
 9. The CASCADE loss is registered as R-194 (checked free on every ref and worktree).
 
+| Round-3 evidence | Result |
+|---|---|
+| `red.r6.int.log` (c01557f36 code, round-3 tests) | 3 failed / 17 passed (20): raw 23514; three archive copies before the refusal; the generic message |
+| `red.r6.component.log` | 1 failed / 1 passed (2): the old copy |
+| `mutations.r6.log` (8f9cc4fbe) | 10 mutants (gateway re-check in the move, step 0 order, audit metadata, failure mark, three `movedJournal` predicates, the already-archived message and check, the copy): 10 killed |
+| `green.r6.int.log` (8f9cc4fbe) | five r186 files: 20/20 |
+| `regression.r6.int.log` | k071 + r101 + r181-settlement-amount + five r186 files: 43/43 |
+| `regression.r6.unit.log` | 5 unit files 77/77. Components 29/29 |
+| `browser-proof.md` (8f9cc4fbe) | Preview 200, 1 archivable and 1 skipped, the round-3 line rendered, no console errors |
+
 ## Recorded, not changed
 
 - **Copy-then-delete on the other tables (pre-existing; registered as R-192).** See the round-2 addendum.
