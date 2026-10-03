@@ -1,0 +1,17 @@
+HEAD: 0c1543d33f6d3d01170a62351f92699594c31eb9 (code tree clean); load 27.59
+## type-check
+$ tsc --noEmit
+exit=0
+## lint
+✖ 12 problems (0 errors, 12 warnings)
+
+exit=0
+## check-client-responses
+OK: 1015 client files, 14 pin(s), no new hit.
+exit=0
+## agent-docs:check
+OK: 81 agent document mirror(s) match canonical sources.
+exit=0
+## migration-naming
+No new duplicate prefixes found.
+exit=0

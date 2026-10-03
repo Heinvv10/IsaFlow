@@ -1,0 +1,13 @@
+HEAD: 0c1543d33f6d3d01170a62351f92699594c31eb9 (DIRTY: ?? docs/audits/remediation/R-185/green.round1.int.log; ?? docs/audits/remediation/R-185/green.round1.unit.log); fixture postgresql://postgres@127.0.0.1:55931/isaflow_schema_fixture (851 + 852); load 36.73
+BASELINE-before GREEN (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 passed (1)] tests[6 passed (6)])
+M1 fixture: DROP INDEX ux_gl_je_gateway_fee_reference (no DB guarantee) -> RED (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 failed (1)] tests[2 failed | 4 passed (6)])
+M2 code: catch rethrows without the re-read (no outcome check) -> RED (unit files[1 failed | 1 passed (2)] tests[2 failed | 7 passed (9)]; int files[1 failed (1)] tests[2 failed | 4 passed (6)])
+M3 code: no savepoint around create+post (withSavepoint -> direct call) -> RED (unit files[1 failed | 1 passed (2)] tests[1 failed | 8 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M4 code: re-read finds nothing -> swallow instead of rethrow -> RED (unit files[1 failed | 1 passed (2)] tests[2 failed | 7 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M5 code: catch swallows every error (no re-read, no rethrow) -> RED (unit files[1 failed | 1 passed (2)] tests[3 failed | 6 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M6 fixture: index predicate without posting_agent -> RED (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M7 fixture: index predicate without status IS DISTINCT FROM reversed -> RED (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M8 fixture: index predicate status = 'posted' (a draft escapes) -> RED (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M9 fixture+code: status <> 'reversed' (NULL escapes) in the index AND in feeJournalExists -> RED (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+M10 code: savepoint opened, but create+post run after it, outside the callback -> RED (unit files[1 failed | 1 passed (2)] tests[1 failed | 8 passed (9)]; int files[1 failed (1)] tests[1 failed | 5 passed (6)])
+BASELINE-after GREEN (unit files[2 passed (2)] tests[9 passed (9)]; int files[1 passed (1)] tests[6 passed (6)])
