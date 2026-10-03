@@ -23,6 +23,8 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondRowHeld } from '@/lib/apiDocumentLock';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   withAuth,
@@ -76,6 +78,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { action, invoiceIds } = parsed.data;
   const userId = req.user.id;
   const results: ItemResult[] = [];
+  let held = 0;
 
   // Sorted, NOT the order the client sent. Every action below now takes a row
   // lock (approve via lockSupplierInvoiceForUpdate, cancel via its own
@@ -113,6 +116,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.warn('Bulk supplier invoice action failed for one id', {
         action, invoiceId, error: message,
       }, 'accounting-api');
+      if (isHeldRowError(err)) held += 1;
       results.push({ invoiceId, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}) });
 
       // The savepoint's own ROLLBACK TO failed, so the connection is genuinely
@@ -127,6 +131,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         );
       }
     }
+  }
+
+  // D11: every id a held row means nothing was committed: 503 + Retry-After. Mixed results keep the 200 per-item answer.
+  if (held > 0 && held === results.length) {
+    return respondRowHeld(res, 'These invoices are being processed by another request — retry in a moment.', 'ROW_LOCK_TIMEOUT');
   }
 
   const succeeded = results.filter((r) => r.ok).length;

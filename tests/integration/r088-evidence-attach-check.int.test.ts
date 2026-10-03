@@ -71,7 +71,7 @@ describe('R-088 a manual evidence attach is refused when another upload of the f
     expect(await provisionalState(je)).toEqual({ needs_evidence: true, source_document_id: null, line: 'provisional' });
   });
 
-  it('deadlock, B the victim: B\'s claim commits without its attach, and A — waiting on B — is refused', async () => {
+  it('deadlock, B the victim: B\'s auto-attach is re-thrown (its request rolls back, D11), and A — waiting on B — then attaches', async () => {
     const je = await seedProvisional(3910);
     const a = await upload('dead-3910', { total: 3910, invoice: true });
     const b = await upload('dead-3910', { total: 3910, invoice: true });
@@ -87,13 +87,13 @@ describe('R-088 a manual evidence attach is refused when another upload of the f
       const attach = inCtx(ca, () => attachDocumentToProvisional(company, je, a));
       expect(await waitUntilSomeoneWaits()).toBe(true);
       // B's auto-attach reaches for the bank line A holds: a cycle, and B detects it first.
-      const auto = await inCtx(cb, () => attachEvidenceToProvisional(company, b, null, 3910, today));
-      expect(auto).toEqual({ attachedJeId: null, bankTxId: null });
-      await cb.query('COMMIT');
+      // D11 round 3: B is told to retry (503 at the route) instead of committing a bill beside the provisional.
+      await expect(inCtx(cb, () => attachEvidenceToProvisional(company, b, null, 3910, today))).rejects.toMatchObject({ code: '40P01' });
+      await cb.query('ROLLBACK');
 
+      // B's claim rolled back with it, so A's wait on the fingerprint ends and A evidences the provisional.
       const result = await attach;
-      expect(result.kind).toBe('refused');
-      expect((result as { message: string }).message).toMatch(/same file was already posted/i);
+      expect(result.kind).toBe('attached');
       await ca.query('COMMIT');
     } finally {
       await ca.query('ROLLBACK').catch(() => undefined);
@@ -101,8 +101,8 @@ describe('R-088 a manual evidence attach is refused when another upload of the f
       ca.release();
       cb.release();
     }
-    expect(await postedAt(a)).toBeNull();
-    expect((await provisionalState(je)).needs_evidence).toBe(true);
+    expect(await postedAt(a)).not.toBeNull();
+    expect((await provisionalState(je)).needs_evidence).toBe(false);
   }, 30_000);
 
   it('deadlock, A the victim: A is contended (retry) and writes nothing; B\'s own auto-attach evidences the provisional', async () => {
