@@ -79,7 +79,10 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
 });
 
 describe('sars/index (routes: sars-compliance -> { events }, sars-submissions -> { items })', () => {
-  const due = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+  // Local calendar day + 10: the page counts days from local midnight, so a UTC day
+  // (toISOString) is a day short whenever the local and UTC dates differ.
+  const d10 = new Date(); d10.setDate(d10.getDate() + 10);
+  const due = `${d10.getFullYear()}-${String(d10.getMonth() + 1).padStart(2, '0')}-${String(d10.getDate()).padStart(2, '0')}`;
   const evt = { eventType: 'VAT201_DUE', dueDate: due, description: 'D2 VAT return falls due', status: 'pending' };
   const sub = { id: 's1', formType: 'D2-FORM', periodStart: '2026-07-01', periodEnd: '2026-08-31', status: 'submitted', submissionReference: 'D2-REF-77', submittedAt: null, createdAt: '2026-09-02T00:00:00Z' };
   it('success: the upcoming deadline and the recent submission are listed', async () => {
