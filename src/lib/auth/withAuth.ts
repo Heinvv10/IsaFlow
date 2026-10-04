@@ -1,4 +1,5 @@
 import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
+import { connectObserved } from './poolTelemetry';
 import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
@@ -92,7 +93,7 @@ export function withAuth(handler: Handler): NextApiHandler {
     }
 
     const startedAt = Date.now();
-    const client = await getAuthPool().connect();
+    const client = await connectObserved(getAuthPool(), 'authPool');
     let deferred: DeferredEnd | null = null;
     let owned: RequestContext | null = null;
     let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction

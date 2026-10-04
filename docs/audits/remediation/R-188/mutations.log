@@ -1,0 +1,8 @@
+BASELINE before:       Tests  229 passed (229)
+M1 DEFAULT_AUTH_POOL_MAX 10 -> 20:       Tests  35 failed | 194 passed (229)
+M2 DEFAULT_AUTH_POOL_MAX 10 -> 12:       Tests  35 failed | 194 passed (229)
+M3 render ceiling divisor 4 -> 3 (ceiling 3 at default):       Tests  7 failed | 222 passed (229)
+M4 refused-value fallback ignores the cap of 10:       Tests  13 failed | 216 passed (229)
+M5 refused spelling not capped at the default:       Tests  53 failed | 176 passed (229)
+M6 digits above the default no longer honoured:       Tests  27 failed | 202 passed (229)
+BASELINE after:       Tests  229 passed (229)

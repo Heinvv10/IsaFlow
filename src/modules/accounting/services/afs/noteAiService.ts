@@ -15,7 +15,12 @@ export interface CompanyContext {
 // and the daily AI unit given back (R-175), and the SDK's errors do not say
 // whether a retry happened. The one caller (the AFS section ai-narrative route)
 // reports the failure and the user can try again.
-const client = new Anthropic({ maxRetries: 0 });
+// The route runs under withAuth, so the call holds a pool connection and is bounded (R-188). The
+// SDK's default timeout is 600 s, and its `timeout` option stops at the response headers, so the
+// call also takes a per-call AbortSignal.timeout covering the body read. 60 s: Sonnet at
+// max_tokens 1024 can take tens of seconds, and it is still well under 600 s.
+export const NOTE_AI_TIMEOUT_MS = 60_000;
+const client = new Anthropic({ maxRetries: 0, timeout: NOTE_AI_TIMEOUT_MS });
 
 export async function generateNoteNarrative(
   sectionType: SectionType,
@@ -30,12 +35,14 @@ export async function generateNoteNarrative(
     .replace('{framework}', companyContext.framework)
     .replace('{sectionType}', sectionType);
 
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), NOTE_AI_TIMEOUT_MS);
   try {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
-    });
+    }, { signal: abort.signal });
     // The provider answered: the request's daily AI unit is spent (R-175).
     markQuotaUsed('ai');
 
@@ -45,5 +52,7 @@ export async function generateNoteNarrative(
     const message = err instanceof Error ? err.message : String(err);
     log.error('AI narrative generation failed', { sectionType, companyName: companyContext.name, error: message }, 'noteAiService');
     throw new Error(`AI narrative generation failed: ${message}`);
+  } finally {
+    clearTimeout(timer);
   }
 }

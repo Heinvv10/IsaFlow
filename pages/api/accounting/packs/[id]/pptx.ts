@@ -12,7 +12,7 @@
  * connection for tens of seconds on top of its own. This route launches no
  * browser and makes no inbound call: it runs two queries and builds a deck in
  * memory, finishing in the time an ordinary report takes. Putting it behind
- * the same three-slot gate would make deck exports queue behind PDF renders
+ * the same render gate would make deck exports queue behind PDF renders
  * for no pool benefit. Its exposure is the per-company export rate limit
  * below, the same as every other synchronous report route.
  */

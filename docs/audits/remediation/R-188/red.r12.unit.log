@@ -1,0 +1,53 @@
+HEAD: b761ffc1b7ad73d09f547c9eefc7985920eaa864 (new test, b761ffc1b code); fixture none; load 29.33
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/auth/poolTelemetryRealPool.test.ts (4 tests | 2 failed) 39ms
+     × warns for the FIRST queued acquire on a full pool, with the counts 4ms
+     × logs the counts as they were at acquire time when the queued acquire times out 34ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/auth/poolTelemetryRealPool.test.ts > connectObserved against a real pg.Pool (R-188) > warns for the FIRST queued acquire on a full pool, with the counts
+AssertionError: expected "vi.fn()" to be called 1 times, but got 0 times
+ ❯ tests/unit/lib/auth/poolTelemetryRealPool.test.ts:31:18
+     29|
+     30|     const queued = connectObserved(pool, 'real');
+     31|     expect(warn).toHaveBeenCalledTimes(1);
+       |                  ^
+     32|     expect(warn.mock.calls[0]![0]).toBe(POOL_SATURATED_MESSAGE);
+     33|     expect(warn.mock.calls[0]![1]).toEqual({ pool: 'real', waitingCoun…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/lib/auth/poolTelemetryRealPool.test.ts > connectObserved against a real pg.Pool (R-188) > logs the counts as they were at acquire time when the queued acquire times out
+AssertionError: expected { Object (pool, waitingCount, ...) } to match object { pool: 'slow', waitingCount: 1, …(2) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "max": 1,
+    "pool": "slow",
+    "totalCount": 1,
+-   "waitingCount": 1,
++   "waitingCount": 0,
+  }
+
+ ❯ tests/unit/lib/auth/poolTelemetryRealPool.test.ts:56:37
+     54|     expect(error).toHaveBeenCalledTimes(1);
+     55|     expect(error.mock.calls[0]![0]).toBe(POOL_ACQUIRE_FAILED_MESSAGE);
+     56|     expect(error.mock.calls[0]![1]).toMatchObject({ pool: 'slow', wait…
+       |                                     ^
+     57|     held.release();
+     58|     await pool.end();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  12:39:16
+   Duration  211ms (transform 21ms, setup 0ms, import 62ms, tests 39ms, environment 0ms)
+

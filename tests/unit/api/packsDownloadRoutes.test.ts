@@ -143,7 +143,7 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
    * `ISO_DATE` matches ten digits in the right places. `2026-02-31` and
    * `2026-13-01` pass it, reach `${from}::date` in the trend query, and
    * Postgres raises 22008 — but only after the renderer has been admitted to
-   * one of `withRenderSlot`'s three slots, the print page's own fetch has
+   * one of `withRenderSlot`'s render slots, the print page's own fetch has
    * answered 400, `data-print-ready` has therefore never been set, and
    * `waitForSelector` has run its full `PRINT_READY_TIMEOUT_MS`. The bound is
    * per PROCESS and shared by every tenant, so 25 such requests in 15 minutes

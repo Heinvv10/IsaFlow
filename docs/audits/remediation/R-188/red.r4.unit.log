@@ -1,0 +1,29 @@
+HEAD: cb69d85639bbe6404f4c5906296e95301fd3e8f1; fixture none; load 47.01
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts (4 tests | 2 failed) 31ms
+     × aborts the provider call after 30000 ms and answers 200 with its fallback 26ms
+     × aborts the provider call after 20000 ms and answers 200 with its fallback 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/api/aiRoutesFetchTimeout.test.ts > 'ai-narrative' provider call is bounded (R-188) > aborts the provider call after 30000 ms and answers 200 with its fallback
+ FAIL  tests/unit/api/aiRoutesFetchTimeout.test.ts > 'ai-forecast' provider call is bounded (R-188) > aborts the provider call after 20000 ms and answers 200 with its fallback
+AssertionError: expected undefined to be an instance of AbortSignal
+ ❯ tests/unit/api/aiRoutesFetchTimeout.test.ts:59:20
+     57|     const done = route.handler({ method: 'POST', body: route.body, com…
+     58|     await vi.advanceTimersByTimeAsync(route.timeoutMs - 1);
+     59|     expect(signal).toBeInstanceOf(AbortSignal);
+       |                    ^
+     60|     expect(signal!.aborted).toBe(false);
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  10:46:46
+   Duration  329ms (transform 108ms, setup 0ms, import 141ms, tests 31ms, environment 0ms)
+

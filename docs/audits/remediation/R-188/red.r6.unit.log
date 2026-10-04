@@ -1,0 +1,98 @@
+HEAD: 08d1234a55f394cab7d0e0a64b525d1de2c231b8 (round-5 tests, round-4 code); fixture none; load 28.86
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts (6 tests | 2 failed) 12ms
+     × builds its client with no retries and the same timeout as the per-call bound; the SDK default is 600 s (R-188) 7ms
+     × passes a per-call AbortSignal.timeout of 60 s, so the bound covers the body read, not only the headers (R-188) 2ms
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (38 tests | 3 failed) 213ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" gives 1 and is logged once as invalid, never as a clamp (R-188) 6ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.0" gives 1 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 2 and is logged once as invalid, never as a clamp (R-188) 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" gives 1 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.0" gives 1 and is logged once as invalid, never as a clamp (R-188)
+AssertionError: expected 6 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 6
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:287:36
+    285|     process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
+    286|     const sem = await fresh();
+    287|     expect(sem.renderQueueBound()).toBe(expected * 2);
+       |                                    ^
+    288|
+    289|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 2 and is logged once as invalid, never as a clamp (R-188)
+AssertionError: expected 6 to be 4 // Object.is equality
+
+- Expected
++ Received
+
+- 4
++ 6
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:287:36
+    285|     process.env.PDF_MAX_CONCURRENT_RENDERS = bad;
+    286|     const sem = await fresh();
+    287|     expect(sem.renderQueueBound()).toBe(expected * 2);
+       |                                    ^
+    288|
+    289|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/unit/services/afs/noteAiService.test.ts > noteAiService > builds its client with no retries and the same timeout as the per-call bound; the SDK default is 600 s (R-188)
+AssertionError: expected [ { maxRetries: +0, timeout: 30000 } ] to deeply equal [ { maxRetries: +0, timeout: 60000 } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "maxRetries": 0,
+-     "timeout": 60000,
++     "timeout": 30000,
+    },
+  ]
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts:44:31
+     42|   it('builds its client with no retries and the same timeout as the pe…
+     43|     const mod = await import('@anthropic-ai/sdk') as unknown as { __co…
+     44|     expect(mod.__constructed).toEqual([{ maxRetries: 0, timeout: 60_00…
+       |                               ^
+     45|   });
+     46|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/unit/services/afs/noteAiService.test.ts > noteAiService > passes a per-call AbortSignal.timeout of 60 s, so the bound covers the body read, not only the headers (R-188)
+AssertionError: expected "timeout" to be called with arguments: [ 60000 ]
+
+Number of calls: 0
+
+ ❯ tests/unit/services/afs/noteAiService.test.ts:53:26
+     51|     try {
+     52|       await generateNoteNarrative('note_3', CONTENT, 'x', CONTEXT);
+     53|       expect(timeoutSpy).toHaveBeenCalledWith(60_000);
+       |                          ^
+     54|       const options = mockCreate.mock.calls[0]![1] as { signal?: Abort…
+     55|       expect(options.signal).toBeInstanceOf(AbortSignal);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  5 failed | 51 passed (56)
+   Start at  11:06:48
+   Duration  428ms (transform 237ms, setup 0ms, import 292ms, tests 256ms, environment 0ms)
+
