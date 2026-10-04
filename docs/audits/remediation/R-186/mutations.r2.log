@@ -1,0 +1,33 @@
+HEAD: 90c05b9080c6ac226f174e7a97049e70dd519e82 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 24.40
+BASELINE before (int, 2 files): 7 passed (7)
+BASELINE before (component): 2 passed (2)
+N1 selection ignores the gateway reference [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N2 selection: company_id dropped from the Paystack EXISTS [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N3 selection: Stitch EXISTS dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N4 selection: company_id dropped from the Stitch EXISTS [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N5 count: company_id dropped from the Paystack EXISTS [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N6 count: Stitch EXISTS dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N7 count: company_id dropped from the Stitch EXISTS [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N8 count: archivable counts every eligible invoice [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N9 move: status predicate dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N10 move: cutoff predicate dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N11 move: id set dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N12 move: company_id dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 7 passed (7) -> SURVIVED
+N13 move: moved < selected not refused [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 5 passed (7) -> RED
+N14 move: archived < moved not refused [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 6 passed (7) -> RED
+N15 run returns invoicesSkipped 0 [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 6 passed (7) -> RED
+N16 run reports the selected count, not what was archived [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 7 passed (7) -> SURVIVED
+N17 preview reports skipped 0 [src/modules/accounting/services/core/archiveQueryService.ts] (int): 1 failed | 6 passed (7) -> RED
+N18 preview counts skipped as archivable [src/modules/accounting/services/core/archiveQueryService.ts] (int): 1 failed | 6 passed (7) -> RED
+N19 UI note shown when none skipped [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+N20 UI note removed [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+BASELINE after (int, 2 files): 7 passed (7)
+BASELINE after (component): 2 passed (2)
+tree after: ''
+Equivalent: N12 (company_id on the move's DELETE): the id set comes from a select scoped by ci.company_id, so the predicate cannot change which rows move; kept as tenant scoping. N16 (report ids.length instead of the archived count): the move throws unless archived = deleted = selected, so on every path that returns the two are equal.
+Killed 18/20; 2 equivalent (N12, N16).
+Component mutants re-run after the copy change, HEAD 4863f2e71ce77a6ae1f64745e5e1c984e1bd9218 (committed):
+BASELINE before (component): 2 passed (2)
+N19 UI note shown when none skipped [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+N20 UI note removed [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+BASELINE after (component): 2 passed (2)

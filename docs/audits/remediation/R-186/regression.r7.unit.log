@@ -1,0 +1,19 @@
+HEAD: e5a50021f5514a80ae56b453a81158f799d6ebc5 (committed); fixture none; load 8.05
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+
+ Test Files  5 passed (5)
+      Tests  77 passed (77)
+   Start at  11:54:27
+   Duration  345ms (transform 443ms, setup 0ms, import 592ms, tests 78ms, environment 0ms)
+
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+
+ Test Files  2 passed (2)
+      Tests  29 passed (29)
+   Start at  11:54:28
+   Duration  689ms (transform 122ms, setup 100ms, import 301ms, tests 246ms, environment 313ms)
+
