@@ -28,7 +28,7 @@ import { log } from '@/lib/logger';
 
 export const AUTH_POOL_CONNECTION_TIMEOUT_MS = 15_000;
 export const AUTH_POOL_IDLE_TIMEOUT_MS = 30_000;
-export const DEFAULT_AUTH_POOL_MAX = 20;
+export const DEFAULT_AUTH_POOL_MAX = 10;
 /** The floor that makes ONE pack PDF render possible, not a safe size. A render
  *  holds one withAuth connection and the headless browser re-enters the API for
  *  a second, from these same pools; with a pool of 1 the second waits out the
@@ -56,8 +56,9 @@ const warned = new Set<string>();
  * number, else `min(fallback, 10)`; and never below `minimum`. So a spelling
  * the old plain `Number(...)` read as a usable size (`5.0`, `+5`, `0x5`, `2.5`,
  * `1e1`) gives the size it meant (rounded up, as pg-pool opened up to
- * ceil(max)) and never more than the default: `20.0`, `+20` and `2e1` mean the
- * default 20 and give 20, and `50.0` gives the default, not 50. NaN and 0 give
+ * ceil(max)) and never more than the default: for AUTH_POOL_MAX (default 10)
+ * `10.0`, `+10` and `1e1` mean the default and give 10, and `15.0` or `50.0`
+ * give the default, not their own size. NaN and 0 give
  * 10, which is what pg-pool made of them. Negative and Infinity values, which
  * were broken before, also give `min(fallback, 10)`.
  *
@@ -79,10 +80,11 @@ const warned = new Set<string>();
  *
  * The cap is PER VARIABLE, not per process. AUTH_POOL_MAX sizes four pools
  * (authPool, withExtensionToken, bearerPipeline, the platform-admin app pool).
- * AUTH_POOL_MAX advice: its default of 20 is 80 connections per process and 100
- * would be 400, so with max_connections 100 shared with dev, CI and Supabase,
- * set it no higher than the default and lower it (10 gives 40) if connections
- * run short (docs/audits/remediation/R-182/fix.md).
+ * AUTH_POOL_MAX advice: its default of 10 is 40 connections per process (it was
+ * 20, so 80, until R-188) and 100 would be 400, so with max_connections 100
+ * shared with dev, CI and Supabase, set it no higher than the default. A plain
+ * whole number above the default is still honoured as given (up to 100)
+ * (docs/audits/remediation/R-182/fix.md, docs/audits/remediation/R-188/fix.md).
  */
 export function poolSizeFromEnv(name: string, fallback: number, category = 'pool', minimum = 1): number {
   const raw = process.env[name];

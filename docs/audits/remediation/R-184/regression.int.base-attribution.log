@@ -1,0 +1,443 @@
+HEAD: 1f7d840a45037ae9f85efb8b39b952216e210256 with src/lib/neon.ts + src/lib/alsTransaction.ts checked out at base 1910c157b and src/lib/neon/*.ts removed (= origin/master source); fixture isaflow-fixture-r184 127.0.0.1:55935; load 20.40; the 11 files that failed in regression.int.log
+fixture=isaflow-fixture-r184 url=127.0.0.1:55935 head=1f7d840a45037ae9f85efb8b39b952216e210256 load=20.40
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r184
+
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.429Z","component":"API","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"b7aa6a1d-8fd6-4aa2-a3eb-572833c6331a","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:38.445Z","component":"accounting","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"entryId":"3a836215-1773-4f26-a348-2a136b19929f","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:38.451Z","component":"accounting","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"id":"3a836215-1773-4f26-a348-2a136b19929f","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:38.458Z","component":"accounting","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"paymentId":"6fc241c0-417e-4a90-8646-911f1f565d8b","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:38.458Z","component":"accounting","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"bankTxId":"b7aa6a1d-8fd6-4aa2-a3eb-572833c6331a","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"6fc241c0-417e-4a90-8646-911f1f565d8b","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:38.458Z","component":"accounting","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"bankTxId":"b7aa6a1d-8fd6-4aa2-a3eb-572833c6331a","journalEntryId":"3a836215-1773-4f26-a348-2a136b19929f","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (31ms)","timestamp":"2026-10-03T08:26:38.459Z","component":"API","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"31ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.459Z","component":"http","requestId":"01M40DYMYWPEZ2PTHNZYNWCFR5","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":31,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.469Z","component":"API","requestId":"01M40DYN05M53HV735C0HVE88D","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"void","paymentId":"6fc241c0-417e-4a90-8646-911f1f565d8b"}}}
+{"level":"error","message":"Failed to void supplier payment","timestamp":"2026-10-03T08:26:38.475Z","component":"accounting","requestId":"01M40DYN05M53HV735C0HVE88D","data":{"id":"6fc241c0-417e-4a90-8646-911f1f565d8b","error":{"code":"SUPPLIER_PAYMENT_REFUSED","name":"SupplierPaymentRefusal","retryable":false,"message":"Payment SP-2026-00001's bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.","stack":"SupplierPaymentRefusal: Payment SP-2026-00001's bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.\n    at assertNotReconciled (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:69:51)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at lockMatchedLines (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:142:5)\n    at lockBankLegOf (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:125:17)\n    at lockPaymentBankLeg (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:208:28)\n    at voidSupplierPaymentInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts:228:32)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/neon.ts:434:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/supplier-payments-action.ts:61:25)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9"}}}
+{"level":"error","message":"Supplier payment action failed","timestamp":"2026-10-03T08:26:38.478Z","component":"accounting-api","requestId":"01M40DYN05M53HV735C0HVE88D","data":{"error":{"code":"SUPPLIER_PAYMENT_REFUSED","name":"SupplierPaymentRefusal","retryable":false,"message":"Payment SP-2026-00001's bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.","stack":"SupplierPaymentRefusal: Payment SP-2026-00001's bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.\n    at assertNotReconciled (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:69:51)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at lockMatchedLines (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:142:5)\n    at lockBankLegOf (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:125:17)\n    at lockPaymentBankLeg (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/paymentJournalReversal.ts:208:28)\n    at voidSupplierPaymentInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts:228:32)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at withSavepoint (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/neon.ts:434:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/supplier-payments-action.ts:61:25)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (9ms)","timestamp":"2026-10-03T08:26:38.478Z","component":"API","requestId":"01M40DYN05M53HV735C0HVE88D","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"9ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.478Z","component":"http","requestId":"01M40DYN05M53HV735C0HVE88D","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":9,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.493Z","component":"API","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"f4bf60f9-24b6-491d-b2aa-83801c81a851","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:38.497Z","component":"accounting","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"entryId":"bb59243f-3473-443b-9702-87f5ce4ec4c6","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:38.500Z","component":"accounting","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"id":"bb59243f-3473-443b-9702-87f5ce4ec4c6","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:38.504Z","component":"accounting","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"paymentId":"61720ab7-e059-4fa7-adc5-a686cc6ce0b9","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:38.505Z","component":"accounting","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"bankTxId":"f4bf60f9-24b6-491d-b2aa-83801c81a851","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"61720ab7-e059-4fa7-adc5-a686cc6ce0b9","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:38.505Z","component":"accounting","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"bankTxId":"f4bf60f9-24b6-491d-b2aa-83801c81a851","journalEntryId":"bb59243f-3473-443b-9702-87f5ce4ec4c6","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (12ms)","timestamp":"2026-10-03T08:26:38.505Z","component":"API","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"12ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.505Z","component":"http","requestId":"01M40DYN0WHDQ3J3EAAP7CNTDQ","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":12,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.513Z","component":"API","requestId":"01M40DYN1HJQFKF8P0YE88P9K6","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"reverse","bankTransactionId":"f4bf60f9-24b6-491d-b2aa-83801c81a851"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-10-03T08:26:38.515Z","component":"accounting-api","requestId":"01M40DYN1HJQFKF8P0YE88P9K6","data":{"error":{"code":"RECONCILED_CASH","name":"ReconciledCashError","message":"This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.","stack":"ReconciledCashError: This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.\n    at refuseLockedCash (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/reconciledCash.ts:93:11)\n    at reverseReconciledInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/bankAllocationService.ts:809:3)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/bank-transactions-action.ts:207:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:93:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:186:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/auth/withAuth.ts:193:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/afterCommit.ts:51:12)"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (3ms)","timestamp":"2026-10-03T08:26:38.516Z","component":"API","requestId":"01M40DYN1HJQFKF8P0YE88P9K6","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.516Z","component":"http","requestId":"01M40DYN1HJQFKF8P0YE88P9K6","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":3,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.526Z","component":"API","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"4c41e748-d6f8-48d7-a764-20060031f10f","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:38.531Z","component":"accounting","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"entryId":"4c72fe80-b015-4f46-82d1-813c27f94e2e","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:38.535Z","component":"accounting","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"id":"4c72fe80-b015-4f46-82d1-813c27f94e2e","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:38.539Z","component":"accounting","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"paymentId":"75e1ba6e-c83f-41cc-85f3-c069e13f040b","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:38.540Z","component":"accounting","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"bankTxId":"4c41e748-d6f8-48d7-a764-20060031f10f","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"75e1ba6e-c83f-41cc-85f3-c069e13f040b","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:38.540Z","component":"accounting","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"bankTxId":"4c41e748-d6f8-48d7-a764-20060031f10f","journalEntryId":"4c72fe80-b015-4f46-82d1-813c27f94e2e","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (14ms)","timestamp":"2026-10-03T08:26:38.540Z","component":"API","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.540Z","component":"http","requestId":"01M40DYN1YGCMZ00Q57VF273G8","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":14,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-10-03T08:26:38.559Z","component":"mcp","data":{"tool":"void_payment","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","err":"This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again."}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.575Z","component":"API","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"1fc32591-88b0-4e83-ac6b-4f485b0e0279","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:38.579Z","component":"accounting","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"entryId":"f167f2a9-6953-42b5-ab3c-6b29ea9ae9c1","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:38.582Z","component":"accounting","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"id":"f167f2a9-6953-42b5-ab3c-6b29ea9ae9c1","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:38.588Z","component":"accounting","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"paymentId":"9bbe53aa-d929-4f4a-9a6f-7e79d2d8c7a0","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:38.588Z","component":"accounting","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"bankTxId":"1fc32591-88b0-4e83-ac6b-4f485b0e0279","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"9bbe53aa-d929-4f4a-9a6f-7e79d2d8c7a0","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:38.588Z","component":"accounting","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"bankTxId":"1fc32591-88b0-4e83-ac6b-4f485b0e0279","journalEntryId":"f167f2a9-6953-42b5-ab3c-6b29ea9ae9c1","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (13ms)","timestamp":"2026-10-03T08:26:38.588Z","component":"API","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.588Z","component":"http","requestId":"01M40DYN3FV9GYFHBBJHZRG1FR","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":13,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-10-03T08:26:38.599Z","component":"mcp","data":{"tool":"reverse_bank_allocation","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","err":"This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again."}}
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-10-03T08:26:38.604Z","component":"mcp","data":{"tool":"k064_thrower","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","err":"internal detail"}}
+{"level":"error","message":"MCP tool handler failed","timestamp":"2026-10-03T08:26:38.608Z","component":"mcp","data":{"tool":"k064_thrower","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","err":"duplicate key value violates unique constraint \"x\""}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:38.616Z","component":"API","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"426795e2-d0b7-4748-8fce-e8f80be0c99a","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:38.621Z","component":"accounting","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"entryId":"915072aa-bd02-45bf-af9d-10f658f65693","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:38.625Z","component":"accounting","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"id":"915072aa-bd02-45bf-af9d-10f658f65693","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:38.629Z","component":"accounting","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"paymentId":"43fe3ef1-aea4-451c-8bc3-8028d544f0ac","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:38.629Z","component":"accounting","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"bankTxId":"426795e2-d0b7-4748-8fce-e8f80be0c99a","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"43fe3ef1-aea4-451c-8bc3-8028d544f0ac","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:38.629Z","component":"accounting","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"bankTxId":"426795e2-d0b7-4748-8fce-e8f80be0c99a","journalEntryId":"915072aa-bd02-45bf-af9d-10f658f65693","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (13ms)","timestamp":"2026-10-03T08:26:38.629Z","component":"API","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:38.630Z","component":"http","requestId":"01M40DYN4R0XCR72XZBX0YK7P1","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":14,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"info","message":"Auto-post run partly undone — run stays open","timestamp":"2026-10-03T08:26:39.044Z","component":"auto-post-undo","data":{"companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","runId":"8a365421-ef71-459e-b5df-5e4e3a9bc158","reversed":0,"skipped":1,"skippedBy":{"reconciled":1,"contended":0,"failed":0,"offsetByHand":0},"alreadyUndone":0}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.055Z","component":"API","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"d59439a6-d3d8-44f5-b5c2-129472d30ced","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.060Z","component":"accounting","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"entryId":"4619d7e5-f0b1-489f-b6dc-6cdb745a2032","entryNumber":"JE-2026-00006","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.064Z","component":"accounting","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"id":"4619d7e5-f0b1-489f-b6dc-6cdb745a2032","entryNumber":"JE-2026-00006"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.069Z","component":"accounting","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"paymentId":"6e368526-0aed-43ee-aba7-d2893b4c2b68","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.069Z","component":"accounting","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"bankTxId":"d59439a6-d3d8-44f5-b5c2-129472d30ced","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"6e368526-0aed-43ee-aba7-d2893b4c2b68","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.069Z","component":"accounting","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"bankTxId":"d59439a6-d3d8-44f5-b5c2-129472d30ced","journalEntryId":"4619d7e5-f0b1-489f-b6dc-6cdb745a2032","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (14ms)","timestamp":"2026-10-03T08:26:39.069Z","component":"API","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.069Z","component":"http","requestId":"01M40DYNJFN8CYNPSREF908F6G","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":14,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"info","message":"Auto-post run partly undone — run stays open","timestamp":"2026-10-03T08:26:39.081Z","component":"auto-post-undo","data":{"companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","runId":"517286a1-f2f1-4b30-a133-8d393339f87c","reversed":0,"skipped":1,"skippedBy":{"reconciled":1,"contended":0,"failed":0,"offsetByHand":0},"alreadyUndone":0}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.089Z","component":"API","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"fcc59a11-ef05-407a-9fc7-a6cc4189d4d9","allocationType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.092Z","component":"accounting","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"entryId":"b1c9e722-163e-4bbd-8efa-41570c87f9c2","entryNumber":"JE-2026-00007","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.094Z","component":"accounting","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"id":"b1c9e722-163e-4bbd-8efa-41570c87f9c2","entryNumber":"JE-2026-00007"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.098Z","component":"accounting","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"paymentId":"ad015ee0-4d98-49f6-8b9e-29ecbffff8ce","lines":1,"applied":115,"unappliedAfter":0,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.098Z","component":"accounting","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"bankTxId":"fcc59a11-ef05-407a-9fc7-a6cc4189d4d9","supplierId":"2951ec91-5d60-4737-a703-a10858c4ad41","paymentId":"ad015ee0-4d98-49f6-8b9e-29ecbffff8ce","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.098Z","component":"accounting","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"bankTxId":"fcc59a11-ef05-407a-9fc7-a6cc4189d4d9","journalEntryId":"b1c9e722-163e-4bbd-8efa-41570c87f9c2","allocType":"supplier","entityId":"2951ec91-5d60-4737-a703-a10858c4ad41","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (10ms)","timestamp":"2026-10-03T08:26:39.099Z","component":"API","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"10ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.099Z","component":"http","requestId":"01M40DYNKHCZ72QF38V8YGTYXS","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":10,"userId":"97dc6a32-eb37-4631-991b-fed08d29259e","companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","outcome":"ok"}}
+{"level":"info","message":"Auto-post run partly undone — run stays open","timestamp":"2026-10-03T08:26:39.111Z","component":"auto-post-undo","data":{"companyId":"8b0019b3-dc47-42e6-9c43-0d7b29afe800","runId":"d4986c0c-69ac-4580-9916-6f0df95498f9","reversed":0,"skipped":1,"skippedBy":{"reconciled":1,"contended":0,"failed":0,"offsetByHand":0},"alreadyUndone":0}}
+ ❯ tests/integration/k064-reconciled-cash-callers.int.test.ts (8 tests | 1 failed) 868ms
+     × MCP void_payment through the registry → the agent reads the refusal, not a generic failure 47ms
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.672Z","component":"API","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"a1d7c0e3-fd14-4fb9-b792-e4edd68680c1","allocationType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.688Z","component":"accounting","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"entryId":"efccc289-ef02-47ec-80ba-642c2294fa95","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.694Z","component":"accounting","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"id":"efccc289-ef02-47ec-80ba-642c2294fa95","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.704Z","component":"accounting","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"paymentId":"f56dc453-01b8-4b9b-91fa-2234faee7546","lines":1,"applied":115,"unappliedAfter":0,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.704Z","component":"accounting","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"bankTxId":"a1d7c0e3-fd14-4fb9-b792-e4edd68680c1","supplierId":"deca8227-c3fb-4314-83bb-ec8a52325de0","paymentId":"f56dc453-01b8-4b9b-91fa-2234faee7546","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.704Z","component":"accounting","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"bankTxId":"a1d7c0e3-fd14-4fb9-b792-e4edd68680c1","journalEntryId":"efccc289-ef02-47ec-80ba-642c2294fa95","allocType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (34ms)","timestamp":"2026-10-03T08:26:39.705Z","component":"API","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"34ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.705Z","component":"http","requestId":"01M40DYP5QSY7QEQ2VYMDK9SZP","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":34,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.716Z","component":"API","requestId":"01M40DYP739K4F143H4YRW64K9","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"reverse","bankTransactionId":"a1d7c0e3-fd14-4fb9-b792-e4edd68680c1"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-10-03T08:26:39.718Z","component":"accounting-api","requestId":"01M40DYP739K4F143H4YRW64K9","data":{"error":{"code":"RECONCILED_CASH","name":"ReconciledCashError","message":"This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.","stack":"ReconciledCashError: This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again.\n    at refuseLockedCash (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/reconciledCash.ts:93:11)\n    at reverseReconciledInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/bankAllocationService.ts:809:3)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/bank-transactions-action.ts:207:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:93:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:186:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/auth/withAuth.ts:193:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/afterCommit.ts:51:12)"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (7ms)","timestamp":"2026-10-03T08:26:39.722Z","component":"API","requestId":"01M40DYP739K4F143H4YRW64K9","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"7ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.722Z","component":"http","requestId":"01M40DYP739K4F143H4YRW64K9","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":7,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.735Z","component":"API","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"6c68c88a-430d-4855-8bbc-76dec61cd89d","allocationType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.739Z","component":"accounting","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"entryId":"211e31b6-a914-4c18-ae24-a0d2ddd7e169","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.743Z","component":"accounting","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"id":"211e31b6-a914-4c18-ae24-a0d2ddd7e169","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.747Z","component":"accounting","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"paymentId":"28b8cc1a-583a-48bb-b90c-a93fad0b1e53","lines":1,"applied":115,"unappliedAfter":0,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.747Z","component":"accounting","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"bankTxId":"6c68c88a-430d-4855-8bbc-76dec61cd89d","supplierId":"deca8227-c3fb-4314-83bb-ec8a52325de0","paymentId":"28b8cc1a-583a-48bb-b90c-a93fad0b1e53","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.747Z","component":"accounting","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"bankTxId":"6c68c88a-430d-4855-8bbc-76dec61cd89d","journalEntryId":"211e31b6-a914-4c18-ae24-a0d2ddd7e169","allocType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (13ms)","timestamp":"2026-10-03T08:26:39.748Z","component":"API","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.748Z","component":"http","requestId":"01M40DYP7Q1Z2X4B73B35DBA7N","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":13,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.754Z","component":"API","requestId":"01M40DYP8AYYAPP73JRXX2YMK4","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"reverse","bankTransactionId":"6c68c88a-430d-4855-8bbc-76dec61cd89d"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-10-03T08:26:39.755Z","component":"accounting-api","requestId":"01M40DYP8AYYAPP73JRXX2YMK4","data":{"error":{"code":"RECONCILED_CASH","name":"ReconciledCashError","message":"This bank line was reconciled in the Sage import (no reconciliation in this app holds it), so this can't be reversed in the app. Correct it with a journal, or contact support.","stack":"ReconciledCashError: This bank line was reconciled in the Sage import (no reconciliation in this app holds it), so this can't be reversed in the app. Correct it with a journal, or contact support.\n    at refuseLockedCash (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/reconciledCash.ts:101:11)\n    at reverseReconciledInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/bankAllocationService.ts:809:3)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/bank-transactions-action.ts:207:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:93:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:186:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/auth/withAuth.ts:193:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/afterCommit.ts:51:12)"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (1ms)","timestamp":"2026-10-03T08:26:39.755Z","component":"API","requestId":"01M40DYP8AYYAPP73JRXX2YMK4","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.755Z","component":"http","requestId":"01M40DYP8AYYAPP73JRXX2YMK4","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":1,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.766Z","component":"API","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"7807e57c-1c9d-4f56-9505-6cb32535e2c5","allocationType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.771Z","component":"accounting","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"entryId":"74e8784c-9ada-4771-86c5-d7536c452e9d","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.775Z","component":"accounting","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"id":"74e8784c-9ada-4771-86c5-d7536c452e9d","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.779Z","component":"accounting","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"paymentId":"4eb06d4e-6385-4fbf-9f39-666b8f492485","lines":1,"applied":115,"unappliedAfter":0,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.779Z","component":"accounting","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"bankTxId":"7807e57c-1c9d-4f56-9505-6cb32535e2c5","supplierId":"deca8227-c3fb-4314-83bb-ec8a52325de0","paymentId":"4eb06d4e-6385-4fbf-9f39-666b8f492485","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.779Z","component":"accounting","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"bankTxId":"7807e57c-1c9d-4f56-9505-6cb32535e2c5","journalEntryId":"74e8784c-9ada-4771-86c5-d7536c452e9d","allocType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (14ms)","timestamp":"2026-10-03T08:26:39.780Z","component":"API","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.780Z","component":"http","requestId":"01M40DYP8PFEYSEG4C7S5AYFB9","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":14,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.788Z","component":"API","requestId":"01M40DYP9C4MHZDXW4ZH09Z0NZ","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"reverse","bankTransactionId":"7807e57c-1c9d-4f56-9505-6cb32535e2c5"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-10-03T08:26:39.790Z","component":"accounting-api","requestId":"01M40DYP9C4MHZDXW4ZH09Z0NZ","data":{"error":{"code":"RECONCILED_CASH","name":"ReconciledCashError","message":"This bank line is marked reconciled on a reconciliation that isn't completed. That shouldn't happen, so contact support.","stack":"ReconciledCashError: This bank line is marked reconciled on a reconciliation that isn't completed. That shouldn't happen, so contact support.\n    at refuseLockedCash (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/reconciledCash.ts:97:11)\n    at reverseReconciledInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/bankAllocationService.ts:809:3)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/bank-transactions-action.ts:207:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:93:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:186:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/auth/withAuth.ts:193:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/afterCommit.ts:51:12)"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (2ms)","timestamp":"2026-10-03T08:26:39.790Z","component":"API","requestId":"01M40DYP9C4MHZDXW4ZH09Z0NZ","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.790Z","component":"http","requestId":"01M40DYP9C4MHZDXW4ZH09Z0NZ","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":2,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.801Z","component":"API","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"1bc151a0-b0ee-4e71-82c9-be2089f24ba2","allocationType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.804Z","component":"accounting","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"entryId":"a52dc628-f0ab-440a-a3c7-2cbe9e5d5c78","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.806Z","component":"accounting","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"id":"a52dc628-f0ab-440a-a3c7-2cbe9e5d5c78","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.810Z","component":"accounting","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"paymentId":"74d02abe-d311-406e-ac34-693cf27508bf","lines":1,"applied":115,"unappliedAfter":0,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.810Z","component":"accounting","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"bankTxId":"1bc151a0-b0ee-4e71-82c9-be2089f24ba2","supplierId":"deca8227-c3fb-4314-83bb-ec8a52325de0","paymentId":"74d02abe-d311-406e-ac34-693cf27508bf","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.810Z","component":"accounting","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"bankTxId":"1bc151a0-b0ee-4e71-82c9-be2089f24ba2","journalEntryId":"a52dc628-f0ab-440a-a3c7-2cbe9e5d5c78","allocType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (9ms)","timestamp":"2026-10-03T08:26:39.810Z","component":"API","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"9ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.811Z","component":"http","requestId":"01M40DYP9SQPGNERNXF6PDE8WH","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":10,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.836Z","component":"API","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"allocate","bankTransactionId":"4b51e6b1-f411-4255-b5b6-7302a1a337a3","allocationType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0"}}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:26:39.840Z","component":"accounting","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"entryId":"faaa1c5c-f18c-4460-a970-0332e7e48cfd","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:26:39.843Z","component":"accounting","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"id":"faaa1c5c-f18c-4460-a970-0332e7e48cfd","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Applied supplier payment to bills","timestamp":"2026-10-03T08:26:39.849Z","component":"accounting","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"paymentId":"5debf9bc-4b16-435f-87fe-8364aac5a900","lines":1,"applied":115,"unappliedAfter":0,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50"}}
+{"level":"info","message":"Supplier bank payment auto-applied","timestamp":"2026-10-03T08:26:39.849Z","component":"accounting","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"bankTxId":"4b51e6b1-f411-4255-b5b6-7302a1a337a3","supplierId":"deca8227-c3fb-4314-83bb-ec8a52325de0","paymentId":"5debf9bc-4b16-435f-87fe-8364aac5a900","strategy":"oldest","lines":1,"applied":115,"unappliedRemainder":0}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:26:39.849Z","component":"accounting","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"bankTxId":"4b51e6b1-f411-4255-b5b6-7302a1a337a3","journalEntryId":"faaa1c5c-f18c-4460-a970-0332e7e48cfd","allocType":"supplier","entityId":"deca8227-c3fb-4314-83bb-ec8a52325de0","contraAccountId":null}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (13ms)","timestamp":"2026-10-03T08:26:39.849Z","component":"API","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.849Z","component":"http","requestId":"01M40DYPAW7CJV2MD0TWJJ12DF","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":13,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.859Z","component":"API","requestId":"01M40DYPBKW2MD7C6FJV3G1P8C","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"reverse","bankTransactionId":"4b51e6b1-f411-4255-b5b6-7302a1a337a3"}}}
+{"level":"error","message":"Bank transaction action failed","timestamp":"2026-10-03T08:26:39.861Z","component":"accounting-api","requestId":"01M40DYPBKW2MD7C6FJV3G1P8C","data":{"error":{"code":"RECONCILED_CASH","name":"ReconciledCashError","message":"This bank line is in an open bank reconciliation session — remove it from that session (Unmatch on the reconciliation screen) or cancel the session first.","stack":"ReconciledCashError: This bank line is in an open bank reconciliation session — remove it from that session (Unmatch on the reconciliation screen) or cancel the session first.\n    at refuseLockedCash (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/reconciledCash.ts:105:11)\n    at reverseReconciledInner (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/bank/bankAllocationService.ts:809:3)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at withRowLockBudget (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/modules/accounting/services/core/rowLockBudget.ts:101:12)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r184/pages/api/accounting/bank-transactions-action.ts:207:9)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:120:9\n    at runScoped (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:93:7)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/api-error-handler.ts:186:7\n    at /home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/auth/withAuth.ts:193:73\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r184/src/lib/afterCommit.ts:51:12)"}}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 400 (2ms)","timestamp":"2026-10-03T08:26:39.861Z","component":"API","requestId":"01M40DYPBKW2MD7C6FJV3G1P8C","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":400,"duration":"2ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.861Z","component":"http","requestId":"01M40DYPBKW2MD7C6FJV3G1P8C","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":400,"durationMs":2,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"client_error"}}
+{"level":"info","message":"API Request: POST /api/accounting/r068-fence-fixture","timestamp":"2026-10-03T08:26:39.866Z","component":"API","requestId":"01M40DYPBT1ATMDASASV18KJ2Q","data":{"type":"request","method":"POST","url":"/api/accounting/r068-fence-fixture","query":{},"body":{"action":"cancel","reconciliationId":"13d9d5e3-0948-4e58-8e49-33e0a87a4ced"}}}
+{"level":"info","message":"Cancelled bank reconciliation","timestamp":"2026-10-03T08:26:39.869Z","component":"accounting","requestId":"01M40DYPBT1ATMDASASV18KJ2Q","data":{"id":"13d9d5e3-0948-4e58-8e49-33e0a87a4ced","userId":"538439d6-c94e-40f5-a39e-a6e979385e50","revertedMatches":1,"releasedTransactions":1}}
+{"level":"info","message":"API Response: POST /api/accounting/r068-fence-fixture - 200 (3ms)","timestamp":"2026-10-03T08:26:39.869Z","component":"API","requestId":"01M40DYPBT1ATMDASASV18KJ2Q","data":{"type":"response","method":"POST","url":"/api/accounting/r068-fence-fixture","statusCode":200,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:26:39.869Z","component":"http","requestId":"01M40DYPBT1ATMDASASV18KJ2Q","data":{"event":"request_completed","route":"/api/accounting/r068-fence-fixture","method":"POST","status":200,"durationMs":3,"userId":"538439d6-c94e-40f5-a39e-a6e979385e50","companyId":"48691ee7-91de-4322-98f2-1597e257e878","outcome":"ok"}}
+ ❯ tests/integration/k064-bank-reverse-reconciled.int.test.ts (5 tests | 1 failed) 378ms
+     × bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written 72ms
+{"level":"info","message":"Brightsphere out-of-balance (pack vs balance sheet)","timestamp":"2026-10-03T08:26:40.141Z","component":"accounting","data":{"pack":0,"balanceSheet":0}}
+ ❯ tests/integration/financialFiguresScoping.int.test.ts (3 tests | 2 failed) 32ms
+     × JE-2026-00002 really does carry a foreign-account leg (fixture assumption) 14ms
+     × pins the known Brightsphere data defect (JE-2026-00002 -> Dotbiz account 1140, R450 out) until repaired 4ms
+ ❯ tests/integration/update-supplier-invoice.int.test.ts (16 tests | 16 skipped) 4ms
+ ❯ tests/integration/d8-r11-lock-budget-restore.int.test.ts (3 tests | 3 skipped) 3ms
+ ❯ tests/integration/vat-entry-membership-agreement.int.test.ts (2 tests | 2 skipped) 3ms
+ ❯ tests/integration/account-merge-document-rows.int.test.ts (6 tests | 6 failed) 5ms
+     × (a) moves bill, expense-claim, PO and capture rows onto the target and records their ids 3ms
+     × (b) writes nothing in another company — its own rows, and even rows forged onto our source id 0ms
+     × (c) a non-document configuration row still refuses the merge, and nothing moves 0ms
+     × (d) the dry run reports the same per-table counts the live merge moves 0ms
+     × (e) refuses when a bill still to be posted would land on an account bill lines may not use 0ms
+     × (f) a draft bill still moves onto a target bill lines may use 0ms
+ ❯ tests/integration/r-vatgaps-6-gate-override-atomic.int.test.ts (3 tests | 3 skipped) 3ms
+ ❯ tests/integration/customer-ownership-fence.int.test.ts (6 tests | 6 skipped) 3ms
+ ❯ tests/integration/vat-period-lock-index-570-rerun.int.test.ts (6 tests | 6 skipped) 3ms
+ ❯ tests/integration/account-merge-swap-race.int.test.ts (1 test | 1 failed) 19ms
+     × rejects a merge where a posted bill is recoded off source and a draft bill lands on it in the same window 18ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/customer-ownership-fence.int.test.ts > R-067 — an invoice cannot be booked against another company customer
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test inserts and deletes invoice fixtures. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/customer-ownership-fence.int.test.ts:63:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/19]⎯
+
+ FAIL  tests/integration/d8-r11-lock-budget-restore.int.test.ts > D8 round 11: the lock budget always restores the caller's lock_timeout
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. D8 round 11 budget restore Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/d8-r11-lock-budget-restore.int.test.ts:38:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/19]⎯
+
+ FAIL  tests/integration/r-vatgaps-6-gate-override-atomic.int.test.ts > VAT gate override + lock write are atomic (item 6)
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. r-vatgaps-6 Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/r-vatgaps-6-gate-override-atomic.int.test.ts:51:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/19]⎯
+
+ FAIL  tests/integration/update-supplier-invoice.int.test.ts > update_supplier_invoice — drafts over a real ledger
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates, edits and approves supplier bills. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/update-supplier-invoice.int.test.ts:89:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/19]⎯
+
+ FAIL  tests/integration/update-supplier-invoice.int.test.ts > update_supplier_invoice — drafts over a real ledger
+TypeError: Cannot read properties of undefined (reading 'companyId')
+ ❯ tests/integration/update-supplier-invoice.int.test.ts:99:65
+     97|   afterAll(async () => {
+     98|     for (const f of [fx, other]) {
+     99|       await sql`DELETE FROM credit_notes WHERE company_id = ${f.compan…
+       |                                                                 ^
+    100|       await sql`DELETE FROM approval_requests WHERE company_id = ${f.c…
+    101|       await sql`DELETE FROM supplier_coding_history WHERE company_id =…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/19]⎯
+
+ FAIL  tests/integration/vat-entry-membership-agreement.int.test.ts > VAT201 membership: the substituted-attribute fragment the lock check uses agrees with the snapshot
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test writes journal lines and changes account attributes in rolled-back savepoints. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/vat-entry-membership-agreement.int.test.ts:71:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/19]⎯
+
+ FAIL  tests/integration/vat-entry-membership-agreement.int.test.ts > VAT201 membership: the substituted-attribute fragment the lock check uses agrees with the snapshot
+TypeError: Cannot read properties of undefined (reading 'companyId')
+ ❯ dropFixture tests/integration/helpers/l1FifoFixture.ts:192:16
+    190| /** Every company row this fixture created, in FK-safe order. */
+    191| export async function dropFixture(fx: Fixture): Promise<void> {
+    192|   const c = fx.companyId;
+       |                ^
+    193|   await sql`DELETE FROM payment_allocations WHERE payment_id IN (
+    194|     SELECT id FROM supplier_payments WHERE company_id = ${c}::UUID)`;
+ ❯ tests/integration/vat-entry-membership-agreement.int.test.ts:92:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/19]⎯
+
+ FAIL  tests/integration/vat-period-lock-index-570-rerun.int.test.ts > vat_period_locks unique index survives any re-run order of 570 / 695 / 696
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test replays migrations inside a rolled-back transaction. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ tests/integration/vat-period-lock-index-570-rerun.int.test.ts:66:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/19]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (a) moves bill, expense-claim, PO and capture rows onto the target and records their ids
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:121:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/19]⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (b) writes nothing in another company — its own rows, and even rows forged onto our source id
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:143:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/19]⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (c) a non-document configuration row still refuses the merge, and nothing moves
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:168:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/19]⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (d) the dry run reports the same per-table counts the live merge moves
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:193:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/19]⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (e) refuses when a bill still to be posted would land on an account bill lines may not use
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:214:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/19]⎯
+
+ FAIL  tests/integration/account-merge-document-rows.int.test.ts > mergeAccounts repoints document lines > (f) a draft bill still moves onto a target bill lines may use
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-document-rows.int.test.ts:32:3
+ ❯ tests/integration/account-merge-document-rows.int.test.ts:233:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/19]⎯
+
+ FAIL  tests/integration/account-merge-swap-race.int.test.ts > the open-bill-lines guard and the count check both miss a same-table swap > rejects a merge where a posted bill is recoded off source and a draft bill lands on it in the same window
+Error: Refusing to run: DATABASE_URL names the database "isaflow_schema_fixture", which is not one of isaflow_dev / isaflow_test. This test creates GL accounts and journal lines. Point it at isaflow_dev.
+ ❯ assertNotProductionDb tests/helpers/assertNotProductionDb.ts:35:11
+     33|   }
+     34|   if (name === PROD_DB_NAME || !ALLOWED_DB_NAMES.includes(name)) {
+     35|     throw new Error(
+       |           ^
+     36|       `Refusing to run: DATABASE_URL names the database "${name}", whi…
+     37|       + `${ALLOWED_DB_NAMES.join(' / ')}. ${reason} Point it at isaflo…
+ ❯ Module.assertMergeTestDb tests/unit/helpers/accountMergeFixture.ts:71:3
+ ❯ withFixture tests/integration/account-merge-swap-race.int.test.ts:47:3
+ ❯ tests/integration/account-merge-swap-race.int.test.ts:113:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/19]⎯
+
+ FAIL  tests/integration/financialFiguresScoping.int.test.ts > getFinancialFigures vs getBalanceSheet — Brightsphere agree after scoping > JE-2026-00002 really does carry a foreign-account leg (fixture assumption)
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/integration/financialFiguresScoping.int.test.ts:63:18
+     61|         AND ga.company_id != ${BRIGHTSPHERE}::UUID
+     62|     `;
+     63|     expect(rows).toHaveLength(1);
+       |                  ^
+     64|     expect(Number(rows[0]!.debit)).toBeCloseTo(450, 2);
+     65|     expect(rows[0]!.account_company_id).not.toBe(BRIGHTSPHERE);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/19]⎯
+
+ FAIL  tests/integration/financialFiguresScoping.int.test.ts > getFinancialFigures vs getBalanceSheet — Brightsphere agree after scoping > pins the known Brightsphere data defect (JE-2026-00002 -> Dotbiz account 1140, R450 out) until repaired
+AssertionError: expected +0 to be close to 450, received difference is 450, but expected 0.005
+ ❯ tests/integration/financialFiguresScoping.int.test.ts:137:28
+    135|   it('pins the known Brightsphere data defect (JE-2026-00002 -> Dotbiz…
+    136|     const { pack, balanceSheet } = await imbalances();
+    137|     expect(Math.abs(pack)).toBeCloseTo(450, 2);
+       |                            ^
+    138|     expect(Math.abs(balanceSheet)).toBeCloseTo(450, 2);
+    139|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/19]⎯
+
+ FAIL  tests/integration/k064-bank-reverse-reconciled.int.test.ts > K-064 r9 — bank reverse refuses cash a completed or Sage reconciliation holds > bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written
+AssertionError: expected '{"success":false,"error":{"code":"BAD…' to contain 'Correct it with a journal, or contact…'
+
+Expected: "Correct it with a journal, or contact support"
+Received: "{"success":false,"error":{"code":"BAD_REQUEST","message":"This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again."},"meta":{"timestamp":"2026-10-03T08:26:39.722Z"}}"
+
+ ❯ tests/integration/k064-bank-reverse-reconciled.int.test.ts:86:25
+     84|     expect(text(state)).toContain(`This bank line is on the completed …
+     85|     expect(text(state)).toContain("A completed reconciliation must be …
+     86|     expect(text(state)).toContain('Correct it with a journal, or conta…
+       |                         ^
+     87|     await expectNothingWritten(a, 'reconciled');
+     88|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/19]⎯
+
+ FAIL  tests/integration/k064-reconciled-cash-callers.int.test.ts > reconciled cash is locked on every caller of bank reverse > MCP void_payment through the registry → the agent reads the refusal, not a generic failure
+AssertionError: expected 'This bank line is on the completed re…' to contain 'Correct it with a journal, or contact…'
+
+Expected: "Correct it with a journal, or contact support"
+Received: "This bank line is on the completed reconciliation of R068 Bank to 2026-10-03. A completed reconciliation must be reopened before this can be reversed — reopen it (newest first) from the reconciliation, then reverse, then complete it again."
+
+ ❯ tests/integration/k064-reconciled-cash-callers.int.test.ts:122:37
+    120|     expect(result.isError).toBe(true);
+    121|     expect(result.content[0]!.text).toContain('is on the completed rec…
+    122|     expect(result.content[0]!.text).toContain('Correct it with a journ…
+       |                                     ^
+    123|     await untouched(a, 'reconciled');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/19]⎯
+
+
+ Test Files  11 failed (11)
+      Tests  11 failed | 12 passed | 36 skipped (59)
+   Start at  10:26:37
+   Duration  4.32s (transform 844ms, setup 0ms, import 2.15s, tests 1.32s, environment 1ms)
+

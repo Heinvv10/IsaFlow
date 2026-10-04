@@ -98,15 +98,26 @@ describe('poolSizeFromEnv (R-182)', () => {
     expect(warn.mock.calls[0]![2]).toBe('rateLimit');
   });
 
-  it.each(['20.0', '+20', '2e1'])('AUTH_POOL_MAX %j means the default: it does not halve the pool', (raw) => {
+  it.each(['10.0', '+10', '1e1'])('AUTH_POOL_MAX %j means the default: it does not halve the pool', (raw) => {
     vi.stubEnv('AUTH_POOL_MAX', raw);
-    expect(authPoolMax()).toBe(20);
+    expect(authPoolMax()).toBe(10);
   });
 
-  it('authPoolMax is validated and keeps its default of 20', () => {
-    expect(DEFAULT_AUTH_POOL_MAX).toBe(20);
+  it.each(['15.0', '20.0', '+20', '2e1', '50.0'])('AUTH_POOL_MAX %j (a refused spelling above the default) gives the default 10, not its own size (R-188)', (raw) => {
+    vi.stubEnv('AUTH_POOL_MAX', raw);
+    expect(authPoolMax()).toBe(10);
+  });
+
+  it.each(['11', '20', '100'])('AUTH_POOL_MAX %j (plain digits above the default) is honoured as given (R-188)', (raw) => {
+    vi.stubEnv('AUTH_POOL_MAX', raw);
+    expect(authPoolMax()).toBe(Number(raw));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('authPoolMax is validated and has a default of 10 (R-188, was 20)', () => {
+    expect(DEFAULT_AUTH_POOL_MAX).toBe(10);
     vi.stubEnv('AUTH_POOL_MAX', undefined as unknown as string);
-    expect(authPoolMax()).toBe(20);
+    expect(authPoolMax()).toBe(10);
     vi.stubEnv('AUTH_POOL_MAX', '8');
     expect(authPoolMax()).toBe(8);
     vi.stubEnv('AUTH_POOL_MAX', 'twenty');

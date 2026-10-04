@@ -1,0 +1,230 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 (final tests, constant at 20); fixture none; load 60.35
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts (64 tests | 6 failed) 58ms
+     × AUTH_POOL_MAX "15.0" (a refused spelling above the default) gives the default 10, not its own size (R-188) 9ms
+     × AUTH_POOL_MAX "20.0" (a refused spelling above the default) gives the default 10, not its own size (R-188) 4ms
+     × AUTH_POOL_MAX "+20" (a refused spelling above the default) gives the default 10, not its own size (R-188) 9ms
+     × AUTH_POOL_MAX "2e1" (a refused spelling above the default) gives the default 10, not its own size (R-188) 1ms
+     × AUTH_POOL_MAX "50.0" (a refused spelling above the default) gives the default 10, not its own size (R-188) 1ms
+     × authPoolMax is validated and has a default of 10 (R-188, was 20) 0ms
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (14 tests | 1 failed) 113ms
+     × at the default pool of 10 the ceiling is 2, below the default of 3 renders (R-188) 11ms
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts (147 tests | 28 failed) 1251ms
+     × uses the default when unset 8ms
+     × is bounded for "500", never bigger than before 1ms
+     × is bounded for "0x10", never bigger than before 1ms
+     × is bounded for "20.0", never bigger than before 1ms
+     × is bounded for "+20", never bigger than before 1ms
+     × is bounded for "2e1", never bigger than before 1ms
+     × is bounded for "15.0", never bigger than before 1ms
+     × uses the default when unset 1ms
+     × is bounded for "500", never bigger than before 1ms
+     × is bounded for "0x10", never bigger than before 1ms
+     × is bounded for "20.0", never bigger than before 8ms
+     × is bounded for "+20", never bigger than before 1ms
+     × is bounded for "2e1", never bigger than before 1ms
+     × is bounded for "15.0", never bigger than before 1ms
+     × uses the default when unset 17ms
+     × is bounded for "500", never bigger than before 4ms
+     × is bounded for "0x10", never bigger than before 8ms
+     × is bounded for "20.0", never bigger than before 11ms
+     × is bounded for "+20", never bigger than before 11ms
+     × is bounded for "2e1", never bigger than before 10ms
+     × is bounded for "15.0", never bigger than before 9ms
+     × uses the default when unset 6ms
+     × is bounded for "500", never bigger than before 9ms
+     × is bounded for "0x10", never bigger than before 7ms
+     × is bounded for "20.0", never bigger than before 5ms
+     × is bounded for "+20", never bigger than before 12ms
+     × is bounded for "2e1", never bigger than before 11ms
+     × is bounded for "15.0", never bigger than before 8ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 35 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "15.0" (a refused spelling above the default) gives the default 10, not its own size (R-188)
+AssertionError: expected 15 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 15
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:108:27
+    106|   it.each(['15.0', '20.0', '+20', '2e1', '50.0'])('AUTH_POOL_MAX %j (a…
+    107|     vi.stubEnv('AUTH_POOL_MAX', raw);
+    108|     expect(authPoolMax()).toBe(10);
+       |                           ^
+    109|   });
+    110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "20.0" (a refused spelling above the default) gives the default 10, not its own size (R-188)
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "+20" (a refused spelling above the default) gives the default 10, not its own size (R-188)
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "2e1" (a refused spelling above the default) gives the default 10, not its own size (R-188)
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > AUTH_POOL_MAX "50.0" (a refused spelling above the default) gives the default 10, not its own size (R-188)
+AssertionError: expected 20 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 20
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:108:27
+    106|   it.each(['15.0', '20.0', '+20', '2e1', '50.0'])('AUTH_POOL_MAX %j (a…
+    107|     vi.stubEnv('AUTH_POOL_MAX', raw);
+    108|     expect(authPoolMax()).toBe(10);
+       |                           ^
+    109|   });
+    110|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/35]⎯
+
+ FAIL  tests/unit/lib/poolSizeFromEnv.test.ts > poolSizeFromEnv (R-182) > authPoolMax is validated and has a default of 10 (R-188, was 20)
+AssertionError: expected 20 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 20
+
+ ❯ tests/unit/lib/poolSizeFromEnv.test.ts:118:35
+    116|
+    117|   it('authPoolMax is validated and has a default of 10 (R-188, was 20)…
+    118|     expect(DEFAULT_AUTH_POOL_MAX).toBe(10);
+       |                                   ^
+    119|     vi.stubEnv('AUTH_POOL_MAX', undefined as unknown as string);
+    120|     expect(authPoolMax()).toBe(10);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > uses the default when unset
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > uses the default when unset
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > uses the default when unset
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > uses the default when unset
+AssertionError: expected 20 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 20
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:109:30
+    107|   it('uses the default when unset', async () => {
+    108|     vi.stubEnv(site.env, undefined as unknown as string);
+    109|     expect(await site.max()).toBe(site.fallback);
+       |                              ^
+    110|     expect(warn).not.toHaveBeenCalled();
+    111|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "2e1", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "500", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "20.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "+20", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "2e1", never bigger than before
+AssertionError: expected 20 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 20
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:121:30
+    119|   it.each(BAD)('is bounded for %j, never bigger than before', async (r…
+    120|     vi.stubEnv(site.env, raw);
+    121|     expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
+       |                              ^
+    122|   });
+    123| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "0x10", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "0x10", never bigger than before
+AssertionError: expected 16 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 16
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:121:30
+    119|   it.each(BAD)('is bounded for %j, never bigger than before', async (r…
+    120|     vi.stubEnv(site.env, raw);
+    121|     expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
+       |                              ^
+    122|   });
+    123| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/35]⎯
+
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > authPool getAuthPool pool size (R-182) > is bounded for "15.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withPlatformAdmin getAppPool pool size (R-182) > is bounded for "15.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > withExtensionToken pool size (R-182) > is bounded for "15.0", never bigger than before
+ FAIL  tests/unit/lib/poolSizesBuilt.test.ts > bearerPipeline pool size (R-182) > is bounded for "15.0", never bigger than before
+AssertionError: expected 15 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 15
+
+ ❯ tests/unit/lib/poolSizesBuilt.test.ts:121:30
+    119|   it.each(BAD)('is bounded for %j, never bigger than before', async (r…
+    120|     vi.stubEnv(site.env, raw);
+    121|     expect(await site.max()).toBe(Math.min(site.fallback, ceiling));
+       |                              ^
+    122|   });
+    123| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/35]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > at the default pool of 10 the ceiling is 2, below the default of 3 renders (R-188)
+AssertionError: expected 20 to be 10 // Object.is equality
+
+- Expected
++ Received
+
+- 10
++ 20
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:181:35
+    179|   it('at the default pool of 10 the ceiling is 2, below the default of…
+    180|     delete process.env.AUTH_POOL_MAX;
+    181|     expect(DEFAULT_AUTH_POOL_MAX).toBe(10);
+       |                                   ^
+    182|     expect(renderSlotCeilings().maxConcurrent).toBe(2);
+    183|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/35]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  35 failed | 194 passed (229)
+   Start at  10:16:57
+   Duration  1.77s (transform 1.08s, setup 0ms, import 772ms, tests 1.62s, environment 0ms)
+

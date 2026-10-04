@@ -64,7 +64,7 @@ function count(text: string): { pools: number; unlistened: number } {
 describe('R-176: every long-lived pool listens for errors', () => {
   it('the tracked tree was read', () => {
     expect(sources.length).toBeGreaterThan(500);
-    expect(sources).toEqual(expect.arrayContaining(['src/lib/neon.ts', 'scripts/_pg.ts', 'src/lib/auth/withInviteToken.ts']));
+    expect(sources).toEqual(expect.arrayContaining(['src/lib/neon/pool.ts', 'scripts/_pg.ts', 'src/lib/auth/withInviteToken.ts']));
   });
 
   it.each([

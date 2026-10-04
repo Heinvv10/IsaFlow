@@ -176,7 +176,7 @@ export async function buildPackFigureSet(
   // Sequential, not Promise.all. Under `withAuth` a request-scoped transaction
   // is in flight and `sql` routes every query through the ONE pg client held in
   // the async-local store (see the `als.getStore()?.client` branch in
-  // lib/neon.ts). Concurrent queries on a single pg connection are a known
+  // lib/neon/query.ts). Concurrent queries on a single pg connection are a known
   // hazard in this repo, so these must not be raced. The call order the tests
   // assert is a consequence of this, not the reason for it.
   const current = await getReportPackInput(companyId, companyName, from, to);

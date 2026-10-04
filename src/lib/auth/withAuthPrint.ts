@@ -20,11 +20,11 @@
 // inside withAuth's transaction like any other — BEGIN before the handler,
 // COMMIT after it. For the pack PDF route the handler is a page render, so
 // that transaction stays open for up to the 30s print-ready gate plus
-// transport overhead. It is bounded at three concurrent renders by
-// src/lib/pdf/withRenderSlot.ts, which takes its slot OUTSIDE withAuth so
-// only ADMITTED renders hold a connection; at three, the pool (AUTH_POOL_MAX,
-// default 20) carries it. Committing earlier is not the fix — the render's own
-// inbound fetch for the report reads the GUCs this transaction sets.
+// transport overhead. It is bounded by src/lib/pdf/withRenderSlot.ts (3 slots
+// asked for, clamped to a quarter of the pool, so 2 at the default AUTH_POOL_MAX
+// of 10), which takes its slot OUTSIDE withAuth so only ADMITTED renders hold a
+// connection; the pool carries them. Committing earlier is not the fix — the
+// render's own inbound fetch for the report reads the GUCs this transaction sets.
 
 import { verifyPrintToken, verifyPrintTokenSignature, type PrintTokenPayload } from '@/lib/pdf/printAuth';
 

@@ -5,7 +5,7 @@
  * `isDisposableFixtureTarget` (tests/unit/mcp/w2/generalLedgerStream.helpers).
  *
  * It reads the URL with `pg-connection-string`'s `parse` — the parser `pg`
- * itself applies to `connectionString` (src/lib/neon.ts) — because that is
+ * itself applies to `connectionString` (src/lib/neon/pool.ts) — because that is
  * where the connection actually goes. `new URL()` does not see what pg sees:
  * pg lets query parameters override the authority, so
  * `postgresql://localhost/isaflow_test?host=100.96.203.105&port=7772`

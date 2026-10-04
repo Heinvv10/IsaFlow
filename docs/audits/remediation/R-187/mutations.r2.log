@@ -1,0 +1,20 @@
+--- batch MUTANTS[0:99] ---
+HEAD: 4d3362b9649fc71a123dc0b6815b395e5292110c; fixture 127.0.0.1:55933; load 67.68
+Suites per mutant: tests/unit/services/ar/gatewayReceiptWiring.test.ts (unit) + tests/integration/r187-cancelled-receipt-replay.int.test.ts tests/integration/r187-non-gateway-cancelled.int.test.ts (int, real fixture)
+BASELINE before: unit [19 passed (19)] int [9 passed (9)]
+M1 restore `status IS DISTINCT FROM 'cancelled'` (no cancelled row ever matches) -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 6 passed (9)])
+M2 drop the flag write on the cancelled path -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 6 passed (9)])
+M3 post the fee on the cancelled path -> RED (unit [1 failed | 18 passed (19)]; int [2 failed | 7 passed (9)])
+M4 drop the live-first ORDER BY -> RED (unit [19 passed (19)]; int [1 failed | 8 passed (9)])
+M5 invert the ORDER BY (cancelled first) -> RED (unit [19 passed (19)]; int [1 failed | 8 passed (9)])
+M6 the cancelled branch never taken (falls to the live dedupe path) -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 6 passed (9)])
+M7 the flag carries a different reason -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 6 passed (9)])
+M8 any cancelled receipt blocks (round 0: the gateway-agent test dropped) -> RED (unit [1 failed | 18 passed (19)]; int [3 failed | 6 passed (9)])
+M9 any journal counts as the gateway's (any agent) -> RED (unit [19 passed (19)]; int [3 failed | 6 passed (9)])
+M10 the fee figures dropped from the cancelled-path log detail -> RED (unit [1 failed | 18 passed (19)]; int [9 passed (9)])
+M11 INNER JOIN instead of LEFT JOIN (a live receipt with no journal stops matching) -> RED (unit [19 passed (19)]; int [2 failed | 7 passed (9)])
+M12 the journal join loses its company_id -> SURVIVED (unit [19 passed (19)]; int [9 passed (9)])
+M13 drop only the status key from the ORDER BY (keep cp.id) -> RED (unit [19 passed (19)]; int [1 failed | 8 passed (9)])
+BASELINE after: unit [19 passed (19)] int [9 passed (9)]
+source restored: yes
+M12 equivalent: see mutations.r1.log (the journal id is a random UUID primary key; the FK names exactly one journal; tenant guard only).

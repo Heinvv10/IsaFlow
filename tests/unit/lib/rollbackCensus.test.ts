@@ -18,12 +18,16 @@
  * START TRANSACTION), a first argument whose text cannot be read (a variable, a call, a template
  * that starts with a substitution, a config without `text`) fails closed too: it must be pinned.
  *
- * Limits: text that reaches `.query(` through another module (the `sql` tag in neon.ts, the tag in
- * scripts/_pg.ts) is not seen here; those modules are pinned as passing their callers' text on.
+ * Limits: text that reaches `.query(` through another module (the `sql` tag in src/lib/neon/, the
+ * tag in scripts/_pg.ts) is not seen here; those modules are pinned as passing their callers' text on.
  * Also not seen: a literal with a leading comment or another statement before the ROLLBACK
  * ('-- why\nROLLBACK', 'SELECT 1; ROLLBACK'); a call through element access
  * (client['query']('ROLLBACK')); and unreadable text in a file whose own BEGIN is itself
- * unreadable or absent, which is therefore not seen as owning a transaction. None exists today.
+ * unreadable or absent, which is therefore not seen as owning a transaction. Two such files exist,
+ * both from the R-184 split of src/lib/neon.ts (which owned a transaction and was counted whole):
+ * src/lib/neon/sql.ts (`sql.transaction` builds its BEGIN from clauses) and src/lib/neon/query.ts
+ * (`LazyQuery.run` sends its caller's text on whichever client the transaction is on). Both are
+ * named in COUNTED_ANYWAY so their queries are still counted.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -45,8 +49,12 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
   'scripts/apply-migrations.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/migrations/resolve-checksum-conflicts.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/_pg.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
-  'src/lib/neon.ts': { rollbacks: 0, unreadable: 8, reason: PASSES_TEXT_ON },
+  'src/lib/neon/query.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
+  'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
+  'src/lib/neon/transaction.ts': { rollbacks: 0, unreadable: 2, reason: PASSES_TEXT_ON },
 };
+/** Files counted as transaction owners although no readable BEGIN is in them (R-184). */
+const COUNTED_ANYWAY = new Set(['src/lib/neon/query.ts', 'src/lib/neon/sql.ts']);
 
 const sources = execFileSync('git', ['ls-files', 'src', 'pages', 'scripts', 'middleware.ts', 'instrumentation.ts'],
   { encoding: 'utf8' }).trim().split('\n').filter((f) => /\.(tsx?|mjs|cjs|js)$/.test(f));
@@ -75,7 +83,7 @@ function classify(a: ts.Expression | undefined): Kind {
   return 'unreadable';
 }
 
-function census(text: string): { rollbacks: number; unreadable: number } {
+function census(text: string, ownsTxAnyway = false): { rollbacks: number; unreadable: number } {
   const kinds: Kind[] = [];
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
@@ -83,7 +91,7 @@ function census(text: string): { rollbacks: number; unreadable: number } {
     ts.forEachChild(node, visit);
   };
   visit(ts.createSourceFile('s.ts', text, ts.ScriptTarget.Latest, true));
-  const ownsTx = kinds.includes('begin');
+  const ownsTx = ownsTxAnyway || kinds.includes('begin');
   return { rollbacks: kinds.filter((k) => k === 'rollback').length, unreadable: ownsTx ? kinds.filter((k) => k === 'unreadable').length : 0 };
 }
 
@@ -121,7 +129,7 @@ describe('R-176: no bare ROLLBACK', () => {
     for (const file of sources) {
       const text = readFileSync(file, 'utf8');
       if (!/rollback|abort|begin|start transaction/i.test(text)) continue;
-      const c = census(text);
+      const c = census(text, COUNTED_ANYWAY.has(file));
       if (c.rollbacks + c.unreadable > 0) found[file] = c;
     }
     expect(found, 'roll back with rollbackFailed(client, source), or pin the file in PINNED with the reason')
