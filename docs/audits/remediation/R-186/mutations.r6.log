@@ -1,0 +1,17 @@
+HEAD: 8f9cc4fbef354988e3c6398f8924661c527b2bce (committed; tree clean: ''); fixture isaflow-fixture-r186; load 31.66; int suite: tests/integration/r186-archive-current-cancel.int.test.ts tests/integration/r186-archive-move-race.int.test.ts tests/integration/r186-archive-paystack-settled.int.test.ts tests/integration/r186-archive-skipped-closure.int.test.ts tests/integration/r186-archive-skips-paystack-invoices.int.test.ts tests/integration/k071-archive-delete-order.int.test.ts; component: tests/unit/components/archiveWizardSkippedInvoices.test.tsx
+BASELINE before (int): 6 passed (6) / 22 passed (22)
+BASELINE before (component): 1 passed (1) / 2 passed (2)
+F1 move: gateway not re-applied [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F2 step 0 moved back after step 3 (copies before refusing) [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F3 audit metadata invoicesSkipped dropped [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F4 failure mark not written [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F5 movedJournal: status dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F6 movedJournal: cutoff dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 2 failed | 20 passed (22) -> RED
+F7 movedJournal: company dropped [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 2 failed | 20 passed (22) -> RED
+F8 already-in-archive gets the generic message [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F9 already-in-archive not refused [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 1 failed | 5 passed (6) / 1 failed | 21 passed (22) -> RED
+F10 UI: old wording (any journal) [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed (1) / 1 failed | 1 passed (2) -> RED
+BASELINE after (int): 6 passed (6) / 22 passed (22)
+BASELINE after (component): 1 passed (1) / 2 passed (2)
+tree after: ''
+Killed 10/10.

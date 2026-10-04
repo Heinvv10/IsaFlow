@@ -6,9 +6,10 @@
 // Why it exists: a pack render holds a withAuth pool connection for its whole
 // duration (up to the 30s print-ready gate plus transport overhead) AND the
 // headless browser it drives re-enters the same API to fetch the report, so
-// each render occupies at least two connections for tens of seconds. Twenty
-// concurrent exports from one viewer therefore exhaust the auth pool
-// (AUTH_POOL_MAX, default 20) and stall every API request for EVERY tenant —
+// each render occupies at least two connections for tens of seconds. Five
+// unbounded concurrent exports therefore exhaust the auth pool at its
+// default (AUTH_POOL_MAX 10; twenty did when it was 20) and stall every API
+// request for EVERY tenant —
 // the per-company export rate limit does not help, because the damage is
 // cross-tenant and a single tenant's allowance is already enough to do it.
 //
@@ -24,8 +25,8 @@
 //
 // TWO BOUNDS, NOT ONE. Excess requests WAIT rather than fail — a second export
 // queued behind a first is normal and should succeed. But the queue itself was
-// unbounded, so an arbitrary number of requests could pile up against three
-// slots; past `QUEUE_BOUND_FACTOR × max` waiters a request is refused
+// unbounded, so an arbitrary number of requests could pile up against the
+// concurrency bound; past `QUEUE_BOUND_FACTOR × max` waiters a request is refused
 // IMMEDIATELY, with no wait and nothing started. Both refusals reach the caller
 // as a retryable 503, which is the honest answer: the work never began, so
 // nothing is half-done.
@@ -70,18 +71,18 @@ const DEFAULT_WAIT_MS = 10_000;
  *  failed the request — the queue would be refusing work that had died. */
 const POOL_TIMEOUT_MARGIN_MS = 2_000;
 
-/** Renders take at least two connections each (this request, plus the browser
- *  re-entering the API), and the pool must stay usable for every other tenant
- *  meanwhile. A quarter of the pool leaves three-quarters for ordinary
- *  traffic. */
+/** A render holds two auth-pool connections (the request's withAuth one, plus
+ *  the print page's re-entry), so a ceiling of a quarter of the pool bounds
+ *  renders to up to half the pool. At the default pool of 10 the ceiling is 2
+ *  renders = 4 connections (40%); at the old pool of 20 it was 5 renders = 10
+ *  (50%), and the old default of 3 renders took 6 of 20 (R-188). What is left
+ *  is for ordinary traffic. */
 const POOL_SHARE_DIVISOR = 4;
 
-/** How many requests may WAIT, as a multiple of the concurrency bound. Two
- *  deep is a queue that drains: at three slots and a 30s render, the last
- *  waiter is served inside a minute, which is under the queue's own wait bound
- *  so it will not be refused after burning the wait. A third layer would be,
- *  so it is refused up front instead of being told to wait for something that
- *  cannot arrive in time. */
+/** How many requests may WAIT, as a multiple of the concurrency bound. 2 is a
+ *  chosen length cap, not a figure derived from timings: it keeps the backlog
+ *  short so a request past it is refused up front instead of queued. Waiters
+ *  within it may still time out and get the retryable 503. */
 const QUEUE_BOUND_FACTOR = 2;
 
 function maxWaitCeilingMs(): number {
@@ -91,6 +92,12 @@ function maxWaitCeilingMs(): number {
 function maxConcurrentCeiling(): number {
   const poolMax = authPoolMax();
   return Math.max(1, Math.floor(poolMax / POOL_SHARE_DIVISOR));
+}
+
+/** The concurrency bound in force: the one place the count is read, so admission and
+ *  `renderQueueBound` cannot disagree about how a spelling is parsed. */
+function maxConcurrent(): number {
+  return boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling(), true);
 }
 
 // Warn once per distinct clamp: this runs on every render, and a misconfigured
@@ -107,11 +114,33 @@ function warnOnce(key: string, message: string, data: Record<string, unknown>): 
  *  that production would never call.
  *
  *  `ceiling` is the derived pool bound, not a taste preference — an env value
- *  above it is clamped and logged, never honoured. */
-function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number): number {
-  const n = Number(raw);
-  const requested = Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+ *  above it is clamped and logged, never honoured. An UNSET or blank variable
+ *  has nothing to report: its default is clamped without a log line. */
+function boundedInt(name: string, raw: string | undefined, fallback: number, ceiling: number, smallerIsSafer: boolean): number {
+  const text = raw?.trim() ?? '';
+  const unset = text === '';
+  const n = Number(text);
+  const plain = /^[0-9]+$/.test(text) && Number.isFinite(n) && n >= 1;
+  let requested = fallback;
+  if (plain) {
+    requested = n;
+  } else if (!unset) {
+    // poolSizeFromEnv's rule for a spelling it refuses: a finite value above 0 gives
+    // min(default, max(1, floor(value))) (so `1.0` and `1.9` give 1, as a plain
+    // floor did before; never above the default);
+    // anything else gives the default. Warned as invalid, never as a clamp, and never with
+    // the text (an env var can hold anything pasted into it).
+    // Only for a COUNT, where smaller is safer. A refused TIME (the queue wait) gives the default:
+    // rounding `0.5` up to a 1 ms wait would refuse every waiter at once.
+    requested = smallerIsSafer && Number.isFinite(n) && n > 0 ? Math.min(fallback, Math.max(1, Math.floor(n))) : fallback;
+    warnOnce(`${name}:invalid`, 'renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); falling back', {
+      setting: name, length: text.length, digitsOnly: /^[0-9]+$/.test(text), using: Math.min(requested, ceiling),
+    });
+  }
   if (requested > ceiling) {
+    // Not an operator's plain choice, so nothing more to say: the built-in default above the
+    // ceiling (R-188: 3 against 2 at the default pool), or an invalid value already logged.
+    if (!plain) return ceiling;
     warnOnce(`${name}:${requested}`, 'renderSemaphore: env value clamped to the auth-pool-derived ceiling', {
       setting: name, requested, ceiling,
     });
@@ -151,8 +180,8 @@ function release(): void {
  * Call this OUTSIDE withAuth. See this file's header and withRenderSlot.ts.
  */
 export async function acquireRenderSlot<T>(fn: () => Promise<T>): Promise<T> {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
-  const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs());
+  const max = maxConcurrent();
+  const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs(), false);
 
   if (active < max) {
     active += 1;
@@ -198,6 +227,6 @@ export function renderSlotStats(): { active: number; queued: number } {
 /** The most requests that may be WAITING for a slot at the current bound.
  *  Derived from the concurrency bound, so it moves with it. */
 export function renderQueueBound(): number {
-  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
+  const max = maxConcurrent();
   return max * QUEUE_BOUND_FACTOR;
 }

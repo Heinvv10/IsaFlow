@@ -7,7 +7,7 @@
  * ── WHY ─────────────────────────────────────────────────────────────────────
  *
  * `sql` routes onto the AsyncLocalStorage request client when one is in flight
- * (`src/lib/neon.ts`, `LazyQuery.run`), and `withAuth` opens a transaction for
+ * (`src/lib/neon/query.ts`, `LazyQuery.run`), and `withAuth` opens a transaction for
  * EVERY request. So `await sql`COMMIT`` does not commit the block a service
  * wrapped — it commits the WHOLE REQUEST. Every earlier write becomes durable
  * and any enclosing savepoint ceases to exist.

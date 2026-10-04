@@ -1,0 +1,15 @@
+mutants on committed 634183b712031fe106dbd068aaab68de7ce9754c; each restored with git checkout -- <file>
+BASELINE before:       Tests  44 passed (44)
+M30 refused finite spelling falls back to the default (round-4 rule):       Tests  3 failed | 41 passed (44)
+M31 refused spelling floored instead of ceil:       Tests  3 failed | 41 passed (44)
+M32 refused spelling not capped at the default:       Tests  44 passed (44)
+M33 invalid value above the ceiling warns as a clamp:       Tests  3 failed | 41 passed (44)
+M34 note AI: no per-call signal:       Tests  1 failed | 43 passed (44)
+M35 note AI: per-call bound 600 s:       Tests  1 failed | 43 passed (44)
+M36 note AI: bound 30 s:       Tests  2 failed | 42 passed (44)
+BASELINE after:       Tests  44 passed (44)
+-- M32 survived at 634183b7 (no refused value above the default): cases '5.5' and '50.0' added at b96b45c4efef434369ba7e0db645f52cc93a25fb; batch re-run --
+BASELINE before:       Tests  46 passed (46)
+M32 refused spelling not capped at the default:       Tests  2 failed | 44 passed (46)
+M30 refused finite spelling falls back to the default:       Tests  3 failed | 43 passed (46)
+BASELINE after:       Tests  46 passed (46)

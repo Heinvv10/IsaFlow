@@ -1,0 +1,23 @@
+HEAD: b17e64e73273085f66c2eab91d678869ed945a17; fixture none; load 39.41
+base 1910c157bc28d1becca7f9d8a3b16d7882a11d17 (19 declarations) -> head b17e64e73273085f66c2eab91d678869ed945a17 (19 declarations)
+IDENTICAL DbRow -> src/lib/neon/query.ts; comments identical
+IDENTICAL getDatabaseUrl -> src/lib/neon/pool.ts; comments identical
+IDENTICAL _pool -> src/lib/neon/pool.ts; comments identical
+IDENTICAL alsBatchSeq -> src/lib/neon/sql.ts; comments identical
+IDENTICAL getPool -> src/lib/neon/pool.ts; comments identical
+IDENTICAL TransactionOptions -> src/lib/neon/sql.ts; comments identical
+IDENTICAL LazyQuery -> src/lib/neon/query.ts (export: false -> true); comments identical
+IDENTICAL buildQuery -> src/lib/neon/query.ts (export: false -> true); comments identical
+IDENTICAL isolationClause -> src/lib/neon/sql.ts; comments identical
+IDENTICAL SqlFunction -> src/lib/neon/sql.ts; comments identical
+IDENTICAL createSql -> src/lib/neon/sql.ts; comments identical
+IDENTICAL sql -> src/lib/neon/sql.ts; comments identical
+IDENTICAL transaction -> src/lib/neon/sql.ts; comments identical
+IDENTICAL getPoolForTests -> src/lib/neon/pool.ts; comments identical
+IDENTICAL getDbPool -> src/lib/neon/pool.ts; comments identical
+IDENTICAL TxSql -> src/lib/neon/transaction.ts; comments identical
+IDENTICAL withTxSeq -> src/lib/neon/transaction.ts; comments identical
+IDENTICAL withTransaction -> src/lib/neon/transaction.ts; comments identical
+IDENTICAL withSavepoint -> src/lib/neon/transaction.ts; comments CHANGED
+RESULT: every declaration moved byte-identical; none added
+exit=0

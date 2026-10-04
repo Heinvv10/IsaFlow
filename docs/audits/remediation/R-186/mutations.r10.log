@@ -1,0 +1,8 @@
+HEAD: 4d4b17881bb310b85f6c2aa0dff044beab3b1af8 (committed; tree clean: ''); fixture isaflow-fixture-r186; load 19.20; suite: tests/integration/r186-archive-current-cancel.int.test.ts tests/integration/r186-archive-move-race.int.test.ts tests/integration/r186-archive-paystack-settled.int.test.ts tests/integration/r186-archive-skipped-closure.int.test.ts tests/integration/r186-archive-skips-paystack-invoices.int.test.ts
+BASELINE before: 5 passed (5) / 24 passed (24)
+J1 onTimeout returns a plain Error [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 23 passed (24) -> RED
+J2 isTimeout never matches (raw 55P03 escapes) [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 23 passed (24) -> RED
+J3 lock wait unbounded (no withRowLockBudget) [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts]: 1 failed | 4 passed (5) / 1 failed | 23 passed (24) -> RED
+BASELINE after: 5 passed (5) / 24 passed (24)
+tree after: ''
+Killed 3/3.

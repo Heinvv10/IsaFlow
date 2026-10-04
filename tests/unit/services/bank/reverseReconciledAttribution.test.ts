@@ -59,6 +59,8 @@ vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
 // D8: the reversal target is the chain head (real-ledger proof: d8-r3-credit-note-bank-chain-head);
 // here the matched journal itself stands, so the head is the journal.
 vi.mock('@/modules/accounting/services/shared/journalChainHead', () => ({
+  // D10: the line's journal is read through its chain root; here the journal is its own root.
+  findJournalChainRoot: vi.fn(async (_companyId: string, id: string) => id),
   findJournalChainHead: vi.fn(async (_companyId: string, id: string) => ({ kind: 'head', id, standing: true })),
   lockChainHead: vi.fn(async (_companyId: string, id: string) => ({ id, standing: true })),
 }));
@@ -86,12 +88,14 @@ const USER_ID = '55555555-5555-5555-5555-555555555555';
  */
 function primeReversal(): void {
   vi.mocked(sql)
+    // D10: the unlocked peek (line -> journal), then no document on the chain root: a plain journal.
+    .mockResolvedValueOnce([{ line_id: LINE_ID, je: JE_ID }] as never)
+    .mockResolvedValueOnce([] as never)
     .mockResolvedValueOnce([
       { id: TX_ID, status: 'allocated', matched_journal_line_id: LINE_ID },
     ] as never)
-    .mockResolvedValueOnce([{ journal_entry_id: JE_ID }] as never)
     .mockResolvedValueOnce([{ entry_date: '2026-08-04' }] as never)
-    .mockResolvedValueOnce([] as never);
+    .mockResolvedValueOnce([{ entry_date: '2026-08-04' }] as never);
 }
 
 beforeEach(() => vi.clearAllMocks());

@@ -1,0 +1,14 @@
+HEAD: 136bf984887a96fe95aaf94a6785d2ad311f105b (committed); fixture none; load 26.31
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+GET http://localhost:3000/api/auth/me 401 (Unauthorized)
+
+ Test Files  403 passed (403)
+      Tests  3951 passed (3951)
+   Start at  12:43:52
+   Duration  26.88s (transform 125.42s, setup 56.95s, import 277.95s, tests 173.85s, environment 140.22s)
+

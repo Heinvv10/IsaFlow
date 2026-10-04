@@ -24,7 +24,7 @@
 //
 // RESIDUAL, accepted: a render that HAS been admitted still runs inside
 // withAuth's open transaction, for up to the 30s print-ready gate plus
-// transport overhead. Bounded at three concurrent, that is three idle-in-
+// transport overhead. Bounded by the concurrency bound (2 at the defaults), that is that many idle-in-
 // transaction connections at worst, which the pool carries. See
 // src/lib/pdf/.claude.md.
 

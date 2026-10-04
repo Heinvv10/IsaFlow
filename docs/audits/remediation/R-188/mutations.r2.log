@@ -1,0 +1,5 @@
+BASELINE before:       Tests  278 passed (278)
+M7 default clamp warns again (silent branch removed):       Tests  5 failed | 273 passed (278)
+M8 blank value not treated as unset:       Tests  1 failed | 277 passed (278)
+M9 every over-ceiling value clamps silently (explicit warn lost):       Tests  3 failed | 275 passed (278)
+BASELINE after:       Tests  278 passed (278)

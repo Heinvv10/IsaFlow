@@ -1,0 +1,19 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 + working tree (fix uncommitted); fixture isaflow-fixture-r186; load 33.54
+BASELINE before (int): 3 passed (3)
+BASELINE before (component): 2 passed (2)
+M1 Paystack reference ignored (every id archived) [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 1 passed (3) -> RED
+M2 company_id dropped from the Paystack EXISTS [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 1 passed (3) -> RED
+M3 copy selects by the old date/status predicate, not the id set [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 2 passed (3) -> RED
+M4 delete by the old date/status predicate, not the id set [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 2 passed (3) -> RED
+M5 helper reports skipped = 0 [src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts] (int): 2 failed | 1 passed (3) -> RED
+M6 run returns invoicesSkipped 0 [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 1 failed | 2 passed (3) -> RED
+M7 preview counts skipped invoices as archivable [src/modules/accounting/services/core/archiveQueryService.ts] (int): 1 failed | 2 passed (3) -> RED
+M8 preview reports skipped 0 [src/modules/accounting/services/core/archiveQueryService.ts] (int): 1 failed | 2 passed (3) -> RED
+M9 copy drops company_id (id set only) [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 3 passed (3) -> SURVIVED
+M10 delete drops company_id (id set only) [src/modules/accounting/services/core/archiveExecutionService.ts] (int): 3 passed (3) -> SURVIVED
+M11 UI note shown when none skipped [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+M12 UI note removed [src/components/accounting/ArchiveWizardSection.tsx] (cmp): 1 failed | 1 passed (2) -> RED
+BASELINE after (int): 3 passed (3)
+BASELINE after (component): 2 passed (2)
+Equivalent: M9, M10. The id set comes from selectArchivableCustomerInvoices, whose select is scoped by ci.company_id, so company_id on the copy and the delete cannot change which rows move. Kept as tenant scoping (repo rule: company_id on every query).
+Killed 10/12; 2 equivalent (M9, M10).

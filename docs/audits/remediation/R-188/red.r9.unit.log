@@ -1,0 +1,53 @@
+HEAD: d23c95e64d878972553c8860f74cd67eecfe7bd2 (new assertion, old message); fixture none; load 25.87
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (41 tests | 12 failed) 223ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "abc" gives 3 and is logged once as invalid, never as a clamp (R-188) 7ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0" gives 3 and is logged once as invalid, never as a clamp (R-188) 4ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "-1" gives 3 and is logged once as invalid, never as a clamp (R-188) 4ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "5.5" gives 3 and is logged once as invalid, never as a clamp (R-188) 4ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "50.0" gives 3 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" gives 1 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.0" gives 1 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 2 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" gives 3 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" gives 3 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" gives 3 and is logged once as invalid, never as a clamp (R-188) 3ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" gives 3 and is logged once as invalid, never as a clamp (R-188) 3ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 12 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "abc" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "-1" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "5.5" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "50.0" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" gives 1 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.0" gives 1 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "1.9" gives 2 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "2.5" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0x3" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "3e0" gives 3 and is logged once as invalid, never as a clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "+3" gives 3 and is logged once as invalid, never as a clamp (R-188)
+AssertionError: expected 'renderSemaphore: env value is invalid…' to contain 'falling back'
+
+Expected: "falling back"
+Received: "renderSemaphore: env value is invalid (not a whole number of 1 or more, in plain digits); using the nearest allowed value"
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:295:34
+    293|     expect(calls[0]![1]).not.toHaveProperty('requested');
+    294|     // Neutral about WHAT it fell back to (the default or a capped val…
+    295|     expect(String(calls[0]![0])).toContain('falling back');
+       |                                  ^
+    296|     expect(String(calls[0]![0])).not.toContain('nearest');
+    297|     expect(calls[0]![1]).toMatchObject({ using: expected });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  12 failed | 29 passed (41)
+   Start at  11:17:30
+   Duration  395ms (transform 44ms, setup 0ms, import 57ms, tests 223ms, environment 0ms)
+

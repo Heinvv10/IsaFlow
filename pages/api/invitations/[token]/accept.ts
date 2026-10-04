@@ -15,7 +15,7 @@ import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 
-// Memoised, like every other pool in the repo (src/lib/neon.ts,
+// Memoised, like every other pool in the repo (src/lib/neon/pool.ts,
 // src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
 // handshake to the BYPASSRLS role on every accept attempt, including each of
 // the ten rate-limited password guesses admitted before the 429.

@@ -4,7 +4,7 @@
  *  · Its 5s lock wait used to raise the LOAN-lock error ("being calculated by another
  *    request") whoever held the run — an approve or a reopen just as well — and the MCP
  *    tool rethrew it, so an agent saw a generic failure. It has its own error now,
- *    answered 400 with its code on REST (as the other payroll lock timeouts are) and as
+ *    answered 503 + Retry-After with its code on REST (D11; it was 400, as the other payroll lock timeouts were) and as
  *    a retryable refusal by `reverse_journal_entry`.
  *  · It locks the journal's reversal chain as well as the run header. Every writer the
  *    product has goes through the header lock first, so the chain lock is defence in
@@ -111,10 +111,10 @@ afterAll(async () => {
 const HOLD_RUN = 'SELECT id FROM payroll_run_headers WHERE id = $1 FOR UPDATE';
 
 describe('the payroll reversal guard under contention (W3-01 round 6)', () => {
-  it('REST: the run held by another request → 400, its own code, a neutral retry message, nothing written', async () => {
+  it('REST: the run held by another request → 503, its own code, a neutral retry message, nothing written', async () => {
     const { id, j1 } = await reopenedRun(1);
     const { result: res, ms } = await whileHeld(HOLD_RUN, [id], () => reverse(j1));
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatchObject({ details: { code: 'PAYROLL_RUN_LOCK_TIMEOUT' } });
     expect(res.body.error?.message).toMatch(/being changed by another request — retry in a moment/);
     expect(res.body.error?.message).not.toMatch(/calculated/);
@@ -147,7 +147,7 @@ describe('the payroll reversal guard under contention (W3-01 round 6)', () => {
 
     // A peer holds J1 — the chain's first row, not the journal being reversed.
     const { result: res } = await whileHeld('SELECT id FROM gl_journal_entries WHERE id = $1 FOR UPDATE', [j1], () => reverse(c2));
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatchObject({ details: { code: 'PAYROLL_RUN_LOCK_TIMEOUT' } });
     expect(await reversedAt(c2)).toBeNull();
   }, 30000);

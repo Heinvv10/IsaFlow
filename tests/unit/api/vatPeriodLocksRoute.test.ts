@@ -28,7 +28,10 @@ vi.mock('@/lib/apiResponse', () => ({
     forbidden: vi.fn((_res: unknown, error: string) => ({ kind: 'forbidden', error })),
     validationError: vi.fn((_res: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
+    // `respondRowHeld` (D11): a held row is a 503 through `apiResponse.error`.
+    error: vi.fn((_res: unknown, code: string, error: string) => ({ kind: 'error', code, error })),
   },
+  ErrorCode: { SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE' },
 }));
 
 const m = vi.hoisted(() => ({
@@ -48,7 +51,7 @@ vi.mock('@/modules/accounting/services/reports/vatPeriodLockService', () => {
     listVatPeriodLocks: m.listVatPeriodLocks,
     VatPeriodLockRefusal,
     VatPeriodUnlockRefusal: class VatPeriodUnlockRefusal extends VatPeriodLockRefusal {},
-    VatLockTimeoutError: class VatLockTimeoutError extends Error {},
+    VatLockTimeoutError: class VatLockTimeoutError extends Error { readonly code = 'VAT_LOCK_TIMEOUT'; },
   };
 });
 vi.mock('@/modules/accounting/services/reports/vatPeriodLockFigures', () => ({
@@ -65,6 +68,7 @@ vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', () => {
 });
 
 import handler from '../../../pages/api/accounting/vat-period-locks';
+import { apiResponse } from '@/lib/apiResponse';
 import {
   VatLockTimeoutError, VatPeriodLockRefusal, VatPeriodUnlockRefusal,
 } from '@/modules/accounting/services/reports/vatPeriodLockService';
@@ -79,10 +83,13 @@ const FIGURES = { outputTax: 150, inputTax: 45, netVat: 105, postedThrough: '202
 
 type Out = { kind: string; data?: unknown; error?: string; status?: number };
 
+let headers: Record<string, string> = {};
+
 function call(role: string, body: unknown, method = 'POST'): Promise<Out> {
   let status = 0;
   const res = {
     status: (s: number) => { status = s; return { json: (b: unknown) => ({ kind: 'status', status, data: b }) }; },
+    setHeader: (k: string, v: string) => { headers[k] = v; },
   } as unknown as NextApiResponse;
   const req = { method, body, companyId: COMPANY, companyRole: role, user: { id: USER } } as unknown as NextApiRequest;
   return (handler as unknown as (r: NextApiRequest, s: NextApiResponse) => Promise<Out>)(req, res);
@@ -93,6 +100,7 @@ const lockBody = { action: 'lock', periodStart: '2026-03-01', periodEnd: '2026-0
 
 beforeEach(() => {
   vi.clearAllMocks();
+  headers = {};
   m.unlockVatPeriod.mockResolvedValue({ id: LOCK_ID, active: false });
   m.getVatPeriodLock.mockResolvedValue(null);
   m.computeVatLockFigures.mockResolvedValue({ figures: FIGURES, report: { rateCheck: { ties: true } } });
@@ -153,11 +161,18 @@ describe('lock', () => {
     });
   });
 
-  it('answers a lock timeout (posts in flight) with a retryable 409, for lock and unlock', async () => {
+  // D11: a held company journal lock is a 503 + Retry-After (was a 409), for lock and unlock.
+  it('answers a lock timeout (posts in flight) with 503 + Retry-After, for lock and unlock', async () => {
     m.computeVatLockFigures.mockRejectedValue(new VatLockTimeoutError('retry'));
-    expect((await call('admin', lockBody)).kind).toBe('conflict');
+    await call('admin', lockBody);
+    expect(apiResponse.error).toHaveBeenLastCalledWith(expect.anything(), 'SERVICE_UNAVAILABLE', expect.any(String), expect.anything());
+    expect(headers['Retry-After']).toBe('2');
+    headers = {};
     m.unlockVatPeriod.mockRejectedValue(new VatLockTimeoutError('retry'));
-    expect((await call('admin', unlockBody)).kind).toBe('conflict');
+    await call('admin', unlockBody);
+    expect(apiResponse.error).toHaveBeenCalledTimes(2);
+    expect(headers['Retry-After']).toBe('2');
+    expect(apiResponse.conflict).not.toHaveBeenCalled();
   });
 
   it('refuses a period that runs backwards', async () => {

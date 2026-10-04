@@ -1,5 +1,5 @@
 // RED regression: K-111 — merge and time-entry actions always report zero rows.
-// The `sql` tag resolves to res.rows (src/lib/neon.ts:99-111), so an UPDATE
+// The `sql` tag resolves to res.rows (src/lib/neon/query.ts:41-57), so an UPDATE
 // without RETURNING yields [] — .rowCount is undefined and .length is 0.
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';

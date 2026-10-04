@@ -1,0 +1,5 @@
+mutants on committed 0f75f64cd914ee59571063b83df1664758ebe8a7 (the new admission test passes on the pre-refactor code too: the refactor changes no behaviour, the test pins the admission path)
+BASELINE before:       Tests  41 passed (41)
+M40 admission site bypasses the helper with the wrong smallerIsSafer flag:       Tests  1 failed | 40 passed (41)
+M41 helper passes the wrong flag (both sites):       Tests  4 failed | 37 passed (41)
+BASELINE after:       Tests  41 passed (41)
