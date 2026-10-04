@@ -1,0 +1,32 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 + working tree fix; fixture none; load 25.10
+## migration-naming
+OK (historical): prefix 436 — 436_bureaus.sql, 436_sent_mirror_connections.sql
+OK (historical): prefix 437 — 437_payg_flow_wallet.sql, 437_payroll_recurring_components.sql
+
+Scanned 411 migration files.
+No new duplicate prefixes found.
+exit=0
+## migration-rls
+=== every migration-created company_id table must end up under RLS ===
+(155 table(s) not directly verifiable by this gate, matched against the baseline — see scripts/ci/migration-rls.baseline)
+OK: every company_id table created by a migration is under RLS (directly or via the baseline).
+exit=0
+## check-client-responses
+=== client code checks the response status, says what failed, and checks its writes ===
+OK: 1015 client files, 14 pin(s), no new hit.
+exit=0
+## agent-docs:generate + check
+GENERATED: tests/unit/components/AGENTS.md
+Generated 81 agent document mirror(s).
+$ node scripts/mirror-agent-docs.mjs --check
+OK: 81 agent document mirror(s) match canonical sources.
+exit=0
+## type-check
+$ tsc --noEmit
+exit=0
+## lint
+  42:15  warning  'SubledgerDocument' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 12 problems (0 errors, 12 warnings)
+
+exit=0

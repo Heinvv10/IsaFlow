@@ -1,0 +1,11 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17 + 852 applied; fixture isaflow-fixture-r185 (127.0.0.1:55931); load 50.21 -- node-postgres error for a second live fee journal (probe transaction rolled back)
+{
+ "name": "error",
+ "message": "duplicate key value violates unique constraint \"ux_gl_je_gateway_fee_reference\"",
+ "code": "23505",
+ "severity": "ERROR",
+ "schema": "public",
+ "table": "gl_journal_entries",
+ "constraint": "ux_gl_je_gateway_fee_reference",
+ "detail": "Key (company_id, reference)=(00000000-0000-0000-0000-000000018501, r185_ref) already exists."
+}

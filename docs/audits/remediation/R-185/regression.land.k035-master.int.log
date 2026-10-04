@@ -1,0 +1,119 @@
+HEAD: origin/master 51f501bbeea85ef1c6ce8926eb44c4df5639bc89 (no R-185 code); fixture isaflow-fixture-land postgresql://postgres@127.0.0.1:55940/isaflow_schema_fixture (master migrations to 851, no 852)
+fixture=isaflow-fixture-land url=127.0.0.1:55940 head=51f501bbeea85ef1c6ce8926eb44c4df5639bc89 load=37.44
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r185
+
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:13.815Z","component":"API","requestId":"01M41P54AP7HKE5QW5B5A3ZPDW","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:13.841Z","component":"PaystackWebhook","requestId":"01M41P54AP7HKE5QW5B5A3ZPDW","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (37ms)","timestamp":"2026-10-03T20:09:13.851Z","component":"API","requestId":"01M41P54AP7HKE5QW5B5A3ZPDW","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"37ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:13.851Z","component":"http","requestId":"01M41P54AP7HKE5QW5B5A3ZPDW","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":37,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:13.914Z","component":"API","requestId":"01M41P54DT363SJY9S0V33DRJV","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:13.922Z","component":"PaystackWebhook","requestId":"01M41P54DT363SJY9S0V33DRJV","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (12ms)","timestamp":"2026-10-03T20:09:13.926Z","component":"API","requestId":"01M41P54DT363SJY9S0V33DRJV","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"12ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:13.926Z","component":"http","requestId":"01M41P54DT363SJY9S0V33DRJV","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":12,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:13.951Z","component":"API","requestId":"01M41P54EZREZB78GASCMJPWK8","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:13.962Z","component":"PaystackWebhook","requestId":"01M41P54EZREZB78GASCMJPWK8","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (14ms)","timestamp":"2026-10-03T20:09:13.965Z","component":"API","requestId":"01M41P54EZREZB78GASCMJPWK8","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:13.965Z","component":"http","requestId":"01M41P54EZREZB78GASCMJPWK8","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":14,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:13.993Z","component":"API","requestId":"01M41P54G99BVHQE9WGAE2AV97","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:13.999Z","component":"PaystackWebhook","requestId":"01M41P54G99BVHQE9WGAE2AV97","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (13ms)","timestamp":"2026-10-03T20:09:14.006Z","component":"API","requestId":"01M41P54G99BVHQE9WGAE2AV97","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"13ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:14.006Z","component":"http","requestId":"01M41P54G99BVHQE9WGAE2AV97","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":13,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:14.040Z","component":"API","requestId":"01M41P54HRR9V75MR460R0S4AF","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:14.049Z","component":"PaystackWebhook","requestId":"01M41P54HRR9V75MR460R0S4AF","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (14ms)","timestamp":"2026-10-03T20:09:14.054Z","component":"API","requestId":"01M41P54HRR9V75MR460R0S4AF","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"14ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:14.054Z","component":"http","requestId":"01M41P54HRR9V75MR460R0S4AF","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":14,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:14.080Z","component":"API","requestId":"01M41P54K0ZHYDN2TG92KR5RJS","data":{"type":"request","method":"POST","url":""}}
+{"level":"error","message":"charge.success authorisation could not activate its mandate","timestamp":"2026-10-03T20:09:14.089Z","component":"PaystackWebhook","requestId":"01M41P54K0ZHYDN2TG92KR5RJS","data":{"reference":"k035_0ab420a0-8ea","companyId":"ffa1c4d5-1dad-490d-b454-d69bfdf3a7d2","mandateId":"d98f9f69-1be6-4dcd-975c-69f343f49816","status":"active","outcome":"already_active_other_code"}}
+{"level":"info","message":"API Response: POST  - 200 (15ms)","timestamp":"2026-10-03T20:09:14.095Z","component":"API","requestId":"01M41P54K0ZHYDN2TG92KR5RJS","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"15ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:14.095Z","component":"http","requestId":"01M41P54K0ZHYDN2TG92KR5RJS","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":15,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T20:09:14.096Z","component":"API","requestId":"01M41P54KFXQRJ993CF9TN35YD","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"API Response: POST  - 200 (6ms)","timestamp":"2026-10-03T20:09:14.102Z","component":"API","requestId":"01M41P54KFXQRJ993CF9TN35YD","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"6ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T20:09:14.103Z","component":"http","requestId":"01M41P54KFXQRJ993CF9TN35YD","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":7,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts (6 tests | 4 failed) 440ms
+     × commits the event row before processing, so a 500 leaves an unprocessed row behind 65ms
+     × must process the redelivered event rather than acking it as a duplicate 64ms
+     × processes the redelivery once the cause of the failure is cleared 39ms
+     × leaves the payment request marked completed even though processing failed 42ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > commits the event row before processing, so a 500 leaves an unprocessed row behind
+AssertionError: expected 200 to be 500 // Object.is equality
+
+- Expected
++ Received
+
+- 500
++ 200
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:119:36
+    117|   it('commits the event row before processing, so a 500 leaves an unpr…
+    118|     const first = await deliver();
+    119|     expect(first.state.statusCode).toBe(500);
+       |                                    ^
+    120|     const event = await readEvent();
+    121|     expect(event?.processed).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > must process the redelivered event rather than acking it as a duplicate
+AssertionError: expected 200 to be 500 // Object.is equality
+
+- Expected
++ Received
+
+- 500
++ 200
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:127:36
+    125|   it('must process the redelivered event rather than acking it as a du…
+    126|     const first = await deliver();
+    127|     expect(first.state.statusCode).toBe(500);
+       |                                    ^
+    128|
+    129|     // Paystack redelivers the byte-identical payload. The cause of th…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > processes the redelivery once the cause of the failure is cleared
+AssertionError: expected 200 to be 500 // Object.is equality
+
+- Expected
++ Received
+
+- 500
++ 200
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:142:36
+    140|   it('processes the redelivery once the cause of the failure is cleare…
+    141|     const first = await deliver();
+    142|     expect(first.state.statusCode).toBe(500);
+       |                                    ^
+    143|
+    144|     // Operator removes the duplicate pending mandate that broke the U…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/integration/k-035-webhook-redelivery-discarded.int.test.ts > K-035 failed payment webhooks are discarded on retry > leaves the payment request marked completed even though processing failed
+AssertionError: expected 'completed' to be 'pending' // Object.is equality
+
+Expected: "pending"
+Received: "completed"
+
+ ❯ tests/integration/k-035-webhook-redelivery-discarded.int.test.ts:177:28
+    175|     // The UPDATE ... RETURNING at line 206 auto-commits before the th…
+    176|     // retry can never re-enter the branch (`AND status <> 'completed'…
+    177|     expect(rows[0].status).toBe('pending');
+       |                            ^
+    178|   });
+    179|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  22:09:12
+   Duration  2.14s (transform 1.06s, setup 0ms, import 1.51s, tests 440ms, environment 0ms)
+
