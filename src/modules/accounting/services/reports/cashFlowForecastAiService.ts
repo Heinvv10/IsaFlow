@@ -180,6 +180,8 @@ function parseAIResponse(text: string): {
   };
 }
 
+const AI_TIMEOUT_MS = 30_000;
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -209,30 +211,40 @@ export async function getForecast(companyId: string, horizonDays: number): Promi
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
 
-  const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
-      system: [{ type: 'text', text: FORECAST_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-  });
+  // The route runs under withAuth: this call holds a pool connection idle in transaction, so it is
+  // bounded (R-188; max_tokens 1000 on Haiku is well under 30 s, undici's default is ~300 s). The timer
+  // runs until the body is read. An abort throws, which is this service's failure behaviour for any
+  // provider error: the route answers its databaseError response.
+  const aiAbort = new AbortController();
+  const aiTimeout = setTimeout(() => aiAbort.abort(), AI_TIMEOUT_MS);
+  let anthropicData: { content?: Array<{ type: string; text?: string }> };
+  try {
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        system: [{ type: 'text', text: FORECAST_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: aiAbort.signal,
+    });
 
-  if (!anthropicRes.ok) {
-    const errText = await anthropicRes.text();
-    throw new Error(`Anthropic API error ${anthropicRes.status}: ${errText}`);
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text();
+      throw new Error(`Anthropic API error ${anthropicRes.status}: ${errText}`);
+    }
+
+    anthropicData = await anthropicRes.json() as typeof anthropicData;
+  } finally {
+    clearTimeout(aiTimeout);
   }
-
-  const anthropicData = await anthropicRes.json() as {
-    content?: Array<{ type: string; text?: string }>;
-  };
   const responseText = (anthropicData.content ?? [])
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')

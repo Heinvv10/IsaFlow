@@ -1,0 +1,12 @@
+mutants on committed b7cef1b1147b08596d83fc4097ca321e5b13b817; each restored with git checkout -- <file>
+BASELINE before:       Tests  53 passed (53)
+M21 cash-flow: signal not passed:       Tests  2 failed | 51 passed (53)
+M22 cash-flow: timeout 30 s -> 300 s:       Tests  2 failed | 51 passed (53)
+M23 cash-flow: timer never cleared:       Tests  2 failed | 51 passed (53)
+M24 note AI: no client timeout:       Tests  1 failed | 52 passed (53)
+M25 note AI: timeout 600 s:       Tests  1 failed | 52 passed (53)
+M26 non-digit spellings accepted again (floored):       Tests  10 failed | 43 passed (53)
+M27 narrative: timer cleared right after fetch resolves (before the body is read): Tests  1 failed | 11 passed (12)
+M28 forecast: timer cleared right after fetch resolves: Tests  1 failed | 11 passed (12)
+M29 cash-flow: timer cleared right after fetch resolves: Tests  1 failed | 11 passed (12)
+BASELINE after:       Tests  53 passed (53)

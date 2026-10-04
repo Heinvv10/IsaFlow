@@ -154,6 +154,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
   'APPROVAL_REQUIRED',
+  // R-186 archive (core/archiveCustomerInvoiceScope): fixed text + counts only; no MCP tool archives today.
+  'ARCHIVE_SET_CHANGED', 'ARCHIVE_SKIPPED_INVOICE_JOURNAL',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',

@@ -1,0 +1,27 @@
+HEAD: 4d4b17881bb310b85f6c2aa0dff044beab3b1af8 (committed; tree clean apart from mutations.r10.log); fixture postgresql://postgres@127.0.0.1:55932/isaflow_schema_fixture; load 10.39
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=4d4b17881bb310b85f6c2aa0dff044beab3b1af8 load=10.39
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+(node:482205) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:487022) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ Test Files  5 passed (5)
+      Tests  24 passed (24)
+   Start at  13:44:14
+   Duration  12.24s (transform 374ms, setup 0ms, import 419ms, tests 11.44s, environment 0ms)
+
+--- move-race file, shuffled order (--sequence.shuffle, seed 186) ---
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=4d4b17881bb310b85f6c2aa0dff044beab3b1af8 load=9.07
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+      Running tests with seed "186"
+
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  13:44:26
+   Duration  696ms (transform 73ms, setup 0ms, import 124ms, tests 479ms, environment 0ms)
+

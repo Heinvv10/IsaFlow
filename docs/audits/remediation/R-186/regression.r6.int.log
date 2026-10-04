@@ -1,0 +1,15 @@
+HEAD: 8f9cc4fbef354988e3c6398f8924661c527b2bce (committed); fixture postgresql://postgres@127.0.0.1:55932/isaflow_schema_fixture; load 49.50
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=8f9cc4fbef354988e3c6398f8924661c527b2bce load=49.50
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+(node:2030546) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:2032014) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ Test Files  8 passed (8)
+      Tests  43 passed (43)
+   Start at  11:46:31
+   Duration  6.33s (transform 759ms, setup 0ms, import 903ms, tests 4.62s, environment 0ms)
+

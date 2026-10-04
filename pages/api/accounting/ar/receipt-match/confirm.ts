@@ -41,6 +41,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -90,11 +91,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   try {
     await validateBankReceiptApplication(companyId, bankTxId, allocations);
   } catch (err) {
-    // CONTENTION is answered 409, the way `bank-match-confirm` answers the
-    // parallel event: a peer holding an invoice row is not the caller's
-    // mistake, and 400 is the status this codebase reserves for that and
-    // monitors as such. Still pre-write — the reads above have written
-    // nothing — so the 4xx `withAuth` COMMITs commits nothing either.
+    // CONTENTION is not the caller's mistake, and 400 is the status this codebase
+    // reserves for that and monitors as such. A peer holding an invoice row is a
+    // held row: 503 + Retry-After (D11, `respondIfLockTimeout`). A retryable
+    // refusal that is a STATE conflict stays 409. Still pre-write — the reads
+    // above have written nothing.
+    if (respondIfLockTimeout(res, err)) return;
     if (isRetryableReceiptRefusal(err)) {
       apiResponse.conflict(res, (err as Error).message);
       return;

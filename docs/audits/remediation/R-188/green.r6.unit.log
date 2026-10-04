@@ -1,0 +1,10 @@
+HEAD: b96b45c4efef434369ba7e0db645f52cc93a25fb; fixture none; load 61.01
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+
+ Test Files  5 passed (5)
+      Tests  269 passed (269)
+   Start at  11:10:47
+   Duration  740ms (transform 555ms, setup 0ms, import 536ms, tests 737ms, environment 0ms)
+

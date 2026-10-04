@@ -1,0 +1,27 @@
+HEAD: 6a4ab4933853bcfe98e93c539153d8226efdb046; fixture none; load 56.13
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r187
+
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.292Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"441ccc87-bc3e-4a5b-898e-b428863558b8","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.294Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"25a3fdcc-79bf-4ba4-a202-8c9b96253aa4","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.295Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"d7a5f2df-80af-4736-ad23-5385d56071a5","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.295Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.296Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.296Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"708fa49f-9769-4932-a44a-f6ccc4b5dce2","allocated":50,"unallocated":65,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.297Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"ff265c20-85fe-4c66-8ef3-80cdd39af7f6","allocated":50,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.297Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"29e76948-d660-4a12-bdc3-4f269f89516f","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.297Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.298Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.298Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:49.298Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.298Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"240a7231-967e-4bff-ac7d-73829a32cc67","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.299Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"0a10518f-7dba-47c6-b660-445ce066110f","allocated":100,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.299Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"0c24b448-b344-4787-902f-b94288918755","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.300Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"68bd93ce-c664-449e-b390-642667817f86","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:49.300Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"cf927f0d-ee4c-4a8d-84b6-83bc081f6385","allocated":0.01,"unallocated":114.99,"journalEntryId":"je-1"}}
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  10:20:48
+   Duration  331ms (transform 103ms, setup 0ms, import 142ms, tests 13ms, environment 0ms)
+

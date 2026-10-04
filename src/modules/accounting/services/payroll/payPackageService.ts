@@ -186,7 +186,7 @@ export async function setPackageComponents(
   }
 
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
-  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so it commits the WHOLE request, makes
   // every earlier write durable and destroys any enclosing savepoint.
   // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
@@ -263,7 +263,7 @@ export async function applyPackageToEmployee(
   const startMonth = Number(effectiveFrom.slice(5, 7));
 
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
-  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so it commits the WHOLE request, makes
   // every earlier write durable and destroys any enclosing savepoint.
   // `withTransaction` nests a SAVEPOINT when a request transaction is in flight

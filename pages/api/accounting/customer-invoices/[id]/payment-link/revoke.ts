@@ -13,11 +13,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { revokeStandingLink } from '@/modules/accounting/services/ar/standingPaymentLink';
-import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -33,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     result = await revokeStandingLink(companyId, invoiceId);
   } catch (err) {
-    if (err instanceof CustomerInvoiceLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
   if (!result.ok) {

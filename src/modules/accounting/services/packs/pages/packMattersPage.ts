@@ -192,7 +192,11 @@ export function buildMattersSupportBlocks(
       // for every matter listed above." One fact, twice, on one page, on the
       // page whose paper is measured in matters rows. The silent-omission
       // guarantee stays, because nothing else on the sheet states it.
-      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`),
+      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped. `
+        // WHICH JOURNALS THE ROUND-NUMBER TEST READS — see
+        // `isDocumentPosting`: a round invoice or payment is the document's
+        // amount, not an estimate, so those postings are not tested.
+        + 'Round numbers are not tested on postings generated from documents.'),
     ]),
   ];
 }

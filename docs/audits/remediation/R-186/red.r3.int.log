@@ -1,0 +1,74 @@
+HEAD: 15a59be480b15da96a0a8cb90e00307be42c4fc1 (code at HEAD, unchanged; new tests and helpers.ts from the working tree); fixture postgresql://postgres@127.0.0.1:55932/isaflow_schema_fixture; load 28.51
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=15a59be480b15da96a0a8cb90e00307be42c4fc1 load=28.51
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+(node:1211515) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ tests/integration/r186-archive-skipped-closure.int.test.ts (5 tests | 3 failed) 713ms
+     × refuses whole when its reversal is in the window 68ms
+     × refuses whole when the journal it reverses is in the window 64ms
+     × refuses whole when its own journal is in the window 47ms
+ ❯ tests/integration/r186-archive-paystack-settled.int.test.ts (2 tests | 1 failed) 1058ms
+     × with the invoice posted to the GL: refuses before deleting anything 70ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-paystack-settled.int.test.ts > R-186: a Paystack-settled invoice in the window > with the invoice posted to the GL: refuses before deleting anything
+AssertionError: expected '23503' to be 'ARCHIVE_SKIPPED_INVOICE_JOURNAL' // Object.is equality
+
+Expected: "ARCHIVE_SKIPPED_INVOICE_JOURNAL"
+Received: "23503"
+
+ ❯ tests/integration/r186-archive-paystack-settled.int.test.ts:91:26
+     89|     const failure = await archiveFailure(B);
+     90|
+     91|     expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+       |                          ^
+     92|     expect(await state(B)).toEqual(before);
+     93|   }, 60000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/integration/r186-archive-skipped-closure.int.test.ts > R-186: a skipped invoice keeps its journals, or the run refuses > refuses whole when its reversal is in the window
+ FAIL  tests/integration/r186-archive-skipped-closure.int.test.ts > R-186: a skipped invoice keeps its journals, or the run refuses > refuses whole when its own journal is in the window
+AssertionError: expected undefined to be 'ARCHIVE_SKIPPED_INVOICE_JOURNAL' // Object.is equality
+
+- Expected:
+"ARCHIVE_SKIPPED_INVOICE_JOURNAL"
+
++ Received:
+undefined
+
+ ❯ tests/integration/r186-archive-skipped-closure.int.test.ts:68:26
+     66|     const failure = await failureOf(c, () => executeArchive(c, CUTOFF,…
+     67|
+     68|     expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+       |                          ^
+     69|     // Validation predicts the refusal (the refused run left the state…
+     70|     expect(await validationErrors(c)).toEqual(expect.arrayContaining([…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/integration/r186-archive-skipped-closure.int.test.ts > R-186: a skipped invoice keeps its journals, or the run refuses > refuses whole when the journal it reverses is in the window
+AssertionError: expected '23503' to be 'ARCHIVE_SKIPPED_INVOICE_JOURNAL' // Object.is equality
+
+Expected: "ARCHIVE_SKIPPED_INVOICE_JOURNAL"
+Received: "23503"
+
+ ❯ tests/integration/r186-archive-skipped-closure.int.test.ts:68:26
+     66|     const failure = await failureOf(c, () => executeArchive(c, CUTOFF,…
+     67|
+     68|     expect(failure.code).toBe('ARCHIVE_SKIPPED_INVOICE_JOURNAL');
+       |                          ^
+     69|     // Validation predicts the refusal (the refused run left the state…
+     70|     expect(await validationErrors(c)).toEqual(expect.arrayContaining([…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  4 failed | 3 passed (7)
+   Start at  10:44:20
+   Duration  2.22s (transform 528ms, setup 0ms, import 247ms, tests 1.77s, environment 0ms)
+

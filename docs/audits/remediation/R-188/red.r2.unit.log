@@ -1,0 +1,275 @@
+HEAD: 9bbf145dde8ea8764ad04a85a16f87052e5abd1d; fixture none; load 25.71
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+(node:4170452) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 11)
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:4170452) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 12)
+(node:4170452) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 16)
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (16 tests | 5 failed) 76ms
+     × at the defaults (both env vars unset) admits 2 renders and does NOT warn: nobody set anything to clamp (R-188) 28ms
+     × a blank PDF_MAX_CONCURRENT_RENDERS is unset, not an explicit 3: no warning (R-188) 1ms
+     × clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so 2ms
+     × clamps an over-large PDF_RENDER_QUEUE_TIMEOUT_MS and says so 4ms
+     × leaves a value inside the ceiling exactly as configured 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > at the defaults (both env vars unset) admits 2 renders and does NOT warn: nobody set anything to clamp (R-188)
+AssertionError: expected "vi.fn()" to not be called with arguments: [ StringContaining "clamped", …(2) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   StringContaining "clamped",
+-   Anything,
++   "renderSemaphore: env value clamped to the auth-pool-derived ceiling",
++   {
++     "ceiling": 2,
++     "requested": 3,
++     "setting": "PDF_MAX_CONCURRENT_RENDERS",
++   },
+    "pdf",
+  ]
+
+  2nd vi.fn() call:
+
+  [
+-   StringContaining "clamped",
+-   Anything,
++   "renderSemaphore: refused, no slot within the wait bound",
++   {
++     "max": 2,
++     "queued": 0,
++     "waitMs": 20,
++   },
+    "pdf",
+  ]
+
+
+Number of calls: 2
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:222:37
+    220|     process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '20';
+    221|     await expect(acquireRenderSlot(deferred().run)).rejects.toBeInstan…
+    222|     expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
+       |                                     ^
+    223|       expect.stringContaining('clamped'), expect.anything(), 'pdf',
+    224|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > at the defaults (both env vars unset) admits 2 renders and does NOT warn: nobody set anything to clamp (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a blank PDF_MAX_CONCURRENT_RENDERS is unset, not an explicit 3: no warning (R-188)
+AssertionError: expected { active: 2, queued: +0 } to deeply equal { active: +0, queued: +0 }
+
+- Expected
++ Received
+
+  {
+-   "active": 0,
++   "active": 2,
+    "queued": 0,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:51:29
+     49|   if (ORIGINAL.poolMax === undefined) delete process.env.AUTH_POOL_MAX;
+     50|   else process.env.AUTH_POOL_MAX = ORIGINAL.poolMax;
+     51|   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
+       |                             ^
+     52| });
+     53|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:248:46
+    246|     // Five started, not fifty: the ceiling is in force, not the env v…
+    247|     expect(renderSlotStats().active).toBe(5);
+    248|     expect(held.every(d => d.started.value)).toBe(true);
+       |                                              ^
+    249|
+    250|     const refused = deferred();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > clamps an over-large PDF_RENDER_QUEUE_TIMEOUT_MS and says so
+AssertionError: expected { active: 5, queued: 2 } to deeply equal { active: +0, queued: +0 }
+
+- Expected
++ Received
+
+  {
+-   "active": 0,
+-   "queued": 0,
++   "active": 5,
++   "queued": 2,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:51:29
+     49|   if (ORIGINAL.poolMax === undefined) delete process.env.AUTH_POOL_MAX;
+     50|   else process.env.AUTH_POOL_MAX = ORIGINAL.poolMax;
+     51|   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
+       |                             ^
+     52| });
+     53|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > clamps an over-large PDF_RENDER_QUEUE_TIMEOUT_MS and says so
+RenderQueueFullError: PDF render queue is full (2 waiting)
+ ❯ Module.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:162:13
+    160|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    161|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    162|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    163|     }
+    164|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:269:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > leaves a value inside the ceiling exactly as configured
+RenderQueueFullError: PDF render queue is full (4 waiting)
+ ❯ Module.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:162:13
+    160|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    161|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    162|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    163|     }
+    164|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:301:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > leaves a value inside the ceiling exactly as configured
+AssertionError: expected { active: 5, queued: 4 } to deeply equal { active: +0, queued: +0 }
+
+- Expected
++ Received
+
+  {
+-   "active": 0,
+-   "queued": 0,
++   "active": 5,
++   "queued": 4,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:51:29
+     49|   if (ORIGINAL.poolMax === undefined) delete process.env.AUTH_POOL_MAX;
+     50|   else process.env.AUTH_POOL_MAX = ORIGINAL.poolMax;
+     51|   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
+       |                             ^
+     52| });
+     53|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 5 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderQueueFullError: PDF render queue is full (2 waiting)
+ ❯ Module.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:162:13
+    160|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    161|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    162|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    163|     }
+    164|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:269:18
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1893:26
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:2316:20
+ ❯ runWithCancel node_modules/@vitest/runner/dist/chunk-artifact.js:2313:10
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:2295:20
+ ❯ runWithTimeout node_modules/@vitest/runner/dist/chunk-artifact.js:2262:10
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "clamps an over-large PDF_RENDER_QUEUE_TIMEOUT_MS and says so". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderQueueFullError: PDF render queue is full (2 waiting)
+ ❯ Module.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:162:13
+    160|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    161|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    162|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    163|     }
+    164|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:273:20
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "clamps an over-large PDF_RENDER_QUEUE_TIMEOUT_MS and says so". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderQueueFullError: PDF render queue is full (4 waiting)
+ ❯ Module.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:162:13
+    160|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    161|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    162|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    163|     }
+    164|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:301:20
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "leaves a value inside the ceiling exactly as configured". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderCapacityError: No PDF render slot became available within 20ms
+ ❯ Timeout._onTimeout src/lib/pdf/renderSemaphore.ts:172:25
+    170|           if (i >= 0) queue.splice(i, 1);
+    171|           log.warn('renderSemaphore: refused, no slot within the wait …
+    172|           waiter.refuse(new RenderCapacityError(waitMs));
+       |                         ^
+    173|         }, waitMs),
+    174|       };
+ ❯ listOnTimeout node:internal/timers:581:17
+ ❯ processTimers node:internal/timers:519:7
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderCapacityError: No PDF render slot became available within 20ms
+ ❯ Timeout._onTimeout src/lib/pdf/renderSemaphore.ts:172:25
+    170|           if (i >= 0) queue.splice(i, 1);
+    171|           log.warn('renderSemaphore: refused, no slot within the wait …
+    172|           waiter.refuse(new RenderCapacityError(waitMs));
+       |                         ^
+    173|         }, waitMs),
+    174|       };
+ ❯ listOnTimeout node:internal/timers:581:17
+ ❯ processTimers node:internal/timers:519:7
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 11 passed (16)
+     Errors  5 errors
+   Start at  10:28:39
+   Duration  230ms (transform 32ms, setup 0ms, import 43ms, tests 76ms, environment 0ms)
+

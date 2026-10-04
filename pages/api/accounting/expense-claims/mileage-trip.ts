@@ -8,6 +8,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -95,6 +96,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (!claim) return apiResponse.notFound(res, 'Expense claim', body.claimId);
       return apiResponse.success(res, { claim, line: linePayload, rate });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }

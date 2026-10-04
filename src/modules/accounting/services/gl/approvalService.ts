@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
-  assertMayDecide, isApproverRole, APPROVER_ROLES,
+  assertDecidingSession, assertMayDecide, isApproverRole, APPROVER_ROLES,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
 import { assertDocumentUnchanged } from './approvalDecideDocument';
@@ -267,6 +267,7 @@ export async function decideRequest(companyId: string,
   // Lock BEFORE the authority is computed, so the row assertMayDecide reads is
   // the row this UPDATE writes. A concurrent rebind can otherwise move the
   // request onto a different rule between the two statements.
+  await assertDecidingSession();
   await lockApprovalRequestForUpdate(companyId, requestId);
   const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
   if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);

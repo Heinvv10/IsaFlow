@@ -15,6 +15,10 @@ import {
   type ReportData, type NarrativeTone, type VarianceItem, type TrendPoint,
 } from '@/modules/accounting/services/reports/reportNarrativeService';
 
+// A withAuth route holds a pool connection (idle in transaction) for the whole provider call, so
+// the call is bounded (R-188). max_tokens 1024 on Haiku is well under 30 s; undici's default is ~300 s.
+const AI_TIMEOUT_MS = 30_000;
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
@@ -43,11 +47,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
+    const aiAbort = new AbortController();
+    const aiTimeout = setTimeout(() => aiAbort.abort(), AI_TIMEOUT_MS);
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: prompt }] }),
+        signal: aiAbort.signal,
       });
       if (response.ok) {
         markQuotaUsed('ai'); // the provider answered: the daily unit is spent (R-175)
@@ -57,6 +64,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         markAnthropicUsedForStatus(response.status); // a 5xx may follow the work; a 4xx or 529 did none (R-175)
       }
     } catch (err) { markQuotaUsedUnlessNoWork('ai', err); log.error('Narrative generation failed', { error: err }, 'ai'); }
+    finally { clearTimeout(aiTimeout); }
   }
 
   log.info('Report narrative generated', { reportType: reportData.reportType, tone, aiUsed: !!narrative }, 'ai');

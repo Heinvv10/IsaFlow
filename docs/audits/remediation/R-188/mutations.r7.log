@@ -1,0 +1,6 @@
+mutants on committed c7d707d718216232ac3dc1911be270b7b0534567
+BASELINE before:       Tests  40 passed (40)
+M37 queue timeout uses the count rule (ceil) again:       Tests  6 failed | 34 passed (40)
+M38 smallerIsSafer ignored (every refused finite value rounds up):       Tests  6 failed | 34 passed (40)
+M39 concurrency count loses the ceil rule (1.0 -> default):       Tests  3 failed | 37 passed (40)
+BASELINE after:       Tests  40 passed (40)

@@ -21,11 +21,11 @@ const SCAN_DIRS = ['src', 'pages'];
 const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'coverage', '.git']);
 
 /**
- * `src/lib/neon.ts` is the ONE place allowed to issue these: `withTransaction`
- * opens a real transaction on a pool client it owns, which is the remedy every
- * other file is told to use.
+ * No file is exempt. `withTransaction` and `sql.transaction` (src/lib/neon/)
+ * open their transactions with `.query('BEGIN')` on a pg client they own, not
+ * through `sql`, so the rule does not match them. Until R-184 this list held
+ * `src/lib/neon.ts`, which the rule never matched either.
  */
-const ALLOWED = new Set([join('src', 'lib', 'neon.ts')]);
 
 /** Below this, something is wrong with the walk itself — fail rather than pass. */
 const MIN_FILES_EXPECTED = 200;
@@ -60,7 +60,6 @@ if (files.length < MIN_FILES_EXPECTED) {
 let violations = 0;
 for (const file of files) {
   const rel = file.slice(ROOT.length + 1);
-  if (ALLOWED.has(rel)) continue;
   for (const v of findRawTransactionControl(readFileSync(file, 'utf8'))) {
     if (violations === 0) {
       console.error('FAIL: raw transaction control through the `sql` helper.\n');

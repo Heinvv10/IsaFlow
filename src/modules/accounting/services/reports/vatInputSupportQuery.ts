@@ -46,7 +46,7 @@
  * NOTE ON THE `gl_journal_document_links` SCAN: this is inlined directly
  * rather than shared via a `gl/documentLinkHistorySql`-style helper that
  * builds its own `sql\`...\`` fragment and splices it in (the LazyQuery
- * embedding `lib/neon.ts` supports). That splicing only works against the
+ * embedding `lib/neon/query.ts` supports). That splicing only works against the
  * REAL `sql` tag; a test that mocks `sql` as a bare `vi.fn()` with a
  * positional queue of resolved values (vatExceptionsService.test.ts and
  * friends, via `vatExceptionsTestUtils.mockExceptionsSql`) has no such

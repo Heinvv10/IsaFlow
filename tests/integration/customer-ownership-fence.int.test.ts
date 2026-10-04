@@ -155,7 +155,7 @@ describeIfDb('R-067 — an invoice cannot be booked against another company cust
   it('refuses a non-UUID inside a real request transaction, which stays usable', async () => {
     // INSIDE `als.run` on a client that has issued BEGIN — the shape `withAuth`
     // creates. Without it `withSavepoint` takes its `if (!ctxClient) return fn()`
-    // degrade path (lib/neon.ts:434-438), each bare `sql` opens its own
+    // degrade path (lib/neon/transaction.ts:118-121), each bare `sql` opens its own
     // connection, there is nothing to poison, and the SAVEPOINT this case exists
     // to pin is never executed. In that shape the whole case passes with the
     // savepoint removed.
