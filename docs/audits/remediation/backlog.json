@@ -15308,7 +15308,8 @@
         "docs/audits/remediation/R-185/regression.unit.log",
         "docs/audits/remediation/R-185/regression.land.int.log",
         "docs/audits/remediation/R-185/regression.land.k035-master.int.log",
-        "docs/audits/remediation/R-185/census.prod.log"
+        "docs/audits/remediation/R-185/census.prod.log",
+        "docs/audits/remediation/R-185/regression.land2.int.log"
       ],
       "fixCommit": null,
       "pr": null,
