@@ -31,7 +31,7 @@ import { reverseJournalEntry } from '../gl/journalEntryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
-import { reconciliationLockOf } from '../bank/reconciledCash';
+import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import type { VoidPaymentResult } from '../core/paymentVoidService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { UNAPPLY_REMEDY } from './provisionalSettlementGuards';
@@ -78,7 +78,9 @@ export async function voidProvisionalSettlement(
     const bankTransactionId = line ? String(line.id) : null;
     if (bankTransactionId) {
       const tx = await lockBankTransactionForUpdate(companyId, bankTransactionId);
-      if (tx && await reconciliationLockOf(companyId, tx)) {
+      const lock = tx ? await reconciliationLockOf(companyId, tx) : null;
+      if (lock?.kind === 'completed') refuseLockedCash(lock, 'This bank line'); // D12: 409, reopen it first
+      if (lock) {
         throw new SupplierPaymentRefusal(
           `The bank line behind payment ${number} is reconciled, so its bank-first settlement cannot be undone `
           + 'here. Take the line out of its reconciliation first.',

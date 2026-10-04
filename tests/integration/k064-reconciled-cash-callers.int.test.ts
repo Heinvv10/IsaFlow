@@ -94,20 +94,21 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     await tearDownFixture(fx?.pool);
   });
 
-  it('REST void → 400 naming the reconciliation, nothing written', async () => {
+  // D12: a COMPLETED reconciliation is the shared 409 on every caller, naming it; reopen is the remedy.
+  it('REST void → 409 naming the reconciliation, nothing written', async () => {
     const a = await lockedAllocation();
     const state = await f.paymentAction('void', a.paymentId);
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain(`is on the completed reconciliation of R068 Bank to ${today}`);
-    expect(text(state)).toContain("must be reopened before this can be reversed");
+    expect(state.statusCode, text(state)).toBe(409);
+    expect(text(state)).toContain(`The bank reconciliation of R068 Bank to ${today} is completed — reopen it first`);
     await untouched(a, 'reconciled');
   });
 
-  it("REST bank reverse → 400 for a 'matched' line on a completed reconciliation (the fail-closed arm)", async () => {
+  it("REST bank reverse → 409 for a 'matched' line on a completed reconciliation (the fail-closed arm)", async () => {
     const a = await lockedAllocation({ status: 'matched' });
     const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain('This bank line is on the completed reconciliation of R068 Bank');
+    expect(state.statusCode, text(state)).toBe(409);
+    expect(text(state)).toContain('The bank reconciliation of R068 Bank');
+    expect(text(state)).toContain('is completed — reopen it first');
     await untouched(a, 'matched');
   });
 
@@ -118,8 +119,7 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     const result = await inRequest(() => registry.call('void_payment',
       { payment_id: a.paymentId, idempotency_key: randomUUID() }, mcpCtx(['write:invoices', 'write:post'])));
     expect(result.isError).toBe(true);
-    expect(result.content[0]!.text).toContain('is on the completed reconciliation of R068 Bank');
-    expect(result.content[0]!.text).toContain('Correct it with a journal, or contact support');
+    expect(result.content[0]!.text).toContain(`The bank reconciliation of R068 Bank to ${today} is completed — reopen it first`);
     await untouched(a, 'reconciled');
   });
 
@@ -130,7 +130,7 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     const result = await inRequest(() => registry.call('reverse_bank_allocation',
       { transaction_id: a.bankTx, idempotency_key: randomUUID() }, mcpCtx(['write:bank-tx', 'write:post'])));
     expect(result.isError, JSON.stringify(result)).toBe(true);
-    expect(result.content[0]!.text).toContain('This bank line is on the completed reconciliation of R068 Bank');
+    expect(result.content[0]!.text).toContain(`The bank reconciliation of R068 Bank to ${today} is completed — reopen it first`);
     await untouched(a, 'reconciled');
   });
 
@@ -170,16 +170,19 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
 
     // A "completion" holds the row, writes the reconciliation onto it, and
     // commits only after the undo has read the line in its fast path.
+    // D12: the stamp MOVED while the undo waited on the line (peeked NULL, locked as `rec`), so its session could no
+    // longer be taken in order — the undo is refused as contention with nothing written, and the retry skips it.
     const holder: PoolClient = await getPoolForTests().connect();
     try {
       await holder.query('BEGIN');
       await holder.query("UPDATE bank_transactions SET status = 'reconciled', reconciliation_id = $1 WHERE id = $2", [rec, bankTx]);
-      const undo = inRequest(() => undoRun(ids.A, run, ids.USER));
+      const undo = inRequest(() => undoRun(ids.A, run, ids.USER)).then(() => null, (e: unknown) => e);
       await new Promise((r) => setTimeout(r, 400));
       await holder.query('COMMIT');
-      const result = await undo;
-      expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
+      expect((await undo as { code?: string } | null)?.code).toBe('BANK_TX_LOCK_TIMEOUT');
     } finally { holder.release(); }
+    const result = await inRequest(() => undoRun(ids.A, run, ids.USER));
+    expect(result.skippedBy).toMatchObject({ reconciled: 1, failed: 0 });
     expect(await billState(fx.pool, billId)).toEqual({ paid: 115, status: 'paid' });
     expect((await q('SELECT status FROM bank_transactions WHERE id = $1', [bankTx])).rows[0].status).toBe('reconciled');
   }, 20000);

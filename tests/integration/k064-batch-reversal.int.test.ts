@@ -129,7 +129,7 @@ describeIfDb('K-064 — reverse a processed payment batch', () => {
       const line = (await q(`SELECT l.id FROM gl_journal_lines l JOIN supplier_payment_batches b
         ON b.gl_journal_entry_id = l.journal_entry_id WHERE b.id = $1 AND l.credit > 0`, [batchId])).rows[0].id;
       await q("UPDATE bank_transactions SET status = 'reconciled', matched_journal_line_id = $1 WHERE id = $2", [line, ids.BANK_TX_PAY]);
-    }, 'reconciled in the Sage import'],
+    }, 'reconciled in the Sage import', 400],
     ['its bank line is on a COMPLETED reconciliation', async (batchId: string) => {
       const line = (await q(`SELECT l.id FROM gl_journal_lines l JOIN supplier_payment_batches b
         ON b.gl_journal_entry_id = l.journal_entry_id WHERE b.id = $1 AND l.credit > 0`, [batchId])).rows[0].id;
@@ -138,11 +138,12 @@ describeIfDb('K-064 — reverse a processed payment batch', () => {
         VALUES ($1, $2, $3, CURRENT_DATE, 'completed', $4)`, [rec, ids.A, ids.BANK_GL, ids.USER]);
       await q("UPDATE bank_transactions SET status = 'reconciled', matched_journal_line_id = $1, reconciliation_id = $2 WHERE id = $3",
         [line, rec, ids.BANK_TX_PAY]);
-    }, "is on the completed reconciliation of R068 Bank"],
+    // D12: a COMPLETED reconciliation is the shared 409, decided before any write.
+    }, `The bank reconciliation of R068 Bank to ${new Date().toISOString().slice(0, 10)} is completed — reopen it first`, 409],
     ['the reversal date falls in a closed period', async () => {
       await q("UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1", [ids.A]);
-    }, 'not in an open fiscal period'],
-  ])('refuses with 400 and writes nothing when %s', async (_why, arrange, words) => {
+    }, 'not in an open fiscal period', 400],
+  ])('refuses (4xx) and writes nothing when %s', async (_why, arrange, words, status) => {
     const [x, y] = [await approvedBill(), await approvedBill()];
     const batchId = await approvedBatchOf3(x, y);
     expect((await f.batchAction('process', batchId)).statusCode).toBe(200);
@@ -150,7 +151,7 @@ describeIfDb('K-064 — reverse a processed payment batch', () => {
     await arrange(batchId);
     try {
       const state = await f.batchAction('reverse', batchId);
-      expect(state.statusCode, text(state)).toBe(400);
+      expect(state.statusCode, text(state)).toBe(status);
       expect(text(state)).toContain(words);
       expect(await statuses(batchId)).toEqual({ batch: 'processed', members: ['processed'] });
       expect(await billState(fx.pool, x)).toEqual({ paid: 400, status: 'partially_paid' });

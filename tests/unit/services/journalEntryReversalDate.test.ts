@@ -75,6 +75,9 @@ vi.mock('@/lib/alsTransaction', async () => {
       ),
   };
 });
+// D12 round 3: the completed-reconciliation cash re-check under the claim reads bank_transactions; proven against a
+// real ledger in tests/integration/d12-r3-journal-chain.int.test.ts. Here: no statement line is tied to the journal.
+vi.mock('@/modules/accounting/services/bank/reconciledCash', () => ({ refuseReversingCompletedCash: vi.fn(async () => undefined) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

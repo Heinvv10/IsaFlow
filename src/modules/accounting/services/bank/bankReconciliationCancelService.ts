@@ -9,6 +9,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { lockSessionForHeaderChange, refuseCompletedSession } from './reconciliationSessionLock';
 
 export interface CancelReconciliationOptions {
   /**
@@ -41,13 +42,14 @@ export async function cancelReconciliation(
   companyId: string, id: string, userId: string,
   opts: CancelReconciliationOptions = {}
 ): Promise<CancelReconciliationResult> {
-  const reconRows = (await sql`
-    SELECT id, status FROM bank_reconciliations
-    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  if (reconRows.length === 0) {
+  // D12: the header FOR UPDATE first, before every read below and before the lines (every line writer holds it FOR
+  // SHARE, so none is mid-write). A completed one is the shared 409 — reopen it first.
+  const session = await lockSessionForHeaderChange(companyId, id);
+  if (!session) {
     throw new ReconciliationNotCancellableError(`Reconciliation ${id} not found`);
   }
-  if (String(reconRows[0]!.status) !== 'in_progress') {
+  refuseCompletedSession(session);
+  if (session.status !== 'in_progress') {
     throw new ReconciliationNotCancellableError(
       'Only an in-progress reconciliation can be cancelled',
     );
@@ -134,12 +136,10 @@ export async function cancelReconciliation(
       SET reconciliation_id = NULL, updated_at = NOW()
       WHERE reconciliation_id = ${id}::UUID AND company_id = ${companyId}::UUID
       RETURNING id`) as DbRow[];
-    // Re-assert BOTH conditions in the DELETE itself. The reads above ran
-    // before this transaction, so between them and here a concurrent complete
-    // could have moved the status on, or a `createAdjustmentEntry` could have
-    // committed a journal naming this reconciliation — which would then be left
-    // pointing at a deleted header. Re-checking inside the statement is what
-    // makes the guard atomic rather than advisory.
+    // Re-assert BOTH conditions in the DELETE itself. Since D12 the reads above
+    // ran under the header lock, which a complete or a `createAdjustmentEntry`
+    // must take too, so neither can land in between; the re-check is the second
+    // line, for a writer that reaches the header without that lock.
     const deleted = (await tx`
       DELETE FROM bank_reconciliations
       WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'in_progress'

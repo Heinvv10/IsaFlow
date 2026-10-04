@@ -15,6 +15,9 @@ import {
   claimTransactionsForReconciliation, countsAsMatched, countsAsUnmatched,
   type ReconciliationClaim,
 } from './bankReconciliationClaim';
+import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
+import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
+import { RowLockTimeoutError } from '../core/rowLockBudget';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -112,13 +115,16 @@ export async function completeReconciliation(
   companyId: string, id: string, userId: string
 ): Promise<BankReconciliation> {
   try {
+    // D12: the header FOR UPDATE first (every line writer holds it FOR SHARE): status and figures are read under it.
+    const session = await lockSessionForHeaderChange(companyId, id);
+    if (!session) throw new Error(`Reconciliation ${id} not found`);
+    refuseCompletedSession(session);
     // Sign off against the ledger as it stands NOW, not the start snapshot: a
     // line reversed or a journal back-dated mid-session moves the GL, and the
     // snapshot would let a stale R0.00 through.
     await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
-    if (recon.status === 'completed') throw new Error('Reconciliation already completed');
     if (Math.abs(recon.difference) > 0.01) {
       throw new Error(`Cannot complete: difference is R${recon.difference.toFixed(2)} (must be R0.00)`);
     }
@@ -159,13 +165,12 @@ export async function createAdjustmentEntry(
          { glAccountId: contraAccountId, debit: 0, credit: amount, description }]
       : [{ glAccountId: contraAccountId, debit: Math.abs(amount), credit: 0, description },
          { glAccountId: bankAccountId, debit: 0, credit: Math.abs(amount), description }];
+    // A completed reconciliation is an audit artefact: its balances record what
+    // the ledger said at sign-off and must not be rewritten by a later adjustment (D12: under the header lock).
+    // D12 round 2: FOR SHARE, not FOR UPDATE — this posts a journal (see reconciliationSessionLock's header).
+    refuseCompletedSession(await shareLockSession(companyId, reconciliationId));
     const recon = await getReconciliationById(companyId, reconciliationId);
     if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
-    // A completed reconciliation is an audit artefact: its balances record what
-    // the ledger said at sign-off and must not be rewritten by a later adjustment.
-    if (recon.status === 'completed') {
-      throw new Error('Cannot adjust a completed reconciliation');
-    }
     // updateReconciledBalance recomputes from the reconciliation's OWN bank
     // account, so an adjustment posted to a different one would post a journal
     // and silently leave the difference untouched.
@@ -178,9 +183,14 @@ export async function createAdjustmentEntry(
       // source_record_id, NOT source_document_id: the latter FKs to
       // captured_documents (migration 409) and a reconciliation id throws on it.
       source: 'auto_bank_recon', sourceRecordId: reconciliationId, lines,
-    }, userId);
+    }, userId).catch((err: unknown) => {
+      // D12 round 2: no longer the 40P01 victim of a writer sharing the session, the adjustment can lose the
+      // pre-existing journal-number race to it (MAX+1, uq_gl_je_company_entry_number) — retryable, nothing written
+      // (the 23505 aborted the request): 503 + Retry-After, not a 400 naming the constraint.
+      throw isJournalNumberCollision(err) ? new RowLockTimeoutError('The next journal number') : err;
+    });
     await postJournalEntry(companyId, je.id, userId);
-    await updateReconciledBalance(companyId, reconciliationId);
+    await refreshReconciledBalanceIfFree(companyId, reconciliationId);
     log.info('Created adjustment entry', { reconciliationId, journalEntryId: je.id }, 'accounting');
     return je.id;
   } catch (err) {
@@ -191,60 +201,25 @@ export async function createAdjustmentEntry(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** matched_count / unmatched_count for the row aliased `br` — the claim module's definition. */
+function isJournalNumberCollision(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === '23505' && e?.constraint === 'uq_gl_je_company_entry_number';
+}
+
+/**
+ * matched_count / unmatched_count for the row aliased `br` — the claim module's definition. D12 round 2 (brk-d12 B4):
+ * a COMPLETED session's matched count is what it signed off — its `reconciled` lines — so a later write to one of its
+ * stale-stamped lines (an allocation keeps the stamp) cannot move it.
+ */
 function sessionCounts(companyId: string): ReturnType<typeof sql> {
   const inSession = sql`bt.reconciliation_id = br.id AND bt.company_id = ${companyId}::UUID
     AND bt.feed_state = 'posted'`;
   return sql`
     (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
-      AND ${countsAsMatched(companyId, sql`br.statement_date`)}) AS matched_count,
+      AND CASE WHEN br.status = 'completed' THEN bt.status = 'reconciled'
+        ELSE ${countsAsMatched(companyId, sql`br.statement_date`)} END) AS matched_count,
     (SELECT COUNT(*) FROM bank_transactions bt WHERE ${inSession}
       AND ${countsAsUnmatched(companyId, sql`br.statement_date`)}) AS unmatched_count`;
-}
-
-export async function updateReconciledBalance(companyId: string, reconciliationId: string): Promise<void> {
-  // Single atomic UPDATE — avoids race condition from read-then-write pattern.
-  // Both the outer UPDATE and inner SELECT are scoped by company_id to prevent
-  // cross-tenant contamination if two tenants share a reconciliation_id UUID.
-  // K-020: recompute the bank GL balance live as at statement_date rather than
-  // adding matched bank amounts to the frozen gl_balance snapshot. Matching only
-  // stamps a bank row against an already-posted line, so that movement is already
-  // inside the GL balance and adding it counted it twice; the adjustment journal
-  // this helper is called to reflect never entered the frozen column at all.
-  await sql`
-    UPDATE bank_reconciliations br
-    SET (gl_balance, reconciled_balance) = (
-      SELECT bal.gl_balance, bal.gl_balance
-      FROM (${bankGlBalanceAsAt(
-        companyId, sql`br.bank_account_id`, sql`br.statement_date`)}) bal
-    )
-    WHERE br.id = ${reconciliationId}::UUID
-      AND br.company_id = ${companyId}::UUID
-      AND br.status = 'in_progress' -- a completed one is an audit artefact
-  `;
-}
-
-/**
- * Posted bank-account GL balance as at a date, as a composable fragment.
- * Both the startReconciliation snapshot and the updateReconciledBalance
- * recompute build on this one definition so the two cannot drift — drift
- * between a frozen snapshot and a later figure was defect K-020. The account
- * and date arrive as fragments because the recompute correlates on the
- * reconciliation row's own columns while the snapshot binds parameters.
- */
-function bankGlBalanceAsAt(
-  companyId: string,
-  glAccount: ReturnType<typeof sql>,
-  asAtDate: ReturnType<typeof sql>,
-): ReturnType<typeof sql> {
-  return sql`
-    SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS gl_balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    WHERE jl.gl_account_id = ${glAccount}
-      AND jl.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-      AND je.entry_date <= ${asAtDate}`;
 }
 
 function mapReconRow(row: DbRow): BankReconciliation {
@@ -290,6 +265,7 @@ export {
 export type { BankTxFilters } from './bankTransactionQueryService';
 export { autoMatchTransactions } from './bankAutoMatchService';
 export { previewReconciliationClaim } from './bankReconciliationClaim';
+export { updateReconciledBalance } from './bankReconciliationBalance';
 export type { ReconciliationClaim } from './bankReconciliationClaim';
 export {
   allocateTransaction, splitAllocateTransaction, reverseReconciledTransaction,

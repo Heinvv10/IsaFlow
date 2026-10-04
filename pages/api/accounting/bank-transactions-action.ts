@@ -11,9 +11,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
+import { refuseLinesInCompletedSession } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import {
   BankTransactionNotPostedError, isFeedNotPostedRefusal, readFeedState,
@@ -146,10 +148,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       case 'delete': {
         const ids: string[] = body.bankTransactionIds || (body.bankTransactionId ? [body.bankTransactionId] : []);
         if (ids.length === 0) return apiResponse.badRequest(res, 'bankTransactionId or bankTransactionIds required');
+        await refuseLinesInCompletedSession(companyId, ids); // D12: any line in a completed session refuses it all, 409
         const deleted = await deleteTransactions(companyId, ids);
         return apiResponse.success(res, { deleted });
       }
       case 'bulk_accept': {
+        await refuseLinesInCompletedSession(companyId, body.bankTransactionIds); // D12: as delete
         const accepted = await bulkAcceptTransactions(companyId, body.bankTransactionIds);
         return apiResponse.success(res, { accepted });
       }
@@ -213,6 +217,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // A held bank line, payment, bill or invoice is a lock timeout on EVERY verb: 503 + Retry-After (D8 round 17 for
     // reverse, D11 for the rest). Only a retryable STATE conflict keeps K-071's 409 below.
     if (respondIfLockTimeout(res, err)) return;
+    // D12: a line in (or a run into) a COMPLETED reconciliation — 409, refused before any write, on every verb.
+    if (respondIfReconciliationCompleted(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /

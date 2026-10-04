@@ -55,14 +55,13 @@ const COMPANY = '11111111-1111-1111-1111-111111111111';
 const BANK_GL = '22222222-2222-2222-2222-222222222222';
 const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-describe('autoMatchTransactions — one raced row must not abort the run', () => {
-  beforeEach(() => {
-    sp.names.length = 0; sp.open = 0; sp.rolledBack = 0;
-    vi.clearAllMocks();
-    // The candidate rows come back in a deliberately jumbled id order (3, 1, 2)
-    // so the sort has something to do; every one is an exact-reference match,
-    // which scores 1.0 and is therefore applied rather than left a candidate.
-    sqlMock
+/**
+ * The candidate rows come back in a deliberately jumbled id order (3, 1, 2)
+ * so the sort has something to do; every one is an exact-reference match,
+ * which scores 1.0 and is therefore applied rather than left a candidate.
+ */
+function queueCandidates(): void {
+  sqlMock
       .mockResolvedValueOnce([
         { id: TX(3), amount: 100, transaction_date: '2026-03-10', reference: 'R3', description: 'R3' },
         { id: TX(1), amount: 100, transaction_date: '2026-03-10', reference: 'R1', description: 'R1' },
@@ -74,6 +73,13 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
         { id: 'jl-2', debit: 0, credit: 100, description: 'R2', entry_date: '2026-03-10', entry_number: 'JE-2', source_document_id: null },
       ] as never)
       .mockResolvedValue([] as never);
+}
+
+describe('autoMatchTransactions — one raced row must not abort the run', () => {
+  beforeEach(() => {
+    sp.names.length = 0; sp.open = 0; sp.rolledBack = 0;
+    vi.clearAllMocks();
+    queueCandidates();
   });
 
   it('skips the raced row, applies the rest, and reports the skip', async () => {
@@ -180,6 +186,10 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) throw err;
       return { id: txId };
     });
+    // D12: a run into a session locks it (FOR SHARE) first and reads its status — in progress here.
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([{ id: 'r', status: 'in_progress' }] as never);
+    queueCandidates();
     await expect(autoMatchTransactions(COMPANY, BANK_GL, 'r')).rejects.toBe(err);
     expect(sp.rolledBack, 'the run savepoint rolled back (the earlier match is discarded)').toBeGreaterThanOrEqual(1);
     expect(sp.names).toContain('auto_match_run');
