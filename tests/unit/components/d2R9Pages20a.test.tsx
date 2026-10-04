@@ -86,10 +86,11 @@ describe('sars/index (routes: sars-compliance -> { events }, sars-submissions ->
     d.setDate(d.getDate() + 10);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
-  const evt = { eventType: 'VAT201_DUE', dueDate: localDayPlus10(), description: 'D2 VAT return falls due', status: 'pending' };
+  const evt = { eventType: 'VAT201_DUE', dueDate: '', description: 'D2 VAT return falls due', status: 'pending' };
   const sub = { id: 's1', formType: 'D2-FORM', periodStart: '2026-07-01', periodEnd: '2026-08-31', status: 'submitted', submissionReference: 'D2-REF-77', submittedAt: null, createdAt: '2026-09-02T00:00:00Z' };
   it('success: the upcoming deadline and the recent submission are listed', async () => {
-    serve(on('GET', 'sars-compliance', () => ok({ events: [evt] })), on('GET', 'sars-submissions', () => ok({ items: [sub] })));
+    const due = { ...evt, dueDate: localDayPlus10() };
+    serve(on('GET', 'sars-compliance', () => ok({ events: [due] })), on('GET', 'sars-submissions', () => ok({ items: [sub] })));
     render(<SarsIndexPage />);
     expect(await screen.findByText('D2 VAT return falls due')).toBeDefined();
     const tr = screen.getByText('D2-FORM').closest('tr') as HTMLElement;
@@ -99,8 +100,11 @@ describe('sars/index (routes: sars-compliance -> { events }, sars-submissions ->
   it('days left count the local calendar day east and west of UTC', async () => {
     const saved = process.env.TZ;
     try {
-      for (const tz of ['Pacific/Kiritimati', 'America/Los_Angeles', 'Africa/Johannesburg']) {
+      // Offsets prove the zone switch took effect (it does not in a worker_threads pool).
+      const offsets: Record<string, number[]> = { 'Pacific/Kiritimati': [-840], 'America/Los_Angeles': [420, 480], 'Africa/Johannesburg': [-120] };
+      for (const [tz, allowed] of Object.entries(offsets)) {
         process.env.TZ = tz;
+        expect(allowed, tz).toContain(new Date().getTimezoneOffset());
         const local = { ...evt, dueDate: localDayPlus10(), description: `D2 due ${tz}` };
         serve(on('GET', 'sars-compliance', () => ok({ events: [local] })), on('GET', 'sars-submissions', () => ok({ items: [] })));
         render(<SarsIndexPage />);
