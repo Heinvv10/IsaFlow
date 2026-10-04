@@ -139,7 +139,7 @@ export class RecurringInvoiceNotDueError extends Error {
 /**
  * Savepoint names are sequenced, never a constant: Postgres SHADOWS a
  * re-declared savepoint name, so two live subtransactions sharing one would
- * make `ROLLBACK TO` unwind the wrong one. Same convention as neon.ts's
+ * make `ROLLBACK TO` unwind the wrong one. Same convention as src/lib/neon/sql.ts's
  * `sp_sqltx_${n}`.
  */
 let genSeq = 0;

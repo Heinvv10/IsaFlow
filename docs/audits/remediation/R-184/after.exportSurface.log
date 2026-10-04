@@ -1,0 +1,45 @@
+HEAD: b17e64e73273085f66c2eab91d678869ed945a17; split tree (src/lib/neon.ts is the barrel)
+DbRow [type] { [x: string]: any; }
+TxSql [type] (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>
+assertTxUsable [value] () => void
+assertTxUsable() (): void
+default [value] SqlFunction
+default() <T = { [x: string]: any; }>(strings: TemplateStringsArray, ...values: unknown[]): LazyQuery<T>
+default()=>.__@toStringTag: "LazyQuery"
+default()=>.boundClient: PoolClient | undefined
+default()=>.catch: <TResult = never>(onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null | undefined) => Promise<T[] | TResult>
+default()=>.finally: (onfinally?: (() => void) | null | undefined) => Promise<T[]>
+default()=>.run: () => Promise<T[]>
+default()=>.text: string
+default()=>.then: <TResult1 = T[], TResult2 = never>(onfulfilled?: ((value: T[]) => TResult1 | PromiseLike<TResult1>) | null | undefined, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null | undefined) => Promise<TResult1 | TResult2>
+default()=>.values: unknown[]
+default.query: <T = DbRow>(text: string, values?: unknown[] | undefined) => LazyQuery<T>
+default.transaction: <T = unknown>(queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]), options?: TransactionOptions | undefined) => Promise<T[][]>
+default.unsafe: <T = DbRow>(text: string, values?: unknown[] | undefined) => LazyQuery<T>
+fmtDate [value] (val: unknown) => string
+fmtDate() (val: unknown): string
+getDbPool [value] () => Pool
+getDbPool() (): Pool
+getPool [value] () => Pool
+getPool() (): Pool
+getPoolForTests [value] () => Pool
+getPoolForTests() (): Pool
+sql [value] SqlFunction
+sql() <T = { [x: string]: any; }>(strings: TemplateStringsArray, ...values: unknown[]): LazyQuery<T>
+sql()=>.__@toStringTag: "LazyQuery"
+sql()=>.boundClient: PoolClient | undefined
+sql()=>.catch: <TResult = never>(onrejected?: ((reason: unknown) => TResult | PromiseLike<TResult>) | null | undefined) => Promise<T[] | TResult>
+sql()=>.finally: (onfinally?: (() => void) | null | undefined) => Promise<T[]>
+sql()=>.run: () => Promise<T[]>
+sql()=>.text: string
+sql()=>.then: <TResult1 = T[], TResult2 = never>(onfulfilled?: ((value: T[]) => TResult1 | PromiseLike<TResult1>) | null | undefined, onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null | undefined) => Promise<TResult1 | TResult2>
+sql()=>.values: unknown[]
+sql.query: <T = DbRow>(text: string, values?: unknown[] | undefined) => LazyQuery<T>
+sql.transaction: <T = unknown>(queries: LazyQuery<unknown>[] | ((tx: SqlFunction) => LazyQuery<unknown>[]), options?: TransactionOptions | undefined) => Promise<T[][]>
+sql.unsafe: <T = DbRow>(text: string, values?: unknown[] | undefined) => LazyQuery<T>
+transaction [value] (queriesFn: (txSql: SqlFunction) => LazyQuery<DbRow>[]) => Promise<unknown[][]>
+transaction() (queriesFn: (txSql: SqlFunction) => LazyQuery<DbRow>[]): Promise<unknown[][]>
+withSavepoint [value] <T>(name: string, fn: () => Promise<T>) => Promise<T>
+withSavepoint() <T>(name: string, fn: () => Promise<T>): Promise<T>
+withTransaction [value] <T>(fn: (tx: TxSql) => Promise<T>) => Promise<T>
+withTransaction() <T>(fn: (tx: TxSql) => Promise<T>): Promise<T>

@@ -116,7 +116,23 @@ export function joinDecision(issue: string, decision: string): string {
  * disagreement `checkMattersCrossReference` exists to refuse, one page over.
  */
 export function boardActionMatters(selection: SelectedMatters): PackMatter[] {
-  return actionsThatFit(selection.printed);
+  // THE LARGEST EXPOSURE, THEN WHAT HAS NO AMOUNT, THEN THE REST. Page 11
+  // lists the matters with no single amount first, because they have none to
+  // fold into its "not printed" total; taken in that order, page 4 can be all
+  // backlog and reload while the largest exposure reaches page 11 only.
+  // Ranked purely by money the other way, a few large journals push the
+  // book's state — a backlog, a reload, an overdue filing — off the page. So
+  // page 4 opens on the largest exposure, then the unquantified matters, then
+  // the remaining exposures. Still a subset of page 11, and each group keeps
+  // page 11's order (`filter` preserves it; `printed` is already ranked).
+  //
+  // A CHECK THAT COULD NOT RUN GOES FIRST OF ALL: the title says one failed,
+  // and the panel must name which, before the lead exposure takes the room.
+  const failed = selection.printed.filter((m) => m.kind === 'checkFailed');
+  const rest = selection.printed.filter((m) => m.kind !== 'checkFailed');
+  const quantified = rest.filter((m) => m.quantum !== null);
+  const unquantified = rest.filter((m) => m.quantum === null);
+  return actionsThatFit([...failed, ...quantified.slice(0, 1), ...unquantified, ...quantified.slice(1)]);
 }
 
 export interface BoardActions {

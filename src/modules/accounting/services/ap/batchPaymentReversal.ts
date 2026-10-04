@@ -30,7 +30,9 @@ import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { fetchBillCandidates, round2 } from './supplierAllocationLines';
 import { toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
-import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch } from './paymentJournalReversal';
+import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch, type BankLeg } from './paymentJournalReversal';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import type { ReversalWithLateClaim } from '../gl/journalEntryPostingService';
 import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
@@ -44,6 +46,10 @@ export class BatchAlreadyReversedError extends Error {
 
 /** `reversalEntryId` is null when the batch journal's chain was already out of the ledger: nothing was posted. */
 export interface BatchReversal { reversalEntryId: string | null; billsReopened: number }
+/** D10: what the bank reversal of the batch's line reports — members cancelled, money taken off bills, the contra. */
+export interface BatchReversalDetail extends BatchReversal {
+  membersCancelled: number; amountUnapplied: number; reversal: ReversalWithLateClaim | null;
+}
 
 export async function reverseBatch(companyId: string, batchId: string, userId: string): Promise<BatchReversal> {
   // Every lock under ONE budget, plain UPDATEs included (D8 round 10).
@@ -64,7 +70,20 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   const leg = peekedJournal
     ? await lockBankLegOf(companyId, peekedJournal, `Batch ${String(peek.batch_number)}`)
     : null;
+  const { reversalEntryId, billsReopened } = await reverseBatchWithLeg(companyId, batchId, userId, peekedJournal, leg);
+  return { reversalEntryId, billsReopened };
+}
 
+/**
+ * The batch reversal from step (2) on, its bank lines ALREADY locked by the caller: `reverseBatch` above, or the bank
+ * reversal of a statement line matched to the batch journal's chain (D10 O3, bank/bankChainLineReversal), which
+ * locks every line of the chain in id order first and builds the leg itself — the same order, bank lines -> batch
+ * -> members -> bills -> journal. Must run inside the caller's savepoint and flow lock budget.
+ */
+export async function reverseBatchWithLeg(
+  companyId: string, batchId: string, userId: string, peekedJournal: string | null, leg: BankLeg | null,
+  opts?: PostingActorOpts & { reversalDate?: string },
+): Promise<BatchReversalDetail> {
   // (2) The batch row. A second click waits here and then reads 'reversed'.
   const batch = (await claimUnderLockTimeout('payment batch', async () => (await sql`
     SELECT batch_number, status, gl_journal_entry_id FROM supplier_payment_batches
@@ -134,18 +153,22 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   // (3) The journal last: locked, re-checked for a bank line matched meanwhile, unmatched.
   // The bank line is freed even when the chain is already out (D8 round 6).
   await lockJournalAndUnmatch(companyId, journalId, leg, `Batch ${number}`);
-  const reversalEntryId = leg.alreadyReversed
-    ? null : String((await reverseJournalEntry(companyId, leg.reverseId, userId)).id); // the chain head (D8)
-  await sql`
+  const reversal = leg.alreadyReversed ? null : await reverseJournalEntry(companyId, leg.reverseId, userId, opts); // the head (D8)
+  const cancelled = (await sql`
     UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
     WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
-  `;
+    RETURNING id
+  `) as DbRow[];
   await sql`
     UPDATE supplier_payment_batches SET status = 'reversed', updated_at = NOW()
     WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID AND status = 'processed'
   `;
+  const reversalEntryId = reversal ? String(reversal.id) : null;
   log.info('Reversed supplier payment batch', {
     batchId, userId, journalId, reversalEntryId, bills: perBill.length, bankLines: leg.bankLineIds.length,
   }, 'accounting');
-  return { reversalEntryId, billsReopened: perBill.length };
+  return {
+    reversalEntryId, billsReopened: perBill.length, membersCancelled: cancelled.length,
+    amountUnapplied: round2(perBill.reduce((t, r) => t + Number(r.amount), 0)), reversal,
+  };
 }

@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -19,7 +20,6 @@ import {
   isReceiptRefusal,
   isRetryableReceiptRefusal,
 } from '@/modules/accounting/services/ar/receiptRefusal';
-import { isPaymentLockTimeout } from '@/modules/accounting/services/core/paymentLock';
 
 interface AllocationItem {
   invoiceId: string;
@@ -114,7 +114,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // raises it as a `ReceiptRefusal` carrying `retryable: true`. Answering
       // that 400 four lines below made this route contradict itself — the same
       // instant of contention, 409 for the receipt row and 400 for the invoice.
-      if (isPaymentLockTimeout(err) || isRetryableReceiptRefusal(err)) {
+      // D11: a held row (the payment, or an invoice raised as a `held` refusal) is 503 + Retry-After, nothing written.
+      if (respondIfLockTimeout(res, err)) {
+        log.info('Customer allocation hit a contended row', { paymentId });
+        return;
+      }
+      if (isRetryableReceiptRefusal(err)) {
         log.info('Customer allocation hit a contended row', { paymentId });
         return apiResponse.conflict(res, (err as Error).message);
       }

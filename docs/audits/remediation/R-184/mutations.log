@@ -1,0 +1,28 @@
+HEAD: 1f7d840a45037ae9f85efb8b39b952216e210256; fixture none; load 16.33; tests: neonModuleShape, neonBarrelSurface, rollbackCensus
+(A first batch padded M11/M12 with 200 lines; M12 SURVIVED because the 39-line barrel plus 200 is 239, under the limit: a bad mutant, not a missing test. Padding is now 300 lines.)
+BASELINE before: 66 passed (66)
+M1 transaction.ts builds its own pool instead of importing ./pool [src/lib/neon/transaction.ts] -> RED (1 failed | 65 passed (66))
+M2 transaction.ts reads its own AsyncLocalStorage, not @/lib/als [src/lib/neon/transaction.ts] -> RED (1 failed | 65 passed (66))
+M3 query.ts (LazyQuery.run) reads its own AsyncLocalStorage [src/lib/neon/query.ts] -> RED (1 failed | 65 passed (66))
+M4 sql.ts savepoint counter per call, not per module [src/lib/neon/sql.ts] -> RED (1 failed | 65 passed (66))
+M5 barrel drops withSavepoint [src/lib/neon.ts] -> RED (2 failed | 64 passed (66))
+M6 barrel adds an export (buildQuery) [src/lib/neon.ts] -> RED (1 failed | 65 passed (66))
+M7 barrel default export is not sql [src/lib/neon.ts] -> RED (1 failed | 65 passed (66))
+M8 barrel wraps fmtDate instead of re-exporting it [src/lib/neon.ts] -> RED (1 failed | 65 passed (66))
+M9 pool.ts no longer imports @/lib/pgTypes [src/lib/neon/pool.ts] -> RED (1 failed | 65 passed (66))
+M10 production file imports a module directly (alsTransaction.ts -> @/lib/neon/pool) [src/lib/alsTransaction.ts] -> RED (1 failed | 65 passed (66))
+M11 sql.ts over 300 lines [src/lib/neon/sql.ts] -> RED (1 failed | 65 passed (66))
+M12 barrel over 300 lines [src/lib/neon.ts] -> RED (1 failed | 65 passed (66))
+M13 rollback census forgets sql.ts owns a transaction (UNREADABLE_BEGIN emptied) [tests/unit/lib/rollbackCensus.test.ts] -> RED (1 failed | 65 passed (66))
+BASELINE after: 66 passed (66)
+E1 evidence script exportSurface.mts: barrel renames type export TxSql -> TxSqlRenamed -> RED (diff has 2 changed lines vs baseline; an empty diff is the pass)
+ROUND 1 (review LOWs), HEAD fb478bb6fc0d3996813f0754659288fce39c6135 + working tree
+BASELINE before: census 36 passed (36); gate exit 0: OK: no raw transaction control in 3288 files.; lint barrel exit 0: no no-console error; lint pool exit 0: no no-console error
+R1 LazyQuery.run sends one more unreadable query [src/lib/neon/query.ts] -> RED (1 failed | 35 passed (36))
+R2 census drops query.ts from COUNTED_ANYWAY [tests/unit/lib/rollbackCensus.test.ts] -> RED (1 failed | 35 passed (36))
+R3 raw sql COMMIT in src/lib/neon/sql.ts (no exemption left) [src/lib/neon/sql.ts] -> RED (exit 1: FAIL: raw transaction control through the `sql` helper.)
+R4 raw sql COMMIT in the barrel src/lib/neon.ts [src/lib/neon.ts] -> RED (exit 1: FAIL: raw transaction control through the `sql` helper.)
+R5 console.log in the barrel (no-console exemption dropped) [src/lib/neon.ts] -> RED (exit 1: 41:38  error  Unexpected console statement  no-console)
+R6 console.log in src/lib/neon/pool.ts [src/lib/neon/pool.ts] -> RED (exit 1: 70:38  error  Unexpected console statement  no-console)
+BASELINE after: census 36 passed (36); gate exit 0: OK: no raw transaction control in 3288 files.; lint barrel exit 0: no no-console error; lint pool exit 0: no no-console error
+PR #631 review: R7 neonModuleShape regex without importMock/requireActual/requireMock [tests/unit/lib/neonModuleShape.test.ts] -> RED (2 failed | 24 passed (26)); baseline after restore 26 passed (26)

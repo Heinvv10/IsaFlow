@@ -1,0 +1,10 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17; fixture none; load 48.36; baseline on UNSPLIT paystackClient.ts (432 lines); pinned list captured via: bun exports.ts -> ["chargeAuthorization","createPlan","createSubscription","disableSubscription","initializeTransaction","verifyTransaction"]
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r183
+
+
+ Test Files  2 passed (2)
+      Tests  19 passed (19)
+   Start at  10:15:08
+   Duration  281ms (transform 75ms, setup 0ms, import 89ms, tests 82ms, environment 0ms)
+

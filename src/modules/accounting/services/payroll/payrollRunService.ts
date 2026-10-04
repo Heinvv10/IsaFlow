@@ -238,7 +238,7 @@ export async function calculatePayrollRun(
   // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.
   //
   // This used to issue `sql`BEGIN``/`sql`COMMIT`` directly. Those route onto
-  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so the COMMIT committed the WHOLE
   // request, not this block: every earlier write in the request was made
   // durable, and any enclosing savepoint ceased to exist. On the MCP path that

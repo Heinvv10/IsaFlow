@@ -101,7 +101,9 @@ export async function cancelReconciliation(
 
   if (opts.dryRun) {
     const projected = (await sql`
-      SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status = 'matched') AS matched
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE status = 'matched'
+               AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)) AS matched
       FROM bank_transactions
       WHERE reconciliation_id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
     return {
@@ -117,12 +119,15 @@ export async function cancelReconciliation(
     // Matching is reconciliation work and is undone with the session. Allocated,
     // provisional and excluded rows keep their status and their journal link —
     // those exist independently of this reconciliation — and are only detached.
+    // So does an EVIDENCED provisional's line (D10 round 2, brk-d10 F2): 'matched' by the evidence attach, not by
+    // this session, with no matched journal line — its cash is booked by the provisional journal, and resetting it
+    // left that cash booked with the line free to be allocated a second time.
     const reverted = (await tx`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
           updated_at = NOW()
       WHERE reconciliation_id = ${id}::UUID AND company_id = ${companyId}::UUID
-        AND status = 'matched'
+        AND status = 'matched' AND NOT (provisional_je_id IS NOT NULL AND matched_journal_line_id IS NULL)
       RETURNING id`) as DbRow[];
     const detached = (await tx`
       UPDATE bank_transactions

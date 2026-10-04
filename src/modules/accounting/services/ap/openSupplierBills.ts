@@ -124,7 +124,7 @@ export async function fetchOpenSupplierBills(
     if (isLockContention(err)) {
       throw new SupplierPaymentRefusal(
         'Another request is paying one of these bills — retry in a moment.',
-        { retryable: true },
+        { retryable: true, held: true },
       );
     }
     throw err;

@@ -14,7 +14,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
-import { MAX_CHAIN_DEPTH } from '../shared/journalChainHead';
+import { findJournalChainRoot } from '../shared/journalChainHead';
 
 /** How every settlement refusal names the undo — the UI action first. */
 export const UNAPPLY_REMEDY = 'Unapply on the payment page (or the unapply_supplier_payment tool)';
@@ -30,24 +30,17 @@ export async function refuseReversingSettlementJournal(
   if (!entry.source || !SETTLEMENT_SOURCES.has(entry.source)) return;
   // The entry OR any entry it reverses (D8): a provisional reversed and
   // re-reversed settles through its chain, and reversing the head R2 takes it
-  // out of the ledger exactly as reversing it would. Walked up `reversal_of_id`
-  // with the same guard as shared/journalChainHead: the path, so a forged loop
-  // stops at its first repeat, and MAX_CHAIN_DEPTH.
+  // out of the ledger exactly as reversing it would. Both halves are chain
+  // ROOTS (the provisional and the reclass are posted as themselves, never as
+  // a reversal), so "the entry or one it reverses" is its chain's root — the
+  // shared walk up (D10). No root (a forged loop): the entry itself.
+  const root = (await findJournalChainRoot(companyId, entry.id)) ?? entry.id;
   const [row] = (await sql`
-    WITH RECURSIVE up AS (
-      SELECT id, reversal_of_id, ARRAY[id] AS path FROM gl_journal_entries
-      WHERE id = ${entry.id}::UUID AND company_id = ${companyId}::UUID
-      UNION ALL
-      SELECT p.id, p.reversal_of_id, up.path || p.id FROM gl_journal_entries p
-      JOIN up ON p.id = up.reversal_of_id
-      WHERE p.company_id = ${companyId}::UUID
-        AND NOT p.id = ANY(up.path) AND cardinality(up.path) < ${MAX_CHAIN_DEPTH}
-    )
-    SELECT payment_number, settles_provisional_je_id IN (SELECT id FROM up) AS is_provisional
+    SELECT payment_number, settles_provisional_je_id = ${root}::UUID AS is_provisional
     FROM supplier_payments
     WHERE company_id = ${companyId}::UUID AND status <> 'cancelled'
       AND settles_provisional_je_id IS NOT NULL
-      AND (settles_provisional_je_id IN (SELECT id FROM up) OR gl_journal_entry_id IN (SELECT id FROM up))
+      AND (settles_provisional_je_id = ${root}::UUID OR gl_journal_entry_id = ${root}::UUID)
     LIMIT 1
   `) as DbRow[];
   if (!row) return;

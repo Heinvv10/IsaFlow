@@ -262,8 +262,8 @@ describe('R-088 backstop: the partial unique index on the posted bytes', () => {
   });
 });
 
-// A request waiting on another's post of the same content answers a busy 409
-// of its own, naming no document.
+// A request waiting on another's post of the same content answers a busy 503 + Retry-After
+// of its own (D11: a held lock, it was 409), naming no document.
 describe('R-088 a fingerprint held by another request', () => {
   it('answers RECEIPT_POST_BUSY after the bounded wait', async () => {
     const slip = await upload('busy-3105', { total: 3105 });
@@ -271,7 +271,7 @@ describe('R-088 a fingerprint held by another request', () => {
     try {
       await holder.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [`r088|${company}|sha:${bytesHash('busy-3105')}`]);
       const out = await receiptToJournal(slip);
-      expect(out.state.statusCode).toBe(409);
+      expect(out.state.statusCode).toBe(503);
       const error = errorOf(out);
       expect(error.details).toMatchObject({ code: 'RECEIPT_POST_BUSY' });
       expect(error.message).not.toContain(slip);

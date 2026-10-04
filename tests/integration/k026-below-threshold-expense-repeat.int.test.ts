@@ -274,7 +274,7 @@ it('a request that cannot get the row lock is refused, not queued forever', asyn
       await held.query('SELECT id FROM assets WHERE id=$1 FOR UPDATE', [lockAsset]);
 
       const result = await expenseAs(adminToken, lockAsset);
-      expect(result.state.statusCode).toBe(409);
+      expect(result.state.statusCode).toBe(503);
       expect(await journalsFor('A-K026-L')).toBe(0);
     } finally {
       // Release the row BEFORE the assertions can leave it held: a failing

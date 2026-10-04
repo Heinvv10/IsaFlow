@@ -64,6 +64,8 @@ async function handDecision(req: CompanyAuthedRequest, res: NextApiResponse, bod
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof HandCorrectionRefusedError) return apiResponse.badRequest(res, err.message);
+    // A held row is 503 + Retry-After (D11); a retryable STATE conflict stays 409.
+    if (respondIfLockTimeout(res, err)) return;
     if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
     throw err;
   }
@@ -138,12 +140,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // row was written at all, so the COMMIT withAuth issues for this 4xx
       // commits nothing and retrying is the whole remedy. A partly-undone run
       // is a 200 carrying `skipped` and `undone: false` instead.
-      if (isRetryableContention(err)) {
+      // A held row (the bank line, a payment, a chain head, the bank reversal's flow budget) is 503 + Retry-After
+      // (D8, D11); a retryable STATE conflict stays 409.
+      if (respondIfLockTimeout(res, err)) {
         log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
-        return apiResponse.conflict(res, (err as Error).message);
+        return;
       }
-      // Any other lock timeout (the bank reversal's flow budget, a chain-head claim, D8): 503 + Retry-After.
-      if (respondIfLockTimeout(res, err)) return;
+      if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
       return apiResponse.badRequestFromError(res, err, 'Undo failed');
     }
   }

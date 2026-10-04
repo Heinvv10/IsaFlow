@@ -144,7 +144,8 @@ const all = (kind: Kind) => Object.entries(scanned).flatMap(([file, fs]) => fs.f
 describe('R-176: no transaction owner releases its connection bare', () => {
   it('the tracked tree was read', () => {
     expect(sources.length).toBeGreaterThan(500);
-    expect(Object.keys(scanned)).toEqual(expect.arrayContaining(['src/lib/auth/withAuth.ts', 'src/lib/neon.ts', 'scripts/_pg.ts',
+    expect(Object.keys(scanned)).toEqual(expect.arrayContaining(['src/lib/auth/withAuth.ts', 'src/lib/neon/sql.ts',
+      'src/lib/neon/transaction.ts', 'scripts/_pg.ts',
       'pages/api/auth/verify-email.ts', 'src/lib/publicRouteTx.ts', 'src/lib/alsTransaction.ts', 'scripts/apply-migrations.ts']));
     expect(sources).toEqual(expect.arrayContaining(['middleware.ts', 'instrumentation.ts']));
   });
