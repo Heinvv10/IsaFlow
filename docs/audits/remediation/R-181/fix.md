@@ -342,7 +342,7 @@ orchestrator. Every other R-181 evidence log (red, green, mutations, regression)
   one reference at the same moment (for example two different webhook bodies arriving together)
   can both pass the SELECT and post the fee twice. Registered as R-185 (fix: a partial unique
   index, or an advisory lock on the reference); not introduced by R-181 and not fixed here.
-  Fix in progress under R-185 (branch fix/r185-gateway-fee-unique-20261003; not deployed):
+  Fixed under R-185 (branch fix/r185-gateway-fee-unique-20261003; not deployed):
   partial unique index `ux_gl_je_gateway_fee_reference` (migration 852) plus an outcome re-read in
   `postGatewayFee` (`docs/audits/remediation/R-185/fix.md`).
 - **A cancelled gateway receipt does not stop a re-bank (R-187, pre-existing).** The receipt dedupe

@@ -96,10 +96,12 @@ applied, or 852 refuses.
 
 - **dev (`isaflow_dev`), 2026-10-03, read-only, run by the orchestrator:** 0 duplicate groups, and 0
   journals with the agent at all.
-- **prod (`isaflow`), 2026-10-04 01:20 SAST, read-only (G3, approved by Hein):** 0 duplicate
-  groups, and 0 journals with the agent at all, out of 38,166 `gl_journal_entries` rows. The index
-  is not present yet. So 852 will build. The race has never posted a duplicate fee on prod, because
-  no Paystack fee journal exists there. `census.prod.log`.
+- **prod (`isaflow`), 2026-10-04, read-only (G3, approved by Hein):** 0 duplicate groups, and 0
+  journals with the agent at all (38,166 `gl_journal_entries` rows at 01:20 SAST, 38,343 at the
+  03:28 re-run). The index is not present yet. So 852 will build. The race has never posted a
+  duplicate fee on prod, because no Paystack fee journal exists there. `census.prod.log` is the
+  03:28 re-run with `psql -e`, so every query is echoed above its result; the 01:20 run did not echo
+  its SQL (rev-626-land2).
 
 ## Tests
 
@@ -177,6 +179,8 @@ applied, or 852 refuses.
 | `regression.land.k035-master.int.log` | k-035 on clean master `51f501bbe`, no 852 | the same 4 failures: pre-existing on master |
 | **Land 2, committed merge `05335acec` of master `4ac280c63` (#625, #629, #631, #630, #632 merged)** | | |
 | `regression.land2.int.log` | same 22 files, 852 applied | 210/214; the same 4 k-035 failures (R-190, now on master) |
+| `regression.land2.r187.int.log` | the 2 R-187 files (`r187-*`), which drive the dedupe-path fee post that master's R-187 rewrote, 852 applied | 10/10 |
+| `regression.land2.unit.log` | `tests/unit/services/ar/gateway*`, `tests/unit/services/billing/paystack*` (11 files at this tree) | 141/141 |
 
 ## Recorded, not changed
 

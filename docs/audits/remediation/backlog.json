@@ -15309,7 +15309,9 @@
         "docs/audits/remediation/R-185/regression.land.int.log",
         "docs/audits/remediation/R-185/regression.land.k035-master.int.log",
         "docs/audits/remediation/R-185/census.prod.log",
-        "docs/audits/remediation/R-185/regression.land2.int.log"
+        "docs/audits/remediation/R-185/regression.land2.int.log",
+        "docs/audits/remediation/R-185/regression.land2.r187.int.log",
+        "docs/audits/remediation/R-185/regression.land2.unit.log"
       ],
       "fixCommit": null,
       "pr": null,
@@ -15322,7 +15324,7 @@
       "reportedSeverity": "low",
       "title": "The Paystack fee journal has no unique constraint; two concurrent dedupe-path settlements can post the fee twice",
       "claim": "postGatewayFee (gatewayFeeService.ts) guards the fee leg with a SELECT on gl_journal_entries by (company_id, reference, posting_agent) and then inserts. Nothing enforces it: two calls for one reference at once (for example two different webhook bodies for the same reference arriving together, both on the receipt-already-banked path) can both pass the SELECT and both post the fee. Pre-existing; not introduced by R-181. Fix: a partial unique index on gl_journal_entries (company_id, reference) WHERE posting_agent = 'system:paystack-receipt:v1' AND reference IS NOT NULL AND status IS DISTINCT FROM 'reversed', or a transaction-scoped advisory lock on the reference before the SELECT.",
-      "processNotes": "2026-10-02: recorded by the R-181 PR #618 final review. Pre-existing; not fixed in R-181. 2026-10-03: fixed per Hein's 2026-10-03 decision (partial unique index): migration 852 adds ux_gl_je_gateway_fee_reference (refuses to build, with a count, if duplicates exist) and postGatewayFee runs create+post in a savepoint and re-reads by outcome on any failure; dev/prod census PENDING (orchestrator). 2026-10-03 (review round 1): status in-progress, blocked on the read-only census of the 852 header query against prod (gate G3, needs Hein); dev (isaflow_dev) returned 0 duplicate groups and 0 journals with the agent, read-only."
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 final review. Pre-existing; not fixed in R-181. 2026-10-03: fixed per Hein's 2026-10-03 decision (partial unique index): migration 852 adds ux_gl_je_gateway_fee_reference (refuses to build, with a count, if duplicates exist) and postGatewayFee runs create+post in a savepoint and re-reads by outcome on any failure; dev/prod census PENDING (orchestrator). 2026-10-03 (review round 1): status in-progress, blocked on the read-only census of the 852 header query against prod (gate G3, needs Hein); dev (isaflow_dev) returned 0 duplicate groups and 0 journals with the agent, read-only. 2026-10-04: prod census (G3, read-only, approved by Hein): 0 duplicate groups, 0 journals with the agent, index absent; status fixed. At the master merge 05335acec: 22 int files 210/214 (the 4 R-190 k-035 failures), the 2 R-187 int files 10/10 and the fee unit set 141/141, all with 852 applied."
     },
     {
       "area": "accounting/core archiving",
