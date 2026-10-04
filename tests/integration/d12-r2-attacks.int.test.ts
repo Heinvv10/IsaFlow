@@ -19,6 +19,7 @@ import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkA
 import { reverseJournalEntryTool } from '@/lib/mcp/tools/writeJournalReverse';
 import { isRefusalCoded } from '@/lib/mcp/tools/toolHelpers';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { excludeTransaction } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import { getReconciliationById } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { attachEvidenceToProvisional } from '@/modules/accounting/services/capture/evidenceAttachmentService';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
@@ -78,6 +79,19 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(await lineOf(p.bt)).toMatchObject({ status: 'imported', rec });
   }, 60000);
 
+  it('ATK1b bulk_accept on a line a peer holds: the UPDATE itself is bounded too — 503 at ~5 s', async () => {
+    const p = await seedPair(c, await newBank(c), 113.13, '2026-06-02');
+    const h: PoolClient = await c.fx.pool.connect();
+    await h.query('BEGIN');
+    await h.query('SELECT id FROM bank_transactions WHERE id = $1 FOR UPDATE', [p.bt]);
+    let out: Call;
+    try { out = await call(c, token, routes.tx, { action: 'bulk_accept', bankTransactionIds: [p.bt] }); }
+    finally { await h.query('ROLLBACK'); h.release(); }
+    expect(out.status, out.body).toBe(503);
+    expect(out.ms).toBeGreaterThan(4000); expect(out.ms).toBeLessThan(8500);
+    expect((await lineOf(p.bt)).status).toBe('imported');
+  }, 60000);
+
   it('ATK2 adjustment vs a writer that posted a journal and then locks a line of the session: no 40P01', async () => {
     const bankX = await newBank(c);
     const pX = await seedPair(c, bankX, 121.21, '2026-06-02');
@@ -135,6 +149,39 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(b.ok, b.ok ? '' : String(b.e)).toBe(true);
     expect((await lineOf(xId)).status, 'the bulk allocate reached the session line').toBe('allocated');
   }, 90000);
+
+  it('ATK2c adjustment while a writer SHARES the session and then posts a journal: no 40P01, the refresh is skipped', async () => {
+    const bankX = await newBank(c);
+    const pX = await seedPair(c, bankX, 141.41, '2026-06-02');
+    const recX = await startSession(c, token, bankX);
+    const rb0 = Number(((await sql`SELECT reconciled_balance FROM bank_reconciliations WHERE id = ${recX}::UUID`) as Row[])[0]!.reconciled_balance);
+    const lineY = await seedLine(c, await newBank(c), 60, '2026-06-03');
+    const dl0 = await deadlocks();
+    // B shares X's session (an exclude of X's line locks it), posting nothing yet.
+    const cl: PoolClient = await c.fx.pool.connect();
+    await cl.query('BEGIN');
+    await runOn(c.fx, cl, () => excludeTransaction(c.fx.companyId, pX.bt, 'd12 atk2c'));
+    // A posts its journal while B shares the session; its header refresh must not wait on B.
+    const pA = call(c, token, routes.recon, { action: 'adjustment', reconciliationId: recX, bankAccountId: bankX,
+      contraAccountId: c.acct.expense, amount: 7, description: 'd12 atk2c' });
+    await sleep(600);
+    // B's next write posts a journal: its number waits on A's uncommitted one.
+    let bErr: unknown = null;
+    try {
+      await runOn(c.fx, cl, () => allocateTransaction(c.fx.companyId, lineY, c.acct.expense!, c.fx.userId, undefined, 'account'));
+    } catch (e) { bErr = e; }
+    await cl.query(bErr ? 'ROLLBACK' : 'COMMIT');
+    cl.release();
+    const a = await pA;
+    await sleep(1500);
+    expect(await deadlocks() - dl0, 'Postgres detected a deadlock').toBe(0);
+    ok(a);
+    expect(a.status, a.body).toBe(200);
+    // B lost the pre-existing journal-number race to A, or won it — never a deadlock.
+    if (bErr) expect((bErr as { constraint?: string }).constraint, String(bErr)).toBe('uq_gl_je_company_entry_number');
+    expect(Number(((await sql`SELECT reconciled_balance FROM bank_reconciliations WHERE id = ${recX}::UUID`) as Row[])[0]!.reconciled_balance),
+      'the refresh was skipped while B shared the session').toBe(rb0);
+  }, 60000);
 
   it('ATK3 journal-entries-action reverse of the journal behind a RECONCILED line of a completed session -> 409', async () => {
     const s = await completedSession(c, token, { matched: 1 });
