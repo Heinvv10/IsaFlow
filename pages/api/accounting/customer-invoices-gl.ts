@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -28,6 +29,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const journalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId);
     return apiResponse.success(res, { journalEntryId });
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Failed to post invoice to GL';
     log.error('Failed to post customer invoice to GL', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

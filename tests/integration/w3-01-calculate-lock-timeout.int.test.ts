@@ -68,7 +68,7 @@ describe('calculate — the run header lock is bounded (W3-01 round 3)', () => {
       peer.release();
     }
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatchObject({ details: { code: 'PAYROLL_LOAN_LOCK_TIMEOUT' } });
     expect(res.body.error?.message).toMatch(/retry in a moment/);
     expect(waitedMs).toBeGreaterThanOrEqual(4500);
@@ -109,7 +109,7 @@ describe('calculate — the run header lock is bounded (W3-01 round 3)', () => {
       peer.release();
     }
 
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(503);
     expect(res.body.error).toMatchObject({ details: { code: 'PAYROLL_LOAN_LOCK_TIMEOUT' } });
     expect(waitedMs).toBeGreaterThanOrEqual(4500);
     expect(waitedMs).toBeLessThan(8500);

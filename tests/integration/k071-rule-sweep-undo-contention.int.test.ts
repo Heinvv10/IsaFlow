@@ -146,7 +146,7 @@ it('undo: all held → 409, nothing committed; some held → 200, the rest commi
   const allHeld = await holding('SELECT id FROM bank_transactions WHERE id=ANY($1::UUID[]) FOR UPDATE', lines,
     () => run(UNDO, { action: 'undo', runId }));
   // Was 400 "Undo failed" (a 25P02 from the swallowed 55P03).
-  expect(allHeld.status).toBe(409);
+  expect(allHeld.status).toBe(503);
   expect(JSON.stringify(allHeld.body)).toMatch(/retry in a moment/i);
   for (const id of lines) expect(await status(id)).toBe('allocated');
   expect(await undoneAt()).toBeNull();

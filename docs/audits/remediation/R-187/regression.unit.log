@@ -1,0 +1,72 @@
+HEAD: 6a4ab4933853bcfe98e93c539153d8226efdb046; fixture none; load 55.88
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r187
+
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.617Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"d22c6427-3973-433b-9576-9fe8678b8840","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.619Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"7c4b6cf3-5172-426d-8ab6-146763d0e205","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.620Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"e56ff2b3-0d05-4fcb-8d64-88a62ed8fc37","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.620Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.621Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.622Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"9c8c40bd-327a-4d2d-94de-0e7517a7c5d2","allocated":50,"unallocated":65,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.622Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"09ceef39-0e31-4db5-863b-3e3feb689ac3","allocated":50,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.622Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"a1cbb27f-30ee-4a26-8e01-0bcd0a36b966","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.622Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.622Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.623Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:20:53.623Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.623Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"f1012547-f891-4768-9b68-7663abe7ef14","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.623Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"62889c0e-be04-46d9-bd33-d47d54e95eab","allocated":100,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.624Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"b5fc28e3-8634-4e72-9a39-034525bb83dd","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.624Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"c4f0fd26-b372-429f-b6fb-84c62f72167e","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"warn","message":"Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt","timestamp":"2026-10-03T08:20:53.619Z","component":"accounting","data":{"reference":"r181_alloc","invoiceId":"44444444-4444-4444-8444-444444444444","amountRand":115,"pending":20,"unallocated":20}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:20:53.624Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"278e396e-03a5-4ae7-aed3-aaa735ba0e24","allocated":0.01,"unallocated":114.99,"journalEntryId":"je-1"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.980Z","component":"API","requestId":"01M40DM4JTF35DBWJ2DZ6F0VC4","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (3ms)","timestamp":"2026-10-03T08:20:53.982Z","component":"API","requestId":"01M40DM4JTF35DBWJ2DZ6F0VC4","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"3ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.982Z","component":"http","requestId":"01M40DM4JTF35DBWJ2DZ6F0VC4","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":3,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-03T08:20:53.981Z","component":"PaystackPortal","requestId":"01M40DM4JTF35DBWJ2DZ6F0VC4","data":{"prId":"pr-1","err":"Invoice inv-1 is being processed by another request — retry in a moment."}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.982Z","component":"API","requestId":"01M40DM4JXA1WS44P7TZEKES3R","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_pass"}}}
+{"level":"info","message":"API Response: GET  - 200 (1ms)","timestamp":"2026-10-03T08:20:53.983Z","component":"API","requestId":"01M40DM4JXA1WS44P7TZEKES3R","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.983Z","component":"http","requestId":"01M40DM4JXA1WS44P7TZEKES3R","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.983Z","component":"API","requestId":"01M40DM4JZ7CR9DED44Z6BAQN5","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.983Z","component":"API","requestId":"01M40DM4JZ7CR9DED44Z6BAQN5","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.983Z","component":"http","requestId":"01M40DM4JZ7CR9DED44Z6BAQN5","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.984Z","component":"API","requestId":"01M40DM4K0C1FN02E8538G46CQ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.984Z","component":"API","requestId":"01M40DM4K0C1FN02E8538G46CQ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.984Z","component":"http","requestId":"01M40DM4K0C1FN02E8538G46CQ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-03T08:20:53.983Z","component":"PaystackPortal","requestId":"01M40DM4JZ7CR9DED44Z6BAQN5","data":{"prId":"pr-1","err":"The operation was aborted due to timeout"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.984Z","component":"API","requestId":"01M40DM4K0CQN5E12CV7W94PSB","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.984Z","component":"API","requestId":"01M40DM4K0CQN5E12CV7W94PSB","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.984Z","component":"http","requestId":"01M40DM4K0CQN5E12CV7W94PSB","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.985Z","component":"API","requestId":"01M40DM4K18PPKJV8QNGF45N1Q","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.985Z","component":"API","requestId":"01M40DM4K18PPKJV8QNGF45N1Q","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.985Z","component":"http","requestId":"01M40DM4K18PPKJV8QNGF45N1Q","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.991Z","component":"API","requestId":"01M40DM4K654GGKG6HSPG11CEM","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.991Z","component":"API","requestId":"01M40DM4K654GGKG6HSPG11CEM","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.991Z","component":"http","requestId":"01M40DM4K654GGKG6HSPG11CEM","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.992Z","component":"API","requestId":"01M40DM4K7CKJF1WGKA9E8VSMJ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.992Z","component":"API","requestId":"01M40DM4K7CKJF1WGKA9E8VSMJ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.992Z","component":"http","requestId":"01M40DM4K7CKJF1WGKA9E8VSMJ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.992Z","component":"API","requestId":"01M40DM4K80QWJFDT0K1NK3AXQ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.992Z","component":"API","requestId":"01M40DM4K80QWJFDT0K1NK3AXQ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.992Z","component":"http","requestId":"01M40DM4K80QWJFDT0K1NK3AXQ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:20:53.993Z","component":"API","requestId":"01M40DM4K941PEXRQ7HZX4BNEQ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:20:53.993Z","component":"API","requestId":"01M40DM4K941PEXRQ7HZX4BNEQ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:20:53.993Z","component":"http","requestId":"01M40DM4K941PEXRQ7HZX4BNEQ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:20:54.469Z","component":"accounting","data":{"reference":"r181_fee","fee":0.01,"journalEntryId":"je-fee"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:20:54.473Z","component":"accounting","data":{"reference":"r181_fee","fee":3.5,"journalEntryId":"je-fee"}}
+
+ Test Files  9 passed (9)
+      Tests  133 passed (133)
+   Start at  10:20:53
+   Duration  1.39s (transform 2.41s, setup 0ms, import 3.75s, tests 239ms, environment 1ms)
+
+--- component config (the two .tsx files are outside the unit config's include) ---
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r187
+
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  10:21:58
+   Duration  691ms (transform 124ms, setup 138ms, import 410ms, tests 115ms, environment 460ms)
+

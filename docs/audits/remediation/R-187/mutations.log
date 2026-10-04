@@ -1,0 +1,12 @@
+HEAD: 6a4ab4933853bcfe98e93c539153d8226efdb046; fixture 127.0.0.1:55933; load 60.33
+Suites per mutant: tests/unit/services/ar/gatewayReceiptWiring.test.ts (unit) + tests/integration/r187-cancelled-receipt-replay.int.test.ts (int, real fixture)
+BASELINE before: unit [18 passed (18)] int [4 passed (4)]
+M1 restore `AND status IS DISTINCT FROM 'cancelled'` in the dedupe WHERE -> RED (unit [1 failed | 17 passed (18)]; int [2 failed | 2 passed (4)])
+M2 drop the flag write on the cancelled path -> RED (unit [1 failed | 17 passed (18)]; int [2 failed | 2 passed (4)])
+M3 post the fee on the cancelled path -> RED (unit [1 failed | 17 passed (18)]; int [2 failed | 2 passed (4)])
+M4 drop the live-first ORDER BY -> RED (unit [18 passed (18)]; int [1 failed | 3 passed (4)])
+M5 invert the ORDER BY (cancelled first) -> RED (unit [1 failed | 17 passed (18)]; int [1 failed | 3 passed (4)])
+M6 the cancelled branch never taken (falls to the live dedupe path) -> RED (unit [1 failed | 17 passed (18)]; int [2 failed | 2 passed (4)])
+M7 the flag carries a different reason -> RED (unit [1 failed | 17 passed (18)]; int [2 failed | 2 passed (4)])
+BASELINE after: unit [18 passed (18)] int [4 passed (4)]
+source restored: yes

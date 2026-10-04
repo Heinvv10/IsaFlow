@@ -92,12 +92,12 @@ describe('POST /api/accounting/customer-allocations', () => {
     expect(log.info).toHaveBeenCalled();
   });
 
-  it('answers a contended payment with 409 and keeps the retry wording', async () => {
+  it('answers a contended payment with 503 and keeps the retry wording (D11, was 409)', async () => {
     vi.mocked(planReceiptApplication).mockRejectedValue(new PaymentLockTimeoutError(PAYMENT));
     const { req, res } = mockReqRes();
     await handler(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
     // Pre-write: the lock is planReceiptApplication's first act, so the 4xx
     // withAuth COMMITs commits an empty transaction.
@@ -107,17 +107,17 @@ describe('POST /api/accounting/customer-allocations', () => {
   // The half this route used to contradict itself on: a contended INVOICE is
   // raised one call deeper, as a ReceiptRefusal carrying `retryable: true`, and
   // fell through to the 400 four lines below the payment lock's 409.
-  it('answers a contended INVOICE 409 too, not just a contended payment', async () => {
+  it('answers a contended INVOICE 503 too, not just a contended payment (D11, was 409)', async () => {
     vi.mocked(planReceiptApplication).mockRejectedValue(
       new ReceiptRefusal(
         'Another request is applying cash to one of these invoices — retry in a moment.',
-        { retryable: true },
+        { retryable: true, held: true },
       ),
     );
     const { req, res } = mockReqRes();
     await handler(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
     expect(applyReceiptPlan).not.toHaveBeenCalled();
   });

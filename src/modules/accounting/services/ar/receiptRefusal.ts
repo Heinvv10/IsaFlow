@@ -37,10 +37,18 @@ export class ReceiptRefusal extends Error {
    */
   readonly retryable: boolean;
 
-  constructor(message: string, opts?: { retryable?: boolean }) {
+  /**
+   * TRUE when the contention is a HELD ROW — a lock wait that timed out (or a deadlock victim) on a row a peer holds.
+   * A held row answers 503 + Retry-After (D11, `respondIfLockTimeout`); a `retryable` refusal that is not held is a
+   * STATE conflict (the document changed under the caller) and stays 409. Implies `retryable`.
+   */
+  readonly held: boolean;
+
+  constructor(message: string, opts?: { retryable?: boolean; held?: boolean }) {
     super(message);
     this.name = 'ReceiptRefusal';
-    this.retryable = opts?.retryable === true;
+    this.held = opts?.held === true;
+    this.retryable = this.held || opts?.retryable === true;
   }
 }
 
@@ -56,4 +64,9 @@ export function isReceiptRefusal(err: unknown): err is ReceiptRefusal {
 /** A refusal the caller should answer 409-and-retry rather than 400. */
 export function isRetryableReceiptRefusal(err: unknown): boolean {
   return isReceiptRefusal(err) && (err as { retryable?: unknown }).retryable === true;
+}
+
+/** A refusal for a row a peer holds (`held`): answered 503 + Retry-After, not 409. */
+export function isReceiptHeldRow(err: unknown): boolean {
+  return isReceiptRefusal(err) && (err as { held?: unknown }).held === true;
 }

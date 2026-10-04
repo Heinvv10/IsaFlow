@@ -166,7 +166,7 @@ export async function fetchBillCandidates(
       // is cancelled" and answers both 400.
       throw new SupplierPaymentRefusal(
         'Another request is paying one of these bills — retry in a moment.',
-        { retryable: true },
+        { retryable: true, held: true },
       );
     }
     throw err;

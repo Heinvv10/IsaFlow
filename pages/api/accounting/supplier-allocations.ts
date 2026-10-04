@@ -30,6 +30,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -43,7 +44,6 @@ import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
 } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
-import { isPaymentLockTimeout } from '@/modules/accounting/services/core/paymentLock';
 
 interface AllocationItem {
   invoiceId: string;
@@ -132,7 +132,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // `planSupplierAllocationLines` raises as a refusal carrying
       // `retryable: true`. Both are pre-write, so the 4xx `withAuth` COMMITs
       // commits nothing. The AR mirror is `customer-allocations.ts`.
-      if (isPaymentLockTimeout(err) || isRetryableSupplierPaymentRefusal(err)) {
+      // D11: a held row (the payment, or a bill raised as a `held` refusal) is 503 + Retry-After, nothing written.
+      if (respondIfLockTimeout(res, err)) {
+        log.info('Supplier allocation hit a contended row', { paymentId }, 'accounting');
+        return;
+      }
+      if (isRetryableSupplierPaymentRefusal(err)) {
         log.info('Supplier allocation hit a contended row', { paymentId }, 'accounting');
         return apiResponse.conflict(res, (err as Error).message);
       }

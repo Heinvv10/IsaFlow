@@ -89,6 +89,11 @@ function voidTool(
             + 'Reverse each bank line with reverse_bank_allocation instead.',
           );
         }
+        if (result.refusal === 'batch_member') {
+          // The HTTP void's wording (supplierPaymentGates.refuseBatchMember): the batch's one journal paid it.
+          return toolError(`Payment ${result.paymentNumber ?? paymentId} belongs to batch ${result.batchId} — `
+            + 'it was paid by that batch; reverse the batch (Batch Payments page) instead.');
+        }
         return toolError(
           `Only a document whose cash has been applied can be voided (status: ${result.status}). `
           + 'An unapplied document has not moved any invoice balance — cancel it instead.',

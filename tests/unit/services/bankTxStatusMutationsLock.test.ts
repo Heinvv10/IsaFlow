@@ -71,7 +71,8 @@ const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: un
   {
     name: 'matchTransaction',
     run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
-    preWrite: [[{ id: JL_ID }], [], []],  // line, its journal (not reversed), claim
+    // line, its journal (not reversed), claim, its chain root (D10: none -> the journal), a provisional holding it (none)
+    preWrite: [[{ id: JL_ID }], [], [], [], []],
   },
   { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
   { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },

@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -157,6 +158,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // the manual row is discarded either way. What changes is the wording the
     // caller reads. A blanket catch on a route that writes BEFORE it can refuse
     // is still a hazard for any non-aborting throw — registered as R-060.
+    // A held row is 503 + Retry-After (D11); a retryable STATE conflict keeps the 409.
+    if (respondIfLockTimeout(res, err)) {
+      log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
+      return;
+    }
     if (isRetryableContention(err)) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);

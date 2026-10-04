@@ -28,7 +28,7 @@
  */
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceToProvisional, type AttachResult } from './evidenceAttachmentService';
 
@@ -60,7 +60,8 @@ export async function attachEvidenceAndSettleApproved(
   } catch (err) {
     // Contention, not a refusal (D8 round 11): the savepoint rolled the settlement back, and a retry of the whole
     // request settles it — withdrawing the auto-approval would send a person to approve by hand for a 5 s wait.
-    if (isLockTimeoutError(err)) throw err;
+    // D11: ALL contention — a typed timeout, a held refusal, a raw 55P03 or a 40P01 deadlock victim — not only the typed.
+    if (isHeldRowError(err)) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     const why = attached.attachedJeId
       ? `this bill's slip is already booked by a bank-first provisional journal, and settling the bill against it failed (${reason})`
