@@ -112,7 +112,7 @@ export class JournalChainBrokenError extends Error {
 export const CHAIN_HEAD_LOCK_BUDGET_MS = 5000;
 
 /**
- * The chain's HEAD, locked FOR UPDATE, and whether the chain stands; null when
+ * The chain's HEAD, locked FOR UPDATE (FOR SHARE with `mode` share), and whether the chain stands; null when
  * the root is not a posted entry of this company. A broken chain throws
  * `refuse(message)`.
  *
@@ -136,6 +136,7 @@ export async function lockChainHead(
   companyId: string,
   rootId: string,
   refuse: (message: string) => Error = (m) => new JournalChainBrokenError(m),
+  mode: 'update' | 'share' = 'update',
 ): Promise<{ id: string; standing: boolean } | null> {
   // One deadline across every pass: the budget bounds the whole wait, not each lock (D8 round 9: core/rowLockBudget).
   const deadline = Date.now() + CHAIN_HEAD_LOCK_BUDGET_MS;
@@ -143,7 +144,12 @@ export async function lockChainHead(
     const chain = await findJournalChainHead(companyId, rootId);
     if (!chain) return null;
     if (chain.kind === 'broken') throw refuse(brokenChainMessage(rootId, chain));
-    const [row] = await withRowLockBudget(async () => (await sql`
+    const [row] = await withRowLockBudget(async () => (mode === 'share'
+      ? await sql`
+      SELECT status, reversed_at FROM gl_journal_entries
+      WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
+      FOR SHARE`
+      : await sql`
       SELECT status, reversed_at FROM gl_journal_entries
       WHERE id = ${chain.id}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE
@@ -165,4 +171,21 @@ export async function lockStandingChainHead(
 ): Promise<string | null> {
   const head = await lockChainHead(companyId, rootId, refuse);
   return head?.standing ? head.id : null;
+}
+
+/**
+ * D12 round 4 (brk-d12 R3-1): FOR SHARE on the STANDING HEAD of the chain `journalEntryId` sits in — the entry a
+ * reversal claims. Every writer that ties a statement line to an EXISTING journal (a match, a transfer link) takes it
+ * after the line and before deciding, so a reversal in flight on ANY member's chain makes the writer wait (bounded,
+ * `JournalReversalLockTimeoutError` → 503), and once it commits the writer re-reads the chain under this lock and
+ * refuses a member that is out of the ledger. Order kept: bank line -> journal head. Null when the root is not a posted
+ * entry of this company (nothing to hold).
+ */
+export async function shareLockChainHeadOf(
+  companyId: string,
+  journalEntryId: string,
+  refuse: (message: string) => Error = (m) => new JournalChainBrokenError(m),
+): Promise<{ id: string; standing: boolean } | null> {
+  const root = (await findJournalChainRoot(companyId, journalEntryId)) ?? journalEntryId;
+  return lockChainHead(companyId, root, refuse, 'share');
 }

@@ -30,6 +30,12 @@ vi.mock('@/lib/neon', async (importOriginal) => ({
   // what the real `withSavepoint` does when `als.getStore()` is empty.
   withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
+// D12 round 4: the match's FOR SHARE on the chain HEAD (walk + lock) is proven against a real ledger in
+// tests/integration/d12-r4-chain-head.int.test.ts; here the target journal has no chain to hold.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  shareLockChainHeadOf: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

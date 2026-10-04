@@ -7,8 +7,11 @@
  * that lets a beaten runner-up reach its second-best line.
  */
 
-import { withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockBankTransactionsInIdOrder } from './bankTxLock';
+import { shareLockChainHeadOf } from '../shared/journalChainHead';
+import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 
 export type Row = Record<string, unknown>;
 
@@ -87,4 +90,46 @@ export async function runLinkPasses(
     log.warn(`${label} failed — non-fatal`, { ...context, error: err }, 'accounting');
     return { linked: 0, passes: 0, failed: true };
   }
+}
+
+/** One pairing a pass chose: the imported line and the free counterpart line of an existing transfer journal. */
+export interface TransferLinkPair {
+  new_tx_id: string; je_id: string; je_line_id: string; counterparty_bank_id: string; entity_name: string | null;
+}
+
+/**
+ * Apply a pass's pairings (D12 round 4, brk-d12 R3-1): a link ties a statement line to an EXISTING journal, so — as a
+ * match does — the lines are locked first (their sessions first, `lockBankTransactionsInIdOrder`), then each target
+ * journal's chain HEAD FOR SHARE (`shareLockChainHeadOf`, 5 s → 503); a reversal in flight on that chain is waited for,
+ * and the UPDATE re-reads under those locks that the journal still stands. Bank line -> journal head, the one order.
+ * `transfer_journal_entry_id` is set alongside the line: the duplicate-transfer guard in bankAllocationService selects
+ * on it, so a linked row without it is invisible to that guard.
+ */
+export async function applyTransferLinks(companyId: string, pairs: TransferLinkPair[]): Promise<Row[]> {
+  if (pairs.length === 0) return [];
+  await lockBankTransactionsInIdOrder(companyId, pairs.map((p) => p.new_tx_id));
+  for (const je of [...new Set(pairs.map((p) => String(p.je_id)))].sort()) await shareLockChainHeadOf(companyId, je);
+  return (await sql`
+    UPDATE bank_transactions bt
+    SET status                    = 'allocated',
+        allocation_type           = 'transfer',
+        transfer_journal_entry_id = m.je_id,
+        matched_journal_line_id   = m.je_line_id,
+        counterparty_account_id   = m.counterparty_bank_id,
+        allocated_entity_name     = m.entity_name,
+        -- Redundant today (the WHERE is status='imported', which a rule-posted row can never be) but keeps every
+        -- writer of allocated_entity_name symmetrical.
+        allocation_rule_id = NULL, allocation_rule_name = NULL,
+        updated_at                = NOW()
+    FROM jsonb_to_recordset(${JSON.stringify(pairs)}::JSONB)
+      AS m(new_tx_id UUID, je_id UUID, je_line_id UUID, counterparty_bank_id UUID, entity_name TEXT)
+    JOIN gl_journal_entries je ON je.id = m.je_id AND je.company_id = ${companyId}::UUID
+    WHERE bt.id         = m.new_tx_id
+      AND bt.company_id = ${companyId}::UUID
+      AND bt.status     = 'imported'
+      AND bt.feed_state = 'posted'
+      AND je.status     = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
+      AND NOT EXISTS (SELECT 1 FROM bank_transactions u
+        WHERE u.company_id = ${companyId}::UUID AND u.matched_journal_line_id = m.je_line_id)
+    RETURNING bt.id`) as Row[];
 }
