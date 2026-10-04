@@ -1,0 +1,117 @@
+HEAD: cb69d85639bbe6404f4c5906296e95301fd3e8f1 (new/changed tests, unchanged code); fixture none; load 39.88
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (26 tests | 2 failed) 192ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 8ms
+     × a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188) 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+AssertionError: expected +0 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:290:42
+    288|     const running = held.map(d => sem.acquireRenderSlot(d.run));
+    289|     await settle();
+    290|     expect(sem.renderSlotStats().active).toBe(2);
+       |                                          ^
+    291|     const waiter = deferred();
+    292|     const queued = sem.acquireRenderSlot(waiter.run);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)
+AssertionError: expected { active: 2, queued: +0 } to deeply equal { active: 2, queued: 1 }
+
+- Expected
++ Received
+
+  {
+    "active": 2,
+-   "queued": 1,
++   "queued": 0,
+  }
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:294:35
+    292|     const queued = sem.acquireRenderSlot(waiter.run);
+    293|     await settle();
+    294|     expect(sem.renderSlotStats()).toEqual({ active: 2, queued: 1 });
+       |                                   ^
+    295|
+    296|     const calls = sem.warn.mock.calls.filter(c => String(c[0]).include…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 3 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderQueueFullError: PDF render queue is full (0 waiting)
+ ❯ Object.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:177:13
+    175|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    176|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    177|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    178|     }
+    179|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:288:39
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:288:26
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderQueueFullError: PDF render queue is full (0 waiting)
+ ❯ Object.acquireRenderSlot src/lib/pdf/renderSemaphore.ts:177:13
+    175|     if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+    176|       log.warn('renderSemaphore: refused, wait queue is full', { max, …
+    177|       throw new RenderQueueFullError(queue.length);
+       |             ^
+    178|     }
+    179|     await new Promise<void>((resolve, reject) => {
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:288:39
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:288:26
+ ❯ node_modules/@vitest/runner/dist/chunk-artifact.js:1893:20
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "a set but invalid PDF_MAX_CONCURRENT_RENDERS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+RenderCapacityError: No PDF render slot became available within 0ms
+ ❯ Timeout._onTimeout src/lib/pdf/renderSemaphore.ts:187:25
+    185|           if (i >= 0) queue.splice(i, 1);
+    186|           log.warn('renderSemaphore: refused, no slot within the wait …
+    187|           waiter.refuse(new RenderCapacityError(waitMs));
+       |                         ^
+    188|         }, waitMs),
+    189|       };
+ ❯ listOnTimeout node:internal/timers:581:17
+ ❯ processTimers node:internal/timers:519:7
+
+This error originated in "tests/unit/lib/pdf/renderSemaphore.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "a set but invalid PDF_RENDER_QUEUE_TIMEOUT_MS "0.5" is logged as invalid, not as a clamp, and the default applies through acquireRenderSlot (R-188)". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 24 passed (26)
+     Errors  3 errors
+   Start at  10:47:14
+   Duration  412ms (transform 44ms, setup 0ms, import 56ms, tests 192ms, environment 0ms)
+

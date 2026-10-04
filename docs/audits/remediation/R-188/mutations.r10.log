@@ -1,0 +1,10 @@
+mutants on committed 17cb49ffbb69bd9a4b2d7a920cc31b2e33e39949; restored with git checkout
+BASELINE before:       Tests  52 passed (52)
+M43 no saturation warning:       Tests  2 failed | 50 passed (52)
+M44 no rate limit:       Tests  1 failed | 51 passed (52)
+M45 no acquire-failure error:       Tests  1 failed | 51 passed (52)
+M46 count rounds up again:       Tests  2 failed | 50 passed (52)
+M47 count floor without the minimum of 1 (0.5 -> 0):       Tests  1 failed | 51 passed (52)
+M48 note AI timer never cleared:       Tests  1 failed | 51 passed (52)
+M49 note AI abort bound 600 s:       Tests  1 failed | 51 passed (52)
+BASELINE after:       Tests  52 passed (52)

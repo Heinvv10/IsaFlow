@@ -151,7 +151,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // there was not a millisecond: the renderer was already admitted, the print
   // page's own fetch answered 400, `data-print-ready` was therefore never
   // set, and `waitForSelector` ran its full 30 seconds. `withRenderSlot`'s
-  // bound of three is PER PROCESS and shared by every tenant, so one tenant's
+  // concurrency bound (2 at the defaults) is PER PROCESS and shared by every tenant, so one tenant's
   // 25-per-15-minutes of knowingly-invalid requests could push other tenants'
   // exports onto the 503 path. Both checks are cheap and both are here, above
   // the rate-limit and the render, so an invalid window costs a 400.

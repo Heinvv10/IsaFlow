@@ -8,6 +8,7 @@ import { getCompanyMembership, type CompanyMembershipRow } from './companyMember
  * withBearerOrCookieAuth (cookie fallback) and withBearerAuth (strict,
  * challenge header) — never duplicate this logic.
  */
+import { connectObserved } from './poolTelemetry';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
@@ -125,7 +126,7 @@ export async function runBearerRequest(
   res.setHeader('Vary', 'Authorization');
 
   const startedAt = Date.now();
-  const client = await getAuthPool().connect();
+  const client = await connectObserved(getAuthPool(), 'bearerPipeline');
   let deferred: DeferredEnd | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   try {

@@ -1,0 +1,7 @@
+mutants on committed f87137b023778d6821aa0419b0d0927ecf6d9a83
+BASELINE before:       Tests  3 passed (3)
+M50 withAuth acquire unobserved:       Tests  1 failed | 2 passed (3)
+M51 bearer acquire unobserved:       Tests  2 failed | 1 passed (3)
+M52 extension acquire unobserved:       Tests  2 failed | 1 passed (3)
+M53 platform-admin app acquire unobserved:       Tests  1 failed | 2 passed (3)
+BASELINE after:       Tests  3 passed (3)
