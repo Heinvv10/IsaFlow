@@ -1,9 +1,8 @@
 /**
  * A transaction that every nested `sql` call joins.
  *
- * Lives outside `neon.ts` deliberately: that file is already well over the
- * 300-line cap, and this is a self-contained policy about commit boundaries
- * rather than part of the query client.
+ * Lives outside `@/lib/neon` deliberately: this is a self-contained policy
+ * about commit boundaries rather than part of the query client.
  */
 
 import { getPool } from '@/lib/neon';

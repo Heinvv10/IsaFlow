@@ -3,7 +3,7 @@
  * its per-row work inside a bare `try { … } catch { skipped.push(reason) }`
  * with NO savepoint around the row.
  *
- * Every request is one PostgreSQL transaction on the ALS client (src/lib/neon.ts
+ * Every request is one PostgreSQL transaction on the ALS client (src/lib/neon/query.ts
  * routes bare `sql` through `als.getStore().client`), so a row whose failure is
  * a Postgres ERROR raised OUTSIDE a nested savepoint aborts that transaction.
  * The catch swallows it and the loop continues — and every later row then fails
