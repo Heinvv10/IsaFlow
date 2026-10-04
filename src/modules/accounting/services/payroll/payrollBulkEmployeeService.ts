@@ -155,7 +155,7 @@ export async function applyBulkEmployeeUpdate(
   );
 
   // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
-  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
   // `withAuth` opens for every request — so it commits the WHOLE request and
   // destroys any enclosing savepoint.
   //

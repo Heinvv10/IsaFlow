@@ -25,9 +25,12 @@ import { renderSlotStats } from '@/lib/pdf/renderSemaphore';
 const ORIGINAL = {
   max: process.env.PDF_MAX_CONCURRENT_RENDERS,
   wait: process.env.PDF_RENDER_QUEUE_TIMEOUT_MS,
+  poolMax: process.env.AUTH_POOL_MAX,
 };
 
 beforeEach(() => {
+  // Pool of 20 (render ceiling 5): at the default of 10 the ceiling is 2 and would clamp the 3 asked for.
+  process.env.AUTH_POOL_MAX = '20';
   process.env.PDF_MAX_CONCURRENT_RENDERS = '3';
   process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
 });
@@ -37,6 +40,8 @@ afterEach(() => {
   else process.env.PDF_MAX_CONCURRENT_RENDERS = ORIGINAL.max;
   if (ORIGINAL.wait === undefined) delete process.env.PDF_RENDER_QUEUE_TIMEOUT_MS;
   else process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = ORIGINAL.wait;
+  if (ORIGINAL.poolMax === undefined) delete process.env.AUTH_POOL_MAX;
+  else process.env.AUTH_POOL_MAX = ORIGINAL.poolMax;
   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
 });
 

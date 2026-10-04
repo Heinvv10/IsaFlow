@@ -1,0 +1,81 @@
+HEAD: 76a7bb9d63d4f56f1c110e9b426f6c5afc01fa41 (split); fixture isaflow-fixture-r184 127.0.0.1:55935/isaflow_test (createdb -T isaflow_schema_fixture); load 29.97; the 8 files that refused isaflow_schema_fixture
+fixture=isaflow-fixture-r184 db=isaflow_test url=127.0.0.1:55935 head=76a7bb9d63d4f56f1c110e9b426f6c5afc01fa41 load=29.97
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r184
+
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.406Z","component":"accounting","data":{"invoiceId":"fdc92e0b-a909-4173-93b5-6471d3edd867","invoiceNumber":"D1-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.452Z","component":"accounting","data":{"invoiceId":"080fa4c7-f3e5-40d4-b985-7cfd03d3ee86","invoiceNumber":"D3-USI-1791017095287-327900"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.460Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.478Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.484Z","component":"accounting","data":{"invoiceId":"a8ef68cb-0d1a-4af8-9466-f82809e0007a","invoiceNumber":"TWIN-USI-1791017095287-327900"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:44:55.515Z","component":"accounting","data":{"entryId":"91b87b9e-0c62-44f9-944d-c817be7e18cd","entryNumber":"JE-2026-00001","lineCount":5}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:44:55.523Z","component":"accounting","data":{"id":"91b87b9e-0c62-44f9-944d-c817be7e18cd","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Approved supplier invoice","timestamp":"2026-10-03T08:44:55.524Z","component":"accounting","data":{"id":"080fa4c7-f3e5-40d4-b985-7cfd03d3ee86","journalEntryId":"91b87b9e-0c62-44f9-944d-c817be7e18cd"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.537Z","component":"accounting","data":{"invoiceId":"175e0167-90ed-4ce5-915d-a3d2f5dc09c5","invoiceNumber":"D5-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.579Z","component":"accounting","data":{"invoiceId":"bbeac808-d417-4a7a-9d53-4878839df7d4","invoiceNumber":"D7-USI-1791017095287-327900"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:44:55.600Z","component":"accounting","data":{"entryId":"c8146367-28c9-48eb-bf1c-b6da197eed7e","entryNumber":"JE-2026-00002","lineCount":3}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:44:55.609Z","component":"accounting","data":{"id":"c8146367-28c9-48eb-bf1c-b6da197eed7e","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Approved supplier invoice","timestamp":"2026-10-03T08:44:55.610Z","component":"accounting","data":{"id":"bbeac808-d417-4a7a-9d53-4878839df7d4","journalEntryId":"c8146367-28c9-48eb-bf1c-b6da197eed7e"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.644Z","component":"accounting","data":{"invoiceId":"74d76eaf-4340-4ee8-85da-58aff98ebd3e","invoiceNumber":"D9-USX-1791017095345-619539"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.655Z","component":"accounting","data":{"invoiceId":"baf06d69-70b3-48f6-b5d8-5369bd4cbee7","invoiceNumber":"D11-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.682Z","component":"accounting","data":{"invoiceId":"ebac1476-19e9-4f4b-b76f-f5b722228c5e","invoiceNumber":"D14-USI-1791017095287-327900"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.697Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.726Z","component":"accounting","data":{"invoiceId":"3b037693-3f3c-4ed5-bfe9-be20f486757b","invoiceNumber":"D18-USI-1791017095287-327900"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.743Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.753Z","component":"accounting","data":{"invoiceId":"39ce1b2a-e207-41a6-baa8-432e6e804ef8","invoiceNumber":"D20-USI-1791017095287-327900"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.762Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.770Z","component":"accounting","data":{"invoiceId":"b091d321-d9f5-40a2-bee6-167d82a0918f","invoiceNumber":"D22-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.794Z","component":"accounting","data":{"invoiceId":"a29806e9-bb96-4ffd-94d1-3bb8db1809cf","invoiceNumber":"D26-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.806Z","component":"accounting","data":{"invoiceId":"821685f8-8436-4373-a8ea-a5b34a4cf726","invoiceNumber":"D27-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.822Z","component":"accounting","data":{"invoiceId":"0e1c4819-1966-4b32-b127-3ce32cdcdfef","invoiceNumber":"D28-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.853Z","component":"accounting","data":{"invoiceId":"b2498c1e-5866-48b7-add4-fdf3b0a83471","invoiceNumber":"D31-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.894Z","component":"accounting","data":{"invoiceId":"72bc0f4b-31e7-4fbc-99eb-bfea33fbc6fa","invoiceNumber":"D34-USI-1791017095287-327900"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:44:55.932Z","component":"accounting","data":{"entryId":"aeb9609f-6365-4e0e-870d-41d8e5ee3c51","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:44:55.938Z","component":"accounting","data":{"id":"aeb9609f-6365-4e0e-870d-41d8e5ee3c51","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Applied DRC VAT","timestamp":"2026-10-03T08:44:55.939Z","component":"accounting","data":{"supplierInvoiceId":"72bc0f4b-31e7-4fbc-99eb-bfea33fbc6fa","vatAmount":15,"journalEntryId":"aeb9609f-6365-4e0e-870d-41d8e5ee3c51"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:55.985Z","component":"accounting","data":{"invoiceId":"0c1e7c0b-e82f-42bc-a41f-bac8a8d45014","invoiceNumber":"D37-USI-1791017095287-327900"}}
+{"level":"warn","message":"Supplier invoice line has 0% VAT with no vatClassification — defaulting to zero_rated; set vatClassification=exempt explicitly for exempt supplies","timestamp":"2026-10-03T08:44:55.997Z","component":"accounting","data":{"description":"Cable 1km"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:56.020Z","component":"accounting","data":{"invoiceId":"c57a1c01-16cc-4437-be73-95afe0a7af13","invoiceNumber":"D40-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:56.050Z","component":"accounting","data":{"invoiceId":"bd4ec80d-2975-4c65-90ec-c935ef7fc5f7","invoiceNumber":"D42-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:56.089Z","component":"accounting","data":{"invoiceId":"f647d4c3-79f9-4cc1-a5e3-44acd15a1996","invoiceNumber":"D45-USI-1791017095287-327900"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:44:56.106Z","component":"accounting","data":{"entryId":"7af5e780-f9e2-4226-8044-8d5ddf13343a","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:44:56.109Z","component":"accounting","data":{"id":"7af5e780-f9e2-4226-8044-8d5ddf13343a","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Applied DRC VAT","timestamp":"2026-10-03T08:44:56.110Z","component":"accounting","data":{"supplierInvoiceId":"f647d4c3-79f9-4cc1-a5e3-44acd15a1996","vatAmount":15,"journalEntryId":"7af5e780-f9e2-4226-8044-8d5ddf13343a"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:44:56.129Z","component":"accounting","data":{"entryId":"4180f7b3-02d3-4c38-a34a-0d76a1ac4e8c","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:44:56.135Z","component":"accounting","data":{"id":"4180f7b3-02d3-4c38-a34a-0d76a1ac4e8c","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Reversed journal entry","timestamp":"2026-10-03T08:44:56.135Z","component":"accounting","data":{"originalId":"7af5e780-f9e2-4226-8044-8d5ddf13343a","reversalId":"4180f7b3-02d3-4c38-a34a-0d76a1ac4e8c","claimReleased":false}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:56.146Z","component":"accounting","data":{"invoiceId":"7a56988e-3449-42a6-9bcf-a1188accc835","invoiceNumber":"NL-USI-1791017095287-327900"}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-10-03T08:44:56.166Z","component":"accounting","data":{"invoiceId":"76f7cf54-ba1b-4130-b330-290a75aa9653","invoiceNumber":"D48-USI-1791017095287-327900"}}
+{"level":"info","message":"Customer invoice created","timestamp":"2026-10-03T08:45:09.068Z","data":{"invoiceNumber":"INV0000001","totalAmount":1150,"currencyCode":"ZAR","exchangeRate":1}}
+{"level":"info","message":"Customer invoice created","timestamp":"2026-10-03T08:45:09.074Z","data":{"invoiceNumber":"INV0000002","totalAmount":11.5,"currencyCode":"ZAR","exchangeRate":1}}
+{"level":"info","message":"Quote created","timestamp":"2026-10-03T08:45:09.089Z","data":{"quoteNumber":"QUO0000001","total":115}}
+{"level":"info","message":"Quote updated","timestamp":"2026-10-03T08:45:09.106Z","data":{"id":"6a726fa8-cb70-46f4-87b2-50108e2726ad"}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-10-03T08:45:09.134Z","component":"accounting","data":{"companyId":"00000000-0000-0000-0000-0000000f0671","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-10-03T08:45:09.134Z","component":"accounting","data":{"companyId":"00000000-0000-0000-0000-0000000f0671","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:45:09.137Z","component":"accounting","data":{"entryId":"b88806e9-a73b-4f5b-9c33-4227c31de5c5","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:45:09.142Z","component":"accounting","data":{"id":"b88806e9-a73b-4f5b-9c33-4227c31de5c5","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Customer receipt recorded, no open invoice to apply to","timestamp":"2026-10-03T08:45:09.146Z","component":"accounting","data":{"customerId":"00000000-0000-0000-0000-0000000f0673","paymentId":"0c7f3ab2-99a0-41b6-94ef-747842d503c2","amount":115,"strategy":"oldest"}}
+{"level":"info","message":"Allocated bank transaction","timestamp":"2026-10-03T08:45:09.146Z","component":"accounting","data":{"bankTxId":"00000000-0000-0000-0000-0000000f0678","journalEntryId":"b88806e9-a73b-4f5b-9c33-4227c31de5c5","allocType":"customer","entityId":"00000000-0000-0000-0000-0000000f0673","contraAccountId":null}}
+(node:1256815) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"warn","message":"No fiscal period covers this date and its year is outside the auto-create window","timestamp":"2026-10-03T08:45:10.222Z","component":"accounting","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","entryDate":"2099-01-01","year":2099}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:45:10.228Z","component":"accounting","data":{"entryId":"a4ec500d-991b-46d1-a442-5cd8abdd84ab","entryNumber":"JE-2099-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:45:10.232Z","component":"accounting","data":{"id":"a4ec500d-991b-46d1-a442-5cd8abdd84ab","entryNumber":"JE-2099-00001"}}
+{"level":"info","message":"Generating VAT exceptions report","timestamp":"2026-10-03T08:45:10.246Z","component":"vatExceptionsService","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+{"level":"info","message":"Generating VAT201","timestamp":"2026-10-03T08:45:10.247Z","component":"vat201Service","data":{"periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+(node:1258109) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"VAT gate override recorded","timestamp":"2026-10-03T08:45:10.273Z","component":"vatGateOverrideService","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","targetType":"vat_period_lock","targetId":null,"periodStart":"2099-01-01","periodEnd":"2099-02-28","totalExceptions":1}}
+{"level":"info","message":"Generating VAT exceptions report","timestamp":"2026-10-03T08:45:10.279Z","component":"vatExceptionsService","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+{"level":"info","message":"Generating VAT201","timestamp":"2026-10-03T08:45:10.279Z","component":"vat201Service","data":{"periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+{"level":"info","message":"VAT gate override recorded","timestamp":"2026-10-03T08:45:10.302Z","component":"vatGateOverrideService","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","targetType":"vat_period_lock","targetId":null,"periodStart":"2099-01-01","periodEnd":"2099-02-28","totalExceptions":1}}
+{"level":"info","message":"Generating VAT exceptions report","timestamp":"2026-10-03T08:45:10.305Z","component":"vatExceptionsService","data":{"companyId":"c4067a5d-06fc-4945-860e-5d2830bc25ab","periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+{"level":"info","message":"Generating VAT201","timestamp":"2026-10-03T08:45:10.306Z","component":"vat201Service","data":{"periodStart":"2099-01-01","periodEnd":"2099-02-28"}}
+(node:1260255) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ Test Files  8 passed (8)
+      Tests  43 passed (43)
+   Start at  10:44:53
+   Duration  17.03s (transform 1.56s, setup 0ms, import 2.90s, tests 13.17s, environment 2ms)
+

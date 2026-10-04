@@ -1,0 +1,11 @@
+BASELINE before:       Tests  282 passed (282)
+M10 silent when requested === fallback (value-based, not raw-based, unset check):       Tests  1 failed | 281 passed (282)
+M11 invalid value not logged:       Tests  3 failed | 279 passed (282)
+M12 invalid value falls through to a clamp warning:       Tests  2 failed | 280 passed (282)
+M13 invalid log carries the raw text:       Tests  3 failed | 279 passed (282)
+BASELINE after:       Tests  282 passed (282)
+-- M7-M9 re-run on renderSemaphore.test.ts with held slots now released in afterEach (independent detections, no cascade) --
+M7' silent clamp branch removed:       Tests  2 failed | 18 passed (20)
+M8' blank not treated as unset:       Tests  2 failed | 18 passed (20)
+M9' every over-ceiling value clamps silently:       Tests  3 failed | 17 passed (20)
+BASELINE after (renderSemaphore.test.ts):       Tests  20 passed (20)

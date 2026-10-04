@@ -1,0 +1,7 @@
+mutants on committed 4509c40b0e839d02e8c73cde650bb5322c0bb1c3
+BASELINE before:       Tests  11 passed (11)
+M54 no acquire-time snapshot (counts read after failure):       Tests  5 failed | 6 passed (11)
+M55 no warning:       Tests  5 failed | 6 passed (11)
+M56 check before connect() (the b761ffc1b behaviour):       Tests  2 failed | 9 passed (11)
+M57 connect() deferred so a sync throw escapes the error path differently:       Tests  2 failed | 9 passed (11)
+BASELINE after:       Tests  11 passed (11)

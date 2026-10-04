@@ -90,7 +90,7 @@ export function buildCommentaryBlocks(
       // three lines below it carried a matter none of the four produces —
       // the net-credit month, which is the LARGEST exposure in both packs
       // and the one this page's own headline names. See `MATTER_SOURCES`.
-      note('Action panel', `The panel headed 'For the board' is derived from the same checks the matters page tabulates — ${matterSourcesInWords()} — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.`),
+      note('Action panel', `The panel headed 'For the board' is derived from the same checks the matters page tabulates — ${matterSourcesInWords()} — any check that could not run first, then the largest exposure, then matters with no single rand amount, then the other exposures. It is machine-written and states the decision each matter is waiting on, never a recommendation.`),
     ]),
   ];
 }

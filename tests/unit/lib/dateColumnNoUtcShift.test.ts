@@ -13,7 +13,7 @@
  * then ran its open-period check against that same shifted date.
  *
  * These tests pin the two halves of the fix:
- *   1. src/lib/neon.ts overrides the 1082 parser, so DATE arrives as a string.
+ *   1. @/lib/neon (src/lib/neon/pool.ts, via @/lib/pgTypes) overrides the 1082 parser, so DATE arrives as a string.
  *   2. fmtDate() is correct for BOTH shapes, so call sites survive either way.
  *
  * The timezone is forced to Africa/Johannesburg rather than inherited: on a

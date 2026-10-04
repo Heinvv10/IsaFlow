@@ -4,7 +4,7 @@
  * WHY THIS IS ITS OWN MODULE: `pg.types` is a singleton on the `pg` module, so
  * one call here configures every Pool in the process — but only once this
  * module has actually been imported. This repo builds ten separate pools
- * (src/lib/neon.ts plus the auth/admin/invite/extension pools), and a request
+ * (src/lib/neon/pool.ts plus the auth/admin/invite/extension pools), and a request
  * served entirely by a route that never pulled in neon.ts would otherwise get
  * the default parsers. Importing this module for its side effect from each
  * pool-constructing file removes that import-order dependency.
@@ -32,6 +32,6 @@ import pg from 'pg';
 // overridden — TIMESTAMP (1114) and TIMESTAMPTZ (1184) are genuine instants
 // and keep their Date parsing.
 //
-// `fmtDate()` in src/lib/neon.ts accepts both shapes, so call sites that
+// `fmtDate()` in src/lib/fmtDate.ts (re-exported by @/lib/neon) accepts both shapes, so call sites that
 // already route through it are correct either way.
 pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);

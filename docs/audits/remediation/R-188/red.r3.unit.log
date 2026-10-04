@@ -1,0 +1,69 @@
+HEAD: 3226dfd760d41d77db335d26b270210381f007ae (new tests, unchanged code); fixture none; load 17.80
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/pool
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts (20 tests | 4 failed) 140ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "abc" is logged as invalid, not as a clamp of the default (R-188) 5ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "0" is logged as invalid, not as a clamp of the default (R-188) 4ms
+     × a set but invalid PDF_MAX_CONCURRENT_RENDERS "-1" is logged as invalid, not as a clamp of the default (R-188) 3ms
+     × an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188) 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "abc" is logged as invalid, not as a clamp of the default (R-188)
+AssertionError: expected 'renderSemaphore: env value clamped to…' to contain 'invalid'
+
+Expected: "invalid"
+Received: "renderSemaphore: env value clamped to the auth-pool-derived ceiling"
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:253:26
+    251|     const calls = vi.mocked(log.warn).mock.calls;
+    252|     expect(calls).toHaveLength(1);
+    253|     expect(calls[0]![0]).toContain('invalid');
+       |                          ^
+    254|     expect(calls[0]![0]).not.toContain('clamped');
+    255|     expect(calls[0]![1]).toMatchObject({ setting: 'PDF_MAX_CONCURRENT_…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "0" is logged as invalid, not as a clamp of the default (R-188)
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > a set but invalid PDF_MAX_CONCURRENT_RENDERS "-1" is logged as invalid, not as a clamp of the default (R-188)
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:252:19
+    250|     expect(renderQueueBound()).toBe(4);   // the default, clamped sile…
+    251|     const calls = vi.mocked(log.warn).mock.calls;
+    252|     expect(calls).toHaveLength(1);
+       |                   ^
+    253|     expect(calls[0]![0]).toContain('invalid');
+    254|     expect(calls[0]![0]).not.toContain('clamped');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/unit/lib/pdf/renderSemaphore.test.ts > bounds derived from the auth pool > an EXPLICIT PDF_MAX_CONCURRENT_RENDERS of 3 over the default pool does warn: only the unset default is silent (R-188)
+AssertionError: expected "vi.fn()" to be called with arguments: [ StringContaining "clamped", …(2) ]
+
+Number of calls: 0
+
+ ❯ tests/unit/lib/pdf/renderSemaphore.test.ts:265:33
+    263|     vi.mocked(log.warn).mockClear();
+    264|     expect(renderQueueBound()).toBe(4);
+    265|     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+       |                                 ^
+    266|       expect.stringContaining('clamped'),
+    267|       expect.objectContaining({ setting: 'PDF_MAX_CONCURRENT_RENDERS',…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 16 passed (20)
+   Start at  10:36:10
+   Duration  305ms (transform 36ms, setup 0ms, import 47ms, tests 140ms, environment 0ms)
+
