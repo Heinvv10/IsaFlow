@@ -15296,7 +15296,7 @@
       "correctedTrigger": "Probed on isaflow-fixture-r181 in a rolled-back transaction: deleting a paid customer invoice referenced by a customer_invoice paystack_payment_requests row fails with 23514 (paystack_pr_invoice_has_invoice), because the FK's ON DELETE SET NULL would null customer_invoice_id. So the reported outcome (request completed with a NULL invoice and never banked) cannot arise while that CHECK is validated; the reachable outcome is the archive DELETE failing.",
       "severityRationale": "Pre-existing. Either outcome needs an archivable (paid or cancelled, before the cutoff) invoice that a Paystack request references. Unverified whether archiving reaches such an invoice in practice, or whether prod has the CHECK validated.",
       "auditedSha": "195aba969",
-      "currentSha": "d7622eddeb07e2bfa3226aeae23a16b10b33dc91",
+      "currentSha": "2b10b582d848c655ca4953771ab0cad9a700baea",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
@@ -15346,6 +15346,7 @@
         "docs/audits/remediation/R-186/red.r9.int.log",
         "docs/audits/remediation/R-186/regression.int.log",
         "docs/audits/remediation/R-186/regression.land.int.log",
+        "docs/audits/remediation/R-186/regression.land2.int.log",
         "docs/audits/remediation/R-186/regression.r10.int.log",
         "docs/audits/remediation/R-186/regression.r2.int.log",
         "docs/audits/remediation/R-186/regression.r2.unit.log",
