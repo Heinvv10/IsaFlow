@@ -117,8 +117,8 @@ export async function refuseLineOfCompletedReconciliation(companyId: string, row
 /**
  * D12 (round 2 B3, round 3 R2-1/R2-2): the ENTRANCE to a generic journal reversal (`journal-entries-action` reverse,
  * MCP `reverse_journal_entry` and its dry run). Every statement line whose cash the journal's reversal CHAIN carries
- * (`chainBankLines.findChainCashLines`: matched to any chain member's line, or naming one as its provisional or transfer
- * journal) is locked — sessions first, `lockBankTransactionsInIdOrder` — and a line IN a completed reconciliation is
+ * (`chainBankLines.findChainCashLines`: matched to any chain member's line, or naming one as its provisional journal;
+ * not a transfer id — round 5) is locked — sessions first, `lockBankTransactionsInIdOrder` — and a line IN a completed reconciliation is
  * refused, 409, BEFORE `reverseJournalEntry` touches the journal (bank -> GL, the canonical order; never inside it,
  * whose internal callers already hold the GL). Only the `completed` kind refuses here; open-session and Sage lines
  * keep today's behaviour (register item). Returns the locked ids for `reverseJournalEntry`'s re-check under its claim.

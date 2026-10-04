@@ -3,7 +3,8 @@
  * signed off is refused (409, nothing written: the claim released, no contra) however the journal is reached:
  *  R2-1  reversing the chain HEAD (X re-reversed; the line is matched to X) — the gate now walks the whole chain;
  *  R2-2  a line tied through `provisional_je_id` (evidence-attached provisional, no matched line);
- *  TR    a line tied through `transfer_journal_entry_id` (shape set by hand: the line's match points elsewhere);
+ *  (TR, a line tied only through `transfer_journal_entry_id`, was removed in round 5: that id outlives every unwind,
+ *   so it is no longer counted as cash — a LIVE transfer tie is a matched line, see d12-r5-transfer-tie.)
  *  R2-3  the race: the line matched INTO the session and the session completed while the reversal's claim waited —
  *        the re-check under the claim refuses; R2-3b the same with the session still open: a line that appeared
  *        after the gate is a 503 retry, and the retry goes through;
@@ -72,7 +73,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     ({ c, token } = await setupWithUser('D12J'));
   }, 120000);
   afterAll(async () => {
-    await sql`UPDATE bank_transactions SET provisional_je_id = NULL, transfer_journal_entry_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`UPDATE bank_transactions SET provisional_je_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM migration_sessions WHERE company_id = ${c.fx.companyId}::UUID`;
     await cleanup(c); await clearExtras(c); await teardown(c);
   }, 120000);
@@ -103,18 +104,6 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
     const before = await snapshot(c, bank, rec);
     await refused(await reverse(x), { bank, rec }, x, before);
-  }, 60000);
-
-  it('TR a line tied through transfer_journal_entry_id -> 409', async () => {
-    const s = await completedSession(c, token, { matched: 1 });
-    const other = await newBank(c);
-    const [t] = (await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
-      VALUES (${c.fx.companyId}::UUID, '2026-06-01', 'D12 transfer', 'auto_bank_transfer', 'posted', ${c.fx.userId}::UUID) RETURNING id`) as Row[];
-    await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
-      VALUES (${c.fx.companyId}::UUID, ${t!.id}::UUID, ${other}::UUID, 40, 0, 't'), (${c.fx.companyId}::UUID, ${t!.id}::UUID, ${c.acct.expense}::UUID, 0, 40, 't')`;
-    await sql`UPDATE bank_transactions SET transfer_journal_entry_id = ${t!.id}::UUID WHERE id = ${s.matched[0]!.bt}::UUID`;
-    const before = await snapshot(c, s.bank, s.rec);
-    await refused(await reverse(String(t!.id)), s, String(t!.id), before);
   }, 60000);
 
   it('R2-3 matched INTO the session and completed while the reversal waited on its claim -> 409 under the claim', async () => {
