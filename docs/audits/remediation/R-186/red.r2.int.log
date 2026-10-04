@@ -1,0 +1,93 @@
+HEAD: 02e4e122422de17f43baa37bcc5644ccbb6e6646 (round-0 code: archiveCustomerInvoiceScope/archiveExecutionService/archiveQueryService at HEAD; round-1 tests from the working tree); fixture postgresql://postgres@127.0.0.1:55932/isaflow_schema_fixture; load 21.79
+fixture=isaflow-fixture-r186 url=127.0.0.1:55932 head=02e4e122422de17f43baa37bcc5644ccbb6e6646 load=21.79
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+(node:498167) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts (4 tests | 2 failed) 305ms
+     × the preview predicts the skip, counting only this company's requests 11ms
+     × as app_user: archives the free invoice, skips both referenced ones, leaves them and their requests intact 12ms
+ ❯ tests/integration/r186-archive-move-race.int.test.ts (3 tests | 3 failed) 263ms
+     × an invoice reopened to approved after the selection survives, and the run fails whole 60ms
+     × an invoice re-dated past the cutoff after the selection survives, and the run fails whole 29ms
+     × an invoice already in the archive is not deleted unarchived: the run fails whole 22ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-move-race.int.test.ts > R-186: the move re-checks what it selected > an invoice reopened to approved after the selection survives, and the run fails whole
+ FAIL  tests/integration/r186-archive-move-race.int.test.ts > R-186: the move re-checks what it selected > an invoice re-dated past the cutoff after the selection survives, and the run fails whole
+AssertionError: expected undefined to be 'ARCHIVE_SET_CHANGED' // Object.is equality
+
+- Expected:
+"ARCHIVE_SET_CHANGED"
+
++ Received:
+undefined
+
+ ❯ tests/integration/r186-archive-move-race.int.test.ts:65:26
+     63|
+     64|     expect(hooks.fired, 'the hook did not fire').toBe(1);
+     65|     expect(failure.code).toBe('ARCHIVE_SET_CHANGED');
+       |                          ^
+     66|     expect(await live(co)).toEqual([changed, other].sort());
+     67|     expect(await archived(co)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/r186-archive-move-race.int.test.ts > R-186: the move re-checks what it selected > an invoice already in the archive is not deleted unarchived: the run fails whole
+AssertionError: expected undefined to be 'ARCHIVE_SET_CHANGED' // Object.is equality
+
+- Expected:
+"ARCHIVE_SET_CHANGED"
+
++ Received:
+undefined
+
+ ❯ tests/integration/r186-archive-move-race.int.test.ts:79:26
+     77|     const failure = await failureOf(coConflict, () => executeArchive(c…
+     78|
+     79|     expect(failure.code).toBe('ARCHIVE_SET_CHANGED');
+       |                          ^
+     80|     expect(await live(coConflict)).toEqual([clash]);
+     81|     const kept = (await pool.query('SELECT invoice_number FROM archive…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > the preview predicts the skip, counting only this company's requests
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:60:38
+     58|   it('the preview predicts the skip, counting only this company\'s req…
+     59|     const preview = await drive(coA, () => previewArchive(coA, CUTOFF)…
+     60|     expect(preview.customerInvoices).toBe(1);
+       |                                      ^
+     61|     expect(preview.customerInvoicesSkipped).toBe(2);
+     62|     expect(preview.totalRecords).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > as app_user: archives the free invoice, skips both referenced ones, leaves them and their requests intact
+Error: executeArchive threw 23514 new row for relation "stitch_payment_requests" violates check constraint "stitch_pr_invoice_has_invoice"
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:74:13
+     72|       result = await drive(coA, () => executeArchive(coA, CUTOFF, user…
+     73|     } catch (err) {
+     74|       throw new Error(`executeArchive threw ${(err as { code?: string …
+       |             ^
+     75|     }
+     76|     expect(result.invoicesArchived).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  5 failed | 2 passed (7)
+   Start at  10:35:10
+   Duration  956ms (transform 86ms, setup 0ms, import 198ms, tests 569ms, environment 0ms)
+

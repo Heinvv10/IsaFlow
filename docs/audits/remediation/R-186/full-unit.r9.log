@@ -1,0 +1,34 @@
+HEAD: 6dd2bd87c1e99b3c7212a282ad15770d7fd112f8 (committed); fixture none (env -u DATABASE_URL); load 10.62
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r186
+
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/auth/withPlatformAdmin.pools") call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/als") call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/logger") call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.hoisted() call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+Warning: A vi.mock("@/lib/neon") call in "/home/hein/Workspace/IsaFlow/.worktrees/r186/tests/unit/auth/suspendedIdentityPaths.test.ts" is not at the top level of the module. Although it appears nested, it will be hoisted and executed before any tests run. Move it to the top level to reflect its actual execution order. This will become an error in a future version.
+See: https://vitest.dev/guide/mocking/modules#how-it-works
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+[env] Missing recommended variables: SMTP_HOST, SMTP_USER, SMTP_PASS
+
+ Test Files  1336 passed | 47 skipped (1383)
+      Tests  18733 passed | 290 skipped (19023)
+   Start at  13:33:45
+   Duration  49.88s (transform 219.64s, setup 0ms, import 730.34s, tests 306.27s, environment 1.05s)
+

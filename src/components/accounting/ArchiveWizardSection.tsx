@@ -93,6 +93,13 @@ export function ArchiveWizardSection({
               <dd className="text-lg font-bold text-teal-800">{preview.totalRecords.toLocaleString()}</dd>
             </div>
           </dl>
+          {preview.customerInvoicesSkipped > 0 && (
+            <p className="mt-3 text-xs text-[var(--ff-text-muted)]">
+              {preview.customerInvoicesSkipped.toLocaleString()} paid or cancelled customer invoice(s) before the cutoff cannot
+              be archived: a Paystack or Stitch payment request refers to them. If one of them is still linked to a journal
+              before the cutoff, the whole archive is refused; Validate checks this.
+            </p>
+          )}
         </div>
       )}
     </div>
