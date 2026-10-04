@@ -74,8 +74,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'reverse':
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
-        await refuseJournalCashOfCompletedReconciliation(companyId, id);
-        result = await reverseJournalEntry(companyId, id, userId, { reversalDate });
+        // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
+        result = await reverseJournalEntry(companyId, id, userId, {
+          reversalDate, cashLinesLocked: await refuseJournalCashOfCompletedReconciliation(companyId, id) });
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);

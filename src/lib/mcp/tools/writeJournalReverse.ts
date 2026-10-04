@@ -159,7 +159,7 @@ export const reverseJournalEntryTool: McpTool = {
     if (payrollRefusal) return toolError(payrollRefusal);
     // D12: a statement line matched to this entry and IN a completed bank reconciliation — thrown (a refusal code the
     // registry answers after its savepoint rolls back), the lines locked first; the dry run refuses it too.
-    await refuseJournalCashOfCompletedReconciliation(ctx.companyId, id);
+    const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(ctx.companyId, id);
 
     if (args.dry_run === true) {
       // The same resolution the write does, so the preview cannot promise a
@@ -210,6 +210,7 @@ export const reverseJournalEntryTool: McpTool = {
     try {
       reversal = await reverseJournalEntry(ctx.companyId, id, ctx.userId, {
         postingAgent: mcpPostingAgent(TOOL),
+        cashLinesLocked,
         ...(reversalDate ? { reversalDate } : {}),
       });
     } catch (err) {
