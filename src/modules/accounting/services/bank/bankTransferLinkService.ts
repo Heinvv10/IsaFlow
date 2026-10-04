@@ -21,7 +21,8 @@
  */
 
 import { sql } from '@/lib/neon';
-import { runLinkPasses, type Row, type TransferLinkResult } from './bankTransferLinkPasses';
+import { applyTransferLinks, runLinkPasses, type TransferLinkPair, type TransferLinkResult } from './bankTransferLinkPasses';
+import { journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 
 export type { TransferLinkResult };
 
@@ -38,7 +39,7 @@ export async function autoLinkImportedBatchTransfers(
     'Auto-linked transfer counterparts for import batch',
     'bank_import_autolink',
     { batchId },
-    () => sql`
+    async () => applyTransferLinks(companyId, (await sql`
       WITH new_txs AS (
         SELECT id, amount, transaction_date, bank_account_id
         FROM bank_transactions
@@ -75,6 +76,10 @@ export async function autoLinkImportedBatchTransfers(
           ON  jl.journal_entry_id = et.transfer_journal_entry_id
           AND jl.gl_account_id    = n.bank_account_id
           AND jl.company_id       = ${companyId}::UUID
+        -- D12 round 4: only a transfer journal that stands (apply re-checks it under the chain head's lock).
+        JOIN gl_journal_entries je
+          ON  je.id = et.transfer_journal_entry_id AND je.company_id = ${companyId}::UUID
+          AND je.status = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
         WHERE NOT EXISTS (
           SELECT 1
           FROM bank_transactions bt_used
@@ -99,25 +104,8 @@ export async function autoLinkImportedBatchTransfers(
         FROM per_line
         ORDER BY new_tx_id, date_distance, je_line_id
       )
-      UPDATE bank_transactions bt
-      SET status                    = 'allocated',
-          allocation_type           = 'transfer',
-          transfer_journal_entry_id = m.je_id,
-          matched_journal_line_id   = m.je_line_id,
-          counterparty_account_id   = m.counterparty_bank_id,
-          allocated_entity_name     = m.entity_name,
-          -- Clearing these is redundant today (the WHERE is status='imported',
-          -- which a rule-posted row can never be) but keeps every writer of
-          -- allocated_entity_name symmetrical.
-          allocation_rule_id = NULL, allocation_rule_name = NULL,
-          updated_at                = NOW()
-      FROM winners m
-      WHERE bt.id         = m.new_tx_id
-        AND bt.company_id = ${companyId}::UUID
-        AND bt.status     = 'imported'
-        AND bt.feed_state = 'posted'
-      RETURNING bt.id
-    ` as Promise<Row[]>,
+      SELECT new_tx_id, je_id, je_line_id, counterparty_bank_id, entity_name FROM winners
+    `) as TransferLinkPair[]),
   );
 }
 
@@ -139,7 +127,7 @@ export async function relinkTransferCounterparts(
     'Re-linked transfer counterpart transactions',
     'relink_transfer_counterparts',
     { bankAccountId },
-    () => sql`
+    async () => applyTransferLinks(companyId, (await sql`
       WITH source_allocs AS (
         -- Allocated transactions on OTHER bank accounts whose JE has a line
         -- for the current bank's GL account (bankAccountId).
@@ -157,6 +145,8 @@ export async function relinkTransferCounterparts(
         JOIN gl_journal_entries je
           ON  je.id = jl_src.journal_entry_id
           AND je.company_id = ${companyId}::UUID
+          -- D12 round 4: only a journal that stands (apply re-checks it under the chain head's lock).
+          AND je.status = 'posted' AND ${journalStandsUnbrokenFragment('je.id', companyId)}
         JOIN gl_journal_lines jl_mine
           ON  jl_mine.journal_entry_id = je.id
           AND jl_mine.gl_account_id    = ${bankAccountId}::UUID
@@ -223,30 +213,8 @@ export async function relinkTransferCounterparts(
         FROM per_line
         ORDER BY new_tx_id, date_distance, target_je_line_id
       )
-      UPDATE bank_transactions bt
-      SET status                  = 'allocated',
-          allocation_type         = 'transfer',
-          -- Set alongside the line: the duplicate-transfer guard in
-          -- bankAllocationService selects on transfer_journal_entry_id IS NOT
-          -- NULL, so a relinked row left without it is invisible to the guard
-          -- and a second transfer journal can be posted for the same movement.
-          transfer_journal_entry_id = m.target_je_id,
-          matched_journal_line_id = m.target_je_line_id,
-          counterparty_account_id = m.counterparty_bank_id,
-          allocated_entity_name   = m.allocated_entity_name,
-          -- Clearing these is redundant today (the WHERE is status='imported',
-          -- which a rule-posted row can never be) but keeps every writer of
-          -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
-          -- an already-allocated row would otherwise leave a stale rule label
-          -- beside a freshly rewritten account.
-          allocation_rule_id = NULL, allocation_rule_name = NULL,
-          updated_at              = NOW()
-      FROM winners m
-      WHERE bt.id         = m.new_tx_id
-        AND bt.company_id = ${companyId}::UUID
-        AND bt.status     = 'imported'
-        AND bt.feed_state = 'posted'
-      RETURNING bt.id
-    ` as Promise<Row[]>,
+      SELECT new_tx_id, target_je_id AS je_id, target_je_line_id AS je_line_id, counterparty_bank_id,
+        allocated_entity_name AS entity_name FROM winners
+    `) as TransferLinkPair[]),
   );
 }

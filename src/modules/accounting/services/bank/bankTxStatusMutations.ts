@@ -29,7 +29,7 @@ import { refuseLineOfCompletedReconciliation } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
-import { findJournalChainRoot } from '../shared/journalChainHead';
+import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -130,6 +130,9 @@ async function assertMatchTargets(companyId: string, bankTxId: string, journalLi
   // the bank row (the shared order): a reversal in flight holds it FOR UPDATE
   // (`paymentJournalReversal.ts`), so this waits and then sees the reversal.
   const jeId = String(line[0]!.journal_entry_id);
+  // D12 round 4 (R3-1): a reversal claims the chain HEAD, not this entry, so FOR SHARE on the head too — the match
+  // waits for a reversal of any chain member and then re-reads the chain under it (still bank line -> journal head).
+  await shareLockChainHeadOf(companyId, jeId, (m) => new BankMatchTargetError('LINE_REVERSED', m));
   const je = (await sql`
     SELECT reversed_at FROM gl_journal_entries
     WHERE id = ${jeId}::UUID AND company_id = ${companyId}::UUID
