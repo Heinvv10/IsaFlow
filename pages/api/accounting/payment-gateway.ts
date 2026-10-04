@@ -10,12 +10,12 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { isUuidParam } from '@/lib/validation';
 import { enableOnlinePayment, InvoiceNotApprovedError } from '@/modules/accounting/services/core/paymentGatewayPortalService';
-import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -35,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     paymentUrl = await enableOnlinePayment(companyId, invoiceId);
   } catch (err) {
-    if (err instanceof CustomerInvoiceLockTimeoutError) return apiResponse.badRequest(res, err.message, { code: err.code });
+    if (respondIfLockTimeout(res, err)) return;
     // R-180: the one refusal with its own answer; "not found" would send staff looking for the invoice.
     if (err instanceof InvoiceNotApprovedError) return apiResponse.badRequest(res, err.message);
     throw err;

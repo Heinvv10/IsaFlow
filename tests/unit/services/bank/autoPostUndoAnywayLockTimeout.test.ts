@@ -35,6 +35,12 @@ describe('undoAnyway', () => {
     await expect(undoAnyway('co-1', 'run-1', 'tx-1', 'je-blocker', 'u-1')).rejects.toBe(err);
   });
 
+  it('lets a raw 40P01 deadlock victim through as itself (D11 round 3), not as a refusal', async () => {
+    const err = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    undoRow.mockRejectedValueOnce(err);
+    await expect(undoAnyway('co-1', 'run-1', 'tx-1', 'je-blocker', 'u-1')).rejects.toBe(err);
+  });
+
   it('still answers any other failure of the reversal as the refusal', async () => {
     undoRow.mockRejectedValueOnce(new Error('period closed'));
     await expect(undoAnyway('co-1', 'run-1', 'tx-1', 'je-blocker', 'u-1')).rejects.toBeInstanceOf(HandCorrectionRefusedError);

@@ -72,6 +72,39 @@ export default [
     },
   },
 
+  // R-183: paystackClient.ts is the only entry point to the Paystack client. Its parts are
+  // internal, and a vi.mock of the barrel only intercepts callers that import the barrel.
+  // Flat config REPLACES rule options (it does not merge them): any future no-restricted-imports
+  // or no-restricted-syntax entry for these files must be merged into this block. tests/ and
+  // scripts/ are not covered by `bun run lint`.
+  // Known harmless gap: `typeof import('…paystackHttp')` (a type query) is not caught,
+  // nor is `require('…paystackHttp')` (it needs a deliberate no-require-imports disable first).
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: [
+            '**/paystackHttp', '**/paystackTransactions', '**/paystackSubscriptions',
+            '**/paystackHttp.*', '**/paystackTransactions.*', '**/paystackSubscriptions.*',
+          ],
+          message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
+        }],
+      }],
+      'no-restricted-syntax': ['error', {
+        selector: 'ImportExpression[source.value=/paystack(Http|Transactions|Subscriptions)/]',
+        message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
+      }, {
+        selector: 'ImportExpression > TemplateLiteral.source > TemplateElement[value.raw=/paystack(Http|Transactions|Subscriptions)/]',
+        message: "Import from '@/modules/billing/services/paystackClient' (R-183): the parts are internal to the Paystack client.",
+      }],
+    },
+  },
+  {
+    files: ['src/modules/billing/services/paystack{Client,Http,Transactions,Subscriptions}.ts'],
+    rules: { 'no-restricted-imports': 'off', 'no-restricted-syntax': 'off' },
+  },
+
   // Files allowed to use console (logger internals).
   {
     files: ['src/lib/logger.ts', 'src/lib/api-error-handler.ts'],

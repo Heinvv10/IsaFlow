@@ -178,6 +178,8 @@ export interface AutoMatchResult {
    * them "allocated by another request" would be a false claim.
    */
   skippedUnavailable?: number;
+  /** Candidates refused for a typed state of their own (a reversed or missing journal line): skipped, counted. */
+  skippedRefused?: number;
 }
 
 // ── Bank Categorisation Rules ───────────────────────────────────────────────

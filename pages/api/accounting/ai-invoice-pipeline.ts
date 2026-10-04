@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -25,9 +26,9 @@ import { refusesUnattendedApproval } from '@/modules/accounting/services/core/un
 import { computeFingerprint, findDuplicate } from '@/modules/accounting/services/capture/captureDeduplicationService';
 import { getRule, recordCoding } from '@/modules/accounting/services/capture/supplierRulesService';
 import { insertCaptureBillLines, planCaptureBillLines } from '@/modules/accounting/services/capture/captureBillLines';
+import { respondCapturedDocumentRefusal } from '@/modules/accounting/services/capture/capturePostingClaim';
 import {
-  CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE, CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
-  CaptureRowLockTimeoutError,
+  CAPTURED_DOCUMENT_REFUSAL_MESSAGE,
   claimCapturedDocumentForPosting,
   lockCapturedDocumentForUpdate,
   lockPostableCaptureEventIds,
@@ -77,25 +78,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // The `uq_gl_je_capture_source_document` index behind the application claim
   // does NOT reach here: it is a unique index on `gl_journal_entries`, and this
   // route writes `supplier_invoices`. On this path the claim IS the whole fence.
+  // R-169: no event id of its own, so the event(s) tied to the document are locked with it. None (a straight upload)
+  // is an empty array, not a refusal.
   let doc;
+  let postableEventIds: string[] = [];
   try {
     doc = await lockCapturedDocumentForUpdate(companyId, documentId);
+    if (doc) postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
   } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
+    if (respondIfLockTimeout(res, err)) return;
     throw err;
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
-
-  // R-169: no event id of its own, so lock whatever event(s) are tied to the
-  // document here. None (a straight upload) is an empty array, not a refusal.
-  let postableEventIds: string[];
-  try {
-    postableEventIds = await lockPostableCaptureEventIds(companyId, documentId);
-  } catch (err) {
-    if (err instanceof CaptureRowLockTimeoutError) return apiResponse.badRequest(res, err.message);
-    throw err;
-  }
 
   const readRefusal = refusalForPosting(doc);
   if (readRefusal) {
@@ -198,7 +193,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // matched no row.
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'invoice' });
   if (claimRefusal) {
-    return apiResponse.error(res, CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE[claimRefusal], CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal]);
+    return respondCapturedDocumentRefusal(res, claimRefusal);
   }
 
   // Create supplier invoice (evidence columns stamped; hash backfilled by worker)

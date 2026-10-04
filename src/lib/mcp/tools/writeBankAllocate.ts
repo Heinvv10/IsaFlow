@@ -174,7 +174,8 @@ export const reverseBankAllocationTool: McpTool = {
     // key having been freed — posts a SECOND contra against the same journal.
     const status = await getBankTransactionStatus(ctx.companyId, txId);
     if (status === null) return toolError(NOT_FOUND);
-    if (status !== 'allocated' && status !== 'matched' && status !== 'reconciled') {
+    // 'provisional' goes through: the service answers a provisional's line with the undo that exists (D10 O9).
+    if (status !== 'allocated' && status !== 'matched' && status !== 'reconciled' && status !== 'provisional') {
       return toolError('Can only reverse allocated, matched, or reconciled transactions');
     }
 

@@ -35,6 +35,9 @@ run_step "type-check"        bun run type-check
 # to the pack fixtures — the composed documents every pack test is written
 # against — without pulling the rest of `tests/**` into the program.
 run_step "pack-fixture-types" bun run type-check:pack-fixtures
+# R-183: tests/** is outside tsconfig and vitest strips `import type`, so the type half of the
+# paystackClient export pin is only enforced by compiling that one test file.
+run_step "paystack-export-types" bun run type-check:paystack-exports
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh

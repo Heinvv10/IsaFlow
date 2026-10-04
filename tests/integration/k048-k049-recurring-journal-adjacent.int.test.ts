@@ -255,7 +255,7 @@ it('refuses to run outside a request transaction rather than posting on autocomm
   expect(Number(tpl.rows[0].run_count)).toBe(0);
 });
 
-it('a contended template answers 409, and the request transaction survives the lock timeout', async () => {
+it('a contended template answers 503, and the request transaction survives the lock timeout', async () => {
   const today = sastToday();
   await armTemplate(today);
 
@@ -265,9 +265,9 @@ it('a contended template answers 409, and the request transaction survives the l
     await holder.query('SELECT id FROM recurring_journals WHERE id=$1 FOR UPDATE', [template]);
 
     // Contention is transient — the same request succeeds once the peer
-    // finishes — so it is a 409, not the 400 that every permanent refusal gets.
+    // finishes — so it is a 503 + Retry-After (D11; it was a 409), not the 400 that every permanent refusal gets.
     const result = await generateViaRoute();
-    expect(result.state.statusCode).toBe(409);
+    expect(result.state.statusCode).toBe(503);
 
     // And the 55P03 did not poison the transaction. Postgres aborts the whole
     // transaction on a lock timeout, so catching it without a savepoint leaves
