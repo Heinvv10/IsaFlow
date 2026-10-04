@@ -70,8 +70,10 @@ const statusBadge = (status: string) => {
 const daysUntil = (d: string) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const due = new Date(d);
-  due.setHours(0, 0, 0, 0);
+  // 'YYYY-MM-DD' as a local calendar day: new Date(d) parses it as UTC midnight,
+  // which is the previous local day west of UTC.
+  const [y, m, day] = d.slice(0, 10).split('-').map(Number);
+  const due = new Date(y, m - 1, day);
   return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 };
 
