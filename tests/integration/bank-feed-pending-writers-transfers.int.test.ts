@@ -14,6 +14,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   autoLinkImportedBatchTransfers, relinkTransferCounterparts,
@@ -27,6 +28,20 @@ const user = crypto.randomUUID();
 const conn = crypto.randomUUID();
 const AMOUNT = 42.5;
 const DAY = '2026-09-02';
+
+/** As production runs it: inside a request transaction (D12 round 4: the link step row-locks and share-locks). */
+async function inRequest<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: user, companyId: company, claims: {} } as never, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally { client.release(); }
+}
 
 let seq = 0;
 async function addAccount(): Promise<string> {
@@ -115,7 +130,7 @@ describe('autoLinkImportedBatchTransfers — pending candidate excluded', () => 
     const batchId = crypto.randomUUID();
     const { postedId, pendingId } = await seedCandidatePair(targetBank, batchId);
 
-    const { linked, failed } = await autoLinkImportedBatchTransfers(company, batchId);
+    const { linked, failed } = await inRequest(() => autoLinkImportedBatchTransfers(company, batchId));
 
     expect(failed).toBe(false);
     expect(linked).toBe(1);
@@ -132,7 +147,7 @@ describe('relinkTransferCounterparts — pending candidate excluded', () => {
     await seedAllocatedTransfer(targetBank, 1); // a second, independent free line
     const { postedId, pendingId } = await seedCandidatePair(targetBank, null);
 
-    const { linked, failed } = await relinkTransferCounterparts(company, targetBank);
+    const { linked, failed } = await inRequest(() => relinkTransferCounterparts(company, targetBank));
 
     expect(failed).toBe(false);
     expect(linked).toBe(1);
