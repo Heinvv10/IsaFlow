@@ -15,12 +15,20 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sqlMock, matchMock } = vi.hoisted(() => ({
+const { sqlMock, matchMock, sp } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }),
   matchMock: vi.fn(),
+  // Records savepoint use: which names were opened, how many are open now, and how many rolled back (the callback threw).
+  sp: { names: [] as string[], open: 0, rolledBack: 0 },
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d),
+  withSavepoint: async (name: string, fn: () => Promise<unknown>) => {
+    sp.names.push(name); sp.open++;
+    try { return await fn(); } catch (e) { sp.rolledBack++; throw e; } finally { sp.open--; }
+  },
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -33,6 +41,7 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', async 
   return { ...actual, matchTransaction: matchMock };
 });
 
+import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import {
   BankTransactionAllocatedError,
   BankMatchTargetError,
@@ -48,6 +57,7 @@ const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')
 
 describe('autoMatchTransactions — one raced row must not abort the run', () => {
   beforeEach(() => {
+    sp.names.length = 0; sp.open = 0; sp.rolledBack = 0;
     vi.clearAllMocks();
     // The candidate rows come back in a deliberately jumbled id order (3, 1, 2)
     // so the sort has something to do; every one is an exact-reference match,
@@ -126,6 +136,70 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     expect(result.skippedRaced).toBe(1);
   });
 
+  // D11 round 4: a deadlock victim is a held row too (skipped, the rest apply); if EVERY attempted candidate was held
+  // nothing committed, so the first held error is re-thrown for the route's 503.
+  it('skips a raw 40P01 deadlock victim like a lock timeout', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  it('runs each candidate inside its own savepoint, which is rolled back for the held one', async () => {
+    const insideSavepoint: boolean[] = [];
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      insideSavepoint.push(sp.open > 0);
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(insideSavepoint, 'every matchTransaction ran inside a savepoint').toEqual([true, true, true]);
+    expect(sp.names.filter((n) => n === 'auto_match_row')).toHaveLength(3);
+    expect(sp.names[0]).toBe('auto_match_run');
+    expect(sp.rolledBack, 'only the held candidate rolled back').toBe(1);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRaced).toBe(1);
+  });
+
+  it('skips D10\'s provisional-line refusal (a typed BankAllocationRefusal) for one candidate', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new BankAllocationRefusal('This bank line is booked by provisional journal JE-1');
+      return { id: txId };
+    });
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRefused).toBe(1);
+  });
+
+  it('RECONCILIATION_NOT_FOUND (the session was cancelled) re-throws and rolls the whole run savepoint back', async () => {
+    const err = new BankMatchTargetError('RECONCILIATION_NOT_FOUND', 'Reconciliation r not found');
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw err;
+      return { id: txId };
+    });
+    await expect(autoMatchTransactions(COMPANY, BANK_GL, 'r')).rejects.toBe(err);
+    expect(sp.rolledBack, 'the run savepoint rolled back (the earlier match is discarded)').toBeGreaterThanOrEqual(1);
+    expect(sp.names).toContain('auto_match_run');
+  });
+
+  it('re-throws when EVERY attempted candidate was held', async () => {
+    const err = new BankTransactionLockTimeoutError(TX(1));
+    matchMock.mockImplementation(async () => { throw err; });
+    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toBe(err);
+  });
+
+  it('does not re-throw when only some were held and the others were raced or matched', async () => {
+    matchMock.mockImplementation(async (_c: string, txId: string) => {
+      if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
+      if (txId === TX(2)) throw new BankTransactionAllocatedError(txId, 'allocated');
+      return { id: txId };
+    });
+    expect((await autoMatchTransactions(COMPANY, BANK_GL)).matched).toBe(1);
+  });
+
   // A locked TABLE is skipped like a race — the run must not lose the matches
   // already applied — but it is NOT a race, and `skippedRaced` reaches the user
   // as "allocated by another request". Counting it there says something false
@@ -160,15 +234,18 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     expect(result.skippedUnavailable).toBe(1);
   });
 
-  // Adjacent case: the type alone is not the licence to continue. A target the
-  // company does not own is a real failure and must still reach the caller.
-  it('propagates a LINE_NOT_FOUND target error', async () => {
+  // D11 round 6: a TYPED refusal of one candidate (a reversed / missing journal line) is a state of that candidate, not of
+  // the run: skipped inside its savepoint and counted, never a 4xx after earlier matches committed.
+  it.each(['LINE_REVERSED', 'LINE_NOT_FOUND'] as const)('skips a typed %s refusal mid-run, counts it, earlier match stands', async (code) => {
     matchMock.mockImplementation(async (_c: string, txId: string) => {
-      if (txId === TX(2)) throw new BankMatchTargetError('LINE_NOT_FOUND', 'Journal line jl-2 not found');
+      if (txId === TX(2)) throw new BankMatchTargetError(code, `Journal line jl-2: ${code}`);
       return { id: txId };
     });
-
-    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toThrow('not found');
+    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
+    expect(result.matched).toBe(2);
+    expect(result.skippedRefused).toBe(1);
+    expect(result.skippedRaced).toBe(0);
   });
 
   it('still propagates a failure that is not a race', async () => {

@@ -1,0 +1,6 @@
+HEAD: 81c4d0466305cd79243208b182487a2b5d308162 (committed; final code head)
+type-check rc=0
+type-check:paystack-exports rc=0
+lint: ✖ 12 problems (0 errors, 12 warnings)
+OK: 81 agent document mirror(s) match canonical sources.
+(archive-tree proof of next-env.d.ts absence is from 9662a10d3; tsconfig unchanged since)

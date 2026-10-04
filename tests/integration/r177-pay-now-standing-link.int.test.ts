@@ -127,7 +127,7 @@ describe('R-177: Pay Now hands out the standing link and never calls the gateway
       const started = Date.now();
       const r = await payNow(id);
       expect(Date.now() - started).toBeGreaterThan(4000);
-      expect(r.statusCode).toBe(400);
+      expect(r.statusCode).toBe(503);
       expect(JSON.stringify(r.body)).toContain('CUSTOMER_INVOICE_LOCK_TIMEOUT');
     } finally { await holder.query('ROLLBACK'); holder.release(); }
     expect(await links(id)).toEqual([]);

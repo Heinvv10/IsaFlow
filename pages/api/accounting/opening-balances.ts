@@ -9,6 +9,7 @@ import { OpeningBalanceValidationError, postOpeningBalances } from '@/modules/ac
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -50,6 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Opening balances posted', { entryId: entry.id, companyId }, 'accounting');
       return apiResponse.success(res, { journalEntry: entry });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       if (err instanceof OpeningBalanceValidationError) return apiResponse.badRequest(res, err.message);
       log.error('Failed to save opening balances', { error: err, companyId }, 'accounting');
       return apiResponse.databaseError(res, err, 'Failed to save opening balances');

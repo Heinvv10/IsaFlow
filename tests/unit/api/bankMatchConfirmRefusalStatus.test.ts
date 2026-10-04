@@ -126,12 +126,12 @@ describe('bank-match-confirm — refusal to status', () => {
     expect((await callRoute()).statusCode).toBe(400);
   });
 
-  it('answers 409 for contention, which is retryable and wrote nothing', async () => {
+  it('answers 503 for contention, which is retryable and wrote nothing (D11, was 409)', async () => {
     primeRouteReads();
     vi.mocked(confirmSupplierInvoiceMatch).mockRejectedValue(
       new PaymentLockTimeoutError(CANDIDATE),
     );
-    expect((await callRoute()).statusCode).toBe(409);
+    expect((await callRoute()).statusCode).toBe(503);
   });
 
   it('still answers 500 for an unclassified throw, so the transaction unwinds', async () => {

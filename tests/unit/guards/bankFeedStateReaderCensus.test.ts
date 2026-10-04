@@ -122,6 +122,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTxAttachmentService.ts': 'exempt: attachment CRUD ownership check, not a financial total',
+  'src/modules/accounting/services/bank/bankChainLineReversal.ts': "exempt: the one read is the peek of the line being reversed keyed on its matched_journal_line_id, which a non-posted row cannot carry (CHECK bank_tx_nonposted_unlinked, migration 675); writer (bank reversal) under the row lock",
   'src/modules/accounting/services/bank/bankTxLock.ts': 'exempt: writer (Task 3) — row lock taken before a write',
   'src/modules/accounting/services/bank/bankTxQueryFragments.ts': 'exempt: shared SELECT fragment with no WHERE of its own; every caller (bankTransactionQueryService.ts) filters',
   'src/modules/accounting/services/bank/bankTxStatusMutations.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675); writer (Task 3)",

@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -63,6 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         suggestion: result,
       });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Smart categorize GET failed', { txId, error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Failed');
     }
@@ -163,6 +165,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return apiResponse.badRequest(res, `Unknown action: ${action}`);
       }
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Smart categorize POST failed', { action, error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Action failed');
     }

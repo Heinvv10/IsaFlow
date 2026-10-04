@@ -58,12 +58,12 @@ function mockReqRes() {
 beforeEach(() => { vi.resetAllMocks(); });
 
 describe('POST /api/accounting/bank-auto-post (undo)', () => {
-  it('answers a contended bank line 409 with the retry wording', async () => {
+  it('answers a contended bank line 503 + Retry-After with the retry wording (D11, was 409)', async () => {
     vi.mocked(undoRun).mockRejectedValue(new BankTransactionLockTimeoutError('tx-1'));
     const { req, res } = mockReqRes();
     await (handler as (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>)(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
   });
 

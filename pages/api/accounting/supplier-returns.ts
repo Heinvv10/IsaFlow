@@ -10,6 +10,7 @@ import { sql } from '@/lib/neon';
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -91,6 +92,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       log.info('Supplier return created', { id: created?.id, number: returnNum, module: 'accounting' });
       return apiResponse.success(res, { return: created });
     } catch (err) {
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to create supplier return', { error: err, module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to create supplier return');
     }

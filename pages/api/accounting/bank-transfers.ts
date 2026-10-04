@@ -10,6 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -124,6 +125,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       message: `Transferred R${Number(amount).toFixed(2)} from ${fromAcct?.account_name} to ${toAcct?.account_name}`,
     });
   } catch (err) {
+    if (respondIfLockTimeout(res, err)) return;
     if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
     log.error('Failed to process bank transfer', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process bank transfer');

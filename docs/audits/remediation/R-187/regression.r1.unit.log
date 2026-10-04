@@ -1,0 +1,226 @@
+HEAD: 8d9c055b9ffaf05e422e018e9d5c8e7262a5fcaf; fixture none; load 18.93
+unit files (9):
+  tests/unit/services/ar/gatewayAllocationLocked.test.ts
+  tests/unit/services/ar/gatewayFeeLeg.test.ts
+  tests/unit/services/ar/gatewayReceiptWiring.test.ts
+  tests/unit/services/ar/gatewaySettlementRules.test.ts
+  tests/unit/services/billing/paystackClient.test.ts
+  tests/unit/services/billing/paystackSettlementPassThrough.test.ts
+  tests/unit/services/billing/paystackVerifyRoute.test.ts
+  tests/unit/services/billing/paystackWebhookSignature.test.ts
+  tests/unit/services/paystackMandateActivation.test.ts
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r187
+
+ ✓ tests/unit/services/billing/paystackWebhookSignature.test.ts > Paystack webhook signature > accepts a correctly signed payload 1ms
+ ✓ tests/unit/services/billing/paystackWebhookSignature.test.ts > Paystack webhook signature > rejects when the body has been tampered with 0ms
+ ✓ tests/unit/services/billing/paystackWebhookSignature.test.ts > Paystack webhook signature > rejects when the secret is wrong 0ms
+ ✓ tests/unit/services/billing/paystackWebhookSignature.test.ts > Paystack webhook signature > rejects empty / malformed signatures 0ms
+ ✓ tests/unit/services/billing/paystackWebhookSignature.test.ts > Paystack webhook signature > produces a 128-char hex digest (SHA-512) 1ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > reports an unlinked already-active mandate carrying a DIFFERENT code, instead of success 1ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > still treats a redelivery of the SAME code as already_active 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > does not second-guess a mandate the payment request explicitly linked 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > absorbs 23505 only for ux_sub_mandates_company_active 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > reports already_active when the re-read shows the OTHER observer activated this row 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > still labels an UNLINKED row that came back active carrying a different code 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > reports not_pending when the row is gone or no longer activatable 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > rethrows a 23505 raised by any OTHER constraint 1ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > rethrows a non-unique error untouched 0ms
+ ✓ tests/unit/services/paystackMandateActivation.test.ts > activateAuthorisedMandate > never resurrects a revoked mandate 0ms
+{"level":"warn","message":"Gateway receipt exceeds the invoice balance — the excess is banked as an unapplied receipt","timestamp":"2026-10-03T08:36:38.450Z","component":"accounting","data":{"reference":"r181_alloc","invoiceId":"44444444-4444-4444-8444-444444444444","amountRand":115,"pending":20,"unallocated":20}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.452Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"acebb8f9-28af-4332-84ea-72ab3b65efcb","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > reads the invoice FOR UPDATE, scoped by company, inside the invoice lock 3ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > the draft-receipt deduction counts only DRAFT receipts, of this company, against this invoice 0ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > a draft invoice takes nothing: invoice_draft 1ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > a soft-deleted invoice takes nothing: invoice_deleted 0ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > draft receipts already claim R20 of R115: a R115 receipt allocates R95, overpaid 1ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > the caller's hold (unapplied_currency) allocates nothing 0ms
+ ✓ tests/unit/services/ar/gatewayAllocationLocked.test.ts > decideGatewayAllocation > returns the customer as read under the lock 0ms
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.454Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"05f52aff-18de-4158-b45e-4f24bc55d4f5","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.455Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"eefcb494-2f00-4e5b-871e-452229746e60","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.455Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.456Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.456Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"498a9f40-98dc-45d4-91c8-95755fc2bfe8","allocated":50,"unallocated":65,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.456Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"c40bff05-5d65-4bac-a949-4b6c05279122","allocated":50,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"070d542b-78cf-4c0b-945e-be1d2e933ba2","allocated":0,"unallocated":115,"journalEntryId":"je-1"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.457Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"00b14836-9748-4bf3-a6b5-e3d5f02b5c65","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.458Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"d61d3974-57d8-4e64-8c10-3858877d7b14","allocated":100,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.458Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"b765625e-4d27-4ce6-bd33-133f79948edd","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.458Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"88e66f78-cfcb-4712-b36a-5d7b2e3619bf","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.459Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"f5490be1-bbbc-4dc5-816f-f72d3455bd1b","allocated":115,"unallocated":0,"journalEntryId":"je-1"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:36:38.459Z","component":"accounting","data":{"reference":"r181_wiring","invoiceId":"44444444-4444-4444-8444-444444444444","paymentId":"948ef236-0ed9-4d34-8ded-56bd870c482b","allocated":0.01,"unallocated":114.99,"journalEntryId":"je-1"}}
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > pass-on fee: banks requested_amount, hands postGatewayFee no fee (the customer paid it) 3ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > merchant-borne fee: banks R115 and posts the R3.50 fee 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > non-ZAR: banked, held unapplied, and no fee posted as rand 1ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe: no receipt INSERT; the fee is costed against what the FIRST report banked (R118.50) 1ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe after verify trusted requested_amount (R115 banked, amount R118.50 tagged): the customer-paid fee posts nothing 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > the allocation INSERT carries what the locked invoice can take (R50), not the whole receipt (R115) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > the first report flags its reasons: R50 reported on a R115 request 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > an invoice outside the ledger is a reason of its own 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe: Paystack reporting R103 after a first report of R100 is flagged though both bank R100 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe: a one-cent difference from the banked figure is flagged (R2.01 banked, R2.00 reported) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe: the same Paystack amount but bank figures one cent apart is flagged (R2.01 banked, R2.00 now) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > dedupe: the second report flags its own reasons (a USD report after a ZAR receipt) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > an overpayment banked unapplied is flagged overpaid_unapplied 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > the first report flags the fee leg's own reasons (a fee above the receipt) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > the receipt INSERT carries receiptDescription (the first report amount tag) 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > a merge moved the invoice: the receipt is re-pointed to the customer read under the lock 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > R-187: a CANCELLED receipt for the reference banks nothing, posts no fee, and flags the request 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > R-187 round 1: a cancelled receipt the gateway did NOT write (manual, bank feed) does not block: it banks 0ms
+ ✓ tests/unit/services/ar/gatewayReceiptWiring.test.ts > recordGatewayInvoiceReceipt wiring > a one-cent allocation is inserted 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > reported = requested 1ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > reported < requested 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > reported > requested 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > currency USD 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > no amount 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > amount 0 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > fractional cents 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > pass-on fee within fees: requested_amount 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > merchant bears the fee 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > requested_amount differs from the request 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > amount below requested_amount 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > excess above fees (R103 / R50 / R3) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > excess above fees (R103 / R100 / R2) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > excess equal to fees is trusted (R103 / R100 / R3) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > LOW-1 accepted: one cent above fees (10301 / 10000 / 300) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > no fee figure: amount, unverified 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > requested_amount = amount needs no fee figure 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > settledCharge: what is banked, and why it is flagged > requested_amount with no amount 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > no fee 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > merchant bears the fee 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > pass-on: the customer paid it 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > verify banked amount, then the webhook fee 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > excess above fees (R103, R3) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > excess above fees (R103, R2) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > LOW-1: one cent above fees 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > a one-cent fee leg (11850 / 11500 / 351) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > amount missing 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > non-ZAR: not posted 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > second report below what was banked: capped at fees 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > second report above what was banked by more than fees 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > a clamp that bites by one cent 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > merchantFee: the fee leg, and Bank netting to amount - fees > fee larger than the receipt: capped at the receipt 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > composeReviewNote > null + ["amount_mismatch"] 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > composeReviewNote > "" + ["amount_mismatch"] 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > composeReviewNote > "abandoned while starting" + ["amount_mismatch"] 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > composeReviewNote > "review:currency_mismatch" + ["amount_mismatch"] 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > composeReviewNote > "review:currency_mismatch | previously: x" + ["amount_mismatch","currency_mismatch"] 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > receipt description and the first report amount > names a non-ZAR currency, tags an amount that differs from the receipt, and reads it back 1ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > draft (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > pending_approval (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > cancelled (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > sent (deleted 2026-10-02) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > sent (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > paid (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > invoiceReview > null (deleted null) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > the balance 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a part-payment 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > an overpayment 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > an invoice already paid 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > draft receipts already claim part 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a draft invoice 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a soft-deleted invoice 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a held (non-ZAR) receipt 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a NaN total 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > a NaN amount_paid 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent over (R2.01 on R2.00 owed) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent owed (R2.01 total, R2.00 paid) 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > one cent owed on a large invoice (R20000.01, R20000.00 paid), one cent banked 0ms
+ ✓ tests/unit/services/ar/gatewaySettlementRules.test.ts > allocationPlan: what the invoice takes > exactly the balance on a large invoice 0ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > initializeTransaction posts JSON with Bearer auth and unwraps data 29ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > initializeTransaction with timeoutMs aborts a gateway that never answers (R-167) 22ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction with timeoutMs aborts a gateway that never answers, and without it sends no signal (R-167) 22ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > initializeTransaction without timeoutMs sends no abort signal (the other callers are unchanged) 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps statuses + extracts authorization 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "success" → "success" 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "failed" → "failed" 0ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "abandoned" → "abandoned" 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "reversed" → "reversed" 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "pending" → "pending" 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > verifyTransaction maps "anything_else" → "pending" 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > chargeAuthorization sends authorization_code + email + amount 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > createPlan returns plan_code as planCode 0ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > createSubscription posts customer + plan + authorization 0ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > disableSubscription posts code + token 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > throws with server-supplied message on 4xx 1ms
+ ✓ tests/unit/services/billing/paystackClient.test.ts > paystackClient — REST surface > throws when PAYSTACK_SECRET_KEY is missing 1ms
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.656Z","component":"API","requestId":"01M40EGZ3ZC4PAPAVV3BW9DHFP","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-03T08:36:38.657Z","component":"PaystackPortal","requestId":"01M40EGZ3ZC4PAPAVV3BW9DHFP","data":{"prId":"pr-1","err":"Invoice inv-1 is being processed by another request — retry in a moment."}}
+{"level":"info","message":"API Response: GET  - 200 (1ms)","timestamp":"2026-10-03T08:36:38.657Z","component":"API","requestId":"01M40EGZ3ZC4PAPAVV3BW9DHFP","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.657Z","component":"http","requestId":"01M40EGZ3ZC4PAPAVV3BW9DHFP","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ42Z772JYRBFQVTF0YZ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ42Z772JYRBFQVTF0YZ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.659Z","component":"http","requestId":"01M40EGZ42Z772JYRBFQVTF0YZ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ43686C5RS4Z3S1XKWF","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ43686C5RS4Z3S1XKWF","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.659Z","component":"http","requestId":"01M40EGZ43686C5RS4Z3S1XKWF","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ43SC4KB4V9DGRQA2Q8","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ43SC4KB4V9DGRQA2Q8","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"warn","message":"Paystack live verify failed","timestamp":"2026-10-03T08:36:38.659Z","component":"PaystackPortal","requestId":"01M40EGZ42Z772JYRBFQVTF0YZ","data":{"prId":"pr-1","err":"The operation was aborted due to timeout"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.659Z","component":"http","requestId":"01M40EGZ43SC4KB4V9DGRQA2Q8","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.659Z","component":"API","requestId":"01M40EGZ42ADD7776P3WRZ8SK4","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_pass"}}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.660Z","component":"API","requestId":"01M40EGZ441WDSNAKTP108YEZJ","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.660Z","component":"API","requestId":"01M40EGZ441WDSNAKTP108YEZJ","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.660Z","component":"http","requestId":"01M40EGZ441WDSNAKTP108YEZJ","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Response: GET  - 200 (1ms)","timestamp":"2026-10-03T08:36:38.660Z","component":"API","requestId":"01M40EGZ42ADD7776P3WRZ8SK4","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.660Z","component":"http","requestId":"01M40EGZ42ADD7776P3WRZ8SK4","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.661Z","component":"API","requestId":"01M40EGZ45Z6TKJW6BQ99GVHJG","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.661Z","component":"API","requestId":"01M40EGZ45Z6TKJW6BQ99GVHJG","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.661Z","component":"http","requestId":"01M40EGZ45Z6TKJW6BQ99GVHJG","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+ ✓ tests/unit/services/billing/paystackSettlementPassThrough.test.ts > the webhook hands over what Paystack reported > a pending request 3ms
+ ✓ tests/unit/services/billing/paystackSettlementPassThrough.test.ts > the webhook hands over what Paystack reported > a request already completed (verify got there first) 1ms
+ ✓ tests/unit/services/billing/paystackSettlementPassThrough.test.ts > verify hands over what Paystack verified > requested_amount and fees pass through, and the fee leg with them 3ms
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.661Z","component":"API","requestId":"01M40EGZ453QCD1HWQ6WK3ASF9","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (1ms)","timestamp":"2026-10-03T08:36:38.662Z","component":"API","requestId":"01M40EGZ453QCD1HWQ6WK3ASF9","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.662Z","component":"http","requestId":"01M40EGZ453QCD1HWQ6WK3ASF9","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":1,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.662Z","component":"API","requestId":"01M40EGZ46E9X027YXCDGFGK0C","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.662Z","component":"API","requestId":"01M40EGZ46E9X027YXCDGFGK0C","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.662Z","component":"http","requestId":"01M40EGZ46E9X027YXCDGFGK0C","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET ","timestamp":"2026-10-03T08:36:38.662Z","component":"API","requestId":"01M40EGZ46Q1ME9T3AFWWY9KJ7","data":{"type":"request","method":"GET","url":"","query":{"ref":"r181_verify"}}}
+{"level":"info","message":"API Response: GET  - 200 (0ms)","timestamp":"2026-10-03T08:36:38.662Z","component":"API","requestId":"01M40EGZ46Q1ME9T3AFWWY9KJ7","data":{"type":"response","method":"GET","url":"","statusCode":200,"duration":"0ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:36:38.662Z","component":"http","requestId":"01M40EGZ46Q1ME9T3AFWWY9KJ7","data":{"event":"request_completed","route":"","method":"GET","status":200,"durationMs":0,"userId":null,"companyId":null,"outcome":"ok"}}
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed, Paystack success, the settlement throws: pending 5ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed whose live check throws (timeout, 5xx) answers pending, not failed 0ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed that Paystack still reports pending answers pending 0ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed that Paystack reports reversed stays failed 0ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a charged payer is never told "failed" > a request stored failed that Paystack also says failed stays failed 1ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a settled payment answers with what was banked > R50 banked and applied, in ZAR 1ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a settled payment answers with what was banked > one cent applied is applied 1ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a settled payment answers with what was banked > banked in USD and held unapplied 0ms
+ ✓ tests/unit/services/billing/paystackVerifyRoute.test.ts > verify: a settled payment answers with what was banked > nothing banked yet: the checkout amount, not applied, ZAR 0ms
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:36:38.870Z","component":"accounting","data":{"reference":"r181_fee","fee":0.01,"journalEntryId":"je-fee"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:36:38.872Z","component":"accounting","data":{"reference":"r181_fee","fee":3.5,"journalEntryId":"je-fee"}}
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts one cent 3ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts R3.50 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for no fee 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for zero 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for a fraction of a cent 0ms
+
+ Test Files  9 passed (9)
+      Tests  134 passed (134)
+   Start at  10:36:38
+   Duration  700ms (transform 1.21s, setup 0ms, import 1.85s, tests 138ms, environment 2ms)
+
+component files (2, vitest.components.config.ts):
+  tests/unit/components/paystackMandateReturn.test.tsx
+  tests/unit/components/paystackPortalReturn.test.tsx
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r187
+
+ ✓ tests/unit/components/paystackMandateReturn.test.tsx > Paystack mandate return page > offers "Back to billing", not a retry, when the card was charged but nothing attached 23ms
+ ✓ tests/unit/components/paystackMandateReturn.test.tsx > Paystack mandate return page > still offers "Try again" for a plain decline, which the create route will accept 5ms
+ ✓ tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > completed and applied: the banked amount, against the invoice 29ms
+ ✓ tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > completed but not applied (invoice not open for payment): no invoice wording 5ms
+ ✓ tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > completed in a foreign currency: no rand figure, a plain "received" 4ms
+ ✓ tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > pending on every try: stops after 10 polls on a neutral "still confirming" state 23ms
+ ✓ tests/unit/components/paystackPortalReturn.test.tsx > Paystack portal return page > a rate-limited verify (429) ends on the neutral state, not an error 5ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  10:36:39
+   Duration  569ms (transform 94ms, setup 127ms, import 336ms, tests 97ms, environment 354ms)
+

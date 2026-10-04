@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -13,7 +14,6 @@ import {
   updateRecurringJournalStatus,
   generateJournalFromRecurring,
   RecurringJournalRequestError,
-  RecurringJournalLockTimeoutError,
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 
@@ -58,16 +58,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // the action had already written before it failed — the caller was told the
     // action failed while its half-finished journal stayed in the books.
     // Anything not of this class is rethrown to withErrorHandler as a 500.
-    // Contention is the one refusal that is transient, so it answers 409 rather
-    // than 400: the same request will succeed once the peer finishes, and a
+    // Contention is the one refusal that is transient, so it answers 503 +
+    // Retry-After (D11) rather than 400: the same request will succeed once the peer finishes, and a
     // client cannot tell "retry this" from "stop" if both come back the same.
     // A wrong id — another tenant's included — answers 404 for the same reason:
     // it is not a malformed request, and no retry or correction of the body
     // will ever make it succeed. Both branches sit ABOVE the parent class they
     // extend, because instanceof matches the parent first otherwise.
-    if (err instanceof RecurringJournalLockTimeoutError) {
-      log.warn('Recurring journal action contended', { message: err.message }, 'accounting-api');
-      return apiResponse.conflict(res, err.message);
+    if (respondIfLockTimeout(res, err)) {
+      log.warn('Recurring journal action contended', { message: (err as Error).message }, 'accounting-api');
+      return;
     }
     if (err instanceof RecurringJournalNotFoundError) {
       log.warn('Recurring journal not found', { id: err.id }, 'accounting-api');

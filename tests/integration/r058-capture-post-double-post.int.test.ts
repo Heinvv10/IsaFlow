@@ -423,12 +423,12 @@ it('discard: an extracted event is still discardable', async () => {
 
 // ── the lock's own 409 branch ──────────────────────────────────────────────
 
-it('post-expense: answers 409 when another transaction holds the event', async () => {
+it('post-expense: answers 503 when another transaction holds the event', async () => {
   const { eventId, documentId } = await seedEvent(RECEIPT, 'locked');
   const release = await holdEventRow(eventId);
   try {
     const blocked = await call(postExpense, eventId, {});
-    expect(blocked.state.statusCode).toBe(409);
+    expect(blocked.state.statusCode).toBe(503);
     expect(await journalsFor(documentId)).toBe(0);
   } finally {
     await release();
@@ -444,12 +444,12 @@ it('post-expense: answers 409 when another transaction holds the event', async (
 // `conflict` to `badRequest` left every r058/k072 capture test green. The bill
 // route claims the DOCUMENT as well as locking the event, so it also proves the
 // claim did not leak on the refusal: `posted_at` stays NULL and the retry posts.
-it('post: answers 409 when another transaction holds the event', async () => {
+it('post: answers 503 when another transaction holds the event', async () => {
   const { eventId, documentId } = await seedEvent(BILL, 'locked-bill', bill(11550));
   const release = await holdEventRow(eventId);
   try {
     const blocked = await call(post as typeof postExpense, eventId, {});
-    expect(blocked.state.statusCode).toBe(409);
+    expect(blocked.state.statusCode).toBe(503);
     expect(await invoicesFor(documentId)).toBe(0);
   } finally {
     await release();
@@ -462,12 +462,12 @@ it('post: answers 409 when another transaction holds the event', async () => {
   expect(await invoicesFor(documentId)).toBe(1);
 }, 30_000);
 
-it('discard: answers 409 when another transaction holds the event', async () => {
+it('discard: answers 503 when another transaction holds the event', async () => {
   const { eventId } = await seedEvent(RECEIPT, 'locked-discard');
   const release = await holdEventRow(eventId);
   try {
     const blocked = await call(discard as typeof postExpense, eventId, {});
-    expect(blocked.state.statusCode).toBe(409);
+    expect(blocked.state.statusCode).toBe(503);
     expect(await statusOf(eventId)).toBe('extracted');
   } finally {
     await release();

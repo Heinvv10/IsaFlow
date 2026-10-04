@@ -117,16 +117,16 @@ describe('POST /api/accounting/supplier-allocations', () => {
     ['the PAYMENT row', () => new PaymentLockTimeoutError(PAYMENT)],
     ['a BILL row', () => new SupplierPaymentRefusal(
       'Another request is applying cash to one of these bills — retry in a moment.',
-      { retryable: true },
+      { retryable: true, held: true },
     )],
-  ])('answers contention on %s with 409 and the retry wording', async (_label, make) => {
+  ])('answers contention on %s with 503 and the retry wording (D11, was 409)', async (_label, make) => {
     vi.mocked(planSupplierPaymentApplication).mockRejectedValue(make());
     const { req, res } = mockReqRes('POST', BODY);
     await handler(req, res);
 
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(503);
     expect(JSON.stringify(res.sent)).toMatch(/retry in a moment/i);
-    // Pre-write: the plan writes nothing, so the 4xx withAuth COMMITs is empty.
+    // Pre-write: the plan writes nothing, and the 503 rolls back.
     expect(applySupplierPaymentPlan).not.toHaveBeenCalled();
   });
 

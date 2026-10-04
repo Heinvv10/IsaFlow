@@ -19,9 +19,10 @@ import { reverseReconciledTransaction } from './bankAllocationService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { reverseJournalEntry } from '../gl/journalEntryService';
 import { isRetryableContention } from '../core/retryableContention';
-import { isLockTimeoutError } from '@/lib/lockTimeout';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
+import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 
 type Row = DbRow;
@@ -145,6 +146,10 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
       // read as paid. `reverseReconciledTransaction` unwinds those BEFORE its
       // contra; the undo does the same here, so the subledger agrees with the
       // ledger when the line is finished. Idempotent (`status <> 'cancelled'`).
+      // A provisional's line (no matched journal line) is re-decided under X's chain-head LOCK, after the line lock
+      // (D10 round 2, brk-d10 O-b): the state above is an unlocked read, and a re-reversal landing before the reset
+      // below would put X back in force under a line this frees. Now it waits; standing again -> skipped as above.
+      if (!tx.matched_journal_line_id && (await lockChainHead(companyId, jeId))?.standing) return { kind: 'reReversed' };
       await unwindBankAllocationApplication(companyId, jeId);
     }
     if (state === 'live' && tx.matched_journal_line_id) {
@@ -254,7 +259,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
       // rows already reversed stand. Contention is skipped like any failure;
       // it is kept only to decide the answer below. Every lock timeout is contention (D8 round 11): the bank
       // reversal's flow budget refuses a held bill or invoice after 5 s, and that row is not "failed".
-      if (isRetryableContention(err) || isLockTimeoutError(err)) {
+      if (isRetryableContention(err) || isHeldRowError(err)) {
         contention ??= err;
         skippedBy.contended += 1;
         log.info('Auto-post undo skipped a contended transaction', { companyId, runId, txId }, 'auto-post-undo');
