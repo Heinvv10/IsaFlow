@@ -19,6 +19,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ReconciliationCompletedError } from './reconciliationSessionLock';
+import { lockBankTransactionsInIdOrder } from './bankTxLock';
 
 /** Raised before any write; every caller answers it 400. A completed reconciliation is `ReconciliationCompletedError` (409, D12). */
 export class ReconciledCashError extends Error {
@@ -97,5 +98,35 @@ export function refuseLockedCash(lock: LineLock, subject: string): void {
   if (lock?.kind === 'session') {
     throw new ReconciledCashError(`${subject} is in an open bank reconciliation session — remove it from that `
       + 'session (Unmatch on the reconciliation screen) or cancel the session first.');
+  }
+}
+
+/**
+ * D12: the ONE check that a (locked) line is IN a completed reconciliation — the shared 409, raised before the
+ * caller's own status refusal, by every writer of one line (match/unmatch/exclude, allocate, split, both
+ * bank-match-confirm settlement arms). Reads only; `null` (line not found) passes for the caller to answer.
+ */
+export async function refuseLineOfCompletedReconciliation(companyId: string, row: DbRow | null | undefined): Promise<void> {
+  if (!row) return;
+  const lock = await reconciliationLockOf(companyId, row);
+  if (lock?.kind === 'completed') throw new ReconciliationCompletedError(lock);
+}
+
+/**
+ * D12 round 2 (brk-d12 B3): the entrance to a GENERIC journal reversal (`journal-entries-action` reverse, MCP
+ * `reverse_journal_entry`). A statement line matched to a line of this entry and IN a completed reconciliation holds
+ * cash the reversal would take out of a signed-off figure: refused, 409. Its lines are locked (their sessions first,
+ * `lockBankTransactionsInIdOrder`) BEFORE `reverseJournalEntry` touches the journal — bank -> GL, the canonical order;
+ * never inside `reverseJournalEntry`, whose internal callers already hold the GL. Only the `completed` kind refuses
+ * here; an open-session or Sage-reconciled line keeps today's behaviour (register item).
+ */
+export async function refuseJournalCashOfCompletedReconciliation(companyId: string, journalEntryId: string): Promise<void> {
+  const lines = (await sql`
+    SELECT bt.id FROM bank_transactions bt
+    JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
+    WHERE jl.journal_entry_id = ${journalEntryId}::UUID AND bt.company_id = ${companyId}::UUID`) as DbRow[];
+  if (lines.length === 0) return;
+  for (const row of await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)))) {
+    await refuseLineOfCompletedReconciliation(companyId, row);
   }
 }

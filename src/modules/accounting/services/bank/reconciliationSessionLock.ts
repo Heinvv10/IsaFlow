@@ -9,16 +9,29 @@
  *
  * ── THE SESSION ROW SERIALISES THEM ────────────────────────────────────────
  *
- * Every line writer takes the session row FOR SHARE (writers must not serialise each other); every header change —
- * complete, cancel, reopen, adjustment — takes it FOR UPDATE, both under the 5 s row-lock budget, and the status is
- * read UNDER the lock. So a completion waits for every in-flight writer of its lines and then signs off the figures
- * they left, and a writer arriving during a completion waits and then sees `completed`.
+ * Every line writer takes the session row FOR SHARE (writers must not serialise each other), and so does an
+ * adjustment (it posts a journal — round 2, below). Only complete, cancel and reopen take it FOR UPDATE. All under the
+ * 5 s row-lock budget, the status read UNDER the lock. So a completion waits for every in-flight writer of its lines
+ * and then signs off the figures they left, and a writer arriving during a completion waits and then sees `completed`.
  *
- * LOCK ORDER: session row -> bank line -> document -> journal head. `lockBankTransactionForUpdate` takes a line's
- * stamped session before the line, so no path takes a session after holding one of ITS lines. No path upgrades a
- * share to an update on a session another request can share: the one request that does both (the MCP
- * `perform_bank_reconciliation`: auto-match, then complete) does it on the session it INSERTed itself, which no other
- * transaction can see.
+ * ── WHY NO CYCLE (the real invariant, D12 round 2) ─────────────────────────
+ *
+ * Within ONE line's lock the session comes first: `lockBankTransactionForUpdate` takes the line's stamped session
+ * before the line, so no path takes a session after holding one of ITS lines. But a multi-line writer (bulk allocate,
+ * the rule and auto-post sweeps) posts line N's journal and THEN takes line N+1's session FOR SHARE — "session -> line
+ * -> document -> journal head" holds per line, not per request. That is safe only because of this invariant:
+ *
+ *   · only complete, cancel and reopen hold a session EXCLUSIVELY, and none of them waits on a journal (they post
+ *     none) or on a line outside that session (they touch only lines stamped with it, which a writer holds only after
+ *     sharing the session);
+ *   · so a writer holding its own journal and waiting for a session FOR SHARE waits on nothing that waits on it.
+ *
+ * An adjustment posts a journal (numbering waits on any concurrent uncommitted journal of the company), so it must
+ * NOT hold the session exclusively — that was the 40P01 brk-d12 B1 measured. It shares it, and refreshes the header
+ * only if no other sharer holds it (NOWAIT, its own savepoint); completion recomputes under its own lock anyway.
+ * No path upgrades a share to an update on a session another request can share: the one request that does both (the
+ * MCP `perform_bank_reconciliation`: auto-match, then complete) does it on the session it INSERTed itself, which no
+ * other transaction can see.
  */
 
 import { sql } from '@/lib/neon';
@@ -117,8 +130,38 @@ export function stampHeld(row: DbRow, sessions: Map<string, ReconciliationSessio
 const heldSession = () => new RowLockTimeoutError('The bank reconciliation');
 
 /**
- * FOR SHARE on one session for a line writer that names it (match / auto-match into a session), BEFORE any line
- * lock, under the 5 s budget (held -> `RowLockTimeoutError`, 503 + Retry-After). `null` for a missing or other
+ * Run an UPDATE that carries `openStampOnly` on lines it has NOT locked first (bulk accept, the asset/fleet links)
+ * under the 5 s budget: its FOR SHARE subquery waits on a header change holding the session, and its row locks on a
+ * peer holding the line. Held -> `RowLockTimeoutError` (503 + Retry-After), never an unbounded wait (brk-d12 B2).
+ */
+export function underStampBudget<T>(fn: () => Promise<T>): Promise<T> {
+  return withRowLockBudget(fn, () => new RowLockTimeoutError('This bank transaction or its reconciliation'),
+    { isTimeout: isLockContention });
+}
+
+/**
+ * A whole-request refusal for a verb over several lines (`delete`, `bulk_accept`): when ANY of them is IN a completed
+ * session, the shared 409 before anything is written. The stamped sessions are taken FOR SHARE (so no completion or
+ * reopen moves in between); the lines are read only when one of those sessions is completed.
+ */
+export async function refuseLinesInCompletedSession(companyId: string, lineIds: readonly string[]): Promise<void> {
+  if (lineIds.length === 0) return;
+  const sessions = await withRowLockBudget(() => shareLockStampedSessions(companyId, lineIds), heldSession,
+    { isTimeout: isLockContention });
+  const completed = [...sessions.values()].filter((sess) => sess.status === 'completed');
+  if (completed.length === 0) return;
+  const res = (await requestClient().query(
+    `SELECT reconciliation_id::TEXT AS rec FROM bank_transactions
+     WHERE id = ANY($1::UUID[]) AND company_id = $2::UUID AND status IN ('reconciled', 'matched')
+       AND reconciliation_id = ANY($3::UUID[]) LIMIT 1`,
+    [lineIds, companyId, completed.map((sess) => sess.id)])) as { rows?: DbRow[] } | undefined;
+  const hit = res?.rows?.[0];
+  if (hit) throw new ReconciliationCompletedError(sessions.get(String(hit.rec))!);
+}
+
+/**
+ * FOR SHARE on one session for a writer that names it (match / auto-match into a session, an adjustment), BEFORE
+ * any line lock, under the 5 s budget (held -> `RowLockTimeoutError`, 503 + Retry-After). `null` for a missing or other
  * tenant's session — the caller keeps its own not-found answer.
  */
 export function shareLockSession(companyId: string, id: string): Promise<ReconciliationSession | null> {
@@ -143,8 +186,9 @@ async function lockSession(companyId: string, id: string, mode: 'share' | 'updat
 }
 
 /**
- * FOR UPDATE on a session for a header change (complete, cancel, reopen, adjustment), FIRST — before any read the
- * change decides on — under the 5 s budget. Waits for every line writer holding it FOR SHARE.
+ * FOR UPDATE on a session for a header change that posts no journal (complete, cancel, reopen — never an adjustment,
+ * see the header), FIRST — before any read the change decides on — under the 5 s budget. Waits for every line writer
+ * holding it FOR SHARE.
  */
 export function lockSessionForHeaderChange(companyId: string, id: string): Promise<ReconciliationSession | null> {
   return lockSession(companyId, id, 'update');

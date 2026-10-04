@@ -129,7 +129,8 @@ export async function attachEvidenceToProvisional(
         UPDATE bank_transactions
         -- D12: clears the stale stamp of a completed session
         SET status = 'matched', reconciliation_id = ${openStampOnly(companyId)}
-        WHERE id = ${btId}::UUID AND company_id = ${companyId}::UUID
+        -- D12 round 2: still provisional — the SELECT above read it unlocked; a line reconciled since stays as it is.
+        WHERE id = ${btId}::UUID AND company_id = ${companyId}::UUID AND status = 'provisional'
       `;
 
       // Flip the JE to evidenced — only if it still needs evidence. The match above read it

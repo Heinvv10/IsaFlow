@@ -15,6 +15,8 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
+import { refuseJournalCashOfCompletedReconciliation } from '@/modules/accounting/services/bank/reconciledCash';
 import { UUID } from '@/lib/schemas/common';
 import {
   postJournalEntry,
@@ -70,6 +72,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         result = await postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
         break;
       case 'reverse':
+        // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
+        // locked first (bank -> GL), before reverseJournalEntry takes the journal.
+        await refuseJournalCashOfCompletedReconciliation(companyId, id);
         result = await reverseJournalEntry(companyId, id, userId, { reversalDate });
         break;
       default:
@@ -82,6 +87,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // A pay run's journal (`PayrollRunBusyError`: the guard's wait ran out before anything was written) and the
     // reversal's chain-head claim (D8) are held rows: 503 + Retry-After, not the 400 below.
     if (respondIfLockTimeout(res, err)) return;
+    if (respondIfReconciliationCompleted(res, err)) return; // D12: raised before any write
     const message = err instanceof Error ? err.message : 'Failed to perform journal entry action';
     log.error('Failed to perform journal entry action', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
