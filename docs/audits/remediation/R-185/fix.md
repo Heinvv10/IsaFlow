@@ -175,6 +175,8 @@ applied, or 852 refuses.
 | **Land (master 51f501bbe merged), throwaway commit `e8e0d81e6` (tree `30e6497bf`, = `git merge-tree --write-tree origin/master 35a09b2a3`; never pushed)** | | |
 | `regression.land.int.log` | same 22 files, 852 applied | 210/214; the same 4 pre-existing k-035 failures |
 | `regression.land.k035-master.int.log` | k-035 on clean master `51f501bbe`, no 852 | the same 4 failures: pre-existing on master |
+| **Land 2, committed merge `05335acec` of master `4ac280c63` (#625, #629, #631, #630, #632 merged)** | | |
+| `regression.land2.int.log` | same 22 files, 852 applied | 210/214; the same 4 k-035 failures (R-190, now on master) |
 
 ## Recorded, not changed
 
