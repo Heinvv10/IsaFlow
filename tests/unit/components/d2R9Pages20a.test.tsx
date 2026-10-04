@@ -79,11 +79,14 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
 });
 
 describe('sars/index (routes: sars-compliance -> { events }, sars-submissions -> { items })', () => {
-  // Local calendar day + 10: the page counts days from local midnight, so a UTC day
-  // (toISOString) is a day short whenever the local and UTC dates differ.
-  const d10 = new Date(); d10.setDate(d10.getDate() + 10);
-  const due = `${d10.getFullYear()}-${String(d10.getMonth() + 1).padStart(2, '0')}-${String(d10.getDate()).padStart(2, '0')}`;
-  const evt = { eventType: 'VAT201_DUE', dueDate: due, description: 'D2 VAT return falls due', status: 'pending' };
+  // The API sends dueDate as a local calendar day 'YYYY-MM-DD'. Built from the local day,
+  // not toISOString() (the UTC day), which differs from it for part of every day.
+  const localDayPlus10 = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 10);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const evt = { eventType: 'VAT201_DUE', dueDate: localDayPlus10(), description: 'D2 VAT return falls due', status: 'pending' };
   const sub = { id: 's1', formType: 'D2-FORM', periodStart: '2026-07-01', periodEnd: '2026-08-31', status: 'submitted', submissionReference: 'D2-REF-77', submittedAt: null, createdAt: '2026-09-02T00:00:00Z' };
   it('success: the upcoming deadline and the recent submission are listed', async () => {
     serve(on('GET', 'sars-compliance', () => ok({ events: [evt] })), on('GET', 'sars-submissions', () => ok({ items: [sub] })));
@@ -92,6 +95,22 @@ describe('sars/index (routes: sars-compliance -> { events }, sars-submissions ->
     const tr = screen.getByText('D2-FORM').closest('tr') as HTMLElement;
     expect(tr.textContent).toContain('D2-REF-77');
     expect(screen.getByText('10d')).toBeDefined();
+  });
+  it('days left count the local calendar day east and west of UTC', async () => {
+    const saved = process.env.TZ;
+    try {
+      for (const tz of ['Pacific/Kiritimati', 'America/Los_Angeles', 'Africa/Johannesburg']) {
+        process.env.TZ = tz;
+        const local = { ...evt, dueDate: localDayPlus10(), description: `D2 due ${tz}` };
+        serve(on('GET', 'sars-compliance', () => ok({ events: [local] })), on('GET', 'sars-submissions', () => ok({ items: [] })));
+        render(<SarsIndexPage />);
+        const row = (await screen.findByText(`D2 due ${tz}`)).closest('tr') as HTMLElement;
+        expect(row.textContent, tz).toContain('10d');
+        cleanup();
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+    }
   });
   it('an empty 500 shows a sentence and no rows', async () => {
     serve(on('GET', 'sars-compliance', empty500), on('GET', 'sars-submissions', () => ok({ items: [sub] })));
