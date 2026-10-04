@@ -36,8 +36,13 @@ export async function findChainBankLines(companyId: string, rootId: string): Pro
  * D12 round 3: every statement line whose CASH a journal's reversal chain carries — for the journal-reversal gate
  * (`reconciledCash`) and the re-check under the reversal claim (`gl/journalEntryPostingService`). The chain is walked
  * from its ROOT (`findJournalChainRoot`), so reversing the head, a middle reversal or the root sees the same set. A line
- * is tied when its `matched_journal_line_id` is a line of ANY chain member, or its `provisional_je_id` /
- * `transfer_journal_entry_id` names one (an evidenced provisional's line carries no matched line). Reads only; ascending id.
+ * is tied when its `matched_journal_line_id` is a line of ANY chain member, or its `provisional_je_id` names one (an
+ * evidenced provisional's line carries no matched line). Reads only; ascending id.
+ *
+ * NOT `transfer_journal_entry_id` (D12 round 5, brk-d12 R4-1/R4-2): nothing clears it when a line is unwound (unmatch,
+ * reset, cancel, undo — register item), so it ties a line to a transfer FOREVER, and every writer of a LIVE transfer
+ * tie sets `matched_journal_line_id` to a line of that same journal in the same write (allocate, the counterparty
+ * auto-link, the link passes, bank-match-confirm's bank_transfer arm) — the matched-line arm already covers it.
  */
 export async function findChainCashLines(companyId: string, journalEntryId: string): Promise<string[]> {
   const rootId = (await findJournalChainRoot(companyId, journalEntryId)) ?? journalEntryId;
@@ -54,7 +59,6 @@ export async function findChainCashLines(companyId: string, journalEntryId: stri
     FROM bank_transactions bt
     WHERE bt.company_id = ${companyId}::UUID
       AND (bt.provisional_je_id IN (SELECT id FROM walk)
-        OR bt.transfer_journal_entry_id IN (SELECT id FROM walk)
         OR bt.matched_journal_line_id IN (
           SELECT jl.id FROM gl_journal_lines jl
           WHERE jl.journal_entry_id IN (SELECT id FROM walk) AND jl.company_id = ${companyId}::UUID))
