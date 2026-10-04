@@ -140,6 +140,7 @@ export async function attachDocumentToProvisional(
     -- D12: clears the stale stamp of a completed session
     SET status = 'matched', reconciliation_id = ${openStampOnly(companyId)}
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
+      AND status = 'provisional' -- D12 round 3: as the automatic attach — never over a line already settled or reconciled
     RETURNING id`) as DbRow[];
 
   await sql`

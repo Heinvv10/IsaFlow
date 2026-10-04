@@ -20,6 +20,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { ReconciliationCompletedError } from './reconciliationSessionLock';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
+import { findChainCashLines } from './chainBankLines';
+import { RowLockTimeoutError } from '../core/rowLockBudget';
 
 /** Raised before any write; every caller answers it 400. A completed reconciliation is `ReconciliationCompletedError` (409, D12). */
 export class ReconciledCashError extends Error {
@@ -113,20 +115,48 @@ export async function refuseLineOfCompletedReconciliation(companyId: string, row
 }
 
 /**
- * D12 round 2 (brk-d12 B3): the entrance to a GENERIC journal reversal (`journal-entries-action` reverse, MCP
- * `reverse_journal_entry`). A statement line matched to a line of this entry and IN a completed reconciliation holds
- * cash the reversal would take out of a signed-off figure: refused, 409. Its lines are locked (their sessions first,
- * `lockBankTransactionsInIdOrder`) BEFORE `reverseJournalEntry` touches the journal — bank -> GL, the canonical order;
- * never inside `reverseJournalEntry`, whose internal callers already hold the GL. Only the `completed` kind refuses
- * here; an open-session or Sage-reconciled line keeps today's behaviour (register item).
+ * D12 (round 2 B3, round 3 R2-1/R2-2): the ENTRANCE to a generic journal reversal (`journal-entries-action` reverse,
+ * MCP `reverse_journal_entry` and its dry run). Every statement line whose cash the journal's reversal CHAIN carries
+ * (`chainBankLines.findChainCashLines`: matched to any chain member's line, or naming one as its provisional or transfer
+ * journal) is locked — sessions first, `lockBankTransactionsInIdOrder` — and a line IN a completed reconciliation is
+ * refused, 409, BEFORE `reverseJournalEntry` touches the journal (bank -> GL, the canonical order; never inside it,
+ * whose internal callers already hold the GL). Only the `completed` kind refuses here; open-session and Sage lines
+ * keep today's behaviour (register item). Returns the locked ids for `reverseJournalEntry`'s re-check under its claim.
  */
-export async function refuseJournalCashOfCompletedReconciliation(companyId: string, journalEntryId: string): Promise<void> {
-  const lines = (await sql`
-    SELECT bt.id FROM bank_transactions bt
-    JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id AND jl.company_id = bt.company_id
-    WHERE jl.journal_entry_id = ${journalEntryId}::UUID AND bt.company_id = ${companyId}::UUID`) as DbRow[];
-  if (lines.length === 0) return;
-  for (const row of await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)))) {
-    await refuseLineOfCompletedReconciliation(companyId, row);
+export async function refuseJournalCashOfCompletedReconciliation(companyId: string, journalEntryId: string): Promise<string[]> {
+  const ids = await findChainCashLines(companyId, journalEntryId);
+  if (ids.length === 0) return [];
+  const rows = await lockBankTransactionsInIdOrder(companyId, ids);
+  for (const row of rows) await refuseLineOfCompletedReconciliation(companyId, row);
+  return rows.map((r) => String(r.id));
+}
+
+/**
+ * D12 round 3 (R2-3, R2-4): the same question asked again UNDER the reversal claim (which holds the journal FOR
+ * UPDATE, so a match landing on it now waits and then refuses LINE_REVERSED) — read-only, no line lock, so the order is
+ * not inverted. A line matched and its session completed while the claim waited, or an internal caller's journal
+ * (opening-balance re-run, soft delete, …), refuses with the 409. When the entrance passed the set it LOCKED, a tied line
+ * outside it appeared after the gate: a typed retry (503), so the retry takes it in order. Residual (register): an
+ * internal caller passes no set, so its tied line in an IN-PROGRESS session can still be completed concurrently.
+ */
+export async function refuseReversingCompletedCash(
+  companyId: string, journalEntryId: string, lockedLines?: readonly string[],
+): Promise<void> {
+  const ids = await findChainCashLines(companyId, journalEntryId);
+  if (ids.length === 0) return;
+  const rows = (await sql`
+    SELECT bt.id::TEXT AS id, bt.status, r.status AS rec_status, r.statement_date, a.account_name
+    FROM bank_transactions bt
+    LEFT JOIN bank_reconciliations r ON r.id = bt.reconciliation_id AND r.company_id = bt.company_id
+    LEFT JOIN gl_accounts a ON a.id = r.bank_account_id AND a.company_id = r.company_id
+    WHERE bt.id = ANY(${ids}::UUID[]) AND bt.company_id = ${companyId}::UUID`) as DbRow[];
+  for (const r of rows) {
+    if ((r.status === 'reconciled' || r.status === 'matched') && r.rec_status === 'completed') {
+      throw new ReconciliationCompletedError({
+        accountName: r.account_name ? String(r.account_name) : null, statementDate: r.statement_date });
+    }
+  }
+  if (lockedLines && ids.some((id) => !lockedLines.includes(id))) {
+    throw new RowLockTimeoutError('A bank line of this journal');
   }
 }

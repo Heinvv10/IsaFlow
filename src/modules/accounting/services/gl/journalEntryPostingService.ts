@@ -17,6 +17,7 @@ import { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError }
 import { VatPeriodLockedError } from './journalVatLockGuard';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { refuseReversingSettlementJournal } from '../ap/provisionalSettlementGuards';
+import { refuseReversingCompletedCash } from '../bank/reconciledCash';
 import { refuseReversalAgainstPayRun } from '../payroll/payrollJournalReversalGuard';
 import { postJournalEntry } from './journalEntryPostService';
 import { cleanUpAfter } from './reversalCleanup';
@@ -32,6 +33,7 @@ export { resolveReversalDate, resolveReversalDateDetailed, ReversalPeriodError, 
 export type { ReversalEntry } from './reversalLines';
 
 type Row = DbRow;
+type ReverseOpts = PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean; cashLinesLocked?: readonly string[] };
 
 
 import {
@@ -62,8 +64,9 @@ export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  // lateClaimCascade: internal — set only by the cascade below.
-  opts?: PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean },
+  // lateClaimCascade: internal — set only by the cascade below. cashLinesLocked: internal — the statement lines the
+  // journal-reversal gate locked (`bank/reconciledCash`, D12); a tied line outside it is a retry.
+  opts?: ReverseOpts,
 ): Promise<ReversalWithLateClaim> {
   // One transaction around the whole reversal. Inside a request there already
   // is one and this runs on it; outside one (scripts/fixes, cron) it opens and
@@ -83,7 +86,7 @@ async function reverseJournalEntryInner(
   companyId: string,
   id: string,
   userId: string,
-  opts: (PostingActorOpts & { reversalDate?: string; lateClaimCascade?: boolean }) | undefined,
+  opts: ReverseOpts | undefined,
   companion: { id: string } | null,
 ): Promise<ReversalWithLateClaim> {
   try {
@@ -134,6 +137,8 @@ async function reverseJournalEntryInner(
     // withAuth COMMITs a 4xx, and a stranded claim reads as reversed.
     try {
       await refuseReversingSettlementJournal(companyId, entry);
+      // D12 round 3: statement cash a COMPLETED reconciliation signed off — asked under the claim, read-only.
+      await refuseReversingCompletedCash(companyId, id, opts?.cashLinesLocked);
     } catch (err) {
       await releaseJournalReversalClaim(companyId, id);
       throw err;
@@ -257,7 +262,7 @@ async function reverseJournalEntryInner(
     // vatLockRoll rides the same way, so a caller can say the contra was dated
     // later than the default because a filed VAT period was in the way.
     const lateClaimReversal = companion ? await reverseJournalEntry(companyId, companion.id, userId,
-      { ...opts, reversalDate: undefined, lateClaimCascade: true }) : undefined;
+      { ...opts, reversalDate: undefined, lateClaimCascade: true, cashLinesLocked: undefined }) : undefined;
     return {
       ...reversalEntry, foreignDimensionDroppedLines: carried.droppedLineCount, vatLockRoll,
       ...(lateClaimReversal ? { lateClaimReversal } : {}),
