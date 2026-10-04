@@ -1,0 +1,76 @@
+HEAD: 1910c157bc28d1becca7f9d8a3b16d7882a11d17; fixture postgresql://postgres@127.0.0.1:55931/isaflow_schema_fixture (migration 851, 852 NOT applied); load 36.83
+fixture=isaflow-fixture-r185 url=127.0.0.1:55931 head=1910c157bc28d1becca7f9d8a3b16d7882a11d17 load=36.83
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r185
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T08:18:06.930Z","component":"API","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-10-03T08:18:06.974Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"companyId":"a8bd3488-f111-408e-9b38-04595b972f51","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-10-03T08:18:06.974Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"companyId":"a8bd3488-f111-408e-9b38-04595b972f51","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:18:06.978Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"entryId":"3c955253-12db-41a3-b365-42124cbc67ec","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:18:06.983Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"id":"3c955253-12db-41a3-b365-42124cbc67ec","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-03T08:18:06.984Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"id":"ddf865bc-d4dd-47b6-851e-f4b971de4101","journalEntryId":"3c955253-12db-41a3-b365-42124cbc67ec"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:18:06.985Z","component":"accounting","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"reference":"r181_9cc2e4bf-91f","invoiceId":"279e0e2a-b277-4e06-b4fd-820d32f7643f","paymentId":"ddf865bc-d4dd-47b6-851e-f4b971de4101","allocated":115,"unallocated":0,"journalEntryId":"3c955253-12db-41a3-b365-42124cbc67ec"}}
+{"level":"info","message":"API Response: POST  - 200 (60ms)","timestamp":"2026-10-03T08:18:06.989Z","component":"API","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"60ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:18:06.989Z","component":"http","requestId":"01M40DF1EHR7G27D3K7Y11JC4W","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":60,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T08:18:06.992Z","component":"API","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:18:06.998Z","component":"accounting","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"reference":"r181_9cc2e4bf-91f","invoiceId":"279e0e2a-b277-4e06-b4fd-820d32f7643f"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T08:18:07.000Z","component":"API","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:18:07.011Z","component":"accounting","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"reference":"r181_9cc2e4bf-91f","invoiceId":"279e0e2a-b277-4e06-b4fd-820d32f7643f"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:18:07.021Z","component":"accounting","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"entryId":"48297500-728c-4288-b600-52f14d06075c","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:18:07.026Z","component":"accounting","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"id":"48297500-728c-4288-b600-52f14d06075c","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:18:07.027Z","component":"accounting","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"reference":"r181_9cc2e4bf-91f","fee":3,"journalEntryId":"48297500-728c-4288-b600-52f14d06075c"}}
+{"level":"info","message":"API Response: POST  - 200 (29ms)","timestamp":"2026-10-03T08:18:07.029Z","component":"API","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"29ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:18:07.029Z","component":"http","requestId":"01M40DF1GRMMCA4YK8Q045DZZG","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":29,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:18:07.034Z","component":"accounting","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"entryId":"c6012a71-2ce1-4d98-8e52-c2c3b1720ee1","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:18:07.037Z","component":"accounting","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"id":"c6012a71-2ce1-4d98-8e52-c2c3b1720ee1","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-03T08:18:07.038Z","component":"accounting","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"reference":"r181_9cc2e4bf-91f","fee":3,"journalEntryId":"c6012a71-2ce1-4d98-8e52-c2c3b1720ee1"}}
+{"level":"info","message":"API Response: POST  - 200 (52ms)","timestamp":"2026-10-03T08:18:07.044Z","component":"API","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"52ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:18:07.044Z","component":"http","requestId":"01M40DF1GGYNAHHVD4Y9RRZS4T","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":52,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T08:18:07.059Z","component":"API","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:18:07.074Z","component":"accounting","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"entryId":"1643be42-74c8-4f32-bbcd-005327be44d2","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-03T08:18:07.077Z","component":"accounting","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"id":"1643be42-74c8-4f32-bbcd-005327be44d2","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-03T08:18:07.079Z","component":"accounting","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"id":"ba2e66df-b3ab-4afb-bcf2-2385f2c61260","journalEntryId":"1643be42-74c8-4f32-bbcd-005327be44d2"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-03T08:18:07.079Z","component":"accounting","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"reference":"r181_e4446cfc-51b","invoiceId":"056b7eae-18b7-44f7-9a57-26f0114d4ea7","paymentId":"ba2e66df-b3ab-4afb-bcf2-2385f2c61260","allocated":115,"unallocated":0,"journalEntryId":"1643be42-74c8-4f32-bbcd-005327be44d2"}}
+{"level":"info","message":"API Response: POST  - 200 (23ms)","timestamp":"2026-10-03T08:18:07.081Z","component":"API","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"23ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:18:07.081Z","component":"http","requestId":"01M40DF1JJDZCT9JNFP3GNFTX3","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":23,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-03T08:18:07.087Z","component":"API","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-03T08:18:07.096Z","component":"accounting","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"reference":"r181_e4446cfc-51b","invoiceId":"056b7eae-18b7-44f7-9a57-26f0114d4ea7"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-03T08:18:07.100Z","component":"accounting","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"entryId":"9b4fff65-b654-4dac-aeb4-6458d045a4ab","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"error","message":"Failed to post journal entry","timestamp":"2026-10-03T08:18:07.101Z","component":"accounting","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"id":"9b4fff65-b654-4dac-aeb4-6458d045a4ab","error":{"name":"ClosedFiscalPeriodError","periodStatus":"closed","message":"Cannot post to closed fiscal period","stack":"ClosedFiscalPeriodError: Cannot post to closed fiscal period\n    at postJournalEntryInner (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/modules/accounting/services/gl/journalEntryPostService.ts:45:15)\n    at processTicksAndRejections (node:internal/process/task_queues:95:5)\n    at postGatewayFee (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/modules/accounting/services/ar/gatewayFeeService.ts:105:3)\n    at recordGatewayInvoiceReceipt (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts:132:5)\n    at handleChargeSuccess (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/modules/billing/services/paystackEventHandlers.ts:149:7)\n    at processEvent (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/modules/billing/services/paystackEventHandlers.ts:68:5)\n    at /home/hein/Workspace/IsaFlow/.worktrees/r185/pages/api/webhooks/paystack.ts:152:5\n    at runOwnedContext (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/lib/afterCommit.ts:51:12)\n    at withPublicRouteTransaction (/home/hein/Workspace/IsaFlow/.worktrees/r185/src/lib/publicRouteTx.ts:50:20)\n    at handler (/home/hein/Workspace/IsaFlow/.worktrees/r185/pages/api/webhooks/paystack.ts:111:23)"}}}
+{"level":"error","message":"Paystack webhook processing failed","timestamp":"2026-10-03T08:18:07.103Z","component":"PaystackWebhook","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"integration":"unset","eventLogId":"ecc04b3f-238f-4a5f-b1e2-415380dd32bf","msg":"Cannot post to closed fiscal period"}}
+{"level":"info","message":"API Response: POST  - 500 (19ms)","timestamp":"2026-10-03T08:18:07.106Z","component":"API","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"type":"response","method":"POST","url":"","statusCode":500,"duration":"19ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-03T08:18:07.106Z","component":"http","requestId":"01M40DF1KF6797PB1JQD7QQWRD","data":{"event":"request_completed","route":"","method":"POST","status":500,"durationMs":19,"userId":null,"companyId":null,"outcome":"server_error"}}
+ ❯ tests/integration/r185-gateway-fee-unique.int.test.ts (4 tests | 2 failed) 1088ms
+     × post the fee once; the loser answers 200 and its transaction commits 878ms
+     × refuses a second live fee journal for one (company, reference), draft or posted 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: two dedupe-path deliveries for one reference > post the fee once; the loser answers 200 and its transaction commits
+AssertionError: expected 2 to be 1 // Object.is equality
+- Expected
++ Received
+- 1
++ 2
+ ❯ tests/integration/r185-gateway-fee-unique.int.test.ts:95:36
+     93|     expect(b.statusCode).toBe(200);
+     94|     expect(aRes.statusCode).toBe(200);
+     95|     expect(await feeJournals(ref)).toBe(1);
+       |                                    ^
+     96|     expect(await anyJournals(ref)).toBe(1);
+     97|     expect(await ledger(A, ref)).toMatchObject({ bankNet: '112.00', fe…
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+ FAIL  tests/integration/r185-gateway-fee-unique.int.test.ts > R-185: the index targets fee journals only > refuses a second live fee journal for one (company, reference), draft or posted
+AssertionError: expected null to be '23505' // Object.is equality
+- Expected:
+"23505"
++ Received:
+null
+ ❯ tests/integration/r185-gateway-fee-unique.int.test.ts:150:66
+    148|   it('refuses a second live fee journal for one (company, reference), …
+    149|     const r = ref();
+    150|     expect(await insertPair({ reference: r }, { reference: r })).toBe(…
+       |                                                                  ^
+    151|     expect(await insertPair({ reference: r, status: 'draft' }, { refer…
+    152|     expect(await insertPair({ reference: r, status: null }, { referenc…
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  10:18:05
+   Duration  1.37s (transform 598ms, setup 0ms, import 162ms, tests 1.09s, environment 0ms)

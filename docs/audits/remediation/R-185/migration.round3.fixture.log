@@ -1,0 +1,27 @@
+HEAD: 9d3bcb514cd7afe107d7a80e81994c4a412c740f + working-tree 852 (statement_timeout added; committed next); fixture isaflow-fixture-r185 (127.0.0.1:55931); load 35.27
+rows in gl_journal_entries: 0
+## DROP INDEX, then apply 852 (psql -1, ON_ERROR_STOP, \timing)
+Timing is on.
+SET
+Time: 0.060 ms
+SET
+Time: 0.029 ms
+DO
+Time: 2.197 ms
+CREATE INDEX
+Time: 15.139 ms
+ statement_timeout 
+-------------------
+ 2min
+(1 row)
+
+Time: 0.058 ms
+ lock_timeout 
+--------------
+ 5s
+(1 row)
+
+Time: 0.013 ms
+exit=0
+CREATE UNIQUE INDEX ux_gl_je_gateway_fee_reference ON public.gl_journal_entries USING btree (company_id, reference) WHERE ((posting_agent = 'system:paystack-receipt:v1'::text) AND (reference IS NOT NULL) AND ((status)::text IS DISTINCT FROM 'reversed'::text))
+## statement_timeout after the transaction (SET LOCAL does not leak): 0

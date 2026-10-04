@@ -1,0 +1,16 @@
+HEAD: 7915ecb76b465b973a2ff23425c16b5b6c969c9f (clean tree: 0 changes); fixture none; load 36.73
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts one cent 2ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts R3.50 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for no fee 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for zero 0ms
+ ✓ tests/unit/services/ar/gatewayFeeLeg.test.ts > postGatewayFee > posts nothing for a fraction of a cent 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > 23505 and the fee journal now exists: stands down without throwing 3ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > any error, not only 23505 (a 40P01 from the post), with the journal present: stands down 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a thrown null with the journal present: stands down, no TypeError reading its code 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a thrown null with no fee journal on re-read: rethrows the null itself 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > the row found is a DRAFT: stands down (same semantics) but warns that it is a draft, not posted 1ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > 23505 but no fee journal on re-read: rethrows the original error 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > a post failure (not a 23505) with no fee journal on re-read: rethrows it 0ms
+ ✓ tests/unit/services/ar/gatewayFeeIdempotency.test.ts > postGatewayFee when the create+post fails > runs the create and the post inside one savepoint 0ms
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
