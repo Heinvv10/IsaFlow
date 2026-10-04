@@ -170,6 +170,36 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     await refused(await call(c, token, openingBalances as Route, body), { bank, rec }, ob, before);
   }, 60000);
 
+  it('R2-4b a re-run over TWO standing take-on entries, the second refused: the first one\'s reversal is not committed', async () => {
+    const [sess] = (await sql`INSERT INTO migration_sessions (company_id, source_system, started_by)
+      VALUES (${c.fx.companyId}::UUID, 'sage', ${c.fx.userId}::UUID) RETURNING id`) as Row[];
+    const body = { sessionId: String(sess!.id), effectiveDate: '2026-01-01',
+      balances: [{ accountCode: '1000', debit: 400, credit: 0 }, { accountCode: '3900', debit: 0, credit: 400 }] };
+    // Run 1 posts OB1; run 2 reverses it (R1) and posts OB2; reversing R1 by hand puts OB1 back (head R2).
+    const ob1 = String(((await call(c, token, openingBalances as Route, body)).data as { journalEntryId: string }).journalEntryId);
+    const ob2 = String(((await call(c, token, openingBalances as Route, body)).data as { journalEntryId: string }).journalEntryId);
+    const r1 = String(((await sql`SELECT id FROM gl_journal_entries WHERE reversal_of_id = ${ob1}::UUID`) as Row[])[0]!.id);
+    const r2out = await reverse(r1);
+    expect(r2out.status, r2out.body).toBe(200);
+    const r2 = String((r2out.data as { id: string }).id);
+    // OB2's cash is reconciled on a completed session.
+    const bank = c.fx.bankAccountId;
+    const line = await seedLine(c, bank, 400, '2026-01-01');
+    const rec = await startSession(c, token, bank);
+    await matchInto(c, token, rec, { bt: line, jl: await bankLeg(ob2, bank) });
+    expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
+    const before = await snapshot(c, bank, rec);
+    // Run 3 reverses OB1's head R2 FIRST (created first), then is refused on OB2.
+    const out = await call(c, token, openingBalances as Route, body);
+    expect(out.status, out.body).toBe(409);
+    expect(out.body).toMatch(REFUSAL);
+    expect(await reversedAt(r2), 'the first entry (through its head R2) was not reversed behind the 409').toBeNull();
+    expect(((await sql`SELECT COUNT(*) AS n FROM gl_journal_entries WHERE reversal_of_id = ${r2}::UUID`) as Row[])[0]!.n,
+      'no contra of the first entry').toBe('0');
+    expect(await reversedAt(ob2)).toBeNull();
+    expect(await snapshot(c, bank, rec)).toEqual(before);
+  }, 60000);
+
   it('MCP reverse_journal_entry DRY RUN on the chain head of completed cash -> the same refusal (the gate; no claim is taken)', async () => {
     const bank = await newBank(c);
     const p = await seedPair(c, bank, 183.83, '2026-06-03');
