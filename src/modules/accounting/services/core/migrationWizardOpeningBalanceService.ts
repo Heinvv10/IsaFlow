@@ -7,7 +7,7 @@
  * share is the R-020 interlock in migrationPostingSupport.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { updateSession, type MigrationError } from './migrationService';
@@ -170,7 +170,9 @@ export async function importOpeningBalances(
 
   // After the trial balance is known good, before anything new is posted: a
   // re-run REPLACES the previous opening balances rather than adding to them.
-  await reversePriorOpeningBalances(companyId, sessionId, userId);
+  // One savepoint around them all (D12 round 3): a reversal can now refuse under its claim (statement cash a completed
+  // bank reconciliation holds, 409), and an earlier entry's reversal must not commit behind that 4xx.
+  await withSavepoint('opening_balance_rerun', () => reversePriorOpeningBalances(companyId, sessionId, userId));
 
   const entry = await createJournalEntry(companyId, {
     entryDate: effectiveDate,

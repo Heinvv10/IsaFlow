@@ -20,6 +20,7 @@ import {
   InvalidCursorError,
 } from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
+import { openStampOnly, underStampBudget } from './reconciliationSessionLock';
 
 type Row = DbRow;
 
@@ -230,12 +231,15 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
 export async function bulkAcceptTransactions(companyId: string, ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   try {
-    const result = (await sql`
-      UPDATE bank_transactions SET status = 'matched', updated_at = NOW()
+    // D12 round 2: under the 5 s budget — the stale-stamp fragment's FOR SHARE (and the row locks) on lines this
+    // path does not lock first must not wait unbounded on a held session; held -> RowLockTimeoutError, 503.
+    const result = await underStampBudget(async () => (await sql`
+      UPDATE bank_transactions SET status = 'matched', updated_at = NOW(),
+        reconciliation_id = ${openStampOnly(companyId)} -- D12: clears the stale stamp of a completed session
       WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
         AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID
-      RETURNING id`) as Row[];
+      RETURNING id`) as Row[]);
     // Same reason as deleteTransactions above: without RETURNING this resolved
     // to [], `.count` was always undefined and the fallback reported ids.length
     // — success for every id the operator sent, including ones the status

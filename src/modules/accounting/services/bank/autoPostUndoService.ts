@@ -11,7 +11,7 @@
  * picks up exactly the rows still tagged.
  */
 
-import { reconciliationLockOf } from './reconciledCash';
+import { reconciliationLockOf, type LineLock } from './reconciledCash';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -81,7 +81,7 @@ const POSTED_STATUSES = new Set(['provisional', 'allocated', 'matched', 'reconci
 export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed' | 'reconciled' | 'gone';
 
 /** What one row came to; a hand-offset refusal carries the journal it found. */
-export type RowResult = { kind: RowOutcome } | { kind: 'offsetByHand'; offset: HandOffset };
+export type RowResult = { kind: RowOutcome; lock?: LineLock } | { kind: 'offsetByHand'; offset: HandOffset };
 
 /**
  * Refuses a row whose posting a person already offset by hand (R-079): the
@@ -109,7 +109,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
   // line whose reconciliation_id names a completed reconciliation fell through
   // to a reversal that now refuses it.)
   const lock = await reconciliationLockOf(companyId, tx);
-  if (lock) return { kind: 'reconciled' };
+  if (lock) return { kind: 'reconciled', lock }; // D12: undoAnyway answers a completed one with the shared 409
   if (tx.matched_journal_line_id && tx.provisional_je_id) {
     log.warn(
       'Auto-post tx has both matched line and provisional JE — reversing matched line only',

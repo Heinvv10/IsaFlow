@@ -21,6 +21,7 @@ import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { isLockContention } from '../core/lockContention';
 import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
+import { shareLockStampedSessions, stampHeld } from './reconciliationSessionLock';
 
 /**
  * Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row.
@@ -108,12 +109,19 @@ export async function lockBankTransactionForUpdate(
   await client.query("SET LOCAL lock_timeout = '5s'");
   let failure: unknown = null;
   try {
+    // D12: the session the line is stamped with, FOR SHARE, BEFORE the line — session row -> bank line is the lock
+    // order (`reconciliationSessionLock.ts`), and it is what serialises a completion or reopen against this writer.
+    // Held past the budget: the same retryable timeout as a held line. A stamp that moved between that peek and the
+    // line lock names a session that can no longer be taken in order: refused as that contention too.
+    const sessions = await shareLockStampedSessions(companyId, [bankTxId]);
     // `SELECT *` carries feed_state, which assertFeedPosted/feedStateOf require — never narrow it.
     const rows = (await sql`
       SELECT * FROM bank_transactions
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
-    return rows[0] ?? null;
+    const row = rows[0] ?? null;
+    if (row && !stampHeld(row, sessions)) throw new BankTransactionLockTimeoutError(bankTxId);
+    return row;
   } catch (err) {
     failure = err;
     // Classified with `isLockContention`, not the 55P03 check alone: a DEADLOCK
@@ -154,7 +162,15 @@ export async function lockBankTransactionForUpdate(
  */
 export async function lockBankTransactionsInIdOrder(companyId: string, ids: readonly string[]): Promise<DbRow[]> {
   const rows: DbRow[] = [];
-  for (const id of [...new Set(ids.map((i) => i.toLowerCase()))].sort()) {
+  const sorted = [...new Set(ids.map((i) => i.toLowerCase()))].sort();
+  // D12: every session the lines are stamped with, FOR SHARE in id order, BEFORE the first line — so no session is
+  // taken after a line of this set is held. Each line's own lock below re-takes its session (already held).
+  if (sorted.length > 1) {
+    await withBankLockBudget(() => shareLockStampedSessions(companyId, sorted)).catch((err: unknown) => {
+      throw isLockContention(err) ? new BankTransactionLockTimeoutError(sorted[0]!) : err;
+    });
+  }
+  for (const id of sorted) {
     const row = await lockBankTransactionForUpdate(companyId, id);
     if (row) rows.push(row);
   }

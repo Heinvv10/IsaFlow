@@ -16,13 +16,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/neon', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/neon')>();
   return {
-    sql: vi.fn(async () => [] as unknown[]),
+    // `unsafe` builds the D12 stale-stamp fragment the match UPDATE carries (`openStampOnly`); it is not a query.
+    sql: Object.assign(vi.fn(async () => [] as unknown[]), { unsafe: vi.fn(() => '') }),
     fmtDate: actual.fmtDate,
     // The real `withSavepoint` runs `fn()` straight through when there is no
     // ALS client, which is the case under a unit test.
     withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
   };
 });
+// D12 round 4: the match's FOR SHARE on the chain HEAD (walk + lock) is proven against a real ledger in
+// tests/integration/d12-r4-chain-head.int.test.ts; here the target journal has no chain to hold.
+vi.mock('@/modules/accounting/services/shared/journalChainHead', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/modules/accounting/services/shared/journalChainHead')>(),
+  shareLockChainHeadOf: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

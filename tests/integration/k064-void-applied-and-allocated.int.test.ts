@@ -112,12 +112,13 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
 
     const state = await f.paymentAction('void', paymentId);
 
-    expect(state.statusCode, text(state)).toBe(400);
     if (recStatus === 'completed') {
-      // Names the reconciliation, says there is no reopen, points at no route that does not exist.
-      expect(text(state)).toContain(`is on the completed reconciliation of R068 Bank to ${new Date().toISOString().slice(0, 10)}`);
-      expect(text(state)).toContain("A completed reconciliation must be reopened before this can be reversed");
+      // D12: the shared 409, naming the reconciliation; reopen is the remedy.
+      expect(state.statusCode, text(state)).toBe(409);
+      expect(text(state)).toContain(
+        `The bank reconciliation of R068 Bank to ${new Date().toISOString().slice(0, 10)} is completed — reopen it first`);
     } else {
+      expect(state.statusCode, text(state)).toBe(400);
       expect(text(state)).toContain('open bank reconciliation session');
     }
     expect(await f.paymentStatus(paymentId)).toBe('reconciled');
@@ -134,8 +135,8 @@ describeIfDb('K-064 round 8 — voiding applied and bank-allocated supplier paym
     // Status stays 'matched': attached to the session, matched after it completed.
     await q('UPDATE bank_transactions SET reconciliation_id = $1 WHERE id = $2', [recId, bankTx]);
     const state = await f.paymentAction('void', paymentId);
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain('is on the completed reconciliation of R068 Bank');
+    expect(state.statusCode, text(state)).toBe(409); // D12
+    expect(text(state)).toContain('The bank reconciliation of R068 Bank');
     expect(await billState(fx.pool, x)).toEqual({ paid: 600, status: 'partially_paid' });
     expect(await contras(await journalOf(paymentId))).toBe(0);
   });

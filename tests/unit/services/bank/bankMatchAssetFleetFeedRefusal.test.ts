@@ -14,7 +14,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiResponse } from 'next';
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+// `unsafe` builds the D12 stale-stamp fragment the bank UPDATE carries (`openStampOnly`); it is not a query.
+const { sqlMock } = vi.hoisted(() => ({ sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }) }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));

@@ -31,6 +31,7 @@ import {
   isSupplierPaymentRefusal,
 } from '../ap/supplierPaymentRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { refuseLineOfCompletedReconciliation } from './reconciledCash';
 
 export type ConfirmSupplierMatchOutcome =
   | { ok: false; kind: 'not_found' }
@@ -65,13 +66,14 @@ export async function confirmSupplierInvoiceMatch(
   // "retry". `isLockContention` now maps that to a retryable refusal, but the
   // order is what stops it arising.
   //
-  // The row is deliberately discarded. The lock is taken for its ORDER and for
+  // The row is otherwise discarded (D12 reads it below). The lock is taken for its ORDER and for
   // the bonus that it makes the `status = 'imported'` read in
   // `validateBankSupplierPayment` race-free; a line that has vanished (or
   // belongs to another tenant) is still refused by that validator's own
   // not-found wording, which callers already depend on. Contention here throws
   // `BankTransactionLockTimeoutError`, which the route answers 409, pre-write.
-  await lockBankTransactionForUpdate(companyId, bankTransactionId);
+  // D12: the row is read for one thing — a line IN a completed reconciliation is the shared 409, before anything.
+  await refuseLineOfCompletedReconciliation(companyId, await lockBankTransactionForUpdate(companyId, bankTransactionId));
 
   const invRows = (await sql`
     SELECT id, total_amount, amount_paid

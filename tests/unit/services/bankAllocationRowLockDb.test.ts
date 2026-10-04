@@ -95,9 +95,11 @@ describe('allocateTransaction — concurrent allocation blocks on the row lock',
         // The helper's own 5s lock_timeout, surfaced as the retryable error.
         await expect(attempt).rejects.toBeInstanceOf(BankTransactionLockTimeoutError);
 
-        // B blocked on its very FIRST read — the locked one — so it wrote
-        // nothing. Without the lock it reaches INSERT INTO gl_journal_entries.
-        expect(bQueries.find((q) => /FROM bank_transactions/.test(q))).toMatch(/FOR UPDATE/);
+        // B blocked on its very FIRST read of the line — the locked one — so it
+        // wrote nothing. Without the lock it reaches INSERT INTO gl_journal_entries.
+        // (D12: only the lock of the line's reconciliation session, FOR SHARE, comes before it.)
+        expect(bQueries.find((q) => /FROM bank_transactions/.test(q) && !/FROM bank_reconciliations/.test(q)))
+          .toMatch(/FOR UPDATE/);
         expect(bQueries.filter((q) => /^\s*INSERT\s/i.test(q))).toEqual([]);
       } finally {
         await a.query('ROLLBACK').catch(() => undefined);

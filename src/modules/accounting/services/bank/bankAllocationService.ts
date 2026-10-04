@@ -3,7 +3,7 @@
  * Bank Allocation Service — Sage Process Bank equivalent (allocate, split, reverse)
  */
 
-import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
+import { reconciliationLockOf, refuseLineOfCompletedReconciliation, refuseLockedCash } from './reconciledCash';
 import { sql, withSavepoint, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
@@ -149,6 +149,7 @@ export async function allocateTransaction(
   // A pending/removed feed row carries status 'imported', so the status check
   // below would let it through. Refused from the locked row, before any write.
   assertPostedForAllocation(tx, bankTxId, 'allocate');
+  await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot allocate`);
   }
@@ -686,6 +687,7 @@ export async function splitAllocateTransaction(
   // Same reasoning as allocateTransaction: refused from the locked row, before
   // any write, because status alone would let a pending/removed row through.
   assertPostedForAllocation(tx, bankTxId, 'split allocate');
+  await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
   if (tx.status !== 'imported') {
     throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
   }

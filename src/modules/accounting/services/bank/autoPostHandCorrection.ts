@@ -30,6 +30,8 @@ import {
 import { undoRow, type RowOutcome } from './autoPostUndoService';
 import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
+import { isReconciliationCompleted } from './reconciliationSessionLock';
+import { refuseLockedCash } from './reconciledCash';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -156,6 +158,7 @@ export async function undoAnyway(
       // other outcome left the posting live, so the declaration must not stand:
       // throwing here rolls it back with the savepoint.
       if (row.kind === 'reconciled') {
+        if ('lock' in row && row.lock?.kind === 'completed') refuseLockedCash(row.lock, 'That line'); // D12: 409
         throw new HandCorrectionRefusedError('That line is reconciled — unreconcile it first, then undo');
       }
       if (row.kind !== 'reversed' && row.kind !== 'alreadyUndone' && row.kind !== 'offsetByHand') {
@@ -165,7 +168,9 @@ export async function undoAnyway(
     });
   } catch (err) {
     // A lock timeout (the bank reversal's flow budget, D8 round 11) is contention too: the retry is the remedy.
-    if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isHeldRowError(err)) throw err;
+    // D12: another line of the chain in a COMPLETED reconciliation is the shared 409, not a generic refusal.
+    if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isHeldRowError(err)
+      || isReconciliationCompleted(err)) throw err;
     // The reversal itself refused — a closed period, say. The savepoint rolled
     // the declaration back with it, so this is a refusal with nothing written,
     // the same `failed` the undo counts; the cause goes to the log, not the user.

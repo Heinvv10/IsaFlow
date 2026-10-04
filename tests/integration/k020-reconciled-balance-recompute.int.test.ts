@@ -162,7 +162,7 @@ describe('K-020 reconciled balance recompute', () => {
     const before = await countEntries();
     await expect(
       createAdjustmentEntry(company, reconId, bank, contra, 50, 'K020 after sign-off', user),
-    ).rejects.toThrow(/completed reconciliation/);
+    ).rejects.toThrow(/is completed — reopen it first/); // D12: the shared refusal, under the header lock
     expect(await countEntries()).toBe(before);
     const row = await pool.query(
       'SELECT gl_balance, reconciled_balance FROM bank_reconciliations WHERE id=$1', [reconId]);

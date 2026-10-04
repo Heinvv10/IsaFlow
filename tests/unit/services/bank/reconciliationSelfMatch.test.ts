@@ -169,8 +169,11 @@ describe('session counts', () => {
 });
 
 describe('completeReconciliation', () => {
-  it('recomputes the live balance first, then reconciles matched AND self-matched allocated lines', async () => {
+  // D12: the header is locked FOR UPDATE first (bankReconciliationService / reconciliationSessionLock).
+  const HEADER_LOCK = 'FOR UPDATE OF r';
+  it('locks the header, recomputes the live balance, then reconciles matched AND self-matched allocated lines', async () => {
     fake.setResponder((q) => {
+      if (q.text.includes(HEADER_LOCK)) return [reconRow()];
       if (q.text.includes('SELECT br.*')) return [reconRow({ matched_count: '575' })];
       if (q.text.includes("SET status = 'completed'")) return [reconRow({ status: 'completed' })];
       return [];
@@ -183,6 +186,7 @@ describe('completeReconciliation', () => {
     const read = order.findIndex((t) => t.includes('SELECT br.*'));
     expect(recompute).toBeGreaterThanOrEqual(0);
     expect(recompute).toBeLessThan(read);
+    expect(order.findIndex((t) => t.includes(HEADER_LOCK)), 'the header lock comes first').toBe(0);
     // The recompute never rewrites a completed (audit) reconciliation.
     expect(order[recompute]).toContain("br.status = 'in_progress'");
 
@@ -194,15 +198,17 @@ describe('completeReconciliation', () => {
   });
 
   it('refuses a non-zero difference and marks nothing', async () => {
-    fake.setResponder((q) => (q.text.includes('SELECT br.*') ? [reconRow({ difference: 12.5 })] : []));
+    fake.setResponder((q) => (q.text.includes(HEADER_LOCK) ? [reconRow()]
+      : q.text.includes('SELECT br.*') ? [reconRow({ difference: 12.5 })] : []));
     await expect(completeReconciliation(CO, REC, 'u')).rejects.toThrow(/difference is R12\.50/);
     expect(find("SET status = 'reconciled'")).toHaveLength(0);
   });
 
-  it('refuses a session that is already completed — lines reconciled there are not re-marked', async () => {
-    fake.setResponder((q) => (q.text.includes('SELECT br.*') ? [reconRow({ status: 'completed' })] : []));
-    await expect(completeReconciliation(CO, REC, 'u')).rejects.toThrow(/already completed/);
+  it('refuses a session that is already completed (D12: the shared 409, read under its lock) — nothing re-marked', async () => {
+    fake.setResponder((q) => (q.text.includes(HEADER_LOCK) ? [reconRow({ status: 'completed' })] : []));
+    await expect(completeReconciliation(CO, REC, 'u')).rejects.toThrow(/is completed — reopen it first/);
     expect(find("SET status = 'reconciled'")).toHaveLength(0);
+    expect(find('SET (gl_balance, reconciled_balance)'), 'not even the recompute').toHaveLength(0);
   });
 });
 
