@@ -448,6 +448,9 @@ Merge with master 51f501bbe (D10 #628, D11 #627) at d7622edde: only the core `.c
 `AGENTS.md` mirror) conflicted (both kept). D11's `apiDocumentLock` still answers `ROW_LOCK_TIMEOUT` with 503 + Retry-After and
 the typed message. `regression.land.int.log`: r186-*, k071-*, r101-* and r181-settlement-amount, 18 files
 94/94, on a fixture at master's migrations (851, without R-185's 852).
+Second merge with master a46bc852f (#625, #629, #631, #630) at 2b10b582d: only backlog.json
+conflicted (resolved item by item). `regression.land2.int.log`: the same 18 files, 94/94, through the
+split `src/lib/neon/` modules (#631).
 
 ## Recorded, not changed
 
