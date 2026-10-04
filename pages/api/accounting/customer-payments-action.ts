@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
@@ -49,6 +50,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Any row-lock timeout — the receipt or its bank line too (D8 round 16), the chain head, a document row (round 9) —
     // is 503 + Retry-After, checked first; the 409 below answers only the retryable state conflicts.
     if (respondIfLockTimeout(res, err)) return;
+    // D12: cancel of a receipt whose bank line is in a COMPLETED reconciliation — 409, pre-write.
+    if (respondIfReconciliationCompleted(res, err)) return;
     if (isRetryableContention(err)) {
       log.info('Customer payment action hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);

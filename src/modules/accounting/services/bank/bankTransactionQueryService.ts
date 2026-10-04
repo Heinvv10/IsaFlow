@@ -20,6 +20,7 @@ import {
   InvalidCursorError,
 } from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
+import { openStampOnly } from './reconciliationSessionLock';
 
 type Row = DbRow;
 
@@ -231,7 +232,8 @@ export async function bulkAcceptTransactions(companyId: string, ids: string[]): 
   if (ids.length === 0) return 0;
   try {
     const result = (await sql`
-      UPDATE bank_transactions SET status = 'matched', updated_at = NOW()
+      UPDATE bank_transactions SET status = 'matched', updated_at = NOW(),
+        reconciliation_id = ${openStampOnly(companyId)} -- D12: clears the stale stamp of a completed session
       WHERE id = ANY(${ids}::UUID[]) AND status IN ('imported', 'allocated')
         AND feed_state = 'posted'
         AND company_id = ${companyId}::UUID

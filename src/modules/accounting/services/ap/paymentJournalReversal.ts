@@ -65,7 +65,8 @@ async function assertNotReconciled(companyId: string, row: DbRow, label: string)
   try {
     refuseLockedCash(lock, `${label}'s bank line`);
   } catch (err) {
-    // Re-typed so the AP routes answer it 400 like every other refusal here.
+    // Re-typed so the AP routes answer it 400 like every other refusal here. A COMPLETED reconciliation is not
+    // re-typed: `ReconciliationCompletedError` passes through to the shared 409 (D12).
     if (err instanceof ReconciledCashError) throw new SupplierPaymentRefusal(err.message);
     throw err;
   }

@@ -235,6 +235,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // reconciliation holds — R-111. Pre-write, caller-facing.
   'RECONCILED_CASH',
   'RECONCILIATION_CLOSED',
+  // D12: a write that would change a COMPLETED bank reconciliation (match/auto-match into it, a line of it, its
+  // complete/cancel, a reversal or void of its cash). Names the account and statement date; raised before any write.
+  'RECONCILIATION_COMPLETED',
   'RECURRING_INVOICE_LOCK_TIMEOUT',
   'RECURRING_INVOICE_NOT_DUE',
   'RECURRING_INVOICE_TEMPLATE_INVALID',

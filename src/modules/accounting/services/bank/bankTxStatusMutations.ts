@@ -24,6 +24,8 @@ import {
   lockBankTransactionForUpdate, isLockNotAvailable, tableLockUnavailable, BankMatchUnavailableError,
   withBankLockBudget,
 } from './bankTxLock';
+import { openStampOnly, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
+import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
@@ -89,6 +91,9 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: Pro
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
   assertFeedPosted(row, verb);
+  // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
+  const lock = await reconciliationLockOf(companyId, row);
+  if (lock?.kind === 'completed') refuseLockedCash(lock, 'This bank line');
   await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
@@ -98,8 +103,9 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: Pro
 }
 
 /**
- * The journal line and reconciliation a match points at must belong to the
- * caller's company, and the line must not already be claimed by another row.
+ * The journal line a match points at must belong to the caller's company, and
+ * must not already be claimed by another row. (The reconciliation is checked by
+ * `matchTransaction` itself, under its session lock, before the line — D12.)
  *
  * `lockForStatusWrite` above checks only the BANK row. The FK to
  * `gl_journal_lines(id)` is not a tenant check — referential integrity is not
@@ -112,9 +118,7 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: Pro
  * The `bank_transfer` arm of `bank-match-confirm.ts` already looks its line up
  * company-scoped before calling; the `journal_line` arm did not.
  */
-async function assertMatchTargets(
-  companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string,
-): Promise<void> {
+async function assertMatchTargets(companyId: string, bankTxId: string, journalLineId: string): Promise<void> {
   const line = (await sql`
     SELECT id, journal_entry_id FROM gl_journal_lines
     WHERE id = ${journalLineId}::UUID AND company_id = ${companyId}::UUID
@@ -159,16 +163,6 @@ async function assertMatchTargets(
     throw new BankMatchTargetError('LINE_CLAIMED', `Journal line ${journalLineId} is the bank leg of a provisional `
       + `journal whose own bank transaction ${String(held.id)} already carries it — use that line.`);
   }
-
-  if (reconciliationId) {
-    const rec = (await sql`
-      SELECT id FROM bank_reconciliations
-      WHERE id = ${reconciliationId}::UUID AND company_id = ${companyId}::UUID
-      LIMIT 1`) as Row[];
-    if (rec.length === 0) {
-      throw new BankMatchTargetError('RECONCILIATION_NOT_FOUND', `Reconciliation ${reconciliationId} not found`);
-    }
-  }
 }
 
 /** `withSavepoint` caps names at 31 characters; this one is 19. */
@@ -188,8 +182,16 @@ export async function matchTransaction(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
 ): Promise<BankTransaction> {
   try {
+    if (reconciliationId) {
+      // D12: the session it names, FOR SHARE BEFORE the line (lock order), its status read under that lock.
+      const session = await shareLockSession(companyId, reconciliationId);
+      if (!session) {
+        throw new BankMatchTargetError('RECONCILIATION_NOT_FOUND', `Reconciliation ${reconciliationId} not found`);
+      }
+      refuseCompletedSession(session);
+    }
     await lockForStatusWrite(companyId, bankTxId, 'match');
-    await assertMatchTargets(companyId, bankTxId, journalLineId, reconciliationId);
+    await assertMatchTargets(companyId, bankTxId, journalLineId);
     // The claim check above cannot hold under concurrency: the two racing
     // requests lock two DIFFERENT bank rows, so they never contend, and at READ
     // COMMITTED neither claim SELECT sees the peer's uncommitted UPDATE. Both
@@ -214,7 +216,8 @@ export async function matchTransaction(
           }
           return (await sql`
             UPDATE bank_transactions
-            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
+            SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
+                reconciliation_id = ${openStampOnly(companyId)}
             WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
         } catch (writeErr) {
           if (isMatchedLineUniqueViolation(writeErr)) {

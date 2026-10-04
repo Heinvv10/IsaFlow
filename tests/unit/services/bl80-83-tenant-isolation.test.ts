@@ -227,7 +227,8 @@ describe('BL-83: completeReconciliation — bank_transactions UPDATE must includ
   function answerReconRead(row: Record<string, unknown>): void {
     vi.mocked(sql).mockImplementation(((strings: TemplateStringsArray) => {
       const text = strings.join('');
-      if (text.includes('SELECT br.*')) return Promise.resolve([row]);
+      // D12: the header lock completion takes first (FOR UPDATE), answered with the same row.
+      if (text.includes('SELECT br.*') || text.includes('FOR UPDATE OF r')) return Promise.resolve([row]);
       if (text.includes('UPDATE bank_reconciliations')) return Promise.resolve([]);
       return sqlFragment();
     }) as never);

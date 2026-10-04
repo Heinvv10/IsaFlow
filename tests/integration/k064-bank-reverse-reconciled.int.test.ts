@@ -76,14 +76,13 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
     await tearDownFixture(fx?.pool);
   });
 
-  it('bank reverse on a line in a COMPLETED reconciliation: 400 naming it, nothing written', async () => {
+  // D12: the shared 409 for a COMPLETED reconciliation, naming it; reopen is the remedy.
+  it('bank reverse on a line in a COMPLETED reconciliation: 409 naming it, nothing written', async () => {
     const a = await allocated();
     await onReconciliation(a.bankTx, 'completed');
     const state = await act({ action: 'reverse', bankTransactionId: a.bankTx });
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toContain(`This bank line is on the completed reconciliation of R068 Bank to ${today}`);
-    expect(text(state)).toContain("A completed reconciliation must be reopened before this can be reversed");
-    expect(text(state)).toContain('Correct it with a journal, or contact support');
+    expect(state.statusCode, text(state)).toBe(409);
+    expect(text(state)).toContain(`The bank reconciliation of R068 Bank to ${today} is completed — reopen it first`);
     await expectNothingWritten(a, 'reconciled');
   });
 
@@ -121,7 +120,7 @@ describeIfDb('K-064 r9 — bank reverse refuses cash a completed or Sage reconci
         () => voidPaymentDocument(ids.A, 'supplier', a.paymentId, ids.USER)).catch((e) => { error = e; });
       await client.query('ROLLBACK');
     } finally { client.release(); }
-    expect((error as { code?: string })?.code).toBe('RECONCILED_CASH');
+    expect((error as { code?: string })?.code).toBe('RECONCILIATION_COMPLETED'); // D12
     await expectNothingWritten(a, 'reconciled');
   });
 

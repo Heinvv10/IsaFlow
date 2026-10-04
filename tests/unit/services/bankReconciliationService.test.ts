@@ -411,16 +411,16 @@ describe('matchTransaction', () => {
     // The returned DB row will include the reconciliation_id that was set.
     // matchTransaction now locks the row first and refuses on an already-posted
     // one; the locked read is the sql call before the UPDATE. It then checks
-    // (K-144) that the journal line is this company's and unclaimed, and — when
-    // a reconciliationId is supplied — that the reconciliation is this
-    // company's too.
+    // (K-144) that the journal line is this company's and unclaimed. The
+    // reconciliationId names a session this company owns and is in progress:
+    // since D12 that is read FIRST, under its FOR SHARE lock, before the line.
+    vi.mocked(sql).mockResolvedValueOnce([{ id: RECON_ID, status: 'in_progress' }] as never);
     vi.mocked(sql).mockResolvedValueOnce([makeTxRow({ status: 'imported' })] as never);
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
-    vi.mocked(sql).mockResolvedValueOnce([{ id: RECON_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
         status: 'matched',

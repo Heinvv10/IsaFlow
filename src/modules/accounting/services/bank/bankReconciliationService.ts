@@ -15,6 +15,7 @@ import {
   claimTransactionsForReconciliation, countsAsMatched, countsAsUnmatched,
   type ReconciliationClaim,
 } from './bankReconciliationClaim';
+import { lockSessionForHeaderChange, refuseCompletedSession } from './reconciliationSessionLock';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -112,13 +113,16 @@ export async function completeReconciliation(
   companyId: string, id: string, userId: string
 ): Promise<BankReconciliation> {
   try {
+    // D12: the header FOR UPDATE first (every line writer holds it FOR SHARE): status and figures are read under it.
+    const session = await lockSessionForHeaderChange(companyId, id);
+    if (!session) throw new Error(`Reconciliation ${id} not found`);
+    refuseCompletedSession(session);
     // Sign off against the ledger as it stands NOW, not the start snapshot: a
     // line reversed or a journal back-dated mid-session moves the GL, and the
     // snapshot would let a stale R0.00 through.
     await updateReconciledBalance(companyId, id);
     const recon = await getReconciliationById(companyId, id);
     if (!recon) throw new Error(`Reconciliation ${id} not found`);
-    if (recon.status === 'completed') throw new Error('Reconciliation already completed');
     if (Math.abs(recon.difference) > 0.01) {
       throw new Error(`Cannot complete: difference is R${recon.difference.toFixed(2)} (must be R0.00)`);
     }
@@ -159,13 +163,11 @@ export async function createAdjustmentEntry(
          { glAccountId: contraAccountId, debit: 0, credit: amount, description }]
       : [{ glAccountId: contraAccountId, debit: Math.abs(amount), credit: 0, description },
          { glAccountId: bankAccountId, debit: 0, credit: Math.abs(amount), description }];
+    // A completed reconciliation is an audit artefact: its balances record what
+    // the ledger said at sign-off and must not be rewritten by a later adjustment (D12: under the header lock).
+    refuseCompletedSession(await lockSessionForHeaderChange(companyId, reconciliationId));
     const recon = await getReconciliationById(companyId, reconciliationId);
     if (!recon) throw new Error(`Reconciliation ${reconciliationId} not found`);
-    // A completed reconciliation is an audit artefact: its balances record what
-    // the ledger said at sign-off and must not be rewritten by a later adjustment.
-    if (recon.status === 'completed') {
-      throw new Error('Cannot adjust a completed reconciliation');
-    }
     // updateReconciledBalance recomputes from the reconciliation's OWN bank
     // account, so an adjustment posted to a different one would post a journal
     // and silently leave the difference untouched.

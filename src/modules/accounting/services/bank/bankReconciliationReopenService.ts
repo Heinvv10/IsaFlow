@@ -37,6 +37,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { lockSessionForHeaderChange } from './reconciliationSessionLock';
 
 export interface ReopenReconciliationOptions {
   /** Run every guard and report what WOULD change, writing nothing. */
@@ -71,19 +72,17 @@ export async function reopenReconciliation(
   companyId: string, id: string, userId: string,
   opts: ReopenReconciliationOptions = {},
 ): Promise<ReopenReconciliationResult> {
-  const reconRows = (await sql`
-    SELECT id, status, bank_account_id, statement_date, completed_at
-    FROM bank_reconciliations
-    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  const recon = reconRows[0];
+  // D12: the header FOR UPDATE first, bounded (held -> 503): it waits for every line writer holding the session FOR
+  // SHARE, and no writer of its lines starts until the reopen commits. Everything below is read under it.
+  const recon = await lockSessionForHeaderChange(companyId, id);
   if (!recon) throw new ReconciliationNotReopenableError(`Reconciliation ${id} not found`);
-  if (String(recon.status) !== 'completed') {
+  if (recon.status !== 'completed') {
     throw new ReconciliationNotReopenableError(
       'Only a completed reconciliation can be reopened — an in-progress one is already open',
     );
   }
-  const bankAccountId = String(recon.bank_account_id);
-  const statementDate = isoDate(recon.statement_date);
+  const bankAccountId = recon.bankAccountId;
+  const statementDate = isoDate(recon.statementDate);
 
   const later = (await sql`
     SELECT COUNT(*) AS cnt, MAX(statement_date) AS newest
@@ -93,7 +92,7 @@ export async function reopenReconciliation(
       AND status = 'completed'
       AND id <> ${id}::UUID
       AND (statement_date > ${statementDate}::DATE
-        OR (statement_date = ${statementDate}::DATE AND completed_at > ${recon.completed_at}))`) as DbRow[];
+        OR (statement_date = ${statementDate}::DATE AND completed_at > ${recon.completedAt}))`) as DbRow[];
   const laterCount = Number(later[0]?.cnt ?? 0);
   if (laterCount > 0) {
     throw new ReconciliationNotReopenableError(

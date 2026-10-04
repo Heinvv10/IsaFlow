@@ -19,6 +19,7 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { readFeedState, BankTransactionNotPostedError } from '@/modules/accounting/services/bank/bankFeedStateGuard';
+import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 
 const BodySchema = z.object({
   bankTransactionId: UUID,
@@ -58,6 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     SET
       linked_asset_id = ${assetId}::UUID,
       status = CASE WHEN status = 'imported' THEN 'matched' ELSE status END,
+      reconciliation_id = CASE WHEN status = 'imported' THEN ${openStampOnly(companyId)} ELSE reconciliation_id END,
       updated_at = NOW()
     WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
   `;
