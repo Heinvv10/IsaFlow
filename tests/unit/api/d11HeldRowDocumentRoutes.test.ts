@@ -52,6 +52,9 @@ vi.mock('@/modules/accounting/services/reports/vatPeriodLockFigures', () => ({
 vi.mock('@/modules/accounting/services/reports/vatGateOverrideService', async (orig) => ({
   ...(await orig<object>()), assertVatGateClear: vi.fn().mockResolvedValue({ overridden: false }),
 }));
+// D12 round 2: the reverse verb first refuses cash a completed bank reconciliation holds (its own integration test);
+// here no statement line is matched to the journal.
+vi.mock('@/modules/accounting/services/bank/reconciledCash', () => ({ refuseJournalCashOfCompletedReconciliation: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   postJournalEntry: vi.fn(), reverseJournalEntry: vi.fn(),
 }));

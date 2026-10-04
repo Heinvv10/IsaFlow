@@ -7,6 +7,10 @@
  * Links a bank transaction to either a fleet fuel transaction or a fleet
  * service history record, storing the reference on both sides and marking
  * the bank transaction as 'matched' when it was previously 'imported'.
+ *
+ * D12: the link ids are annotations — outside the "a completed reconciliation is immutable" rule
+ * (`bank/.claude.md`). The status turn clears a completed session's stale stamp and runs under the 5 s
+ * budget. No migration creates the link schema (register item; see `pages/api/accounting/assets/.claude.md`).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -19,7 +23,7 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { readFeedState, BankTransactionNotPostedError } from '@/modules/accounting/services/bank/bankFeedStateGuard';
-import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
+import { openStampOnly, underStampBudget } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 
 const BodySchema = z.object({
   bankTransactionId: UUID,
@@ -55,7 +59,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE id = ${fleetEntityId}::UUID AND company_id = ${companyId}::UUID
     `;
 
-    await sql`
+    // D12 round 2: under the 5 s budget (the stale-stamp fragment's FOR SHARE on the session) — held -> 503.
+    await underStampBudget(() => sql`
       UPDATE bank_transactions
       SET
         linked_fleet_fuel_id = ${fleetEntityId}::UUID,
@@ -63,7 +68,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         reconciliation_id = CASE WHEN status = 'imported' THEN ${openStampOnly(companyId)} ELSE reconciliation_id END,
         updated_at = NOW()
       WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
-    `;
+    `);
 
     log.info('Linked bank tx to fleet fuel', { bankTransactionId, fleetEntityId }, 'bank-match-fleet');
     return apiResponse.success(res, {
@@ -81,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     WHERE id = ${fleetEntityId}::UUID AND company_id = ${companyId}::UUID
   `;
 
-  await sql`
+  await underStampBudget(() => sql`
     UPDATE bank_transactions
     SET
       linked_fleet_service_id = ${fleetEntityId}::UUID,
@@ -89,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       reconciliation_id = CASE WHEN status = 'imported' THEN ${openStampOnly(companyId)} ELSE reconciliation_id END,
       updated_at = NOW()
     WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
-  `;
+  `);
 
   log.info('Linked bank tx to fleet service', { bankTransactionId, fleetEntityId }, 'bank-match-fleet');
   return apiResponse.success(res, {

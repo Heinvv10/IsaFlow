@@ -31,6 +31,7 @@ import { undoRow, type RowOutcome } from './autoPostUndoService';
 import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { isReconciliationCompleted } from './reconciliationSessionLock';
+import { refuseLockedCash } from './reconciledCash';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -157,6 +158,7 @@ export async function undoAnyway(
       // other outcome left the posting live, so the declaration must not stand:
       // throwing here rolls it back with the savepoint.
       if (row.kind === 'reconciled') {
+        if ('lock' in row && row.lock?.kind === 'completed') refuseLockedCash(row.lock, 'That line'); // D12: 409
         throw new HandCorrectionRefusedError('That line is reconciled — unreconcile it first, then undo');
       }
       if (row.kind !== 'reversed' && row.kind !== 'alreadyUndone' && row.kind !== 'offsetByHand') {

@@ -33,6 +33,7 @@ import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodS
 import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEntryReversalVatRoll';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { refuseJournalCashOfCompletedReconciliation } from '@/modules/accounting/services/bank/reconciledCash';
 
 const TOOL = 'reverse_journal_entry';
 
@@ -156,6 +157,9 @@ export const reverseJournalEntryTool: McpTool = {
     // locks, asked here read-only so the dry run refuses what the write refuses.
     const payrollRefusal = await payrollReversalRefusal(ctx.companyId, entry);
     if (payrollRefusal) return toolError(payrollRefusal);
+    // D12: a statement line matched to this entry and IN a completed bank reconciliation — thrown (a refusal code the
+    // registry answers after its savepoint rolls back), the lines locked first; the dry run refuses it too.
+    await refuseJournalCashOfCompletedReconciliation(ctx.companyId, id);
 
     if (args.dry_run === true) {
       // The same resolution the write does, so the preview cannot promise a

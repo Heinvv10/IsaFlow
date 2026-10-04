@@ -25,7 +25,7 @@ import {
   withBankLockBudget,
 } from './bankTxLock';
 import { openStampOnly, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
-import { reconciliationLockOf, refuseLockedCash } from './reconciledCash';
+import { refuseLineOfCompletedReconciliation } from './reconciledCash';
 import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
@@ -92,8 +92,7 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: Pro
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
   assertFeedPosted(row, verb);
   // D12: a line IN a completed reconciliation (the shared rule; its session was locked with the row) — 409.
-  const lock = await reconciliationLockOf(companyId, row);
-  if (lock?.kind === 'completed') refuseLockedCash(lock, 'This bank line');
+  await refuseLineOfCompletedReconciliation(companyId, row);
   await refuseResettingProvisionalLine(companyId, row, verb); // D10 O9: a provisional's own line, X standing
   const status = String(row.status ?? '');
   if (status === POSTED_STATUS && row.matched_journal_line_id) {
