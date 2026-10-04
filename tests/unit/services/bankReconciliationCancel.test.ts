@@ -21,6 +21,7 @@ import {
   cancelReconciliation,
   ReconciliationNotCancellableError,
 } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
+import { ReconciliationCompletedError } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const RECON_ID = 'eeeeeeee-0000-0000-0000-000000000005';
@@ -62,10 +63,12 @@ describe('cancelReconciliation', () => {
     expect(withTransactionMock).not.toHaveBeenCalled();
   });
 
+  // D12: a completed reconciliation is the shared 409 refusal (reopen it first), read under its header lock.
   it('refuses to cancel a completed reconciliation', async () => {
     queuePreChecks({ recon: [{ id: RECON_ID, status: 'completed' }] });
     await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
-      .rejects.toThrow(/in-progress/i);
+      .rejects.toThrow(ReconciliationCompletedError);
+    expect(String(sqlMock.mock.calls[0]![0])).toMatch(/FOR UPDATE OF r/);
     expect(withTransactionMock).not.toHaveBeenCalled();
   });
 

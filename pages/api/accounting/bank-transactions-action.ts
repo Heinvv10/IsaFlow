@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
@@ -213,6 +214,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // A held bank line, payment, bill or invoice is a lock timeout on EVERY verb: 503 + Retry-After (D8 round 17 for
     // reverse, D11 for the rest). Only a retryable STATE conflict keeps K-071's 409 below.
     if (respondIfLockTimeout(res, err)) return;
+    // D12: a line in (or a run into) a COMPLETED reconciliation — 409, refused before any write, on every verb.
+    if (respondIfReconciliationCompleted(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /

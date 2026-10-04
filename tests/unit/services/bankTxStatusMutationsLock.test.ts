@@ -16,7 +16,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/neon', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/neon')>();
   return {
-    sql: vi.fn(async () => [] as unknown[]),
+    // `unsafe` builds the D12 stale-stamp fragment the match UPDATE carries (`openStampOnly`); it is not a query.
+    sql: Object.assign(vi.fn(async () => [] as unknown[]), { unsafe: vi.fn(() => '') }),
     fmtDate: actual.fmtDate,
     // The real `withSavepoint` runs `fn()` straight through when there is no
     // ALS client, which is the case under a unit test.

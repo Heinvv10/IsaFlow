@@ -19,6 +19,7 @@ import {
 } from './bankTransactionQueryService';
 import { BankTransactionLockTimeoutError } from './bankTxLock';
 import { BankMatchUnavailableError } from './bankTxStatusMutations';
+import { refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import type { AutoMatchResult } from '../../types/bank.types';
 import type { DbRow } from '@/types/db';
 
@@ -30,6 +31,9 @@ export async function autoMatchTransactions(
     // before its statement date that are unclaimed or its own, against GL lines
     // inside the balance it compares with. A missing session (wrong id or
     // company) makes the date NULL, so nothing matches — fail closed.
+    // D12: the session is locked FOR SHARE for the whole run, before any line, and a COMPLETED one refuses the run
+    // (409) before anything is written; the candidate reads below require it in progress as well (fail closed).
+    if (reconciliationId) refuseCompletedSession(await shareLockSession(companyId, reconciliationId));
     const sessionId = reconciliationId ?? null;
     const bankTxRows = (await sql`
       SELECT id, amount, transaction_date, reference, description
@@ -43,7 +47,7 @@ export async function autoMatchTransactions(
         AND (${sessionId}::UUID IS NULL OR (
           (reconciliation_id IS NULL OR reconciliation_id = ${sessionId}::UUID)
           AND transaction_date <= (SELECT r.statement_date FROM bank_reconciliations r
-            WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID)))
+            WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID AND r.status = 'in_progress')))
       ORDER BY transaction_date`) as DbRow[];
     if (bankTxRows.length === 0) return { matched: 0, unmatched: 0, candidates: [] };
     const glRows = (await sql`
@@ -64,7 +68,7 @@ export async function autoMatchTransactions(
             AND company_id = ${companyId}::UUID)
         AND (${sessionId}::UUID IS NULL OR je.entry_date <= (SELECT r.statement_date
           FROM bank_reconciliations r
-          WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID))
+          WHERE r.id = ${sessionId}::UUID AND r.company_id = ${companyId}::UUID AND r.status = 'in_progress'))
       ORDER BY je.entry_date`) as DbRow[];
     const bankTxs = bankTxRows.map((r: DbRow) => ({
       id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),

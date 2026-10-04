@@ -29,6 +29,7 @@ import { isRetryableContention } from '../core/retryableContention';
 import { isFeedNotPostedRefusal } from './bankFeedStateGuard';
 import { isBankAllocationRefusal } from './bankAllocationRefusal';
 import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
+import { isReconciliationCompleted } from './reconciliationSessionLock';
 
 export interface BankMatchRefusal {
   status: 409 | 400;
@@ -59,6 +60,10 @@ export function classifyBankMatchRefusal(err: unknown): BankMatchRefusal | null 
   // A pending/removed feed row — bare from `matchTransaction`, or wrapped by
   // `allocateTransaction` — refused from the locked row before any write.
   if (isFeedNotPostedRefusal(err)) return { status: 409, message, contended: false };
+
+  // D12: the line is IN a completed reconciliation — `matchTransaction` refuses it from the locked row (its session
+  // locked first), before any write. Reopen the reconciliation first.
+  if (isReconciliationCompleted(err)) return { status: 409, message, contended: false };
 
   // `allocateTransaction`'s own two, both decided from the row it has just
   // locked and before it writes.

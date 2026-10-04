@@ -168,8 +168,8 @@ describeIfDb('K-064 final — a reconciliation stamp on an allocated line is not
     expect(done.statusCode, text(done)).toBe(200);
     expect(await bankState(bankTx)).toMatchObject({ status: 'reconciled', reconciliation_id: rec });
     const state = await act({ action: 'reverse', bankTransactionId: bankTx });
-    expect(state.statusCode, text(state)).toBe(400);
-    expect(text(state)).toMatch(/completed reconciliation/);
+    expect(state.statusCode, text(state)).toBe(409); // D12: the shared refusal for a completed reconciliation
+    expect(text(state)).toMatch(/is completed — reopen it first/);
   });
 
   it('while the session is still OPEN, bank reverse of the allocated line is 200 too', async () => {

@@ -49,6 +49,7 @@ import {
 } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
+import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 
 export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
@@ -136,7 +137,8 @@ export async function attachDocumentToProvisional(
 
   const [bankRow] = (await sql`
     UPDATE bank_transactions
-    SET status = 'matched'
+    -- D12: clears the stale stamp of a completed session
+    SET status = 'matched', reconciliation_id = ${openStampOnly(companyId)}
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
     RETURNING id`) as DbRow[];
 

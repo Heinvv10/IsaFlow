@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { assertDocumentNotAlreadyPosted } from '@/modules/accounting/services/gl/documentJournalClaimGuard';
 import { journalStandsUnbrokenFragment } from '@/modules/accounting/services/shared/journalInForceAsAt';
 import { findJournalChainHead } from '@/modules/accounting/services/shared/journalChainHead';
+import { openStampOnly } from '@/modules/accounting/services/bank/reconciliationSessionLock';
 import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
 import { isHeldRowError } from '@/lib/lockTimeout';
 
@@ -126,7 +127,8 @@ export async function attachEvidenceToProvisional(
       // neither reads what the other writes, so only the order changes.
       await sql`
         UPDATE bank_transactions
-        SET status = 'matched'
+        -- D12: clears the stale stamp of a completed session
+        SET status = 'matched', reconciliation_id = ${openStampOnly(companyId)}
         WHERE id = ${btId}::UUID AND company_id = ${companyId}::UUID
       `;
 
