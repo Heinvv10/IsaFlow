@@ -1,4 +1,4 @@
-// Census group 5 (admin, archiving, SARS, AFS): a 4xx shows the server's message, an empty 5xx body shows a
+// Census group 5 (admin, SARS, AFS): a 4xx shows the server's message, an empty 5xx body shows a
 // plain sentence (never "Unexpected end of JSON input"), and a 200 envelope still renders its data.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -20,7 +20,6 @@ useApiJsonOverMock();
 import { apiFetch } from '@/lib/apiFetch';
 import EmailLogPage from '../../../pages/admin/email-log';
 import JobQueuePage from '../../../pages/admin/job-queue';
-import DataArchivingPage from '../../../pages/accounting/data-archiving';
 import SubmissionsPage from '../../../pages/accounting/sars/submissions';
 import { AfsReviewTab } from '../../../src/components/accounting/afs/AfsReviewTab';
 
@@ -90,44 +89,6 @@ describe('admin job queue', () => {
     script(bulk, () => ok({ processed: 9 })); render(<JobQueuePage />); fireEvent.click(await screen.findByText(/Delete Old Jobs/));
     await waitFor(() => expect(bodyText()).toContain('Deleted 9 old job(s)'));
   });
-});
-
-describe('data archiving', () => {
-  // Every other mount request gets its own valid empty envelope, so only the request under test fails.
-  const script = (match: Match, main: () => Response) => vi.mocked(apiFetch).mockImplementation(async (u: unknown) => {
-    const url = String(u);
-    if (match(url)) return main();
-    if (url.includes('archive-runs')) return ok({ runs: [] });
-    if (url.includes('archived-data')) return ok({ items: [], total: 0 });
-    return ok({ stats: [], validation: { valid: true, errors: [] }, preview: null });
-  });
-  const stats: Match = u => u === '/api/accounting/data-archiving';
-  const runs: Match = u => u.includes('archive-runs');
-  const validate: Match = u => u.includes('action=validate');
-  const statRows = { stats: [{ tableName: 'd2_stat_table', rowCount: 4242, oldestDate: null, newestDate: null }] };
-  const runRows = { runs: [{ id: 'r1', cutoffDate: '2019-03-31', status: 'completed', entriesArchived: 1, linesArchived: 1, transactionsArchived: 1, invoicesArchived: 1, supplierInvoicesArchived: 1, startedAt: null, completedAt: null, errorMessage: null, createdAt: '2026-01-01T00:00:00Z' }] };
-  it('stats: shows the server message on a 400', async () => { script(stats, refused); render(<DataArchivingPage />); await waitFor(() => expect(bodyText()).toContain(MSG)); });
-  it('stats: shows a plain sentence on an empty 500', async () => {
-    script(stats, empty500); render(<DataArchivingPage />);
-    await waitFor(() => expect(bodyText()).toContain('Could not load storage stats')); noParserText();
-  });
-  it('stats: renders the table on a 200', async () => { script(stats, () => ok(statRows)); render(<DataArchivingPage />); await waitFor(() => expect(bodyText()).toContain('d2_stat_table')); });
-  it('history: shows the server message on a 400', async () => { script(runs, refused); render(<DataArchivingPage />); await waitFor(() => expect(bodyText()).toContain(MSG)); });
-  it('history: shows a plain sentence on an empty 500', async () => {
-    script(runs, empty500); render(<DataArchivingPage />);
-    await waitFor(() => expect(bodyText()).toContain('Could not load archive history')); noParserText();
-  });
-  it('history: renders the run on a 200', async () => { script(runs, () => ok(runRows)); render(<DataArchivingPage />); await waitFor(() => expect(bodyText()).toContain('2019-03-31')); });
-  async function runValidate(main: () => Response) {
-    script(validate, main); const { container } = render(<DataArchivingPage />);
-    fireEvent.change(container.querySelector('input[type="date"]') as HTMLInputElement, { target: { value: '2019-03-31' } });
-    fireEvent.click(await screen.findByRole('button', { name: /Validate/ }));
-  }
-  it('validate: shows the server message on a 400', async () => { await runValidate(refused); await waitFor(() => expect(bodyText()).toContain(MSG)); });
-  it('validate: shows a plain sentence on an empty 500', async () => {
-    await runValidate(empty500); await waitFor(() => expect(bodyText()).toContain('Could not validate the cutoff date')); noParserText();
-  });
-  it('validate: renders the result on a 200', async () => { await runValidate(() => ok({ validation: { valid: false, errors: ['D2 cutoff too recent'] } })); await waitFor(() => expect(bodyText()).toContain('D2 cutoff too recent')); });
 });
 
 describe('SARS submissions view detail', () => {

@@ -37,7 +37,6 @@ vi.mock('@/modules/accounting/utils/generateStatementsBatch', () => ({ generateS
 import { ApiRequestError } from '@/lib/apiFetch';
 import BudgetsPage from '../../../pages/accounting/budgets/index';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
-import DataArchivingPage from '../../../pages/accounting/data-archiving';
 import PurchaseOrdersPage from '../../../pages/accounting/purchase-orders/index';
 import SupplierPaymentsPage from '../../../pages/accounting/supplier-payments/index';
 import SupplierCreditNotesPage from '../../../pages/accounting/supplier-credit-notes/index';
@@ -73,19 +72,6 @@ describe('a failed reload clears the previous rows', () => {
     rerender(<AdjustmentsPage />);
     expect(await screen.findByText('Could not load adjustments - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2-ADJ-1')).toBeNull());
-    expectNoRawError();
-  });
-
-  it('data archiving: change the archived-data date filter', async () => {
-    const item = { id: 'e1', entryNumber: 'D2-JE-1', entryDate: '2020-01-01', description: 'D2 archived entry', source: 'manual', status: 'posted' };
-    script(u => (u.includes('date_from=') ? empty500() : ok({ stats: [], runs: [], items: [item], total: 1 })));
-    const { container } = render(<DataArchivingPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /view archived data/i }));
-    await screen.findByText('D2 archived entry');
-    fireEvent.change(dateInput(container), { target: { value: '2020-02-01' } });
-    expect(await screen.findByText('Could not load archived data - try again')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText('D2 archived entry')).toBeNull());
-    expect(screen.queryByText(/Showing \d/)).toBeNull();
     expectNoRawError();
   });
 

@@ -1,7 +1,6 @@
 // Barrel index for core/ domain
 // Files with symbol conflicts (import these files directly by path):
 //   companyService.ts — conflicts: Company, CompanyUser
-//   dataArchivingService.ts — conflicts: ArchivePreview, ArchiveResult, ArchiveRun...
 //   duplicateMergeService.ts — conflicts: MergeResult, mergeEntities
 //   emailService.ts — conflicts: InviteEmailOptions, sendInviteEmail, sendInvoiceEmail
 //   inviteEmailService.ts — conflicts: InviteEmailOptions, sendInviteEmail
@@ -18,9 +17,6 @@
 export * from './aiCategorizationService';
 export * from './aiInvoicePipelineService';
 export * from './anomalyDetectionService';
-export * from './archiveExecutionService';
-export * from './archiveQueryService';
-export * from './archiveReadService';
 export * from './auditTrailService';
 export * from './budgetService';
 export * from './businessUnitService';

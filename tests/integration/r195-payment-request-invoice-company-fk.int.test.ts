@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
 import type { PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { addCompany, addInvoice, addPaystackRequest, addStitchRequest, addUser, cleanup, pool, user } from './r186-archive.helpers';
+import { addCompany, addInvoice, addPaystackRequest, addStitchRequest, addUser, cleanup, pool, user } from './r195-payment-request.helpers';
 
 assertDisposable();
 
