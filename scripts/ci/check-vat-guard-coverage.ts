@@ -71,7 +71,8 @@ const ALLOWED: Record<string, AllowedEntry> = {
     + 'tax_amount the invoice already carries. The account is the fixed vat_output system account, '
     + 'nobody picks one, and the code is box-neutral — the VAT201 read the uncoded leg as standard '
     + 'before it (tests/integration/customer-invoice-vat-code-backfill.int.test.ts). It was moved '
-    + 'out of customerPaymentAllocationService so this entry does not excuse payment-allocation code.',
+    + 'out of customerPaymentAllocationService so this entry does not excuse payment-allocation code. '
+    + 'The entry still excuses any vat_type write in THIS file, so keep the file to this one poster.',
   },
   'src/modules/accounting/services/ar/creditNoteApproveService.ts': {
     kinds: ['vat_field_on_a_posting_path'],

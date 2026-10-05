@@ -39,6 +39,8 @@ const MIGRATION = readFileSync(join(__dirname, '../../scripts/migrations/sql/856
 const PERIOD = { start: '2026-07-01', end: '2026-08-31' };
 type Row = Record<string, unknown>;
 let fx: Fixture;
+let other: Fixture;
+const decoys: Record<string, string> = {};
 let manualJe = '';
 let invJournals: string[] = [];
 let codedAtPosting: (string | null)[] = [];
@@ -96,6 +98,28 @@ async function runMigration(): Promise<number> {
   }
 }
 
+/** A balanced journal with an uncoded VAT Output leg that the migration must NOT code. */
+async function decoy(f: Fixture, key: string, source: string, description: string, reversalOf?: string): Promise<void> {
+  const rows = (await sql`
+    INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by, reversal_of_id)
+    VALUES (${f.companyId}::UUID, ${`CIV-${key}-${f.tag}`}, '2026-07-21'::DATE, ${description}, ${source}, 'posted',
+            ${f.userId}::UUID, ${reversalOf ?? null}::UUID)
+    RETURNING id`) as Row[];
+  const id = String(rows[0]!.id);
+  const vout = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${f.companyId}::UUID AND account_subtype = 'vat_output'`) as Row[])[0]!.id);
+  await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+    VALUES (${f.companyId}::UUID, ${id}::UUID, ${f.bankAccountId}::UUID, 15, 0),
+           (${f.companyId}::UUID, ${id}::UUID, ${vout}::UUID, 0, 15)`;
+  decoys[key] = id;
+}
+
+async function vatCodesIn(companyId: string, journal: string): Promise<(string | null)[]> {
+  const rows = (await sql`
+    SELECT jl.vat_type FROM gl_journal_lines jl JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    WHERE jl.company_id = ${companyId}::UUID AND ga.account_subtype = 'vat_output' AND jl.journal_entry_id = ${journal}::UUID`) as Row[];
+  return rows.map((r) => (r.vat_type == null ? null : String(r.vat_type)));
+}
+
 let before: Awaited<ReturnType<typeof figures>>;
 
 describeIfDb('customer-invoice VAT legs coded standard (post + migration 856), VAT201-neutral', () => {
@@ -128,15 +152,26 @@ describeIfDb('customer-invoice VAT legs coded standard (post + migration 856), V
       await postJournalEntry(fx.companyId, je.id, fx.userId);
       return je.id;
     });
+    // Decoys the migration must leave alone: the invoice's name on a non-auto_invoice
+    // journal; and, in another company, the same name and a reversal of this
+    // company's invoice journal.
+    await decoy(fx, 'wrongSource', 'manual', `Customer invoice INV-A-${fx.tag}`);
+    other = await seedFixture('CIX', DATABASE_URL!);
+    await decoy(other, 'crossName', 'auto_invoice', `Customer invoice INV-A-${fx.tag}`);
+    await decoy(other, 'foreignRev', 'auto_invoice', 'Reversal', a);
     // Legacy state: invoices posted before 2026-10-05 left the VAT leg uncoded.
     await sql`UPDATE gl_journal_lines jl SET vat_type = NULL FROM gl_accounts ga
       WHERE ga.id = jl.gl_account_id AND ga.account_subtype = 'vat_output'
         AND jl.company_id = ${fx.companyId}::UUID AND jl.journal_entry_id = ANY(${invJournals}::UUID[])`;
     before = await figures();
     await runMigration();
-  }, 240000);
+  }, 480000);
 
   afterAll(async () => {
+    if (other) {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${other.companyId}::UUID`;
+      await dropFixture(other);
+    }
     if (!fx) return;
     await sql`UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
     await sql`DELETE FROM customer_invoices WHERE company_id = ${fx.companyId}::UUID`;
@@ -164,7 +199,13 @@ describeIfDb('customer-invoice VAT legs coded standard (post + migration 856), V
     expect(await vatLegCodes(invJournals)).toEqual(invJournals.map(() => 'standard'));
     expect(await vatLegCodes([manualJe])).toEqual([null]);
     const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
-    expect(r.uncodedGlLines.map((l) => l.journalEntryId)).toEqual([manualJe]);
+    expect(r.uncodedGlLines.map((l) => l.journalEntryId).sort()).toEqual([manualJe, decoys.wrongSource].sort());
+  });
+
+  it('leaves the name on a non-auto_invoice journal, and another company\'s journals, uncoded', async () => {
+    expect(await vatCodesIn(fx.companyId, decoys.wrongSource!)).toEqual([null]);
+    expect(await vatCodesIn(other.companyId, decoys.crossName!)).toEqual([null]);
+    expect(await vatCodesIn(other.companyId, decoys.foreignRev!)).toEqual([null]);
   });
 
   it('leaves every non-VAT leg of those journals uncoded', async () => {

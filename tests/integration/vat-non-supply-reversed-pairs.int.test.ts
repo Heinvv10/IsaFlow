@@ -6,7 +6,8 @@
  * R0,00 of net tax). An unreversed line is still listed, and so is the
  * in-window half of a pair that straddles the period boundary (either way
  * round). Only an ISOLATED pair is dropped: every link of a chain
- * O <- R <- R2 stays listed (R2 puts O's claim back), a draft reversal clears
+ * O <- R <- R2 inside the period stays listed (R2 puts O's claim back) — when
+ * R2 falls in a later period the in-window pair still drops — a draft reversal clears
  * nothing, and a reversal pointing at another company's journal is no pair.
  *
  * Journals are inserted directly: the posting-time non-supply guard would
@@ -68,6 +69,9 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
     await salaryJournal('chainO', '2026-07-20', 1);
     await salaryJournal('chainR', '2026-07-21', -1, je.chainO);
     await salaryJournal('chainR2', '2026-07-22', 1, je.chainR);
+    await salaryJournal('outO', '2026-08-10', 1);
+    await salaryJournal('outR', '2026-08-11', -1, je.outO);
+    await salaryJournal('outR2', '2026-09-05', 1, je.outR);
     await salaryJournal('draftOrig', '2026-07-25', 1);
     await salaryJournal('draftRev', '2026-07-26', -1, je.draftOrig, 'draft');
     other = await seedFixture('NSX', DATABASE_URL!);
@@ -76,13 +80,23 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
       VALUES (${other.companyId}::UUID, ${`NS-foreign-${other.tag}`}, '2026-07-27'::DATE, 'foreign', 'posted', ${other.userId}::UUID)
       RETURNING id`) as Row[];
     await salaryJournal('crossRev', '2026-07-28', -1, String(foreign[0]!.id));
+    // Isolated pairs whose only extra neighbour does not count: a DRAFT
+    // re-reversal, and another company's journal pointing at the reversal.
+    await salaryJournal('isoDraftO', '2026-07-03', 1);
+    await salaryJournal('isoDraftR', '2026-07-04', -1, je.isoDraftO);
+    await salaryJournal('isoDraftR2', '2026-07-06', 1, je.isoDraftR, 'draft');
+    await salaryJournal('isoForeignO', '2026-07-07', 1);
+    await salaryJournal('isoForeignR', '2026-07-08', -1, je.isoForeignO);
+    await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by, reversal_of_id)
+      VALUES (${other.companyId}::UUID, ${`NS-foreignrev-${other.tag}`}, '2026-07-09'::DATE, 'foreign rev', 'posted', ${other.userId}::UUID, ${je.isoForeignR}::UUID)`;
   }, 480000);
 
   afterAll(async () => {
-    if (fx) {
-      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
-      await dropFixture(fx);
+    // Links run both ways between the two companies: clear them all first.
+    for (const f of [fx, other]) {
+      if (f) await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${f.companyId}::UUID`;
     }
+    if (fx) await dropFixture(fx);
     if (other) await dropFixture(other);
   }, 240000);
 
@@ -98,6 +112,21 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
     const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
     const ids = new Set(r.vatNonSupplyLines.map((l) => l.journalEntryId));
     expect([je.chainO, je.chainR, je.chainR2].every((id) => ids.has(id))).toBe(true);
+  });
+
+  it('a chain continuing in a later period: the in-window pair drops here, the re-reversal lists in its own', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
+    expect(ids).not.toContain(je.outO);
+    expect(ids).not.toContain(je.outR);
+    const later = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-09-01', '2026-10-31'));
+    expect(later.vatNonSupplyLines.map((l) => l.journalEntryId)).toContain(je.outR2);
+  });
+
+  it('a draft re-reversal or another company\'s journal does not break an isolated pair', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
+    for (const k of ['isoDraftO', 'isoDraftR', 'isoForeignO', 'isoForeignR']) expect(ids).not.toContain(je[k]);
   });
 
   it('a pair straddling the period END is listed on its in-window side', async () => {

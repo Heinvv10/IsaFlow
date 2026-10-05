@@ -258,6 +258,9 @@ export async function findVatNonSupplyLines(
       -- reversed by it. A chain O <- R <- R2 carries O's claim again through
       -- R2, so every link of a longer chain stays listed (over-listing a
       -- chain that nets to zero is the safe direction for a filing gate).
+      -- Only in-window links count: O and R in the window with R2 re-reversing
+      -- R in a later period drop here (they net to zero in THIS period) and
+      -- R2 is listed in its own.
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries pr
         WHERE pr.company_id = je.company_id
