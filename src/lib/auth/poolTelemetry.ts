@@ -20,9 +20,10 @@ function counts(pool: pg.Pool, name: string) {
   };
 }
 
-/** A waiter that no idle client and no new connection can serve. */
+/** A waiter that no idle client and no new connection can serve: more waiters than idle clients
+ *  plus the connections the pool may still open (a burst in one tick can exhaust both). */
 function isSaturated(c: ReturnType<typeof counts>): boolean {
-  return c.max !== undefined && c.totalCount >= c.max && c.waitingCount > c.idleCount;
+  return c.max !== undefined && c.waitingCount > c.idleCount + Math.max(0, c.max - c.totalCount);
 }
 
 /** `pool.connect()` that reports saturation: a warning (at most once per 10 s
@@ -32,9 +33,9 @@ function isSaturated(c: ReturnType<typeof counts>): boolean {
  *  before it, the first waiter on a full pool would see an empty queue. It
  *  queues EVERY acquire for one tick, even one an idle client will serve
  *  (R-196: 628 warnings a day with 1 of 10 open), so a waiter alone is not
- *  saturation: the pool must be full and the waiters must outnumber the idle
- *  clients. The counts logged with a failure are those taken at acquire time,
- *  not after the waiter left. */
+ *  saturation: the waiters must outnumber the idle clients plus the
+ *  connections the pool may still open. The counts logged with a failure are
+ *  those taken at acquire time, not after the waiter left. */
 export async function connectObserved(pool: pg.Pool, name: string): Promise<pg.PoolClient> {
   let snapshot: ReturnType<typeof counts> | undefined;
   try {

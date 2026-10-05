@@ -80,6 +80,3 @@ qa-reports/
 
 # Rendered pack proofs: real tenant figures, kept on disk, never in git.
 /evidence/
-
-# Playwright storage states saved by audit scripts (live session tokens)
-scripts/audit-*/**/state.json
