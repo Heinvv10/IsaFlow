@@ -69,7 +69,7 @@ async function draftState(id: string) {
 }
 
 const success = (amountCents: number) =>
-  ({ status: 'success', id: 1891, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', fees: 350 });
+  ({ status: 'success', id: 1891, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', feesCents: 350 });
 
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
