@@ -73,9 +73,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 row 1
 
   it('bulk_accept', () => detaches((_s, line) => call(c, token, routes.tx, { action: 'bulk_accept', bankTransactionIds: [line] })), 60000);
 
-  // bank-match-asset and bank-match-fleet carry the same fragment but are not exercised: no migration creates
-  // `assets.bank_transaction_id`, `fleet_fuel_transactions`, `fleet_service_history` or the `linked_asset_id` /
-  // `linked_fleet_*` columns (absent on isaflow_dev and the fixture too), so both routes answer 500 before the bank write.
+  // bank-match-asset and bank-match-fleet no longer turn a line `matched` (mig 853: a link is an annotation), so they
+  // carry no stale-stamp fragment; d12-r2-links pins that they leave the stamp and status alone.
 
   it('manual evidence attach (POST provisional/[jeId]/attach)', () => detaches(async (s, line) => {
     const x = await makeProvisional(s.bank, line, 300, '2026-06-11');
