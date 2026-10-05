@@ -70,6 +70,24 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
     }
   }, 40000);
 
+  // Since R-195 the composite FK refuses a cross-company request, so the company_id predicate in
+  // gatewayReferenced is only reachable with the FK gone: drop it in a rolled-back transaction and
+  // forge B's requests on C's invoice. RLS shows them (the user belongs to B); the predicate must not.
+  it('a forged request of another company (composite FK dropped, rolled back) does not make the preview skip', async () => {
+    const preview = await drive(coC, () => previewArchive(coC, CUTOFF), { appUser: true, setup: async (client) => {
+      await client.query('ALTER TABLE paystack_payment_requests DROP CONSTRAINT paystack_payment_requests_invoice_company_fkey');
+      await client.query('ALTER TABLE stitch_payment_requests DROP CONSTRAINT stitch_payment_requests_invoice_company_fkey');
+      await client.query(
+        `INSERT INTO paystack_payment_requests(company_id,purpose,customer_invoice_id,paystack_reference,amount_cents,status)
+         VALUES($1,'customer_invoice',$2,$3,10000,'completed')`, [coB, inv.c, `r186-${randomUUID()}`]);
+      await client.query(
+        `INSERT INTO stitch_payment_requests(company_id,purpose,customer_invoice_id,external_reference,amount_cents)
+         VALUES($1,'customer_invoice',$2,$3,10000)`, [coB, inv.c, `r186-${randomUUID()}`]);
+    } });
+    expect(preview.customerInvoices).toBe(1);
+    expect(preview.customerInvoicesSkipped, 'company B\'s forged request counted in C\'s preview').toBe(0);
+  }, 40000);
+
   it('as app_user: archives the free invoice, skips both referenced ones, leaves them and their requests intact', async () => {
     let result: Awaited<ReturnType<typeof executeArchive>>;
     try {

@@ -125,8 +125,9 @@ describe.each(['paystack', 'stitch'] as const)('R-195 %s: request and invoice sh
     expect(row).toEqual([{ company_id: coB, customer_invoice_id: null }]);
   });
 
-  // The single-column FK is kept and its SET NULL fires first, which would hide a composite FK
-  // that nulls company_id too. Without it, the composite FK alone must give the same outcomes.
+  // The single-column FK is kept. RI triggers fire in an unspecified order (name order, a text
+  // compare of OID-based names); when the kept FK's SET NULL fires first it hides a composite FK that
+  // nulls company_id too. Without it, the composite FK alone must give the same outcome.
   it('the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete', async () => {
     const invoice = await addInvoice(coB, 'paid');
     const other = await insertAsAppUser(gateway, coB, invoice, g.otherPurpose);
@@ -154,6 +155,9 @@ describe('R-195 migration 854', () => {
       await db.query('ALTER TABLE customer_invoices DROP CONSTRAINT IF EXISTS customer_invoices_id_company_id_key');
       for (let run = 0; run < 2; run++) {
         await db.query(migration());
+        const timeouts = (await db.query(
+          "SELECT current_setting('lock_timeout') AS lock, current_setting('statement_timeout') AS statement")).rows;
+        expect(timeouts, 'the migration does not bound its lock wait and its run').toEqual([{ lock: '5s', statement: '2min' }]);
         expect(await constraintState(db, 'customer_invoices_id_company_id_key'))
           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id)' }]);
         for (const g of Object.values(GATEWAYS)) {

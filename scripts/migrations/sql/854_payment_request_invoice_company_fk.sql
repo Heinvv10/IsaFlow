@@ -11,8 +11,10 @@
 -- ON DELETE SET NULL (customer_invoice_id) nulls only the invoice column (PG15+; a plain SET NULL
 -- would null company_id too, which is NOT NULL). The single-column FKs are kept: they are
 -- validated today, and they still guarantee the invoice exists while a composite FK is left
--- NOT VALID below. Deleting an invoice fires both; both null the same column, so the delete
--- behaves exactly as before (an invoice-purpose request still blocks it on 23514).
+-- NOT VALID below. Deleting an invoice fires both, in an unspecified order (RI triggers fire in
+-- name order, a text compare of OID-based names); both null only customer_invoice_id, so either
+-- order leaves the same row and the delete behaves as before (an invoice-purpose request still
+-- blocks it on 23514).
 --
 -- Census (read-only; run on prod BEFORE this merges; expected 0 rows):
 --
@@ -28,13 +30,25 @@
 -- it is not, the FK stays NOT VALID (still enforced for every new or changed row) and a NOTICE
 -- names the count. No data is changed here; repairing a forged row is Hein's call.
 --
--- The runner wraps this file in one transaction, so the locks taken by the UNIQUE build (SHARE on
--- customer_invoices) and the FK adds are held to COMMIT; NOT VALID + VALIDATE here buys no lower
--- lock, only the conditional validate. lock_timeout bounds the wait behind a long transaction;
--- statement_timeout bounds the index build and the scans while the locks are held. Either one
--- firing rolls the whole file back.
+-- Locks. The runner wraps this file in one transaction, so every lock below is held to COMMIT.
+-- ADD CONSTRAINT ... UNIQUE takes ACCESS EXCLUSIVE on customer_invoices: invoice READS block too,
+-- through the index build, both census scans and both VALIDATEs. The FK adds take SHARE ROW
+-- EXCLUSIVE on the request tables. NOT VALID + VALIDATE in one file buys no lower lock, only the
+-- conditional validate. Prod has 2,368 invoices (G1), so the hold is short.
+--
+-- Lock order: the request tables first, then customer_invoices. The Paystack settlement path
+-- (charge.success webhook, portal verify) UPDATEs paystack_payment_requests and then touches the
+-- invoice; taking the invoices first could deadlock with it. The portal checkout (claimCheckout)
+-- reads the invoice and then writes a request, the opposite order, so a deadlock with it stays
+-- possible: Postgres aborts one side (40P01). If it is this file, the runner rolls it back whole
+-- and it is re-run; if it is the checkout, the payer clicks again.
+--
+-- lock_timeout bounds each wait behind a long transaction; statement_timeout bounds the index
+-- build and the scans while the locks are held. Either one firing rolls the whole file back.
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
+
+LOCK TABLE paystack_payment_requests, stitch_payment_requests IN SHARE ROW EXCLUSIVE MODE;
 
 DO $$
 BEGIN
