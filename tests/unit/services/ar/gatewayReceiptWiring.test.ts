@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   calls: [] as { text: string; values: unknown[] }[],
   already: null as null | Record<string, unknown>,
+  /** More receipts for the same reference, returned after `already` (R-189 review: a draft beside a cancelled one). */
+  more: [] as Record<string, unknown>[],
   /** What the invoice-locked allocation decides; null = the default (min of receipt and R115). */
   allocated: null as null | number,
   block: null as null | string,
@@ -24,11 +26,10 @@ vi.mock('@/lib/neon', () => ({
     if (text.includes('FROM customer_payments') && text.includes('bank_reference')) {
       // As Postgres would (R-187): a read that admits a cancelled receipt only when the gateway's
       // journal stamp is on it sees only `gateway` ones; a read that excludes cancelled sees none.
-      const row = h.already;
-      const cancelled = row?.status === 'cancelled';
       const gatewayOnly = text.includes('posting_agent') && values.includes('system:paystack-receipt:v1');
-      const hidden = cancelled && (gatewayOnly ? row?.gateway !== true : text.includes("IS DISTINCT FROM 'cancelled'"));
-      return Promise.resolve(row && !hidden ? [row] : []);
+      const hidden = (row: Record<string, unknown>) => row.status === 'cancelled'
+        && (gatewayOnly ? row.gateway !== true : text.includes("IS DISTINCT FROM 'cancelled'"));
+      return Promise.resolve([h.already, ...h.more].filter((r): r is Record<string, unknown> => !!r && !hidden(r)));
     }
     if (text.includes('FROM customer_invoices')) return Promise.resolve([{ client_id: CUSTOMER, created_by: USER }]);
     if (text.includes('company_users')) return Promise.resolve([{ user_id: USER }]);
@@ -72,7 +73,7 @@ const base = { companyId: '33333333-3333-4333-8333-333333333333', invoiceId: '44
 const allocationInsert = () => h.calls.find((c) => c.text.includes('INSERT INTO customer_payment_allocations'));
 
 beforeEach(() => {
-  h.calls.length = 0; h.already = null; h.allocated = null; h.block = null; h.clientId = null; h.overpaid = false;
+  h.calls.length = 0; h.already = null; h.more = []; h.allocated = null; h.block = null; h.clientId = null; h.overpaid = false;
   fee.mockClear(); allocate.mockClear(); flag.mockClear();
 });
 
@@ -217,6 +218,18 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     expect(fee).not.toHaveBeenCalled();
     expect(reasons()).toEqual([['draft_receipt_holds_reference']]);
     expect(flag.mock.calls[0]![3]).toMatchObject({ draftPaymentId: 'p-draft', feeRand: 3.5, reportedFeeCents: 350 });
+  });
+
+  it('R-189 review: a draft beside a cancelled GATEWAY receipt names both, each by its own id', async () => {
+    h.already = { id: 'p-cancelled', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring [CANCELLED]', status: 'cancelled', gateway: true };
+    h.more = [{ id: 'p-draft', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paid by card', status: 'draft', gateway: false }];
+    const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5, reported: { amountCents: 11500, currency: 'ZAR' } });
+    expect(out).toBeNull();
+    expect(fee).not.toHaveBeenCalled();
+    expect(reasons()).toEqual([['draft_receipt_holds_reference', 'already_settled_cancelled_receipt']]);
+    expect(flag.mock.calls[0]![3]).toMatchObject({ draftPaymentId: 'p-draft', cancelledPaymentId: 'p-cancelled' });
   });
 
   it('R-189: a confirmed receipt is still the settlement (second-report path: the fee posts, nothing flagged)', async () => {
