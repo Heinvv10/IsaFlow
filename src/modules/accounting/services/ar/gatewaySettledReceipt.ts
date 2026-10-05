@@ -48,18 +48,27 @@ export interface SettledReceipt {
   status: string | null;
 }
 
-/** Whether a matched receipt is the settlement: confirmed or reconciled, never a draft (R-189). */
+/**
+ * Whether a matched receipt is the settlement: confirmed or reconciled (a person applied it later),
+ * never a draft (R-189). A NULL status (the column is nullable) is not a settlement either: it is
+ * flagged under the draft reason, with its status in the detail.
+ */
 export const isSettlement = (status: string | null): boolean => status === 'confirmed' || status === 'reconciled';
+
+/** The match, and a cancelled gateway-written receipt for the same reference beside it, if any. */
+export interface SettledMatch extends SettledReceipt {
+  cancelledGatewayReceiptId: string | null;
+}
 
 /** Settlements first, then any other live receipt (a draft), then a cancelled gateway one. */
 const rank = (r: SettledReceipt): number => (isSettlement(r.status) ? 0 : r.status !== 'cancelled' ? 1 : 2);
 
 /**
  * The receipt for the reference: a confirmed or reconciled one, else any other live one (a draft),
- * else a cancelled gateway-written one, else null. Every match stays locked until the caller's
- * transaction ends (R-193). Tenant-scoped.
+ * else a cancelled gateway-written one, else null; id breaks a tie. Every match stays locked until
+ * the caller's transaction ends (R-193). Tenant-scoped.
  */
-export async function findSettledReceipt(companyId: string, reference: string): Promise<SettledReceipt | null> {
+export async function findSettledReceipt(companyId: string, reference: string): Promise<SettledMatch | null> {
   const rows = await withRowLockBudget(() => sql<SettledReceipt>`
     SELECT cp.id, cp.created_by::text AS created_by, cp.bank_account_id::text AS bank_account_id,
            cp.payment_date::text AS payment_date, cp.total_amount::text AS total_amount, cp.description, cp.status
@@ -72,5 +81,8 @@ export async function findSettledReceipt(companyId: string, reference: string): 
     FOR UPDATE OF cp
   `, () => new RowLockTimeoutError(`The receipt for payment ${reference}`));
   // Rows arrive in id order and the sort is stable, so id breaks a tie in rank.
-  return [...rows].sort((a, b) => rank(a) - rank(b))[0] ?? null;
+  const top = [...rows].sort((a, b) => rank(a) - rank(b))[0];
+  if (!top) return null;
+  const cancelled = rows.find((r) => r !== top && r.status === 'cancelled');
+  return { ...top, cancelledGatewayReceiptId: cancelled?.id ?? null };
 }

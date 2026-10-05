@@ -105,9 +105,8 @@ export async function recordGatewayInvoiceReceipt(
   // A live receipt first, else a cancelled one the gateway wrote (gatewaySettledReceipt, R-187),
   // LOCKED (R-193): a replay waits for a cancel of it in flight, and re-reads it cancelled.
   const already = await findSettledReceipt(companyId, reference);
-  // R-167: a settled charge spends the portal link it came from, whichever of the webhook and
-  // the verify route gets here first (both run this in their settlement transaction). After the
-  // receipt lock: receipt -> link, the order customerMergeService takes them in.
+  // R-167: a settled charge spends its portal link, whichever of webhook and verify gets here first.
+  // After the receipt lock: receipt -> link, the order customerMergeService takes them in.
   await spendPaymentLinkOfRequest(companyId, reference);
   // Only a cancelled gateway receipt: this settlement was undone (by a person, or as a side effect),
   // so a later report (another body, or verify) banks nothing, posts no fee, and is flagged.
@@ -119,10 +118,13 @@ export async function recordGatewayInvoiceReceipt(
     return null;
   }
   // A live receipt that is not the settlement: a draft a person recorded with the reference (R-189).
-  // Bank nothing, post no fee, leave the draft alone, and flag it for that person.
+  // Bank nothing, post no fee, leave the draft alone, and flag it for that person; with a cancelled
+  // gateway receipt beside it, say so too: that settlement was undone, maybe as a side effect.
   if (already && !isSettlement(already.status)) {
-    await flagSettlementForReview(companyId, reference, ['draft_receipt_holds_reference'], {
-      draftPaymentId: already.id, draftStatus: already.status, invoiceId, reportedCents: receipt.reported.amountCents,
+    const cancelledPaymentId = already.cancelledGatewayReceiptId;
+    await flagSettlementForReview(companyId, reference,
+      ['draft_receipt_holds_reference', ...(cancelledPaymentId ? ['already_settled_cancelled_receipt'] : [])], {
+      draftPaymentId: already.id, draftStatus: already.status, cancelledPaymentId, invoiceId, reportedCents: receipt.reported.amountCents,
       reportedCurrency: receipt.reported.currency, feeRand: receipt.feeRand, reportedFeeCents: receipt.reported.feeCents,
     });
     return null;
