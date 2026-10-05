@@ -103,6 +103,14 @@ const ALLOCATED_ACCOUNT_LATERAL = `
     LIMIT 1
   ) aa ON TRUE`;
 
+// The asset / fleet link (mig 853, an annotation) and what it is labelled with: the asset itself, or the asset the
+// fuel / service record belongs to. Company-scoped on every join, like the FKs that hold them.
+const LINK_JOINS = `
+  LEFT JOIN fleet_fuel_transactions lnk_f ON lnk_f.id = bt.linked_fleet_fuel_id AND lnk_f.company_id = bt.company_id
+  LEFT JOIN fleet_service_history lnk_s ON lnk_s.id = bt.linked_fleet_service_id AND lnk_s.company_id = bt.company_id
+  LEFT JOIN assets lnk_a ON lnk_a.id = COALESCE(bt.linked_asset_id, lnk_f.asset_id, lnk_s.asset_id)
+    AND lnk_a.company_id = bt.company_id`;
+
 export const TX_SELECT = `
   SELECT
     bt.id, bt.company_id, bt.bank_account_id,
@@ -125,7 +133,11 @@ export const TX_SELECT = `
     sga.account_code AS suggested_gl_account_code,
     COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
     sc.name AS suggested_client_name,
-    pv.posted_vat_code, pv.posted_vat_amount
+    pv.posted_vat_code, pv.posted_vat_amount,
+    bt.linked_asset_id, bt.linked_fleet_fuel_id, bt.linked_fleet_service_id,
+    lnk_a.id AS link_asset_id, lnk_a.name AS link_asset_name,
+    lnk_f.fill_date AS link_fill_date, lnk_f.amount AS link_fuel_amount,
+    lnk_s.description AS link_service_description
   FROM bank_transactions bt
   LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
   LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
@@ -133,6 +145,7 @@ export const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
   ${ALLOCATED_ACCOUNT_LATERAL}
   LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE
+  ${LINK_JOINS}
 `;
 
 // allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):

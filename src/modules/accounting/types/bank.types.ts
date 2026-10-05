@@ -123,6 +123,21 @@ export interface BankTransaction {
   counterpartyAccountId?: string;
   /** For allocationType = 'transfer': the single balanced JE id shared by both legs. */
   transferJournalEntryId?: string;
+  /** The asset / fleet record this line is annotated with (mig 853) — never a posting. */
+  link?: BankTxLink;
+}
+
+export type BankTxLinkKind = 'asset' | 'fuel' | 'service';
+
+/** An asset / fleet LINK on a bank line: an annotation only — it never changes status, journal or stamp. */
+export interface BankTxLink {
+  kind: BankTxLinkKind;
+  /** The asset, fuel record or service record id. */
+  id: string;
+  assetId?: string;
+  assetName?: string;
+  /** Asset name / "Fuel 2026-10-01 R850.00" / the service description. */
+  label: string;
 }
 
 // ── Bank Reconciliation ──────────────────────────────────────────────────────
