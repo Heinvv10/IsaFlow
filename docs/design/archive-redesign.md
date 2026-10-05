@@ -24,8 +24,9 @@ Each line is one decision. The recommendation is the default if Hein answers onl
 | # | Decision | Recommended | Closes |
 |---|---|---|---|
 | **D0** | Should records physically leave the live ledger at all? | **No. Retire physical archiving.** Remove `executeArchive`, the Archive Now path, the archived-data read path and the five mirror tables (after the census in §9 shows them empty). If the census finds rows, history has already left the ledger: stop, and restore those rows into the live tables first (D0a). If users want old years out of the way, add a *logical* archive later: archived fiscal years are locked and hidden from default list filters, and no row moves. | R-053, R-191, R-192, R-194 by removal; R-186's skip becomes moot |
-| D0a | If §9 finds archived rows on prod | Restore them into the live tables with a one-off, reviewed migration whose census proves the counts and every report's tie-out, before anything is dropped. Those rows are missing from every report today. | R-191, R-192 damage, if any |
+| D0a | If §9 finds archived rows on prod | Stop and decide per run, before anything is dropped. A faithful restore is **not** possible from the mirror tables: they never kept 105 live columns (§A4: `gl_journal_lines.company_id`, `vat_type`, `cc1_id`, `cc2_id`, `bu_id`, currency and exchange rate, `supplier_invoices.is_drc`, …), and the invoices' CASCADE children were deleted with no copy (R-194). **Recommended:** if a backup taken before the run still exists, restore those rows from the backup and tie every report out against that backup's reports. If none exists, restore the headers and the debit, credit and account of every line from the mirror tables (so GL totals, the TB and the balance sheet tie out against the archived lines' own sums), set the lost columns to their defaults, and record the loss: dimensions, VAT type and invoice lines are unrecoverable for those rows. Whether a pre-run backup exists is the first thing to check (backups are an open item in the 2026-08-13 audit). | R-191, R-192 damage, if any |
 | D1 | *(only if D0 = keep)* Which record kinds may leave? | Settled document closures only: customer and supplier invoices, receipts, supplier payments, allocations, credit notes, and the journals that belong to them. Closures with a write-off stay live (§4.3). Bank lines leave only as whole completed reconciliations, with a per-bank-account opening line (§4.1). Journals that belong to no movable document (manual, payroll, depreciation, VAT return, year-end, loans, intercompany) never leave. | R-053, R-191 |
+| D1e | *(only if D0 = keep)* How moved bank lines keep today's cash | One `archive_opening` bank line per bank account per run (§4.1 gives its fields), deleted again by restore. This departs from today's rule that bank lines are statement lines and opening balances are display metadata (`bank/bankOpeningBalanceService.ts:1-13`). The alternative, bank lines never move, blocks every closure whose journal line is matched to a statement line (NO ACTION), which is nearly every receipt and payment, so C would archive almost nothing. | — |
 | D1b | *(only if D0 = keep)* What do reports spanning the cutoff read? | **Roll-forward journals plus frozen report packs.** One balanced `archive_rollforward` journal per archived fiscal year, dated that year's last day, carries the moved lines' net per (account, project, cost centre, cc1, cc2, business unit). P&L nets stay on their own P&L accounts. The cutoff must be both a fiscal-year start and a VAT-period start. Reports for dates before the cutoff are refused live, and are served from a report pack frozen at run time. Not archive-aware reports. | #506's reason for the switch-off |
 | D1c | *(only if D0 = keep)* Duplicate guards and numbering | A live `archive_keys` table holds the unique keys of moved rows (supplier+bill number, card reference, fee reference, capture source document, bank feed identity, journal number), and a trigger on each guarded table checks it under an advisory lock (§6). Journal numbering uses a per-company high-water mark, not `MAX` over live rows. D1 depends on this. | — |
 | D1d | *(only if D0 = keep)* Cutoff floor, comparatives and approvals | The cutoff is a fiscal-year start at least **7 years** back (N2; this also keeps the first live year's comparatives live, which needs only two). The 5-year floor in `validateArchive` becomes 7. Only an owner may run or restore an archive; a second owner approves. | — |
@@ -70,10 +71,17 @@ Each line is one decision. The recommendation is the default if Hein answers onl
 | Customer invoices, credit notes | Yes, as part of a settled closure; a closure containing a write-off stays live (§4.3) | Statements and aging net to zero for a settled closure (§4.3). |
 | Receipts (`customer_payments`) and their allocations | Yes, with the closure | A receipt allocated to a live invoice joins that invoice's closure, so the closure stays live. |
 | Supplier invoices, supplier payments, both AP allocation tables | Yes, with the closure | Same reasoning, AP side. |
-| Reconciled bank lines | Only as a whole **completed reconciliation** (the `bank_reconciliations` row and every line in it), and only with a per-bank-account opening line | Four live figures sum `bank_transactions.amount` from inception (§1.1), so moving lines changes today's statement-basis cash unless an `archive_opening` bank line per account carries their sum. A completed reconciliation is immutable (D12, `bank/.claude.md:97`, which names the archive as the one unguarded writer), so it moves whole or not at all. Every bank-line reader and writer (feed state guard, reconciliation start, auto-post) must then treat the opening line correctly. `matched_journal_line_id` (NO ACTION) puts the matched journal in the same closure. |
+| Reconciled bank lines | Only as a whole **completed reconciliation** (the `bank_reconciliations` row and every line in it), and only with a per-bank-account opening line | Four live figures sum `bank_transactions.amount` from inception (§1.1), so moving lines changes today's statement-basis cash unless an `archive_opening` bank line per account carries their sum. A completed reconciliation is immutable (D12, `bank/.claude.md:97`, which names the archive as the one unguarded writer), so it moves whole or not at all. `matched_journal_line_id` (NO ACTION) puts the matched journal in the same closure. |
 | Journals of those documents | Yes, only with their closure | R-191. |
 | Manual, payroll, depreciation, VAT-return, year-end, loan, intercompany, stock and asset journals | **No** | Each one is referenced by a live record kind that has no archive design (`vat_returns`, `payroll_run_headers`, `asset_disposals`, …, §A1). Moving them means widening to ~30 relations, which R-053 already rejected. |
 | Quotes, sales orders, delivery notes that reference an invoice | Block the closure (NO ACTION) | These are operational documents with no archive design. An invoice they point at stays live. |
+
+**The `archive_opening` bank line (D1e).** One per bank account per run, never updated. Fields: `amount` = the sum of the moved lines' amounts for that account; `transaction_date` = the cutoff − 1 day; `status = 'reconciled'`; `feed_state = 'posted'` (the table's CHECK requires `feed_state = 'posted'` for any line that is not a fresh `imported` one, and `excluded` would drop it from `getBankBalance`); `matched_journal_line_id` and `reconciliation_id` NULL (the moved GL and statement sums need not be equal, so it cannot honestly match one journal line); `external_system = 'archive_opening'`, `external_ref` = the run id. Restore deletes it. What it preserves and what it does not, in `bankAccountStatusService.ts:118-128`:
+- Preserved: `balance`, and `getBankBalance`, consolidated and KPI cash.
+- Preserved only after a one-predicate change: `reconciled_balance` and `unreconciled_balance` key on `matched_journal_line_id`, so without the change the moved matched amount would shift from reconciled to unreconciled. The build must count `external_system = 'archive_opening'` as reconciled.
+- Changed by design and declared on the page: `txn_count`, `total_debits`, `total_credits`, `allocated_count` (N moved lines become 1 netted line).
+
+Every bank-line writer that scans by account (the feed state guard, reconciliation start, auto-post, bank rules) must ignore `external_system = 'archive_opening'`. That is a census over the writers, and part of G2.
 
 ### 4.2 What reports read across the cutoff
 
@@ -132,7 +140,7 @@ A member reached through a blocking edge (§5.2, "blocks") makes the whole closu
 | journal | its source record (DRC VAT → bill, auto-post offset → bank line, adjustment → reconciliation) | `gl_journal_entries.(source, source_record_id)` | **none** (polymorphic) | yes when the record is in the closure; otherwise **blocks** |
 | any document | approvals, document links, UDF values, stock movements | `approval_requests.document_id`, `document_links.linked_entity_id`, `entity_udf_values.entity_id`, `stock_movements.reference_id` | **none** (polymorphic) | yes (snapshot) for approvals, links, UDFs; **blocks** for stock movements |
 | journal line, invoice | account-merge log, sent-mail scan | `gl_account_merges.moved_line_ids`, `sent_mirror_scan_log.linked_invoice_ids` (uuid[]) | **none** (array) | ignored (history logs); recorded |
-| journal | VAT return, payroll, assets, loans, stock, intercompany, expense claims, reclass, Sage ledger, UIF, tax directive, accounting adjustments, soft-delete reversals | §A1 | NO ACTION | **blocks** |
+| journal | `vat_returns`, `vat_adjustments`, `payroll_run_headers.journal_entry_id`, `asset_depreciation_schedule`, `asset_disposals`, `loan_payments`, `loan_reclass_postings`, `stock_adjustments`, `intercompany_transactions` (source and target), `expense_claims`, `reclassification_batch_lines` (journal and source line), `sage_ledger_transactions`, `uif_declarations`, `tax_directive_payments`, `accounting_adjustments`, `soft_delete_journal_reversals` | §A1 | NO ACTION | **blocks** |
 | quote, sales order, delivery note | invoice | §A1 | NO ACTION | **blocks** |
 | bank line, journal | AP payment backfill log | `ap_payment_document_backfill.bank_transaction_id` (NO ACTION), `.journal_entry_id` (none) | NO ACTION / **none** | **blocks** (migration-615 audit log; must stay true) |
 | journal | loan GL posting | `loan_gl_postings.journal_entry_id` | **none** | **blocks** (loans have no archive design) |
@@ -174,7 +182,7 @@ Further rules:
 |---|---|
 | a. Keep the five mirror tables and add four more (items, views, disputes, dunning) | Rejected. It doubles the drift surface, which is already 105 columns (§A4), and still misses the next child table. |
 | b. Refuse documents that have children | Rejected. Every invoice has items, so nothing would archive. |
-| **c. One `archive_records` table of JSONB snapshots (recommended)** | `(company_id, run_id, kind, id, document_date, payload jsonb, payload_sha256, created_at)`, with PK `(company_id, run_id, kind, id)` and a partial unique index on `(company_id, kind, id) WHERE restored_at IS NULL`, so a record restored and later archived again gets a second row instead of a 23505. `payload` is `to_jsonb()` of the row plus its CASCADE and snapshot children, taken in the same statement as the delete. New live columns are captured automatically, so there is no drift. |
+| **c. One `archive_records` table of JSONB snapshots (recommended)** | `(company_id, run_id, kind, id, document_date, payload jsonb, payload_sha256, created_at, restored_at, restored_by)`, with PK `(company_id, run_id, kind, id)` and a partial unique index on `(company_id, kind, id) WHERE restored_at IS NULL`, so a record restored and later archived again gets a second row instead of a 23505. `payload` is `to_jsonb()` of the row plus its CASCADE and snapshot children, taken in the same statement as the delete. New live columns are captured automatically, so there is no drift. |
 
 Integrity, under option c:
 
@@ -222,14 +230,19 @@ FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_
 GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20;
 SELECT relname, n_live_tup, pg_size_pretty(pg_total_relation_size(relid)) FROM pg_stat_user_tables
 WHERE relname IN ('gl_journal_lines','gl_journal_entries','bank_transactions','customer_invoices','supplier_invoices');
--- Timing: the balance sheet's cumulative scan (fetchBalanceSheetData's predicate), for the top company above.
+-- Timing: fetchBalanceSheetData's query (reports/balanceSheetService.ts:120-142, no cost-centre filter),
+-- for the top company above.
 EXPLAIN (ANALYZE, BUFFERS)
-SELECT jl.gl_account_id, SUM(jl.debit) - SUM(jl.credit)
-FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-WHERE je.status = 'posted' AND je.company_id = '<company_id>' AND jl.company_id = '<company_id>'
+SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+       COALESCE(SUM(jl.debit), 0), COALESCE(SUM(jl.credit), 0)
+FROM gl_journal_lines jl
+JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = '<company_id>'::uuid
+WHERE je.status = 'posted' AND je.company_id = '<company_id>'::uuid AND jl.company_id = '<company_id>'::uuid
   AND je.entry_date <= CURRENT_DATE AND ga.account_type IN ('asset','liability','equity')
-GROUP BY jl.gl_account_id;
+  AND (ga.level >= 3 OR NOT EXISTS (SELECT 1 FROM gl_accounts child
+                                    WHERE child.parent_account_id = ga.id AND child.company_id = '<company_id>'::uuid))
+GROUP BY ga.account_code, ga.account_name, ga.account_type, ga.normal_balance;
 
 -- 4. R-191: live customer invoices whose journal was archived and is gone (expected 0)
 SELECT ci.company_id, ci.id, ci.status, ci.gl_journal_entry_id FROM customer_invoices ci
@@ -256,7 +269,7 @@ UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payme
 POST stays 403 until all of these pass on one head:
 
 - **G1. FK census test** (§5.3) is green, and fails when a new FK is added on the fixture (mutation).
-- **G2. Tie-out, against every tenant on a staging copy of prod:** for every account **and every dimension filter** (project, cost centre, cc1, cc2, business unit), the balance as at every date on or after the cutoff is identical before and after a run. TB rows (including `RE-BF`) are identical row by row, not only in total. Statement-basis cash is identical too: `bankAccountStatusService` balance, `cashFlowForecastDataService.getBankBalance`, consolidated and KPI cash, MCP `cash.statement.v1`. Named cases: a completed reconciliation moved with its opening bank line, a VAT period straddling a fiscal year-end, a closure with a write-off, a year with a posted year-end close, a Paystack card receipt replayed after its closure moved, and AFS and board-pack comparatives. The same holds for the TB and income statement for every period after the cutoff, VAT201 for every period after the cutoff, aged debtors and creditors, and customer and supplier statements with a from-date on or after the cutoff. Reports before the cutoff are refused live and match the frozen pack.
+- **G2. Tie-out, against every tenant on a staging copy of prod:** for every account **and every dimension filter** (project, cost centre, cc1, cc2, business unit), the balance as at every date on or after the cutoff is identical before and after a run. TB rows (including `RE-BF`) are identical row by row, not only in total. Statement-basis cash is identical too: `bankAccountStatusService` `balance`, `reconciled_balance` and `unreconciled_balance` (the counts and sign-split totals change as declared in §4.1), `cashFlowForecastDataService.getBankBalance`, consolidated and KPI cash, MCP `cash.statement.v1`. Named cases: a completed reconciliation moved with its opening bank line, a VAT period straddling a fiscal year-end, a closure with a write-off, a year with a posted year-end close, a Paystack card receipt replayed after its closure moved, and AFS and board-pack comparatives. The same holds for the TB and income statement for every period after the cutoff, VAT201 for every period after the cutoff, aged debtors and creditors, and customer and supplier statements with a from-date on or after the cutoff. Reports before the cutoff are refused live and match the frozen pack.
 - **G3. Race tests** for every moved table (the R-186 hook pattern), plus a lock-timeout case.
 - **G4. Restore round-trip:** run, restore, and then every report is identical to before the run.
 - **G5. Route:** `ARCHIVE_SET_CHANGED` and `ARCHIVE_CLOSURE_BLOCKED` map to 409, `ROW_LOCK_TIMEOUT` to 503 + Retry-After, and the refusal codes are registered in `REFUSAL_CODES`.
@@ -266,7 +279,7 @@ POST stays 403 until all of these pass on one head:
 
 ## 11. Build shape (after D0–D7 are answered; not started)
 
-**If D0 = retire (A):** one PR. Remove `executeArchive`, `archiveCustomerInvoiceScope`, `archiveReadService.getArchivedEntries` and `pages/api/accounting/archived-data.ts` (once the tables are dropped it would answer 42P01 as a 500), the archived-data view in `pages/accounting/data-archiving.tsx`, the POST branch, the Archive Now UI remnants, the `dataArchivingService` re-exports, and the now-orphaned refusal codes `ARCHIVE_SET_CHANGED` and `ARCHIVE_SKIPPED_INVOICE_JOURNAL` in `src/lib/mcp/tools/toolHelpers.ts:157-158`, with their tests. Keep `getStorageStats` if the page stays. Add a migration that drops the five mirror tables, guarded by a census `DO` block that raises if any has rows. Update `customerMergeService` and both Sage importers, which reference the dropped tables. Add the nav and `.claude.md` updates. R-053, R-191, R-192 and R-194 close as "removed".
+**If D0 = retire (A):** one PR. Remove `executeArchive`, `archiveCustomerInvoiceScope`, `archiveReadService.getArchivedEntries` and `pages/api/accounting/archived-data.ts` (once the tables are dropped it would answer 42P01 as a 500), the archived-data view in `pages/accounting/data-archiving.tsx`, `archiveQueryService.previewArchive` and `validateArchive` (both import `archiveCustomerInvoiceScope`) with the route's GET `?action=preview` / `?action=validate` branches and the wizard section that calls them, the POST branch, the Archive Now UI remnants, the `dataArchivingService` re-exports, and the now-orphaned refusal codes `ARCHIVE_SET_CHANGED` and `ARCHIVE_SKIPPED_INVOICE_JOURNAL` in `src/lib/mcp/tools/toolHelpers.ts:157-158`, with their tests. Keep `getStorageStats` if the page stays. Add a migration that drops the five mirror tables, guarded by a census `DO` block that raises if any has rows. Update `customerMergeService` and both Sage importers, which reference the dropped tables. Add the nav and `.claude.md` updates. R-053, R-191, R-192 and R-194 close as "removed".
 
 **If D0 = keep (C), the task DAG is:**
 
@@ -383,7 +396,7 @@ It confirmed every count in Appendix A, and that D0 = retire holds. Each finding
 | 6 | H: journal numbers re-issued (`MAX + 1` over live rows) | §6, D1c high-water mark (verified in `generate_journal_entry_number`) |
 | 7 | M: restore fails on GENERATED `balance`, the approval gate, and NULL vs DEFAULT | §8 restore rules (verified: both `balance` columns are GENERATED ALWAYS) |
 | 8 | M: "settled" undefined per kind; statements ignore write-offs | §5.1 per-kind table; §4.3 write-off rule (verified: no write-off term in `customerStatementRules.ts`) |
-| 9 | M: comparatives fall before the cutoff | D1d: cutoff at least two fiscal years back |
+| 9 | M: comparatives fall before the cutoff | D1d (now a 7-year floor, Appendix C, which also covers comparatives) |
 | 10 | M: lock order incomplete; soft-edge writers take no lock | §6c |
 | 11 | M: indexes don't bound from-inception scans; closed-year snapshots under-weighted | §2 D0 rationale; §9 query 3 adds EXPLAIN ANALYZE |
 | 12 | L: R-053 title misquoted; NL query reads `gl_account_balances` | A2, §6, A5 corrected |
@@ -410,3 +423,15 @@ The reviewer confirmed every count in Appendix A and the code citations. All fif
 | L | "No FKs to live tables" vs companies | reworded |
 | L | Census gaps | duplicate query removed; EXPLAIN SQL and R-191/192/194/195 queries inlined; all run on the fixture |
 | L | References to files not in the tree | removed |
+
+### Round 2 (same reviewer, fix commit `adbd1d927`, REQUEST_CHANGES: 13 of 15 closed)
+
+| Sev | Finding | Disposition |
+|---|---|---|
+| M | D0a promised a faithful restore the mirror tables cannot supply | D0a rewritten: backup first; otherwise GL-level restore with a declared loss |
+| M | Opening bank line under-specified | D1e + §4.1: fields, CHECK, what is preserved, what changes by design, the reconciled-balance predicate, the writer census |
+| L | Retire list missed preview/validate (they import the scope module) | §11 |
+| L | `restored_at` not in the column list | §7c |
+| L | `vat_adjustments` not named in §5.2 | blocks row lists every A1 child by table |
+| L | Appendix B row 9 contradicted the 7-year floor | updated |
+| L | Timing query was not the real query | §9 now uses `fetchBalanceSheetData`'s SQL |
