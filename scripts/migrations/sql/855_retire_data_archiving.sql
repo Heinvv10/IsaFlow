@@ -29,7 +29,8 @@
 --
 -- No CASCADE: a view or SQL-standard function on these tables fails the drop.
 -- A plpgsql function body does not create a dependency, so the guard also
--- refuses if any function outside the system schemas names one of the tables.
+-- refuses if any function outside the system schemas names one of the tables
+-- by literal text (whole word, any case). A name built at runtime is not seen.
 
 DO $$
 DECLARE
@@ -49,7 +50,7 @@ BEGIN
   SELECT string_agg(p.oid::regprocedure::text, ', ') INTO fn
   FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
   WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
-    AND p.prosrc ~ 'archive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)';
+    AND p.prosrc ~* '\marchive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)\M';
   IF fn IS NOT NULL THEN
     RAISE EXCEPTION '855: function(s) % reference an archive table. Not dropping any archive table.', fn;
   END IF;
@@ -64,9 +65,15 @@ BEGIN
     END IF;
   END LOOP;
 
-  FOREACH t IN ARRAY tables LOOP
-    EXECUTE format('DROP TABLE IF EXISTS public.%I', t);
-  END LOOP;
+  -- Literal statements, not EXECUTE format(...): scripts/audit-schema-drift.ts
+  -- reads DROP TABLE <name> from the file text to stop expecting a table, and
+  -- runs right after the migrations on every deploy.
+  DROP TABLE IF EXISTS public.archive_gl_journal_lines;
+  DROP TABLE IF EXISTS public.archive_gl_journal_entries;
+  DROP TABLE IF EXISTS public.archive_bank_transactions;
+  DROP TABLE IF EXISTS public.archive_customer_invoices;
+  DROP TABLE IF EXISTS public.archive_supplier_invoices;
+  DROP TABLE IF EXISTS public.archive_runs;
 
   -- Restore both for the rest of the runner's transaction.
   PERFORM set_config('row_security', prev_row_security, true);
