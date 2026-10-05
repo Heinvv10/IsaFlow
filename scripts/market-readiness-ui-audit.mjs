@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { chromium } from '@playwright/test';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,12 @@ async function main() {
   console.log(`Tenant: ${COMPANY_ID}`);
 
   const storageState = process.env.AUDIT_STORAGE_STATE;
+  // A storage state holds live session tokens: refuse one inside the repo that git would let someone commit.
+  const stateInRepo = storageState && path.resolve(storageState).startsWith(ROOT + path.sep);
+  if (stateInRepo && spawnSync('git', ['check-ignore', '-q', path.resolve(storageState)], { cwd: ROOT }).status !== 0) {
+    console.error(`AUDIT_STORAGE_STATE ${storageState} is not git-ignored; keep it under tests/e2e/.auth/`);
+    process.exit(1);
+  }
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1000 },
