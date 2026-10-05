@@ -1,31 +1,28 @@
 /**
- * Task 3 (fix round 1, finding 3) — bank-match-asset / bank-match-fleet write
- * another table BEFORE the bank_transactions row, so they can't rely on a
- * predicate: they read feed_state first and refuse before any write.
+ * bank-match-asset / bank-match-fleet — the routes' answers (mig 853: the link is an annotation, written by
+ * `bankAssetLinkService.setBankLineLink`, which decides every refusal BEFORE its write — proven against Postgres in
+ * tests/integration/fleet-asset-links.int.test.ts and d12-r2-links.int.test.ts).
  *
- *   - row not found for this company → 404, no write.
- *   - pending/removed → 409 with BankTransactionNotPostedError's message, no write.
- *   - posted → writes proceed, 200.
- *
- * Only the SQL layer is mocked — the real handler and the real
- * `readFeedState` (from bankFeedStateGuard) run.
+ * Here: the body each route accepts (a null id unlinks), the kind it passes on, and the one answer per refusal —
+ *   - line not found for this company → 404;
+ *   - target missing OR another company's → the same 404, naming no id;
+ *   - pending/removed → 409 with BankTransactionNotPostedError's message.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiResponse } from 'next';
 
-// `unsafe` builds the D12 stale-stamp fragment the bank UPDATE carries (`openStampOnly`); it is not a query.
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }) }));
+const { setBankLineLink } = vi.hoisted(() => ({ setBankLineLink: vi.fn() }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/modules/accounting/services/bank/bankAssetLinkService', () => ({ setBankLineLink }));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn((_res: unknown, data: unknown) => ({ kind: 'success', data })),
-    notFound: vi.fn((_res: unknown, message: string) => ({ kind: 'notFound', message })),
+    notFound: vi.fn((_res: unknown, resource: string) => ({ kind: 'notFound', message: `${resource} not found` })),
     conflict: vi.fn((_res: unknown, message: string) => ({ kind: 'conflict', message })),
     validationError: vi.fn((_res: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
@@ -40,81 +37,85 @@ const BANK_TX_ID = '00000000-0000-0000-0000-000000000002';
 const ASSET_ID = '00000000-0000-0000-0000-000000000003';
 const FLEET_ID = '00000000-0000-0000-0000-000000000004';
 
-function req(body: Record<string, unknown>) {
-  return { method: 'POST', companyId: COMPANY_ID, body } as never;
-}
+type Out = { kind: string; message?: string; data?: Record<string, unknown> };
+const req = (body: Record<string, unknown>) => ({ method: 'POST', companyId: COMPANY_ID, body } as never);
+const asset = async (assetId: string | null) =>
+  (await assetHandler(req({ bankTransactionId: BANK_TX_ID, assetId }), {} as NextApiResponse)) as unknown as Out;
+const fleet = async (fleetEntityType: string, fleetEntityId: string | null) => (await fleetHandler(
+  req({ bankTransactionId: BANK_TX_ID, fleetEntityType, fleetEntityId }), {} as NextApiResponse)) as unknown as Out;
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); setBankLineLink.mockReset(); });
 
-describe('bank-match-asset — pre-write feed_state read', () => {
-  it('404s and writes nothing when the bank transaction does not exist for this company', async () => {
-    sqlMock.mockResolvedValueOnce([]); // readFeedState finds nothing
-
-    const out = await assetHandler(req({ bankTransactionId: BANK_TX_ID, assetId: ASSET_ID }), {} as NextApiResponse) as
-      { kind: string };
-
-    expect(out.kind).toBe('notFound');
-    expect(sqlMock).toHaveBeenCalledTimes(1); // the read only — no asset/bank UPDATE
+describe('bank-match-asset', () => {
+  it('links: passes kind asset and the id; 200 linked', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: true });
+    const out = await asset(ASSET_ID);
+    expect(setBankLineLink).toHaveBeenCalledWith(COMPANY_ID, BANK_TX_ID, 'asset', ASSET_ID);
+    expect(out).toMatchObject({ kind: 'success', data: { linked: true, bankTransactionId: BANK_TX_ID, assetId: ASSET_ID } });
   });
 
-  it('409s on a pending row and writes nothing', async () => {
-    sqlMock.mockResolvedValueOnce([{ feed_state: 'pending' }]);
+  it('a null assetId unlinks', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: true });
+    const out = await asset(null);
+    expect(setBankLineLink).toHaveBeenCalledWith(COMPANY_ID, BANK_TX_ID, 'asset', null);
+    expect(out).toMatchObject({ kind: 'success', data: { linked: false, assetId: null } });
+  });
 
-    const out = await assetHandler(req({ bankTransactionId: BANK_TX_ID, assetId: ASSET_ID }), {} as NextApiResponse) as
-      { kind: string; message: string };
+  it('a missing line is 404', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'line' });
+    expect(await asset(ASSET_ID)).toEqual({ kind: 'notFound', message: 'Bank transaction not found' });
+  });
 
+  it('a missing or foreign asset is the same 404, naming no id', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'target' });
+    expect(await asset(ASSET_ID)).toEqual({ kind: 'notFound', message: 'Asset not found' });
+  });
+
+  it('a pending line is 409 with the not-posted message', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'not_posted', feedState: 'pending' });
+    const out = await asset(ASSET_ID);
     expect(out.kind).toBe('conflict');
     expect(out.message).toMatch(/still pending at the bank/);
-    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
-  it('proceeds to link on a posted row', async () => {
-    sqlMock.mockResolvedValueOnce([{ feed_state: 'posted' }]); // readFeedState
-    sqlMock.mockResolvedValue([]); // asset UPDATE, bank UPDATE
-
-    const out = await assetHandler(req({ bankTransactionId: BANK_TX_ID, assetId: ASSET_ID }), {} as NextApiResponse) as
-      { kind: string; data: { linked: boolean } };
-
-    expect(out.kind).toBe('success');
-    expect(out.data.linked).toBe(true);
-    expect(sqlMock).toHaveBeenCalledTimes(3); // read + asset UPDATE + bank UPDATE
+  it('an unknown field or a non-UUID id is refused before the service runs', async () => {
+    expect((await assetHandler(req({ bankTransactionId: BANK_TX_ID, assetId: ASSET_ID, status: 'matched' }),
+      {} as NextApiResponse) as unknown as Out).kind).toBe('validationError');
+    expect((await asset('not-a-uuid')).kind).toBe('validationError');
+    expect(setBankLineLink).not.toHaveBeenCalled();
   });
 });
 
-describe('bank-match-fleet — pre-write feed_state read', () => {
-  it('404s and writes nothing when the bank transaction does not exist for this company', async () => {
-    sqlMock.mockResolvedValueOnce([]);
-
-    const out = await fleetHandler(req({
-      bankTransactionId: BANK_TX_ID, fleetEntityType: 'fuel', fleetEntityId: FLEET_ID,
-    }), {} as NextApiResponse) as { kind: string };
-
-    expect(out.kind).toBe('notFound');
-    expect(sqlMock).toHaveBeenCalledTimes(1);
+describe('bank-match-fleet', () => {
+  it.each(['fuel', 'service'])('links a %s record: passes that kind', async (kind) => {
+    setBankLineLink.mockResolvedValueOnce({ ok: true });
+    const out = await fleet(kind, FLEET_ID);
+    expect(setBankLineLink).toHaveBeenCalledWith(COMPANY_ID, BANK_TX_ID, kind, FLEET_ID);
+    expect(out).toMatchObject({ kind: 'success', data: { linked: true, fleetEntityType: kind, fleetEntityId: FLEET_ID } });
   });
 
-  it('409s on a removed row and writes nothing', async () => {
-    sqlMock.mockResolvedValueOnce([{ feed_state: 'removed' }]);
+  it('a null fleetEntityId unlinks that kind', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: true });
+    const out = await fleet('service', null);
+    expect(setBankLineLink).toHaveBeenCalledWith(COMPANY_ID, BANK_TX_ID, 'service', null);
+    expect(out).toMatchObject({ kind: 'success', data: { linked: false, fleetEntityId: null } });
+  });
 
-    const out = await fleetHandler(req({
-      bankTransactionId: BANK_TX_ID, fleetEntityType: 'service', fleetEntityId: FLEET_ID,
-    }), {} as NextApiResponse) as { kind: string; message: string };
+  it.each([['fuel', 'Fuel record not found'], ['service', 'Service record not found']])(
+    'a missing or foreign %s record is one 404', async (kind, message) => {
+      setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'target' });
+      expect(await fleet(kind, FLEET_ID)).toEqual({ kind: 'notFound', message });
+    });
 
+  it('a removed line is 409 with the not-posted message', async () => {
+    setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'not_posted', feedState: 'removed' });
+    const out = await fleet('fuel', FLEET_ID);
     expect(out.kind).toBe('conflict');
     expect(out.message).toMatch(/removed by the bank/);
-    expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
-  it('proceeds to link a fuel transaction on a posted row', async () => {
-    sqlMock.mockResolvedValueOnce([{ feed_state: 'posted' }]);
-    sqlMock.mockResolvedValue([]);
-
-    const out = await fleetHandler(req({
-      bankTransactionId: BANK_TX_ID, fleetEntityType: 'fuel', fleetEntityId: FLEET_ID,
-    }), {} as NextApiResponse) as { kind: string; data: { linked: boolean } };
-
-    expect(out.kind).toBe('success');
-    expect(out.data.linked).toBe(true);
-    expect(sqlMock).toHaveBeenCalledTimes(3);
+  it('an unknown fleetEntityType is refused before the service runs', async () => {
+    expect((await fleet('vehicle', FLEET_ID)).kind).toBe('validationError');
+    expect(setBankLineLink).not.toHaveBeenCalled();
   });
 });

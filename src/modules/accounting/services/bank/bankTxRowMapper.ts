@@ -7,6 +7,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { BankTransaction } from '../../types/bank.types';
 import { feedStateOf } from './bankFeedStateGuard';
+import { bankTxLinkOf } from './bankTxLink';
 
 type Row = DbRow;
 
@@ -71,6 +72,7 @@ export function mapTxRow(row: Row): BankTransaction {
     allocatedCounterpartyName: row.allocated_entity_name ? String(row.allocated_entity_name) : undefined,
     counterpartyAccountId: row.counterparty_account_id ? String(row.counterparty_account_id) : undefined,
     transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
+    link: bankTxLinkOf(row),
   };
 }
 
