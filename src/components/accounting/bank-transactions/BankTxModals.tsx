@@ -31,6 +31,10 @@ const CreateEntityModal = dynamic(
   () => import('@/components/accounting/CreateEntityModal').then(m => ({ default: m.CreateEntityModal })),
   { ssr: false },
 );
+const BankTxLinkModal = dynamic(
+  () => import('@/components/accounting/bank-transactions/BankTxLinkModal').then(m => ({ default: m.BankTxLinkModal })),
+  { ssr: false },
+);
 const BankTxQueryModal = dynamic(
   () => import('@/components/accounting/BankTxQueryModal').then(m => ({ default: m.BankTxQueryModal })),
   { ssr: false },
@@ -52,6 +56,7 @@ interface Props {
   createEntityTxId: string | null;
   createEntityType: AllocType | null;
   queryTx: BankTx | null;
+  linkTx?: BankTx | null;
   onSplitClose: () => void;
   onSplitDone: () => void;
   onExcludeClose: () => void;
@@ -65,19 +70,21 @@ interface Props {
   onCreateEntityDone: (entity: { id: string; name: string; code?: string }, type: AllocType) => void;
   onQueryClose: () => void;
   onQuerySent?: () => void;
+  onLinkClose?: () => void;
+  onLinkDone?: () => void;
 }
 
 export function BankTxModals({
   transactions, glAccounts, suppliers, customers, bankAccounts, selectedBank, rowSelections,
   splitTxId, excludingTxId, findMatchTxId, attachmentsTxId, createRuleTx,
-  createEntityTxId, createEntityType, queryTx,
+  createEntityTxId, createEntityType, queryTx, linkTx,
   onSplitClose, onSplitDone,
   onExcludeClose, onExcludeConfirm,
   onFindMatchClose, onFindMatchDone,
   onAttachmentsClose,
   onCreateRuleClose, onCreateRuleDone,
   onCreateEntityClose, onCreateEntityDone,
-  onQueryClose, onQuerySent,
+  onQueryClose, onQuerySent, onLinkClose, onLinkDone,
 }: Props) {
   const splitTx = splitTxId ? transactions.find(t => t.id === splitTxId) : null;
   const excludeTx = excludingTxId ? transactions.find(t => t.id === excludingTxId) : null;
@@ -155,6 +162,10 @@ export function BankTxModals({
           onClose={onQueryClose}
           onSent={onQuerySent}
         />
+      )}
+
+      {linkTx && onLinkClose && onLinkDone && (
+        <BankTxLinkModal tx={linkTx} onClose={onLinkClose} onDone={onLinkDone} />
       )}
     </>
   );

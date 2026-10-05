@@ -1,16 +1,14 @@
 /**
- * Bank Transaction → Asset Cross-Module Linking API
+ * Bank Transaction → Asset link
  *
  * POST /api/accounting/bank-match-asset
- *   Body: { bankTransactionId, assetId }
+ *   Body: { bankTransactionId, assetId }       — link the line to the asset (a fuel / service link is cleared)
+ *         { bankTransactionId, assetId: null } — clear the line's asset link
  *
- * Links a bank transaction to an asset record, storing the reference on
- * both sides and marking the bank transaction as 'matched' when it was
- * previously 'imported'.
- *
- * D12: the link ids are annotations — outside the "a completed reconciliation is immutable" rule
- * (`bank/.claude.md`). The status turn clears a completed session's stale stamp and runs under the 5 s
- * budget. No migration creates the link schema (register item; see `pages/api/accounting/assets/.claude.md`).
+ * An ANNOTATION ONLY (mig 853, Hein 2026-10-05): writes the link columns, never the line's status, journal link or
+ * reconciliation stamp, and posts nothing — so it is outside D12's completed-reconciliation rule (`bank/.claude.md`).
+ * Before any write: the line in this company (404), the asset in this company (404 — one answer for missing and
+ * another company's), the line posted at the bank (409). See `bankAssetLinkService`.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,13 +19,12 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
-import { readFeedState, BankTransactionNotPostedError } from '@/modules/accounting/services/bank/bankFeedStateGuard';
-import { openStampOnly, underStampBudget } from '@/modules/accounting/services/bank/reconciliationSessionLock';
+import { setBankLineLink } from '@/modules/accounting/services/bank/bankAssetLinkService';
+import { respondLinkRefusal } from '@/modules/accounting/services/bank/bankAssetLinkRefusal';
 
 const BodySchema = z.object({
   bankTransactionId: UUID,
-  assetId: UUID,
+  assetId: UUID.nullable(),
 }).strict();
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -44,39 +41,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const { bankTransactionId, assetId } = parsed.data;
 
-  const feedState = await readFeedState(companyId, bankTransactionId);
-  if (feedState === null) return apiResponse.notFound(res, 'Bank transaction not found');
-  if (feedState !== 'posted') {
-    return apiResponse.conflict(res, new BankTransactionNotPostedError(bankTransactionId, feedState, 'link').message);
-  }
+  const result = await setBankLineLink(companyId, bankTransactionId, 'asset', assetId);
+  if (!result.ok) return respondLinkRefusal(res, result, 'asset', bankTransactionId);
 
-  // ── Write reverse link on the asset ───────────────────────────────────────
-  await sql`
-    UPDATE assets
-    SET bank_transaction_id = ${bankTransactionId}::UUID
-    WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
-  `;
-
-  // ── Write forward link on the bank transaction ─────────────────────────────
-  // D12 round 2: under the 5 s budget (the stale-stamp fragment's FOR SHARE on the session) — held -> 503.
-  await underStampBudget(() => sql`
-    UPDATE bank_transactions
-    SET
-      linked_asset_id = ${assetId}::UUID,
-      status = CASE WHEN status = 'imported' THEN 'matched' ELSE status END,
-      reconciliation_id = CASE WHEN status = 'imported' THEN ${openStampOnly(companyId)} ELSE reconciliation_id END,
-      updated_at = NOW()
-    WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
-  `);
-
-  log.info('Linked bank tx to asset', { bankTransactionId, assetId }, 'bank-match-asset');
+  log.info(assetId ? 'Linked bank tx to asset' : 'Unlinked bank tx from asset', { bankTransactionId, assetId }, 'bank-match-asset');
 
   return apiResponse.success(res, {
-    linked: true,
+    linked: assetId !== null,
     bankTransactionId,
     assetId,
   });
 }
 
- 
+
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

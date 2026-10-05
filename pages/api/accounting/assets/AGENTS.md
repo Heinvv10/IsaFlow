@@ -14,10 +14,13 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - `POST /api/accounting/assets/below-threshold` — expense to GL, body `{ assetId }`
 - `POST /api/accounting/assets/[assetId]/dispose` — body `{ proceeds?, disposalDate, disposalType?, notes? }`
 - `GET /api/accounting/assets/[assetId]/period-ledger` — all ledger rows for one asset, ordered by period
+- `GET|POST|DELETE /api/accounting/assets/[assetId]/fuel` and `/service` — the asset's fleet records (mig 853): GET the list (newest first, each with `bankLinkCount`), POST `FuelRecordBody` / `ServiceRecordBody` (`@/lib/schemas/fleet`, 201), DELETE `?id=` (409 while a bank line links to it)
+- `GET /api/accounting/assets/[assetId]/bank-links` — bank lines linked to the asset or to one of its fuel / service records
 
 ## Auth
 - Read routes (`far-report`, `far-report-xlsx`, `afs-summary`, `deferred-tax`, `period-ledger`): `withAuth(withErrorHandler(handler))`
 - Mutating routes (`below-threshold` POST, `dispose`): `withAuth(withCsrf(withErrorHandler(withWriteAccess(handler))))` — both post GL journals, so a company `viewer` must get 403
+- `fuel` / `service`: `withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))` — GET passes both through; POST / DELETE need CSRF and write access
 
 ## Request / Response
 - `period` is `YYYYMM` (6 digits), NOT `YYYY-MM`
@@ -26,11 +29,13 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - Others use `apiResponse.success|.badRequest|.notFound`
 
 ## Business rules
-- **`POST /api/accounting/bank-match-asset` and `bank-match-fleet` (flat siblings of this group) write LINK ids — annotations, outside D12's "completed reconciliation is immutable" rule** (`bank/.claude.md`): a link may still be set on a reconciled line. They turn only an `imported` line `matched`, clearing a completed session's stale stamp in that UPDATE (`openStampOnly`) under the 5 s budget (held session → 503). No migration creates their link schema (`bank_transactions.linked_asset_id` / `linked_fleet_*`, `assets.bank_transaction_id`, the fleet tables), so both 500 before the bank write wherever migrations built the database — register item; `tests/integration/d12-r2-links.int.test.ts` adds that schema to the disposable fixture to prove the arm.
+- **Vehicles are fixed assets (Hein, 2026-10-05).** Fuel and service records hang off `assets` by asset_id (no vehicle table); the composite FK (asset_id, company_id) → assets (id, company_id) keeps a record in its asset's company. A missing asset and another company's asset are ONE 404 on every fleet route. A record is deleted only through its own asset; a record a bank line links to is REFUSED (409, "unlink it first") rather than unlinked silently — the asset page cannot show that bank line (`items/fleetRecordsService`). Create takes the asset FOR KEY SHARE under the 5 s budget — held (a key change or delete of the asset) -> 503 + Retry-After. Bodies refuse an impossible day, a year outside 1900–2999 and a NUL in any text field (422). The fleet→asset FK is ON DELETE CASCADE: no path hard-deletes an asset (census in mig 853's header); a per-asset delete, if ever added, must refuse an asset whose records a bank line links to.
+- **`POST /api/accounting/bank-match-asset` and `bank-match-fleet` (flat siblings of this group) write an asset / fleet LINK on a bank line — an ANNOTATION ONLY** (mig 853): only `linked_asset_id` / `linked_fleet_fuel_id` / `linked_fleet_service_id` (one per line), never status, journal line or reconciliation stamp; nothing posts. Outside D12's completed-reconciliation rule (`bank/.claude.md`), so a reconciled line may be annotated. `assetId: null` / `fleetEntityId: null` unlinks that kind; unlinking a kind the line does not carry is 409 ("carries no … link"), never a no-op 200. Before any write: line (404), target in this company (404, identical for foreign and missing), feed_state posted (409), the unlinked kind present (409). See `bank/bankAssetLinkService`.
+- **Asset writers lock the asset FOR NO KEY UPDATE, never FOR UPDATE** (round 3, brk-fleet B1): `dispose`, `below-threshold` and depreciation (`gl/assetTaxAccumulation.lockAssetTaxBase`) change no key column. FOR UPDATE conflicted with the FOR KEY SHARE that a bank-line link, a fleet-record create and the composite-FK checks take; with the writer waiting on journal numbering and an allocator holding a journal and waiting on the linked bank line, that was a 40P01 cycle. NO KEY UPDATE still serialises the writers against each other. Test: `tests/integration/fleet-r3-asset-locks.int.test.ts`.
 - FAR uses `DISTINCT ON (asset_id) ORDER BY asset_id, yyyymm DESC` for latest snapshot per asset
 - Disposal upserts `asset_period_ledger` via `ON CONFLICT ... DO UPDATE` (idempotent)
 - `dispose` blocks if asset already `status='disposed'`
-- `below-threshold` POST locks the asset `FOR UPDATE OF a` (5s `lock_timeout`), refuses a repeat with 409 when `assets.below_threshold` is already true, refuses a `disposed`/`written_off` asset with 400, pre-checks the fiscal period covering today (400 if not open — the hook creates the draft journal before postJournalEntry would throw, and withAuth COMMITs on 4xx), then delegates to `glCrossModuleHooks.postCapitalizationExpenseToGL`
+- `below-threshold` POST locks the asset `FOR NO KEY UPDATE OF a` (5s `lock_timeout`), refuses a repeat with 409 when `assets.below_threshold` is already true, refuses a `disposed`/`written_off` asset with 400, pre-checks the fiscal period covering today (400 if not open — the hook creates the draft journal before postJournalEntry would throw, and withAuth COMMITs on 4xx), then delegates to `glCrossModuleHooks.postCapitalizationExpenseToGL`
 - `below-threshold` GET returns `expensed` from the `assets.below_threshold` column; the page uses it to render already-expensed rows without a Post button
 - Dispose calculates both policy and tax gain/loss, posts GL via `glCrossModuleHooks.postAssetDisposalToGL`
 - `afs-summary` uses the COMPANY's financial year, via `getFiscalYearStartMonth` + `fiscalWindowForPeriod` (`afs/afsFiscalPeriod.ts`) — NOT Jan-Dec. It REFUSES (500) a company with no `financial_year_start`; do not add a fallback, an AFS note is filed under the customer's name
@@ -43,8 +48,11 @@ Sub-routes for the dual-track FAR (policy/IFRS vs tax/SARS). Register CRUD itsel
 - `src/modules/accounting/services/items/farDisposalService.ts`
 - `src/modules/accounting/services/items/farAfsService.ts` — `aggregateDeferredTax`
 - `src/modules/accounting/services/gl/glCrossModuleHooks.ts`
+- `src/modules/accounting/services/items/fleetRecordsService.ts`, `assetBankLinksService.ts` — fleet records and the asset's linked bank lines
 
 ## Recent changes
+- 2026-10-05 (round 2): unlink of an absent kind 409; bounded asset lock on create; date range / NUL refused 422
+- 2026-10-05: mig 853 — fleet fuel / service records (`fuel`, `service`), `bank-links`, and the asset / fleet link routes rebuilt as annotations
 - 2026-09-09: K-026 — `below-threshold` POST gained `withWriteAccess`, a row lock and an already-expensed guard
 - 2026-09-09: `afs-summary` K-028/R-007 — additions no longer double-count pre-existing assets, window follows the company's financial year, prior snapshot drops disposed assets, `period` month validated (400 not 500)
 - 2026-04-22: 4 Bugsink-surfaced regressions
