@@ -45,7 +45,6 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
-import { toISODate as archiveToISODate } from '@/modules/accounting/services/core/archiveQueryService';
 import { toISODate as dunningToISODate } from '@/modules/accounting/services/ar/dunningService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -88,10 +87,6 @@ describe('P1.4 date sweep (UTC+2 rollback family)', () => {
     const input = mockCreate.mock.calls[0]![1];
     // toISOString().slice(0,10) would produce '2026-07-04' here.
     expect(input.entryDate).toBe('2026-07-05');
-  });
-
-  it('archiveQueryService.toISODate returns the local date for pg Date values', () => {
-    expect(archiveToISODate(new Date(2026, 0, 1))).toBe('2026-01-01');
   });
 
   it('dunningService.toISODate returns the local date for pg Date values', () => {

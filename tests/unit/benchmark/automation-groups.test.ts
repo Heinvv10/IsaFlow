@@ -7,7 +7,6 @@
  *   - groupCrudService             → mapGroup, mapMember
  *   - groupCoaMappingService       → mapGroupAccount, mapCoaMapping
  *   - intercompanyService          → mapIntercompanyTx
- *   - archiveQueryService          → toISODate, toStr
  *   - documentValidationService    → validateInvoiceDocument,
  *                                    validatePaymentReceipt,
  *                                    validateStatutoryCompliance
@@ -16,9 +15,6 @@
  * Services with NO pure exports (all functions touch sql/db):
  *   - recurringInvoiceService      → advanceDate is private, no pure exports
  *   - recurringJournalService      → advanceDate is private, no pure exports
- *   - dataArchivingService         → facade only, no logic
- *   - archiveExecutionService      → executeArchive requires sql
- *   - archiveReadService           → getArchivedEntries requires sql
  *   - groupCompanyService          → facade only, re-exports from other services
  *   - descriptionTemplateService   → all functions require sql
  *
@@ -35,7 +31,7 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   const noopTag = () => Promise.resolve([]);
   (noopTag as unknown as Record<string, unknown>).unsafe = (s: string) => s;
   return {
-    ...original, // real fmtDate — archiveQueryService.toISODate routes through it
+    ...original,
     sql: noopTag,
     withTransaction: (_cb: unknown) => Promise.resolve(),
   };
@@ -45,17 +41,10 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-// auditTrailService is imported by archiveExecutionService — stub it so the
-// module graph resolves without a DB connection.
-vi.mock('@/modules/accounting/services/auditTrailService', () => ({
-  logAudit: vi.fn().mockResolvedValue(undefined),
-}));
-
 import { calculateNextRunDate } from '@/modules/accounting/services/core/recurringTransactionService';
 import { mapGroup, mapMember } from '@/modules/accounting/services/reports/groupCrudService';
 import { mapGroupAccount, mapCoaMapping } from '@/modules/accounting/services/reports/groupCoaMappingService';
 import { mapIntercompanyTx } from '@/modules/accounting/services/reports/intercompanyService';
-import { toISODate, toStr } from '@/modules/accounting/services/core/archiveQueryService';
 import {
   validateInvoiceDocument,
   validatePaymentReceipt,
@@ -309,51 +298,6 @@ describe('mapIntercompanyTx', () => {
     expect(result.description).toBeNull();
     expect(result.matchedAt).toBeNull();
     expect(result.sourceJournalEntryId).toBeNull();
-  });
-});
-
-// ─── toISODate ────────────────────────────────────────────────────────────────
-
-describe('toISODate', () => {
-  it('extracts date portion from a Date object', () => {
-    expect(toISODate(new Date('2025-08-15T10:30:00.000Z'))).toBe('2025-08-15');
-  });
-
-  it('extracts date portion from an ISO string', () => {
-    expect(toISODate('2025-03-01T00:00:00.000Z')).toBe('2025-03-01');
-  });
-
-  it('returns a plain date string unchanged', () => {
-    expect(toISODate('2025-12-31')).toBe('2025-12-31');
-  });
-
-  it('returns null for null input', () => {
-    expect(toISODate(null)).toBeNull();
-  });
-
-  it('returns null for empty string', () => {
-    expect(toISODate('')).toBeNull();
-  });
-});
-
-// ─── toStr ────────────────────────────────────────────────────────────────────
-
-describe('toStr', () => {
-  it('converts a Date to ISO string', () => {
-    const d = new Date('2025-05-20T00:00:00.000Z');
-    expect(toStr(d)).toBe(d.toISOString());
-  });
-
-  it('returns string values as-is', () => {
-    expect(toStr('2025-01-01')).toBe('2025-01-01');
-  });
-
-  it('returns empty string for null', () => {
-    expect(toStr(null)).toBe('');
-  });
-
-  it('returns empty string for undefined', () => {
-    expect(toStr(undefined)).toBe('');
   });
 });
 

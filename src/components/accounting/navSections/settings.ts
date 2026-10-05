@@ -31,7 +31,6 @@ export const settingsTab: Tab = {
       section: 'Data Quality',
       items: [
         { label: 'Duplicate Detection', href: '/accounting/duplicates' },
-        { label: 'Data Archiving', href: '/accounting/data-archiving' },
       ],
     },
     {

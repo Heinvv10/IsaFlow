@@ -210,21 +210,7 @@ async function findExistingBill(
     ORDER BY (sage_invoice_id = ${sageId}::TEXT) DESC NULLS LAST, created_at, id
     LIMIT 1
   `) as DbRow[];
-  if (!bill) {
-    // An archived bill (executeArchive deletes old paid bills, and the staging
-    // link goes NULL with it, 694) is still this document: a reset + re-run
-    // must not book the settled debt again as a live bill. The Sage id is
-    // matched company-wide: a supplier re-created under the same name after
-    // the archive is a new supplier_id, and the settled bill would come back.
-    const [archived] = (await sql`
-      SELECT 1 FROM archive_supplier_invoices
-      WHERE company_id = ${companyId}::UUID
-        AND ((${sageId}::TEXT IS NOT NULL AND sage_invoice_id = ${sageId}::TEXT)
-          OR (supplier_id = ${supplierId}::UUID AND invoice_number = ${invNumber}))
-      LIMIT 1
-    `) as DbRow[];
-    return archived ? 'conflict' : null;
-  }
+  if (!bill) return null;
   const existingSageId = bill.sage_invoice_id ? String(bill.sage_invoice_id) : null;
   if (existingSageId && sageId && existingSageId !== sageId) return 'conflict';
   if (Math.abs(Number(bill.total_amount) - totalAmount) > 0.005) return 'conflict';

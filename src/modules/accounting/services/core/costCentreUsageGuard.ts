@@ -49,12 +49,6 @@ export function cannotDeleteMessage(parts: string[]): string {
  * because a mapping has no meaning without its centre. capture_events
  * .resolved_cost_centre_id is absent too — it is an unposted classification
  * hint, so losing it re-triggers classification rather than stranding a posting.
- * The archive_* tables (archive_gl_journal_entries.cost_center_id,
- * archive_gl_journal_lines.cost_center_id, archive_supplier_invoices
- * .cost_center_id) are absent as well: archived history is read-only and is
- * never re-reported by cost centre, so a delete strands attribution there
- * rather than corrupting a live posting. Counting them would make a centre
- * undeletable forever once any period was archived.
  */
 export async function assertCostCentreUnused(companyId: string, id: string): Promise<void> {
   const usage = (await sql`

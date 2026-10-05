@@ -45,12 +45,6 @@ export const toolsTab: Tab = {
       ],
     },
     {
-      section: 'Data Management',
-      items: [
-        { label: 'Data Archiving', href: '/accounting/data-archiving' },
-      ],
-    },
-    {
       section: 'Data Import',
       items: [
         { label: 'Import Transactions', href: '/accounting/gl-import' },
