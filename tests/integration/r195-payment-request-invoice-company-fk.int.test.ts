@@ -124,6 +124,25 @@ describe.each(['paystack', 'stitch'] as const)('R-195 %s: request and invoice sh
     const row = (await pool.query(`SELECT company_id, customer_invoice_id FROM ${g.table} WHERE id = $1`, [out.id])).rows;
     expect(row).toEqual([{ company_id: coB, customer_invoice_id: null }]);
   });
+
+  // The single-column FK is kept and its SET NULL fires first, which would hide a composite FK
+  // that nulls company_id too. Without it, the composite FK alone must give the same outcomes.
+  it('the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete', async () => {
+    const invoice = await addInvoice(coB, 'paid');
+    const other = await insertAsAppUser(gateway, coB, invoice, g.otherPurpose);
+    expect(other.code).toBeUndefined();
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query(`ALTER TABLE ${g.table} DROP CONSTRAINT ${g.table}_customer_invoice_id_fkey`);
+      await db.query('DELETE FROM customer_invoices WHERE id = $1', [invoice]);
+      const row = (await db.query(`SELECT company_id, customer_invoice_id FROM ${g.table} WHERE id = $1`, [other.id])).rows;
+      expect(row).toEqual([{ company_id: coB, customer_invoice_id: null }]);
+    } finally {
+      await db.query('ROLLBACK');
+      db.release();
+    }
+  });
 });
 
 describe('R-195 migration 854', () => {
