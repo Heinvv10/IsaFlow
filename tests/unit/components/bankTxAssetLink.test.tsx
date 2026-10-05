@@ -99,3 +99,52 @@ it('the row action is a button when unlinked and a labelled chip when linked', (
   fireEvent.click(screen.getByRole('button', { name: 'Linked to Hilux — Fuel 2026-10-01 R850.00' }));
   expect(onOpen).toHaveBeenCalledTimes(2);
 });
+
+// Round 2 (blind L2): a slower, OLDER response must not overwrite a newer one — the records shown, and so the record id
+// a link posts, belong to the asset (and the search) the user picked last.
+function deferredServe() {
+  const pending = new Map<string, (body: unknown) => void>();
+  vi.mocked(apiFetch).mockImplementation((url) => new Promise((resolve) => {
+    pending.set(String(url), (data) => resolve(new Response(JSON.stringify({ success: true, data }))));
+  }));
+  const settle = async (url: string, data: unknown) => {
+    await waitFor(() => expect(pending.has(url)).toBe(true));
+    pending.get(url)!(data); pending.delete(url);
+  };
+  return { settle };
+}
+const ASSET_B = { id: 'as-2', name: 'Ranger', asset_number: 'FA-2' };
+const FUEL_B = { ...FUEL, id: 'fu-2', assetId: 'as-2', fillDate: '2026-09-09' };
+
+it('records of an earlier-picked asset that answer late are ignored', async () => {
+  const { settle } = deferredServe();
+  render(<BankTxLinkModal tx={TX} onClose={vi.fn()} onDone={vi.fn()} />);
+  await settle('/api/accounting/assets', [ASSET, ASSET_B]);
+  fireEvent.click(await screen.findByRole('button', { name: /Hilux/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Ranger/ }));
+  await settle('/api/accounting/assets/as-2/fuel', [FUEL_B]);
+  await settle('/api/accounting/assets/as-2/service', []);
+  expect(await screen.findByText(/Fuel 2026-09-09/)).toBeTruthy();
+  await settle('/api/accounting/assets/as-1/fuel', [FUEL]);
+  await settle('/api/accounting/assets/as-1/service', [SERVICE]);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByText(/Fuel 2026-10-01/)).toBeNull();
+  expect(screen.queryByText(/Service 2026-09-01/)).toBeNull();
+  expect(screen.getByText(/Fuel 2026-09-09/)).toBeTruthy();
+});
+
+it('an older search that answers late does not replace a newer one', async () => {
+  const { settle } = deferredServe();
+  render(<BankTxLinkModal tx={TX} onClose={vi.fn()} onDone={vi.fn()} />);
+  await settle('/api/accounting/assets', [ASSET, ASSET_B]);
+  const box = await screen.findByPlaceholderText('Search by name, number or serial');
+  fireEvent.change(box, { target: { value: 'Hil' } });
+  await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u]) => String(u).endsWith('search=Hil'))).toBe(true));
+  fireEvent.change(box, { target: { value: 'Ran' } });
+  await settle('/api/accounting/assets?search=Ran', [ASSET_B]);
+  expect(await screen.findByRole('button', { name: /Ranger/ })).toBeTruthy();
+  await settle('/api/accounting/assets?search=Hil', [ASSET]);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(screen.queryByRole('button', { name: /Hilux/ })).toBeNull();
+  expect(screen.getByRole('button', { name: /Ranger/ })).toBeTruthy();
+});

@@ -18,5 +18,8 @@ export function respondLinkRefusal(
 ): void {
   if (refusal.refused === 'line') return apiResponse.notFound(res, 'Bank transaction');
   if (refusal.refused === 'target') return apiResponse.notFound(res, TARGET[kind]);
+  if (refusal.refused === 'no_link') {
+    return apiResponse.conflict(res, `This bank transaction carries no ${TARGET[kind].toLowerCase()} link`);
+  }
   return apiResponse.conflict(res, new BankTransactionNotPostedError(bankTxId, refusal.feedState, 'link').message);
 }

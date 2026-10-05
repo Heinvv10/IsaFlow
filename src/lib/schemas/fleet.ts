@@ -5,14 +5,20 @@
 import { z } from 'zod';
 import { ISODate } from './common';
 
-/** A real calendar day: `2026-02-30` passes the YYYY-MM-DD shape but Postgres refuses it (a 500, not a 400). */
+/**
+ * A real calendar day in 1900–2999: `2026-02-30` passes the YYYY-MM-DD shape and `0000-01-01` passes JS `Date`, but
+ * Postgres refuses both (a 500, not a 422). The year range is a sane bound for a vehicle's fuel or service date.
+ */
 const CalendarDate = ISODate.refine((d) => {
   const t = new Date(`${d}T00:00:00Z`);
   return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
-}, 'Must be a real date');
+}, 'Must be a real date').refine((d) => d >= '1900-01-01' && d <= '2999-12-31', 'Must be a date between 1900 and 2999');
+
+/** Postgres TEXT refuses a NUL character (0x00) — a 500 if it reaches the INSERT. */
+const noNul = (s: string) => !s.includes('\u0000');
 
 const Rands = z.number().finite().nonnegative().multipleOf(0.01).max(9_999_999_999_999.99);
-const OptionalText = z.string().trim().max(500).nullish();
+const OptionalText = z.string().trim().max(500).refine(noNul, 'Invalid character').nullish();
 
 const Common = {
   amount: Rands,
@@ -29,7 +35,7 @@ export const FuelRecordBody = z.object({
 
 export const ServiceRecordBody = z.object({
   serviceDate: CalendarDate,
-  description: z.string().trim().min(1, 'Description is required').max(500),
+  description: z.string().trim().min(1, 'Description is required').max(500).refine(noNul, 'Invalid character'),
   ...Common,
 }).strict();
 

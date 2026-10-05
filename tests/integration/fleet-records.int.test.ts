@@ -69,7 +69,18 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('fleet fue
       const out = await call('POST', a, k.bad);
       expect(out.status, out.body).toBe(422);
       expect(await count(k.table, c.fx.companyId)).toBe(before);
-      expect((await call('POST', a, { ...k.body, [k.kind === 'fuel' ? 'fillDate' : 'serviceDate']: '2026-02-30' })).status).toBe(422);
+      const dateKey = k.kind === 'fuel' ? 'fillDate' : 'serviceDate';
+      // Round 2 (sec L2): every input Postgres would refuse with a 500 is a 422 here — an impossible day, year 0 and
+      // an out-of-range year, and a NUL in any text field.
+      const refused: Record<string, unknown>[] = [
+        { ...k.body, [dateKey]: '2026-02-30' }, { ...k.body, [dateKey]: '0000-01-01' }, { ...k.body, [dateKey]: '1899-12-31' },
+        { ...k.body, [dateKey]: '3000-01-01' }, { ...k.body, supplierName: 'a\u0000b' }, { ...k.body, notes: 'a\u0000b' },
+        ...(k.kind === 'service' ? [{ ...k.body, description: 'Brakes\u0000' }] : []),
+      ];
+      for (const body of refused) {
+        const r = await call('POST', a, body);
+        expect(r.status, `${JSON.stringify(body)} -> ${r.body}`).toBe(422);
+      }
       expect(await count(k.table, c.fx.companyId)).toBe(before);
     }, 60000);
 
@@ -91,6 +102,21 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('fleet fue
       const out = await call('DELETE', b, {}, rec);
       expect(out.status, out.body).toBe(404);
       expect(((await call('GET', a)).data as Row[]).map((r) => r.id)).toEqual([rec]);
+    }, 60000);
+
+    // Round 2 (sec L1): depreciation and dispose hold the asset FOR UPDATE; the create waits at most 5 s for it.
+    it(`${k.kind}: an asset held FOR UPDATE by another transaction -> 503 + Retry-After at ~5 s; nothing written`, async () => {
+      const a = await newAsset(c);
+      const before = await count(k.table, c.fx.companyId);
+      const h = await c.fx.pool.connect();
+      await h.query('BEGIN');
+      await h.query('SELECT id FROM assets WHERE id = $1 FOR UPDATE', [a]);
+      let out;
+      try { out = await call('POST', a, k.body); } finally { await h.query('ROLLBACK'); h.release(); }
+      expect(out.status, out.body).toBe(503);
+      expect(out.retryAfter).toBe('2');
+      expect(out.ms).toBeGreaterThan(4000); expect(out.ms).toBeLessThan(8500);
+      expect(await count(k.table, c.fx.companyId)).toBe(before);
     }, 60000);
 
     it(`${k.kind}: a record a bank line links to is refused 409 and stays linked`, async () => {
