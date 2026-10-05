@@ -81,6 +81,15 @@ qa-reports/
 # Rendered pack proofs: real tenant figures, kept on disk, never in git.
 /evidence/
 
-# Playwright session state written by ad-hoc audit scripts: live auth cookies.
+# Playwright session state / storage states (live auth cookies), whatever an audit names them.
 scripts/**/state.json
 scripts/**/storageState*.json
+scripts/**/*[Ss]torage[Ss]tate*.json
+scripts/**/*[Ss]torage[-_][Ss]tate*.json
+scripts/**/[Ss]tate.json
+scripts/**/STATE.json
+scripts/**/*[-_][Ss]tate.json
+scripts/**/*[a-z]State.json
+scripts/**/*[Ss]ession*.json
+scripts/**/[Aa]uth.json
+**/.auth/
