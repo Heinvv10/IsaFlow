@@ -1,0 +1,6 @@
+# R-193 census, read-only on PROD isaflow (default_transaction_read_only=on, psql -e), 2026-10-05 ~13:35 SAST, after the b79dc0bc9 deploy
+SELECT fj.company_id, fj.reference, fj.id AS fee_journal_id, fj.created_at AS fee_posted_at, rj.created_at AS receipt_posted_at, cp.id AS receipt_id, cp.updated_at AS receipt_last_updated_at FROM gl_journal_entries fj JOIN customer_payments cp ON cp.company_id = fj.company_id AND cp.bank_reference = fj.reference AND cp.status = 'cancelled' JOIN gl_journal_entries rj ON rj.id = cp.gl_journal_entry_id AND rj.company_id = cp.company_id AND rj.posting_agent = 'system:paystack-receipt:v1' WHERE fj.posting_agent = 'system:paystack-receipt:v1' AND fj.reference IS NOT NULL AND fj.status IS DISTINCT FROM 'reversed' AND fj.created_at > rj.created_at AND NOT EXISTS (SELECT 1 FROM customer_payments live WHERE live.company_id = cp.company_id AND live.bank_reference = cp.bank_reference AND live.status IS DISTINCT FROM 'cancelled') ORDER BY fj.created_at;
+ company_id | reference | fee_journal_id | fee_posted_at | receipt_posted_at | receipt_id | receipt_last_updated_at 
+------------+-----------+----------------+---------------+-------------------+------------+-------------------------
+(0 rows)
+
