@@ -81,7 +81,9 @@ qa-reports/
 # Rendered pack proofs: real tenant figures, kept on disk, never in git.
 /evidence/
 
-# Playwright storage states / saved sessions (live session tokens), whatever an audit names them
+# Playwright session state / storage states (live auth cookies), whatever an audit names them.
+scripts/**/state.json
+scripts/**/storageState*.json
 scripts/**/*[Ss]torage[Ss]tate*.json
 scripts/**/*[Ss]torage[-_][Ss]tate*.json
 scripts/**/[Ss]tate.json
