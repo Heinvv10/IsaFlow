@@ -135,9 +135,10 @@ describe('R-193: the replay\'s dedupe read locks the receipt it matches', () => 
     expect((await deliver(ref, 11500, 'ZAR', replayBody())).statusCode).toBe(200);
 
     expect(race.fired).toBe(true);
+    expect({ feeJournals: await feeJournals(ref), ...(await settlement(A, ref, id)) }).toMatchObject(
+      { feeJournals: 0, payments: [{ status: 'cancelled' }], review: FLAG });
+    // The cancel committed while the replay's read was WAITING on it, not after the read returned.
     expect(committedWhen).toBe('replay blocked');
-    expect(await feeJournals(ref)).toBe(0);
-    expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ status: 'cancelled' }], review: FLAG });
   }, 30_000);
 
   it('a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock', async () => {
