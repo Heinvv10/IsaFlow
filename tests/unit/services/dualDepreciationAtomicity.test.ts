@@ -94,7 +94,8 @@ describe('postDualDepreciationToLedger atomicity (PR #200)', () => {
     // without that lock is what let two concurrent runs for different periods
     // both read the same balance and drop one period's charge.
     const texts = mockSql.mock.calls.map((c) => (c[0] as string[]).join('?'));
-    const lockAt = texts.findIndex((t) => /FOR UPDATE/i.test(t));
+    // FOR NO KEY UPDATE since fleet round 3: it serialises the runs without conflicting with a link's KEY SHARE.
+    const lockAt = texts.findIndex((t) => /FROM assets[\s\S]*FOR NO KEY UPDATE/i.test(t));
     const upsertAt = texts.findIndex((t) => /INSERT INTO asset_period_ledger/i.test(t));
     expect(lockAt).toBeGreaterThanOrEqual(0);
     expect(upsertAt).toBeGreaterThan(lockAt);

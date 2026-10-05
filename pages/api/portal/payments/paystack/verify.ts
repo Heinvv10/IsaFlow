@@ -159,6 +159,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // What was actually banked, and whether the invoice took any of it (R-181, PR #618 LOW-2):
   // the receipt can differ from the request, and an invoice outside the ledger takes nothing.
+  // Only a confirmed or reconciled receipt was banked: a draft holding the reference is not (R-189).
   const receipt = pr.purpose === 'customer_invoice'
     ? await sql<{ total: string; applied: string; description: string | null }>`
         SELECT cp.total_amount::text AS total, cp.description,
@@ -166,7 +167,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM customer_payments cp
         LEFT JOIN customer_payment_allocations a ON a.payment_id = cp.id
         WHERE cp.company_id = ${pr.company_id}::UUID AND cp.bank_reference = ${pr.paystack_reference}
-          AND cp.status IS DISTINCT FROM 'cancelled'
+          AND cp.status IN ('confirmed', 'reconciled')
         GROUP BY cp.id
         LIMIT 1
       `

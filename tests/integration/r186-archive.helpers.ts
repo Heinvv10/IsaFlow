@@ -3,7 +3,7 @@
  * written straight into the tables, and a driver that runs a service inside one request
  * transaction (optionally as app_user with the withAuth GUCs, so RLS applies).
  */
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 
@@ -71,12 +71,13 @@ export async function linkJournal(invoiceId: string, journalId: string): Promise
   await pool.query('UPDATE customer_invoices SET gl_journal_entry_id = $2 WHERE id = $1', [invoiceId, journalId]);
 }
 
-/** Runs `fn` in one transaction for `companyId`; commits only when asked. */
+/** Runs `fn` in one transaction for `companyId`; commits only when asked. `setup` runs first, as postgres. */
 export async function drive<T>(companyId: string, fn: () => Promise<T>,
-  opts: { commit?: boolean; appUser?: boolean } = {}): Promise<T> {
+  opts: { commit?: boolean; appUser?: boolean; setup?: (client: PoolClient) => Promise<void> } = {}): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    if (opts.setup) await opts.setup(client);
     if (opts.appUser) {
       await client.query('SET LOCAL ROLE app_user');
       await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user })]);
