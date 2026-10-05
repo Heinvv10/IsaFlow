@@ -18,12 +18,12 @@ FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer
 WHERE sr.company_id <> ci.company_id;
 ```
 
-Expected 0 rows. The fixture returns 0. Prod was not queried from here.
+Expected 0 rows. The fixture returns 0; prod returned 0 (above).
 
 ## PG version
 
 `ON DELETE SET NULL (customer_invoice_id)` (a column list) needs PostgreSQL 15+. The fixture is 16.15.
-Prod is stated to be 15; not checked from here. On 14 or older, 854 fails with a syntax error and the
+Prod is 15.8 (G1). On 14 or older, 854 fails with a syntax error and the
 runner rolls the whole file back (nothing half-applied). A plain `ON DELETE SET NULL` is wrong: it would
 also null `company_id`, which is NOT NULL (mutant M2 below).
 
@@ -53,10 +53,11 @@ Migration `scripts/migrations/sql/854_payment_request_invoice_company_fk.sql`:
   NOT VALID + VALIDATE in the same file buys no lower lock; it only makes the validate conditional.
 
 The single-column FKs are kept. They are validated today, so they still guarantee the invoice exists if a
-composite FK is ever left NOT VALID. On delete both fire; the older one fires first (trigger order) and
-nulls `customer_invoice_id`, so delete behaviour is unchanged: an invoice-purpose request still blocks the
-delete on 23514, and any other purpose loses only its invoice id. That ordering also hid a wrong ON DELETE
-on the composite FK (M2), so one test drops the single-column FK in a rolled-back transaction and proves
+composite FK is ever left NOT VALID. On delete both fire, in an unspecified order (RI triggers fire in
+name order, a text compare of OID-based names). Both null only `customer_invoice_id`, so either order
+leaves the same row and delete behaviour is unchanged: an invoice-purpose request still blocks the delete
+on 23514, and any other purpose loses only its invoice id. When the single-column FK fires first, it also
+hides a wrong ON DELETE on the composite FK (M2), so one test drops the single-column FK in a rolled-back transaction and proves
 the composite FK alone keeps `company_id`.
 
 Applied to the fixture `isaflow_schema_fixture` and `isaflow_test` (schema_migrations row inserted as the
@@ -109,7 +110,51 @@ mutants: baseline-after-mutants.int.log, 17/17.
 - Prod census: 0 rows, PG 15.8 (G1, above).
 - If prod already has a non-constraint index named `customer_invoices_id_company_id_key`, the ADD fails
   and the file rolls back. Not expected.
-- The UNIQUE build holds a SHARE lock on `customer_invoices` (blocks invoice writes) for the build;
-  bounded by the 120s statement_timeout. Prod has 2,368 invoices.
+- ADD CONSTRAINT UNIQUE takes ACCESS EXCLUSIVE on `customer_invoices` (blocks invoice reads and
+  writes), held to COMMIT through the build, both census scans and both VALIDATEs; bounded by the 120s
+  statement_timeout. Prod has 2,368 invoices.
+- Lock order: request tables first, then `customer_invoices` (see Review round 1). The portal checkout
+  takes them in the opposite order, so a deadlock with a checkout in flight stays possible; one side
+  is aborted (40P01) and retried.
 - `customer_invoices.company_id` can no longer be changed while a request references the invoice
   (ON UPDATE NO ACTION). No code changes it.
+
+## Review round 1
+
+Blind review of 5938c3de4: FIX, 7 LOW. All fixed in 1ab99b9c3.
+
+- Lock level. `ADD CONSTRAINT ... UNIQUE` takes ACCESS EXCLUSIVE on `customer_invoices` (measured on the
+  fixture: `AccessExclusiveLock` + `ShareLock`), not SHARE. Invoice reads block too, until COMMIT. The 854
+  header and the residual-risk line now say so.
+- Lock order. 854 now runs `LOCK TABLE paystack_payment_requests, stitch_payment_requests IN SHARE ROW
+  EXCLUSIVE MODE` before the UNIQUE add. The settlement path (`handleChargeSuccess`, portal verify) UPDATEs
+  `paystack_payment_requests` and then works on the invoice, so this matches it. lock-order.r1.log: with a
+  ROW EXCLUSIVE held on the request table, 854 waits on it and holds nothing on `customer_invoices`.
+  Without the LOCK TABLE (mutant R4) it waits while already holding ACCESS EXCLUSIVE on `customer_invoices`:
+  the deadlock shape. The portal checkout (`claimCheckout`) reads the invoice and then writes a request,
+  the opposite order. A deadlock with a checkout in flight is still possible. Postgres aborts one side
+  (40P01): either the runner rolls 854 back whole, or the payer clicks again. Recorded in the 854 header.
+- Trigger order. RI triggers fire in name order (`RI_ConstraintTrigger_a_<oid>`, a text compare), so the
+  order is unspecified. Both FKs null only `customer_invoice_id`, so either order leaves the same row.
+  Reworded in 854, fix.md, core `.claude.md` and the r195 test comment.
+- Stale "not queried / not checked from here" lines replaced by the G1 result.
+- `archiveCustomerInvoiceScope.ts` header: a cross-tenant request is now refused at insert (R-195).
+- r186 preview: new case. In a rolled-back transaction it drops both composite FKs and forges a Paystack
+  and a Stitch request of B on C's invoice. C's preview must still count 1 and skip 0. `drive` takes a
+  `setup` hook that runs first, as postgres.
+- Timeouts: the clean-DB migration test asserts `lock_timeout = 5s`, `statement_timeout = 2min` after
+  each run of 854.
+
+Logs (r1):
+- green.r1.int.log (1ab99b9c3): 18/18.
+- regression.r1.int.log, all 5 r186 suites: 25/25.
+- mutations.r1.log:
+  - R1, Paystack company predicate dropped: 1 of 18 red (preview skip).
+  - R2, Stitch company predicate dropped: 1 of 18 red (preview skip).
+  - R3, SET LOCAL timeouts deleted: 1 of 18 red (timeouts '0').
+  - R4, LOCK TABLE removed: lock-order probe shows AccessExclusive on `customer_invoices` granted while
+    waiting on the request table. This is a probe, not a vitest case.
+- baseline-after-mutants.r1.int.log: 18/18.
+
+The 854 file changed, so its checksum changed. It was re-applied to both fixture DBs with the new
+checksum. I applied it only to the fixture.
