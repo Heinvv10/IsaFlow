@@ -10,9 +10,11 @@
  * that case an error instead of a filtered count; the last case pins it.
  *
  * Each case replays the real file inside a transaction that is ROLLED BACK,
- * so the shared fixture schema is never left changed.
+ * so the shared fixture schema is never left changed. On a database where 855
+ * is already recorded the tables are gone and there is nothing to replay, so
+ * every case skips (visibly) there.
  */
-import { describe, it, expect } from 'vitest';
+import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PoolClient } from 'pg';
@@ -66,6 +68,14 @@ async function anyCompany(c: PoolClient): Promise<string> {
 }
 
 describeIfDb('migration 855: retire data archiving', () => {
+  let applied = false;
+  beforeAll(async () => {
+    const r = await getPoolForTests().query(
+      `SELECT 1 FROM schema_migrations WHERE name = '855_retire_data_archiving.sql'`);
+    applied = r.rowCount === 1;
+  });
+  beforeEach((ctx) => { if (applied) ctx.skip(); });
+
   it('drops all six archive tables when every one is empty', async () => {
     await inRolledBackTx(async (c) => {
       expect(await present(c)).toEqual([...TABLES].sort());
