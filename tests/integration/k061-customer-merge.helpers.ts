@@ -15,8 +15,6 @@ import { request, response } from './mfa-impersonation-postgres.helpers';
 export const MOVED: ReadonlyArray<readonly [string, string, string]> = [
   ['customer_invoices', 'customer_id', ''],
   ['customer_invoices', 'client_id', ''],
-  ['archive_customer_invoices', 'customer_id', ''],
-  ['archive_customer_invoices', 'client_id', ''],
   ['customer_payments', 'client_id', ''],
   ['credit_notes', 'client_id', ''],
   ['customer_quotes', 'client_id', ''],
@@ -67,7 +65,7 @@ export function k061(pool: Pool) {
     await pool.query('DELETE FROM portal_payment_links WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ANY($1))', [ids]);
     await pool.query('DELETE FROM portal_access WHERE client_id IN (SELECT id FROM customers WHERE company_id = ANY($1))', [ids]);
     for (const t of ['customer_write_offs', 'credit_notes', 'customer_payments', 'customer_invoices',
-      'archive_customer_invoices', 'customer_quotes', 'delivery_notes', 'customer_sales_orders', 'projects',
+      'customer_quotes', 'delivery_notes', 'customer_sales_orders', 'projects',
       'customer_contacts', 'customer_delivery_addresses', 'customer_activities', 'recurring_invoices',
       'customer_dunning_overrides', 'recurring_transaction_templates', 'bank_categorisation_rules', 'bank_transactions', 'payment_transactions',
       'time_entries', 'practice_clients', 'accounting_adjustments', 'entity_udf_values', 'customers']) {
@@ -98,8 +96,6 @@ export function k061(pool: Pool) {
        VALUES($1,$2,$3,NULL,'2026-06-01',100,100,'approved',$4) RETURNING id`, [company, `K061-${n}-1`, cust, admin])).rows[0]!.id;
     await q(`INSERT INTO customer_invoices(company_id,invoice_number,customer_id,client_id,invoice_date,subtotal,total_amount,status,created_by)
        VALUES($1,$2,$3,$3,'2026-06-02',200,200,'approved',$4)`, [company, `K061-${n}-2`, cust, admin]);
-    await q(`INSERT INTO archive_customer_invoices(id,company_id,invoice_number,customer_id,client_id,total_amount)
-       VALUES(gen_random_uuid(),$1,$2,$3,$3,50)`, [company, `K061-${n}-A`, cust]);
     await q(`INSERT INTO customer_payments(company_id,client_id,payment_date,total_amount,payment_method,status,created_by,bank_account_id)
        VALUES($1,$2,'2026-06-03',40,'eft','confirmed',$3,$4)`, [company, cust, admin, bank[company]]);
     await q(`INSERT INTO credit_notes(company_id,client_id,type,credit_date,total_amount,status,created_by)

@@ -208,19 +208,7 @@ async function findExistingInvoice(
              created_at, id
     LIMIT 1
   `) as DbRow[];
-  if (!found) {
-    // executeArchive moves an old paid invoice to archive_customer_invoices and
-    // deletes it here, and the staging link goes NULL with it (694). A reset
-    // then re-pends the row: without this check the re-run books the archived,
-    // settled debt again as a live unpaid invoice. The archive keeps no
-    // external reference, so the number is the identity.
-    const [archived] = (await sql`
-      SELECT 1 FROM archive_customer_invoices
-      WHERE company_id = ${companyId}::UUID AND invoice_number = ${invNumber}
-      LIMIT 1
-    `) as DbRow[];
-    return archived ? 'conflict' : null;
-  }
+  if (!found) return null;
   if (found.deleted_at || !IN_AR_STATUSES.has(String(found.status))) return 'conflict';
   if (String(found.customer_id) !== customerId) return 'conflict';
   if (Math.abs(Number(found.total_amount) - totalAmount) > 0.005) return 'conflict';
