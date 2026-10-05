@@ -15968,7 +15968,7 @@
       "historicalDataImpact": "None.",
       "canonicalItem": null,
       "branch": "fix/archive-retire-20261006",
-      "processNotes": "2026-10-05: N4 in the archive redesign spec. Closed by removal: with the tables dropped (only when empty), nothing is archived, so a re-pended Sage staging row can only meet a live document. The merge and both lookups are removed. DEPLOY PRECONDITION (PR #647): the prod census must show archive_customer_invoices and archive_supplier_invoices empty before PR #647 deploys. With archived invoices present, a Sage reset and re-run could book a settled document again, and a merge would leave archived rows on the old customer. Nothing in code checks this before #647; migration 855 (later deploy) refuses on any row."
+      "processNotes": "2026-10-05: N4 in the archive redesign spec. Closed by removal: with the tables dropped (only when empty), nothing is archived, so a re-pended Sage staging row can only meet a live document. The merge and both lookups are removed. DEPLOY PRECONDITION (PR #647): the prod census must show all five archive mirror tables empty and no completed run in archive_runs before PR #647 deploys (rows in the journal or bank mirrors would mean a completed run, and #647 removes their only reader). With archived invoices present, a Sage reset and re-run could book a settled document again, and a merge would leave archived rows on the old customer. Nothing in code checks this before #647; migration 855 (later deploy) refuses on any row."
     }
   ],
   "sourceInventory": [
