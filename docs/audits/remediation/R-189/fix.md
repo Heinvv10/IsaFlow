@@ -57,3 +57,17 @@ or auto-cancel the draft.
 - Census for existing cases (read-only, in the register entry): completed requests with a draft
   receipt and no confirmed one. Not run here.
 - The dedupe read is still unlocked: R-193.
+
+## Review round 1 (blind Opus review of 1e0dd6a79: FIX, 1 M, 2 L), all fixed
+- M: nothing pinned `reconciled` as a settlement (a person applying an unapplied gateway receipt sets
+  it). Two cases added: a later charge.success behind a reconciled receipt posts the fee unflagged;
+  verify reports it banked and applied.
+- L: a draft outranked a cancelled gateway receipt and the flag hid the cancel. `findSettledReceipt`
+  now ranks every match in code and returns the top one plus `cancelledGatewayReceiptId`; the draft
+  flag adds `already_settled_cancelled_receipt` and names that receipt. Case added.
+- L: a NULL status (nullable column) is not a settlement and is flagged under the draft reason;
+  documented in `isSettlement` and `ar/.claude.md`.
+- Evidence: `red.r2.int.log` (the new cancelled-beside-draft case red before the code change; the
+  reconciled cases already held), `green.r2.int.log` 9/9, `mutations.r2.log`: M1-M5 as before plus
+  M6 reconciled dropped from the dedupe, M7 reconciled dropped from verify, M8 the cancelled receipt
+  not named; all red, baselines green. `regression.r2.int.log`.
