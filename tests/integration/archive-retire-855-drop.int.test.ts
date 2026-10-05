@@ -141,10 +141,13 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
       expect(await apply(c)).toBeNull();
       expect(await present(c)).toEqual([]);
       const logged = (await c.query(
-        `SELECT entity_id, action, changes->'metadata'->>'status' AS status,
-                changes->'metadata'->>'error_message' AS err, changes->'fields' AS fields
+        `SELECT entity_id, action,
+                (SELECT f->>'old' FROM jsonb_array_elements(changes->'fields') f WHERE f->>'field' = 'status') AS status,
+                (SELECT f->>'old' FROM jsonb_array_elements(changes->'fields') f WHERE f->>'field' = 'error_message') AS err,
+                jsonb_array_length(changes->'fields') AS n,
+                (SELECT bool_and(f ? 'label' AND f->'new' = 'null'::jsonb) FROM jsonb_array_elements(changes->'fields') f) AS shaped
          FROM audit_log WHERE company_id = $1 AND entity_type = 'archive_run' ORDER BY entity_id`, [company])).rows;
-      expect(logged).toEqual([...ids].sort().map(id => ({ entity_id: id, action: 'delete', status: 'failed', err: 'R855 failed', fields: [] })));
+      expect(logged).toEqual([...ids].sort().map(id => ({ entity_id: id, action: 'delete', status: 'failed', err: 'R855 failed', n: 14, shaped: true })));
     });
   });
 
