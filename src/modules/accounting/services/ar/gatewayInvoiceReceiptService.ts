@@ -117,10 +117,13 @@ export async function recordGatewayInvoiceReceipt(
     return null;
   }
   // A live receipt that is not the settlement: a draft a person recorded with the reference (R-189).
-  // Bank nothing, post no fee, leave the draft alone, and flag it for that person.
+  // Bank nothing, post no fee, leave the draft alone, and flag it for that person; with a cancelled
+  // gateway receipt beside it, say so too: that settlement was undone, maybe as a side effect.
   if (already && !isSettlement(already.status)) {
-    await flagSettlementForReview(companyId, reference, ['draft_receipt_holds_reference'], {
-      draftPaymentId: already.id, draftStatus: already.status, invoiceId, reportedCents: receipt.reported.amountCents,
+    const cancelledPaymentId = already.cancelledGatewayReceiptId;
+    await flagSettlementForReview(companyId, reference,
+      ['draft_receipt_holds_reference', ...(cancelledPaymentId ? ['already_settled_cancelled_receipt'] : [])], {
+      draftPaymentId: already.id, draftStatus: already.status, cancelledPaymentId, invoiceId, reportedCents: receipt.reported.amountCents,
       reportedCurrency: receipt.reported.currency, feeRand: receipt.feeRand, reportedFeeCents: receipt.reported.feeCents,
     });
     return null;
