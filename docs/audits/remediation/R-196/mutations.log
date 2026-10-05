@@ -1,0 +1,27 @@
+HEAD b2f965ff98618631305907b34db9cc9c7cdda041 + working tree; 2026-10-05T06:26:01+02:00
+== BASELINE (fix)
+      Tests  74 passed (74)
+== M1 original R-188 check (waitingCount > 0)
+     × does not warn when an idle client serves the acquire (the production shape: 1 of 10 open, idle) 5ms
+     × does not warn on a FULL pool while an idle client is still free 1ms
+     × does not warn when a burst outnumbers the idle clients but the pool can still grow 0ms
+      Tests  3 failed | 71 passed (74)
+== M2 drop the full-pool condition
+     × does not warn when a burst outnumbers the idle clients but the pool can still grow 3ms
+      Tests  1 failed | 73 passed (74)
+== M3 drop the idle comparison
+     × does not warn on a FULL pool while an idle client is still free 3ms
+      Tests  1 failed | 73 passed (74)
+== M4 never warn
+     × warns when the pool is full and the waiters outnumber the idle clients 2ms
+     × warns with the pool counts when an acquire has to queue 3ms
+     × warns at most once per interval per pool, and again after it 1ms
+     × warns for the FIRST queued acquire on a full pool, with the counts 3ms
+     × withExtensionToken warns naming extensionToken 263ms
+     × the bearer pipeline warns naming bearerPipeline 13ms
+      Tests  6 failed | 68 passed (74)
+== BASELINE after
+      Tests  74 passed (74)
+== poolTelemetryRealPool.test.ts with its FakeClient made queryable, against the original R-188 check (waitingCount > 0)
+     × does not warn when a connection is free
+      Tests  1 failed | 3 passed (4)

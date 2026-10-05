@@ -15805,6 +15805,42 @@
       "title": "A payment request in another company naming this company's invoice blocks this company's whole archive",
       "claim": "paystack_payment_requests.customer_invoice_id and stitch_payment_requests.customer_invoice_id are single-column FKs (ON DELETE SET NULL), and no constraint requires the request's company_id to equal the invoice's. The archive skips only invoices that a request of the SAME company references (R-186; the RLS policy admits every member company, so the predicate decides). A request in company B naming company C's invoice therefore does not shield it: deleting the invoice fires the SET NULL on B's row, and paystack_pr_invoice_has_invoice / stitch_pr_invoice_has_invoice reject it with 23514. C's whole archive run fails. A fix is a composite FK (customer_invoice_id, company_id) or a trigger that refuses cross-company references.",
       "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration."
+    },
+    {
+      "area": "lib",
+      "affectedPaths": [
+        "src/lib/auth/poolTelemetry.ts"
+      ],
+      "sourceLabel": "Prod journalctl after the 2026-10-04 deploy of ddc4dd355 (R-188)",
+      "sourceIds": [
+        "R-188"
+      ],
+      "correctedTrigger": null,
+      "severityRationale": "No wrong result and no outage: the pool never filled (0 'auth pool acquire failed'). But the warning is R-188's documented rollback trigger, so a false one invites rolling AUTH_POOL_MAX back to 20 for nothing, and it buries a real saturation in noise.",
+      "auditedSha": "ddc4dd355",
+      "currentSha": null,
+      "status": "fixed",
+      "dependencies": [],
+      "testNames": [
+        "tests/unit/lib/auth/poolTelemetryIdleQueue.test.ts",
+        "tests/unit/lib/auth/poolTelemetryRealPool.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-196/fix.md",
+        "docs/audits/remediation/R-196/mutations.log"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "None.",
+      "canonicalItem": null,
+      "branch": "fix/r196-pool-telemetry-false-saturation-20261005",
+      "id": "R-196",
+      "severity": "low",
+      "reportedSeverity": "low",
+      "title": "auth pool saturated warns on every acquire an idle client serves",
+      "claim": "connectObserved (R-188) warned whenever pool.waitingCount > 0 right after pool.connect(). pg-pool pushes EVERY acquire onto its pending queue when an idle client exists and serves it on the next tick, so a waiter is not saturation. Prod logged 628 warnings from 2026-10-04 16:48 to 2026-10-05 06:20; 597 had totalCount 1, idleCount 1, max 10, and none had totalCount = max.",
+      "processNotes": "2026-10-05: found by reading prod logs after the R-183..R-188 deploy. Fixed: warn only when totalCount >= max and waitingCount > idleCount. The R-188 real-pool test 'does not warn when a connection is free' passed vacuously: its fake client lacked _queryable, so pg-pool discarded each released client and no idle client ever existed. Mutations: 4/4 red (mutations.log)."
     }
   ],
   "sourceInventory": [
