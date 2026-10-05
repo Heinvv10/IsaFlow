@@ -15579,25 +15579,41 @@
       "correctedTrigger": null,
       "severityRationale": "Pre-existing (the dedupe read has never locked the receipt). Needs a replay of charge.success with fees to read the live gateway receipt in the same instant a person's cancelCustomerPayment of that receipt commits. The effect is a fee leg (DR admin_expense / CR Bank) posted against a now-cancelled receipt with no review reason; cancel keeps the fee by design, so the books are not doubled, but nothing tells a person the fee arrived after the cancel.",
       "auditedSha": "0911f12ac441874a5e7987247ebe3237109aafd9",
-      "currentSha": "0911f12ac441874a5e7987247ebe3237109aafd9",
-      "status": "candidate",
+      "currentSha": "10ec04eca36ed31e458df2d35f13a1bbc659049a",
+      "status": "fixed",
       "dependencies": [
         "R-187"
       ],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r185-gateway-fee-unique.int.test.ts",
+        "tests/integration/r193-replay-waits-for-cancel.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-193/fix.md",
+        "docs/audits/remediation/R-193/green.int.log",
+        "docs/audits/remediation/R-193/green.r1.int.log",
+        "docs/audits/remediation/R-193/green.r2.int.log",
+        "docs/audits/remediation/R-193/mutations.log",
+        "docs/audits/remediation/R-193/mutations.r1.log",
+        "docs/audits/remediation/R-193/mutations.r2.log",
+        "docs/audits/remediation/R-193/mutations.r3.log",
+        "docs/audits/remediation/R-193/red.int.log",
+        "docs/audits/remediation/R-193/regression.d8.int.log",
+        "docs/audits/remediation/R-193/regression.int.log",
+        "docs/audits/remediation/R-193/regression.r1.int.log"
+      ],
+      "fixCommit": "470df5599..10ec04eca",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Unknown. Census (read-only; candidates for a person, the race signature is a fee posted at or after the cancel): SELECT fj.company_id, fj.reference, fj.id AS fee_journal_id, fj.created_at AS fee_posted_at, rj.created_at AS receipt_posted_at, cp.id AS receipt_id, cp.updated_at AS receipt_last_updated_at FROM gl_journal_entries fj JOIN customer_payments cp ON cp.company_id = fj.company_id AND cp.bank_reference = fj.reference AND cp.status = 'cancelled' JOIN gl_journal_entries rj ON rj.id = cp.gl_journal_entry_id AND rj.company_id = cp.company_id AND rj.posting_agent = 'system:paystack-receipt:v1' WHERE fj.posting_agent = 'system:paystack-receipt:v1' AND fj.reference IS NOT NULL AND fj.status IS DISTINCT FROM 'reversed' AND fj.created_at > rj.created_at AND NOT EXISTS (SELECT 1 FROM customer_payments live WHERE live.company_id = cp.company_id AND live.bank_reference = cp.bank_reference AND live.status IS DISTINCT FROM 'cancelled') ORDER BY fj.created_at;",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r193-replay-locks-receipt-20261005",
       "id": "R-193",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A replay that reads a live gateway receipt while a cancel of it commits posts the fee against the cancelled receipt, unflagged",
       "claim": "gatewaySettledReceipt.findSettledReceipt is a plain read (no row lock). A charge.success replay (another body, or verify) reads the LIVE gateway receipt; a concurrent cancelCustomerPayment of that receipt then commits; the replay continues down the live second-report path and postGatewayFee posts a missing fee leg against the receipt's bank account, with no review reason (already_settled_cancelled_receipt is only written when the read already sees the cancel). Candidate fix: FOR UPDATE (OF cp) on the matched receipt in findSettledReceipt, so the replay waits for the cancel and then re-reads it as cancelled; it needs lock-order analysis against R-181's documented order (settlement: request -> link -> payment -> invoice; dedupe: link -> fee journal -> request row last) and against cancelCustomerPayment's (bank line -> payment -> invoices -> journal), and a bounded wait. Not fixed in R-187 because it changes the lock order.",
-      "processNotes": "2026-10-03: recorded from the PR #625 blind /review of R-187 (LOW). Pre-existing; R-187 kept the dedupe read lock-free."
+      "processNotes": "2026-10-03: recorded from the PR #625 blind /review of R-187 (LOW). Pre-existing; R-187 kept the dedupe read lock-free. 2026-10-05: fixed, stacked on R-189 (merge R-189 first). findSettledReceipt takes FOR UPDATE OF cp on every receipt for the reference in id order under the 5 s row-lock budget (RowLockTimeoutError: webhook 500 and redelivery, verify pending); spendPaymentLinkOfRequest moved after the read (receipt -> link, as customerMergeService). Residual: a multi-line reversal writer that creates journal N then locks payment N+1 can 40P01 against a replay (the class cancel/confirm already have). R-185's route races re-pinned: two dedupe deliveries now serialise at the receipt. Red 3/3, green 4/4 (+r189 9/9), mutants M1-M4 red. Blind Opus review: SHIP (2 L) then SHIP, both fixed. The census in historicalDataImpact was not run. Not merged or deployed (Hein's gate)."
     },
     {
       "area": "lib",

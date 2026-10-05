@@ -99,14 +99,15 @@ export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
 ): Promise<{ paymentId: string; journalEntryId?: string } | null> {
   const { companyId, invoiceId, reference } = receipt;
-  // R-167: a settled charge spends the portal link it came from, whichever of the webhook and
-  // the verify route gets here first (both run this in their settlement transaction).
-  await spendPaymentLinkOfRequest(companyId, reference);
   const charge = settledCharge(receipt.requestedCents, receipt.reported);
   const amountRand = charge.cents / 100;
 
-  // A live receipt first, else a cancelled one the gateway wrote (gatewaySettledReceipt, R-187).
+  // A live receipt first, else a cancelled one the gateway wrote (gatewaySettledReceipt, R-187),
+  // LOCKED (R-193): a replay waits for a cancel of it in flight, and re-reads it cancelled.
   const already = await findSettledReceipt(companyId, reference);
+  // R-167: a settled charge spends its portal link, whichever of webhook and verify gets here first.
+  // After the receipt lock: receipt -> link, the order customerMergeService takes them in.
+  await spendPaymentLinkOfRequest(companyId, reference);
   // Only a cancelled gateway receipt: this settlement was undone (by a person, or as a side effect),
   // so a later report (another body, or verify) banks nothing, posts no fee, and is flagged.
   if (already?.status === 'cancelled') {
