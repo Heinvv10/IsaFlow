@@ -1,0 +1,6 @@
+# R-189 census, read-only on PROD isaflow (default_transaction_read_only=on, psql -e), 2026-10-05 ~13:35 SAST, after the b79dc0bc9 deploy
+SELECT pr.company_id, pr.paystack_reference, pr.completed_at, cp.id AS draft_receipt_id, cp.total_amount, cp.bank_account_id, EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.company_id = pr.company_id AND je.reference = pr.paystack_reference AND je.posting_agent = 'system:paystack-receipt:v1' AND je.status IS DISTINCT FROM 'reversed') AS fee_leg_posted FROM paystack_payment_requests pr JOIN customer_payments cp ON cp.company_id = pr.company_id AND cp.bank_reference = pr.paystack_reference AND cp.status = 'draft' WHERE pr.purpose = 'customer_invoice' AND pr.status = 'completed' AND NOT EXISTS (SELECT 1 FROM customer_payments x WHERE x.company_id = pr.company_id AND x.bank_reference = pr.paystack_reference AND x.status IN ('confirmed', 'reconciled'));
+ company_id | paystack_reference | completed_at | draft_receipt_id | total_amount | bank_account_id | fee_leg_posted 
+------------+--------------------+--------------+------------------+--------------+-----------------+----------------
+(0 rows)
+
