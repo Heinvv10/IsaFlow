@@ -15,8 +15,8 @@
  * `25P02 current transaction is aborted` — the real cause gone, replaced by the
  * least informative error Postgres has.
  *
- * That is not hypothetical here. archiveExecutionSavepoint.test.ts exists
- * because this codebase already hit it once: "the UPDATE itself threw ('current
+ * That is not hypothetical here. archiveExecutionSavepoint.test.ts (removed
+ * with the archive, 2026-10-05) existed because this codebase already hit it once: "the UPDATE itself threw ('current
  * transaction is aborted'), masking the original error".
  *
  * So a failed rollback now POISONS the request context, and the next query
