@@ -7,10 +7,11 @@
  * THAT backend — scoped by pid, because the fixture database is shared and an unscoped probe can match
  * a peer's session. No sleep decides the outcome.
  */
-import type { PoolClient } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import type { JournalEntryCreateInput } from '@/modules/accounting/types/gl.types';
+import { randomUUID } from 'crypto';
 import { runOn, type Fixture } from './l1FifoFixture';
 
 type Row = Record<string, unknown>;
@@ -23,11 +24,48 @@ export async function expenseAccountOf(fx: Fixture): Promise<string> {
     SELECT id FROM gl_accounts WHERE company_id = ${fx.companyId}::UUID AND account_code = '6000'`) as Row[])[0]!.id);
 }
 
-/** An open 2027 period beside the fixture's 2026 one, for the different-year case. */
-export async function open2027(fx: Fixture): Promise<void> {
+/** An open calendar-year period beside the fixture's 2026 one. */
+export async function openYear(fx: Fixture, year: number): Promise<void> {
   await sql`
     INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-    VALUES (${fx.companyId}::UUID, ${`FY27 ${fx.tag}`}, 1, 2027, '2027-01-01', '2027-12-31', 'open')`;
+    VALUES (${fx.companyId}::UUID, ${`FY${year} ${fx.tag}`}, 1, ${year}, ${`${year}-01-01`}::DATE,
+            ${`${year}-12-31`}::DATE, 'open')`;
+}
+
+/** Every row `seedCompanyWithId` writes, so a run killed half-way does not block the next one's INSERT. */
+async function purgeCompany(id: string): Promise<void> {
+  await sql`DELETE FROM gl_journal_lines WHERE company_id = ${id}::UUID`;
+  await sql`DELETE FROM gl_journal_entries WHERE company_id = ${id}::UUID`;
+  await sql`DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = ${id}::UUID)`;
+  await sql`DELETE FROM gl_accounts WHERE company_id = ${id}::UUID`;
+  await sql`DELETE FROM fiscal_periods WHERE company_id = ${id}::UUID`;
+  await sql`DELETE FROM companies WHERE id = ${id}::UUID`;
+}
+
+/**
+ * A company with a GIVEN id (the reviewers' hash-colliding pair), an expense and a bank account, and an open
+ * 2026. The id is fixed, so leftovers of an earlier run are purged first. Tear down with `dropFixture`.
+ */
+export async function seedCompanyWithId(id: string, prefix: string, databaseUrl: string): Promise<Fixture> {
+  await purgeCompany(id);
+  const tag = `${prefix}-${Date.now()}`;
+  await sql`INSERT INTO companies (id, name, registration_number, created_at)
+            VALUES (${id}::UUID, ${`${prefix} ${tag}`}, ${tag}, NOW())`;
+  const acct = async (code: string, type: string, subtype: string, normal: string): Promise<string> => String(((await sql`
+    INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance,
+                             is_active, is_system_account)
+    VALUES (${id}::UUID, ${code}, ${`${code} ${tag}`}, ${type}, ${subtype}, ${normal}, true, true)
+    RETURNING id`) as Row[])[0]!.id);
+  await acct('6000', 'expense', 'default_expense', 'debit');
+  const bankAccountId = await acct('1000', 'asset', 'bank', 'debit');
+  const fx: Fixture = {
+    pool: new Pool({ connectionString: databaseUrl, max: 3 }), companyId: id, userId: randomUUID(),
+    supplierId: '', customerId: '', bankAccountId, tag,
+  };
+  await sql`
+    INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+    VALUES (${id}::UUID, ${`FY26 ${tag}`}, 1, 2026, '2026-01-01', '2026-12-31', 'open')`;
+  return fx;
 }
 
 export function journalInput(expense: string, bank: string, entryDate: string, amount = 10): JournalEntryCreateInput {
@@ -47,10 +85,17 @@ export async function backendPid(client: PoolClient): Promise<number> {
 /** A journal created and left UNCOMMITTED on its own connection. */
 export async function holdJournal(fx: Fixture, input: JournalEntryCreateInput): Promise<Held> {
   const client = await fx.pool.connect();
-  await client.query('BEGIN');
-  const pid = await backendPid(client);
-  const je = await runOn(fx, client, () => createJournalEntry(fx.companyId, input, fx.userId));
-  return { client, pid, entryNumber: je.entryNumber, done: false };
+  try {
+    await client.query('BEGIN');
+    const pid = await backendPid(client);
+    const je = await runOn(fx, client, () => createJournalEntry(fx.companyId, input, fx.userId));
+    return { client, pid, entryNumber: je.entryNumber, done: false };
+  } catch (err) {
+    // Never hand back an open transaction: it would hold its locks into the next test and block teardown.
+    await client.query('ROLLBACK').catch(() => undefined);
+    client.release();
+    throw err;
+  }
 }
 
 /** Ends a held transaction and returns its client to the pool; a second call is a no-op. */
