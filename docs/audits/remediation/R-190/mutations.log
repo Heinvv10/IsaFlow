@@ -1,0 +1,87 @@
+=== BASELINE (before mutants)
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=2 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=24.83 2026-10-05T10:10:56+02:00
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+rc=0
+=== M1 (pages/api/webhooks/paystack.ts)
+-    if (locked[0]?.processed) return true;
++    if (locked[0]) return true;
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.28 2026-10-05T10:10:58+02:00
+     × answers 500 and leaves the event row unprocessed with its error recorded 46ms
+     × processes a redelivery of a failed event rather than acking it as a duplicate 32ms
+     × processes the redelivery once the cause of the failure is cleared 26ms
+     × rolls the payment request back to pending when processing fails 25ms
+     × rolls back the mandate activation too, not just the payment request 25ms
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+rc=1
+reverted: git diff empty
+=== M2 (pages/api/webhooks/paystack.ts)
++  if (!eventLogId) return res.status(200).json({ duplicate: true });
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.28 2026-10-05T10:11:01+02:00
+     × processes a redelivery of a failed event rather than acking it as a duplicate 49ms
+     × processes the redelivery once the cause of the failure is cleared 36ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+rc=1
+reverted: git diff empty
+=== M3 (src/lib/publicRouteTx.ts)
+-    unusable = await rollbackFailed(client, `withPublicRouteTransaction(${label})`);
++    await client.query('COMMIT'); void rollbackFailed;
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.58 2026-10-05T10:11:03+02:00
+     × answers 500 and leaves the event row unprocessed with its error recorded 78ms
+     × processes a redelivery of a failed event rather than acking it as a duplicate 46ms
+     × processes the redelivery once the cause of the failure is cleared 44ms
+     × rolls the payment request back to pending when processing fails 38ms
+     × rolls back the mandate activation too, not just the payment request 34ms
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+rc=1
+reverted: git diff empty
+=== M4 (pages/api/webhooks/paystack.ts)
+-    await sql`
+-      UPDATE paystack_webhook_events
+-      SET processing_error = ${msg}
+-      WHERE id = ${eventLogId}
+-    `;
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.58 2026-10-05T10:11:06+02:00
+     × answers 500 and leaves the event row unprocessed with its error recorded 35ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+rc=1
+reverted: git diff empty
+=== M5 (pages/api/webhooks/paystack.ts)
+-    return res.status(500).json({ error: 'Processing failed' });
++    return res.status(200).json({ ok: true });
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.58 2026-10-05T10:11:07+02:00
+     × answers 500 and leaves the event row unprocessed with its error recorded 38ms
+     × processes a redelivery of a failed event rather than acking it as a duplicate 24ms
+     × processes the redelivery once the cause of the failure is cleared 22ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 3 passed (6)
+rc=1
+reverted: git diff empty
+=== M6 (pages/api/webhooks/paystack.ts)
+-    if (locked[0]?.processed) return true;
++    if (locked[0]?.processed === 'never' as unknown) return true;
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.77 2026-10-05T10:11:09+02:00
+     × still acks a redelivery of an event that was processed successfully 53ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+rc=1
+reverted: git diff empty
+=== M7 (pages/api/webhooks/paystack.ts)
++  await processEvent(eventType, event);
+-    await processEvent(eventType, event);
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=3 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=26.77 2026-10-05T10:11:11+02:00
+     × rolls the payment request back to pending when processing fails 28ms
+     × rolls back the mandate activation too, not just the payment request 29ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 passed (6)
+rc=1
+reverted: git diff empty
+=== BASELINE (after mutants)
+HEAD 9063b036263546f4b0c81ba4883d0dfff89f01f5 dirty=2 fixture=isaflow-fixture-r19x-r190 url=127.0.0.1:32882 load=25.67 2026-10-05T10:11:13+02:00
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+rc=0
