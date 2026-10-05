@@ -1,0 +1,13 @@
+HEAD 73418e2848dd39e0d8abff30e2304f8c8b4d02d0 2026-10-05T11:11:57+02:00
+=== baseline
+      Tests  22 passed (22)
+=== MUTANT the draft's own id named as the cancelled one ( src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 2 +-)
+     × R-189: a live DRAFT receipt for the reference banks nothing, posts no fee, and flags the request 4ms
+     × R-189 review: a draft beside a cancelled GATEWAY receipt names both, each by its own id 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 20 passed (22)
+=== baseline after (diff empty: yes)
+      Tests  410 passed (410)
+=== type-check
+$ tsc --noEmit
+type-check rc=0

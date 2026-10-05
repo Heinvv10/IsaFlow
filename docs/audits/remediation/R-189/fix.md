@@ -71,3 +71,11 @@ or auto-cancel the draft.
   reconciled cases already held), `green.r2.int.log` 9/9, `mutations.r2.log`: M1-M5 as before plus
   M6 reconciled dropped from the dedupe, M7 reconciled dropped from verify, M8 the cancelled receipt
   not named; all red, baselines green. `regression.r2.int.log`.
+
+## Review round 2 (re-review of e5eba88ef: SHIP, 2 L), both fixed
+- L: the integration case named "the cancelled receipt named" checked only the reason. A unit case now
+  returns a cancelled gateway row and a draft row and asserts the flag detail carries
+  `draftPaymentId` and `cancelledPaymentId`, each its own id; the mutant naming `top.id` is red.
+- L: no unit or type-check run was saved for round 1. `unit.r2.log`: the wiring suite (22/22), the
+  mutant (2 red), the whole `tests/unit/services/ar/` suite after (410/410) and `bun run type-check`
+  (rc 0), at 73418e284. The full CI gate runs on the pushed head.
