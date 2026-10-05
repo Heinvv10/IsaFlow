@@ -34,6 +34,11 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
     it('marks Business (and only Business) as the popular hero tier', () => {
       expect(PRICING_TIERS.filter((t) => t.popular).map((t) => t.name)).toEqual(['Business']);
     });
+
+    it('advertises no data archiving (retired 2026-10-05, Hein; spec PR #641)', () => {
+      const claims = PRICING_TIERS.flatMap((t) => t.features).filter((f) => /archiv/i.test(f));
+      expect(claims).toEqual([]);
+    });
   });
 
   describe('free trial', () => {
