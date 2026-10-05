@@ -1,0 +1,48 @@
+# Archive retirement production deploys, 2026-10-05. Curated excerpt (key lines only) from the deploy.sh output kept by session isaflow-83.
+# Client names and per-company volumes from the integrity step are deliberately omitted.
+# Approvals (Hein, in that session): #647 deploy = 'Deploy now' (business-hours override), started 15:55 SAST; #648 deploy = 'go on green', ran 17:16 SAST (after hours).
+# #650 (landing copy) shipped in the #648 deploy: Hein approved its content ('Remove the line', AskUserQuestion) and its merge ('go') in the building session, and the deploy under 'go on green'.
+
+## #647, deploy of e7ef010d8
+=== Deploying IsaFlow ===
+Build integrity OK: 1163 pages-manifest entries
+  toApply:           (none)
+  conflicts:         (none)
+Applied 0 migrations
+schema-drift audit: OK (307 tables checked)
+Snapshotting current release (79ecc21be) to /home/velo/isaflow-rollback...
+OK: golden paths green
+=== SUMMARY: 16/16 checks passed ===
+OK: integrity green (baseline-waived failures reported above, if any)
+Post-deploy verification PASSED
+=== Deploy complete ===
+
+## #648, deploy of 32dbdfa66 (ships #648 migration 855, plus #641 and #650)
+=== Deploying IsaFlow ===
+Build integrity OK: 1163 pages-manifest entries
+  toApply:           855
+  conflicts:         (none)
+applying 855_retire_data_archiving.sql ...
+  ok (61ms)
+Applied 1 migrations
+schema-drift audit: OK (301 tables checked)
+Snapshotting current release (e7ef010d8) to /home/velo/isaflow-rollback...
+OK: golden paths green
+=== SUMMARY: 16/16 checks passed ===
+OK: integrity green (baseline-waived failures reported above, if any)
+Post-deploy verification PASSED
+=== Deploy complete ===
+
+## #648 chain summary (pre and post checks, read-only)
+#648 head=c2adcaaad9da2408d129faf520bb42d2b5008e47 mergeable=MERGEABLE non-success=0 checks=2
+MERGED 32dbdfa661f417f3c07d95f23bef27e2acc9e4e6
+pre-deploy archive rows total: 0
+deploying 32dbdfa661f417f3c07d95f23bef27e2acc9e4e6 over prod e7ef010d8; scope:
+  32dbdfa66 Merge pull request #648 from Heinvv10/fix/archive-drop-tables-20261006
+  4a684567c Merge pull request #641 from Heinvv10/docs/archive-redesign-spec-20261005
+  0dd229fae Merge pull request #650 from Heinvv10/fix/remove-archiving-copy-20261006
+deploy rc=0
+prod after: 32dbdfa66
+archive tables left: 0
+tracked: 855_retire_data_archiving.sql 2026-10-05 15:16:37.030928+00
+health 200
