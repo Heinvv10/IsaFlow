@@ -82,6 +82,11 @@ qa-reports/
 /evidence/
 
 # Playwright storage states / saved sessions (live session tokens), whatever an audit names them
-scripts/**/*state*.json
-scripts/**/*session*.json
+scripts/**/*[Ss]torage[Ss]tate*.json
+scripts/**/*[Ss]torage-[Ss]tate*.json
+scripts/**/[Ss]tate.json
+scripts/**/STATE.json
+scripts/**/*-[Ss]tate.json
+scripts/**/*[Ss]ession*.json
+scripts/**/auth.json
 **/.auth/

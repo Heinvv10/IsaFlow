@@ -208,9 +208,12 @@ async function main() {
   console.log(`Tenant: ${COMPANY_ID}`);
 
   const storageState = process.env.AUDIT_STORAGE_STATE;
-  // A storage state holds live session tokens: refuse one inside the repo that git would let someone commit.
-  const stateInRepo = storageState && path.resolve(storageState).startsWith(ROOT + path.sep);
-  if (stateInRepo && spawnSync('git', ['check-ignore', '-q', path.resolve(storageState)], { cwd: ROOT }).status !== 0) {
+  // A storage state holds live session tokens: refuse one that git, in the repo holding it, would let someone
+  // commit. check-ignore: 0 ignored, 1 not ignored, 128 not inside any repo (fine); anything else refuses.
+  const stateStatus = storageState
+    ? spawnSync('git', ['-C', path.dirname(path.resolve(storageState)), 'check-ignore', '-q', path.resolve(storageState)]).status
+    : 0;
+  if (stateStatus !== 0 && stateStatus !== 128) {
     console.error(`AUDIT_STORAGE_STATE ${storageState} is not git-ignored; keep it under tests/e2e/.auth/`);
     process.exit(1);
   }
