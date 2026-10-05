@@ -10945,7 +10945,8 @@
         "K-071"
       ],
       "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
+        "tests/integration/archive-retire-855-drop.int.test.ts",
+        "tests/unit/ci/schemaDriftParse855.test.ts"
       ],
       "evidencePaths": [
         "docs/audits/remediation/K-071/fix.md",
@@ -15864,7 +15865,8 @@
         "R-053"
       ],
       "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
+        "tests/integration/archive-retire-855-drop.int.test.ts",
+        "tests/unit/ci/schemaDriftParse855.test.ts"
       ],
       "evidencePaths": [],
       "fixCommit": null,
@@ -15931,7 +15933,8 @@
         "R-053"
       ],
       "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
+        "tests/integration/archive-retire-855-drop.int.test.ts",
+        "tests/unit/ci/schemaDriftParse855.test.ts"
       ],
       "evidencePaths": [],
       "fixCommit": null,

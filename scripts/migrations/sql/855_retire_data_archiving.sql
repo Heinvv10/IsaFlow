@@ -34,6 +34,7 @@
 
 DO $$
 DECLARE
+  -- Keep in step with the six literal DROPs at the end of this block.
   tables text[] := ARRAY[
     'archive_gl_journal_entries', 'archive_gl_journal_lines', 'archive_bank_transactions',
     'archive_customer_invoices', 'archive_supplier_invoices', 'archive_runs'
@@ -50,7 +51,8 @@ BEGIN
   SELECT string_agg(p.oid::regprocedure::text, ', ') INTO fn
   FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
   WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
-    AND p.prosrc ~* '\marchive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)\M';
+    -- E'' so the word boundaries survive standard_conforming_strings = off.
+    AND p.prosrc ~* E'\\marchive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)\\M';
   IF fn IS NOT NULL THEN
     RAISE EXCEPTION '855: function(s) % reference an archive table. Not dropping any archive table.', fn;
   END IF;

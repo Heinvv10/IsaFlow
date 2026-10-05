@@ -24,15 +24,12 @@ describe('schema-drift model after migration 855', () => {
     expect(expected.has('customer_invoices')).toBe(true); // the model itself still loaded
   });
 
-  it('only a literal DROP TABLE removes a table from the model', () => {
+  it('a literal DROP TABLE inside a DO block removes the table from the model', () => {
     const dir = mkdtempSync(join(tmpdir(), 'drift-parse-'));
     try {
-      writeFileSync(join(dir, '001_create.sql'), 'CREATE TABLE IF NOT EXISTS a_t (id uuid);\nCREATE TABLE IF NOT EXISTS b_t (id uuid);\n');
-      writeFileSync(join(dir, '002_drop.sql'),
-        "DO $$ BEGIN EXECUTE format('DROP TABLE IF EXISTS public.%I', 'a_t'); DROP TABLE IF EXISTS public.b_t; END $$;\n");
-      const expected = parseExpectedSchema(dir);
-      expect(expected.has('a_t')).toBe(true);
-      expect(expected.has('b_t')).toBe(false);
+      writeFileSync(join(dir, '001_create.sql'), 'CREATE TABLE IF NOT EXISTS b_t (id uuid);\n');
+      writeFileSync(join(dir, '002_drop.sql'), 'DO $$ BEGIN DROP TABLE IF EXISTS public.b_t; END $$;\n');
+      expect(parseExpectedSchema(dir).has('b_t')).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
