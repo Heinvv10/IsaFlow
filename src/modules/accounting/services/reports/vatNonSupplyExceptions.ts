@@ -58,10 +58,14 @@
  *     again without the VAT code. A reversed PAIR whose two halves both fall
  *     inside the period is excluded (2026-10-05): together they move no VAT
  *     in that period, so listing them blocked the filing on R0,00 of net tax —
- *     Velocity Fibre Jan–Aug 2026 carried 34 such rows after every original
- *     had been re-coded. A pair that straddles the period boundary is still
- *     listed on the side inside the window, because that period's return does
- *     carry the tax.
+ *     Velocity Fibre carried 34 such rows across Jan–Aug 2026 after every
+ *     original had been re-coded. That count was taken over the whole
+ *     Jan–Aug window, not per bi-monthly filing period; a pair that straddles
+ *     a filing-period boundary is still listed on the side inside the window,
+ *     because that period's return does carry the tax. Only an ISOLATED pair
+ *     is excluded — exactly two journals, neither reversed nor reversing
+ *     anything else in the window. In a chain O <- R <- R2, R2 puts O's claim
+ *     back, so every link of a chain of three or more stays listed.
  *   - It newly blocks NOTHING in production, and that was measured, not
  *     assumed. Across all 13 tenants there are 7 (company, bi-monthly period)
  *     pairs where this rule fires, and every one of them already carries a
@@ -249,7 +253,11 @@ export async function findVatNonSupplyLines(
       AND ga.account_name ~* ${NON_SUPPLY_PATTERN}
       -- A reversed pair inside the window nets to zero VAT: drop both halves.
       -- reversal_of_id links the contra to its original; reversing does not
-      -- change the original's status, so both are 'posted'.
+      -- change the original's status, so both are 'posted'. ONLY an isolated
+      -- pair: no other posted in-window journal may reverse either half or be
+      -- reversed by it. A chain O <- R <- R2 carries O's claim again through
+      -- R2, so every link of a longer chain stays listed (over-listing a
+      -- chain that nets to zero is the safe direction for a filing gate).
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries pr
         WHERE pr.company_id = je.company_id
@@ -257,6 +265,16 @@ export async function findVatNonSupplyLines(
           AND pr.entry_date >= ${periodStart}::DATE
           AND pr.entry_date <= ${periodEnd}::DATE
           AND (pr.reversal_of_id = je.id OR pr.id = je.reversal_of_id)
+          AND NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries x
+            WHERE x.company_id = je.company_id
+              AND x.status = 'posted'
+              AND x.entry_date >= ${periodStart}::DATE
+              AND x.entry_date <= ${periodEnd}::DATE
+              AND x.id <> je.id AND x.id <> pr.id
+              AND (x.reversal_of_id IN (je.id, pr.id)
+                   OR x.id IN (je.reversal_of_id, pr.reversal_of_id))
+          )
       )
     ORDER BY je.entry_date, je.entry_number
     LIMIT ${LIST_CAP}
