@@ -1,0 +1,12 @@
+# R-195 post-deploy check, read-only on PROD isaflow, 2026-10-05 ~13:30 SAST, RELEASE_SHA b79dc0bc9
+# pre-deploy census (G1 re-run just before the deploy):
+SHOW default_transaction_read_only
+on
+SELECT 'paystack' AS gateway, pr.id, pr.company_id, ci.company_id FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id
+SELECT count(*) AS cross_company_rows FROM (SELECT 1 FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 1 FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id) x
+0
+# constraints after the deploy (conrelid | conname | convalidated | definition):
+customer_invoices|customer_invoices_id_company_id_key|t|UNIQUE (id, company_id)
+paystack_payment_requests|paystack_payment_requests_invoice_company_fkey|t|FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)
+stitch_payment_requests|stitch_payment_requests_invoice_company_fkey|t|FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)
+854|854_payment_request_invoice_company_fk.sql|8936912e6d531e47481e6374d6aa829e0073362bfa17342199c9812c09308e4b|2026-10-05 11:18:19.601821+00
