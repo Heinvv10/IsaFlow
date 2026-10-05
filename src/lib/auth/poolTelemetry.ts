@@ -20,18 +20,27 @@ function counts(pool: pg.Pool, name: string) {
   };
 }
 
+/** A waiter that no idle client and no new connection can serve. */
+function isSaturated(c: ReturnType<typeof counts>): boolean {
+  return c.max !== undefined && c.totalCount >= c.max && c.waitingCount > c.idleCount;
+}
+
 /** `pool.connect()` that reports saturation: a warning (at most once per 10 s
- *  per pool) when the acquire had to queue, an error naming the pool when it
- *  fails (typically the connection timeout). pg-pool enqueues a waiter
- *  synchronously inside connect(), so the check runs AFTER the call: before it,
- *  the first waiter on a full pool would see an empty queue. The counts logged
- *  with a failure are those taken at acquire time, not after the waiter left. */
+ *  per pool) when the acquire has to wait for a release, an error naming the
+ *  pool when it fails (typically the connection timeout). pg-pool enqueues a
+ *  waiter synchronously inside connect(), so the check runs AFTER the call:
+ *  before it, the first waiter on a full pool would see an empty queue. It
+ *  queues EVERY acquire for one tick, even one an idle client will serve
+ *  (R-196: 628 warnings a day with 1 of 10 open), so a waiter alone is not
+ *  saturation: the pool must be full and the waiters must outnumber the idle
+ *  clients. The counts logged with a failure are those taken at acquire time,
+ *  not after the waiter left. */
 export async function connectObserved(pool: pg.Pool, name: string): Promise<pg.PoolClient> {
   let snapshot: ReturnType<typeof counts> | undefined;
   try {
     const pending = pool.connect();
     snapshot = counts(pool, name);
-    if (pool.waitingCount > 0) {
+    if (isSaturated(snapshot)) {
       const now = Date.now();
       const last = lastWarned.get(name);
       if (last === undefined || now - last >= POOL_WARN_INTERVAL_MS) {
