@@ -1,7 +1,7 @@
 # Archive redesign — spec and decision list
 
 **Status:** decided 2026-10-05 (Hein). **D0 = A, retire physical archiving.** D9: R-195 fixed on its own (#642, live). Implemented by two PRs:
-- **#647, code removal:** `executeArchive` and the five archive services, the `data-archiving`, `archive-runs` and `archived-data` routes, the page and its two nav entries (settings, tools), the Sage importers' archive lookups and the customer merge's archive rewrite. It may deploy only after the §9 census shows all five mirror tables empty and no completed run. Nothing in code enforces this. (Census of 2026-10-05: every archive table empty, `archive_runs` 0 rows.)
+- **#647, code removal:** `executeArchive` and the five archive services, the `data-archiving`, `archive-runs` and `archived-data` routes, the page and its two nav entries (settings, tools), the Sage importers' archive lookups and the customer merge's archive rewrite. It may deploy only after the §9 census shows all five mirror tables empty and no completed run. Nothing in code enforces this. (Census of 2026-10-05 15:39 SAST, read-only on prod: every archive table empty, `archive_runs` 0 rows, all six owned by `migration_admin`, no function names them. Output: `docs/audits/remediation/R-053/census.prod.log`.)
 - **#648, migration 855, in a LATER deploy than #647:** `deploy.sh` rolls back code only, and the pre-#647 code writes these tables. 855 drops all six tables, `archive_runs` included. It copies `failed` runs (attempts that moved nothing) into `audit_log` first. Any mirror row, or any completed, running, pending or NULL-status run, still makes it refuse, so D0a still applies per run.
 
 Options B and C, D1–D8, §4–§8 and §10 stay below as the record of what was weighed; none of them is built. Findings N1–N4 are registered as R-197–R-200.
@@ -41,7 +41,7 @@ Each line is one decision. The recommendation is the default if Hein answers onl
 | D4 | *(only if D0 = keep)* Child rows (items, views, disputes, dunning) | Archive each document as one JSONB snapshot of its whole tree in a single `archive_records` table. Do not add four more mirror tables, and do not refuse invoices that have children (every invoice has items). | R-194, and the drift in §1.3 |
 | D5 | *(only if D0 = keep)* Archive table integrity | `archive_records`: `company_id NOT NULL` FK to companies, `run_id NOT NULL` FK to archive_runs, forced RLS, `SELECT` only for app_user, an immutability trigger, and no FKs to live tables other than `companies`. | R-053 |
 | D6 | *(only if D0 = keep)* Reversibility | Restore the latest unrestored run only, through a service that refuses on any conflict. Every run and restore goes to `audit_log`. | — |
-| D7 | Rollout | Run the §9 census on prod first. POST stays 403 until every gate in §10 passes. Fix N1 (below) regardless of D0 (done: #648's migration 855 drops the table). | — |
+| D7 | Rollout | Run the §9 census on prod first. POST stays 403 until every gate in §10 passes. Fix N1 (below) regardless of D0 (closed by #648's migration 855 once deployed). | — |
 | D8 | *(only if D0 = keep)* Out-of-ledger artefacts and erasure | Stored PDFs and attachments in object storage stay where they are; the snapshot keeps their paths. A POPIA erasure on an archived record redacts the payload through a logged, owner-approved path, not by bypassing the trigger ad hoc. | — |
 | D9 | R-195 if D0 = retire | Still fix it (composite FK, as its register entry proposes): the cross-company reference is wrong whatever the archive does. | R-195 |
 
