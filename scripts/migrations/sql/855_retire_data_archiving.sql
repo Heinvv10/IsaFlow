@@ -19,27 +19,42 @@
 -- the count and the drop. lock_timeout bounds the wait behind a live reader.
 -- Five of the six tables FORCE RLS, and a role subject to RLS would count 0
 -- rows there. row_security = off turns that into an error ("query would be
--- affected by row-level security policy"). So this file can only be applied
--- by a superuser or a BYPASSRLS role, and only in ONE transaction: the
--- migration runner, or psql -1. In autocommit the guard and the drops are
--- separate transactions and the lock no longer protects the drop.
+-- affected by row-level security policy"), so this file applies only as a
+-- superuser or BYPASSRLS role that owns the tables.
 --
--- No CASCADE: nothing depends on these tables on the master schema, and an
--- unexpected dependent must fail the drop, not vanish with it.
+-- Everything, the drops included, is inside ONE DO statement. A DO block is a
+-- single statement, so it is one transaction in every client mode: a refusal
+-- drops nothing even under `psql -f` in autocommit, where top-level DROPs after
+-- a failed guard would still have run.
+--
+-- No CASCADE: a view or SQL-standard function on these tables fails the drop.
+-- A plpgsql function body does not create a dependency, so the guard also
+-- refuses if any function outside the system schemas names one of the tables.
 
 DO $$
 DECLARE
+  tables text[] := ARRAY[
+    'archive_gl_journal_entries', 'archive_gl_journal_lines', 'archive_bank_transactions',
+    'archive_customer_invoices', 'archive_supplier_invoices', 'archive_runs'
+  ];
   t text;
   n bigint;
+  fn text;
   prev_row_security text := current_setting('row_security');
   prev_lock_timeout text := current_setting('lock_timeout');
 BEGIN
   PERFORM set_config('row_security', 'off', true);
   PERFORM set_config('lock_timeout', '10s', true);
-  FOREACH t IN ARRAY ARRAY[
-    'archive_gl_journal_entries', 'archive_gl_journal_lines', 'archive_bank_transactions',
-    'archive_customer_invoices', 'archive_supplier_invoices', 'archive_runs'
-  ] LOOP
+
+  SELECT string_agg(p.oid::regprocedure::text, ', ') INTO fn
+  FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+  WHERE ns.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND p.prosrc ~ 'archive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)';
+  IF fn IS NOT NULL THEN
+    RAISE EXCEPTION '855: function(s) % reference an archive table. Not dropping any archive table.', fn;
+  END IF;
+
+  FOREACH t IN ARRAY tables LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', t);
       EXECUTE format('SELECT count(*) FROM public.%I', t) INTO n;
@@ -48,14 +63,12 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+
+  FOREACH t IN ARRAY tables LOOP
+    EXECUTE format('DROP TABLE IF EXISTS public.%I', t);
+  END LOOP;
+
   -- Restore both for the rest of the runner's transaction.
   PERFORM set_config('row_security', prev_row_security, true);
   PERFORM set_config('lock_timeout', prev_lock_timeout, true);
 END $$;
-
-DROP TABLE IF EXISTS public.archive_gl_journal_lines;
-DROP TABLE IF EXISTS public.archive_gl_journal_entries;
-DROP TABLE IF EXISTS public.archive_bank_transactions;
-DROP TABLE IF EXISTS public.archive_customer_invoices;
-DROP TABLE IF EXISTS public.archive_supplier_invoices;
-DROP TABLE IF EXISTS public.archive_runs;
