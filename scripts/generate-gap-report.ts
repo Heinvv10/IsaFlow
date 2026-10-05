@@ -763,7 +763,7 @@ function generateReport() {
   const execSummary = [
     'This report presents a comprehensive gap analysis between industry-standard accounting software challenges — as articulated by Mr Marneweck — and the current feature set of ISAFlow, South Africa\'s cloud accounting platform.',
     '',
-    'The analysis evaluates 13 key concern areas encompassing 42 individual feature items. Our findings reveal that ISAFlow has already achieved strong coverage across the majority of critical accounting requirements:',
+    `The analysis evaluates ${sections.length} key concern areas encompassing ${stats.total} individual feature items. Our findings reveal that ISAFlow has already achieved strong coverage across the majority of critical accounting requirements:`,
     '',
     `    •  ${stats.done} of ${stats.total} items (${Math.round(stats.done / stats.total * 100)}%) are fully implemented and production-ready`,
     `    •  ${stats.partial} items (${Math.round(stats.partial / stats.total * 100)}%) are partially implemented with defined enhancement paths`,
