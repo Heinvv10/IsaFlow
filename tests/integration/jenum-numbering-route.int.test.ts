@@ -4,7 +4,8 @@
  *
  * Before migration 857 the route minted the held number, waited on `uq_gl_je_company_entry_number`, and
  * answered the 23505 as a 400 naming the constraint. Now it waits on the numbering lock and answers 200 with
- * the next number. Under a lock_timeout the same wait ends in 55P03, which the route already answers 503.
+ * the next number. Under a lock_timeout the same wait ends in 55P03, which the route already answers 503 — as it
+ * did before 857 (that case pins existing behaviour).
  *
  * Every connection in this file runs with lock_timeout = 2 s (PGOPTIONS, read by pg when each connection
  * opens — set before the first one and restored after the last), so the 503 case is bounded and the 200 case
@@ -70,6 +71,8 @@ describeIfDb('JENUM: journal-entries POST under a concurrent numbering', () => {
     }
   }, 60000);
 
+  // Pins PRE-EXISTING behaviour, not the fix: before migration 857 the route waited on the uncommitted index entry
+  // and also answered 503 under a lock_timeout, so this passes with the lock line removed. It guards "no new hang".
   it("held past the caller's lock_timeout: 503, nothing written", async () => {
     const a = await holdJournal(fx, journalInput(expense, fx.bankAccountId, '2026-09-01'));
     try {

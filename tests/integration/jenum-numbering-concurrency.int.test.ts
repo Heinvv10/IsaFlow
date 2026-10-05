@@ -8,12 +8,13 @@
  * lock instead and mints the next number. Everything here goes through the real `createJournalEntry`.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture, runOn, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 import {
-  errText, expenseAccountOf, holdJournal, journalInput, nextNumber, open2027, release, settle,
+  errText, expenseAccountOf, holdJournal, journalInput, nextNumber, openYear, release, settle,
   settledWithin, waitForBlocked,
 } from './helpers/jenumFixture';
 
@@ -35,7 +36,7 @@ describeIfDb('JENUM: journal numbering under concurrent posting', () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
     fx = await seedFixture('JENUM', DATABASE_URL!);
     other = await seedFixture('JENUM-B', DATABASE_URL!);
-    await open2027(fx);
+    await openYear(fx, 2027);
     expense = await expenseAccountOf(fx);
     otherExpense = await expenseAccountOf(other);
   }, 60000);
@@ -94,6 +95,8 @@ describeIfDb('JENUM: journal numbering under concurrent posting', () => {
     }
   }, 60000);
 
+  // Pins PRE-EXISTING behaviour, not the fix: before migration 857 the same wait (on the uncommitted index entry)
+  // also ended 55P03 under a lock_timeout, so this passes with the lock line removed. It guards "no new hang".
   it("the wait is bounded by the caller's lock_timeout: 55P03, not a hang", async () => {
     const a = await holdJournal(fx, journalInput(expense, fx.bankAccountId, '2026-06-01'));
     const b = await fx.pool.connect();
@@ -115,14 +118,31 @@ describeIfDb('JENUM: journal numbering under concurrent posting', () => {
   }, 60000);
 
   it('a burst of 8 writers queued behind one holder: 8 distinct consecutive numbers, 0 errors', async () => {
+    // Eight dedicated connections, all acquired before the holder exists, so the burst never depends on
+    // PG_POOL_MAX (the app pool's size) and a short pool fails HERE, not as a 20 s "n/8 blocked" timeout.
+    const burstPool = new Pool({ connectionString: DATABASE_URL, max: 8 });
+    const clients = await Promise.all(Array.from({ length: 8 }, () => burstPool.connect()));
     const a = await holdJournal(fx, journalInput(expense, fx.bankAccountId, '2026-07-01'));
-    const burst = Array.from({ length: 8 }, (_, i) => settle(createJournalEntry(fx.companyId,
-      journalInput(expense, fx.bankAccountId, '2026-07-02', 20 + i), fx.userId)));
+    const burst = clients.map((c, i) => settle((async () => {
+      await c.query('BEGIN');
+      try {
+        const je = await runOn(fx, c, () => createJournalEntry(fx.companyId,
+          journalInput(expense, fx.bankAccountId, '2026-07-02', 20 + i), fx.userId));
+        await c.query('COMMIT');
+        return je;
+      } catch (err) {
+        await c.query('ROLLBACK').catch(() => undefined);
+        throw err;
+      }
+    })()));
     try {
       await waitForBlocked(a.pid, 8);
       await release(a, 'COMMIT');
     } finally {
       await release(a, 'ROLLBACK');
+      await Promise.all(burst);
+      clients.forEach((c) => c.release());
+      await burstPool.end();
     }
     const outs = await Promise.all(burst);
     expect(outs.filter((o) => !o.ok).map((o) => errText((o as { error: unknown }).error))).toEqual([]);
