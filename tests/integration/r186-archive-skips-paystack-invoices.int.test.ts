@@ -17,18 +17,18 @@ import { executeArchive } from '@/modules/accounting/services/core/archiveExecut
 import { previewArchive } from '@/modules/accounting/services/core/archiveQueryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  CUTOFF, addCompany, addInvoice, addPaystackRequest, addStitchRequest, addUser, cleanup, drive, failureOf, ids, pool, user,
+  CUTOFF, addCompany, addInvoice, addPaystackRequest, addStitchRequest, addUser, cleanup, drive, ids, pool, user,
 } from './r186-archive.helpers';
 
 assertDisposable();
 
 /** A: one Paystack-referenced, one Stitch-referenced, one free invoice. The user belongs to every company. */
 const coA = randomUUID();
-/** B: its own referenced invoice, and a request naming C's invoice. */
+/** B: its own referenced invoice; its requests naming C's and D's invoices are refused (R-195). */
 const coB = randomUUID();
-/** C: one invoice, referenced only by B's Paystack request. */
+/** C: one invoice, which B's Paystack request may not name. */
 const coC = randomUUID();
-/** D: one invoice, referenced only by B's Stitch request. */
+/** D: one invoice, which B's Stitch request may not name. */
 const coD = randomUUID();
 /** E: one archivable invoice beside three the archive must not count: approved, paid after the cutoff, approved and referenced. */
 const coE = randomUUID();
@@ -48,10 +48,6 @@ beforeAll(async () => {
   req.aPaystack = await addPaystackRequest(coA, inv.aPaystack);
   req.aStitch = await addStitchRequest(coA, inv.aStitch);
   await addPaystackRequest(coB, inv.bRef);
-  // Cross-tenant: the FK is single-column, so nothing stops a request in B naming C's
-  // invoice, and RLS shows it to a user who belongs to both. It must not decide C's archive.
-  await addPaystackRequest(coB, inv.c);
-  await addStitchRequest(coB, inv.d);
   await addInvoice(coE, 'paid');
   await addInvoice(coE, 'approved');
   await addInvoice(coE, 'paid', '2010-01-01');
@@ -72,6 +68,24 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
       expect(other.customerInvoices).toBe(1);
       expect(other.customerInvoicesSkipped).toBe(0);
     }
+  }, 40000);
+
+  // Since R-195 the composite FK refuses a cross-company request, so the company_id predicate in
+  // gatewayReferenced is only reachable with the FK gone: drop it in a rolled-back transaction and
+  // forge B's requests on C's invoice. RLS shows them (the user belongs to B); the predicate must not.
+  it('a forged request of another company (composite FK dropped, rolled back) does not make the preview skip', async () => {
+    const preview = await drive(coC, () => previewArchive(coC, CUTOFF), { appUser: true, setup: async (client) => {
+      await client.query('ALTER TABLE paystack_payment_requests DROP CONSTRAINT paystack_payment_requests_invoice_company_fkey');
+      await client.query('ALTER TABLE stitch_payment_requests DROP CONSTRAINT stitch_payment_requests_invoice_company_fkey');
+      await client.query(
+        `INSERT INTO paystack_payment_requests(company_id,purpose,customer_invoice_id,paystack_reference,amount_cents,status)
+         VALUES($1,'customer_invoice',$2,$3,10000,'completed')`, [coB, inv.c, `r186-${randomUUID()}`]);
+      await client.query(
+        `INSERT INTO stitch_payment_requests(company_id,purpose,customer_invoice_id,external_reference,amount_cents)
+         VALUES($1,'customer_invoice',$2,$3,10000)`, [coB, inv.c, `r186-${randomUUID()}`]);
+    } });
+    expect(preview.customerInvoices).toBe(1);
+    expect(preview.customerInvoicesSkipped, 'company B\'s forged request counted in C\'s preview').toBe(0);
   }, 40000);
 
   it('as app_user: archives the free invoice, skips both referenced ones, leaves them and their requests intact', async () => {
@@ -103,15 +117,20 @@ describe('R-186: archive skips gateway-referenced customer invoices', () => {
     expect(await ids('SELECT id FROM customer_invoices WHERE company_id=$1', [coB])).toEqual([inv.bRef]);
   }, 40000);
 
+  // Cross-tenant: RLS shows C's invoice to a user who belongs to both B and C. Before R-195 the
+  // FK was single-column, B's request was stored, and C's run then failed whole on 23514. The
+  // composite FK (migration 854) refuses the request itself, so C's archive is C's to decide.
   it.each([
-    ['Paystack', () => coC, () => inv.c, 'paystack_pr_invoice_has_invoice'],
-    ['Stitch', () => coD, () => inv.d, 'stitch_pr_invoice_has_invoice'],
-  ])('a %s request in another company does not shield the invoice, though RLS shows it: the run fails whole on 23514',
-    async (_gateway, co, invoice, constraint) => {
-      const failure = await failureOf(co(), () => executeArchive(co(), CUTOFF, user), true);
-      expect(failure.code, 'company B\'s request shielded the invoice').toBe('23514');
-      expect(failure.constraint).toBe(constraint);
-      expect(await ids('SELECT id FROM customer_invoices WHERE company_id=$1', [co()])).toEqual([invoice()]);
-      expect(await ids('SELECT id FROM archive_customer_invoices WHERE company_id=$1', [co()])).toEqual([]);
+    ['Paystack', addPaystackRequest, () => coC, () => inv.c, 'paystack_payment_requests_invoice_company_fkey'],
+    ['Stitch', addStitchRequest, () => coD, () => inv.d, 'stitch_payment_requests_invoice_company_fkey'],
+  ])('a %s request in another company naming the invoice is refused at insert (23503), so the run archives it',
+    async (_gateway, addRequest, co, invoice, constraint) => {
+      const refused = await addRequest(coB, invoice()).then(() => ({}),
+        (err: { code?: string; constraint?: string }) => ({ code: err.code, constraint: err.constraint }));
+      expect(refused, 'company B\'s request was stored against another company\'s invoice').toEqual({ code: '23503', constraint });
+      const result = await drive(co(), () => executeArchive(co(), CUTOFF, user), { commit: true, appUser: true });
+      expect(result.invoicesArchived).toBe(1);
+      expect(await ids('SELECT id FROM customer_invoices WHERE company_id=$1', [co()])).toEqual([]);
+      expect(await ids('SELECT id FROM archive_customer_invoices WHERE company_id=$1', [co()])).toEqual([invoice()]);
     }, 40000);
 });

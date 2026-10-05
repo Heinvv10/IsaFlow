@@ -1,0 +1,18 @@
+HEAD 3b8f00b1ef56e4d26488ef97bfa9f72091c19c02 dirty=0 fixture=isaflow-fixture-r19x-r195 db=isaflow_schema_fixture url=127.0.0.1:32883 load=82.68 2026-10-05T10:43:34+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:2049698) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:43:37.379Z","component":"data-archiving","data":{"companyId":"a2b61a6c-e842-4cc9-92cb-6be961a38eb4","runId":"27bed41f-829a-43c0-9702-85bfe2a4f8e2","cutoffDate":"2005-01-01","userId":"4ec2d97e-7af3-4768-973a-affdad03367d"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:43:37.430Z","component":"data-archiving","data":{"companyId":"a2b61a6c-e842-4cc9-92cb-6be961a38eb4","runId":"27bed41f-829a-43c0-9702-85bfe2a4f8e2","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:43:37.469Z","component":"data-archiving","data":{"companyId":"673b68e4-936e-4441-be0d-908f1daef1c7","runId":"cb7f8de9-6c68-40bc-8d5b-a4c799e5e37e","cutoffDate":"2005-01-01","userId":"4ec2d97e-7af3-4768-973a-affdad03367d"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:43:37.521Z","component":"data-archiving","data":{"companyId":"673b68e4-936e-4441-be0d-908f1daef1c7","runId":"cb7f8de9-6c68-40bc-8d5b-a4c799e5e37e","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:43:37.558Z","component":"data-archiving","data":{"companyId":"255efb13-5431-4da4-95c8-60ca094bdfd9","runId":"4f6b9c82-13e4-46b8-a0e1-8704c65b511d","cutoffDate":"2005-01-01","userId":"4ec2d97e-7af3-4768-973a-affdad03367d"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:43:37.602Z","component":"data-archiving","data":{"companyId":"255efb13-5431-4da4-95c8-60ca094bdfd9","runId":"4f6b9c82-13e4-46b8-a0e1-8704c65b511d","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+
+ Test Files  2 passed (2)
+      Tests  17 passed (17)
+   Start at  10:43:35
+   Duration  3.57s (transform 650ms, setup 0ms, import 1.25s, tests 1.48s, environment 0ms)
+
