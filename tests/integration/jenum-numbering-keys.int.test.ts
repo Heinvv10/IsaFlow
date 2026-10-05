@@ -9,8 +9,16 @@
  * every insert. The pad is now at least 5, never shorter than the number.
  *
  * Every journal goes through the real `createJournalEntry`.
+ *
+ * ONE RUN AT A TIME. The collision test needs those two FIXED company ids, and `seedCompanyWithId` purges them
+ * before seeding (as `dropFixture` does after), so two runs of this file against one fixture database — CI and a
+ * local run, two worktrees, a reviewer — would delete each other's rows mid-test. The file therefore holds a
+ * SESSION-level `pg_advisory_lock(hashtextextended('jenum-numbering-keys:fixed-company-ids', 857))` on its own
+ * connection from before the seed until after the teardown: a second run waits in beforeAll for the first to
+ * finish. The connection is closed in afterAll even when a test or the seed failed, which releases the lock.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Client } from 'pg';
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
@@ -25,19 +33,32 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 /** brk-jenum's pair: hashtext('<id>:2026') = 1899535412 for both. */
 const COLLIDING = ['fcadac57-2c4c-46d9-853b-061d0bf125f0', 'cae8d83f-42ec-4e02-a42d-fd4d972637e2'] as const;
 
+/** The one-run-at-a-time key (see the header); seed 857 is the JENUM namespace, as in migration 857. */
+const FILE_LOCK_KEY = 'jenum-numbering-keys:fixed-company-ids';
+
+let owner: Client | undefined;
 let c1: Fixture, c2: Fixture, wide: Fixture;
 
 describeIfDb('JENUM: numbering lock key and number width', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
+    owner = new Client({ connectionString: DATABASE_URL });
+    await owner.connect();
+    await owner.query('SELECT pg_advisory_lock(hashtextextended($1, 857))', [FILE_LOCK_KEY]);
     c1 = await seedCompanyWithId(COLLIDING[0], 'JENUM-K1', DATABASE_URL!);
     c2 = await seedCompanyWithId(COLLIDING[1], 'JENUM-K2', DATABASE_URL!);
     wide = await seedFixture('JENUM-W', DATABASE_URL!);
     await openYear(wide, 2028);
-  }, 60000);
+  }, 180000);
 
   afterAll(async () => {
-    for (const f of [c1, c2, wide]) if (f) await dropFixture(f);
+    try {
+      for (const f of [c1, c2, wide]) if (f) await dropFixture(f);
+    } finally {
+      // Ending the session releases a session-level lock. No explicit unlock: if beforeAll timed out while still
+      // WAITING for the lock, an unlock would queue behind that wait on this client and hang the teardown.
+      await owner?.end();
+    }
   }, 60000);
 
   it('two companies whose "<id>:<year>" hashtext collides never wait on each other', async () => {
