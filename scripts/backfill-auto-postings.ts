@@ -119,7 +119,7 @@ async function postEntry(
   description: string,
   source: string,
   sourceDocumentId: string,
-  lines: Array<{ accountId: string; debit: number; credit: number; note: string }>,
+  lines: Array<{ accountId: string; debit: number; credit: number; note: string; vatType?: string }>,
 ): Promise<string | null> {
   const totalDR = lines.reduce((s, l) => s + l.debit, 0);
   const totalCR = lines.reduce((s, l) => s + l.credit, 0);
@@ -150,10 +150,10 @@ async function postEntry(
   for (const line of lines) {
     await sql`
       INSERT INTO gl_journal_lines (
-        company_id, journal_entry_id, gl_account_id, debit, credit, description
+        company_id, journal_entry_id, gl_account_id, debit, credit, description, vat_type
       ) VALUES (
         ${companyId}::UUID, ${entryId}::UUID, ${line.accountId}::UUID,
-        ${line.debit}, ${line.credit}, ${line.note}
+        ${line.debit}, ${line.credit}, ${line.note}, ${line.vatType ?? null}
       )
     `;
   }
@@ -183,12 +183,12 @@ async function backfillCustomerInvoices() {
   let ok = 0, err = 0;
   for (const inv of invoices) {
     try {
-      const lines: Array<{ accountId: string; debit: number; credit: number; note: string }> = [
+      const lines: Array<{ accountId: string; debit: number; credit: number; note: string; vatType?: string }> = [
         { accountId: ar.id, debit: Number(inv.total_amount), credit: 0, note: `AR: ${inv.invoice_number}` },
         { accountId: defaultRev.id, debit: 0, credit: Number(inv.subtotal), note: `Revenue: ${inv.invoice_number}` },
       ];
       if (Number(inv.tax_amount) > 0) {
-        lines.push({ accountId: vatOut.id, debit: 0, credit: Number(inv.tax_amount), note: `VAT Output: ${inv.invoice_number}` });
+        lines.push({ accountId: vatOut.id, debit: 0, credit: Number(inv.tax_amount), note: `VAT Output: ${inv.invoice_number}`, vatType: 'standard' });
       }
       const entryId = await postEntry(
         toIsoDate(inv.invoice_date),

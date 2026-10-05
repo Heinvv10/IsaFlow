@@ -1,0 +1,14 @@
+HEAD 1ab99b9c39cc806a5256fca74f3f601ec9fea348 dirty=2 fixture=isaflow-fixture-r19x-r195 2026-10-05T11:03:47+02:00
+Setup: drop the 3 constraints (committed, fixture only). B holds ROW EXCLUSIVE on paystack_payment_requests (the settlement UPDATE's lock) for 3s; A runs 854 meanwhile; C samples A's relation locks at ~1.5s.
+--- A's relation locks while B holds the request table:
+            rel            |         mode          | granted 
+---------------------------+-----------------------+---------
+ paystack_payment_requests | ShareRowExclusiveLock | f
+(1 row)
+
+--- A's output:
+A rc=0
+--- constraints after:
+customer_invoices_id_company_id_key|t
+paystack_payment_requests_invoice_company_fkey|t
+stitch_payment_requests_invoice_company_fkey|t

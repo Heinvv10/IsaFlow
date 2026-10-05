@@ -14,6 +14,8 @@ import {
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
 import { isPendingFeedRow, PendingFeedBadge, PendingFeedNotice } from './bank-transactions/pendingFeedRow';
+import { BankTxLinkAction } from './bank-transactions/BankTxLinkAction';
+import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -83,6 +85,8 @@ export interface BankTx {
   postedVatCode?: VatCode;
   /** Input/output tax actually posted, in rands. */
   postedVatAmount?: number;
+  /** Asset / fuel / service record this line is annotated with (an annotation — never a posting). */
+  link?: BankTxLink;
 }
 
 export interface SelectOption {
@@ -140,6 +144,8 @@ interface Props {
   onAskClient?: (txId: string) => void;
   onCreateRule?: (tx: BankTx) => void;
   onCreateEntity?: (txId: string, type: AllocType) => void;
+  /** Open the asset / fuel / service link picker for a row. */
+  onLink?: (tx: BankTx) => void;
 }
 
 function fmtCurrency(n: number): string {
@@ -209,7 +215,7 @@ export function BankTxTable(props: Props) {
     onToggleSelect, onSelectAll, onRowTypeChange, onRowEntityChange, onRowVatChange,
     onRowDimensionChange,
     onAccept, onExclude, onUnmatch, onSplit, onUpdateNotes,
-    onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onCreateEntity,
+    onFindMatch, onReverse, onAttachments, onAskClient, onCreateRule, onCreateEntity, onLink,
   } = props;
   const { containerProps, getRowProps } = useBankTxKeyboardNav({
     transactions, rowSelections, onAccept, onExclude, onSplit,
@@ -686,6 +692,7 @@ export function BankTxTable(props: Props) {
                                 <BookmarkPlus className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
                             {onAttachments && (
                               <button onClick={() => onAttachments(tx.id)} title="Attachments"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
@@ -712,6 +719,7 @@ export function BankTxTable(props: Props) {
                                 <Undo2 className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
                             {onAttachments && (
                               <button onClick={() => onAttachments(tx.id)} title="Attachments"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">
@@ -737,6 +745,7 @@ export function BankTxTable(props: Props) {
                                 <RotateCcw className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {onLink && <BankTxLinkAction link={tx.link} onOpen={() => onLink(tx)} />}
                             {onAttachments && (
                               <button onClick={() => onAttachments(tx.id)} title="Attachments"
                                 className="p-1 rounded hover:bg-gray-500/10 text-[var(--ff-text-tertiary)]">

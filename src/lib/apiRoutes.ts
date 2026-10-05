@@ -57,6 +57,8 @@ import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/p
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { FuelRecord, ServiceRecord } from '@/modules/accounting/services/items/fleetRecordsService';
+import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -170,6 +172,11 @@ interface DynamicRoutes {
   // plan.blockers is withheld from the response (the route strips it): the top-level `blocker` is the one answer.
   '/api/payroll/runs/{}/journal-plan': JournalPlanPreview;
   '/api/payroll/runs/{}/approve': Awaited<ReturnType<typeof approvePayrollRun>>;
+  // Fleet records (mig 853): GET the list, POST the new record, DELETE `{ deleted, id }` — the list and the item of
+  // one resource, so a union (see above). The bank-links read is GET only; null (404) never reaches the caller.
+  '/api/accounting/assets/{}/fuel': FuelRecord[] | FuelRecord | { deleted: true; id: string };
+  '/api/accounting/assets/{}/service': ServiceRecord[] | ServiceRecord | { deleted: true; id: string };
+  '/api/accounting/assets/{}/bank-links': NonNullable<Awaited<ReturnType<typeof listAssetBankLinks>>>;
 }
 
 /**

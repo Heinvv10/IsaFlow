@@ -130,7 +130,7 @@ export function stampHeld(row: DbRow, sessions: Map<string, ReconciliationSessio
 const heldSession = () => new RowLockTimeoutError('The bank reconciliation');
 
 /**
- * Run an UPDATE that carries `openStampOnly` on lines it has NOT locked first (bulk accept, the asset/fleet links)
+ * Run an UPDATE that carries `openStampOnly` on lines it has NOT locked first (bulk accept)
  * under the 5 s budget: its FOR SHARE subquery waits on a header change holding the session, and its row locks on a
  * peer holding the line. Held -> `RowLockTimeoutError` (503 + Retry-After), never an unbounded wait (brk-d12 B2).
  */
@@ -198,7 +198,7 @@ export function lockSessionForHeaderChange(companyId: string, id: string): Promi
  * THE value of `reconciliation_id` for a write that turns a line `matched` OUTSIDE a session: the stamp is kept
  * while its session is in progress (the line joins that session's matches, as it always did) and cleared otherwise —
  * a completed session's stale stamp on a `matched` line would ADD the line to the signed-off session. FOR SHARE so an
- * unlocked writer (bulk accept, asset/fleet link, the automatic evidence attach) waits for a completion in flight and
+ * unlocked writer (bulk accept, the automatic evidence attach) waits for a completion in flight and
  * then reads `completed`. For an unaliased `UPDATE bank_transactions`.
  */
 export function openStampOnly(companyId: string): Fragment {

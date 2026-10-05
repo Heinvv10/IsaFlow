@@ -1,0 +1,506 @@
+R-195 mutation log. Each mutant is applied to 854 on disk AND to the fixture (FKs dropped, mutated file applied), run, then reverted (git checkout) and the real 854 re-applied.
+
+===== MUTANT M1 single-column FK (company dropped from the FK):  1 file changed, 4 insertions(+), 4 deletions(-)
+-      FOREIGN KEY (customer_invoice_id, company_id)
+-      REFERENCES customer_invoices (id, company_id)
++      FOREIGN KEY (customer_invoice_id)
++      REFERENCES customer_invoices (id)
+-      FOREIGN KEY (customer_invoice_id, company_id)
+-      REFERENCES customer_invoices (id, company_id)
++      FOREIGN KEY (customer_invoice_id)
++      REFERENCES customer_invoices (id)
+HEAD af5a1449ec344fbea952d697a47e5e7f7c75ed20 dirty=5 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=14.93 2026-10-05T10:13:06+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:2932364) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:07.207Z","component":"data-archiving","data":{"companyId":"a3f02891-6884-4e4d-9287-e078104a41e3","runId":"c43fe0aa-3a81-400e-b5d2-d2ce28c3bc2c","cutoffDate":"2005-01-01","userId":"607e2d38-3415-45b8-95e6-c8b53a5ab1dd"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:07.224Z","component":"data-archiving","data":{"companyId":"a3f02891-6884-4e4d-9287-e078104a41e3","runId":"c43fe0aa-3a81-400e-b5d2-d2ce28c3bc2c","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts (4 tests | 2 failed) 354ms
+     × a Paystack request in another company naming the invoice is refused at insert (23503), so the run archives it 7ms
+     × a Stitch request in another company naming the invoice is refused at insert (23503), so the run archives it 4ms
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (11 tests | 5 failed) 308ms
+     × a request in company B naming company C's invoice is refused at insert (23503) 22ms
+     × a request in company B naming company C's invoice is refused at insert (23503) 10ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 23ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 14ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a Paystack request in another company naming the invoice is refused at insert (23503), so the run archives it
+AssertionError: company B's request was stored against another company's invoice: expected {} to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "23503",
+-   "constraint": "paystack_payment_requests_invoice_company_fkey",
+- }
++ {}
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:112:93
+    110|       const refused = await addRequest(coB, invoice()).then(() => ({}),
+    111|         (err: { code?: string; constraint?: string }) => ({ code: err.…
+    112|       expect(refused, 'company B\'s request was stored against another…
+       |                                                                                             ^
+    113|       const result = await drive(co(), () => executeArchive(co(), CUTO…
+    114|       expect(result.invoicesArchived).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a Stitch request in another company naming the invoice is refused at insert (23503), so the run archives it
+AssertionError: company B's request was stored against another company's invoice: expected {} to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "23503",
+-   "constraint": "stitch_payment_requests_invoice_company_fkey",
+- }
++ {}
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:112:93
+    110|       const refused = await addRequest(coB, invoice()).then(() => ({}),
+    111|         (err: { code?: string; constraint?: string }) => ({ code: err.…
+    112|       expect(refused, 'company B\'s request was stored against another…
+       |                                                                                             ^
+    113|       const result = await drive(co(), () => executeArchive(co(), CUTO…
+    114|       expect(result.invoicesArchived).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 paystack: request and invoice share a company > a request in company B naming company C's invoice is refused at insert (23503)
+AssertionError: company B's request was stored against company C's invoice: expected { Object (id) } to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "code": "23503",
+-   "constraint": "paystack_payment_requests_invoice_company_fkey",
++   "id": "369943cb-c069-424c-98a3-68cf5a336c58",
+  }
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:99:81
+     97|     const invoice = await addInvoice(coC, 'paid');
+     98|     const out = await insertAsAppUser(gateway, coB, invoice);
+     99|     expect(out, 'company B\'s request was stored against company C\'s …
+       |                                                                                 ^
+    100|     const rows = await pool.query(`SELECT id FROM ${g.table} WHERE cus…
+    101|     expect(rows.rows).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 stitch: request and invoice share a company > a request in company B naming company C's invoice is refused at insert (23503)
+AssertionError: company B's request was stored against company C's invoice: expected { Object (id) } to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "code": "23503",
+-   "constraint": "stitch_payment_requests_invoice_company_fkey",
++   "id": "88087459-d89b-4522-b827-4a90d8882641",
+  }
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:99:81
+     97|     const invoice = await addInvoice(coC, 'paid');
+     98|     const out = await insertAsAppUser(gateway, coB, invoice);
+     99|     expect(out, 'company B\'s request was stored against company C\'s …
+       |                                                                                 ^
+    100|     const rows = await pool.query(`SELECT id FROM ${g.table} WHERE cus…
+    101|     expect(rows.rows).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+AssertionError: paystack_payment_requests_invoice_company_fkey: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: true, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "convalidated": true,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)",
++     "convalidated": false,
++     "def": "FOREIGN KEY (customer_invoice_id) REFERENCES customer_invoices(id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:141:57
+    139|           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id…
+    140|         for (const g of Object.values(GATEWAYS)) {
+    141|           expect(await constraintState(db, g.fk), g.fk).toEqual([{ con…
+       |                                                         ^
+    142|         }
+    143|       }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+AssertionError: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: false, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "convalidated": false,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
++     "def": "FOREIGN KEY (customer_invoice_id) REFERENCES customer_invoices(id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:166:49
+    164|           [coB, invoice, `r195-${randomUUID()}`])).rows[0]!;
+    165|         await db.query(migration());
+    166|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+       |                                                 ^
+    167|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+    168|         expect(notices.some((m) => m.includes(g.fk) && /\b1\b/.test(m)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  7 failed | 8 passed (15)
+   Start at  10:13:06
+   Duration  1.08s (transform 106ms, setup 0ms, import 218ms, tests 662ms, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT M2 plain ON DELETE SET NULL (no column list):  1 file changed, 3 insertions(+), 3 deletions(-)
+-      ON DELETE SET NULL (customer_invoice_id)
++      ON DELETE SET NULL
+-      ON DELETE SET NULL (customer_invoice_id)
++      ON DELETE SET NULL
+HEAD af5a1449ec344fbea952d697a47e5e7f7c75ed20 dirty=5 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=18.29 2026-10-05T10:13:13+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:2940518) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:14.525Z","component":"data-archiving","data":{"companyId":"d5e3054d-963b-4b65-af0d-767e09dc9daf","runId":"74e04d1e-5f7e-4d6b-9455-bfb3e7b20ea4","cutoffDate":"2005-01-01","userId":"ebfb6ba1-f461-447a-b5ab-594a2206ebf3"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:14.549Z","component":"data-archiving","data":{"companyId":"d5e3054d-963b-4b65-af0d-767e09dc9daf","runId":"74e04d1e-5f7e-4d6b-9455-bfb3e7b20ea4","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:14.570Z","component":"data-archiving","data":{"companyId":"8c9ec61b-47cc-4300-86c6-857cdff86f4f","runId":"6417a758-1515-439e-b34f-c71e7184e98c","cutoffDate":"2005-01-01","userId":"ebfb6ba1-f461-447a-b5ab-594a2206ebf3"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:14.592Z","component":"data-archiving","data":{"companyId":"8c9ec61b-47cc-4300-86c6-857cdff86f4f","runId":"6417a758-1515-439e-b34f-c71e7184e98c","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:14.620Z","component":"data-archiving","data":{"companyId":"3afa7967-2dae-4262-9a9e-52ebf06e7c13","runId":"14d9f6bf-1339-4248-ada8-e85cd416d63e","cutoffDate":"2005-01-01","userId":"ebfb6ba1-f461-447a-b5ab-594a2206ebf3"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:14.644Z","component":"data-archiving","data":{"companyId":"3afa7967-2dae-4262-9a9e-52ebf06e7c13","runId":"14d9f6bf-1339-4248-ada8-e85cd416d63e","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (11 tests | 3 failed) 432ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 39ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 17ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 19ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+AssertionError: paystack_payment_requests_invoice_company_fkey: expected [ { convalidated: true, …(1) } ] to deeply equal [ { convalidated: true, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "convalidated": true,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)",
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:141:57
+    139|           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id…
+    140|         for (const g of Object.values(GATEWAYS)) {
+    141|           expect(await constraintState(db, g.fk), g.fk).toEqual([{ con…
+       |                                                         ^
+    142|         }
+    143|       }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+AssertionError: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: false, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "convalidated": false,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:166:49
+    164|           [coB, invoice, `r195-${randomUUID()}`])).rows[0]!;
+    165|         await db.query(migration());
+    166|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+       |                                                 ^
+    167|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+    168|         expect(notices.some((m) => m.includes(g.fk) && /\b1\b/.test(m)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 12 passed (15)
+   Start at  10:13:13
+   Duration  1.88s (transform 227ms, setup 0ms, import 436ms, tests 1.04s, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT M3 never VALIDATE:  1 file changed, 2 insertions(+), 2 deletions(-)
+-  IF forged = 0 THEN
++  IF false THEN
+-  IF forged = 0 THEN
++  IF false THEN
+HEAD af5a1449ec344fbea952d697a47e5e7f7c75ed20 dirty=5 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=18.29 2026-10-05T10:13:16+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (11 tests | 3 failed) 454ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 28ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 23ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 16ms
+(node:2943348) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:18.339Z","component":"data-archiving","data":{"companyId":"67f968b8-05ad-4ab9-9015-616d0276eb2c","runId":"64edbe42-d737-41fb-8866-fa725dba12fb","cutoffDate":"2005-01-01","userId":"bec8db92-bf41-4222-b890-d2230f1ff8a0"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:18.376Z","component":"data-archiving","data":{"companyId":"67f968b8-05ad-4ab9-9015-616d0276eb2c","runId":"64edbe42-d737-41fb-8866-fa725dba12fb","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:18.428Z","component":"data-archiving","data":{"companyId":"c5334493-a7fd-42fd-bafa-5ccef11a90ac","runId":"991e4052-35ad-4e34-9eae-15d6043e835c","cutoffDate":"2005-01-01","userId":"bec8db92-bf41-4222-b890-d2230f1ff8a0"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:18.466Z","component":"data-archiving","data":{"companyId":"c5334493-a7fd-42fd-bafa-5ccef11a90ac","runId":"991e4052-35ad-4e34-9eae-15d6043e835c","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:18.487Z","component":"data-archiving","data":{"companyId":"e5b7cc01-7a50-484c-b27f-fc1f8a6a6063","runId":"d2277606-fb90-4e9b-b880-1bbda68d2b3b","cutoffDate":"2005-01-01","userId":"bec8db92-bf41-4222-b890-d2230f1ff8a0"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:18.517Z","component":"data-archiving","data":{"companyId":"e5b7cc01-7a50-484c-b27f-fc1f8a6a6063","runId":"d2277606-fb90-4e9b-b880-1bbda68d2b3b","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+AssertionError: paystack_payment_requests_invoice_company_fkey: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: true, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "convalidated": true,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)",
++     "convalidated": false,
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:141:57
+    139|           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id…
+    140|         for (const g of Object.values(GATEWAYS)) {
+    141|           expect(await constraintState(db, g.fk), g.fk).toEqual([{ con…
+       |                                                         ^
+    142|         }
+    143|       }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+AssertionError: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: true, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "convalidated": true,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)",
++     "convalidated": false,
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:167:53
+    165|         await db.query(migration());
+    166|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+    167|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+       |                                                     ^
+    168|         expect(notices.some((m) => m.includes(g.fk) && /\b1\b/.test(m)…
+    169|         const after = (await db.query(`SELECT id, company_id, customer…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 12 passed (15)
+   Start at  10:13:16
+   Duration  2.10s (transform 296ms, setup 0ms, import 547ms, tests 1.18s, environment 1ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT M4 VALIDATE unconditionally:  1 file changed, 2 insertions(+), 2 deletions(-)
+-  IF forged = 0 THEN
++  IF true THEN
+-  IF forged = 0 THEN
++  IF true THEN
+HEAD af5a1449ec344fbea952d697a47e5e7f7c75ed20 dirty=5 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=20.02 2026-10-05T10:13:19+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (11 tests | 2 failed) 586ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 30ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 26ms
+(node:2947382) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:21.855Z","component":"data-archiving","data":{"companyId":"81c8e21c-e21e-4459-af9c-612387957bd9","runId":"1ffbf11b-118b-4aa7-a8fe-156e2560b128","cutoffDate":"2005-01-01","userId":"55d8dbd2-fac3-428b-927a-00e6c681cf89"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:21.891Z","component":"data-archiving","data":{"companyId":"81c8e21c-e21e-4459-af9c-612387957bd9","runId":"1ffbf11b-118b-4aa7-a8fe-156e2560b128","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:21.925Z","component":"data-archiving","data":{"companyId":"934d4a77-6714-40cb-a1ee-e9458e9bf7b7","runId":"d4232393-15e1-4579-a3bf-4982b48f08be","cutoffDate":"2005-01-01","userId":"55d8dbd2-fac3-428b-927a-00e6c681cf89"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:21.951Z","component":"data-archiving","data":{"companyId":"934d4a77-6714-40cb-a1ee-e9458e9bf7b7","runId":"d4232393-15e1-4579-a3bf-4982b48f08be","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:21.985Z","component":"data-archiving","data":{"companyId":"0309e98d-3ac5-4a48-89a2-d018bcf186f4","runId":"b241c1de-7894-4b6d-8e52-2507ec9fe2d7","cutoffDate":"2005-01-01","userId":"55d8dbd2-fac3-428b-927a-00e6c681cf89"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:22.026Z","component":"data-archiving","data":{"companyId":"0309e98d-3ac5-4a48-89a2-d018bcf186f4","runId":"b241c1de-7894-4b6d-8e52-2507ec9fe2d7","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+error: insert or update on table "paystack_payment_requests" violates foreign key constraint "paystack_payment_requests_invoice_company_fkey"
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:165:9
+    163|            VALUES($1,'customer_invoice',$2,$3,10000) RETURNING id, com…
+    164|           [coB, invoice, `r195-${randomUUID()}`])).rows[0]!;
+    165|         await db.query(migration());
+       |         ^
+    166|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+    167|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+error: insert or update on table "stitch_payment_requests" violates foreign key constraint "stitch_payment_requests_invoice_company_fkey"
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:165:9
+    163|            VALUES($1,'customer_invoice',$2,$3,10000) RETURNING id, com…
+    164|           [coB, invoice, `r195-${randomUUID()}`])).rows[0]!;
+    165|         await db.query(migration());
+       |         ^
+    166|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+    167|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 13 passed (15)
+   Start at  10:13:19
+   Duration  2.41s (transform 358ms, setup 0ms, import 644ms, tests 1.25s, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT M2b plain ON DELETE SET NULL, re-run with the composite-FK-alone test added:  1 file changed, 3 insertions(+), 3 deletions(-)
+-      ON DELETE SET NULL (customer_invoice_id)
++      ON DELETE SET NULL
+-      ON DELETE SET NULL (customer_invoice_id)
++      ON DELETE SET NULL
+HEAD af5a1449ec344fbea952d697a47e5e7f7c75ed20 dirty=6 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=29.29 2026-10-05T10:13:42+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (13 tests | 5 failed) 423ms
+     × the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete 17ms
+     × the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete 23ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 28ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 21ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 17ms
+(node:3005352) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:44.566Z","component":"data-archiving","data":{"companyId":"25cccb1e-b9b7-4009-a276-224ffb725488","runId":"54d39fe5-3458-4391-9753-c8f581cee014","cutoffDate":"2005-01-01","userId":"86714329-3aaf-4e6a-a822-b3ce2347850c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:44.592Z","component":"data-archiving","data":{"companyId":"25cccb1e-b9b7-4009-a276-224ffb725488","runId":"54d39fe5-3458-4391-9753-c8f581cee014","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:44.617Z","component":"data-archiving","data":{"companyId":"663046c5-6c1e-4390-9b8d-7ec1aa632d0e","runId":"cd91930b-f371-4e80-8b29-85095460e121","cutoffDate":"2005-01-01","userId":"86714329-3aaf-4e6a-a822-b3ce2347850c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:44.647Z","component":"data-archiving","data":{"companyId":"663046c5-6c1e-4390-9b8d-7ec1aa632d0e","runId":"cd91930b-f371-4e80-8b29-85095460e121","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:13:44.669Z","component":"data-archiving","data":{"companyId":"297f5f1f-629f-400d-b7ef-d1920359b3a3","runId":"134a85b6-1983-4d3d-b1d8-133491d603fc","cutoffDate":"2005-01-01","userId":"86714329-3aaf-4e6a-a822-b3ce2347850c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:13:44.693Z","component":"data-archiving","data":{"companyId":"297f5f1f-629f-400d-b7ef-d1920359b3a3","runId":"134a85b6-1983-4d3d-b1d8-133491d603fc","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 paystack: request and invoice share a company > the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete
+error: null value in column "company_id" of relation "paystack_payment_requests" violates not-null constraint
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:138:7
+    136|       await db.query('BEGIN');
+    137|       await db.query(`ALTER TABLE ${g.table} DROP CONSTRAINT ${g.table…
+    138|       await db.query('DELETE FROM customer_invoices WHERE id = $1', [i…
+       |       ^
+    139|       const row = (await db.query(`SELECT company_id, customer_invoice…
+    140|       expect(row).toEqual([{ company_id: coB, customer_invoice_id: nul…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 stitch: request and invoice share a company > the composite FK alone (single-column FK dropped, rolled back) keeps company_id on delete
+error: null value in column "company_id" of relation "stitch_payment_requests" violates not-null constraint
+ ❯ node_modules/pg/lib/client.js:631:17
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:138:7
+    136|       await db.query('BEGIN');
+    137|       await db.query(`ALTER TABLE ${g.table} DROP CONSTRAINT ${g.table…
+    138|       await db.query('DELETE FROM customer_invoices WHERE id = $1', [i…
+       |       ^
+    139|       const row = (await db.query(`SELECT company_id, customer_invoice…
+    140|       expect(row).toEqual([{ company_id: coB, customer_invoice_id: nul…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+AssertionError: paystack_payment_requests_invoice_company_fkey: expected [ { convalidated: true, …(1) } ] to deeply equal [ { convalidated: true, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "convalidated": true,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)",
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:160:57
+    158|           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id…
+    159|         for (const g of Object.values(GATEWAYS)) {
+    160|           expect(await constraintState(db, g.fk), g.fk).toEqual([{ con…
+       |                                                         ^
+    161|         }
+    162|       }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+AssertionError: expected [ { convalidated: false, …(1) } ] to deeply equal [ { convalidated: false, …(1) } ]
+
+- Expected
++ Received
+
+  [
+    {
+      "convalidated": false,
+-     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id) NOT VALID",
++     "def": "FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL NOT VALID",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:185:49
+    183|           [coB, invoice, `r195-${randomUUID()}`])).rows[0]!;
+    184|         await db.query(migration());
+    185|         expect(await constraintState(db, g.fk)).toEqual([{ convalidate…
+       |                                                 ^
+    186|         expect(await constraintState(db, other.fk)).toEqual([{ convali…
+    187|         expect(notices.some((m) => m.includes(g.fk) && /\b1\b/.test(m)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  5 failed | 12 passed (17)
+   Start at  10:13:43
+   Duration  1.71s (transform 212ms, setup 0ms, import 404ms, tests 1.01s, environment 0ms)
+
+reverted; git diff lines: 0
