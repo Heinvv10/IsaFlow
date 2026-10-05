@@ -158,3 +158,13 @@ Logs (r1):
 
 The 854 file changed, so its checksum changed. It was re-applied to both fixture DBs with the new
 checksum. I applied it only to the fixture.
+
+## Review round 2 (re-review of 5b8b4d9a8: SHIP, no findings)
+Two notes from the reviewer, recorded here (docs only, 854 unchanged):
+- Besides the portal checkout, two other paths take `customer_invoices` before a request table: the
+  archive's `DELETE FROM customer_invoices` (its RI SET NULL then writes both request tables; archive
+  POST is refused 403 today) and the dev-only `scripts/qa-seed/reset.ts`. A 40P01 aborts one side
+  cleanly either way. Every other path (webhook, verify, every request INSERT, mandate verify,
+  charge.failed) takes the request table first, so the new order removes their deadlock risk.
+- The `LOCK TABLE` line is pinned by the shell probe (`lock-order.r1.log`, mutant R4), not by vitest:
+  a vitest pin would need a two-connection ordering test.
