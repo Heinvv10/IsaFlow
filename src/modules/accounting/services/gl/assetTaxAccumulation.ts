@@ -18,8 +18,10 @@
  * would read the same opening and the later commit would silently drop the
  * earlier period's charge. Re-reading inside the transaction does NOT fix that:
  * the subquery runs under the reader's own snapshot and cannot see a row the
- * other transaction has not yet committed. `FOR UPDATE` on the asset row is
- * what makes the read-then-write a critical section, in the way the policy
+ * other transaction has not yet committed. `FOR NO KEY UPDATE` on the asset row
+ * is what makes the read-then-write a critical section (NO KEY since round 3,
+ * brk-fleet B1: no key column changes, and FOR UPDATE conflicted with the FOR
+ * KEY SHARE a bank-line link and a fleet-record create take), in the way the policy
  * increment in `assetDepreciationPosting.ts` gets for free by being a
  * read-modify-write on the locked row itself.
  */
@@ -53,7 +55,7 @@ export interface AssetTaxBase {
  * every later run. With no rows yet it comes from the asset column, which is
  * the only place a first run can find it.
  *
- * Must be called inside the request transaction. Outside one, `FOR UPDATE` is
+ * Must be called inside the request transaction. Outside one, `FOR NO KEY UPDATE` is
  * released the instant the SELECT returns and locks nothing.
  */
 export async function lockAssetTaxBase(
@@ -68,7 +70,7 @@ export async function lockAssetTaxBase(
   await sql`
     SELECT id FROM assets
     WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID
-    FOR UPDATE
+    FOR NO KEY UPDATE
   `;
 
   const rows = (await sql`

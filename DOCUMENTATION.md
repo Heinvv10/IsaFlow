@@ -775,8 +775,8 @@ All API routes follow the pattern `/api/accounting/*` and return standardised re
 | POST | `/api/accounting/bank-rules-seed` | Seed default rules |
 | GET | `/api/accounting/bank-match-candidates` | Match suggestions |
 | POST | `/api/accounting/bank-match-confirm` | Confirm match |
-| POST | `/api/accounting/bank-match-asset` | Asset-related match |
-| POST | `/api/accounting/bank-match-fleet` | Fleet-related match |
+| POST | `/api/accounting/bank-match-asset` | Link a bank line to an asset (annotation only; `assetId: null` unlinks) |
+| POST | `/api/accounting/bank-match-fleet` | Link a bank line to an asset's fuel / service record (annotation only; null id unlinks) |
 | GET/POST | `/api/accounting/bank-transfers` | Transfer tracking |
 | POST | `/api/accounting/smart-categorize` | AI categorisation |
 

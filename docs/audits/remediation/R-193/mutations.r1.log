@@ -1,0 +1,50 @@
+
+=== BASELINE (before mutants)
+HEAD ce9ae5180eb5287dd53719cf27cfd1d53a8cc142 dirty=6 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=16.96 2026-10-05T10:34:05+02:00
+Test Files  3 passed (3)
+      Tests  14 passed (14)
+rc=0
+
+=== MUTANT M1 no lock (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 1 -) expect RED
+HEAD ce9ae5180eb5287dd53719cf27cfd1d53a8cc142 dirty=7 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=15.58 2026-10-05T10:34:18+02:00
+Test Files  2 failed | 1 passed (3)
+      Tests  10 failed | 4 passed (14)
+rc=1
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 255ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2053ms
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9033ms
+  × post the fee once; the second waits for the first at the receipt lock (R-193), answers 200 and commits 4702ms
+  × A commits: B finds its fee journal with 200, exactly one fee journal 4404ms
+  × A rolls back: B posts the fee, exactly one fee journal 30012ms
+  × another company's live fee journal for the same reference does not stop A's fee 30017ms
+  × a closed period: the delivery answers 500 and leaves no fee journal, not even a draft 30018ms
+  × refuses a second live fee journal for one (company, reference), draft or posted 30022ms
+  × admits the receipt journals (same agent, NULL reference), another agent, a reversed row 30022ms
+
+=== MUTANT M2 lock without re-read (stale unlocked read, then lock by id) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 4 +++-) expect RED
+HEAD ce9ae5180eb5287dd53719cf27cfd1d53a8cc142 dirty=7 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=57.08 2026-10-05T10:37:22+02:00
+Test Files  2 failed | 1 passed (3)
+      Tests  9 failed | 5 passed (14)
+rc=1
+  × post the fee once; the second waits for the first at the receipt lock (R-193), answers 200 and commits 6653ms
+  × A commits: B finds its fee journal with 200, exactly one fee journal 4502ms
+  × A rolls back: B posts the fee, exactly one fee journal 30004ms
+  × another company's live fee journal for the same reference does not stop A's fee 30016ms
+  × a closed period: the delivery answers 500 and leaves no fee journal, not even a draft 30017ms
+  × refuses a second live fee journal for one (company, reference), draft or posted 30021ms
+  × admits the receipt journals (same agent, NULL reference), another agent, a reversed row 30020ms
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 663ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2123ms
+
+=== MUTANT M3 unbounded wait (no row-lock budget) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 2 +-) expect RED
+HEAD ce9ae5180eb5287dd53719cf27cfd1d53a8cc142 dirty=7 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=82.84 2026-10-05T10:40:31+02:00
+Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 13 passed (14)
+rc=1
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9109ms
+
+=== BASELINE (after mutants)
+HEAD ce9ae5180eb5287dd53719cf27cfd1d53a8cc142 dirty=6 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=88.08 2026-10-05T10:40:51+02:00
+Test Files  3 passed (3)
+      Tests  14 passed (14)
+rc=0

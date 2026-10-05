@@ -1,0 +1,57 @@
+
+=== BASELINE (before mutants)
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=3 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=14.93 2026-10-05T10:13:04+02:00
+Test Files  2 passed (2)
+      Tests  12 passed (12)
+rc=0
+
+=== MUTANT M1 draft treated as live (src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts | 2 +-) expect RED
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=14.93 2026-10-05T10:13:06+02:00
+Test Files  2 failed (2)
+      Tests  5 failed | 7 passed (12)
+rc=1
+  × a LIVE receipt with no journal (a draft manual receipt with the reference) is still matched: R-189 flags it 22ms
+  × webhook (guarded UPDATE matched) with fees, behind a draft EFT receipt: no receipt, no fee, Bank unchanged, flagged 293ms
+  × a draft CARD receipt (the card-reference index admits one live row) is flagged the same way 32ms
+  × verify (moves the request) with fees, behind a draft: completed, NOT applied, the request amount; no fee; flagged 34ms
+  × a later charge.success in another body (already-completed branch) still banks nothing and posts no fee 48ms
+
+=== MUTANT M2 fee still posted (src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts | 1 +) expect RED
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=15.18 2026-10-05T10:13:09+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 9 passed (12)
+rc=1
+  × webhook (guarded UPDATE matched) with fees, behind a draft EFT receipt: no receipt, no fee, Bank unchanged, flagged 280ms
+  × a draft CARD receipt (the card-reference index admits one live row) is flagged the same way 64ms
+  × a later charge.success in another body (already-completed branch) still banks nothing and posts no fee 65ms
+
+=== MUTANT M3 flag missing (src/modules/accounting/services/ar/gatewayInvoiceReceiptService.ts | 2 +-) expect RED
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=18.29 2026-10-05T10:13:15+02:00
+Test Files  2 failed (2)
+      Tests  5 failed | 7 passed (12)
+rc=1
+  × webhook (guarded UPDATE matched) with fees, behind a draft EFT receipt: no receipt, no fee, Bank unchanged, flagged 560ms
+  × a draft CARD receipt (the card-reference index admits one live row) is flagged the same way 52ms
+  × verify (moves the request) with fees, behind a draft: completed, NOT applied, the request amount; no fee; flagged 143ms
+  × a later charge.success in another body (already-completed branch) still banks nothing and posts no fee 64ms
+  × a LIVE receipt with no journal (a draft manual receipt with the reference) is still matched: R-189 flags it 58ms
+
+=== MUTANT M4 id-only order (draft outranks confirmed) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 3 +--) expect RED
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=20.02 2026-10-05T10:13:21+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 11 passed (12)
+rc=1
+  × a draft AND a confirmed receipt for the reference: the confirmed one is the settlement, whatever the id order 117ms
+
+=== MUTANT M5 verify counts a draft as banked (pages/api/portal/payments/paystack/verify.ts | 2 +-) expect RED
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=23.15 2026-10-05T10:13:27+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 11 passed (12)
+rc=1
+  × verify (moves the request) with fees, behind a draft: completed, NOT applied, the request amount; no fee; flagged 172ms
+
+=== BASELINE (after mutants)
+HEAD 0104a8d29af118238353ba0ec0a081bf3c1f0f49 dirty=3 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=28.79 2026-10-05T10:13:34+02:00
+Test Files  2 passed (2)
+      Tests  12 passed (12)
+rc=0

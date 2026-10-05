@@ -15492,23 +15492,40 @@
       "correctedTrigger": null,
       "severityRationale": "Pre-existing (K-036 design, kept exactly by R-187). Needs a person to record a receipt by hand with the Paystack reference and leave it in draft before the gateway settles. The card payment is then never banked unless the draft is confirmed, and nothing flags it.",
       "auditedSha": "4d3362b9649fc71a123dc0b6815b395e5292110c",
-      "currentSha": "4d3362b9649fc71a123dc0b6815b395e5292110c",
-      "status": "candidate",
+      "currentSha": "281f97b96672b4dbb4658549aec7667eb8d272c5",
+      "status": "fixed",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r187-non-gateway-cancelled.int.test.ts",
+        "tests/integration/r189-draft-receipt-holds-reference.int.test.ts",
+        "tests/unit/services/ar/gatewayReceiptWiring.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-189/fix.md",
+        "docs/audits/remediation/R-189/green.int.log",
+        "docs/audits/remediation/R-189/green.r2.int.log",
+        "docs/audits/remediation/R-189/mutations.log",
+        "docs/audits/remediation/R-189/mutations.r0.log",
+        "docs/audits/remediation/R-189/mutations.r2.log",
+        "docs/audits/remediation/R-189/red.int.log",
+        "docs/audits/remediation/R-189/red.r1.int.log",
+        "docs/audits/remediation/R-189/red.r2.int.log",
+        "docs/audits/remediation/R-189/regression.int.log",
+        "docs/audits/remediation/R-189/regression.r2.int.log",
+        "docs/audits/remediation/R-189/unit.r2.log"
+      ],
+      "fixCommit": "470df5599..281f97b96",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Unknown. Census (read-only): SELECT pr.company_id, pr.paystack_reference, pr.completed_at, cp.id AS draft_receipt_id, cp.total_amount, cp.bank_account_id, EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.company_id = pr.company_id AND je.reference = pr.paystack_reference AND je.posting_agent = 'system:paystack-receipt:v1' AND je.status IS DISTINCT FROM 'reversed') AS fee_leg_posted FROM paystack_payment_requests pr JOIN customer_payments cp ON cp.company_id = pr.company_id AND cp.bank_reference = pr.paystack_reference AND cp.status = 'draft' WHERE pr.purpose = 'customer_invoice' AND pr.status = 'completed' AND NOT EXISTS (SELECT 1 FROM customer_payments x WHERE x.company_id = pr.company_id AND x.bank_reference = pr.paystack_reference AND x.status IN ('confirmed', 'reconciled'));",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r189-draft-receipt-holds-reference-20261005",
       "id": "R-189",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A live DRAFT receipt carrying the Paystack reference makes the gateway bank nothing, with no flag",
       "claim": "recordGatewayInvoiceReceipt's dedupe (gatewaySettledReceipt.findSettledReceipt) takes any LIVE customer_payments row for (company, bank_reference) as the settlement, whoever wrote it and in any status, a draft included. A draft manual receipt with the Paystack reference (customerPaymentService.createCustomerPayment accepts any bankReference) therefore sends the first charge.success down the second-report path: no receipt is banked, nothing is allocated, and no review reason is written unless the amounts disagree. If the report carries fees, postGatewayFee still posts the fee leg (DR admin_expense / CR Bank) against the draft's bank_account_id, so Bank is credited before any receipt debits it. If the draft is never confirmed the card payment is never banked and nothing says so; the request reads completed. Pinned, not fixed, by tests/integration/r187-non-gateway-cancelled.int.test.ts ('a LIVE receipt with no journal...'). Fix options: treat only a confirmed/reconciled receipt (or a gateway-written one) as the settlement and flag any other live match; or flag the draft case for review.",
-      "processNotes": "2026-10-03: recorded by the R-187 round-2 blind review on a2e9cf93a. Pre-existing; R-187 deliberately left a live match unchanged."
+      "processNotes": "2026-10-03: recorded by the R-187 round-2 blind review on a2e9cf93a. Pre-existing; R-187 deliberately left a live match unchanged. 2026-10-05: fixed per Hein's decision (bank nothing, post NO fee, flag draft_receipt_holds_reference, leave the draft alone). findSettledReceipt ranks in code: confirmed/reconciled, then other live (a draft or NULL status), then a cancelled gateway receipt; a draft beside a cancelled gateway receipt also flags already_settled_cancelled_receipt and names it. verify reports only a confirmed or reconciled receipt as banked. Red on master, green 9/9, mutants M1-M8 red. Blind Opus review: FIX (1 M, 2 L) then SHIP (2 L) then SHIP, all fixed. The census in historicalDataImpact was not run. Not merged or deployed (Hein's gate)."
     },
     {
       "area": "billing/paystack tests",
@@ -15522,27 +15539,35 @@
       "correctedTrigger": null,
       "severityRationale": "Test-only: a stale integration test, red on master. It does not run on GitHub (integration tests skip there), so it hides behind local runs; any change it was meant to guard is unguarded while it is red.",
       "auditedSha": "1910c157b",
-      "currentSha": "1910c157b",
-      "status": "candidate",
+      "currentSha": "9cc0cb84a025ab75308d1581af9d4b0c92ca4854",
+      "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
       ],
       "evidencePaths": [
-        "docs/audits/remediation/R-187/k035.r1.int.log"
+        "docs/audits/remediation/R-187/k035.r1.int.log",
+        "docs/audits/remediation/R-190/fix.md",
+        "docs/audits/remediation/R-190/green.int.log",
+        "docs/audits/remediation/R-190/green.r1.int.log",
+        "docs/audits/remediation/R-190/mutations.log",
+        "docs/audits/remediation/R-190/mutations.r1.log",
+        "docs/audits/remediation/R-190/red.int.log",
+        "docs/audits/remediation/R-190/regression.int.log",
+        "docs/audits/remediation/R-190/regression.r1.int.log"
       ],
-      "fixCommit": null,
+      "fixCommit": "470df5599..9cc0cb84a",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "None: test code only.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r190-k035-redelivery-test-20261005",
       "id": "R-190",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "k-035 webhook-redelivery integration test fails 4/6 on clean master: its failure premise no longer produces a 500",
       "claim": "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts fails 4 of 6 on clean master 1910c157b: 'expected 200 to be 500' three times and 'expected 'completed' to be 'pending'' once. Its premise, a ux_sub_mandates_company_active violation making the charge.success authorization branch throw (500, rolled back, redelivered), no longer holds: paystackMandateActivation makes that case a settled outcome (noteAuthorisationNotAttached, 200), so the test is stale. It needs a new way to make processing fail, or a rewrite against the current contract.",
-      "processNotes": "2026-10-03: recorded during R-187 round 2. Verified on two separate fixtures: by the orchestrator, and by the R-187 implementer on isaflow-fixture-r187 with master's source for the two R-187 services and on the R-187 branch (identical failures, docs/audits/remediation/R-187/k035.r1.int.log). Not caused by R-183..R-188."
+      "processNotes": "2026-10-03: recorded during R-187 round 2. Verified on two separate fixtures: by the orchestrator, and by the R-187 implementer on isaflow-fixture-r187 with master's source for the two R-187 services and on the R-187 branch (identical failures, docs/audits/remediation/R-187/k035.r1.int.log). Not caused by R-183..R-188. 2026-10-05: fixed (test only, no production change). The forced failure is a sql-wrapper throw at the in-transaction processed stamp (SET processed = TRUE) and, in a new case (6th of 7), inside processEvent at the first payment-request write; the hook records the in-transaction request and mandate status before throwing. Red 4/6 on master 470df5599, green 7/7, mutants M1-M8 and M10 red with M9 as a control. Blind Opus review: FIX (2 M, 1 L), all fixed, re-review SHIP; the register-commit review's L (this case's number) is fixed here."
     },
     {
       "area": "accounting/ar portal",
@@ -15559,25 +15584,41 @@
       "correctedTrigger": null,
       "severityRationale": "Pre-existing (the dedupe read has never locked the receipt). Needs a replay of charge.success with fees to read the live gateway receipt in the same instant a person's cancelCustomerPayment of that receipt commits. The effect is a fee leg (DR admin_expense / CR Bank) posted against a now-cancelled receipt with no review reason; cancel keeps the fee by design, so the books are not doubled, but nothing tells a person the fee arrived after the cancel.",
       "auditedSha": "0911f12ac441874a5e7987247ebe3237109aafd9",
-      "currentSha": "0911f12ac441874a5e7987247ebe3237109aafd9",
-      "status": "candidate",
+      "currentSha": "10ec04eca36ed31e458df2d35f13a1bbc659049a",
+      "status": "fixed",
       "dependencies": [
         "R-187"
       ],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r185-gateway-fee-unique.int.test.ts",
+        "tests/integration/r193-replay-waits-for-cancel.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-193/fix.md",
+        "docs/audits/remediation/R-193/green.int.log",
+        "docs/audits/remediation/R-193/green.r1.int.log",
+        "docs/audits/remediation/R-193/green.r2.int.log",
+        "docs/audits/remediation/R-193/mutations.log",
+        "docs/audits/remediation/R-193/mutations.r1.log",
+        "docs/audits/remediation/R-193/mutations.r2.log",
+        "docs/audits/remediation/R-193/mutations.r3.log",
+        "docs/audits/remediation/R-193/red.int.log",
+        "docs/audits/remediation/R-193/regression.d8.int.log",
+        "docs/audits/remediation/R-193/regression.int.log",
+        "docs/audits/remediation/R-193/regression.r1.int.log"
+      ],
+      "fixCommit": "470df5599..10ec04eca",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Unknown. Census (read-only; candidates for a person, the race signature is a fee posted at or after the cancel): SELECT fj.company_id, fj.reference, fj.id AS fee_journal_id, fj.created_at AS fee_posted_at, rj.created_at AS receipt_posted_at, cp.id AS receipt_id, cp.updated_at AS receipt_last_updated_at FROM gl_journal_entries fj JOIN customer_payments cp ON cp.company_id = fj.company_id AND cp.bank_reference = fj.reference AND cp.status = 'cancelled' JOIN gl_journal_entries rj ON rj.id = cp.gl_journal_entry_id AND rj.company_id = cp.company_id AND rj.posting_agent = 'system:paystack-receipt:v1' WHERE fj.posting_agent = 'system:paystack-receipt:v1' AND fj.reference IS NOT NULL AND fj.status IS DISTINCT FROM 'reversed' AND fj.created_at > rj.created_at AND NOT EXISTS (SELECT 1 FROM customer_payments live WHERE live.company_id = cp.company_id AND live.bank_reference = cp.bank_reference AND live.status IS DISTINCT FROM 'cancelled') ORDER BY fj.created_at;",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r193-replay-locks-receipt-20261005",
       "id": "R-193",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A replay that reads a live gateway receipt while a cancel of it commits posts the fee against the cancelled receipt, unflagged",
       "claim": "gatewaySettledReceipt.findSettledReceipt is a plain read (no row lock). A charge.success replay (another body, or verify) reads the LIVE gateway receipt; a concurrent cancelCustomerPayment of that receipt then commits; the replay continues down the live second-report path and postGatewayFee posts a missing fee leg against the receipt's bank account, with no review reason (already_settled_cancelled_receipt is only written when the read already sees the cancel). Candidate fix: FOR UPDATE (OF cp) on the matched receipt in findSettledReceipt, so the replay waits for the cancel and then re-reads it as cancelled; it needs lock-order analysis against R-181's documented order (settlement: request -> link -> payment -> invoice; dedupe: link -> fee journal -> request row last) and against cancelCustomerPayment's (bank line -> payment -> invoices -> journal), and a bounded wait. Not fixed in R-187 because it changes the lock order.",
-      "processNotes": "2026-10-03: recorded from the PR #625 blind /review of R-187 (LOW). Pre-existing; R-187 kept the dedupe read lock-free."
+      "processNotes": "2026-10-03: recorded from the PR #625 blind /review of R-187 (LOW). Pre-existing; R-187 kept the dedupe read lock-free. 2026-10-05: fixed, stacked on R-189 (merge R-189 first). findSettledReceipt takes FOR UPDATE OF cp on every receipt for the reference in id order under the 5 s row-lock budget (RowLockTimeoutError: webhook 500 and redelivery, verify pending); spendPaymentLinkOfRequest moved after the read (receipt -> link, as customerMergeService). Residual: a multi-line reversal writer that creates journal N then locks payment N+1 can 40P01 against a replay (the class cancel/confirm already have). R-185's route races re-pinned: two dedupe deliveries now serialise at the receipt. Red 3/3, green 4/4 (+r189 9/9), mutants M1-M4 red. Blind Opus review: SHIP (2 L) then SHIP, both fixed. The census in historicalDataImpact was not run. Not merged or deployed (Hein's gate)."
     },
     {
       "area": "lib",
@@ -15783,25 +15824,41 @@
       "correctedTrigger": null,
       "severityRationale": "Needs forged data: no code path creates a payment request for another company's invoice. Low while archiving is switched off (POST is 403). Even if re-enabled, the effect is a whole-run refusal (fails closed), not data loss.",
       "auditedSha": "1daa3eb88",
-      "currentSha": "1daa3eb88",
-      "status": "candidate",
+      "currentSha": "8d7c679f156b4fc0d655626678ba44ce6c3ed99f",
+      "status": "fixed",
       "dependencies": [
         "R-053"
       ],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r186-archive-skips-paystack-invoices.int.test.ts",
+        "tests/integration/r195-payment-request-invoice-company-fk.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-195/baseline-after-mutants.int.log",
+        "docs/audits/remediation/R-195/baseline-after-mutants.r1.int.log",
+        "docs/audits/remediation/R-195/fix.md",
+        "docs/audits/remediation/R-195/g1-prod-census.log",
+        "docs/audits/remediation/R-195/green.int.log",
+        "docs/audits/remediation/R-195/green.r1.int.log",
+        "docs/audits/remediation/R-195/lock-order.r1.log",
+        "docs/audits/remediation/R-195/mutations.log",
+        "docs/audits/remediation/R-195/mutations.r1.log",
+        "docs/audits/remediation/R-195/red.int.log",
+        "docs/audits/remediation/R-195/regression.int.log",
+        "docs/audits/remediation/R-195/regression.r1.int.log"
+      ],
+      "fixCommit": "470df5599..8d7c679f1",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Census (read-only), expected 0 rows: SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r195-payment-request-company-fk-20261005",
       "id": "R-195",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A payment request in another company naming this company's invoice blocks this company's whole archive",
       "claim": "paystack_payment_requests.customer_invoice_id and stitch_payment_requests.customer_invoice_id are single-column FKs (ON DELETE SET NULL), and no constraint requires the request's company_id to equal the invoice's. The archive skips only invoices that a request of the SAME company references (R-186; the RLS policy admits every member company, so the predicate decides). A request in company B naming company C's invoice therefore does not shield it: deleting the invoice fires the SET NULL on B's row, and paystack_pr_invoice_has_invoice / stitch_pr_invoice_has_invoice reject it with 23514. C's whole archive run fails. A fix is a composite FK (customer_invoice_id, company_id) or a trigger that refuses cross-company references.",
-      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration."
+      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration. 2026-10-05: fixed by migration 854 (853 was taken by PR #640): UNIQUE customer_invoices(id, company_id) and composite FKs (customer_invoice_id, company_id) on both request tables, ON DELETE SET NULL (customer_invoice_id), created NOT VALID and validated only when the table's cross-company count is 0 (never changes data); the request tables are locked before customer_invoices. The single-column FKs are kept. G1 census run read-only on prod 2026-10-05 ~10:45 SAST: 0 rows, PostgreSQL 15.8 (g1-prod-census.log). The R-186 cross-tenant pins now assert the forged insert is refused (23503). Red 7/15, green 18/18, mutants red. Blind Opus review: FIX (7 L), all fixed, re-review SHIP. Not merged or deployed (Hein's gate)."
     },
     {
       "area": "lib",

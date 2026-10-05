@@ -1,0 +1,168 @@
+R-195 review round 1 mutants. Each applied on disk, run, reverted with git checkout; real 854 re-applied to the fixture after each.
+
+===== MUTANT R1 Paystack company predicate dropped from gatewayReferenced (src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts)
+-                      WHERE pr.company_id = ${companyId} AND pr.customer_invoice_id = ci.id)
++                      WHERE pr.customer_invoice_id = ci.id)
+HEAD 1ab99b9c39cc806a5256fca74f3f601ec9fea348 dirty=7 fixture=isaflow-fixture-r19x-r195 db=isaflow_schema_fixture url=127.0.0.1:32883 load=16.00 2026-10-05T11:04:24+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:4019234) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:24.604Z","component":"data-archiving","data":{"companyId":"97b382fe-de01-45fe-9748-bdb14684f925","runId":"43bced60-560e-40bf-b953-a0b8bd5fab40","cutoffDate":"2005-01-01","userId":"308f74bb-e59c-476b-934a-29eaab7e3607"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:24.616Z","component":"data-archiving","data":{"companyId":"97b382fe-de01-45fe-9748-bdb14684f925","runId":"43bced60-560e-40bf-b953-a0b8bd5fab40","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:24.629Z","component":"data-archiving","data":{"companyId":"8c892e8e-3896-4553-aaea-748c25940eae","runId":"f4238e36-59aa-4113-b975-ffadf3d7cf16","cutoffDate":"2005-01-01","userId":"308f74bb-e59c-476b-934a-29eaab7e3607"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:24.642Z","component":"data-archiving","data":{"companyId":"8c892e8e-3896-4553-aaea-748c25940eae","runId":"f4238e36-59aa-4113-b975-ffadf3d7cf16","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:24.653Z","component":"data-archiving","data":{"companyId":"0f8dc408-c97c-40fd-8798-629379fb3b29","runId":"c4d90392-1de9-46e0-b89e-84c4978f98b0","cutoffDate":"2005-01-01","userId":"308f74bb-e59c-476b-934a-29eaab7e3607"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:24.666Z","component":"data-archiving","data":{"companyId":"0f8dc408-c97c-40fd-8798-629379fb3b29","runId":"c4d90392-1de9-46e0-b89e-84c4978f98b0","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts (5 tests | 1 failed) 411ms
+     × a forged request of another company (composite FK dropped, rolled back) does not make the preview skip 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a forged request of another company (composite FK dropped, rolled back) does not make the preview skip
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:87:38
+     85|          VALUES($1,'customer_invoice',$2,$3,10000)`, [coB, inv.c, `r18…
+     86|     } });
+     87|     expect(preview.customerInvoices).toBe(1);
+       |                                      ^
+     88|     expect(preview.customerInvoicesSkipped, 'company B\'s forged reque…
+     89|   }, 40000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 17 passed (18)
+   Start at  11:04:24
+   Duration  1.11s (transform 82ms, setup 0ms, import 184ms, tests 756ms, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT R2 Stitch company predicate dropped from gatewayReferenced (src/modules/accounting/services/core/archiveCustomerInvoiceScope.ts)
+-                         WHERE sr.company_id = ${companyId} AND sr.customer_invoice_id = ci.id))`;
++                         WHERE sr.customer_invoice_id = ci.id))`;
+HEAD 1ab99b9c39cc806a5256fca74f3f601ec9fea348 dirty=7 fixture=isaflow-fixture-r19x-r195 db=isaflow_schema_fixture url=127.0.0.1:32883 load=16.00 2026-10-05T11:04:25+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:4020131) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:26.153Z","component":"data-archiving","data":{"companyId":"e9a2d849-591d-441a-a8a4-398b138ab64a","runId":"3d78a218-19e1-4420-8ed7-8ebd0ca3f3fd","cutoffDate":"2005-01-01","userId":"47750c69-1b2e-4917-aa80-e92632d029cb"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:26.169Z","component":"data-archiving","data":{"companyId":"e9a2d849-591d-441a-a8a4-398b138ab64a","runId":"3d78a218-19e1-4420-8ed7-8ebd0ca3f3fd","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:26.191Z","component":"data-archiving","data":{"companyId":"27a7682c-f0a7-4717-89a0-db9656c14fd7","runId":"9895f85a-660d-4ece-8d68-6baef3ef3fcf","cutoffDate":"2005-01-01","userId":"47750c69-1b2e-4917-aa80-e92632d029cb"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:26.206Z","component":"data-archiving","data":{"companyId":"27a7682c-f0a7-4717-89a0-db9656c14fd7","runId":"9895f85a-660d-4ece-8d68-6baef3ef3fcf","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:26.220Z","component":"data-archiving","data":{"companyId":"b389a03c-19ba-45f1-b4d7-5486c27358fe","runId":"d28076be-8520-4743-aa27-537c23d9b54e","cutoffDate":"2005-01-01","userId":"47750c69-1b2e-4917-aa80-e92632d029cb"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:26.236Z","component":"data-archiving","data":{"companyId":"b389a03c-19ba-45f1-b4d7-5486c27358fe","runId":"d28076be-8520-4743-aa27-537c23d9b54e","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts (5 tests | 1 failed) 440ms
+     × a forged request of another company (composite FK dropped, rolled back) does not make the preview skip 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a forged request of another company (composite FK dropped, rolled back) does not make the preview skip
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:87:38
+     85|          VALUES($1,'customer_invoice',$2,$3,10000)`, [coB, inv.c, `r18…
+     86|     } });
+     87|     expect(preview.customerInvoices).toBe(1);
+       |                                      ^
+     88|     expect(preview.customerInvoicesSkipped, 'company B\'s forged reque…
+     89|   }, 40000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 17 passed (18)
+   Start at  11:04:25
+   Duration  1.15s (transform 113ms, setup 0ms, import 228ms, tests 726ms, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT R3 SET LOCAL timeouts deleted from 854 (scripts/migrations/sql/854_payment_request_invoice_company_fk.sql)
+-SET LOCAL lock_timeout = '5s';
+-SET LOCAL statement_timeout = '120s';
+HEAD 1ab99b9c39cc806a5256fca74f3f601ec9fea348 dirty=7 fixture=isaflow-fixture-r19x-r195 db=isaflow_schema_fixture url=127.0.0.1:32883 load=16.00 2026-10-05T11:04:27+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+(node:4021087) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:27.676Z","component":"data-archiving","data":{"companyId":"6a6bdabf-0bf2-44ed-9ba2-689d75381e32","runId":"2f350f3b-6378-4437-9e14-4e53e49a61fe","cutoffDate":"2005-01-01","userId":"9c8c3233-272c-48d7-9eb2-1b35cab1600c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:27.689Z","component":"data-archiving","data":{"companyId":"6a6bdabf-0bf2-44ed-9ba2-689d75381e32","runId":"2f350f3b-6378-4437-9e14-4e53e49a61fe","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:27.701Z","component":"data-archiving","data":{"companyId":"08ceb94e-69f0-40ef-8564-6c8791be9bf3","runId":"9bc2909b-42b3-44e5-a2e0-9f0103663249","cutoffDate":"2005-01-01","userId":"9c8c3233-272c-48d7-9eb2-1b35cab1600c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:27.717Z","component":"data-archiving","data":{"companyId":"08ceb94e-69f0-40ef-8564-6c8791be9bf3","runId":"9bc2909b-42b3-44e5-a2e0-9f0103663249","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T09:04:27.730Z","component":"data-archiving","data":{"companyId":"daf751c4-d566-4578-a757-e73564c4aa7b","runId":"acacf425-2a57-446f-a11c-d4b8e1ebb24b","cutoffDate":"2005-01-01","userId":"9c8c3233-272c-48d7-9eb2-1b35cab1600c"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T09:04:27.745Z","component":"data-archiving","data":{"companyId":"daf751c4-d566-4578-a757-e73564c4aa7b","runId":"acacf425-2a57-446f-a11c-d4b8e1ebb24b","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":0,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (13 tests | 1 failed) 303ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+AssertionError: the migration does not bound its lock wait and its run: expected [ { lock: '0', statement: '0' } ] to deeply equal [ { lock: '5s', statement: '2min' } ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "lock": "5s",
+-     "statement": "2min",
++     "lock": "0",
++     "statement": "0",
+    },
+  ]
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:160:84
+    158|         const timeouts = (await db.query(
+    159|           "SELECT current_setting('lock_timeout') AS lock, current_set…
+    160|         expect(timeouts, 'the migration does not bound its lock wait a…
+       |                                                                                    ^
+    161|         expect(await constraintState(db, 'customer_invoices_id_company…
+    162|           .toEqual([{ convalidated: true, def: 'UNIQUE (id, company_id…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 17 passed (18)
+   Start at  11:04:27
+   Duration  1.09s (transform 93ms, setup 0ms, import 200ms, tests 697ms, environment 0ms)
+
+reverted; git diff lines: 0
+
+===== MUTANT R4 LOCK TABLE removed from 854 (lock-order probe, /tmp/claude-1003/-home-hein-Workspace-IsaFlow/18eb2166-db68-4cdf-9191-33d47224f6d0/scratchpad/r195-lockorder.sh; not a vitest case)
+-LOCK TABLE paystack_payment_requests, stitch_payment_requests IN SHARE ROW EXCLUSIVE MODE;
+HEAD 1ab99b9c39cc806a5256fca74f3f601ec9fea348 dirty=7 fixture=isaflow-fixture-r19x-r195 2026-10-05T11:04:37+02:00
+Setup: drop the 3 constraints (committed, fixture only). B holds ROW EXCLUSIVE on paystack_payment_requests (the settlement UPDATE's lock) for 3s; A runs 854 meanwhile; C samples A's relation locks at ~1.5s.
+--- A's relation locks while B holds the request table:
+            rel            |         mode          | granted 
+---------------------------+-----------------------+---------
+ customer_invoices         | AccessExclusiveLock   | t
+ customer_invoices         | ShareLock             | t
+ paystack_payment_requests | ShareRowExclusiveLock | f
+(3 rows)
+
+--- A's output:
+A rc=0
+--- constraints after:
+customer_invoices_id_company_id_key|t
+paystack_payment_requests_invoice_company_fkey|t
+stitch_payment_requests_invoice_company_fkey|t
+reverted; git diff lines: 0
