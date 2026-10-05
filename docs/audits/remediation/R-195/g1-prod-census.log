@@ -1,0 +1,24 @@
+# G1 census, run read-only on PROD (isaflow-supabase-db, db isaflow, default_transaction_read_only=on, psql -e) 2026-10-05 ~10:45 SAST by the orchestrator
+SHOW default_transaction_read_only
+ default_transaction_read_only 
+-------------------------------
+ on
+(1 row)
+
+SELECT version()
+                                   version                                    
+------------------------------------------------------------------------------
+ PostgreSQL 15.8 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 13.2.0, 64-bit
+(1 row)
+
+SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id
+ gateway | id | request_company | invoice_company 
+---------+----+-----------------+-----------------
+(0 rows)
+
+SELECT (SELECT count(*) FROM paystack_payment_requests WHERE customer_invoice_id IS NOT NULL) AS paystack_with_invoice, (SELECT count(*) FROM stitch_payment_requests WHERE customer_invoice_id IS NOT NULL) AS stitch_with_invoice, (SELECT count(*) FROM customer_invoices) AS invoices
+ paystack_with_invoice | stitch_with_invoice | invoices 
+-----------------------+---------------------+----------
+                     1 |                   2 |     2368
+(1 row)
+

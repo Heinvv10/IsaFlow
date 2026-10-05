@@ -8,8 +8,9 @@
  * for purpose 'customer_invoice', so deleting the invoice raises 23514 and fails
  * the whole run. Only this company's requests count: the RLS policy admits every
  * company the user belongs to, so the predicate, not RLS, keeps another
- * company's request from deciding. Such a cross-tenant reference still fails the
- * run whole on 23514.
+ * company's request from deciding. Since R-195 (migration 854) a composite FK
+ * refuses a request naming another company's invoice at insert (23503); before it,
+ * such a cross-tenant reference failed the run whole on 23514.
  */
 
 import { sql } from '@/lib/neon';

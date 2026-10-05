@@ -1,5 +1,5 @@
 /**
- * Asset Detail Page — view, dispose, and depreciation schedule.
+ * Asset Detail Page — view, dispose, depreciation schedule, and fleet (fuel / service / linked bank lines).
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
+import { AssetFleetPanel } from '@/components/assets/AssetFleetPanel';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
@@ -251,6 +252,9 @@ export default function AssetDetailPage() {
           )}
 
           <DepTable asset={asset} />
+
+          {/* Fleet: fuel and service records, and the bank lines linked to the asset (mig 853) */}
+          <AssetFleetPanel assetId={asset.id} />
 
           {/* Dual-track policy vs tax depreciation panel */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
