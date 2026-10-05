@@ -28,9 +28,18 @@ settlement take link → existing receipt, the inverse of merge's receipts → l
 locks the link when it is still ACTIVE, which happens when a live receipt already exists on the
 FIRST report (the R-189 draft case, or a confirmed manual receipt), so it is narrow, but it is a
 real cycle. Moving the spend after the read gives receipt → link everywhere, consistent with merge.
-Against cancel: the replay holds the receipt, then inserts a NEW fee journal (no existing journal row
-is locked) and locks the request row; cancel holds a bank line and then waits on the receipt, and
-never asks for the link, the request or the fee journal. No cycle. A first-path settlement holds the
+Against cancel: the replay holds the receipt, then inserts a fee journal and locks the request row;
+cancel holds a bank line and then waits on the receipt, and never asks for the link, the request or
+the fee journal. No cycle with cancel. CORRECTED in review round 1: inserting a journal is not
+wait-free. The entry-number trigger takes MAX+1 over committed rows, so the insert waits on any
+other uncommitted journal in the company (`uq_gl_je_company_entry_number`), and both update the same
+`gl_account_balances` row. A multi-line writer that creates journal N and then locks payment N+1
+(MCP `reverse_bank_allocation_batch`, `writeBankReverseBatch.ts:112` -> `unwindOnePayment`) can
+therefore cycle with a replay that holds that payment and waits in `postGatewayFee` on journal N:
+40P01, one side rolled back (the webhook answers 500 and is redelivered, or the agent's batch fails).
+This is the class `cancelCustomerPayment` and `confirmCustomerPayment` already have (payment held,
+then a journal created) against those writers; narrow and recoverable. Before R-193 the replay lost
+that race with a 500 anyway; now either side can lose. A first-path settlement holds the
 request row, then the receipt; nothing that holds a receipt waits on a Paystack request row (cancel,
 merge, allocation, bank unwind and MCP void never touch it). The FOR UPDATE therefore inverts no
 order once the spend is moved, so the read-then-recheck alternative was not needed. (A re-check after
@@ -96,3 +105,12 @@ R-189's round-1 fix moved the ranking into code and added `cancelledGatewayRecei
 that and adds the lock and budget around the same single query. `gatewayInvoiceReceiptService.ts` is
 back to 300 lines (one comment shortened). Re-run on the merge: `green.r1.int.log` (r193 + r189, 12/12),
 `mutations.r2.log` (M1-M3 red, baselines green), `regression.r1.int.log` (22 files, 229 tests).
+
+## Review round 1 (blind Opus review of a63a6d5f7: SHIP, 2 L), both fixed
+- L: the no-cycle argument assumed a journal insert waits on nothing. Corrected above and in
+  `ar/.claude.md`: the residual cycle with multi-line reversal writers (journal N, then payment N+1)
+  is named.
+- L: verify's `pending` on a lock timeout was untested. Case 4 added: a receipt carrying the reference
+  held past the budget; verify (Paystack says success) answers `pending` in 4-8.5 s, the request stays
+  `pending`, no fee journal. Mutant M4 (verify answers `failed` on a settlement error) goes red.
+  Evidence: `green.r2.int.log`, `mutations.r3.log`.
