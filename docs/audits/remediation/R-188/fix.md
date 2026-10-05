@@ -116,4 +116,4 @@ Evidence r9: the invalid-value warning says "falling back" (the `using` field sa
 The saturation warn (`auth pool saturated: an acquire had to queue`, with the counts) is the signal to watch after deploy: a sustained stream of it on authPool means the default of 10 is too small; the rollback is `AUTH_POOL_MAX=20` (plain digits) in the prod env and a restart.
 
 ## Decision (Hein, 2026-10-05)
-Confirmed: keep 2 PDF renders per process at the auth-pool default of 10. The saturation warning above was a false positive on idle-served acquires until R-196 (it fired 628 times in prod's first day with at most 4 of 10 connections open). Since R-196 it fires only when the pool is full and the waiters outnumber the idle clients.
+Confirmed: keep 2 PDF renders per process at the auth-pool default of 10. The saturation warning above was a false positive on idle-served acquires until R-196 (it fired 628 times in prod's first day with at most 4 of 10 connections open). Since R-196 it fires only when the waiters outnumber the idle clients plus the connections the pool may still open (a same-tick burst into a pool that is not yet full included).
