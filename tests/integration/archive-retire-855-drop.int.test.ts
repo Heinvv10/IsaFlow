@@ -94,7 +94,7 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
   });
   beforeEach((ctx) => { if (gone) ctx.skip(); });
 
-  it('keeps every statement inside the one DO block (psql -f in autocommit must not drop past a refusal)', () => {
+  it('lint: every statement sits inside the one DO block (so psql -f in autocommit cannot drop past a refusal)', () => {
     const sqlOnly = MIGRATION.split('\n').filter(l => !/^\s*(--|$)/.test(l)).join('\n');
     expect(sqlOnly.startsWith('DO $$')).toBe(true);
     expect(sqlOnly.trimEnd().endsWith('END $$;')).toBe(true);
@@ -146,30 +146,62 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
     });
   });
 
-  it('refuses when a plpgsql function names an archive table (no dependency would stop the drop)', async () => {
+  it.each([['lower case', 'archive_runs'], ['upper case', 'ARCHIVE_RUNS']])(
+    'refuses when a plpgsql function names an archive table in %s (no dependency would stop the drop)', async (_c, name) => {
+      await inRolledBackTx(async (c) => {
+        await c.query(`CREATE FUNCTION archive_retire_855_f() RETURNS bigint LANGUAGE plpgsql
+          AS $f$ BEGIN RETURN (SELECT count(*) FROM ${name}); END $f$`);
+        expect(await apply(c)).toMatch(/855: function\(s\) archive_retire_855_f\(\) reference an archive table/);
+      });
+    });
+
+  it('does not refuse on a function that only names a longer identifier (archive_runs_legacy)', async () => {
     await inRolledBackTx(async (c) => {
-      await c.query(`CREATE FUNCTION archive_retire_855_f() RETURNS bigint LANGUAGE plpgsql
-        AS $f$ BEGIN RETURN (SELECT count(*) FROM archive_runs); END $f$`);
-      expect(await apply(c)).toMatch(/855: function\(s\) archive_retire_855_f\(\) reference an archive table/);
+      await c.query(`CREATE FUNCTION archive_retire_855_g() RETURNS int LANGUAGE plpgsql
+        AS $g$ BEGIN /* replaces archive_runs_legacy */ RETURN 1; END $g$`);
+      expect(await apply(c)).toBeNull();
     });
   });
+
+  it('gives up after its lock_timeout instead of waiting forever behind a writer', async () => {
+    const pool = getPoolForTests();
+    const writer = await pool.connect();
+    try {
+      await writer.query('BEGIN');
+      await writer.query('LOCK TABLE archive_runs IN ROW EXCLUSIVE MODE'); // held, never committed
+      const started = Date.now();
+      const err = await inRolledBackTx(c => apply(c), false);
+      expect(err).toMatch(/lock timeout/);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    } finally {
+      await writer.query('ROLLBACK').catch(() => undefined);
+      writer.release();
+    }
+  }, 30_000);
 
   it('a row committed while the migration waits for its lock is counted, not dropped', async () => {
     const pool = getPoolForTests();
     const writer = await pool.connect();
     const company = randomUUID();
+    // Precondition: a leftover row would make the refusal pass without the race.
+    for (const tbl of TABLES) {
+      expect((await pool.query(`SELECT count(*)::int AS n FROM ${tbl}`)).rows[0].n, tbl).toBe(0);
+    }
     try {
+      // Cleanup if a killed run leaves these: DELETE FROM archive_customer_invoices WHERE company_id IN
+      // (SELECT id FROM companies WHERE name = 'archive-retire-855-race'); then the companies rows.
       await writer.query(`INSERT INTO companies (id, name) VALUES ($1, 'archive-retire-855-race')`, [company]);
       await writer.query('BEGIN');
       await writer.query(SEEDS.archive_customer_invoices!, [company]);
       const result = inRolledBackTx(async (c) => {
         const pid = (await c.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
         const running = apply(c);
-        for (let i = 0; i < 100; i++) {
-          const blocked = (await pool.query('SELECT cardinality(pg_blocking_pids($1)) > 0 AS b', [pid])).rows[0].b;
-          if (blocked) break;
-          await new Promise(r => setTimeout(r, 50));
+        let blocked = false;
+        for (let i = 0; i < 100 && !blocked; i++) {
+          blocked = (await pool.query('SELECT cardinality(pg_blocking_pids($1)) > 0 AS b', [pid])).rows[0].b;
+          if (!blocked) await new Promise(r => setTimeout(r, 50));
         }
+        expect(blocked).toBe(true); // the migration really waited on the writer
         await writer.query('COMMIT');
         return running;
       }, false);
