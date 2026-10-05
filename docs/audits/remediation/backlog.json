@@ -10944,25 +10944,23 @@
       "dependencies": [
         "K-071"
       ],
-      "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
-      ],
+      "testNames": [],
       "evidencePaths": [
         "docs/audits/remediation/K-071/fix.md",
         "docs/audits/remediation/R-053/fix.md",
         "docs/audits/remediation/R-053/red.log"
       ],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
-      "historicalDataImpact": "Nothing archived, ever. No data lost; no retention obligation met either.",
+      "historicalDataImpact": "Nothing archived, ever. No data lost; no retention obligation met either. 2026-10-05: 'never' is unverified. Since K-071 (2026-09-10) a run could complete for a company with no blocking rows, and POST was live until 2026-09-24. Spec section 9 queries 1 and 2 settle it on prod.",
       "canonicalItem": null,
       "reportedSeverity": "",
       "branch": "fix/archive-retire-20261006",
       "title": "executeArchive has never completed a run: it selects a currency column customer_invoices does not have, and its delete order violates a live FK",
       "severity": "high",
       "source": "Measured by the K-071 fixer while rebuilding the module lock-order table; recorded 2026-09-10",
-      "processNotes": "Two defects in archiveExecutionService, both measured on the fixture, both pre-existing: (1) step 4 selects `currency` from customer_invoices, which has no such column, so executeArchive raises 42703 for EVERY company -- the archive feature has never completed a run on this schema. Third 'never worked' finding of this programme after R-050 (validateMigration) and portalService's 42703. (2) its delete order violated bank_transactions_matched_journal_line_id_fkey on exactly the pair it archives; the canonical lock order turned out to be the FK-safe order too. Reordered. STILL OPEN and NOT fixed: archive deletes gl_journal_entries but never the payments referencing them (NO ACTION), so that FK still violates whatever the order. Widening archive's coverage is a scope change and needs its own item -- this is that item. The K-071 fixer fixed (1) only because the reorder was otherwise untestable, and flagged it as outside its brief. HEIN: nothing has been archived, so no data was lost; but any retention or archiving obligation believed to be met by this feature has not been. CORRECTION 2026-09-10 (K-071 r9 reviewer, measured): the remaining FK work is LARGER than recorded above. It is not one FK -- there are 38 NO ACTION foreign keys into the five relations the archive touches, and the reviewer measured 23503 on `customer_payment_allocations_invoice_id_fkey` at the step-6 invoice delete. So the module doc's claim that the new delete order is FK-safe is FALSE. Worse, the new integration test seeds no invoice at all (its own log shows invoicesArchived: 0), so it certifies 'the archive completes' on the only shape that can pass -- a fixture that cannot fail. Fixing the 42703 inside K-071 was still right (the reorder was otherwise untestable); the residual is a genuine scope change but must be sized as 38 FKs across five relations, not one. 2026-09-25 (R-053 residual, not built -- needs Hein's design decision): re-measured on origin/master 4faf25ed7, fixture: step 6 still raises 23503 customer_payment_allocations_invoice_id_fkey on a settled invoice; the count is now 37 NO ACTION FKs (migration 694 made the Sage staging link SET NULL). Unreachable through any route: POST /api/accounting/data-archiving answers 403 for every role since #506 (820f3c5b0, archiving switched off by Hein because no report reads the archive tables) and executeArchive has no other caller. Both named fixes -- delete ~30 relations of dependent financial records, or refuse blocked sets (which archives almost nothing on real books) -- depend on the archive redesign #506 asked for (roll-forward journals; which record kinds may leave the live ledger). Recommendation: keep archiving off and fold this residual into that redesign. Question and prod census SQL in R-053/fix.md. DECIDED 2026-09-25 (Hein): keep archiving off and fold this residual into the archive redesign (report continuity, e.g. roll-forward journals, and which record kinds may leave the live ledger). Do not build a delete-order or refuse-up-front fix on its own. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, and migration 855 drops the archive tables, refusing if any holds a row. Branch fix/archive-retire-20261006."
+      "processNotes": "Two defects in archiveExecutionService, both measured on the fixture, both pre-existing: (1) step 4 selects `currency` from customer_invoices, which has no such column, so executeArchive raises 42703 for EVERY company -- the archive feature has never completed a run on this schema. Third 'never worked' finding of this programme after R-050 (validateMigration) and portalService's 42703. (2) its delete order violated bank_transactions_matched_journal_line_id_fkey on exactly the pair it archives; the canonical lock order turned out to be the FK-safe order too. Reordered. STILL OPEN and NOT fixed: archive deletes gl_journal_entries but never the payments referencing them (NO ACTION), so that FK still violates whatever the order. Widening archive's coverage is a scope change and needs its own item -- this is that item. The K-071 fixer fixed (1) only because the reorder was otherwise untestable, and flagged it as outside its brief. HEIN: nothing has been archived, so no data was lost; but any retention or archiving obligation believed to be met by this feature has not been. CORRECTION 2026-09-10 (K-071 r9 reviewer, measured): the remaining FK work is LARGER than recorded above. It is not one FK -- there are 38 NO ACTION foreign keys into the five relations the archive touches, and the reviewer measured 23503 on `customer_payment_allocations_invoice_id_fkey` at the step-6 invoice delete. So the module doc's claim that the new delete order is FK-safe is FALSE. Worse, the new integration test seeds no invoice at all (its own log shows invoicesArchived: 0), so it certifies 'the archive completes' on the only shape that can pass -- a fixture that cannot fail. Fixing the 42703 inside K-071 was still right (the reorder was otherwise untestable); the residual is a genuine scope change but must be sized as 38 FKs across five relations, not one. 2026-09-25 (R-053 residual, not built -- needs Hein's design decision): re-measured on origin/master 4faf25ed7, fixture: step 6 still raises 23503 customer_payment_allocations_invoice_id_fkey on a settled invoice; the count is now 37 NO ACTION FKs (migration 694 made the Sage staging link SET NULL). Unreachable through any route: POST /api/accounting/data-archiving answers 403 for every role since #506 (820f3c5b0, archiving switched off by Hein because no report reads the archive tables) and executeArchive has no other caller. Both named fixes -- delete ~30 relations of dependent financial records, or refuse blocked sets (which archives almost nothing on real books) -- depend on the archive redesign #506 asked for (roll-forward journals; which record kinds may leave the live ledger). Recommendation: keep archiving off and fold this residual into that redesign. Question and prod census SQL in R-053/fix.md. DECIDED 2026-09-25 (Hein): keep archiving off and fold this residual into the archive redesign (report continuity, e.g. roll-forward journals, and which record kinds may leave the live ledger). Do not build a delete-order or refuse-up-front fix on its own. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, (branch fix/archive-retire-20261006, PR #647). The archive tables are dropped by migration 855 in a SEPARATE later deploy (branch fix/archive-drop-tables-20261006), because deploy.sh rolls back code only and the pre-change code writes those tables."
     },
     {
       "id": "R-054",
@@ -15419,7 +15417,7 @@
       "reportedSeverity": "low",
       "title": "Archive execution hard-deletes customer invoices that a Paystack payment request still references",
       "claim": "archiveExecutionService DELETEs customer_invoices (paid or cancelled, before the cutoff). paystack_payment_requests.customer_invoice_id references them ON DELETE SET NULL, and paystack_pr_invoice_has_invoice requires it for purpose customer_invoice. As reported: a request whose invoice was archived could be completed and never banked (handleChargeSuccess settles only when customer_invoice_id is set). As probed: the SET NULL violates the CHECK, so the archive DELETE fails with 23514 instead. Fix: exclude invoices referenced by a Paystack request from the archive (or archive the requests with them), and decide what an archived invoice's open checkout should do.",
-      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout. 2026-10-03: fixed on the goal file's default (§2a item 5, not put to Hein). The archive skips invoices a Paystack request of the same company references and reports the count (ArchiveResult.invoicesSkipped, ArchivePreview.customerInvoicesSkipped, a line under the page's preview). The run and the preview share one id-set selection (archiveCustomerInvoiceScope), and the copy and the delete act on exactly those ids. RED 2/3 int on 1910c157b (23514; preview 2 vs 1), 1/2 component; GREEN 3/3 + 2/2. 12 mutants: 10 killed, 2 equivalent (company_id on the id-set copy and delete). A cross-tenant request does not shield, so it still fails the run on 23514. Not changed: Stitch requests have the same CHECK + SET NULL shape and are not skipped; archive_runs has no skipped column; archiving stays switched off. 2026-10-03 review round 1 (two blind reviewers, FIX): the copy and the delete are now one statement (DELETE ... RETURNING feeding the archive INSERT) that re-applies company, cutoff and status on top of the id set. A move that deletes fewer rows than it selected, or archives fewer than it deletes, throws ARCHIVE_SET_CHANGED and the run rolls back whole (race test: a hook after the selecting SELECT). Stitch-referenced invoices are skipped too. The preview counts in SQL. The main cases run as app_user; the request tables' policy admits every member company, so the company_id predicate is what stops a cross-tenant shield. Attribution corrected: the goal file's default, not put to Hein. RED 5/7 on 02e4e1224; GREEN 7/7 at 90c05b908; 20 mutants, 18 killed, 2 equivalent. Recorded, not changed: the other NO ACTION FKs into customer_invoices (credit_notes, allocations, quotes, sales orders, write-offs, delivery notes) still fail the run whole, so the preview can show invoices a run cannot move; items, views, disputes and dunning sends are lost by CASCADE. Item 2, option b (orchestrator): when a skipped invoice's journal, or any journal in its reversal chain, is posted before the cutoff, the run refuses with ARCHIVE_SKIPPED_INVOICE_JOURNAL before deleting anything, and validation reports it. The receipt, fee and bank closure is recorded as R-053 class, failing closed: a Paystack-settled invoice fails the run on 23503 customer_payments_gl_journal_entry_id_fkey (pinned). RED 4/7 on 15a59be48; GREEN 15/15 at 5864081d2; 14 mutants, 12 killed, 2 argued (widening the seed only refuses more). No route maps the refusals: POST is 403 before executeArchive, so re-enabling must map them to 409. Pre-existing and outside scope: the run archives journals of live, unselected invoices by date. 2026-10-03 review round 2 (general reviewer, no code defect). Browser proof on the r186 fixture: the preview answered 200 with 1 archivable and 1 skipped, the line rendered, no console errors. The kept-journal count is now seeded from the ids the selection skipped (red: a skipped invoice reopened in between escaped the refusal). The message is true for Validate and for a refused run. The current cancel shape (link NULLed, original posted + reversed_at, posted reversal) is pinned with the real services: the run completes, both journals move, nothing dangles. The 'reversed'-status cases are labelled legacy. GREEN 17/17 at 0ef5c9cd3; 18 mutants, 18 killed. 2026-10-03 round-2 addendum (adversarial review): the eligibility and gateway predicates are now ONE definition each (nested sql fragments), spliced into the selection, the preview count and the move. The preview line no longer implies that skipped invoices and a completed run normally go together. The pre-existing copy-then-delete race on the other tables is registered as R-192. PRODUCT CONSEQUENCE (for Hein): under option (b), a GL-posted paid invoice keeps gl_journal_entry_id, and that journal stays 'posted', dated on the invoice date and so before the cutoff. So for ANY company with a GL-posted invoice before the cutoff that a payment request references, the run refuses whole. In practice such a company cannot archive until R-053/R-191 are redesigned. A paid invoice's receipt journal would also fail the run on 23503 anyway (R-053). Outcomes, verified against the code and the tests: a paid, GL-posted skipped invoice with its journal before the cutoff refuses the run (ARCHIVE_SKIPPED_INVOICE_JOURNAL). A real receipt fails the run on 23503 anyway. A legacy link into a chain with a posted journal before the cutoff refuses. The run completes only when no skipped invoice has a journal before the cutoff: cancelled by today's service (link NULLed), a legacy chain outside the window, or paid with no journal and no receipt. The table is in fix.md. Addendum evidence: 12 mutants on the single definitions, the move, the preview count and the line, 12 killed (E10 after an added case). GREEN 17/17 at df8d76509. Browser proof re-run on the new copy. 2026-10-03 review round 3 (LOWs only; adversarial SHIP, general FIX). (1) The move also re-applies gatewayReferenced, so a request opened after the selection gives ARCHIVE_SET_CHANGED, not a raw 23514. (2) The preview line now reads 'If one of them is still linked to a journal before the cutoff, the whole archive is refused; Validate checks this.' and the browser proof was re-captured. (3) The audit metadata invoicesSkipped is asserted. (4) A refused run's committed record is asserted: status 'failed', reason in error_message. (5) The selection and refusal moved to step 0, before any copy; a test asserts no archive INSERT or DELETE is issued before the refusal. (6) movedJournal is one fragment shared by steps 1, 2, 6 and the refusal. (7) A distinct message for ids already in the archive. (8) This census covers Stitch. (9) The CASCADE loss is registered as R-194. Round-3 evidence: RED 3/20 int + 1/2 component on c01557f36; GREEN 20/20 at 8f9cc4fbe; 10 mutants, 10 killed; regression int 43/43, unit 77/77, components 29/29; browser proof re-captured. Final LOW (adversarial reconfirm): the kept-journal count runs again right after the invoice move and before the GL deletes. Race case: a link added after the step-0 check is refused (red: completed and archived the journal). 2 mutants, 2 killed. GREEN 21/21 at e5a50021f. CI at 59ffae6bf failed the REFUSAL_CODES census (typedRefusalReachesAgent). ARCHIVE_SET_CHANGED and ARCHIVE_SKIPPED_INVOICE_JOURNAL are now registered; their messages carry counts only. Full unit suite 18733 passed / 290 skipped (1336 files passed, 47 skipped); components 3951/3951, both at 136bf9848. Lesson: a new readonly code must be registered in REFUSAL_CODES in the same commit. PR #632 review (APPROVED with 2 MEDIUMs and LOWs): the skipped invoices are held FOR SHARE across the second kept-journal check (bounded, RowLockTimeoutError); race-tested with pg_blocking_pids (red: the linking UPDATE did not wait). The docs now say exactly what is protected: links, not a chain journal posted after step 1 (R-192 class). The recursive arm's company filter is pinned. R-195 registered. The core coverage is integration-only and skips on GitHub; it was run locally on the fixture. At 6dd2bd87c: 3 mutants, 3 killed; GREEN 23/23; regression 46/46; full unit suite 18733 passed / 290 skipped. PR #632 follow-up (APPROVED, 4 LOWs). ROW_LOCK_TIMEOUT answers 503 + Retry-After via respondIfLockTimeout (noted for re-enable). The FOR SHARE scope is stated exactly: invoice row only; a chain journal posted or re-dated into the window after the second count is deleted uncopied (R-192 class). The lock-timeout composition is pinned against the real 5 s budget, since no seam shortens it: run failed, ROW_LOCK_TIMEOUT, nothing moved; 3 mutants, 3 killed. The race file's hooks reset in beforeEach (also run shuffled). GREEN 24/24 at 4d4b17881; regression 47/47. 2026-10-04: merged as #632 (4ac280c63) and deployed to production at ddc4dd355 (07:31 SAST; golden 13/13, integrity 16/16). 2026-10-05: Hein confirmed refusing the whole run (revisit with R-053/R-191). 2026-10-05: SUPERSEDED. The skip-and-refuse code is removed with physical archiving (Hein: archive redesign D0 = retire, PR #641). Branch fix/archive-retire-20261006."
+      "processNotes": "2026-10-02: recorded by the R-181 PR #618 review at 7c0e9c407. Pre-existing; not fixed in R-181. Unverified whether archiving can reach an invoice with an open checkout. 2026-10-03: fixed on the goal file's default (§2a item 5, not put to Hein). The archive skips invoices a Paystack request of the same company references and reports the count (ArchiveResult.invoicesSkipped, ArchivePreview.customerInvoicesSkipped, a line under the page's preview). The run and the preview share one id-set selection (archiveCustomerInvoiceScope), and the copy and the delete act on exactly those ids. RED 2/3 int on 1910c157b (23514; preview 2 vs 1), 1/2 component; GREEN 3/3 + 2/2. 12 mutants: 10 killed, 2 equivalent (company_id on the id-set copy and delete). A cross-tenant request does not shield, so it still fails the run on 23514. Not changed: Stitch requests have the same CHECK + SET NULL shape and are not skipped; archive_runs has no skipped column; archiving stays switched off. 2026-10-03 review round 1 (two blind reviewers, FIX): the copy and the delete are now one statement (DELETE ... RETURNING feeding the archive INSERT) that re-applies company, cutoff and status on top of the id set. A move that deletes fewer rows than it selected, or archives fewer than it deletes, throws ARCHIVE_SET_CHANGED and the run rolls back whole (race test: a hook after the selecting SELECT). Stitch-referenced invoices are skipped too. The preview counts in SQL. The main cases run as app_user; the request tables' policy admits every member company, so the company_id predicate is what stops a cross-tenant shield. Attribution corrected: the goal file's default, not put to Hein. RED 5/7 on 02e4e1224; GREEN 7/7 at 90c05b908; 20 mutants, 18 killed, 2 equivalent. Recorded, not changed: the other NO ACTION FKs into customer_invoices (credit_notes, allocations, quotes, sales orders, write-offs, delivery notes) still fail the run whole, so the preview can show invoices a run cannot move; items, views, disputes and dunning sends are lost by CASCADE. Item 2, option b (orchestrator): when a skipped invoice's journal, or any journal in its reversal chain, is posted before the cutoff, the run refuses with ARCHIVE_SKIPPED_INVOICE_JOURNAL before deleting anything, and validation reports it. The receipt, fee and bank closure is recorded as R-053 class, failing closed: a Paystack-settled invoice fails the run on 23503 customer_payments_gl_journal_entry_id_fkey (pinned). RED 4/7 on 15a59be48; GREEN 15/15 at 5864081d2; 14 mutants, 12 killed, 2 argued (widening the seed only refuses more). No route maps the refusals: POST is 403 before executeArchive, so re-enabling must map them to 409. Pre-existing and outside scope: the run archives journals of live, unselected invoices by date. 2026-10-03 review round 2 (general reviewer, no code defect). Browser proof on the r186 fixture: the preview answered 200 with 1 archivable and 1 skipped, the line rendered, no console errors. The kept-journal count is now seeded from the ids the selection skipped (red: a skipped invoice reopened in between escaped the refusal). The message is true for Validate and for a refused run. The current cancel shape (link NULLed, original posted + reversed_at, posted reversal) is pinned with the real services: the run completes, both journals move, nothing dangles. The 'reversed'-status cases are labelled legacy. GREEN 17/17 at 0ef5c9cd3; 18 mutants, 18 killed. 2026-10-03 round-2 addendum (adversarial review): the eligibility and gateway predicates are now ONE definition each (nested sql fragments), spliced into the selection, the preview count and the move. The preview line no longer implies that skipped invoices and a completed run normally go together. The pre-existing copy-then-delete race on the other tables is registered as R-192. PRODUCT CONSEQUENCE (for Hein): under option (b), a GL-posted paid invoice keeps gl_journal_entry_id, and that journal stays 'posted', dated on the invoice date and so before the cutoff. So for ANY company with a GL-posted invoice before the cutoff that a payment request references, the run refuses whole. In practice such a company cannot archive until R-053/R-191 are redesigned. A paid invoice's receipt journal would also fail the run on 23503 anyway (R-053). Outcomes, verified against the code and the tests: a paid, GL-posted skipped invoice with its journal before the cutoff refuses the run (ARCHIVE_SKIPPED_INVOICE_JOURNAL). A real receipt fails the run on 23503 anyway. A legacy link into a chain with a posted journal before the cutoff refuses. The run completes only when no skipped invoice has a journal before the cutoff: cancelled by today's service (link NULLed), a legacy chain outside the window, or paid with no journal and no receipt. The table is in fix.md. Addendum evidence: 12 mutants on the single definitions, the move, the preview count and the line, 12 killed (E10 after an added case). GREEN 17/17 at df8d76509. Browser proof re-run on the new copy. 2026-10-03 review round 3 (LOWs only; adversarial SHIP, general FIX). (1) The move also re-applies gatewayReferenced, so a request opened after the selection gives ARCHIVE_SET_CHANGED, not a raw 23514. (2) The preview line now reads 'If one of them is still linked to a journal before the cutoff, the whole archive is refused; Validate checks this.' and the browser proof was re-captured. (3) The audit metadata invoicesSkipped is asserted. (4) A refused run's committed record is asserted: status 'failed', reason in error_message. (5) The selection and refusal moved to step 0, before any copy; a test asserts no archive INSERT or DELETE is issued before the refusal. (6) movedJournal is one fragment shared by steps 1, 2, 6 and the refusal. (7) A distinct message for ids already in the archive. (8) This census covers Stitch. (9) The CASCADE loss is registered as R-194. Round-3 evidence: RED 3/20 int + 1/2 component on c01557f36; GREEN 20/20 at 8f9cc4fbe; 10 mutants, 10 killed; regression int 43/43, unit 77/77, components 29/29; browser proof re-captured. Final LOW (adversarial reconfirm): the kept-journal count runs again right after the invoice move and before the GL deletes. Race case: a link added after the step-0 check is refused (red: completed and archived the journal). 2 mutants, 2 killed. GREEN 21/21 at e5a50021f. CI at 59ffae6bf failed the REFUSAL_CODES census (typedRefusalReachesAgent). ARCHIVE_SET_CHANGED and ARCHIVE_SKIPPED_INVOICE_JOURNAL are now registered; their messages carry counts only. Full unit suite 18733 passed / 290 skipped (1336 files passed, 47 skipped); components 3951/3951, both at 136bf9848. Lesson: a new readonly code must be registered in REFUSAL_CODES in the same commit. PR #632 review (APPROVED with 2 MEDIUMs and LOWs): the skipped invoices are held FOR SHARE across the second kept-journal check (bounded, RowLockTimeoutError); race-tested with pg_blocking_pids (red: the linking UPDATE did not wait). The docs now say exactly what is protected: links, not a chain journal posted after step 1 (R-192 class). The recursive arm's company filter is pinned. R-195 registered. The core coverage is integration-only and skips on GitHub; it was run locally on the fixture. At 6dd2bd87c: 3 mutants, 3 killed; GREEN 23/23; regression 46/46; full unit suite 18733 passed / 290 skipped. PR #632 follow-up (APPROVED, 4 LOWs). ROW_LOCK_TIMEOUT answers 503 + Retry-After via respondIfLockTimeout (noted for re-enable). The FOR SHARE scope is stated exactly: invoice row only; a chain journal posted or re-dated into the window after the second count is deleted uncopied (R-192 class). The lock-timeout composition is pinned against the real 5 s budget, since no seam shortens it: run failed, ROW_LOCK_TIMEOUT, nothing moved; 3 mutants, 3 killed. The race file's hooks reset in beforeEach (also run shuffled). GREEN 24/24 at 4d4b17881; regression 47/47. 2026-10-04: merged as #632 (4ac280c63) and deployed to production at ddc4dd355 (07:31 SAST; golden 13/13, integrity 16/16). 2026-10-05: Hein confirmed refusing the whole run (revisit with R-053/R-191). 2026-10-05: SUPERSEDED. The skip-and-refuse code is removed with physical archiving (Hein: archive redesign D0 = retire, PR #641). Branch fix/archive-retire-20261006. Its tests were removed with the code; the testNames below are historical."
     },
     {
       "area": "accounting/ar portal",
@@ -15693,12 +15691,10 @@
       "dependencies": [
         "R-053"
       ],
-      "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
-      ],
+      "testNames": [],
       "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
       "historicalDataImpact": "Expected none: archiving has been off since 2026-09-24, and before that every run failed while any receipt journal or allocation was in the window. Census (read-only): (1) live customer invoices whose journal is archived and gone: SELECT ci.company_id, ci.id, ci.status, ci.gl_journal_entry_id FROM customer_invoices ci JOIN archive_gl_journal_entries a ON a.id = ci.gl_journal_entry_id AND a.company_id = ci.company_id WHERE NOT EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id); (2) runs that ever completed: SELECT company_id, count(*) FROM archive_runs WHERE status = 'completed' GROUP BY company_id.",
       "canonicalItem": null,
@@ -15708,7 +15704,7 @@
       "reportedSeverity": "low",
       "title": "Archive moves the journals of live invoices it never selects",
       "claim": "executeArchive steps 1, 2 and 6 copy and delete EVERY posted gl_journal_entries row (and its lines) dated before the cutoff, by date alone. That includes the journal of a customer invoice the run does not select because it is approved, sent or partly paid. customer_invoices.gl_journal_entry_id has no FK, so the delete succeeds and the live invoice is left pointing at an archived journal, which no report reads. R-186 option b refuses only for invoices the run skips because a payment request references them. supplier_invoices.gl_journal_entry_id has an FK (NO ACTION), so there the delete fails the run whole (23503), not silently.",
-      "processNotes": "2026-10-03: recorded while implementing R-186 round 1 (option b). Pre-existing, outside R-186. Pinned indirectly: R-186 mutants C10/C11, which widen the refusal to referenced invoices the run does not select, survive because a test that killed them would have to assert this behavior as correct. Not fixed. The fix belongs with the archiving redesign the 2026-09-24 switch-off asks for. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, and migration 855 drops the archive tables, refusing if any holds a row. Branch fix/archive-retire-20261006."
+      "processNotes": "2026-10-03: recorded while implementing R-186 round 1 (option b). Pre-existing, outside R-186. Pinned indirectly: R-186 mutants C10/C11, which widen the refusal to referenced invoices the run does not select, survive because a test that killed them would have to assert this behavior as correct. Not fixed. The fix belongs with the archiving redesign the 2026-09-24 switch-off asks for. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, (branch fix/archive-retire-20261006, PR #647). The archive tables are dropped by migration 855 in a SEPARATE later deploy (branch fix/archive-drop-tables-20261006), because deploy.sh rolls back code only and the pre-change code writes those tables."
     },
     {
       "area": "accounting/core archiving",
@@ -15727,12 +15723,10 @@
       "dependencies": [
         "R-053"
       ],
-      "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
-      ],
+      "testNames": [],
       "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
       "historicalDataImpact": "Expected none: archiving has been off since 2026-09-24, and before that every run failed while any receipt journal or allocation was in the window. Census (read-only): rows present both live and in the archive (stale copies), and archived rows whose live twin no longer meets the copy predicate: SELECT 'supplier_invoices' AS t, si.company_id, si.id FROM supplier_invoices si JOIN archive_supplier_invoices a ON a.id = si.id AND a.company_id = si.company_id UNION ALL SELECT 'bank_transactions', bt.company_id, bt.id FROM bank_transactions bt JOIN archive_bank_transactions a ON a.id = bt.id AND a.company_id = bt.company_id UNION ALL SELECT 'gl_journal_entries', je.company_id, je.id FROM gl_journal_entries je JOIN archive_gl_journal_entries a ON a.id = je.id AND a.company_id = je.company_id; plus SELECT company_id, count(*) FROM archive_runs WHERE status = 'completed' GROUP BY company_id.",
       "canonicalItem": null,
@@ -15742,7 +15736,7 @@
       "reportedSeverity": "medium",
       "title": "Archive copies supplier invoices, bank lines and journals in one statement and deletes them by predicate in another",
       "claim": "executeArchive steps 1, 2, 3 and 5 copy rows (gl_journal_entries, gl_journal_lines, bank_transactions, supplier_invoices) with INSERT ... SELECT ... ON CONFLICT DO NOTHING. Step 6 then deletes by the same predicate in a separate statement. Under READ COMMITTED each statement takes its own snapshot. A row that comes to match the predicate between copy and delete is deleted without ever being archived: for example a bank line reconciled, or a supplier invoice paid or cancelled, in between. A row that stops matching is copied but not deleted, leaving a stale copy. An id already in the archive is silently not re-copied, but is still deleted. R-186 fixed this for customer invoices only, with one DELETE ... RETURNING feeding the INSERT, plus count checks. The fix is the same per table, as part of the archive redesign.",
-      "processNotes": "2026-10-03: recorded from the R-186 round-2 adversarial review. Pre-existing. Not fixed in R-186; it belongs with the archive redesign (R-053, R-191). Referenced from R-186 fix.md. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, and migration 855 drops the archive tables, refusing if any holds a row. Branch fix/archive-retire-20261006."
+      "processNotes": "2026-10-03: recorded from the R-186 round-2 adversarial review. Pre-existing. Not fixed in R-186; it belongs with the archive redesign (R-053, R-191). Referenced from R-186 fix.md. 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, (branch fix/archive-retire-20261006, PR #647). The archive tables are dropped by migration 855 in a SEPARATE later deploy (branch fix/archive-drop-tables-20261006), because deploy.sh rolls back code only and the pre-change code writes those tables."
     },
     {
       "area": "accounting/core archiving",
@@ -15762,12 +15756,10 @@
       "dependencies": [
         "R-053"
       ],
-      "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
-      ],
+      "testNames": [],
       "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
       "historicalDataImpact": "Expected none: archiving has been off since 2026-09-24, and before that every run failed while any allocation or receipt journal was in the window. Census (read-only): (1) archived invoices, each of which lost its children: SELECT a.company_id, count(*) AS archived_invoices FROM archive_customer_invoices a GROUP BY a.company_id; (2) exposure if re-enabled, i.e. children of settled invoices: SELECT ci.company_id, count(DISTINCT ci.id) AS settled_invoices, count(cii.id) AS items FROM customer_invoices ci LEFT JOIN customer_invoice_items cii ON cii.invoice_id = ci.id WHERE ci.status IN ('paid','cancelled') GROUP BY ci.company_id.",
       "canonicalItem": null,
@@ -15777,7 +15769,7 @@
       "reportedSeverity": "low",
       "title": "Archiving an invoice CASCADE-deletes its items, views, disputes and dunning sends, which no archive table keeps",
       "claim": "The archive deletes customer_invoices (moveCustomerInvoicesToArchive since R-186). customer_invoice_items.invoice_id, customer_invoice_views.customer_invoice_id, customer_invoice_disputes.customer_invoice_id and dunning_sends.customer_invoice_id are all ON DELETE CASCADE, so their rows go with the invoice. archive_customer_invoices keeps only the header; there is no archive table for any of the four. An archived invoice cannot be re-printed with its lines, and its dispute and dunning history is lost.",
-      "processNotes": "2026-10-03: recorded from the R-186 round-3 review (it was already in R-186 fix.md as recorded-not-changed). Pre-existing. Not fixed; it belongs with the archive redesign (R-053, R-191, R-192). 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, and migration 855 drops the archive tables, refusing if any holds a row. Branch fix/archive-retire-20261006."
+      "processNotes": "2026-10-03: recorded from the R-186 round-3 review (it was already in R-186 fix.md as recorded-not-changed). Pre-existing. Not fixed; it belongs with the archive redesign (R-053, R-191, R-192). 2026-10-05: closed as REMOVED, not repaired. Hein chose D0 = retire in the archive redesign spec (PR #641): executeArchive, the archive services, routes and page are deleted, (branch fix/archive-retire-20261006, PR #647). The archive tables are dropped by migration 855 in a SEPARATE later deploy (branch fix/archive-drop-tables-20261006), because deploy.sh rolls back code only and the pre-change code writes those tables."
     },
     {
       "area": "accounting/core archiving",
@@ -15857,7 +15849,7 @@
       "affectedPaths": [
         "scripts/migrations/sql/275_data_archiving.sql"
       ],
-      "sourceLabel": "Archive redesign spec, 2026-10-05",
+      "sourceLabel": "Archive redesign spec (PR #641, docs/design/archive-redesign.md on branch docs/archive-redesign-spec-20261005), 2026-10-05",
       "sourceIds": [
         "R-053"
       ],
@@ -15869,19 +15861,15 @@
       "dependencies": [
         "R-053"
       ],
-      "testNames": [
-        "tests/integration/archive-retire-855-drop.int.test.ts"
-      ],
-      "evidencePaths": [
-        "docs/design/archive-redesign.md"
-      ],
+      "testNames": [],
+      "evidencePaths": [],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Spec section 9 query 2 (read-only, Hein runs it): row counts of the five archive_* tables; expected 0. The jl row is this exposure.",
       "canonicalItem": null,
       "branch": "fix/archive-retire-20261006",
-      "processNotes": "2026-10-05: N1 in the archive redesign spec. Closed by removal: Hein chose D0 = retire, and migration 855 drops the table (refusing if it holds a row)."
+      "processNotes": "2026-10-05: N1 in the archive redesign spec. Closed by removal: Hein chose D0 = retire, and migration 855 drops the table (refusing if it holds a row). Closed by migration 855 in the follow-up deploy (branch fix/archive-drop-tables-20261006), after PR #647 is live."
     },
     {
       "id": "R-198",
@@ -15894,7 +15882,7 @@
         "src/modules/accounting/services/core/archiveQueryService.ts",
         "src/components/accounting/ArchiveWizardSection.tsx"
       ],
-      "sourceLabel": "Archive redesign spec, 2026-10-05",
+      "sourceLabel": "Archive redesign spec (PR #641, docs/design/archive-redesign.md on branch docs/archive-redesign-spec-20261005), 2026-10-05",
       "sourceIds": [
         "R-053"
       ],
@@ -15907,11 +15895,9 @@
         "R-053"
       ],
       "testNames": [],
-      "evidencePaths": [
-        "docs/design/archive-redesign.md"
-      ],
+      "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
       "historicalDataImpact": "None: copy only.",
       "canonicalItem": null,
@@ -15928,7 +15914,7 @@
       "affectedPaths": [
         "scripts/migrations/sql/275_data_archiving.sql"
       ],
-      "sourceLabel": "Archive redesign spec, 2026-10-05",
+      "sourceLabel": "Archive redesign spec (PR #641, docs/design/archive-redesign.md on branch docs/archive-redesign-spec-20261005), 2026-10-05",
       "sourceIds": [
         "R-053"
       ],
@@ -15941,16 +15927,14 @@
         "R-053"
       ],
       "testNames": [],
-      "evidencePaths": [
-        "docs/design/archive-redesign.md"
-      ],
+      "evidencePaths": [],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Spec section 9 query 2 (read-only, Hein runs it): row counts of the five archive_* tables; expected 0.",
       "canonicalItem": null,
       "branch": "fix/archive-retire-20261006",
-      "processNotes": "2026-10-05: N3 in the archive redesign spec. Closed by removal: migration 855 drops the mirror tables."
+      "processNotes": "2026-10-05: N3 in the archive redesign spec. Closed by removal: migration 855 drops the mirror tables. Closed by migration 855 in the follow-up deploy (branch fix/archive-drop-tables-20261006), after PR #647 is live."
     },
     {
       "id": "R-200",
@@ -15964,7 +15948,7 @@
         "src/modules/accounting/services/core/sageCustomerImportService.ts",
         "src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts"
       ],
-      "sourceLabel": "Archive redesign spec, 2026-10-05",
+      "sourceLabel": "Archive redesign spec (PR #641, docs/design/archive-redesign.md on branch docs/archive-redesign-spec-20261005), 2026-10-05",
       "sourceIds": [
         "R-053"
       ],
@@ -15977,11 +15961,9 @@
         "R-053"
       ],
       "testNames": [],
-      "evidencePaths": [
-        "docs/design/archive-redesign.md"
-      ],
+      "evidencePaths": [],
       "fixCommit": null,
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/647",
       "deployedSha": null,
       "historicalDataImpact": "None.",
       "canonicalItem": null,
