@@ -1,0 +1,39 @@
+HEAD c3d9dbbb4a6403894e34ca71a79686d998ef1b72 + working tree (the R-196 fix, burst-headroom round); 2026-10-05T08:15:00+02:00
+Suite: tests/unit/lib/auth/ (all telemetry tests, incl. poolTelemetryRealPool with the queryable FakeClient). Each mutant replaces the isSaturated return expression.
+== BASELINE (fix)
+   expr: c.max !== undefined && c.waitingCount > c.idleCount + Math.max(0, c.max - c.totalCount)
+      Tests  75 passed (75)
+== M1 the R-188 check
+   expr: c.waitingCount > 0
+     × does not warn when an idle client serves the acquire (the production shape: 1 of 10 open, idle) 4ms
+     × does not warn on a FULL pool while an idle client is still free 1ms
+     × does not warn when a burst outnumbers the idle clients but the pool can still grow 0ms
+     × warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full 2ms
+     × does not warn when a connection is free 3ms
+      Tests  5 failed | 70 passed (75)
+== M2 full pool and waiters outnumber idle (round-1 fix, no headroom)
+   expr: c.max !== undefined && c.totalCount >= c.max && c.waitingCount > c.idleCount
+     × warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full 2ms
+      Tests  1 failed | 74 passed (75)
+== M3 ignore idle clients
+   expr: c.max !== undefined && c.waitingCount > Math.max(0, c.max - c.totalCount)
+     × does not warn on a FULL pool while an idle client is still free 3ms
+     × warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full 2ms
+      Tests  2 failed | 73 passed (75)
+== M4 ignore headroom
+   expr: c.waitingCount > c.idleCount
+     × does not warn when a burst outnumbers the idle clients but the pool can still grow 3ms
+     × warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full 2ms
+      Tests  2 failed | 73 passed (75)
+== M5 never warn
+   expr: false
+     × warns with the pool counts when an acquire has to queue 2ms
+     × warns at most once per interval per pool, and again after it 1ms
+     × warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full 2ms
+     × warns when the pool is full and the waiters outnumber the idle clients 0ms
+     × warns for the FIRST queued acquire on a full pool, with the counts 4ms
+     × withExtensionToken warns naming extensionToken 258ms
+     × the bearer pipeline warns naming bearerPipeline 14ms
+      Tests  7 failed | 68 passed (75)
+== BASELINE after
+      Tests  75 passed (75)

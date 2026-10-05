@@ -480,3 +480,6 @@ split `src/lib/neon/` modules (#631).
   the run on 23503; the k071 pin still holds.
 - **Race.** A request created for a selected invoice between step 4 and step 6 makes the move fail
   on 23514, and the run rolls back whole.
+
+## Decision (Hein, 2026-10-05)
+Confirmed: the run refuses whole (`ARCHIVE_SKIPPED_INVOICE_JOURNAL`) rather than keeping a skipped invoice's journal closure. Revisit with the R-053/R-191 archive redesign. Archiving stays switched off (403).

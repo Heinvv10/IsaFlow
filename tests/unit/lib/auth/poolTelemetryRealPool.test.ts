@@ -13,6 +13,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn, error } }));
 import { connectObserved, POOL_SATURATED_MESSAGE, POOL_ACQUIRE_FAILED_MESSAGE } from '@/lib/auth/poolTelemetry';
 
 class FakeClient extends EventEmitter {
+  // R-196: without these pg-pool discards a released client, so no test here ever had an idle one.
+  _queryable = true;
+  _ending = false;
   connect(cb?: (err?: Error) => void) { if (cb) setImmediate(() => cb()); else return Promise.resolve(); }
   end(cb?: () => void) { cb?.(); return Promise.resolve(); }
   query() { return Promise.resolve({ rows: [] }); }
@@ -41,6 +44,7 @@ describe('connectObserved against a real pg.Pool (R-188)', () => {
     warn.mockReset();
     const pool = realPool(2);
     (await connectObserved(pool, 'free')).release();
+    expect(pool.idleCount).toBe(1);
     (await connectObserved(pool, 'free')).release();
     expect(warn).not.toHaveBeenCalled();
     await pool.end();
