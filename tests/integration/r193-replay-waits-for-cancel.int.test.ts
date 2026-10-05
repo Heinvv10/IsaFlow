@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { feeJournals } from './r187-books.helpers';
@@ -32,6 +32,12 @@ type Read = Promise<unknown>;
 const hooks = vi.hoisted(() => ({
   /** Runs once, around the replay's dedupe read: `before` it, then `during` it with the read in flight. */
   race: null as null | { before: () => Promise<void>; during: (read: Read) => Promise<void>; fired: boolean },
+}));
+
+const paystack = vi.hoisted(() => ({ verifyTransaction: vi.fn() }));
+vi.mock('@/modules/billing/services/paystackClient', () => ({
+  verifyTransaction: (...a: unknown[]) => paystack.verifyTransaction(...a),
+  chargeAuthorization: vi.fn(async () => { throw new Error('Paystack must not be charged in this test'); }),
 }));
 
 vi.mock('@/lib/neon', async (orig) => {
@@ -187,5 +193,38 @@ describe('R-193: the replay\'s dedupe read locks the receipt it matches', () => 
     // The same body again, as Paystack redelivers it: processed, not acked as a duplicate.
     expect((await deliver(ref, 11500, 'ZAR', body)).statusCode).toBe(200);
     expect(await feeJournals(ref)).toBe(1);
+  }, 30_000);
+
+  it('verify behind a receipt held past the budget answers pending (never failed), rolls back, posts no fee (review L2)', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    // A receipt already carrying the reference (a draft a person keyed), held by another transaction.
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO customer_payments (company_id, client_id, payment_date, total_amount, payment_method,
+         bank_reference, created_by, status)
+       VALUES ($1, $2, CURRENT_DATE, 115, 'eft', $3, $4, 'draft') RETURNING id`, [A.id, A.customer, ref, A.user]);
+    const holder = await pool.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT 1 FROM customer_payments WHERE id = $1 FOR UPDATE', [rows[0]!.id]);
+    paystack.verifyTransaction.mockResolvedValue(
+      { status: 'success', id: 1931, amountCents: 11500, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', feesCents: 350 });
+
+    // Released after 12 s whatever happens, so an unbounded wait answers late instead of hanging.
+    const released = new Promise<void>((resolve) => {
+      setTimeout(() => { void holder.query('COMMIT').finally(() => { holder.release(); resolve(); }); }, 12_000);
+    });
+
+    const started = Date.now();
+    const answer = await verify(ref);
+    const waited = Date.now() - started;
+    await released;
+
+    expect(answer.body.data).toMatchObject({ status: 'pending' });
+    expect(waited).toBeGreaterThan(4000);
+    expect(waited).toBeLessThan(8500);
+    expect(await feeJournals(ref)).toBe(0);
+    const { rows: pr } = await pool.query<{ status: string }>(
+      'SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1', [ref]);
+    expect(pr[0]!.status).toBe('pending');
   }, 30_000);
 });
