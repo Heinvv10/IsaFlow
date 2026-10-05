@@ -8,6 +8,13 @@
  * index (migration 852) refuses A's insert, and A, by outcome, finds B's fee journal and stands
  * down without failing its delivery.
  *
+ * R-193 (2026-10-05): the dedupe read now LOCKS the receipt (`findSettledReceipt`, FOR UPDATE OF cp),
+ * so a second dedupe-path delivery waits at that read until the first one ends and then finds its
+ * fee journal by the guard. The two route-level races below are re-pinned to that contract: B is
+ * seen blocked BEHIND A on the receipt read, and nobody stands down on a 23505. The index stays the
+ * backstop (its own SQL tests below); the stand-down by outcome is unit-tested
+ * (tests/unit/services/ar/gatewayFeeIdempotency.test.ts).
+ *
  * Real Postgres (isaflow-fixture-r185), real webhook route; only the Paystack client is stubbed.
  */
 import { randomUUID } from 'crypto';
@@ -68,18 +75,20 @@ const isFeeGuard = (text: string) => /^\s*SELECT/.test(text) && text.includes('F
 /** The webhook's processed stamp: after the whole fee path, before COMMIT. */
 const isProcessedStamp = (text: string) => text.includes('UPDATE paystack_webhook_events') && text.includes('SET processed = TRUE');
 
-/** Wait until a backend in this database is blocked BY A's backend while inserting a journal (B behind A). */
-async function insertBlockedBy(aPid: number): Promise<void> {
-  for (let i = 0; i < 200; i += 1) {
+/** Wait until a backend in this database is blocked BY A's backend running `like` (B behind A). */
+async function blockedBy(aPid: number, like: string): Promise<void> {
+  for (let i = 0; i < 80; i += 1) {
     const { rows } = await pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM pg_stat_activity
        WHERE datname = current_database() AND $1::int = ANY(pg_blocking_pids(pid))
-         AND state = 'active' AND query ILIKE '%INSERT INTO gl_journal_entries%'`, [aPid]);
+         AND state = 'active' AND query ILIKE $2`, [aPid, like]);
     if (Number(rows[0]!.n) > 0) return;
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error('B never blocked on the journal insert');
+  throw new Error(`B never blocked behind A on ${like}`);
 }
+/** The R-193 dedupe read, which B now waits at. */
+const RECEIPT_READ = '%FROM customer_payments cp%FOR UPDATE OF cp%';
 
 /** A receipt banked by a delivery that carried no fee: the next delivery with `fees` is on the dedupe path. */
 async function bankedWithoutFee(): Promise<{ id: string; ref: string }> {
@@ -100,28 +109,35 @@ beforeEach(() => { h.hook = null; h.fired = 0; standDowns.mockClear(); });
 afterAll(async () => { vi.unstubAllEnvs(); await cleanup([A, B]); });
 
 describe('R-185: two dedupe-path deliveries for one reference', () => {
-  it('post the fee once; the loser answers 200 and its transaction commits', async () => {
+  it('post the fee once; the second waits for the first at the receipt lock (R-193), answers 200 and commits', async () => {
     const { id, ref } = await bankedWithoutFee();
 
     let reached!: () => void;
     let release!: () => void;
+    let aPid = 0;
     const inWindow = new Promise<void>((r) => { reached = r; });
-    h.hook = { match: isFeeGuard, run: () => { reached(); return new Promise<void>((r) => { release = r; }); } };
+    h.hook = { match: isFeeGuard, run: async () => {
+      aPid = Number((await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`)[0]!.pid);
+      reached();
+      return new Promise<void>((r) => { release = r; });
+    } };
 
     // A stops after its guard found no fee journal; B (a different body, same reference) then
-    // runs outside A's transaction to COMMIT, and A resumes into the insert.
+    // waits behind A at the receipt read (R-193), and A resumes into the insert and commits.
     const a = deliver(ref, 11500, 'ZAR', { id: 1851, fees: 300 });
     await inWindow;
-    const b = await deliver(ref, 11500, 'ZAR', { id: 1852, fees: 300 });
+    const bP = deliver(ref, 11500, 'ZAR', { id: 1852, fees: 300 });
+    await blockedBy(aPid, RECEIPT_READ);
     release();
-    const aRes = await a;
+    const [aRes, b] = await Promise.all([a, bP]);
 
     expect(h.fired).toBe(1);
     expect(b.statusCode).toBe(200);
     expect(aRes.statusCode).toBe(200);
     expect(await feeJournals(ref)).toBe(1);
     expect(await anyJournals(ref)).toBe(1);
-    expect(stoodDown(ref)).toEqual(['23505']);
+    // B's guard found A's committed fee journal: nothing collided on the index.
+    expect(stoodDown(ref)).toEqual([]);
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '112.00', feeExpense: '3.00', balanced: true });
     expect((await settlement(A, ref, id)).payments).toHaveLength(1);
     // Every delivery's transaction committed, including the loser's processed stamp after the fee path.
@@ -133,13 +149,13 @@ describe('R-185: two dedupe-path deliveries for one reference', () => {
   });
 });
 
-describe('R-185: B inserts while A holds its uncommitted fee journal', () => {
+describe('R-185: B arrives while A holds its uncommitted fee journal', () => {
   /**
-   * A posts the fee and stops at its processed stamp, uncommitted. B's guard cannot see A's row,
-   * so B inserts and blocks behind A (observed in pg_stat_activity). Then A ends. B blocks on
-   * `uq_gl_je_company_entry_number`, not on 852's index: the entry-number trigger is MAX+1 over
-   * committed rows, so B computes A's number, and that older index is checked first. The outcome
-   * re-read does not care which constraint fired.
+   * A posts the fee and stops at its processed stamp, uncommitted. Before R-193 B's guard could
+   * not see A's row, so B inserted and blocked behind A on `uq_gl_je_company_entry_number`, and
+   * stood down by outcome once A committed. Now B blocks earlier, at the receipt read (A holds the
+   * receipt lock), observed in pg_stat_activity. Then A ends: committed, B's guard sees A's fee
+   * journal; rolled back, B posts the fee itself.
    */
   async function interleave(aEnds: 'commit' | 'rollback') {
     const { ref } = await bankedWithoutFee();
@@ -158,20 +174,20 @@ describe('R-185: B inserts while A holds its uncommitted fee journal', () => {
     const a = deliver(ref, 11500, 'ZAR', { id: 1854, fees: 300 });
     await inWindow;
     const b = deliver(ref, 11500, 'ZAR', { id: 1855, fees: 300 });
-    await insertBlockedBy(aPid);
+    await blockedBy(aPid, RECEIPT_READ);
     release();
     const [aRes, bRes] = await Promise.all([a, b]);
     expect(h.fired).toBe(1);
     return { ref, aRes, bRes };
   }
 
-  it('A commits: B stands down with 200, exactly one fee journal', async () => {
+  it('A commits: B finds its fee journal with 200, exactly one fee journal', async () => {
     const { ref, aRes, bRes } = await interleave('commit');
     expect(aRes.statusCode).toBe(200);
     expect(bRes.statusCode).toBe(200);
     expect(await feeJournals(ref)).toBe(1);
     expect(await anyJournals(ref)).toBe(1);
-    expect(stoodDown(ref)).toEqual(['23505']);
+    expect(stoodDown(ref)).toEqual([]);
     expect(await ledger(A, ref)).toMatchObject({ bankNet: '112.00', feeExpense: '3.00', balanced: true });
     expect((await eventsOf(ref)).map((e) => e.processed)).toEqual([true, true, true]);
   });

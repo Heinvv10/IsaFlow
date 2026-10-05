@@ -16,7 +16,7 @@ import { postCapitalizationExpenseToGL } from '@/modules/accounting/services/gl/
 
 type Row = Record<string, unknown>;
 
-/** Postgres `lock_not_available` — the 5s `lock_timeout` elapsed on FOR UPDATE. */
+/** Postgres `lock_not_available` — the 5s `lock_timeout` elapsed on the asset row lock. */
 const LOCK_NOT_AVAILABLE = '55P03';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -57,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     const client = als.getStore()?.client;
     if (!client) {
-      // Outside a request transaction FOR UPDATE releases at once and locks
+      // Outside a request transaction the row lock releases at once and locks
       // nothing. Fail loudly rather than pretend the repeat is serialised.
       throw new Error('below-threshold expense requires a request transaction (withAuth).');
     }
@@ -66,23 +66,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // connection aborted; without this every statement below raises a bare 25P02
     // that loses the real cause. Same order as creditNoteLock.
     assertTxUsable();
-    // Bound the wait like creditNoteLock/bankTxLock do; FOR UPDATE otherwise
+    // Bound the wait like creditNoteLock/bankTxLock do; the row lock otherwise
     // queues forever behind whoever holds the row.
     await client.query("SET LOCAL lock_timeout = '5s'");
     let assetRows: Row[];
     try {
-      // FOR UPDATE: the already-expensed check below is only meaningful while the
+      // FOR NO KEY UPDATE: the already-expensed check below is only meaningful while the
       // row is held. postCapitalizationExpenseToGL sets below_threshold = true only
       // AFTER posting, so two concurrent requests would otherwise both read false
       // and both post an expense journal for the same asset. OF a: the LEFT JOIN
       // must not be locked (and asset_categories is a shared reference table).
+      // NO KEY (round 3, brk-fleet B1): no key column changes, and FOR UPDATE
+      // conflicted with the link's / fleet-record create's FOR KEY SHARE.
       assetRows = (await sql`
         SELECT a.id, a.purchase_price AS cost, a.status, a.below_threshold,
                COALESCE(c.capitalization_threshold, 5000) AS threshold
         FROM assets a
         LEFT JOIN asset_categories c ON c.id = a.category_id
         WHERE a.id = ${assetId}::UUID AND a.company_id = ${companyId}::UUID
-        FOR UPDATE OF a
+        FOR NO KEY UPDATE OF a
       `) as Row[];
       // Success path only — after a lock timeout the transaction is aborted and
       // this statement would throw 25P02 over the typed error. See creditNoteLock.

@@ -127,10 +127,10 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
       statuses: ['cancelled', 'confirmed'], live: [{ total: '115.00', allocated: '115.00' }], invoicePaid: '115.00', review: null });
   });
 
-  it('a LIVE receipt with no journal (a draft manual receipt with the reference) still dedupes, as before R-187', async () => {
-    // A KNOWN PRE-EXISTING GAP (R-189), not expected behaviour: the gateway banks nothing behind a
-    // draft and nothing flags it. Kept unchanged because a live match is unchanged (R-187's scope);
-    // this case pins the LEFT JOIN (a live receipt with no journal is still a match), nothing more.
+  it('a LIVE receipt with no journal (a draft manual receipt with the reference) is still matched: R-189 flags it', async () => {
+    // Pins the LEFT JOIN: a live receipt with no journal is still a match. Since R-189 a draft is not
+    // the settlement: the gateway banks nothing behind it and flags the request for a person
+    // (r189-draft-receipt-holds-reference.int.test.ts covers the fee and the books).
     const id = await invoice(A);
     const ref = await checkout(A, id);
     await inTx(() => createCustomerPayment(A.id, {
@@ -140,7 +140,8 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
 
     expect((await deliver(ref, 11500)).statusCode).toBe(200);
 
-    expect(await outcome(ref, id)).toMatchObject({ statuses: ['draft'], invoicePaid: '0.00' });
+    expect(await outcome(ref, id)).toMatchObject({
+      statuses: ['draft'], invoicePaid: '0.00', review: 'review:draft_receipt_holds_reference' });
   });
 
   it('webhook after a cancelled BANK-FEED allocation whose line carried the reference: banks as usual', async () => {

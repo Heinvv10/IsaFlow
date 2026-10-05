@@ -1,0 +1,141 @@
+HEAD 69ab01de2f2fcae5ecf1b58e6f30a29904be7afb dirty=1 fixture=isaflow-fixture-r19x-r195 url=127.0.0.1:32883 load=18.15 2026-10-05T10:12:07+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r195
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts (11 tests | 5 failed) 220ms
+     × a request in company B naming company C's invoice is refused at insert (23503) 17ms
+     × a request in company B naming company C's invoice is refused at insert (23503) 9ms
+     × on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing 2ms
+     × with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched 6ms
+     × with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched 6ms
+(node:2799190) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"Archive run started","timestamp":"2026-10-05T08:12:08.878Z","component":"data-archiving","data":{"companyId":"bc56eb89-b690-4649-b401-05a35481a2a9","runId":"7bab2130-6eda-4c6b-ab8b-62ce8849f481","cutoffDate":"2005-01-01","userId":"6dcd1464-faae-4384-8816-129f1a4252ba"}}
+{"level":"info","message":"Archive run completed","timestamp":"2026-10-05T08:12:08.889Z","component":"data-archiving","data":{"companyId":"bc56eb89-b690-4649-b401-05a35481a2a9","runId":"7bab2130-6eda-4c6b-ab8b-62ce8849f481","entriesArchived":0,"linesArchived":0,"transactionsArchived":0,"invoicesArchived":1,"invoicesSkipped":2,"supplierInvoicesArchived":0}}
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts (4 tests | 2 failed) 290ms
+     × a Paystack request in another company naming the invoice is refused at insert (23503), so the run archives it 6ms
+     × a Stitch request in another company naming the invoice is refused at insert (23503), so the run archives it 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a Paystack request in another company naming the invoice is refused at insert (23503), so the run archives it
+AssertionError: company B's request was stored against another company's invoice: expected {} to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "23503",
+-   "constraint": "paystack_payment_requests_invoice_company_fkey",
+- }
++ {}
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:112:93
+    110|       const refused = await addRequest(coB, invoice()).then(() => ({}),
+    111|         (err: { code?: string; constraint?: string }) => ({ code: err.…
+    112|       expect(refused, 'company B\'s request was stored against another…
+       |                                                                                             ^
+    113|       const result = await drive(co(), () => executeArchive(co(), CUTO…
+    114|       expect(result.invoicesArchived).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/integration/r186-archive-skips-paystack-invoices.int.test.ts > R-186: archive skips gateway-referenced customer invoices > a Stitch request in another company naming the invoice is refused at insert (23503), so the run archives it
+AssertionError: company B's request was stored against another company's invoice: expected {} to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "23503",
+-   "constraint": "stitch_payment_requests_invoice_company_fkey",
+- }
++ {}
+
+ ❯ tests/integration/r186-archive-skips-paystack-invoices.int.test.ts:112:93
+    110|       const refused = await addRequest(coB, invoice()).then(() => ({}),
+    111|         (err: { code?: string; constraint?: string }) => ({ code: err.…
+    112|       expect(refused, 'company B\'s request was stored against another…
+       |                                                                                             ^
+    113|       const result = await drive(co(), () => executeArchive(co(), CUTO…
+    114|       expect(result.invoicesArchived).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 paystack: request and invoice share a company > a request in company B naming company C's invoice is refused at insert (23503)
+AssertionError: company B's request was stored against company C's invoice: expected { Object (id) } to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "code": "23503",
+-   "constraint": "paystack_payment_requests_invoice_company_fkey",
++   "id": "9ef8b380-4312-450c-bb6e-603edca643ca",
+  }
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:99:81
+     97|     const invoice = await addInvoice(coC, 'paid');
+     98|     const out = await insertAsAppUser(gateway, coB, invoice);
+     99|     expect(out, 'company B\'s request was stored against company C\'s …
+       |                                                                                 ^
+    100|     const rows = await pool.query(`SELECT id FROM ${g.table} WHERE cus…
+    101|     expect(rows.rows).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 stitch: request and invoice share a company > a request in company B naming company C's invoice is refused at insert (23503)
+AssertionError: company B's request was stored against company C's invoice: expected { Object (id) } to deeply equal { code: '23503', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "code": "23503",
+-   "constraint": "stitch_payment_requests_invoice_company_fkey",
++   "id": "b1f9e7d8-d05a-40a0-9634-6e661576e60b",
+  }
+
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:99:81
+     97|     const invoice = await addInvoice(coC, 'paid');
+     98|     const out = await insertAsAppUser(gateway, coB, invoice);
+     99|     expect(out, 'company B\'s request was stored against company C\'s …
+       |                                                                                 ^
+    100|     const rows = await pool.query(`SELECT id FROM ${g.table} WHERE cus…
+    101|     expect(rows.rows).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > on a clean DB: adds the unique key and both FKs, validated; run again it changes nothing
+Error: ENOENT: no such file or directory, open '/home/hein/Workspace/IsaFlow/.worktrees/r195/scripts/migrations/sql/854_payment_request_invoice_company_fk.sql'
+ ❯ migration tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:30:25
+     28| assertDisposable();
+     29|
+     30| const migration = () => readFileSync(
+       |                         ^
+     31|   path.join(__dirname, '../../scripts/migrations/sql/854_payment_reque…
+     32|
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:137:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company paystack row: that FK stays NOT VALID, the row is untouched
+ FAIL  tests/integration/r195-payment-request-invoice-company-fk.int.test.ts > R-195 migration 854 > with a forged cross-company stitch row: that FK stays NOT VALID, the row is untouched
+Error: ENOENT: no such file or directory, open '/home/hein/Workspace/IsaFlow/.worktrees/r195/scripts/migrations/sql/854_payment_request_invoice_company_fk.sql'
+ ❯ migration tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:30:25
+     28| assertDisposable();
+     29|
+     30| const migration = () => readFileSync(
+       |                         ^
+     31|   path.join(__dirname, '../../scripts/migrations/sql/854_payment_reque…
+     32|
+ ❯ tests/integration/r195-payment-request-invoice-company-fk.int.test.ts:165:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  7 failed | 8 passed (15)
+   Start at  10:12:08
+   Duration  902ms (transform 89ms, setup 0ms, import 197ms, tests 511ms, environment 0ms)
+
