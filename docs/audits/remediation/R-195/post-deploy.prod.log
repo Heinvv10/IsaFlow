@@ -10,3 +10,10 @@ customer_invoices|customer_invoices_id_company_id_key|t|UNIQUE (id, company_id)
 paystack_payment_requests|paystack_payment_requests_invoice_company_fkey|t|FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)
 stitch_payment_requests|stitch_payment_requests_invoice_company_fkey|t|FOREIGN KEY (customer_invoice_id, company_id) REFERENCES customer_invoices(id, company_id) ON DELETE SET NULL (customer_invoice_id)
 854|854_payment_request_invoice_company_fk.sql|8936912e6d531e47481e6374d6aa829e0073362bfa17342199c9812c09308e4b|2026-10-05 11:18:19.601821+00
+
+# The register's R-195 census exactly as written in historicalDataImpact, re-run read-only on prod after the deploy (psql -e, aligned output; the pre-deploy run above dropped the column aliases):
+SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id;
+ gateway | id | request_company | invoice_company 
+---------+----+-----------------+-----------------
+(0 rows)
+
