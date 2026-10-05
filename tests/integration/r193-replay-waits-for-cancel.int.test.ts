@@ -40,7 +40,8 @@ vi.mock('@/lib/neon', async (orig) => {
   // The dedupe read: receipts for a reference, admitting a cancelled one only on the gateway's journal stamp.
   const isDedupeRead = (text: string) => /^\s*SELECT/.test(text) && text.includes('FROM customer_payments cp')
     && text.includes('cp.bank_reference =') && text.includes('posting_agent');
-  const sql = async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  // Object.assign keeps the real tag's own members (`sql.transaction`, which journal posting uses).
+  const sql = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const race = hooks.race;
     if (!race || !isDedupeRead(strings.join('?'))) return realSql(strings, ...values);
     hooks.race = null;
@@ -49,7 +50,7 @@ vi.mock('@/lib/neon', async (orig) => {
     const read = realSql(strings, ...values);
     await race.during(read.catch(() => undefined));
     return read;
-  };
+  }, realSql);
   return { ...real, sql };
 });
 
