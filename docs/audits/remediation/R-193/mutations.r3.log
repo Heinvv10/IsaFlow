@@ -1,0 +1,59 @@
+
+=== BASELINE (before mutants)
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=2 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=14.91 2026-10-05T11:03:19+02:00
+Test Files  3 passed (3)
+      Tests  15 passed (15)
+rc=0
+
+=== MUTANT M1 no lock (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 1 -) expect RED
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=3 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=14.96 2026-10-05T11:03:43+02:00
+Test Files  2 failed | 1 passed (3)
+      Tests  11 failed | 4 passed (15)
+rc=1
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 274ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2057ms
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9030ms
+  × verify behind a receipt held past the budget answers pending (never failed), rolls back, posts no fee (review L2) 12029ms
+  × post the fee once; the second waits for the first at the receipt lock (R-193), answers 200 and commits 4341ms
+  × A commits: B finds its fee journal with 200, exactly one fee journal 4132ms
+  × A rolls back: B posts the fee, exactly one fee journal 30009ms
+  × another company's live fee journal for the same reference does not stop A's fee 30016ms
+  × a closed period: the delivery answers 500 and leaves no fee journal, not even a draft 30016ms
+  × refuses a second live fee journal for one (company, reference), draft or posted 30020ms
+  × admits the receipt journals (same agent, NULL reference), another agent, a reversed row 30021ms
+
+=== MUTANT M2 lock without re-read (stale unlocked read, then lock by id) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 4 +++-) expect RED
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=3 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=28.88 2026-10-05T11:06:58+02:00
+Test Files  2 failed | 1 passed (3)
+      Tests  9 failed | 6 passed (15)
+rc=1
+  × post the fee once; the second waits for the first at the receipt lock (R-193), answers 200 and commits 5015ms
+  × A commits: B finds its fee journal with 200, exactly one fee journal 4265ms
+  × A rolls back: B posts the fee, exactly one fee journal 30013ms
+  × another company's live fee journal for the same reference does not stop A's fee 30016ms
+  × a closed period: the delivery answers 500 and leaves no fee journal, not even a draft 30015ms
+  × refuses a second live fee journal for one (company, reference), draft or posted 30020ms
+  × admits the receipt journals (same agent, NULL reference), another agent, a reversed row 30021ms
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 213ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2041ms
+
+=== MUTANT M3 unbounded wait (no row-lock budget) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 2 +-) expect RED
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=3 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=14.25 2026-10-05T11:10:12+02:00
+Test Files  1 failed | 2 passed (3)
+      Tests  2 failed | 13 passed (15)
+rc=1
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9041ms
+  × verify behind a receipt held past the budget answers pending (never failed), rolls back, posts no fee (review L2) 12030ms
+
+=== MUTANT M4 verify answers failed on a settlement error (pages/api/portal/payments/paystack/verify.ts | 2 +-) expect RED
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=3 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=13.07 2026-10-05T11:10:36+02:00
+Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 14 passed (15)
+rc=1
+  × verify behind a receipt held past the budget answers pending (never failed), rolls back, posts no fee (review L2) 12024ms
+
+=== BASELINE (after mutants)
+HEAD 253213964a2cc8d01dec53dbdeabaad70ec3de5f dirty=2 fixture=isaflow-fixture-r19x db=isaflow_schema_fixture url=127.0.0.1:32881 load=20.84 2026-10-05T11:11:02+02:00
+Test Files  3 passed (3)
+      Tests  15 passed (15)
+rc=0

@@ -1,0 +1,136 @@
+HEAD b1ac9e7539c1d7bc489b5c8e4caf4c6875218385 dirty=1 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=55.33 2026-10-05T10:20:33+02:00
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/r193
+
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:37.660Z","component":"API","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-10-05T08:20:37.746Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"companyId":"29fc1b89-4936-4e6a-9f77-dfb058e15a06","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-10-05T08:20:37.746Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"companyId":"29fc1b89-4936-4e6a-9f77-dfb058e15a06","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:37.754Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"entryId":"db80119d-2f72-4654-a49d-e1a1409343f4","entryNumber":"JE-2026-00001","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:37.767Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"id":"db80119d-2f72-4654-a49d-e1a1409343f4","entryNumber":"JE-2026-00001"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-05T08:20:37.771Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"id":"fc152604-62df-4335-b277-3d660f399f45","journalEntryId":"db80119d-2f72-4654-a49d-e1a1409343f4"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-05T08:20:37.772Z","component":"accounting","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"reference":"r181_e4d8ed15-275","invoiceId":"f3db5e55-9751-4bd3-8f4f-73ca866f3148","paymentId":"fc152604-62df-4335-b277-3d660f399f45","allocated":115,"unallocated":0,"journalEntryId":"db80119d-2f72-4654-a49d-e1a1409343f4"}}
+{"level":"info","message":"API Response: POST  - 200 (116ms)","timestamp":"2026-10-05T08:20:37.775Z","component":"API","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"116ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:37.776Z","component":"http","requestId":"01M45JD2MVSGW3C17SSQ5AYFPQ","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":117,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:37.783Z","component":"API","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:37.843Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"entryId":"c4b6d288-0dcf-4fe4-81dd-0a37fc84dd3c","entryNumber":"JE-2026-00002","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:37.856Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"id":"c4b6d288-0dcf-4fe4-81dd-0a37fc84dd3c","entryNumber":"JE-2026-00002"}}
+{"level":"info","message":"Reversed journal entry","timestamp":"2026-10-05T08:20:37.857Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"originalId":"db80119d-2f72-4654-a49d-e1a1409343f4","reversalId":"c4b6d288-0dcf-4fe4-81dd-0a37fc84dd3c","claimReleased":false}}
+{"level":"info","message":"Cancelled customer payment","timestamp":"2026-10-05T08:20:37.858Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"id":"fc152604-62df-4335-b277-3d660f399f45","reason":"r193 race"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-05T08:20:37.864Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"reference":"r181_e4d8ed15-275","invoiceId":"f3db5e55-9751-4bd3-8f4f-73ca866f3148"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:37.872Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"entryId":"407bf47e-d5fb-4d54-820e-db33ca4e8804","entryNumber":"JE-2026-00003","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:37.879Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"id":"407bf47e-d5fb-4d54-820e-db33ca4e8804","entryNumber":"JE-2026-00003"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-05T08:20:37.879Z","component":"accounting","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"reference":"r181_e4d8ed15-275","fee":3.5,"journalEntryId":"407bf47e-d5fb-4d54-820e-db33ca4e8804"}}
+{"level":"info","message":"API Response: POST  - 200 (102ms)","timestamp":"2026-10-05T08:20:37.885Z","component":"API","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"102ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:37.885Z","component":"http","requestId":"01M45JD2RQXD8XGB6VYH6EYFYD","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":102,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:37.918Z","component":"API","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:37.938Z","component":"accounting","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"entryId":"0ca5c0e4-086b-48a9-96ad-9311ab625afe","entryNumber":"JE-2026-00004","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:37.943Z","component":"accounting","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"id":"0ca5c0e4-086b-48a9-96ad-9311ab625afe","entryNumber":"JE-2026-00004"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-05T08:20:37.945Z","component":"accounting","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"id":"68758319-06e0-4e18-aece-a4777eeced8a","journalEntryId":"0ca5c0e4-086b-48a9-96ad-9311ab625afe"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-05T08:20:37.945Z","component":"accounting","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"reference":"r181_cca6744b-ce2","invoiceId":"b0057e33-bfff-4526-8101-395d17580ae3","paymentId":"68758319-06e0-4e18-aece-a4777eeced8a","allocated":115,"unallocated":0,"journalEntryId":"0ca5c0e4-086b-48a9-96ad-9311ab625afe"}}
+{"level":"info","message":"API Response: POST  - 200 (30ms)","timestamp":"2026-10-05T08:20:37.948Z","component":"API","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"30ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:37.948Z","component":"http","requestId":"01M45JD2WYQG9J5XYA8J9WP2N6","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":30,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:37.950Z","component":"API","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:37.979Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"entryId":"6726f6a6-8175-4ace-bbfb-3c64ba9ed449","entryNumber":"JE-2026-00005","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:37.984Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"id":"6726f6a6-8175-4ace-bbfb-3c64ba9ed449","entryNumber":"JE-2026-00005"}}
+{"level":"info","message":"Reversed journal entry","timestamp":"2026-10-05T08:20:37.986Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"originalId":"0ca5c0e4-086b-48a9-96ad-9311ab625afe","reversalId":"6726f6a6-8175-4ace-bbfb-3c64ba9ed449","claimReleased":false}}
+{"level":"info","message":"Cancelled customer payment","timestamp":"2026-10-05T08:20:37.986Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"id":"68758319-06e0-4e18-aece-a4777eeced8a","reason":"r193 race"}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-05T08:20:39.977Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"reference":"r181_cca6744b-ce2","invoiceId":"b0057e33-bfff-4526-8101-395d17580ae3"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:39.982Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"entryId":"60712e23-1396-4556-b214-0202136235f9","entryNumber":"JE-2026-00006","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:39.987Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"id":"60712e23-1396-4556-b214-0202136235f9","entryNumber":"JE-2026-00006"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-05T08:20:39.988Z","component":"accounting","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"reference":"r181_cca6744b-ce2","fee":3.5,"journalEntryId":"60712e23-1396-4556-b214-0202136235f9"}}
+{"level":"info","message":"API Response: POST  - 200 (2043ms)","timestamp":"2026-10-05T08:20:39.994Z","component":"API","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"2043ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:39.994Z","component":"http","requestId":"01M45JD2XYB1RVQSME66J5D8NS","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":2044,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:40.003Z","component":"API","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:40.024Z","component":"accounting","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"entryId":"66622cb9-0095-4f01-9e87-c9b6cf6d5349","entryNumber":"JE-2026-00007","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:40.030Z","component":"accounting","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"id":"66622cb9-0095-4f01-9e87-c9b6cf6d5349","entryNumber":"JE-2026-00007"}}
+{"level":"info","message":"Confirmed customer payment","timestamp":"2026-10-05T08:20:40.033Z","component":"accounting","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"id":"8b6da3e3-5119-469f-a853-29b91d13d56d","journalEntryId":"66622cb9-0095-4f01-9e87-c9b6cf6d5349"}}
+{"level":"info","message":"Recorded gateway invoice receipt","timestamp":"2026-10-05T08:20:40.034Z","component":"accounting","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"reference":"r181_7a3f9a0b-b19","invoiceId":"cd6ce7c2-424b-4606-abba-2780ab9ee2f1","paymentId":"8b6da3e3-5119-469f-a853-29b91d13d56d","allocated":115,"unallocated":0,"journalEntryId":"66622cb9-0095-4f01-9e87-c9b6cf6d5349"}}
+{"level":"info","message":"API Response: POST  - 200 (35ms)","timestamp":"2026-10-05T08:20:40.038Z","component":"API","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"35ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:40.038Z","component":"http","requestId":"01M45JD4Y3GFWE2PMYBBMS2YT5","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":35,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: POST ","timestamp":"2026-10-05T08:20:40.041Z","component":"API","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"Gateway receipt already recorded","timestamp":"2026-10-05T08:20:40.073Z","component":"accounting","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"reference":"r181_7a3f9a0b-b19","invoiceId":"cd6ce7c2-424b-4606-abba-2780ab9ee2f1"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-10-05T08:20:40.082Z","component":"accounting","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"entryId":"6bf95c26-bad7-4373-8c0b-03edaca48023","entryNumber":"JE-2026-00008","lineCount":2}}
+{"level":"info","message":"Posted journal entry","timestamp":"2026-10-05T08:20:40.090Z","component":"accounting","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"id":"6bf95c26-bad7-4373-8c0b-03edaca48023","entryNumber":"JE-2026-00008"}}
+{"level":"info","message":"Posted gateway fee","timestamp":"2026-10-05T08:20:40.091Z","component":"accounting","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"reference":"r181_7a3f9a0b-b19","fee":3.5,"journalEntryId":"6bf95c26-bad7-4373-8c0b-03edaca48023"}}
+{"level":"info","message":"API Response: POST  - 200 (54ms)","timestamp":"2026-10-05T08:20:40.095Z","component":"API","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"54ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-10-05T08:20:40.095Z","component":"http","requestId":"01M45JD4Z9HKR4QQPH1GY3N02C","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":54,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/r193-replay-waits-for-cancel.int.test.ts (3 tests | 3 failed) 12022ms
+     × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 748ms
+     × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2089ms
+     × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9056ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/r193-replay-waits-for-cancel.int.test.ts > R-193: the replay's dedupe read locks the receipt it matches > a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags
+AssertionError: expected { feeJournals: 1, …(4) } to match object { feeJournals: +0, …(2) }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "feeJournals": 0,
++   "feeJournals": 1,
+    "payments": [
+      {
+        "status": "cancelled",
+      },
+    ],
+-   "review": "review:already_settled_cancelled_receipt",
++   "review": null,
+  }
+
+ ❯ tests/integration/r193-replay-waits-for-cancel.int.test.ts:138:88
+    136|
+    137|     expect(race.fired).toBe(true);
+    138|     expect({ feeJournals: await feeJournals(ref), ...(await settlement…
+       |                                                                                        ^
+    139|       { feeJournals: 0, payments: [{ status: 'cancelled' }], review: F…
+    140|     // The cancel committed while the replay's read was WAITING on it,…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/integration/r193-replay-waits-for-cancel.int.test.ts > R-193: the replay's dedupe read locks the receipt it matches > a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/r193-replay-waits-for-cancel.int.test.ts:163:26
+    161|
+    162|     expect(race.fired).toBe(true);
+    163|     expect(cancelWaited).toBe(true);
+       |                          ^
+    164|     expect(await feeJournals(ref)).toBe(1);
+    165|     expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/integration/r193-replay-waits-for-cancel.int.test.ts > R-193: the replay's dedupe read locks the receipt it matches > a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed
+AssertionError: expected 200 to be 500 // Object.is equality
+
+- Expected
++ Received
+
+- 500
++ 200
+
+ ❯ tests/integration/r193-replay-waits-for-cancel.int.test.ts:183:30
+    181|     await released;
+    182|
+    183|     expect(first.statusCode).toBe(500);
+       |                              ^
+    184|     expect(waited).toBeGreaterThan(4000);
+    185|     expect(waited).toBeLessThan(8500);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  10:20:34
+   Duration  15.04s (transform 2.43s, setup 0ms, import 2.71s, tests 12.02s, environment 0ms)
+
