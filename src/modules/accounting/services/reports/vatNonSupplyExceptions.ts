@@ -53,10 +53,15 @@
  * behaviour of that gate — a period carrying fictitious input tax should not
  * be filed — and it is why this category is counted like the other eight
  * rather than shown as an advisory. The consequences, stated plainly:
- *   - There is no waive or acknowledge path anywhere in the gate, and a
- *     reversing journal does not clear one of these — the reversal carries the
- *     same `vat_type` on the same account, so it ADDS a row. Clearing means
- *     re-coding the original lines.
+ *   - There is no waive or acknowledge path anywhere in the gate. Clearing
+ *     means re-coding the original lines: reverse the allocation and post it
+ *     again without the VAT code. A reversed PAIR whose two halves both fall
+ *     inside the period is excluded (2026-10-05): together they move no VAT
+ *     in that period, so listing them blocked the filing on R0,00 of net tax —
+ *     Velocity Fibre Jan–Aug 2026 carried 34 such rows after every original
+ *     had been re-coded. A pair that straddles the period boundary is still
+ *     listed on the side inside the window, because that period's return does
+ *     carry the tax.
  *   - It newly blocks NOTHING in production, and that was measured, not
  *     assumed. Across all 13 tenants there are 7 (company, bi-monthly period)
  *     pairs where this rule fires, and every one of them already carries a
@@ -242,6 +247,17 @@ export async function findVatNonSupplyLines(
       AND jl.vat_type IS NOT NULL
       AND jl.vat_type <> ALL(${NON_CLAIMING_VAT_TYPES as string[]}::TEXT[])
       AND ga.account_name ~* ${NON_SUPPLY_PATTERN}
+      -- A reversed pair inside the window nets to zero VAT: drop both halves.
+      -- reversal_of_id links the contra to its original; reversing does not
+      -- change the original's status, so both are 'posted'.
+      AND NOT EXISTS (
+        SELECT 1 FROM gl_journal_entries pr
+        WHERE pr.company_id = je.company_id
+          AND pr.status = 'posted'
+          AND pr.entry_date >= ${periodStart}::DATE
+          AND pr.entry_date <= ${periodEnd}::DATE
+          AND (pr.reversal_of_id = je.id OR pr.id = je.reversal_of_id)
+      )
     ORDER BY je.entry_date, je.entry_number
     LIMIT ${LIST_CAP}
   ` as Promise<DbRow[]>;

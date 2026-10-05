@@ -268,9 +268,13 @@ export async function postCustomerInvoiceToGL(
     ];
 
     if (Number(inv.tax_amount) > 0) {
+      // Coded 'standard' (2026-10-05), as credit notes since 2026-09-25: an
+      // uncoded VAT leg is a blocking pre-filing exception, and 'standard' is
+      // what the VAT201 already read it as. Migration 853 backfills the
+      // invoice journals posted before this.
       lines.push({
         glAccountId: vatAccount.id, debit: 0, credit: Number(inv.tax_amount),
-        description: `VAT Output: ${inv.invoice_number}`,
+        description: `VAT Output: ${inv.invoice_number}`, vatType: 'standard',
       });
     }
 
