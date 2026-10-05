@@ -1,6 +1,7 @@
 # Archive retirement production deploys, 2026-10-05. Curated excerpt (key lines only) from the deploy.sh output kept by session isaflow-83.
 # Client names and per-company volumes from the integrity step are deliberately omitted.
 # Approvals (Hein, in that session): #647 deploy = 'Deploy now' (business-hours override), started 15:55 SAST; #648 deploy = 'go on green', ran 17:16 SAST (after hours).
+# #650 (landing copy) shipped in the #648 deploy: Hein approved its content ('Remove the line', AskUserQuestion) and its merge ('go') in the building session, and the deploy under 'go on green'.
 
 ## #647, deploy of e7ef010d8
 === Deploying IsaFlow ===
@@ -37,6 +38,9 @@ Post-deploy verification PASSED
 MERGED 32dbdfa661f417f3c07d95f23bef27e2acc9e4e6
 pre-deploy archive rows total: 0
 deploying 32dbdfa661f417f3c07d95f23bef27e2acc9e4e6 over prod e7ef010d8; scope:
+  32dbdfa66 Merge pull request #648 from Heinvv10/fix/archive-drop-tables-20261006
+  4a684567c Merge pull request #641 from Heinvv10/docs/archive-redesign-spec-20261005
+  0dd229fae Merge pull request #650 from Heinvv10/fix/remove-archiving-copy-20261006
 deploy rc=0
 prod after: 32dbdfa66
 archive tables left: 0
