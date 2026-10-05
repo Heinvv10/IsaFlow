@@ -187,3 +187,6 @@ no writer creates, the same class as R-181's equivalent company_id mutant).
   one) is taken as the settlement, so the gateway banks nothing. A known gap, registered as R-189.
 - A gateway receipt whose journal was later deleted cannot exist (FK); one never confirmed cannot be
   committed (the INSERT and the confirm share the settlement transaction).
+
+## Decision (Hein, 2026-10-05)
+Confirmed: only a cancelled GATEWAY-WRITTEN receipt (journal `posting_agent = 'system:paystack-receipt:v1'`) blocks a replay. A cancelled manual or bank-feed receipt with the reference does not.
