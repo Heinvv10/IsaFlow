@@ -529,7 +529,7 @@ const sections: Section[] = [
   },
   {
     title: '13. Content Optimisation & Data Governance',
-    description: 'Clean, consistent data. Optimised storage. Standardised descriptions and account naming. Archiving of historical records.',
+    description: 'Clean, consistent data. Optimised storage. Standardised descriptions and account naming.',
     items: [
       {
         concern: 'Standardised transaction descriptions and naming',
@@ -538,14 +538,6 @@ const sections: Section[] = [
         action: 'Implement description templates for common transaction types. Add auto-suggest for descriptions based on historical patterns. Enforce account naming conventions via validation rules.',
         priority: 'Medium',
         timeline: 'Q3 2026',
-      },
-      {
-        concern: 'Data archiving and performance maintenance',
-        status: 'gap',
-        current: 'No data archiving or retention policy. All historical data in active tables. No purge automation.',
-        action: 'Build data retention engine: archive transactions older than configurable period (default 7 years) to archive schema. Implement automatic index maintenance. Add storage usage dashboard. Create data cleanup wizard for duplicate detection.',
-        priority: 'High',
-        timeline: 'Q4 2026',
       },
       {
         concern: 'Duplicate data elimination',
@@ -1061,7 +1053,6 @@ function generateReport() {
         'IFRS disclosure note generator',
         'CaseWare-compatible export format',
         'CRM webhook/API integration framework',
-        'Data archiving and retention engine',
         'Duplicate detection and merge wizard',
       ],
     },
@@ -1231,7 +1222,6 @@ function generateReport() {
         'Granular permissions with module-level and account-range restrictions — enterprise-grade governance for SME pricing',
         'IFRS disclosure note auto-generation — eliminates hours of manual note preparation per annual financial statement',
         'CaseWare export compatibility — seamless handoff to auditors without manual data re-entry',
-        'Data archiving engine — maintain performance as companies grow, with automatic historical record management',
         'Two-factor authentication — security standard that many SA accounting platforms still lack',
       ],
     },
