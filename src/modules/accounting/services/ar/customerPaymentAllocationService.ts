@@ -10,7 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
-import { defaultHumanMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
+import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from '../ap/paymentJournalReversal';

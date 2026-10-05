@@ -31,6 +31,12 @@
 -- The family is every journal that reverses a member, recursively, so a
 -- reversal of a reversal is coded too. receiptToJournalService also posts as
 -- auto_invoice ('Receipt: …'); the vat_output filter and the name keep it out.
+-- The name match also reaches a cancelled invoice's journal that was never
+-- reversed (scripts/fixes/reverse-cancelled-invoice-journals.ts lists those
+-- for review): its leg is coded too, so it leaves the uncoded-line exception
+-- while still standing in the ledger. Return figures do not change; isaflow_dev
+-- has 0 such journals. Check a database before applying with the SELECT in
+-- that script (cancelled invoice, name-matched posted journal, reversed_at NULL).
 -- Every join is company-scoped. No trigger forbids the UPDATE:
 -- trg_gl_jl_balance_update recomputes balances from debit/credit/account, none
 -- of which change. updated_at is stamped.
