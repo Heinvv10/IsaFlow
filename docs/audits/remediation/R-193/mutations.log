@@ -1,0 +1,36 @@
+
+=== BASELINE (before mutants)
+HEAD 539383ff08e8f260e0311f6357766c5a5b93b4df dirty=3 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=39.81 2026-10-05T10:23:12+02:00
+Test Files  2 passed (2)
+      Tests  7 passed (7)
+rc=0
+
+=== MUTANT M1 no lock (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 1 -) expect RED
+HEAD 539383ff08e8f260e0311f6357766c5a5b93b4df dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=38.16 2026-10-05T10:23:26+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 4 passed (7)
+rc=1
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 642ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2092ms
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9190ms
+
+=== MUTANT M2 lock without re-read (stale unlocked read, then lock by id) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 4 +++-) expect RED
+HEAD 539383ff08e8f260e0311f6357766c5a5b93b4df dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=31.35 2026-10-05T10:23:40+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 5 passed (7)
+rc=1
+  × a cancel holding the receipt commits while the replay waits: the replay reads it cancelled, posts no fee, flags 296ms
+  × a replay holding the receipt makes the cancel wait: the fee posts against the live receipt, then the cancel, no deadlock 2241ms
+
+=== MUTANT M3 unbounded wait (no row-lock budget) (src/modules/accounting/services/ar/gatewaySettledReceipt.ts | 2 +-) expect RED
+HEAD 539383ff08e8f260e0311f6357766c5a5b93b4df dirty=4 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=26.78 2026-10-05T10:23:54+02:00
+Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 6 passed (7)
+rc=1
+  × a lock held past the budget fails the delivery (500, nothing written); the redelivery is processed 9053ms
+
+=== BASELINE (after mutants)
+HEAD 539383ff08e8f260e0311f6357766c5a5b93b4df dirty=3 fixture=isaflow-fixture-r19x url=127.0.0.1:32881 load=24.56 2026-10-05T10:24:06+02:00
+Test Files  2 passed (2)
+      Tests  7 passed (7)
+rc=0
