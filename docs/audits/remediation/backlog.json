@@ -15830,7 +15830,6 @@
         "R-053"
       ],
       "testNames": [
-        "tests/integration/r186-archive-skips-paystack-invoices.int.test.ts",
         "tests/integration/r195-payment-request-invoice-company-fk.int.test.ts"
       ],
       "evidencePaths": [
@@ -15858,7 +15857,7 @@
       "reportedSeverity": "low",
       "title": "A payment request in another company naming this company's invoice blocks this company's whole archive",
       "claim": "paystack_payment_requests.customer_invoice_id and stitch_payment_requests.customer_invoice_id are single-column FKs (ON DELETE SET NULL), and no constraint requires the request's company_id to equal the invoice's. The archive skips only invoices that a request of the SAME company references (R-186; the RLS policy admits every member company, so the predicate decides). A request in company B naming company C's invoice therefore does not shield it: deleting the invoice fires the SET NULL on B's row, and paystack_pr_invoice_has_invoice / stitch_pr_invoice_has_invoice reject it with 23514. C's whole archive run fails. A fix is a composite FK (customer_invoice_id, company_id) or a trigger that refuses cross-company references.",
-      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration. 2026-10-05: fixed by migration 854 (853 was taken by PR #640): UNIQUE customer_invoices(id, company_id) and composite FKs (customer_invoice_id, company_id) on both request tables, ON DELETE SET NULL (customer_invoice_id), created NOT VALID and validated only when the table's cross-company count is 0 (never changes data); the request tables are locked before customer_invoices. The single-column FKs are kept. G1 census run read-only on prod 2026-10-05 ~10:45 SAST: 0 rows, PostgreSQL 15.8 (g1-prod-census.log). The R-186 cross-tenant pins now assert the forged insert is refused (23503). Red 7/15, green 18/18, mutants red. Blind Opus review: FIX (7 L), all fixed, re-review SHIP. Not merged or deployed (Hein's gate)."
+      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration. 2026-10-05: fixed by migration 854 (853 was taken by PR #640): UNIQUE customer_invoices(id, company_id) and composite FKs (customer_invoice_id, company_id) on both request tables, ON DELETE SET NULL (customer_invoice_id), created NOT VALID and validated only when the table's cross-company count is 0 (never changes data); the request tables are locked before customer_invoices. The single-column FKs are kept. G1 census run read-only on prod 2026-10-05 ~10:45 SAST: 0 rows, PostgreSQL 15.8 (g1-prod-census.log). The R-186 cross-tenant pins now assert the forged insert is refused (23503). Red 7/15, green 18/18, mutants red. Blind Opus review: FIX (7 L), all fixed, re-review SHIP. Not merged or deployed (Hein's gate). 2026-10-05: archiving retired (PR #647). The R-195 case in r186-archive-skips-paystack-invoices was removed with that file; r195-payment-request-invoice-company-fk.int.test.ts now imports its fixture from r195-payment-request.helpers.ts (no archive tables)."
     },
     {
       "area": "lib",
