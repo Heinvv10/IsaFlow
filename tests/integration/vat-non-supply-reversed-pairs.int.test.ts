@@ -69,6 +69,9 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
     await salaryJournal('chainO', '2026-07-20', 1);
     await salaryJournal('chainR', '2026-07-21', -1, je.chainO);
     await salaryJournal('chainR2', '2026-07-22', 1, je.chainR);
+    await salaryJournal('preP', '2026-06-25', 1);
+    await salaryJournal('preO', '2026-07-12', -1, je.preP);
+    await salaryJournal('preR', '2026-07-13', 1, je.preO);
     await salaryJournal('outO', '2026-08-10', 1);
     await salaryJournal('outR', '2026-08-11', -1, je.outO);
     await salaryJournal('outR2', '2026-09-05', 1, je.outR);
@@ -123,6 +126,15 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
     expect(later.vatNonSupplyLines.map((l) => l.journalEntryId)).toContain(je.outR2);
   });
 
+  it('a chain that STARTS before the period: the in-window pair drops, the earlier link lists in its own', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
+    expect(ids).not.toContain(je.preO);
+    expect(ids).not.toContain(je.preR);
+    const earlier = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-05-01', '2026-06-30'));
+    expect(earlier.vatNonSupplyLines.map((l) => l.journalEntryId)).toContain(je.preP);
+  });
+
   it('a draft re-reversal or another company\'s journal does not break an isolated pair', async () => {
     const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
     const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
@@ -146,6 +158,6 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
 
   it('the straddling original is still listed in its own period', async () => {
     const r = await inTx(fx, () => getVatExceptions(fx.companyId, '2026-05-01', '2026-06-30'));
-    expect(r.vatNonSupplyLines.map((l) => l.journalEntryId)).toEqual([je.straddleOrig]);
+    expect(r.vatNonSupplyLines.map((l) => l.journalEntryId).sort()).toEqual([je.straddleOrig, je.preP].sort());
   });
 });
