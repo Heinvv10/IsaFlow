@@ -66,9 +66,15 @@ describe('R-051: vat-adjustments-action answers each refusal for what it is', ()
     try {
       await other.query('BEGIN');
       const otherPid = (await other.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      // Since migration 857 a GENERATED number waits for the other posting and takes the next one
+      // (jenum-numbering-*.int.test.ts), so the collision is forced the one way it still happens: an
+      // uncommitted row carrying, explicitly, the number the approval is about to mint.
+      const minted = (await other.query(
+        `SELECT 'JE-2026-' || LPAD((COALESCE(MAX(CAST(NULLIF(SPLIT_PART(entry_number,'-',3),'') AS INT)),0)+1)::TEXT,5,'0') AS n
+         FROM gl_journal_entries WHERE company_id=$1 AND entry_number LIKE 'JE-2026-%'`, [company])).rows[0].n as string;
       await other.query(
-        `INSERT INTO gl_journal_entries(company_id,entry_date,description,source,status,created_by)
-         VALUES($1,'2026-08-15','R051 concurrent posting','manual','draft',$2)`, [company, user]);
+        `INSERT INTO gl_journal_entries(company_id,entry_date,description,source,status,created_by,entry_number)
+         VALUES($1,'2026-08-15','R051 concurrent posting','manual','draft',$2,$3)`, [company, user, minted]);
       // The approval mints the same number and waits on the unique index for the other to settle.
       out = act('approve', id);
       await waitBlocked([otherPid]);
