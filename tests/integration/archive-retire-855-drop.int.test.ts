@@ -78,7 +78,7 @@ const SEEDS: Record<string, string> = {
   archive_bank_transactions: `INSERT INTO archive_bank_transactions (id, company_id, transaction_date) VALUES (gen_random_uuid(), $1, '2018-03-01')`,
   archive_customer_invoices: `INSERT INTO archive_customer_invoices (id, company_id) VALUES (gen_random_uuid(), $1)`,
   archive_supplier_invoices: `INSERT INTO archive_supplier_invoices (id, company_id, invoice_date) VALUES (gen_random_uuid(), $1, '2018-03-01')`,
-  archive_runs: `INSERT INTO archive_runs (company_id, run_by, cutoff_date, status) VALUES ($1, 'u', '2019-01-01', 'failed')`,
+  archive_runs: `INSERT INTO archive_runs (company_id, run_by, cutoff_date, status) VALUES ($1, 'u', '2019-01-01', 'completed')`,
 };
 
 describeIfDb('migration 855: drop the data-archiving tables', () => {
@@ -118,6 +118,39 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
       await c.query(seed, seed.includes('$1') ? [company] : []);
       await c.query('SET LOCAL session_replication_role = origin');
       expect(await apply(c)).toMatch(new RegExp(`855: ${table} has 1 row\\(s\\)\\. Not dropping`));
+    });
+  });
+
+  /** A real user and company (audit_log.user_id references users), and one archive_runs row per status. */
+  async function runs(c: PoolClient, statuses: string[]): Promise<{ company: string; ids: string[] }> {
+    const company = await newCompany(c);
+    const userId = randomUUID();
+    await c.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [userId, `${userId}@r855.test`]);
+    const ids: string[] = [];
+    for (const status of statuses) {
+      ids.push((await c.query(
+        `INSERT INTO archive_runs (company_id, run_by, cutoff_date, status, error_message)
+         VALUES ($1, $2, '2019-01-01', $3::text, 'R855 ' || $3::text) RETURNING id`, [company, userId, status])).rows[0].id as string);
+    }
+    return { company, ids };
+  }
+
+  it('copies failed runs to audit_log, then drops the tables (Hein, 2026-10-05)', async () => {
+    await inRolledBackTx(async (c) => {
+      const { company, ids } = await runs(c, ['failed', 'failed']);
+      expect(await apply(c)).toBeNull();
+      expect(await present(c)).toEqual([]);
+      const logged = (await c.query(
+        `SELECT entity_id, action, changes->>'status' AS status, changes->>'error_message' AS err
+         FROM audit_log WHERE company_id = $1 AND entity_type = 'archive_run' ORDER BY entity_id`, [company])).rows;
+      expect(logged).toEqual([...ids].sort().map(id => ({ entity_id: id, action: 'delete', status: 'failed', err: 'R855 failed' })));
+    });
+  });
+
+  it.each(['completed', 'running', 'pending'])('still refuses on a %s run, after setting the failed ones aside', async (status) => {
+    await inRolledBackTx(async (c) => {
+      await runs(c, ['failed', status]);
+      expect(await apply(c)).toMatch(/855: archive_runs has 1 row\(s\)\. Not dropping/);
     });
   });
 
