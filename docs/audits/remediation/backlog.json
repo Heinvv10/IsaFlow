@@ -15786,25 +15786,41 @@
       "correctedTrigger": null,
       "severityRationale": "Needs forged data: no code path creates a payment request for another company's invoice. Low while archiving is switched off (POST is 403). Even if re-enabled, the effect is a whole-run refusal (fails closed), not data loss.",
       "auditedSha": "1daa3eb88",
-      "currentSha": "1daa3eb88",
-      "status": "candidate",
+      "currentSha": "8d7c679f156b4fc0d655626678ba44ce6c3ed99f",
+      "status": "fixed",
       "dependencies": [
         "R-053"
       ],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "testNames": [
+        "tests/integration/r186-archive-skips-paystack-invoices.int.test.ts",
+        "tests/integration/r195-payment-request-invoice-company-fk.int.test.ts"
+      ],
+      "evidencePaths": [
+        "docs/audits/remediation/R-195/baseline-after-mutants.int.log",
+        "docs/audits/remediation/R-195/baseline-after-mutants.r1.int.log",
+        "docs/audits/remediation/R-195/fix.md",
+        "docs/audits/remediation/R-195/g1-prod-census.log",
+        "docs/audits/remediation/R-195/green.int.log",
+        "docs/audits/remediation/R-195/green.r1.int.log",
+        "docs/audits/remediation/R-195/lock-order.r1.log",
+        "docs/audits/remediation/R-195/mutations.log",
+        "docs/audits/remediation/R-195/mutations.r1.log",
+        "docs/audits/remediation/R-195/red.int.log",
+        "docs/audits/remediation/R-195/regression.int.log",
+        "docs/audits/remediation/R-195/regression.r1.int.log"
+      ],
+      "fixCommit": "470df5599..8d7c679f1",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Census (read-only), expected 0 rows: SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id WHERE pr.company_id <> ci.company_id UNION ALL SELECT 'stitch', sr.id, sr.company_id, ci.company_id FROM stitch_payment_requests sr JOIN customer_invoices ci ON ci.id = sr.customer_invoice_id WHERE sr.company_id <> ci.company_id.",
       "canonicalItem": null,
-      "branch": null,
+      "branch": "fix/r195-payment-request-company-fk-20261005",
       "id": "R-195",
       "severity": "low",
       "reportedSeverity": "low",
       "title": "A payment request in another company naming this company's invoice blocks this company's whole archive",
       "claim": "paystack_payment_requests.customer_invoice_id and stitch_payment_requests.customer_invoice_id are single-column FKs (ON DELETE SET NULL), and no constraint requires the request's company_id to equal the invoice's. The archive skips only invoices that a request of the SAME company references (R-186; the RLS policy admits every member company, so the predicate decides). A request in company B naming company C's invoice therefore does not shield it: deleting the invoice fires the SET NULL on B's row, and paystack_pr_invoice_has_invoice / stitch_pr_invoice_has_invoice reject it with 23514. C's whole archive run fails. A fix is a composite FK (customer_invoice_id, company_id) or a trigger that refuses cross-company references.",
-      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration."
+      "processNotes": "2026-10-03: recorded from the R-186 PR #632 review. The behaviour is pinned by the R-186 cross-tenant cases (Paystack and Stitch, under app_user). Not fixed; it needs a migration. 2026-10-05: fixed by migration 854 (853 was taken by PR #640): UNIQUE customer_invoices(id, company_id) and composite FKs (customer_invoice_id, company_id) on both request tables, ON DELETE SET NULL (customer_invoice_id), created NOT VALID and validated only when the table's cross-company count is 0 (never changes data); the request tables are locked before customer_invoices. The single-column FKs are kept. G1 census run read-only on prod 2026-10-05 ~10:45 SAST: 0 rows, PostgreSQL 15.8 (g1-prod-census.log). The R-186 cross-tenant pins now assert the forged insert is refused (23503). Red 7/15, green 18/18, mutants red. Blind Opus review: FIX (7 L), all fixed, re-review SHIP. Not merged or deployed (Hein's gate)."
     },
     {
       "area": "lib",
