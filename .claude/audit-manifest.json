@@ -40,7 +40,6 @@
     "accounting/reports-management-accounts.ts",
     "accounting/audit-log-export.ts",
     "accounting/credit-notes.ts",
-    "accounting/archived-data.ts",
     "accounting/reports-trial-balance.ts",
     "accounting/duplicates-merge.ts",
     "accounting/audit-log.ts",

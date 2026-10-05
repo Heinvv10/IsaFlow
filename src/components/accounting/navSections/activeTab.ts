@@ -32,7 +32,6 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/time-tracking') ||
     pathname.startsWith('/accounting/timesheets') ||
     pathname.startsWith('/accounting/duplicates') ||
-    pathname.startsWith('/accounting/data-archiving') ||
     pathname.startsWith('/accounting/migration') ||
     pathname.startsWith('/accounting/sage-migration') ||
     pathname.startsWith('/accounting/gl-import') ||
