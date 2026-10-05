@@ -1,0 +1,83 @@
+# Archive retirement pre-deploy census, read-only on PROD isaflow (2026-10-05T15:39:14+02:00), run by isaflow-83 on Hein's instruction
+SHOW default_transaction_read_only;
+ default_transaction_read_only 
+-------------------------------
+ on
+(1 row)
+
+SELECT company_id, status, count(*), min(started_at), max(started_at) FROM archive_runs GROUP BY 1, 2 ORDER BY 1, 2;
+ company_id | status | count | min | max 
+------------+--------+-------+-----+-----
+(0 rows)
+
+SELECT 'je' t, count(*) FROM archive_gl_journal_entries UNION ALL SELECT 'jl', count(*) FROM archive_gl_journal_lines
+UNION ALL SELECT 'bt', count(*) FROM archive_bank_transactions UNION ALL SELECT 'ci', count(*) FROM archive_customer_invoices
+UNION ALL SELECT 'si', count(*) FROM archive_supplier_invoices;
+ t  | count 
+----+-------
+ je |     0
+ jl |     0
+ bt |     0
+ ci |     0
+ si |     0
+(5 rows)
+
+SELECT ci.company_id, ci.id, ci.status, ci.gl_journal_entry_id FROM customer_invoices ci
+JOIN archive_gl_journal_entries a ON a.id = ci.gl_journal_entry_id AND a.company_id = ci.company_id
+WHERE NOT EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.id = ci.gl_journal_entry_id AND je.company_id = ci.company_id);
+ company_id | id | status | gl_journal_entry_id 
+------------+----+--------+---------------------
+(0 rows)
+
+SELECT 'supplier_invoices' t, si.company_id, si.id FROM supplier_invoices si JOIN archive_supplier_invoices a ON a.id = si.id AND a.company_id = si.company_id
+UNION ALL SELECT 'bank_transactions', bt.company_id, bt.id FROM bank_transactions bt JOIN archive_bank_transactions a ON a.id = bt.id AND a.company_id = bt.company_id
+UNION ALL SELECT 'gl_journal_entries', je.company_id, je.id FROM gl_journal_entries je JOIN archive_gl_journal_entries a ON a.id = je.id AND a.company_id = je.company_id;
+ t | company_id | id 
+---+------------+----
+(0 rows)
+
+SELECT company_id, count(*) AS archived_invoices FROM archive_customer_invoices GROUP BY company_id;
+ company_id | archived_invoices 
+------------+-------------------
+(0 rows)
+
+SELECT tablename, tableowner FROM pg_tables WHERE tablename LIKE 'archive\_%' ORDER BY 1;
+         tablename          |   tableowner    
+----------------------------+-----------------
+ archive_bank_transactions  | migration_admin
+ archive_customer_invoices  | migration_admin
+ archive_gl_journal_entries | migration_admin
+ archive_gl_journal_lines   | migration_admin
+ archive_runs               | migration_admin
+ archive_supplier_invoices  | migration_admin
+(6 rows)
+
+SELECT oid::regprocedure FROM pg_proc WHERE prosrc ~* '\marchive_(gl_journal_entries|gl_journal_lines|bank_transactions|customer_invoices|supplier_invoices|runs)\M';
+ oid 
+-----
+(0 rows)
+
+SELECT count(*) AS archive_runs_rows FROM archive_runs;
+ archive_runs_rows 
+-------------------
+                 0
+(1 row)
+
+SHOW default_transaction_read_only
+ default_transaction_read_only 
+-------------------------------
+ on
+(1 row)
+
+SELECT current_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, 'migration_admin', 'USAGE') AS member_of_migration_admin FROM pg_roles r WHERE r.rolname = current_user
+ current_user | rolsuper | rolbypassrls | member_of_migration_admin 
+--------------+----------+--------------+---------------------------
+ postgres     | f        | t            | t
+(1 row)
+
+SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'migration_admin'
+     rolname     | rolsuper | rolbypassrls 
+-----------------+----------+--------------
+ migration_admin | f        | t
+(1 row)
+
