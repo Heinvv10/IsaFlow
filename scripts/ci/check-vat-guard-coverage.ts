@@ -64,13 +64,14 @@ const ALLOWED: Record<string, AllowedEntry> = {
     reason: 'This IS the late-claim guard (qualifiesForLateClaim). The rate is the VAT201\'s own, '
     + 'used only to REFUSE a claim that does not fit its base; it predicts no VAT and posts nothing.',
   },
-  'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': {
+  'src/modules/accounting/services/ar/customerInvoiceGlPosting.ts': {
     kinds: ['vat_field_on_a_posting_path'],
-    reason: 'No claim decided: postCustomerInvoiceToGL's only vat_type write is `standard` on the '
-    + 'invoice's own VAT Output leg (2026-10-05), a LABEL on the tax_amount the invoice already '
-    + 'carries. The account is the fixed vat_output system account, nobody picks one, and the code '
-    + 'is box-neutral — the VAT201 read the uncoded leg as standard before it '
-    + '(tests/integration/customer-invoice-vat-code-backfill.int.test.ts).',
+    reason: 'No claim decided: the file holds postCustomerInvoiceToGL alone, and its only vat_type '
+    + 'write is `standard` on the invoice\'s own VAT Output leg (2026-10-05), a LABEL on the '
+    + 'tax_amount the invoice already carries. The account is the fixed vat_output system account, '
+    + 'nobody picks one, and the code is box-neutral — the VAT201 read the uncoded leg as standard '
+    + 'before it (tests/integration/customer-invoice-vat-code-backfill.int.test.ts). It was moved '
+    + 'out of customerPaymentAllocationService so this entry does not excuse payment-allocation code.',
   },
   'src/modules/accounting/services/ar/creditNoteApproveService.ts': {
     kinds: ['vat_field_on_a_posting_path'],

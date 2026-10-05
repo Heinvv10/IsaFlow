@@ -4,7 +4,10 @@
  * half is listed (Hein, 2026-10-05 — Velocity Fibre Jan–Aug 2026 carried 34
  * such rows after every original had been re-coded, blocking the filing on
  * R0,00 of net tax). An unreversed line is still listed, and so is the
- * in-window half of a pair that straddles the period boundary.
+ * in-window half of a pair that straddles the period boundary (either way
+ * round). Only an ISOLATED pair is dropped: every link of a chain
+ * O <- R <- R2 stays listed (R2 puts O's claim back), a draft reversal clears
+ * nothing, and a reversal pointing at another company's journal is no pair.
  *
  * Journals are inserted directly: the posting-time non-supply guard would
  * (rightly) coerce a salary line's VAT code, and this test is about legacy
@@ -21,14 +24,17 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 const PERIOD = { start: '2026-07-01', end: '2026-08-31' };
 type Row = Record<string, unknown>;
 let fx: Fixture;
+let other: Fixture;
 let salaries = '';
 let vatInput = '';
 const je: Record<string, string> = {};
 
-async function salaryJournal(key: string, date: string, sign: 1 | -1, reversalOf?: string): Promise<void> {
+async function salaryJournal(
+  key: string, date: string, sign: 1 | -1, reversalOf?: string, status: 'posted' | 'draft' = 'posted',
+): Promise<void> {
   const rows = (await sql`
     INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by, reversal_of_id)
-    VALUES (${fx.companyId}::UUID, ${`NS-${key}-${fx.tag}`}, ${date}::DATE, ${`salary ${key}`}, 'posted',
+    VALUES (${fx.companyId}::UUID, ${`NS-${key}-${fx.tag}`}, ${date}::DATE, ${`salary ${key}`}, ${status},
             ${fx.userId}::UUID, ${reversalOf ?? null}::UUID)
     RETURNING id`) as Row[];
   const id = String(rows[0]!.id);
@@ -57,19 +63,56 @@ describeIfDb('non-supply VAT exception ignores reversed pairs inside the period'
     await salaryJournal('open', '2026-07-15', 1);
     await salaryJournal('straddleOrig', '2026-06-30', 1);
     await salaryJournal('straddleRev', '2026-07-05', -1, je.straddleOrig);
-  }, 240000);
+    await salaryJournal('mirrorOrig', '2026-08-30', 1);
+    await salaryJournal('mirrorRev', '2026-09-02', -1, je.mirrorOrig);
+    await salaryJournal('chainO', '2026-07-20', 1);
+    await salaryJournal('chainR', '2026-07-21', -1, je.chainO);
+    await salaryJournal('chainR2', '2026-07-22', 1, je.chainR);
+    await salaryJournal('draftOrig', '2026-07-25', 1);
+    await salaryJournal('draftRev', '2026-07-26', -1, je.draftOrig, 'draft');
+    other = await seedFixture('NSX', DATABASE_URL!);
+    const foreign = (await sql`
+      INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by)
+      VALUES (${other.companyId}::UUID, ${`NS-foreign-${other.tag}`}, '2026-07-27'::DATE, 'foreign', 'posted', ${other.userId}::UUID)
+      RETURNING id`) as Row[];
+    await salaryJournal('crossRev', '2026-07-28', -1, String(foreign[0]!.id));
+  }, 480000);
 
   afterAll(async () => {
-    if (!fx) return;
-    await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
-    await dropFixture(fx);
-  }, 120000);
+    if (fx) {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
+      await dropFixture(fx);
+    }
+    if (other) await dropFixture(other);
+  }, 240000);
 
-  it('lists the unreversed line and the in-window half of a straddling pair, not the in-window pair', async () => {
+  it('drops only the isolated in-window pair', async () => {
     const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
     const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId).sort();
-    expect(ids).toEqual([je.open, je.straddleRev].sort());
-    expect(r.vatNonSupplyCount).toBe(2);
+    const listed = ['open', 'straddleRev', 'mirrorOrig', 'chainO', 'chainR', 'chainR2', 'draftOrig', 'crossRev'];
+    expect(ids).toEqual(listed.map((k) => je[k]).sort());
+    expect(r.vatNonSupplyCount).toBe(listed.length);
+  });
+
+  it('a reversal of a reversal keeps the whole chain listed: R2 puts the claim back', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = new Set(r.vatNonSupplyLines.map((l) => l.journalEntryId));
+    expect([je.chainO, je.chainR, je.chainR2].every((id) => ids.has(id))).toBe(true);
+  });
+
+  it('a pair straddling the period END is listed on its in-window side', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
+    expect(ids).toContain(je.mirrorOrig);
+    expect(ids).not.toContain(je.mirrorRev);
+  });
+
+  it('a draft reversal does not clear the original, and another company\'s journal is no partner', async () => {
+    const r = await inTx(fx, () => getVatExceptions(fx.companyId, PERIOD.start, PERIOD.end));
+    const ids = r.vatNonSupplyLines.map((l) => l.journalEntryId);
+    expect(ids).toContain(je.draftOrig);
+    expect(ids).not.toContain(je.draftRev);
+    expect(ids).toContain(je.crossRev);
   });
 
   it('the straddling original is still listed in its own period', async () => {
