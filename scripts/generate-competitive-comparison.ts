@@ -179,7 +179,6 @@ const SECTIONS: Section[] = [
     { name: 'Two-factor auth (2FA)',   isa: Y, sage: Y,     qbo: Y,     xero: Y },
     { name: 'Audit trail',             isa: Y, sage: Y,     qbo: Y,     xero: Y },
     { name: 'Approval workflows',      isa: Y, sage: N,     qbo: N,     xero: '3rd party' },
-    { name: 'Data archiving',          isa: Y, sage: N,     qbo: N,     xero: P },
     { name: 'POPIA compliance tools',  isa: Y, sage: P,     qbo: P,     xero: P },
   ]},
   { title: '16. SA Compliance', features: [
