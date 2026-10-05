@@ -34,6 +34,14 @@ describe('Phase 6 pricing data — Scenario C (Hein-signed 2026-07-06)', () => {
     it('marks Business (and only Business) as the popular hero tier', () => {
       expect(PRICING_TIERS.filter((t) => t.popular).map((t) => t.name)).toEqual(['Business']);
     });
+
+    it('advertises no data archiving anywhere on the landing or pricing pages (retired 2026-10-05, Hein; spec PR #641)', async () => {
+      const landing = await import('@/components/landing/landingData');
+      const pricing = await import('@/components/landing/pricingData');
+      const copy = JSON.stringify({ ...landing, ...pricing });
+      expect(copy.length).toBeGreaterThan(1000); // the exports really were read
+      expect(copy.match(/[^"]*(archiv|retention engine)[^"]*/gi) ?? []).toEqual([]);
+    });
   });
 
   describe('free trial', () => {

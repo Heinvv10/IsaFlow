@@ -205,7 +205,6 @@ export const PRICING_TIERS: PricingTier[] = [
       'Multi-entity / Group Consolidation',
       'Annual Financial Statements (AFS)',
       'Approval Workflows & Cost Centres',
-      'Data Archiving & Retention Engine',
       'Unlimited users',
       'Dedicated support',
     ],
