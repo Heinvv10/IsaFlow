@@ -72,10 +72,28 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset / f
     expect(await linkState(bt)).toMatchObject({ asset: null, fuel: null, service: null, status: 'imported' });
 
     expect((await fleet(bt, 'fuel', f)).status).toBe(200);
-    expect((await fleet(bt, 'service', null)).status).toBe(200); // not the kind it carries: the fuel link stays
-    expect(await linkState(bt)).toMatchObject({ fuel: f });
     expect((await fleet(bt, 'fuel', null)).status).toBe(200);
     expect(await linkState(bt)).toMatchObject({ asset: null, fuel: null, service: null });
+  }, 60000);
+
+  // Round 2 (blind L3): an unlink that would change nothing is not a success — a stale client must not read
+  // "Link removed" while another kind's link is still on the line. Refused before any write (updated_at too).
+  it('unlinking a kind the line does not carry is 409 and writes nothing', async () => {
+    const bt = await seedLine(c, bank, 858);
+    const a = await newAsset(c); const f = await newFuel(c, a);
+    const none = await linkState(bt);
+    const bare = await asset(bt, null);
+    expect(bare.status, bare.body).toBe(409);
+    expect(messageOf(bare)).toBe('This bank transaction carries no asset link');
+    expect(await linkState(bt)).toEqual(none);
+
+    expect((await fleet(bt, 'fuel', f)).status).toBe(200);
+    const linked = await linkState(bt);
+    const other = await fleet(bt, 'service', null);
+    expect(other.status, other.body).toBe(409);
+    expect(messageOf(other)).toBe('This bank transaction carries no service record link');
+    expect((await asset(bt, null)).status).toBe(409);
+    expect(await linkState(bt)).toEqual(linked);
   }, 60000);
 
   it('an allocated line keeps its status and journal line', async () => {

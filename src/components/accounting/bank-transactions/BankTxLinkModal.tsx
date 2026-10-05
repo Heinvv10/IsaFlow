@@ -3,7 +3,7 @@
  * (mig 853). Search an asset, pick it, then optionally pick a fuel or service record of it. A link is an
  * annotation only: it never posts, and never changes the line's status or reconciliation.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, Truck, X } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
@@ -43,32 +43,42 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const searchAssets = useCallback(async (term: string) => {
-    setAssetsLoading(true);
-    try {
-      const res = await apiFetch(`/api/accounting/assets${term ? `?search=${encodeURIComponent(term)}` : ''}`);
-      await assertOk(res, 'Could not load the assets - try again');
-      setAssets(toAssets(((await res.json()) as { data?: unknown }).data));
-    } catch (err) {
-      setAssets([]);
-      setError(apiErrorMessage(err, 'Could not load the assets - try again'));
-    } finally { setAssetsLoading(false); }
-  }, []);
-
+  // Each effect ignores a response that arrives after it was superseded (a newer search, another asset picked):
+  // a late answer for asset A would otherwise show A's records while B is selected, and link A's record.
   useEffect(() => {
-    const t = setTimeout(() => { void searchAssets(search.trim()); }, 250);
-    return () => clearTimeout(t);
-  }, [search, searchAssets]);
+    let ignore = false;
+    const term = search.trim();
+    const t = setTimeout(() => {
+      setAssetsLoading(true);
+      void (async () => {
+        try {
+          const res = await apiFetch(`/api/accounting/assets${term ? `?search=${encodeURIComponent(term)}` : ''}`);
+          await assertOk(res, 'Could not load the assets - try again');
+          const rows = toAssets(((await res.json()) as { data?: unknown }).data);
+          if (!ignore) setAssets(rows);
+        } catch (err) {
+          if (ignore) return;
+          setAssets([]);
+          setError(apiErrorMessage(err, 'Could not load the assets - try again'));
+        } finally { if (!ignore) setAssetsLoading(false); }
+      })();
+    }, 250);
+    return () => { ignore = true; clearTimeout(t); };
+  }, [search]);
 
   useEffect(() => {
     if (!assetId) { setFuel([]); setServices([]); return; }
+    let ignore = false;
     setTarget({ kind: 'asset' });
+    setFuel([]); setServices([]);
     void Promise.all([loadFuelRecords(assetId), loadServiceRecords(assetId)])
-      .then(([f, s]) => { setFuel(f); setServices(s); })
+      .then(([f, s]) => { if (!ignore) { setFuel(f); setServices(s); } })
       .catch((err: unknown) => {
+        if (ignore) return;
         setFuel([]); setServices([]);
         setError(apiErrorMessage(err, 'Could not load the fuel and service records - try again'));
       });
+    return () => { ignore = true; };
   }, [assetId]);
 
   const link = async () => {

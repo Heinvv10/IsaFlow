@@ -23,9 +23,20 @@
 --
 -- At most one of the three link columns is set (CHECK).
 --
+-- A fleet record's asset FK is ON DELETE CASCADE, so deleting an asset would
+-- take its fuel / service records with it and (SET NULL) clear the bank links
+-- to them — the outcome the record delete refuses (409). No path deletes an
+-- `assets` row today (census 2026-10-05: no DELETE FROM assets in src/, pages/,
+-- scripts/ or any database function; company delete is a soft status flip;
+-- the soft-delete purge covers customers, suppliers, items, bank rules and
+-- invoices only). CASCADE is kept so the fleet rows never block a future
+-- whole-company purge; a per-asset delete, if one is ever added, must refuse
+-- an asset whose records a bank line links to.
+--
 -- Every DDL here takes a strong lock on assets / bank_transactions; queued
 -- behind a long transaction it would block every bank read, so fail instead
--- (as 649, 717, 718, 851).
+-- (as 649, 717, 718, 851). The lock_timeout bounds the wait to ACQUIRE a lock,
+-- not the work done under it: see the constraint block below.
 SET LOCAL lock_timeout = '5s';
 
 DO $$
@@ -102,7 +113,11 @@ CREATE POLICY tenant_isolation ON fleet_service_history
   USING (company_id IN (SELECT auth.user_companies()))
   WITH CHECK (company_id IN (SELECT auth.user_companies()) AND company_id = app.current_company_id());
 
--- The links. New columns, so every row is NULL and each constraint validates trivially.
+-- The links. Adding each FK and the CHECK scans bank_transactions once under
+-- SHARE ROW EXCLUSIVE (writes blocked, reads not), bounded by the table's size;
+-- every row is NULL in the new columns, so each scan finds nothing to refuse.
+-- NOT VALID + VALIDATE would gain nothing here: in one transaction the ALTER's
+-- stronger lock is held to commit anyway. Deployed after hours.
 ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS linked_asset_id UUID;
 ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS linked_fleet_fuel_id UUID;
 ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS linked_fleet_service_id UUID;

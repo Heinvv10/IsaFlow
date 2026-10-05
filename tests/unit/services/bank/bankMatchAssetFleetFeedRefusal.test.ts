@@ -107,6 +107,13 @@ describe('bank-match-fleet', () => {
       expect(await fleet(kind, FLEET_ID)).toEqual({ kind: 'notFound', message });
     });
 
+  it.each([['asset', 'asset'], ['fuel', 'fuel record'], ['service', 'service record']])(
+    'an unlink of a %s link the line does not carry is 409', async (kind, word) => {
+      setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'no_link' });
+      const out = kind === 'asset' ? await asset(null) : await fleet(kind, null);
+      expect(out).toEqual({ kind: 'conflict', message: `This bank transaction carries no ${word} link` });
+    });
+
   it('a removed line is 409 with the not-posted message', async () => {
     setBankLineLink.mockResolvedValueOnce({ ok: false, refused: 'not_posted', feedState: 'removed' });
     const out = await fleet('fuel', FLEET_ID);

@@ -50,6 +50,17 @@ export async function assetInCompany(companyId: string, assetId: string): Promis
   return rows.length > 0;
 }
 
+/**
+ * The asset in this company, FOR KEY SHARE under the 5 s budget, before a record is inserted under it. Depreciation
+ * and dispose hold the asset FOR UPDATE; the INSERT's composite-FK check would otherwise wait on them unbounded.
+ * Held -> `RowLockTimeoutError` (503 + Retry-After).
+ */
+async function lockAssetForRecord(companyId: string, assetId: string): Promise<boolean> {
+  const rows = await underFlowLockBudget('This asset', async () => (await sql`
+    SELECT id FROM assets WHERE id = ${assetId}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE`) as DbRow[]);
+  return rows.length > 0;
+}
+
 export async function listFuelRecords(companyId: string, assetId: string): Promise<FuelRecord[] | null> {
   if (!(await assetInCompany(companyId, assetId))) return null;
   const rows = (await sql`
@@ -75,7 +86,7 @@ export async function listServiceRecords(companyId: string, assetId: string): Pr
 export async function createFuelRecord(
   companyId: string, assetId: string, input: FuelInput, userId: string,
 ): Promise<FuelRecord | null> {
-  if (!(await assetInCompany(companyId, assetId))) return null;
+  if (!(await lockAssetForRecord(companyId, assetId))) return null;
   const rows = (await sql`
     INSERT INTO fleet_fuel_transactions
       (company_id, asset_id, fill_date, litres, amount, odometer_km, supplier_name, notes, created_by)
@@ -88,7 +99,7 @@ export async function createFuelRecord(
 export async function createServiceRecord(
   companyId: string, assetId: string, input: ServiceInput, userId: string,
 ): Promise<ServiceRecord | null> {
-  if (!(await assetInCompany(companyId, assetId))) return null;
+  if (!(await lockAssetForRecord(companyId, assetId))) return null;
   const rows = (await sql`
     INSERT INTO fleet_service_history
       (company_id, asset_id, service_date, description, amount, odometer_km, supplier_name, notes, created_by)

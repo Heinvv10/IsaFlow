@@ -12,7 +12,9 @@
  *      under the 5 s budget — held -> `BankTransactionLockTimeoutError`, 503) — missing or another company's: `line`;
  *   2. the target record in THIS company, FOR KEY SHARE (a delete in flight is waited for, bounded, and then reads as
  *      gone) — missing or another company's: `target`, one answer for both;
- *   3. the line's feed_state is `posted` — else `not_posted`.
+ *   3. the line's feed_state is `posted` — else `not_posted`;
+ *   4. an unlink (null target) of a kind the line does not carry — `no_link`: answering success there told a stale
+ *      client "Link removed" while another kind's link stayed on the line.
  * Lock order: bank line -> target record. The record delete (`fleetRecordsService`) locks only the record.
  */
 import { sql, type DbRow } from '@/lib/neon';
@@ -25,9 +27,14 @@ import type { FeedState } from '../../types/bank.types';
 export type BankLinkRefusal =
   | { ok: false; refused: 'line' }
   | { ok: false; refused: 'target' }
-  | { ok: false; refused: 'not_posted'; feedState: Exclude<FeedState, 'posted'> };
+  | { ok: false; refused: 'not_posted'; feedState: Exclude<FeedState, 'posted'> }
+  | { ok: false; refused: 'no_link' };
 
 export type BankLinkResult = { ok: true } | BankLinkRefusal;
+
+const LINK_COLUMN: Record<BankTxLinkKind, string> = {
+  asset: 'linked_asset_id', fuel: 'linked_fleet_fuel_id', service: 'linked_fleet_service_id',
+};
 
 /** The target exists in this company — read FOR KEY SHARE under the 5 s budget. */
 async function lockTarget(companyId: string, kind: BankTxLinkKind, id: string): Promise<boolean> {
@@ -53,6 +60,7 @@ export async function setBankLineLink(
   if (targetId !== null && !(await lockTarget(companyId, kind, targetId))) return { ok: false, refused: 'target' };
   const feedState = feedStateOf(line);
   if (feedState !== 'posted') return { ok: false, refused: 'not_posted', feedState };
+  if (targetId === null && !line[LINK_COLUMN[kind]]) return { ok: false, refused: 'no_link' };
 
   if (targetId !== null) {
     await sql`
