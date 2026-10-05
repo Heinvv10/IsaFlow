@@ -36,20 +36,23 @@ const hooks = vi.hoisted(() => ({
 
 vi.mock('@/lib/neon', async (orig) => {
   const real = await orig<Record<string, unknown>>();
-  const realSql = real.sql as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
+  const realSql = real.sql as (s: TemplateStringsArray, ...v: unknown[]) => PromiseLike<unknown>;
   // The dedupe read: receipts for a reference, admitting a cancelled one only on the gateway's journal stamp.
   const isDedupeRead = (text: string) => /^\s*SELECT/.test(text) && text.includes('FROM customer_payments cp')
     && text.includes('cp.bank_reference =') && text.includes('posting_agent');
-  // Object.assign keeps the real tag's own members (`sql.transaction`, which journal posting uses).
-  const sql = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+  // Every other statement gets the real lazy query back untouched (`sql.transaction` reads its text), and
+  // Object.assign keeps the real tag's own members (`transaction`, `unsafe`, `query`).
+  const sql = Object.assign((strings: TemplateStringsArray, ...values: unknown[]) => {
     const race = hooks.race;
     if (!race || !isDedupeRead(strings.join('?'))) return realSql(strings, ...values);
     hooks.race = null;
     race.fired = true;
-    await race.before();
-    const read = realSql(strings, ...values);
-    await race.during(read.catch(() => undefined));
-    return read;
+    return (async () => {
+      await race.before();
+      const read = Promise.resolve(realSql(strings, ...values));
+      await race.during(read.catch(() => undefined));
+      return read;
+    })();
   }, realSql);
   return { ...real, sql };
 });
