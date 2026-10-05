@@ -53,6 +53,8 @@ afs_sections
 afs_statement_lines
 afs_uploaded_images
 analytics_websites
+# The five archive_* entries below were dropped by 855_retire_data_archiving.sql.
+# They stay because this gate reads CREATE TABLE in 275 and does not read DROP TABLE.
 archive_bank_transactions
 archive_customer_invoices
 archive_gl_journal_entries
