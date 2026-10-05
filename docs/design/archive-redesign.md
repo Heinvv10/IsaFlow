@@ -1,6 +1,8 @@
 # Archive redesign — spec and decision list
 
-**Status:** proposal. Nothing here is built. Archiving stays switched off (`POST /api/accounting/data-archiving` → 403, since 2026-09-24, #506) until Hein decides §2 and the re-enable gate in §10 passes.
+**Status:** decided 2026-10-05 (Hein). **D0 = A, retire physical archiving**; D9 = fix R-195 on its own (#642, live). The data-archiving page and nav entry are removed, and failed `archive_runs` rows are kept in `audit_log`. Built in #647 (code removal) and #648 (migration 855 drops the tables, in a later deploy). Options B and C, and D1–D8, stay below as the record of what was weighed; none of them is built.
+
+**Original status (as proposed):** proposal. Nothing here is built. Archiving stays switched off (`POST /api/accounting/data-archiving` → 403, since 2026-09-24, #506) until Hein decides §2 and the re-enable gate in §10 passes.
 **Closes, once built:** R-053, R-191, R-192, R-194. **Supersedes:** R-186's skip-and-refuse (live since #632). **Depends on:** R-195 (cross-company payment-request references; the register's fix is a composite FK).
 **Measured on:** origin/master `470df5599`, own disposable fixture `isaflow-fixture-archive-spec` (schema cloned from the fleet template, migrations up to `852_gateway_fee_journal_unique.sql`, 424 rows in `schema_migrations`). Production was not queried. The archive integration suites (`k071-archive-delete-order` and the five `r186-archive-*` files) pass 26/26 there, so the registered behaviour still holds on master.
 
