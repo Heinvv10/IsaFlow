@@ -18,7 +18,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
-import { confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import { cancelCustomerPayment, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { books, feeJournals } from './r187-books.helpers';
 
 assertDisposable();
@@ -166,6 +166,54 @@ describe('R-189: a draft receipt holding the reference is flagged, never taken a
     expect(s.review).toBeNull();
   });
 
+  it('a draft beside a CANCELLED gateway receipt: both reasons, the cancelled receipt named, no fee (review L1)', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11500)).statusCode).toBe(200);
+    const gateway = (await pool.query<{ id: string }>(
+      "SELECT id FROM customer_payments WHERE company_id = $1 AND bank_reference = $2 AND status = 'confirmed'", [A.id, ref])).rows[0]!.id;
+    await inTx(() => cancelCustomerPayment(A.id, gateway, A.user, 'r189 side effect'));
+    const draft = await draftReceipt(ref, id, 'eft');
+    const before = await books();
+
+    expect((await deliver(ref, 11500, 'ZAR', { id: Math.floor(Math.random() * 1e9), fees: 350 })).statusCode).toBe(200);
+
+    expect(await books()).toEqual(before);
+    expect(await feeJournals(ref)).toBe(0);
+    expect((await settlement(A, ref, id)).review)
+      .toBe('review:draft_receipt_holds_reference,already_settled_cancelled_receipt');
+    expect(await draftState(draft)).toEqual({ status: 'draft', journal: null, allocated: '115.00' });
+  });
+});
+
+describe('R-189 review M1: a RECONCILED receipt is a settlement (a person applied an unapplied gateway receipt)', () => {
+  /** A gateway receipt banked with no fee, then marked reconciled as receiptApplicationService leaves it. */
+  async function reconciledReceipt(): Promise<{ id: string; ref: string }> {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    expect((await deliver(ref, 11500)).statusCode).toBe(200);
+    await pool.query(
+      "UPDATE customer_payments SET status = 'reconciled' WHERE company_id = $1 AND bank_reference = $2", [A.id, ref]);
+    return { id, ref };
+  }
+
+  it('a later charge.success with fees takes the second-report path: the fee posts, nothing flagged', async () => {
+    const { id, ref } = await reconciledReceipt();
+
+    expect((await deliver(ref, 11500, 'ZAR', { id: Math.floor(Math.random() * 1e9), fees: 350 })).statusCode).toBe(200);
+
+    expect(await feeJournals(ref)).toBe(1);
+    expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ status: 'reconciled' }], review: null });
+  });
+
+  it('verify reports the reconciled receipt as banked and applied', async () => {
+    const { ref } = await reconciledReceipt();
+
+    expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 11500, appliedToInvoice: true });
+  });
+});
+
+describe('R-189: control', () => {
   it('control: with no draft the same delivery banks the receipt and posts the fee, unflagged', async () => {
     const id = await invoice(A);
     const ref = await checkout(A, id);
