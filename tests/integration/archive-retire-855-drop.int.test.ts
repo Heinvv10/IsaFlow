@@ -155,6 +155,15 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
       });
     });
 
+  it('still refuses on such a function when standard_conforming_strings is off', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query(`CREATE FUNCTION archive_retire_855_f() RETURNS bigint LANGUAGE plpgsql
+        AS $f$ BEGIN RETURN (SELECT count(*) FROM ARCHIVE_RUNS); END $f$`);
+      await c.query('SET LOCAL standard_conforming_strings = off');
+      expect(await apply(c)).toMatch(/855: function\(s\) archive_retire_855_f\(\) reference an archive table/);
+    });
+  });
+
   it('does not refuse on a function that only names a longer identifier (archive_runs_legacy)', async () => {
     await inRolledBackTx(async (c) => {
       await c.query(`CREATE FUNCTION archive_retire_855_g() RETURNS int LANGUAGE plpgsql
