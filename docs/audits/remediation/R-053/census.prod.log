@@ -63,3 +63,21 @@ SELECT count(*) AS archive_runs_rows FROM archive_runs;
                  0
 (1 row)
 
+SHOW default_transaction_read_only
+ default_transaction_read_only 
+-------------------------------
+ on
+(1 row)
+
+SELECT current_user, r.rolsuper, r.rolbypassrls, pg_has_role(current_user, 'migration_admin', 'USAGE') AS member_of_migration_admin FROM pg_roles r WHERE r.rolname = current_user
+ current_user | rolsuper | rolbypassrls | member_of_migration_admin 
+--------------+----------+--------------+---------------------------
+ postgres     | f        | t            | t
+(1 row)
+
+SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'migration_admin'
+     rolname     | rolsuper | rolbypassrls 
+-----------------+----------+--------------
+ migration_admin | f        | t
+(1 row)
+
