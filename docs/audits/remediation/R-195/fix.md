@@ -4,6 +4,10 @@
 
 The census must be run on prod (read-only) before 854 merges; non-zero rows stop the merge.
 
+**Run 2026-10-05 ~10:45 SAST, read-only session on prod `isaflow`: 0 rows** (`g1-prod-census.log`).
+Prod is PostgreSQL 15.8, so `ON DELETE SET NULL (customer_invoice_id)` is supported. Prod has
+2,368 customer invoices (the UNIQUE build is small), 1 Paystack and 2 Stitch requests naming an invoice.
+
 ```sql
 SELECT 'paystack' AS gateway, pr.id, pr.company_id AS request_company, ci.company_id AS invoice_company
 FROM paystack_payment_requests pr JOIN customer_invoices ci ON ci.id = pr.customer_invoice_id
@@ -97,14 +101,15 @@ Each applied to 854 on disk and to the fixture, run, reverted with `git checkout
 - M3 never VALIDATE: 3 failed / 15.
 - M4 VALIDATE unconditionally: 2 failed / 15.
 
-Final green after the mutants: green.int.log, 17/17.
+Final green after the mutants: green.int.log, 17/17; re-run independently by the orchestrator after the
+mutants: baseline-after-mutants.int.log, 17/17.
 
 ## Residual risk
 
-- Prod census not run from here (G1).
+- Prod census: 0 rows, PG 15.8 (G1, above).
 - If prod already has a non-constraint index named `customer_invoices_id_company_id_key`, the ADD fails
   and the file rolls back. Not expected.
 - The UNIQUE build holds a SHARE lock on `customer_invoices` (blocks invoice writes) for the build;
-  bounded by the 120s statement_timeout. Prod row count not measured.
+  bounded by the 120s statement_timeout. Prod has 2,368 invoices.
 - `customer_invoices.company_id` can no longer be changed while a request references the invoice
   (ON UPDATE NO ACTION). No code changes it.
