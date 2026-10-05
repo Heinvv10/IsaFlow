@@ -12,9 +12,9 @@
  * Each case replays the real file inside a transaction that is ROLLED BACK,
  * so the shared fixture schema is never left changed. A refusal is proven by
  * the error alone: ROLLBACK TO SAVEPOINT restores any partial drop, so
- * checking the tables afterwards could never fail. On a database where 855
- * is already recorded the tables are gone and there is nothing to replay, so
- * every case skips (visibly) there.
+ * checking the tables afterwards could never fail. Where every table is
+ * already gone there is nothing to replay, so every case skips (visibly); if
+ * 855 is recorded but a table still exists, the suite fails instead.
  */
 import { beforeAll, beforeEach, describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -39,12 +39,12 @@ async function present(c: PoolClient): Promise<string[]> {
   return r.rows.map((row: { relname: string }) => row.relname);
 }
 
-/** Runs `body` in a rolled-back transaction, with every archive table emptied first. */
-async function inRolledBackTx<T>(body: (c: PoolClient) => Promise<T>): Promise<T> {
+/** Runs `body` in a rolled-back transaction, with every archive table emptied first unless `empty` is false. */
+async function inRolledBackTx<T>(body: (c: PoolClient) => Promise<T>, empty = true): Promise<T> {
   const c = await getPoolForTests().connect();
   try {
     await c.query('BEGIN');
-    for (const t of TABLES) await c.query(`DELETE FROM ${t}`);
+    if (empty) for (const t of TABLES) await c.query(`DELETE FROM ${t}`);
     return await body(c);
   } finally {
     await c.query('ROLLBACK').catch(() => undefined);
@@ -82,13 +82,24 @@ const SEEDS: Record<string, string> = {
 };
 
 describeIfDb('migration 855: drop the data-archiving tables', () => {
-  let applied = false;
+  let gone = false;
   beforeAll(async () => {
-    const r = await getPoolForTests().query(
-      `SELECT 1 FROM schema_migrations WHERE name = '855_retire_data_archiving.sql'`);
-    applied = r.rowCount === 1;
+    const pool = getPoolForTests();
+    const recorded = (await pool.query(
+      `SELECT 1 FROM schema_migrations WHERE name = '855_retire_data_archiving.sql'`)).rowCount === 1;
+    const left = (await pool.query(
+      `SELECT count(*)::int AS n FROM pg_class WHERE relkind = 'r' AND relname = ANY($1::text[])`, [TABLES])).rows[0].n;
+    if (recorded && left > 0) throw new Error(`855 is recorded but ${left} archive table(s) still exist`);
+    gone = left === 0;
   });
-  beforeEach((ctx) => { if (applied) ctx.skip(); });
+  beforeEach((ctx) => { if (gone) ctx.skip(); });
+
+  it('keeps every statement inside the one DO block (psql -f in autocommit must not drop past a refusal)', () => {
+    const sqlOnly = MIGRATION.split('\n').filter(l => !/^\s*(--|$)/.test(l)).join('\n');
+    expect(sqlOnly.startsWith('DO $$')).toBe(true);
+    expect(sqlOnly.trimEnd().endsWith('END $$;')).toBe(true);
+    expect(sqlOnly.match(/\$\$/g)).toHaveLength(2);
+  });
 
   it('drops all six archive tables when every one is empty', async () => {
     await inRolledBackTx(async (c) => {
@@ -128,10 +139,53 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
     });
   });
 
+  it('refuses, and does not CASCADE, when a view depends on an archive table', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query('CREATE VIEW archive_retire_855_v AS SELECT id FROM archive_customer_invoices');
+      expect(await apply(c)).toMatch(/depend/);
+    });
+  });
+
+  it('refuses when a plpgsql function names an archive table (no dependency would stop the drop)', async () => {
+    await inRolledBackTx(async (c) => {
+      await c.query(`CREATE FUNCTION archive_retire_855_f() RETURNS bigint LANGUAGE plpgsql
+        AS $f$ BEGIN RETURN (SELECT count(*) FROM archive_runs); END $f$`);
+      expect(await apply(c)).toMatch(/855: function\(s\) archive_retire_855_f\(\) reference an archive table/);
+    });
+  });
+
+  it('a row committed while the migration waits for its lock is counted, not dropped', async () => {
+    const pool = getPoolForTests();
+    const writer = await pool.connect();
+    const company = randomUUID();
+    try {
+      await writer.query(`INSERT INTO companies (id, name) VALUES ($1, 'archive-retire-855-race')`, [company]);
+      await writer.query('BEGIN');
+      await writer.query(SEEDS.archive_customer_invoices!, [company]);
+      const result = inRolledBackTx(async (c) => {
+        const pid = (await c.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+        const running = apply(c);
+        for (let i = 0; i < 100; i++) {
+          const blocked = (await pool.query('SELECT cardinality(pg_blocking_pids($1)) > 0 AS b', [pid])).rows[0].b;
+          if (blocked) break;
+          await new Promise(r => setTimeout(r, 50));
+        }
+        await writer.query('COMMIT');
+        return running;
+      }, false);
+      expect(await result).toMatch(/855: archive_customer_invoices has 1 row\(s\)/);
+    } finally {
+      await writer.query('ROLLBACK').catch(() => undefined);
+      await pool.query('DELETE FROM archive_customer_invoices WHERE company_id = $1', [company]);
+      await pool.query('DELETE FROM companies WHERE id = $1', [company]);
+      writer.release();
+    }
+  });
+
   it('leaves row_security and lock_timeout as they were for the rest of the transaction', async () => {
     await inRolledBackTx(async (c) => {
       await c.query(`SET LOCAL lock_timeout = '7s'`); // non-defaults, so a hard-coded reset shows
-      await c.query(`SET LOCAL row_security = on`);
+      await c.query(`SET LOCAL row_security = off`);
       const before = (await c.query(`SELECT current_setting('row_security') rs, current_setting('lock_timeout') lt`)).rows[0];
       expect(await apply(c)).toBeNull();
       const after = (await c.query(`SELECT current_setting('row_security') rs, current_setting('lock_timeout') lt`)).rows[0];
