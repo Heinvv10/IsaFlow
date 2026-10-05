@@ -63,13 +63,18 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- A failed run moved nothing: its run body rolled back and only the record of
-  -- the attempt was kept. Hein (2026-10-05): keep that record in audit_log, then
-  -- drop the table. Any other status (completed, running, pending) still refuses.
+  -- Since the savepoint change (PR #161, 2026-06-11) a failed run moved nothing:
+  -- its body rolled back and only the record of the attempt was kept. An older
+  -- failed run could have left partial mirror copies, and those are still caught:
+  -- the mirror tables are counted below, and a refusal rolls this copy back too.
+  -- Hein (2026-10-05): keep the record in audit_log, then drop the table. Any
+  -- other status (completed, running, pending, NULL) still refuses. `changes`
+  -- takes the audit trail's {fields, metadata} shape so the app can show it.
   IF to_regclass('public.archive_runs') IS NOT NULL THEN
     INSERT INTO public.audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes)
     SELECT r.company_id, r.run_by, 'delete', 'archive_run', r.id, 'retired by 855_retire_data_archiving.sql',
-           to_jsonb(r)
+           jsonb_build_object('fields', '[]'::jsonb, 'metadata',
+             (SELECT jsonb_object_agg(e.k, e.v #>> '{}') FROM jsonb_each(to_jsonb(r)) AS e(k, v)))
     FROM public.archive_runs r
     WHERE r.status = 'failed';
     DELETE FROM public.archive_runs WHERE status = 'failed';

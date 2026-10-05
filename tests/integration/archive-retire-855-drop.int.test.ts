@@ -122,7 +122,7 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
   });
 
   /** A real user and company (audit_log.user_id references users), and one archive_runs row per status. */
-  async function runs(c: PoolClient, statuses: string[]): Promise<{ company: string; ids: string[] }> {
+  async function runs(c: PoolClient, statuses: (string | null)[]): Promise<{ company: string; ids: string[] }> {
     const company = await newCompany(c);
     const userId = randomUUID();
     await c.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [userId, `${userId}@r855.test`]);
@@ -141,13 +141,14 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
       expect(await apply(c)).toBeNull();
       expect(await present(c)).toEqual([]);
       const logged = (await c.query(
-        `SELECT entity_id, action, changes->>'status' AS status, changes->>'error_message' AS err
+        `SELECT entity_id, action, changes->'metadata'->>'status' AS status,
+                changes->'metadata'->>'error_message' AS err, changes->'fields' AS fields
          FROM audit_log WHERE company_id = $1 AND entity_type = 'archive_run' ORDER BY entity_id`, [company])).rows;
-      expect(logged).toEqual([...ids].sort().map(id => ({ entity_id: id, action: 'delete', status: 'failed', err: 'R855 failed' })));
+      expect(logged).toEqual([...ids].sort().map(id => ({ entity_id: id, action: 'delete', status: 'failed', err: 'R855 failed', fields: [] })));
     });
   });
 
-  it.each(['completed', 'running', 'pending'])('still refuses on a %s run, after setting the failed ones aside', async (status) => {
+  it.each(['completed', 'running', 'pending', null])('still refuses on a %s run, after setting the failed ones aside', async (status) => {
     await inRolledBackTx(async (c) => {
       await runs(c, ['failed', status]);
       expect(await apply(c)).toMatch(/855: archive_runs has 1 row\(s\)\. Not dropping/);
