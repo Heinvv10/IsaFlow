@@ -90,3 +90,9 @@ The sequential case (cancel committed before the replay) stays in
   draft deadlock needs three parties). It does not change what is spent.
 - A replay now holds the receipt lock across the fee post: a person cancelling that receipt in the
   same instant waits up to the cancel's own 5 s budget (then 503 + Retry-After on the receipts page).
+
+## After merging R-189 review round 1 (06313fa3f)
+R-189's round-1 fix moved the ranking into code and added `cancelledGatewayReceiptId`; the merge keeps
+that and adds the lock and budget around the same single query. `gatewayInvoiceReceiptService.ts` is
+back to 300 lines (one comment shortened). Re-run on the merge: `green.r1.int.log` (r193 + r189, 12/12),
+`mutations.r2.log` (M1-M3 red, baselines green), `regression.r1.int.log` (22 files, 229 tests).
