@@ -1,7 +1,8 @@
 /**
  * R-196: pg-pool queues EVERY connect() for one tick, even when an idle client is
  * ready (pulsed on nextTick). Saturation is a waiter that no idle client and no new
- * connection can serve: the pool is full and the waiters outnumber the idle clients.
+ * connection can serve: more waiters than idle clients plus the connections the pool
+ * may still open.
  * In production R-188's check fired 628 times in a day with 1 of 10 connections open.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -57,6 +58,22 @@ describe('connectObserved: an idle client is not saturation (R-196)', () => {
     expect(pool.waitingCount).toBe(2);
     expect(warn).not.toHaveBeenCalled();
     for (const c of await Promise.all(both)) c.release();
+    await pool.end();
+  });
+
+  it('warns when a same-tick burst exceeds idle clients plus headroom on a pool that is not yet full', async () => {
+    warn.mockReset();
+    const pool = realPool(3);
+    const a = await connectObserved(pool, 'burst-fill');
+    const b = await connectObserved(pool, 'burst-fill');
+    b.release();
+    expect([pool.totalCount, pool.idleCount]).toEqual([2, 1]);
+    const three = [connectObserved(pool, 'burst-fill'), connectObserved(pool, 'burst-fill'), connectObserved(pool, 'burst-fill')];
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![1]).toEqual({ pool: 'burst-fill', waitingCount: 3, totalCount: 2, idleCount: 1, max: 3 });
+    const [c1, c2] = await Promise.all(three.slice(0, 2));
+    a.release();
+    (await three[2]!).release(); c1.release(); c2.release();
     await pool.end();
   });
 

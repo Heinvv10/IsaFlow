@@ -15840,7 +15840,7 @@
       "reportedSeverity": "low",
       "title": "auth pool saturated warns on every acquire an idle client serves",
       "claim": "connectObserved (R-188) warned whenever pool.waitingCount > 0 right after pool.connect(). pg-pool pushes EVERY acquire onto its pending queue when an idle client exists and serves it on the next tick, so a waiter is not saturation. Prod logged 628 warnings from 2026-10-04 16:48 to 2026-10-05 06:20; 597 had totalCount 1, idleCount 1, max 10, and none had totalCount = max.",
-      "processNotes": "2026-10-05: found by reading prod logs after the R-183..R-188 deploy. Fixed: warn only when totalCount >= max and waitingCount > idleCount. The R-188 real-pool test 'does not warn when a connection is free' passed vacuously: its fake client lacked _queryable, so pg-pool discarded each released client and no idle client ever existed. Mutations: 4/4 red (mutations.log)."
+      "processNotes": "2026-10-05: found by reading prod logs after the R-183..R-188 deploy. Fixed: warn only when waitingCount > idleCount + max(0, max - totalCount) (round 1 used totalCount >= max && waitingCount > idleCount, which missed a same-tick burst on a pool that was not yet full; blind review rev-r196 [M]). The R-188 real-pool test 'does not warn when a connection is free' passed vacuously: its fake client lacked _queryable, so pg-pool discarded each released client and no idle client ever existed. Mutations: 5/5 red (mutations.log)."
     }
   ],
   "sourceInventory": [
