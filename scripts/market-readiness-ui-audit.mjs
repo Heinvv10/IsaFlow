@@ -209,13 +209,16 @@ async function main() {
 
   const storageState = process.env.AUDIT_STORAGE_STATE;
   // A storage state holds live session tokens: refuse one that git, in the repo holding it, would let someone
-  // commit. check-ignore: 0 ignored, 1 not ignored, 128 not inside any repo (fine); anything else refuses.
-  const stateStatus = storageState
-    ? spawnSync('git', ['-C', path.dirname(path.resolve(storageState)), 'check-ignore', '-q', path.resolve(storageState)]).status
-    : 0;
-  if (stateStatus !== 0 && stateStatus !== 128) {
-    console.error(`AUDIT_STORAGE_STATE ${storageState} is not git-ignored; keep it under tests/e2e/.auth/`);
-    process.exit(1);
+  // commit. check-ignore runs in the file's directory on its basename (a symlinked directory resolves there):
+  // 0 ignored, 1 not ignored; 128 is allowed only when the directory is in no repo. Anything else refuses.
+  if (storageState) {
+    const abs = path.resolve(storageState);
+    const r = spawnSync('git', ['-C', path.dirname(abs), 'check-ignore', '-q', path.basename(abs)], { encoding: 'utf8' });
+    const noRepo = r.status === 128 && /not a git repository|cannot change to/.test(r.stderr ?? '');
+    if (r.status !== 0 && !noRepo) {
+      console.error(`AUDIT_STORAGE_STATE ${storageState} is not git-ignored; keep it under tests/e2e/.auth/`);
+      process.exit(1);
+    }
   }
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
