@@ -8,12 +8,12 @@
 -- N1 (R-197): archive_gl_journal_lines had no company_id, no RLS and full
 -- app_user DML.
 --
--- Guard: the migration refuses if any table holds a row. A row can mean
--- history left the live ledger (a completed run), a copy whose original is
--- still live (a run that died before its delete), or only a record of an
--- attempt (a failed archive_runs row). The count cannot tell these apart, so
--- someone decides per run before the drop: run the spec's section 9 census,
--- then empty the table on purpose or keep it.
+-- Guard: failed archive_runs rows (attempts that moved nothing) are copied to
+-- audit_log and removed first (Hein, 2026-10-05). After that the migration
+-- refuses if any table holds a row: a completed run means history left the
+-- live ledger, and a mirror row may be a copy whose original is still live.
+-- The count cannot tell these apart, so someone decides per run before the
+-- drop: run the spec's section 9 census, then empty the table on purpose.
 --
 -- Each table is locked before it is counted, so no row can arrive between
 -- the count and the drop. lock_timeout bounds the wait behind a live reader.
@@ -60,6 +60,23 @@ BEGIN
   FOREACH t IN ARRAY tables LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', t);
+    END IF;
+  END LOOP;
+
+  -- A failed run moved nothing: its run body rolled back and only the record of
+  -- the attempt was kept. Hein (2026-10-05): keep that record in audit_log, then
+  -- drop the table. Any other status (completed, running, pending) still refuses.
+  IF to_regclass('public.archive_runs') IS NOT NULL THEN
+    INSERT INTO public.audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes)
+    SELECT r.company_id, r.run_by, 'delete', 'archive_run', r.id, 'retired by 855_retire_data_archiving.sql',
+           to_jsonb(r)
+    FROM public.archive_runs r
+    WHERE r.status = 'failed';
+    DELETE FROM public.archive_runs WHERE status = 'failed';
+  END IF;
+
+  FOREACH t IN ARRAY tables LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('SELECT count(*) FROM public.%I', t) INTO n;
       IF n > 0 THEN
         RAISE EXCEPTION '855: % has % row(s). Not dropping any archive table. Decide per run first (archive redesign spec, PR #641, section 9 census and D0a).', t, n;
