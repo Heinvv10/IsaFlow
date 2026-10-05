@@ -12,11 +12,13 @@
  * service; only the Paystack client is stubbed.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
+import { confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { books, feeJournals } from './r187-books.helpers';
 
 assertDisposable();
@@ -138,6 +140,30 @@ describe('R-189: a draft receipt holding the reference is flagged, never taken a
     expect(await books()).toEqual(before);
     expect(await feeJournals(ref)).toBe(0);
     expect(await settlement(A, ref, id)).toMatchObject({ payments: [{ status: 'draft' }], invoicePaid: '0.00', review: FLAG });
+  });
+
+  it('a draft AND a confirmed receipt for the reference: the confirmed one is the settlement, whatever the id order', async () => {
+    const id = await invoice(A);
+    const ref = await checkout(A, id);
+    // The draft sorts first by id, so an id-only order would pick it.
+    await pool.query(
+      `INSERT INTO customer_payments (id, company_id, client_id, payment_date, total_amount, payment_method,
+         bank_reference, bank_account_id, created_by, status)
+       VALUES ($1, $2, $3, CURRENT_DATE, 115, 'eft', $4, $5, $6, 'draft')`,
+      [`00000000-0000-4000-8000-${randomUUID().slice(-12)}`, A.id, A.customer, ref, bankId, A.user]);
+    const manual = await inTx(() => createCustomerPayment(A.id, {
+      clientId: A.customer, paymentDate: today(), totalAmount: 115, paymentMethod: 'eft', bankReference: ref,
+      bankAccountId: bankId, allocations: [{ invoiceId: id, amount: 115 }],
+    }, A.user));
+    await inTx(() => confirmCustomerPayment(A.id, manual.id, A.user));
+
+    expect((await deliver(ref, 11500, 'ZAR', { fees: 350 })).statusCode).toBe(200);
+
+    // The second-report path, as before R-189: no new receipt, the missing fee posts, nothing flagged.
+    expect(await feeJournals(ref)).toBe(1);
+    const s = await settlement(A, ref, id);
+    expect(s.payments.map((p) => p.status).sort()).toEqual(['confirmed', 'draft']);
+    expect(s.review).toBeNull();
   });
 
   it('control: with no draft the same delivery banks the receipt and posts the fee, unflagged', async () => {
