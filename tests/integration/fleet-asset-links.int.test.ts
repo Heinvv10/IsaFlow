@@ -17,6 +17,8 @@ import assetBankLinks from '../../pages/api/accounting/assets/[assetId]/bank-lin
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { teardown, type Ctx } from './d8-r4-helpers';
+import { inTx } from './helpers/l1FifoFixture';
+import { setBankLineLink } from '@/modules/accounting/services/bank/bankAssetLinkService';
 import { clearExtras, setupWithUser } from './d10-helpers';
 import { newBank, newId, seedLine, seedPair, type Route } from './d12-helpers';
 import { callAs, clearFleet, linkState, messageOf, newAsset, newFuel, newService } from './fleet-helpers';
@@ -99,6 +101,18 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('asset / f
       expect(m.status, m.body).toBe(404);
       expect(messageOf(f)).toBe(messageOf(m));
       expect(messageOf(f)).not.toMatch(/[0-9a-f]{8}-/); // names no id
+    }
+    expect(await linkState(bt)).toEqual(before);
+  }, 60000);
+
+  // The route runs as app_user, where RLS already hides another company's rows. The service's own company predicate
+  // must hold without it (a job, an MCP path or a BYPASSRLS role): called as the fixture owner, it still refuses.
+  it('the service refuses another company\'s target without RLS (as the table owner)', async () => {
+    const bt = await seedLine(c, bank, 857);
+    const oa = await newAsset(o); const of = await newFuel(o, oa); const os = await newService(o, oa);
+    const before = await linkState(bt);
+    for (const [kind, id] of [['asset', oa], ['fuel', of], ['service', os]] as const) {
+      expect(await inTx(c.fx, () => setBankLineLink(c.fx.companyId, bt, kind, id))).toEqual({ ok: false, refused: 'target' });
     }
     expect(await linkState(bt)).toEqual(before);
   }, 60000);
