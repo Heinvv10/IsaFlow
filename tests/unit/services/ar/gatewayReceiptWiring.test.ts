@@ -100,7 +100,7 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
   });
 
   it('dedupe: no receipt INSERT; the fee is costed against what the FIRST report banked (R118.50)', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '118.50', description: 'Paystack card payment r181_wiring' };
     await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
       reported: { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
@@ -110,7 +110,7 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
   });
 
   it('dedupe after verify trusted requested_amount (R115 banked, amount R118.50 tagged): the customer-paid fee posts nothing', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '115.00', description: 'Paystack card payment r181_wiring [paystack amount 11850 cents]' };
     await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
       reported: { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
@@ -137,7 +137,7 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
   });
 
   it('dedupe: Paystack reporting R103 after a first report of R100 is flagged though both bank R100', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '100.00', description: 'Paystack card payment r181_wiring' };
     await recordGatewayInvoiceReceipt({ ...base, requestedCents: 10000, feeRand: 3,
       reported: { amountCents: 10300, currency: 'ZAR', requestedAmountCents: 10000, feeCents: 300 } });
@@ -145,14 +145,14 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
   });
 
   it('dedupe: a one-cent difference from the banked figure is flagged (R2.01 banked, R2.00 reported)', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '2.01', description: 'Paystack card payment r181_wiring' };
     await recordGatewayInvoiceReceipt({ ...base, requestedCents: 200, feeRand: null, reported: { amountCents: 200, currency: 'ZAR' } });
     expect(reasons()).toEqual([['amount_disagrees_with_first_report']]);
   });
 
   it('dedupe: the same Paystack amount but bank figures one cent apart is flagged (R2.01 banked, R2.00 now)', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '2.01', description: 'Paystack card payment r181_wiring [paystack amount 205 cents]' };
     await recordGatewayInvoiceReceipt({ ...base, requestedCents: 200, feeRand: null,
       reported: { amountCents: 205, currency: 'ZAR', requestedAmountCents: 200, feeCents: 5 } });
@@ -160,7 +160,7 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
   });
 
   it('dedupe: the second report flags its own reasons (a USD report after a ZAR receipt)', async () => {
-    h.already = { id: 'p-1', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+    h.already = { id: 'p-1', status: 'confirmed', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
       total_amount: '115.00', description: 'Paystack card payment r181_wiring' };
     await recordGatewayInvoiceReceipt({ ...base, feeRand: null, reported: { amountCents: 11500, currency: 'USD' } });
     expect(reasons()).toEqual([['currency_mismatch']]);
@@ -204,6 +204,29 @@ describe('recordGatewayInvoiceReceipt wiring', () => {
     expect(reasons()).toEqual([['already_settled_cancelled_receipt']]);
     // What this report says about the fee, so a person can see what was NOT posted (round 1 L4).
     expect(flag.mock.calls[0]![3]).toMatchObject({ cancelledPaymentId: 'p-cancelled', feeRand: 3.5, reportedFeeCents: 350 });
+  });
+
+  it('R-189: a live DRAFT receipt for the reference banks nothing, posts no fee, and flags the request', async () => {
+    h.already = { id: 'p-draft', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paid by card', status: 'draft', gateway: false };
+    const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
+      reported: { amountCents: 11500, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
+    expect(out).toBeNull();
+    expect(receiptInsert()).toBeUndefined();
+    expect(allocate).not.toHaveBeenCalled();
+    expect(fee).not.toHaveBeenCalled();
+    expect(reasons()).toEqual([['draft_receipt_holds_reference']]);
+    expect(flag.mock.calls[0]![3]).toMatchObject({ draftPaymentId: 'p-draft', feeRand: 3.5, reportedFeeCents: 350 });
+  });
+
+  it('R-189: a confirmed receipt is still the settlement (second-report path: the fee posts, nothing flagged)', async () => {
+    h.already = { id: 'p-live', created_by: USER, bank_account_id: 'bank-1', payment_date: '2026-10-02',
+      total_amount: '115.00', description: 'Paystack card payment r181_wiring', status: 'confirmed', gateway: true };
+    const out = await recordGatewayInvoiceReceipt({ ...base, feeRand: 3.5,
+      reported: { amountCents: 11500, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 } });
+    expect(out).toBeNull();
+    expect(fee).toHaveBeenCalledTimes(1);
+    expect(reasons()).toEqual([]);
   });
 
   it('R-187 round 1: a cancelled receipt the gateway did NOT write (manual, bank feed) does not block: it banks', async () => {

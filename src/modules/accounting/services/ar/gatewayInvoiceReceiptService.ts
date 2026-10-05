@@ -36,7 +36,7 @@ import {
   type ReportedCharge,
 } from './gatewaySettlementReview';
 import { decideGatewayAllocation } from './gatewayReceiptAllocation';
-import { findSettledReceipt } from './gatewaySettledReceipt';
+import { findSettledReceipt, isSettlement } from './gatewaySettledReceipt';
 
 /** posting_agent stamp: unattended, so never `human:<userId>`. */
 export const GATEWAY_RECEIPT_AGENT = 'system:paystack-receipt:v1';
@@ -91,7 +91,9 @@ interface InvoiceRow {
  * settlement was undone, so a later report banks nothing, posts no fee, flags the
  * request `already_settled_cancelled_receipt` for a person and returns null. The
  * cancel may not have been deliberate (gatewaySettledReceipt). A cancelled
- * receipt anyone else wrote is ignored.
+ * receipt anyone else wrote is ignored. A live receipt that is only a DRAFT is
+ * not the settlement either (R-189): nothing is banked, no fee is posted, the
+ * draft is left alone and the request is flagged `draft_receipt_holds_reference`.
  */
 export async function recordGatewayInvoiceReceipt(
   receipt: GatewayInvoiceReceipt,
@@ -110,6 +112,15 @@ export async function recordGatewayInvoiceReceipt(
   if (already?.status === 'cancelled') {
     await flagSettlementForReview(companyId, reference, ['already_settled_cancelled_receipt'], {
       cancelledPaymentId: already.id, invoiceId, reportedCents: receipt.reported.amountCents,
+      reportedCurrency: receipt.reported.currency, feeRand: receipt.feeRand, reportedFeeCents: receipt.reported.feeCents,
+    });
+    return null;
+  }
+  // A live receipt that is not the settlement: a draft a person recorded with the reference (R-189).
+  // Bank nothing, post no fee, leave the draft alone, and flag it for that person.
+  if (already && !isSettlement(already.status)) {
+    await flagSettlementForReview(companyId, reference, ['draft_receipt_holds_reference'], {
+      draftPaymentId: already.id, draftStatus: already.status, invoiceId, reportedCents: receipt.reported.amountCents,
       reportedCurrency: receipt.reported.currency, feeRand: receipt.feeRand, reportedFeeCents: receipt.reported.feeCents,
     });
     return null;
