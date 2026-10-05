@@ -36,9 +36,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
 
   // Load asset with accumulated depreciation and category data
-  // FOR UPDATE: the already-disposed check below is only meaningful while the
-  // row is held. Two concurrent disposals would otherwise both read
+  // FOR NO KEY UPDATE: the already-disposed check below is only meaningful while
+  // the row is held. Two concurrent disposals would otherwise both read
   // status != 'disposed' and both post a disposal journal for the same asset.
+  // NO KEY (round 3, brk-fleet B1): this changes no key column, and FOR UPDATE
+  // conflicted with the FOR KEY SHARE a bank-line link and a fleet-record create
+  // take — while this waited on journal numbering, that closed a deadlock cycle.
   const assetRows = (await sql`
     SELECT
       a.id, a.asset_number, a.name, a.purchase_price AS cost,
@@ -50,7 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     FROM assets a
     WHERE a.id = ${assetId}::UUID
       AND a.company_id = ${companyId}::UUID
-    FOR UPDATE
+    FOR NO KEY UPDATE
   `) as Row[];
 
   if (!assetRows[0]) return apiResponse.notFound(res, 'Asset not found');

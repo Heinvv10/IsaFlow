@@ -51,9 +51,9 @@ export async function assetInCompany(companyId: string, assetId: string): Promis
 }
 
 /**
- * The asset in this company, FOR KEY SHARE under the 5 s budget, before a record is inserted under it. Depreciation
- * and dispose hold the asset FOR UPDATE; the INSERT's composite-FK check would otherwise wait on them unbounded.
- * Held -> `RowLockTimeoutError` (503 + Retry-After).
+ * The asset in this company, FOR KEY SHARE under the 5 s budget, before a record is inserted under it. The asset
+ * writers (depreciation, dispose, below-threshold) hold it FOR NO KEY UPDATE, which does not conflict with KEY SHARE;
+ * only a key change or a delete of the asset does — held -> `RowLockTimeoutError` (503 + Retry-After).
  */
 async function lockAssetForRecord(companyId: string, assetId: string): Promise<boolean> {
   const rows = await underFlowLockBudget('This asset', async () => (await sql`
