@@ -53,10 +53,19 @@
  * behaviour of that gate — a period carrying fictitious input tax should not
  * be filed — and it is why this category is counted like the other eight
  * rather than shown as an advisory. The consequences, stated plainly:
- *   - There is no waive or acknowledge path anywhere in the gate, and a
- *     reversing journal does not clear one of these — the reversal carries the
- *     same `vat_type` on the same account, so it ADDS a row. Clearing means
- *     re-coding the original lines.
+ *   - There is no waive or acknowledge path anywhere in the gate. Clearing
+ *     means re-coding the original lines: reverse the allocation and post it
+ *     again without the VAT code. A reversed PAIR whose two halves both fall
+ *     inside the period is excluded (2026-10-05): together they move no VAT
+ *     in that period, so listing them blocked the filing on R0,00 of net tax —
+ *     Velocity Fibre carried 34 such rows across Jan–Aug 2026 after every
+ *     original had been re-coded. That count was taken over the whole
+ *     Jan–Aug window, not per bi-monthly filing period; a pair that straddles
+ *     a filing-period boundary is still listed on the side inside the window,
+ *     because that period's return does carry the tax. Only an ISOLATED pair
+ *     is excluded — exactly two journals, neither reversed nor reversing
+ *     anything else in the window. In a chain O <- R <- R2, R2 puts O's claim
+ *     back, so every link of a chain of three or more stays listed.
  *   - It newly blocks NOTHING in production, and that was measured, not
  *     assumed. Across all 13 tenants there are 7 (company, bi-monthly period)
  *     pairs where this rule fires, and every one of them already carries a
@@ -242,6 +251,34 @@ export async function findVatNonSupplyLines(
       AND jl.vat_type IS NOT NULL
       AND jl.vat_type <> ALL(${NON_CLAIMING_VAT_TYPES as string[]}::TEXT[])
       AND ga.account_name ~* ${NON_SUPPLY_PATTERN}
+      -- A reversed pair inside the window nets to zero VAT: drop both halves.
+      -- reversal_of_id links the contra to its original; reversing does not
+      -- change the original's status, so both are 'posted'. ONLY an isolated
+      -- pair: no other posted in-window journal may reverse either half or be
+      -- reversed by it. A chain O <- R <- R2 carries O's claim again through
+      -- R2, so every link of a longer chain stays listed (over-listing a
+      -- chain that nets to zero is the safe direction for a filing gate).
+      -- Only in-window links count: O and R in the window with R2 re-reversing
+      -- R in a later period drop here (they net to zero in THIS period) and
+      -- R2 is listed in its own.
+      AND NOT EXISTS (
+        SELECT 1 FROM gl_journal_entries pr
+        WHERE pr.company_id = je.company_id
+          AND pr.status = 'posted'
+          AND pr.entry_date >= ${periodStart}::DATE
+          AND pr.entry_date <= ${periodEnd}::DATE
+          AND (pr.reversal_of_id = je.id OR pr.id = je.reversal_of_id)
+          AND NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries x
+            WHERE x.company_id = je.company_id
+              AND x.status = 'posted'
+              AND x.entry_date >= ${periodStart}::DATE
+              AND x.entry_date <= ${periodEnd}::DATE
+              AND x.id <> je.id AND x.id <> pr.id
+              AND (x.reversal_of_id IN (je.id, pr.id)
+                   OR x.id IN (je.reversal_of_id, pr.reversal_of_id))
+          )
+      )
     ORDER BY je.entry_date, je.entry_number
     LIMIT ${LIST_CAP}
   ` as Promise<DbRow[]>;
