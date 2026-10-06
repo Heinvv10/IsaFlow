@@ -94,9 +94,12 @@ describe('writers of the content an invoice is converted from', () => {
     ]);
     // Bulk-from-template creates under the CALLER's own name (createPracticeEntry):
     // effort. The duplicate copies the SOURCE's logger, so a copier of someone
-    // else's entry is its author (round 4, REPRO F) — the route passes the caller.
-    expect(text('src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts')).toMatch(
-      /CASE WHEN \$\{copiedBy\}::UUID IS DISTINCT FROM \$\{String\(src\.user_id\)\}::UUID\s+THEN approval_add_author\('\{\}'::UUID\[\], \$\{copiedBy\}::UUID\)/);
+    // else's entry is its author (round 4, REPRO F) — the route passes the caller;
+    // either way the copy keeps the source's authors (round 5, REPRO G).
+    const workflow = text('src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts');
+    expect(workflow).toMatch(/const srcAuthors = \(src\.content_authors \?\? \[\]\) as string\[\];/);
+    expect(workflow).toMatch(
+      /CASE WHEN \$\{copiedBy\}::UUID IS DISTINCT FROM \$\{String\(src\.user_id\)\}::UUID\s+THEN approval_add_author\(\$\{srcAuthors\}::UUID\[\], \$\{copiedBy\}::UUID\) ELSE \$\{srcAuthors\}::UUID\[\] END/);
     expect(text('pages/api/accounting/practice/time-entries/duplicate.ts'))
       .toMatch(/duplicatePracticeEntry\(companyId, id, newDate, req\.user\.id\)/);
   });
