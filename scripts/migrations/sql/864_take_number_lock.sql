@@ -36,6 +36,12 @@
 -- two or more years takes ('<company_id>:<year>', 857) for EVERY year, in
 -- ascending order, before its first journal (core/numberYearLocks.ts). Two such
 -- runs in opposite year order deadlocked (40P01) on the journal key itself.
+-- The run first claims its rows (bank lines, bills, documents) in walk order
+-- with the single path's own row lock, THEN takes the keys: every single-row
+-- writer locks its row and then numbers, and keys-before-rows deadlocked
+-- against it (brk-numrace M3). More than 20 distinct years is refused before
+-- any lock or write (400): each key is an entry in the cluster-wide shared lock
+-- table, and one run naming thousands of years exhausted it (sec-numrace S1).
 --
 -- Not covered: TXF- bank-transfer numbers. That route fails on every call
 -- before it numbers anything (it inserts gl_journal_entries columns that do not
@@ -46,6 +52,12 @@
 --   * A burst for one scope queues, each writer holding its pool connection for
 --     up to 5 s; a bulk run spanning years holds every year's key to its end,
 --     so other posts for those years 503 after 5 s (DOCNUM register (d)).
+--   * The years are predicted before posting: a reversal's from its original,
+--     today and a VAT-lock roll (gl/journalReversalYears), a late claim's from
+--     the active VAT locks — a superset, so a run may hold a key it does not
+--     post in. bank-transactions-bulk-commit takes the import sweep's and the
+--     rule pass's years before the import; a rule candidate that existed
+--     already is then claimed AFTER those keys (the one rows-after-keys order).
 --   * READ COMMITTED only, as 857/858.
 --
 -- Idempotent: CREATE OR REPLACE of the same body.
