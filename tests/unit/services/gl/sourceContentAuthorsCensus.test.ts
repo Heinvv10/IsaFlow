@@ -1,8 +1,8 @@
 /**
  * R-035 PR4 round 2 (Hein, 2026-10-06: whoever sets the price upstream is an
  * author): every writer of the content a customer invoice is CONVERTED from —
- * quotes and their lines, sales orders and their items, time entries —
- * classified. A writer that changes what the source bills on a document that
+ * quotes and their lines, sales orders and their items, time entries (and
+ * their copies) — classified. A writer that changes what the source bills on a document that
  * may still be converted stamps the editor into content_authors (read by
  * approval_document_authors, migration 865); every other write is creation
  * (the creator is created_by), a status / link move, or a column the invoice
@@ -89,9 +89,16 @@ describe('writers of the content an invoice is converted from', () => {
       'src/modules/accounting/services/ar/customerMergeService.ts', // customer_id: not the price
       'src/modules/accounting/services/core/timeTrackingService.ts', // create (stamps a logger who types a rate); edit (stamped); submit/approve: status
       'src/modules/accounting/services/practice/practiceTimeEntryService.ts', // create; timesheet edit (stamped)
-      'src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts', // submit / approve / bill / write off: status + link
+      'src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts', // duplicate (stamps a copier of someone else's entry); submit / approve / bill / write off: status + link
       'src/modules/accounting/services/reports/timeTrackingReportService.ts', // markAsInvoiced: status + link
     ]);
+    // Bulk-from-template creates under the CALLER's own name (createPracticeEntry):
+    // effort. The duplicate copies the SOURCE's logger, so a copier of someone
+    // else's entry is its author (round 4, REPRO F) — the route passes the caller.
+    expect(text('src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts')).toMatch(
+      /CASE WHEN \$\{copiedBy\}::UUID IS DISTINCT FROM \$\{String\(src\.user_id\)\}::UUID\s+THEN approval_add_author\('\{\}'::UUID\[\], \$\{copiedBy\}::UUID\)/);
+    expect(text('pages/api/accounting/practice/time-entries/duplicate.ts'))
+      .toMatch(/duplicatePracticeEntry\(companyId, id, newDate, req\.user\.id\)/);
   });
 
   it('every stamping writer goes through approval_add_author with the acting user', () => {

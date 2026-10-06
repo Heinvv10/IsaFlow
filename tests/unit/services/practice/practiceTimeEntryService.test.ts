@@ -315,7 +315,7 @@ describe('listPracticeEntries', () => {
 
 describe('duplicatePracticeEntry', () => {
   it('duplicate rejects future date', async () => {
-    await expect(duplicatePracticeEntry(COMPANY, ENTRY_ID, '2099-01-01'))
+    await expect(duplicatePracticeEntry(COMPANY, ENTRY_ID, '2099-01-01', USER))
       .rejects.toThrow(/future/i);
   });
 
@@ -334,7 +334,7 @@ describe('duplicatePracticeEntry', () => {
       status: 'draft',
     }]);
 
-    const result = await duplicatePracticeEntry(COMPANY, ENTRY_ID, '2026-04-18');
+    const result = await duplicatePracticeEntry(COMPANY, ENTRY_ID, '2026-04-18', USER);
     expect(result.origin).toBe('recurring');
     expect(result.status).toBe('draft');
     expect(result.entryDate).toBe('2026-04-18');
