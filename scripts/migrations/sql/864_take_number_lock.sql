@@ -32,16 +32,23 @@
 --   ITEM-NNNN                  '<company_id>'                 864004
 --   INV-YYYYMM-NNNN (admin)    'INV-YYYYMM-' (platform-wide)  864005
 --
--- Cross-year bulk posting (brk-docnum F3): a run that posts journals dated in
--- two or more years takes ('<company_id>:<year>', 857) for EVERY year, in
--- ascending order, before its first journal (core/numberYearLocks.ts). Two such
--- runs in opposite year order deadlocked (40P01) on the journal key itself.
--- The run first claims its rows (bank lines, bills, documents) in walk order
--- with the single path's own row lock, THEN takes the keys: every single-row
--- writer locks its row and then numbers, and keys-before-rows deadlocked
--- against it (brk-numrace M3). More than 20 distinct years is refused before
--- any lock or write (400): each key is an entry in the cluster-wide shared lock
--- table, and one run naming thousands of years exhausted it (sec-numrace S1).
+-- Cross-year bulk posting (brk-docnum F3): two runs posting journals of two
+-- years in opposite order deadlocked (40P01) on 857's journal key itself.
+-- DECIDED, changed 2026-10-06 (Hein, on brk-numrace N1 evidence): ORDERED
+-- LAZY, not "every year's key up front" (core/numberYearLocks.ts). A run walks
+-- its elements by (min predicted year, its own order), so it reaches its keys
+-- ascending. A single-year element takes no key early: its posting takes it
+-- after the element's own row locks, exactly where base takes it — so a single
+-- writer of one of its rows (row, then number) is waited for, never cycled
+-- with. Before a multi-year element (late-claim companion, VAT-roll reversal,
+-- provisional reclass) the run takes every year from its min to its max not
+-- yet taken, ascending; the held set at or above the current min stays one
+-- contiguous range, so every acquisition is ascending. Predicted sets are
+-- supersets on the low side. A run whose predicted years (multi-year ranges
+-- filled) exceed 20 is refused before any lock or write (400): each key is an
+-- entry in the cluster-wide shared lock table, and one run naming thousands of
+-- years exhausted it (sec-numrace S1). Rounds 1-2 took every key up front and
+-- then the rows: that cycled with single writers on any lock but the first.
 --
 -- Not covered: TXF- bank-transfer numbers. That route fails on every call
 -- before it numbers anything (it inserts gl_journal_entries columns that do not
@@ -52,12 +59,14 @@
 --   * A burst for one scope queues, each writer holding its pool connection for
 --     up to 5 s; a bulk run spanning years holds every year's key to its end,
 --     so other posts for those years 503 after 5 s (DOCNUM register (d)).
---   * The years are predicted before posting: a reversal's from its original,
---     today and a VAT-lock roll (gl/journalReversalYears), a late claim's from
---     the active VAT locks — a superset, so a run may hold a key it does not
---     post in. bank-transactions-bulk-commit takes the import sweep's and the
---     rule pass's years before the import; a rule candidate that existed
---     already is then claimed AFTER those keys (the one rows-after-keys order).
+--   * A multi-year element takes its range before its rows, so against a single
+--     writer of THAT element's row which then numbers inside the range it can
+--     still cycle (both sides retryable); and after one, the rest of the run's
+--     elements hold its keys while they lock their rows.
+--   * bank-transactions-bulk-commit (sweep, then rule pass, one transaction)
+--     claims the existing rule candidates' bank lines first, then takes every
+--     statement + candidate year up front (bank/bulkCommitRulePass); what a rule
+--     line locks after its row it locks after those keys, as on base.
 --   * READ COMMITTED only, as 857/858.
 --
 -- Idempotent: CREATE OR REPLACE of the same body.
