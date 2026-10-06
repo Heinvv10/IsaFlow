@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -237,18 +238,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
   if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
-  if (refusal) {
-    return respondCapturedDocumentRefusal(res, refusal);
-  }
-
-  const entry = await createJournalEntry(companyId, {
-    entryDate: journalInput.entryDate,
-    description: journalInput.description,
-    source: 'auto_expense_receipt',
-    sourceDocumentId: documentId,
-    lines: postableLines,
-  }, userId);
+  // The claim and its journal in one savepoint: a ledger-date refusal of the journal rolls the claim back too.
+  const claimed = await withJournalDateRefusal(res, async () => {
+    const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
+    if (refusal) return { kind: 'refused' as const, refusal };
+    return { kind: 'posted' as const, entry: await createJournalEntry(companyId, {
+      entryDate: journalInput.entryDate,
+      description: journalInput.description,
+      source: 'auto_expense_receipt',
+      sourceDocumentId: documentId,
+      lines: postableLines,
+    }, userId) };
+  });
+  if (claimed === JOURNAL_DATE_REFUSED) return;
+  if (claimed.kind === 'refused') return respondCapturedDocumentRefusal(res, claimed.refusal);
+  const entry = claimed.entry;
 
   if (autoPost) {
     await postJournalEntry(companyId, entry.id, userId);

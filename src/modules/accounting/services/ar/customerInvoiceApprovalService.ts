@@ -16,7 +16,6 @@ import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfS
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
-import { ledgerEntryDay } from '../gl/journalDateGuard';
 
 type Row = DbRow;
 
@@ -106,11 +105,6 @@ export async function approveCustomerInvoice(
   opts?: PostingActorOpts,
 ): Promise<ApproveCustomerInvoiceResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  // The journal's date (the invoice's), checked BEFORE the lock and the status UPDATE below (gl/journalDateGuard):
-  // outside the ledger window nothing is written yet, so a route answers 400, not 500 (brk-numrace F2).
-  const dated = (await sql`SELECT invoice_date::text AS d FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL`) as Row[];
-  if (dated[0]?.d) await ledgerEntryDay(String(dated[0].d));
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
   // both win, so no lock is needed to stop a second journal (the FOR UPDATE
