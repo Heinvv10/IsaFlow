@@ -29,6 +29,9 @@ export async function seedCrossYear(prefix: string, databaseUrl: string): Promis
 }
 
 export async function dropCrossYear(c: CrossYear): Promise<void> {
+  const co = c.fx.companyId;
+  await sql`DELETE FROM vat_period_locks WHERE company_id = ${co}::UUID`;
+  await sql`UPDATE gl_journal_entries SET late_claim_of_id = NULL, reversal_of_id = NULL WHERE company_id = ${co}::UUID`;
   await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM bank_auto_post_settings WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM bank_auto_post_runs WHERE company_id = ${c.fx.companyId}::UUID`;

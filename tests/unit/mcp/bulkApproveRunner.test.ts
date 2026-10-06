@@ -67,6 +67,7 @@ function adapterOver(
     approvableStatuses: ['draft', 'pending_approval'],
     readStates: async () => new Map(states.map((s) => [s.id, s])),
     postOne: postOne as BulkApproveAdapter<{ id: string }>['postOne'],
+    lockRow: async () => undefined,
   };
 }
 
