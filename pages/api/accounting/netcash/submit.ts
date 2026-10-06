@@ -6,12 +6,15 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
+import { assertApprovalCleared } from '@/modules/accounting/services/gl/approvalGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
 
 type Row = Record<string, unknown>;
 
@@ -54,6 +57,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       LIMIT 1
     ` as Row[];
     if (!batch[0]) return apiResponse.notFound(res, 'Batch', batchPaymentId);
+    // R-035 PR5: under payment_batch enforcement only a batch the approval
+    // gate clears is transmitted (409 with the gate's reason). Off: unchanged.
+    try {
+      await assertApprovalCleared(companyId, 'payment_batch', String(batch[0].id));
+    } catch (err) {
+      if (respondIfApprovalRequired(res, err)) return;
+      throw err;
+    }
     batchReference = String(batch[0].batch_number ?? batchPaymentId);
 
     const rows = await sql`
@@ -76,6 +87,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       reference: String(r.reference ?? ''),
     }));
   } else if (Array.isArray(rawPayments) && rawPayments.length > 0) {
+    // R-035 PR5: a raw list names payees, accounts and amounts no document
+    // carries, so nothing can approve it. Under either payment type's
+    // enforcement it is refused before anything is sent.
+    if (await isEnforced(companyId, 'supplier_payment') || await isEnforced(companyId, 'payment_batch')) {
+      return apiResponse.error(res, ErrorCode.FORBIDDEN,
+        'Supplier payment approvals are enforced, and a raw payment list cannot be approved — submit an approved batch.',
+        { reason: 'APPROVAL_REQUIRED' });
+    }
     payments = rawPayments;
   } else {
     return apiResponse.badRequest(res, 'Provide batchPaymentId or payments array');
