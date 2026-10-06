@@ -11,8 +11,6 @@
  */
 import { sql } from '@/lib/neon';
 
-/** 857's journal key. A number minted in a transaction that also posts a journal shares it (858, measured). */
-export const JOURNAL_NUMBER_SEED = 857;
 export const ASSET_NUMBER_SEED = 864001;
 export const PROJECT_NUMBER_SEED = 864002;
 export const CLAIM_NUMBER_SEED = 864003;

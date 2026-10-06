@@ -9,7 +9,6 @@ import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
-import { journalYearOf, orderByPredictedYears } from '../core/numberYearLocks';
 import { journalDateWindowError, ledgerDay } from '../../utils/journalDateWindow';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
@@ -158,9 +157,8 @@ export async function importJournalEntries(
     let entriesCreated = 0;
     let linesCreated = 0;
     let totalValue = 0;
-    // Ordered lazy (core/numberYearLocks.ts): groups post by year, then file order — in file order a multi-year
-    // import deadlocked against any run walking the years the other way. Each group's key is taken by its own journal.
-    for (const group of orderByPredictedYears(resolved, (g) => [journalYearOf(g.entryDate)])) {
+
+    for (const group of resolved) {
       // createJournalEntry resolves the fiscal period from entryDate and runs
       // validateJournalEntry, so an unbalanced group is rejected here rather
       // than becoming a posted entry nobody checked.

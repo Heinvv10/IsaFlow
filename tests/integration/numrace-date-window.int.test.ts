@@ -1,10 +1,10 @@
 /**
- * NUMRACE round 3 (sec-numrace S2): a tenant-supplied ledger date must be an ISO day from 1900-01-01 to 2199-12-31.
+ * Ledger-date window (sec-numrace S2): a tenant-supplied ledger date must be a day from 1900-01-01 to 2199-12-31.
  *
- * Postgres takes 5- to 7-digit years, and the round-2 year count read only the first four digits, so a GL import of
- * 2000 groups dated 100000..101999 passed the 20-year cap as two years, posted all 2000 journals and held 2021
- * advisory locks. Now the import refuses those dates (400, nothing written) and journalYearOf counts the year the
- * trigger does. The bank routes that take a date refuse it too.
+ * Postgres takes 5- to 7-digit years, and each journal year is its own journal-number key (migration 857): a GL import
+ * of 2000 groups dated 100000..101999 posted 2000 journals and held 2000+ advisory locks in the cluster-wide lock
+ * table. The import now refuses those dates (400, nothing written), as do the bank routes that take a date. The forms
+ * the import took before the window (an ISO timestamp, blind review LOW 3) still pass, as the day they name.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -13,11 +13,11 @@ import manualTx from '../../pages/api/accounting/bank-transactions-manual';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
-import { dropCrossYear, seedCrossYear, type CrossYear } from './helpers/numraceCrossYear';
+import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
-let c: CrossYear;
+let c: DateFixture;
 let token = '';
 
 const groups = (years: number[], tag: string) => years.flatMap((y) => [
@@ -30,13 +30,12 @@ const written = async (tag: string) => Number(((await sql`SELECT COUNT(*)::int A
 describeIfDb('NUMRACE r3: ledger dates outside 1900..2199 are refused', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedCrossYear('NUMRACE-DW', DATABASE_URL!);
+    c = await seedDateFixture('NUMRACE-DW', DATABASE_URL!);
     token = await seedRouteUser(c.fx, 'numrace-dw');
   }, 60000);
 
   afterAll(async () => {
     await dropRouteUser(c.fx);
-    await dropCrossYear(c);
     await dropFixture(c.fx);
   }, 60000);
 

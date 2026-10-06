@@ -1,5 +1,5 @@
 /**
- * NUMRACE round 3 (sec-numrace S4): the ledger-date window (utils/journalDateWindow) enforced once at the funnel —
+ * Ledger-date window (sec-numrace S4): the window (utils/journalDateWindow) enforced once at the funnel —
  * createJournalEntry refuses an entry date outside 1900-01-01..2199-12-31 before the journal writes anything
  * (gl/journalDateGuard) — and on bank-transfers, which INSERTs its journal itself.
  *
@@ -21,11 +21,11 @@ import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { response } from './mfa-impersonation-postgres.helpers';
 import { dropFixture, inTx, seedBankTx } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
-import { dropCrossYear, seedCrossYear, toolCtx, type CrossYear } from './helpers/numraceCrossYear';
+import { seedDateFixture, toolCtx, type DateFixture } from './helpers/numraceDateFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
-let c: CrossYear;
+let c: DateFixture;
 let token = '';
 
 const lines = () => [
@@ -43,13 +43,12 @@ async function refusalOf(fn: () => Promise<unknown>): Promise<unknown> {
 describeIfDb('NUMRACE r3 (S4): createJournalEntry refuses a date outside 1900..2199', () => {
   beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    c = await seedCrossYear('NUMRACE-JD', DATABASE_URL!);
+    c = await seedDateFixture('NUMRACE-JD', DATABASE_URL!);
     token = await seedRouteUser(c.fx, 'numrace-jd');
   }, 60000);
 
   afterAll(async () => {
     await dropRouteUser(c.fx);
-    await dropCrossYear(c);
     await dropFixture(c.fx);
   }, 60000);
 

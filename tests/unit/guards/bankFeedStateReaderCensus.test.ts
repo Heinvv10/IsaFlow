@@ -89,7 +89,6 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/smart-categorize.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'pages/api/landing-stats.ts': 'filtered',
 
-  'src/modules/accounting/services/ap/supplierInvoiceYears.ts': "exempt: joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); predicts a run's year order, not a total",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "exempt: reads the settled provisional's own line by provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
   'src/modules/accounting/services/ap/provisionalSettlementClaim.ts': "exempt: the claim joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
@@ -122,7 +121,6 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankTransactionQueryService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankTransferAutoLink.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankTransferLinkService.ts': 'exempt: writer (Task 3)',
-  'src/modules/accounting/services/bank/bankTransactionAllocationStates.ts': "exempt: writer (Task 3) — the bulk allocate's pre-write state read, split out of bankTransactionLookupService (NUMRACE); it reads feed_state and skipReasonFor skips a pending/removed row",
   'src/modules/accounting/services/bank/bankTxAttachmentService.ts': 'exempt: attachment CRUD ownership check, not a financial total',
   'src/modules/accounting/services/bank/bankChainLineReversal.ts': "exempt: the one read is the peek of the line being reversed keyed on its matched_journal_line_id, which a non-posted row cannot carry (CHECK bank_tx_nonposted_unlinked, migration 675); writer (bank reversal) under the row lock",
   'src/modules/accounting/services/bank/bankTxLock.ts': 'exempt: writer (Task 3) — row lock taken before a write',
@@ -150,7 +148,6 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/core/smartCategorizationMatchingService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/core/smartCategorizationService.ts': 'exempt: writer (Task 3) — categorization apply write path',
   'src/modules/accounting/services/dashboard/workbenchService.ts': 'filtered',
-  'src/modules/accounting/services/gl/journalReversalYears.ts': "exempt: non-posted rows cannot carry matched_journal_line_id or provisional_je_id (trigger 675); predicts a reversal run's year-lock scope, not a total",
   'src/modules/accounting/services/gl/accountMergeGuards.ts': 'exempt: FK/usage guard before merge — must see every feed_state',
   'src/modules/accounting/services/gl/accountReclassifyService.ts': 'exempt: FK/usage guard before reclassify — must see every feed_state',
   'src/modules/accounting/services/gl/chartOfAccountsService.ts': "filtered (round 2: soft-delete guard excludes feed_state = 'removed' — a removed feed row can no longer block deletion forever; pending rows still block, deliberately)",

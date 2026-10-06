@@ -133,11 +133,6 @@ export async function importParsedTransactions(
      * The UI path leaves this unset and keeps all three behaviours.
      */
     skipPostImportEffects?: boolean;
-    /**
-     * Run after every lock the import takes before a journal (its rows and the transfer links) and before its
-     * first journal (the auto-post sweep): bank-transactions-bulk-commit's up-front year keys (bank/bulkCommitRulePass).
-     */
-    beforeFirstJournal?: () => Promise<void>;
   } = {},
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
@@ -215,8 +210,6 @@ export async function importParsedTransactions(
     const linkErrors = batchLink.failed || accountLink.failed
       ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
       : [];
-
-    if (options.beforeFirstJournal) await options.beforeFirstJournal();
 
     // Auto-provisional posting for outflows (best-effort). The savepoint is
     // what makes the swallowing catch safe, for the same reason the transfer

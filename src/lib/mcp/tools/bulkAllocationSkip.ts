@@ -134,7 +134,7 @@ export async function partitionAllocationLines(
   // The SIGNED amount rides along beside the absolute one: the invoice checks
   // want the magnitude, the direction check below wants the sign, and re-reading
   // the row to recover it would put a second query on the hot path.
-  const candidates: { line: ResolvedLine; amount: number; signed: number; date: string | Date | null }[] = [];
+  const candidates: { line: ResolvedLine; amount: number; signed: number }[] = [];
   for (const line of resolved) {
     const state = states.get(line.txId);
     // The id resolved but names no row this company has. Reported WITH the id
@@ -149,7 +149,7 @@ export async function partitionAllocationLines(
       skipped.push({ index: line.index, transaction_id: line.txId, reason });
       continue;
     }
-    candidates.push({ line, amount: Math.abs(state.amount), signed: state.amount, date: state.transactionDate });
+    candidates.push({ line, amount: Math.abs(state.amount), signed: state.amount });
   }
 
   // Second pass: the invoice a line names may itself be settled, cancelled or
@@ -184,11 +184,11 @@ export async function partitionAllocationLines(
   const committed = new Map<string, number>();
   const claimedBy = new Map<string, number>();
 
-  for (const { line, amount, signed, date } of candidates) {
+  for (const { line, amount, signed } of candidates) {
     const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
     const invoiceId = line.line.invoiceId;
     if (kind === null || !invoiceId) {
-      postable.push({ ...line, signedAmount: signed, transactionDate: date });
+      postable.push({ ...line, signedAmount: signed });
       continue;
     }
 
@@ -218,7 +218,7 @@ export async function partitionAllocationLines(
 
     const reason = skipReasonForInvoice(remaining, invoiceId, amount);
     if (reason === null) {
-      postable.push({ ...line, signedAmount: signed, transactionDate: date });
+      postable.push({ ...line, signedAmount: signed });
       committed.set(invoiceId, Math.round((already + amount) * 100) / 100);
       if (!claimedBy.has(invoiceId)) claimedBy.set(invoiceId, line.index);
       continue;

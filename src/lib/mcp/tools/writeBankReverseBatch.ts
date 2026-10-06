@@ -20,8 +20,6 @@ import {
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { orderByPredictedYears, YearKeyCursor } from '@/modules/accounting/services/core/numberYearLocks';
-import { predictReversalYears } from '@/modules/accounting/services/gl/journalReversalYears';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -109,16 +107,9 @@ export const reverseBankAllocationBatchTool: McpTool = {
       (a, b) => (a.transactionId < b.transactionId ? -1 : a.transactionId > b.transactionId ? 1 : 0),
     );
 
-    // Ordered lazy (core/numberYearLocks.ts): by the years each contra can be dated in (gl/journalReversalYears),
-    // then id; a multi-year reversal (a companion, a VAT roll) has its range taken before its rows, a single-year one
-    // takes its key in its own reversal. A raw 55P03 on a key reaches the registry as "retry".
-    const years = await predictReversalYears(ctx.companyId, orderedReversals.map((l) => l.journalEntryId), reversalDate);
-    const cursor = new YearKeyCursor(ctx.companyId);
-
     // No try/catch, same reasoning as the allocate handler: a half-reversed
     // batch is worse than a failed one, and only a throw rolls it back.
-    for (const l of orderByPredictedYears(orderedReversals, (r) => years.get(r.journalEntryId) ?? [])) {
-      await cursor.before(years.get(l.journalEntryId) ?? []);
+    for (const l of orderedReversals) {
       // The contra journal is stamped too — without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings.
       await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {

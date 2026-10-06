@@ -10,7 +10,6 @@ import { fmtDate } from '@/lib/fmtDate';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import { safeLineDetail } from './bulkAllocationPost';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
-import { journalYearOf, orderByPredictedYears, YearKeyCursor } from '@/modules/accounting/services/core/numberYearLocks';
 import {
   getFiscalPeriodIdForDate,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -64,13 +63,8 @@ export async function postPartitionedDocuments<TResult>(
 ): Promise<PostedBatch<TResult>> {
   const posted: TResult[] = [];
   const raced: SkippedDocument[] = [];
-  // Ordered lazy (core/numberYearLocks.ts): by the year each element's journal is dated in (entryDate: the date
-  // each adapter's journal carries), then the caller's id / lock-group order, so the batch reaches its year keys
-  // ascending. Every element is single-year (no MCP approve claims input VAT late): its key is taken by its own
-  // posting, after its row locks. The callers report results in the agent's order, by index.
-  const cursor = new YearKeyCursor(ctx.companyId);
-  for (const { index, id, entryDate } of orderByPredictedYears(ordered, (o) => [journalYearOf(o.entryDate)])) {
-    await cursor.before([journalYearOf(entryDate)]);
+
+  for (const { index, id, entryDate } of ordered) {
     // Sequential, never Promise.all: these share one pg connection, and
     // concurrent statements on it interleave and corrupt the savepoint stack
     // (postgresql-gotchas §36).

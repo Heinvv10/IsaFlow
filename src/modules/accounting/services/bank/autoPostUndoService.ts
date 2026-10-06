@@ -24,14 +24,46 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
-import { orderByPredictedYears, YearKeyCursor } from '../core/numberYearLocks';
-import { predictBankLineReversalYears } from '../gl/journalReversalYears';
-import type { UndoSkips, UndoResult } from './autoPostUndoResult';
 
 type Row = DbRow;
 
-// The result shapes live in autoPostUndoResult.ts (the 300-line ceiling), re-exported for every caller.
-export type { UndoSkips, UndoResult } from './autoPostUndoResult';
+/**
+ * Why a row was skipped — each has a different remedy for the user.
+ * `reconciled`: unreconcile it first. `contended`: a peer holds it, retry.
+ * `failed`: the reversal itself refused (a closed period, a row still marked
+ * posted with nothing linked to reverse, a provisional journal whose reversal
+ * was itself reversed); the reason is in the log. `offsetByHand`: a manual
+ * journal already offsets the posting (R-079) — reverse that journal, or
+ * confirm it is the correction (autoPostHandCorrection.ts); `handOffsets`
+ * names it.
+ */
+export interface UndoSkips {
+  reconciled: number;
+  contended: number;
+  failed: number;
+  offsetByHand: number;
+}
+
+export interface UndoResult {
+  reversed: number;
+  /** The sum of `skippedBy`. */
+  skipped: number;
+  skippedBy: UndoSkips;
+  /**
+   * Rows carrying the run's tag with nothing left to reverse. The product
+   * makes them: `unmatchTransaction` and `reverseReconciledTransaction` clear
+   * `matched_journal_line_id` and leave `auto_post_run_id` set, and a user can
+   * reverse a provisional JE by hand. The undo finishes such a row — clears the
+   * tag, and for a hand-reversed JE resets the line to `imported` — without
+   * posting anything, so it must not be counted in `reversed`, the number the
+   * operator reconciles against.
+   */
+  alreadyUndone: number;
+  /** TRUE only when `skipped` is 0 — the run was recorded undone. */
+  undone: boolean;
+  /** One entry per `offsetByHand` skip: the row and the journal that offsets it. */
+  handOffsets: HandOffset[];
+}
 
 /**
  * Savepoint name for one row of the undo. `withSavepoint` caps names at 31
@@ -163,11 +195,6 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY id
   `) as Row[];
-  // Ordered lazy (core/numberYearLocks.ts): by the years each line's contra can be dated in (gl/journalReversalYears),
-  // then id; a multi-year one has its range taken before its row (outside its savepoint), a single-year one takes
-  // its key in its own reversal. A 55P03 on a key reversed nothing: the route answers 503.
-  const years = await predictBankLineReversalYears(companyId, txRows.map((t) => String(t.id)));
-  const cursor = new YearKeyCursor(companyId);
 
   let reversed = 0;
   let alreadyUndone = 0;
@@ -175,9 +202,8 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   const handOffsets: HandOffset[] = [];
   let contention: unknown = null;
 
-  for (const tx of orderByPredictedYears(txRows, (t) => years.get(String(t.id)) ?? [])) {
+  for (const tx of txRows) {
     const txId = String(tx.id);
-    await cursor.before(years.get(txId) ?? []);
     // An unlocked fast path by the same shared rule; `undoRow` re-decides it
     // under the row lock.
     const lock = await reconciliationLockOf(companyId, tx);
