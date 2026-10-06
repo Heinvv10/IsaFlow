@@ -16,26 +16,18 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
-/** The bank columns the 867 digest hashes; a change to any one re-routes the money. */
-const BANK_COLUMNS = ['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'] as const;
-
 /**
- * The supplier's bank details, under a row lock held to the end of the request
- * (the same row updateSupplier and both supplier merges lock), so the change
- * an edit makes is judged against what it replaced. Null: no such supplier.
+ * True when a supplier UPDATE moved the bank details it writes. The UPDATE
+ * returns them twice, as `bank_after` (RETURNING jsonb_build_array(...)) and
+ * as `bank_before` — a RETURNING subquery on the same row, which runs with the
+ * statement's snapshot and so reads the row as it stood before the UPDATE (one
+ * statement: no separate read to race, and no extra query). A concurrent edit
+ * the UPDATE waited for can make `bank_before` the pre-concurrent value: the
+ * comparison then errs toward a stamp, or misses only an edit that restored
+ * the details every earlier approval was given for.
  */
-export async function lockSupplierBankDetails(companyId: string, supplierId: string): Promise<DbRow | null> {
-  const rows = (await sql`
-    SELECT bank_name, bank_account_number, bank_branch_code, bank_account_type, bank_account_holder
-    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
-    FOR UPDATE
-  `) as DbRow[];
-  return rows[0] ?? null;
-}
-
-/** True when any bank column differs (a column the row does not carry counts as unchanged). */
-export function bankDetailsChanged(before: DbRow, after: DbRow): boolean {
-  return BANK_COLUMNS.some((c) => c in after && (before[c] ?? null) !== (after[c] ?? null));
+export function bankDetailsMoved(row: DbRow): boolean {
+  return row.bank_before != null && JSON.stringify(row.bank_before) !== JSON.stringify(row.bank_after);
 }
 
 /**

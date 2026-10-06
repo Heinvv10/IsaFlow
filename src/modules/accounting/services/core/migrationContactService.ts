@@ -8,7 +8,7 @@ import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
-import { bankDetailsChanged, lockSupplierBankDetails, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
+import { bankDetailsMoved, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
 
 
 export interface CustomerImportRow {
@@ -146,7 +146,6 @@ export async function importSuppliers(
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
       if (duplicate && duplicateStrategy === 'overwrite') {
-        const before = await lockSupplierBankDetails(companyId, duplicate.id);
         const [after] = (await sql`
           UPDATE suppliers SET
             email               = COALESCE(${sup.email ?? null}, email),
@@ -157,10 +156,12 @@ export async function importSuppliers(
             bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
             bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
           WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
-          RETURNING bank_name, bank_account_number, bank_branch_code, bank_account_type
+          RETURNING jsonb_build_array(bank_name, bank_account_number, bank_branch_code, bank_account_type) AS bank_after,
+            (SELECT jsonb_build_array(o.bank_name, o.bank_account_number, o.bank_branch_code, o.bank_account_type)
+             FROM suppliers o WHERE o.id = suppliers.id) AS bank_before
         `) as DbRow[];
         // Re-routes every unpaid payment to this supplier (R-035 PR5).
-        if (before && after && bankDetailsChanged(before, after)) {
+        if (after && bankDetailsMoved(after)) {
           await stampUnpaidPaymentsToSupplier(companyId, duplicate.id, importedBy);
         }
         imported++;

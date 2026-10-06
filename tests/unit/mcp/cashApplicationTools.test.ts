@@ -62,6 +62,11 @@ vi.mock('@/modules/accounting/services/core/supplierWriteService', () => ({
   createSupplier: vi.fn(),
   updateSupplier: vi.fn(),
 }));
+// R-035 PR5's up-front refusal for a governed payable is proved against real
+// PostgreSQL (r035-pr5-mcp); with no enforcement it lets the composition run.
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({
+  agentNewSupplierPaymentRefusal: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customerBelongsToCompany: vi.fn(),
   supplierBelongsToCompany: vi.fn(),
