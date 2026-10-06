@@ -96,6 +96,21 @@ describe('supplier_payments', () => {
     expect(await attempt(c, 'app_user', setStatus(p.id, 'approved'))).toBe('written');
   });
 
+  it('an approval for content that has since moved clears nothing; nor does another company\'s approved row', async () => {
+    const { c, bank } = await enforced();
+    const p = await plantPayment(pool, c, u.a, bank);
+    await r.approvedBy(pool, u.a, u.b, c, 'supplier_payment', p.id);
+    await pool.query("UPDATE suppliers SET bank_account_number = '999' WHERE id = $1", [p.supplierId]);
+    expect(await attempt(c, 'app_user', setStatus(p.id, 'approved'))).toMatch(REFUSED);
+    const q = await plantPayment(pool, c, u.a, bank);
+    const { c: other } = await enforced();
+    await pool.query(
+      `INSERT INTO approval_requests(company_id,document_type,document_id,amount,requested_by,status,required_role,document_digest,decided_by,decided_at)
+       VALUES($1,'supplier_payment',$2,1150,$3,'approved','owner',approval_document_digest($4,'supplier_payment',$2),$5,now())`,
+      [other, q.id, u.a, c, u.b]);
+    expect(await attempt(c, 'owner', setStatus(q.id, 'approved'))).toMatch(REFUSED);
+  });
+
   it('enforcement off, or no rule matching: raw writes pass', async () => {
     const { company: c, bank } = await payCompany(pool, [[u.a, 'admin']], companies);
     await plantRule(pool, c, 'owner', { documentType: 'supplier_payment' });

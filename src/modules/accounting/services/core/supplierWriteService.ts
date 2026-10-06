@@ -22,7 +22,7 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
-import { bankDetailsChanged, lockSupplierBankDetails, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
+import { bankDetailsMoved, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
 
 export type { AutoAllocateStrategy };
 
@@ -188,7 +188,6 @@ export async function updateSupplier(
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
 
-  const before = await lockSupplierBankDetails(companyId, supplierId);
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
@@ -224,11 +223,14 @@ export async function updateSupplier(
       is_active, notes, category,
       opening_balance, opening_balance_date,
       auto_allocate_strategy, auto_allocate_payments, subject_to_drc_vat,
-      created_at
+      created_at,
+      jsonb_build_array(bank_name, bank_account_number, bank_branch_code, bank_account_type) AS bank_after,
+      (SELECT jsonb_build_array(o.bank_name, o.bank_account_number, o.bank_branch_code, o.bank_account_type)
+       FROM suppliers o WHERE o.id = suppliers.id) AS bank_before
   `) as DbRow[];
 
   if (rows.length === 0) return null;
-  if (before && bankDetailsChanged(before, rows[0]!)) await stampUnpaidPaymentsToSupplier(companyId, supplierId, editedBy);
+  if (bankDetailsMoved(rows[0]!)) await stampUnpaidPaymentsToSupplier(companyId, supplierId, editedBy);
   log.info('Supplier updated', { id: supplierId }, 'accounting');
   return rows[0]!;
 }
