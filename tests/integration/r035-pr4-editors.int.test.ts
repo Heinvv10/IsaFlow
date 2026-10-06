@@ -99,6 +99,24 @@ describe('a quote editor (REPRO A)', () => {
   });
 });
 
+describe('a quote editor behind a sales order', () => {
+  it("bob re-prices alice's quote; alice turns it into an order, confirms and invoices; bob is an author", async () => {
+    const { c, customer } = await fixture();
+    const quoteId = ok<{ id: string }>(await call(customerQuotes as never, u.alice, c, 'POST',
+      { customerName: 'R035', clientId: customer, lines: quoteLines(100) }, '/api/accounting/customer-quotes')).id;
+    ok(await call(customerQuotes as never, u.bob, c, 'PUT',
+      { id: quoteId, customerName: 'R035', clientId: customer, lines: quoteLines(100_000) }, '/api/accounting/customer-quotes'));
+    ok(await call(quoteAction as never, u.alice, c, 'POST', { id: quoteId, action: 'accept' }, '/api/accounting/customer-quotes-action'));
+    const { salesOrderId } = ok<{ salesOrderId: string }>(await call(quoteAction as never, u.alice, c, 'POST',
+      { id: quoteId, action: 'convert-to-order' }, '/api/accounting/customer-quotes-action'));
+    ok(await call(salesOrderAction as never, u.alice, c, 'POST', { id: salesOrderId, action: 'confirm' }, '/api/accounting/customer-sales-orders-action'));
+    const { invoiceId } = ok<{ invoiceId: string }>(await call(salesOrderAction as never, u.alice, c, 'POST',
+      { id: salesOrderId, action: 'invoice' }, '/api/accounting/customer-sales-orders-action'));
+    expect(await authorsOf(c, invoiceId)).toEqual([u.alice, u.bob].sort());
+    await bobRefusedCarolApproves(c, invoiceId);
+  });
+});
+
 describe('a sales-order editor', () => {
   it("bob re-prices alice's draft order; alice confirms, invoices and raises; bob may not approve", async () => {
     const { c, customer } = await fixture();
