@@ -24,7 +24,7 @@ const request = (id: string, documentType: string, documentReference: string) =>
   requestedAt: '2026-10-06T08:00:00Z', decidedAt: null, decisionNotes: null,
 });
 
-function answer() {
+function answer(legacyCreditNoteRules = 0) {
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
     const path = String(url);
     if (path.startsWith('/api/accounting/approval-enforcement') && init?.method === 'POST') return json({ success: true, data: {} });
@@ -32,6 +32,7 @@ function answer() {
       return json({ data: {
         items: [],
         enforceable: ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note'],
+        legacyCreditNoteRules,
         ...(path.includes('preview=1') ? { preview: { supplier_invoice: 0, customer_credit_note: 2, supplier_credit_note: 1 } } : {}),
       } });
     }
@@ -62,6 +63,31 @@ describe('the Enforce switch', () => {
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls
       .filter(([u, init]) => String(u).startsWith('/api/accounting/approval-enforcement') && init?.method === 'POST')
       .map(([, init]) => JSON.parse(String(init?.body)))).toEqual([{ documentType: 'customer_credit_note', enabled: true }]));
+  });
+});
+
+describe('legacy credit_note rules (review B2)', () => {
+  it('warn beside BOTH credit-note switches, and only those, that they govern nothing', async () => {
+    answer(2);
+    render(<ApprovalsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /rules/i }));
+    await screen.findByRole('checkbox', { name: /enforce customer credit note approvals/i });
+    const warnings = screen.getAllByText(
+      /2 legacy credit-note rules govern nothing — re-create them as customer\/supplier credit-note rules/i);
+    expect(warnings).toHaveLength(2);
+  });
+
+  it('say it in the singular for one rule, and say nothing when there are none', async () => {
+    answer(1);
+    render(<ApprovalsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /rules/i }));
+    expect(await screen.findAllByText(/1 legacy credit-note rule governs nothing — re-create it as/i)).toHaveLength(2);
+    cleanup();
+    answer(0);
+    render(<ApprovalsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /rules/i }));
+    await screen.findByRole('checkbox', { name: /enforce customer credit note approvals/i });
+    expect(screen.queryByText(/legacy credit-note rule/i)).toBeNull();
   });
 });
 
