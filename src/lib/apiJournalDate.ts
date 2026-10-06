@@ -26,9 +26,19 @@ export const JOURNAL_DATE_REFUSED = Symbol('journal-date-refused');
 export async function withJournalDateRefusal<T>(
   res: NextApiResponse, fn: () => Promise<T>,
 ): Promise<T | typeof JOURNAL_DATE_REFUSED> {
+  let returned = false;
+  let value: T | undefined;
   try {
-    return await withSavepoint('journal_date_refusal', fn);
+    return await withSavepoint('journal_date_refusal', async () => {
+      value = await fn();
+      returned = true;
+      return value;
+    });
   } catch (err) {
+    // The call RETURNED an answer on a transaction it had itself aborted (a held-row outcome its route answers 503,
+    // k071): only the RELEASE failed (25P02), and withSavepoint has rolled back to the savepoint. Hand the answer back,
+    // exactly as without this savepoint.
+    if (returned && (err as { code?: unknown }).code === '25P02') return value as T;
     if (!isJournalDateRefused(err)) throw err;
     apiResponse.badRequest(res, err.message, { code: err.code });
     return JOURNAL_DATE_REFUSED;
