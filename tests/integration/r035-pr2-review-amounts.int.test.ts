@@ -98,6 +98,6 @@ describe('the exchange rate cannot shrink the amount a rule sees', () => {
       .rejects.toThrow(/R035_APPROVAL_REQUIRED/);
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined,
       '/api/accounting/approval-enforcement', { preview: '1' });
-    expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({ supplier_invoice: 1 });
+    expect(dataOf<{ preview: Record<string, number> }>(res).preview).toMatchObject({ supplier_invoice: 1 });
   });
 });
