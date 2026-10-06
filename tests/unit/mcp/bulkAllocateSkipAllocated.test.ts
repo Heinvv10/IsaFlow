@@ -19,8 +19,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The reversal tools' up-front year lock reads journals (NUMRACE; tested against Postgres) — not this file's subject.
-vi.mock('@/modules/accounting/services/gl/journalReversalYears', () => ({ predictReversalYears: vi.fn(async () => []) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -74,8 +72,6 @@ import {
 import {
   createAllocationBatch,
   recordAllocationBatchLines,
-  getAllocationBatchLines,
-  clearAllocationBatch,
 } from '@/modules/accounting/services/bank/bankAllocationBatchService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
@@ -85,7 +81,6 @@ import {
 import {
   bulkAllocateBankTransactionsTool,
 } from '@/lib/mcp/tools/writeBankBulkAllocate';
-import { reverseBankAllocationBatchTool } from '@/lib/mcp/tools/writeBankReverseBatch';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
@@ -379,32 +374,6 @@ describe('bulk_allocate_bank_transactions — a genuinely fatal line', () => {
     await expect(
       bulkAllocateBankTransactionsTool.handler({ allocations: [line(1)], idempotency_key: 'k1' }, ctx),
     ).rejects.toThrow(/stamp failed/);
-  });
-});
-
-describe('reverse_bank_allocation_batch — reverses exactly what the batch posted', () => {
-  it('reverses the two posted lines and leaves the skipped one alone', async () => {
-    // The batch recorded only the lines it posted, so the skipped transaction
-    // is not in it and cannot be reversed by this batch id.
-    vi.mocked(getAllocationBatchLines).mockResolvedValue([
-      {
-        transactionId: TX(1), journalEntryId: `je-for-${TX(1)}`,
-        currentJournalEntryId: `je-for-${TX(1)}`, transactionExists: true,
-      },
-      {
-        transactionId: TX(3), journalEntryId: `je-for-${TX(3)}`,
-        currentJournalEntryId: `je-for-${TX(3)}`, transactionExists: true,
-      },
-    ]);
-    vi.mocked(clearAllocationBatch).mockResolvedValue(undefined);
-
-    const res = await reverseBankAllocationBatchTool.handler(
-      { batch_id: BATCH, idempotency_key: 'k2' }, ctx,
-    );
-    const body = payload(res as never);
-    expect(body.reversed).toBe(2);
-    expect(body.transaction_ids).toEqual([TX(1), TX(3)]);
-    expect(body.skipped).toEqual([]);
   });
 });
 

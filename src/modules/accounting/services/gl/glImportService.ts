@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VatType } from '../../types/gl.types';
+import { journalDateWindowError } from '../../utils/journalDateWindow';
 type Row = DbRow;
 
 
@@ -106,8 +107,11 @@ export async function validateImportRows(
       }
 
       const parsedDate = parseDate(row.date);
+      const windowError = journalDateWindowError(String(row.date ?? ''));
       if (!parsedDate) {
         errors.push(`Invalid date: "${row.date}" — expected YYYY-MM-DD`);
+      } else if (windowError) {
+        errors.push(windowError);
       } else {
         const inOpenPeriod = periodRows.some((p: Row) => {
           const start = new Date(String(p.start_date));

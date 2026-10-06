@@ -10,6 +10,7 @@ import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import { journalYearOf, lockNumberYears } from '../core/numberYearLocks';
+import { journalDateWindowError } from '../../utils/journalDateWindow';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
 
@@ -90,6 +91,9 @@ export async function importJournalEntries(
     const resolved: ResolvedGroup[] = [];
     for (const [, groupRows] of grouped) {
       const firstRow = groupRows[0]!;
+      // A ledger date only (utils/journalDateWindow): refused before any write, a 400.
+      const badDate = journalDateWindowError(String(firstRow.date));
+      if (badDate) throw new ImportValidationError(`Import group ${firstRow.reference ? `"${firstRow.reference}" ` : ''}: ${badDate}`);
       const lines: JournalLineInput[] = [];
       let totalDebit = 0;
 

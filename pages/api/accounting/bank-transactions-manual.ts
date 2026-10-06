@@ -9,6 +9,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { journalDateWindowError } from '@/modules/accounting/utils/journalDateWindow';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -29,7 +30,9 @@ import {
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
   bankAccountId: UUID,
-  date: z.string().min(8).max(30),
+  date: z.string().min(8).max(30).refine((d) => journalDateWindowError(d) === null, {
+    message: 'date must be YYYY-MM-DD between 1900-01-01 and 2199-12-31',
+  }),
   amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
     message: 'amount must be a positive number',
   }),
