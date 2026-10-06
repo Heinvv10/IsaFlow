@@ -60,7 +60,9 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import { sql } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
-import { lockBulkCommitYears, runBulkCommitRulePass } from '@/modules/accounting/services/bank/bulkCommitRulePass';
+import {
+  lockBulkCommitYears, planBulkCommitYears, runBulkCommitRulePass,
+} from '@/modules/accounting/services/bank/bulkCommitRulePass';
 import {
   parseStatement,
   type StatementFileType,
@@ -227,9 +229,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  // Every year the import's sweep and the rule pass can post in, ascending, before either (bank/bulkCommitRulePass) —
-  // and before the PAYG debit: it writes nothing, so a held year (503) or a span refusal (400) charges nothing.
-  const heldRuleLines = await lockBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate),
+  // Every year the import's sweep and the rule pass can post in (bank/bulkCommitRulePass): a span refusal (400) reads
+  // only, before the debit, so it charges nothing.
+  const yearPlan = await planBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate),
     applyBankRules === true);
 
   // 5. PAYG metering — debit one `bank.import` charge per successful
@@ -264,6 +266,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
+  // The keys, after the wallet (withFlowMeter's order) and outside the refund block below: a held year is a 503 whose
+  // rollback undoes the debit.
+  const ruleLocks = await lockBulkCommitYears(companyId, bankAccountId, yearPlan);
+
   // 6. Insert. On failure, refund the PAYG debit so the user isn't
   //    charged for a no-op.
   try {
@@ -290,7 +296,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     const rulePass = applyBankRules === true
-      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename, heldRuleLines)
+      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename, ruleLocks)
       : { applied: 0, skippedLocked: 0, warnings: [] };
 
     if (isPayg && didDebit) {
