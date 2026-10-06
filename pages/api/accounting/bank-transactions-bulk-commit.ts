@@ -61,8 +61,9 @@ import { sql } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
-  lockBulkCommitYears, planBulkCommitYears, runBulkCommitRulePass,
+  lockBulkCommitYears, planBulkCommitYears, runBulkCommitRulePass, type BulkCommitLocks,
 } from '@/modules/accounting/services/bank/bulkCommitRulePass';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import {
   parseStatement,
   type StatementFileType,
@@ -266,12 +267,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  // The keys, after the wallet (withFlowMeter's order) and outside the refund block below: a held year is a 503 whose
-  // rollback undoes the debit.
-  const ruleLocks = await lockBulkCommitYears(companyId, bankAccountId, yearPlan);
-
   // 6. Insert. On failure, refund the PAYG debit so the user isn't
   //    charged for a no-op.
+  let ruleLocks: BulkCommitLocks = { held: new Set(), presuggested: 0 };
   try {
     const filteredResult: BankCsvParseResult = {
       ...parseResult,
@@ -292,6 +290,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           sourceFilename: filename,
           sourceFileSizeBytes: Number(sourceFileSizeBytes ?? 0),
         },
+        // The keys come after the wallet (withFlowMeter's order) and the import's own row locks, before its sweep.
+        beforeFirstJournal: async () => { ruleLocks = await lockBulkCommitYears(companyId, bankAccountId, yearPlan); },
       },
     );
 
@@ -324,7 +324,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       warnings: [...result.errors.map((e) => e.error), ...rulePass.warnings],
     });
   } catch (insertErr) {
-    if (isPayg && didDebit) {
+    // A held key or row is a 503: its rollback undoes the debit, and a refund on the aborted transaction would fail.
+    if (isPayg && didDebit && !isHeldRowError(insertErr)) {
       try {
         await refundFlows(companyId, flowCost, 'bank.import', bulkImportId);
       } catch (refundErr) {
