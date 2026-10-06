@@ -7,6 +7,8 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
+import { ledgerEntryDay } from '@/modules/accounting/services/gl/journalDateGuard';
+import { sql } from '@/lib/neon';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -48,6 +50,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `vatInputAccountId invalid: ${vatCheck.reason}`);
     }
   }
+
+  // The claim's journal date, checked BEFORE postClaimToGl locks the claim (gl/journalDateGuard): outside the ledger
+  // window nothing is written yet, so it answers 400, not the 500 a refusal after the lock would be (brk-numrace F2).
+  const dated = (await sql`SELECT claim_date::text AS d FROM expense_claims
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid`) as { d: string }[];
+  if (dated[0]) await ledgerEntryDay(dated[0].d);
 
   try {
     const claim = await postClaimToGl(id, companyId, {

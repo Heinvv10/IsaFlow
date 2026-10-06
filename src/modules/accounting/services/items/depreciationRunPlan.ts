@@ -17,7 +17,7 @@
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate } from '@/lib/validation';
-import { journalDateWindowError } from '../../utils/journalDateWindow';
+import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { lifeExpiredNote, monthsBetween } from './depreciationMethods';
 import { alreadyInSubledger, alreadyPosted, resolvePeriod } from './depreciationRunQueries';
 
@@ -88,7 +88,7 @@ export interface DepreciationPlan {
 export function invalidPeriodDate(periodDate: string): DepreciationBlocker | null {
   if (/^\d{4}-\d{2}-\d{2}$/.test(periodDate) && isRealCalendarDate(periodDate)) {
     // sec-numrace S4: and a ledger date (utils/journalDateWindow) — refused here, before the run writes anything.
-    const outside = journalDateWindowError(periodDate);
+    const outside = journalDayWindowError(periodDate);
     return outside ? { reason: 'invalid_period_date', detail: `period_date: ${outside}` } : null;
   }
   return {

@@ -12,7 +12,7 @@ import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractBankStatementWithVlm } from './vlmBankService';
 import { runDedupPass } from './bankStatementDedupHelpers';
 import type { ExtractedBankStatement } from '@/modules/accounting/types/documentCapture.types';
-import { journalDateWindowError } from '../../utils/journalDateWindow';
+import { parsedDayWindowError } from '../../utils/journalDateWindow';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -123,7 +123,7 @@ export async function createImportFromDocument(
 
   // sec-numrace S4: a line dated outside the ledger window keeps no date (commit skips it) and says why, as the CSV
   // import's row error does (utils/journalDateWindow).
-  const outside = (d: string | null | undefined) => (d ? journalDateWindowError(d) : null);
+  const outside = (d: string | null | undefined) => (d ? parsedDayWindowError(d) : null);
   const warnings = [...extraction.warnings, ...extraction.transactions.flatMap((tx) => {
     const why = outside(tx.date);
     return why ? [`${why} (${tx.description.slice(0, 60)})`] : [];
@@ -186,7 +186,7 @@ export async function commitImport(
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
 
-  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && journalDateWindowError(r.date) === null);
+  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
   let insertedCount = 0;

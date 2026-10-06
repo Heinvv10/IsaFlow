@@ -14,7 +14,9 @@ const { sqlMock, withTransactionMock } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn().mockReturnValue('') }),
   withTransactionMock: vi.fn(),
 }));
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: withTransactionMock }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock, withTransaction: withTransactionMock, withSavepoint: (_n: string, fn: () => unknown) => fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/documentStorage', () => ({
   fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4'), hash: 'x', size: 8, fileType: 'pdf' })),
@@ -87,7 +89,8 @@ describe('depreciation period_date', () => {
 
 describe('year-end closing journal', () => {
   it('dated 2200-12-31: refused before its transaction opens', async () => {
-    sqlMock.mockResolvedValueOnce([{ clean: true }]); // the guard's pre-write probe
+    sqlMock.mockResolvedValueOnce([{ d: '2200-12-31' }]); // Postgres's ::date of the entry date
+    sqlMock.mockResolvedValueOnce([{ clean: true }]); // the guard's nothing-written probe
     const preview = {
       entryDate: '2200-12-31', entryNumber: 'YE-2200', description: 'Year-End Closing: 2200',
       lines: [
