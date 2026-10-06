@@ -5,7 +5,7 @@
  *
  * ENFORCEABLE_DOCUMENT_TYPES grows by one type per PR, as each type's posting
  * paths are wired to `approvalGate` — supplier invoices since PR2, both credit-note types since PR3, customer
- * invoices since PR4. Per-type rather than one company flag so a
+ * invoices since PR4, supplier payments and payment batches since PR5. Per-type rather than one company flag so a
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
@@ -25,6 +25,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 
 export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
   'supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+  'supplier_payment', 'payment_batch',
 ];
 
 export interface ApprovalEnforcement {
