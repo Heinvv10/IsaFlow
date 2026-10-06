@@ -135,7 +135,8 @@ describe('approveCustomerInvoice — the compare-and-swap is bounded', () => {
   });
 
   it('raises the typed timeout so the bulk runner can skip the element', async () => {
-    vi.mocked(sql).mockRejectedValue(
+    vi.mocked(sql).mockResolvedValueOnce([] as never) // the journal-date pre-check (gl/journalDateGuard): no date
+      .mockRejectedValue(
       Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
     );
     const err = await approveCustomerInvoice(COMPANY, INVOICE, USER).catch((e: unknown) => e);

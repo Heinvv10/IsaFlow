@@ -9,11 +9,18 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { JournalDateRefusedError, journalDayWindowError } from '../../utils/journalDateWindow';
 
+/**
+ * A canonical day ('2025-03-31') is what Postgres reads it as under every DateStyle (an invalid one, '2025-02-30',
+ * still fails at the INSERT as before), so it needs no round trip; every other form, and a Date, is cast.
+ */
+const CANONICAL_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 /** A data exception (SQLSTATE class 22): Postgres cannot read the value as a date. */
 const isCastError = (err: unknown) =>
   typeof (err as { code?: unknown })?.code === 'string' && String((err as { code: string }).code).startsWith('22');
 
 async function castDay(value: string | Date): Promise<string | null> {
+  if (typeof value === 'string' && CANONICAL_DAY.test(value)) return value;
   try {
     const rows = (await withSavepoint('ledger_day', () => sql`SELECT ${value}::date::text AS d`)) as { d: string }[];
     return rows[0]!.d;
@@ -23,10 +30,11 @@ async function castDay(value: string | Date): Promise<string | null> {
   }
 }
 
-/** The day Postgres stores for each string, or null where it cannot cast it. One query unless one of them fails. */
+/** The day Postgres stores for each string, or null where it cannot cast it. At most one query unless a cast fails. */
 export async function ledgerDaysOf(inputs: readonly string[]): Promise<Map<string, string | null>> {
-  const distinct = [...new Set(inputs)];
   const out = new Map<string, string | null>();
+  for (const s of inputs) if (CANONICAL_DAY.test(s)) out.set(s, s);
+  const distinct = [...new Set(inputs)].filter((s) => !out.has(s));
   if (distinct.length === 0) return out;
   try {
     const rows = (await withSavepoint('ledger_days', () => sql`
