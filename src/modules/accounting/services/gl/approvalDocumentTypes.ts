@@ -14,3 +14,20 @@ export function creditNoteApprovalType(type: string): DocumentType {
   if (type === 'supplier') return 'supplier_credit_note';
   throw new Error(`Unknown credit note type: ${type}`);
 }
+
+/**
+ * A NEW rule of the legacy `credit_note` type would govern nothing — neither
+ * credit-note type reads it (R-035 PR3 review B2) — so creating one is refused,
+ * naming the types that do. Existing legacy rows are left alone.
+ */
+export class ApprovalRuleLegacyTypeError extends Error {
+  constructor() {
+    super('Approval rules of type credit_note no longer govern any credit note. Create a customer_credit_note or '
+      + 'supplier_credit_note rule instead.');
+    this.name = 'ApprovalRuleLegacyTypeError';
+  }
+}
+
+export function assertRuleDocumentTypeCreatable(documentType: string): void {
+  if (documentType === 'credit_note') throw new ApprovalRuleLegacyTypeError();
+}

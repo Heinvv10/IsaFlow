@@ -17,6 +17,17 @@ interface EnforcementData {
   items: { documentType: string }[];
   enforceable: string[];
   preview: Record<string, number>;
+  /** Active rules of the legacy `credit_note` type, which govern neither credit-note type. */
+  legacyCreditNoteRules?: number;
+}
+
+const CREDIT_NOTE_TYPES = new Set(['customer_credit_note', 'supplier_credit_note']);
+
+/** R-035 PR3 review B2: legacy rules look like they govern credit notes, and do not. */
+function legacyWarning(n: number): string {
+  return n === 1
+    ? '1 legacy credit-note rule governs nothing — re-create it as a customer/supplier credit-note rule'
+    : `${n} legacy credit-note rules govern nothing — re-create them as customer/supplier credit-note rules`;
 }
 
 const LABELS: Record<string, { name: string; noun: string }> = {
@@ -80,6 +91,7 @@ export function ApprovalEnforcementPanel() {
         const on = data.items.some((i) => i.documentType === type);
         const n = data.preview[type] ?? 0;
         const count = `${n} unposted ${label.noun}${n === 1 ? '' : 's'}`;
+        const legacy = CREDIT_NOTE_TYPES.has(type) ? data.legacyCreditNoteRules ?? 0 : 0;
         return (
           <div key={type} className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
@@ -95,6 +107,7 @@ export function ApprovalEnforcementPanel() {
             <span className="text-xs text-[var(--ff-text-secondary)]">
               {on ? `${count} awaiting approval` : `${count} would need approval`}
             </span>
+            {legacy > 0 && <p className="w-full text-xs text-amber-500">{legacyWarning(legacy)}</p>}
           </div>
         );
       })}

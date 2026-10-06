@@ -64,6 +64,19 @@ export async function listEnforcement(companyId: string): Promise<ApprovalEnforc
   return rows.map(mapEnforcement);
 }
 
+/**
+ * Active rules of the legacy `credit_note` type: they govern neither
+ * credit-note type (R-035 PR3), so the Enforce switch warns that they must be
+ * re-created as customer / supplier credit-note rules (review B2).
+ */
+export async function countLegacyCreditNoteRules(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type = 'credit_note' AND is_active = true
+  `) as Row[];
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function isEnforced(companyId: string, documentType: DocumentType): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${documentType}
