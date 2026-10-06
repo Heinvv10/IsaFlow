@@ -30,7 +30,7 @@ export interface BankTransactionAllocationState {
    * 200 round trips to ask what it already selected.
    */
   amount: number;
-  transactionDate: string | Date | null; // its allocation journal's date — a batch's up-front year lock (numberYearLocks)
+  transactionDate: string | Date | null; // its allocation journal's date — a batch's walk order (ordered lazy, numberYearLocks)
 }
 
 /**
