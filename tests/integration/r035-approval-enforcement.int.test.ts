@@ -48,8 +48,9 @@ const audits = async (company: string) => (await pool.query(
 const twoMemberCompany = () => newCompany(pool, [[owner, 'owner'], [admin, 'admin']], companies);
 
 describe('only wired types can be enforced', () => {
-  it('PR4 makes supplier_invoice, the two credit-note types and customer_invoice, and only them, enforceable', () => {
-    expect(ENFORCEABLE_DOCUMENT_TYPES).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice']);
+  it('PR5 makes supplier_invoice, both credit-note types, customer_invoice and both payment types, and only them, enforceable', () => {
+    expect(ENFORCEABLE_DOCUMENT_TYPES).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+      'supplier_payment', 'payment_batch']);
   });
 
   // `credit_note` is the legacy type: it governs neither credit-note type and is never enforceable.
@@ -171,6 +172,7 @@ describe('listing is tenant-scoped', () => {
     expect(res.state.statusCode).toBe(200);
     const data = (res.state.body as { data: { items: { documentType: string }[]; enforceable: string[] } }).data;
     expect(data.items.map((i) => i.documentType)).toEqual(['credit_note']);
-    expect(data.enforceable).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice']);
+    expect(data.enforceable).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+      'supplier_payment', 'payment_batch']);
   });
 });

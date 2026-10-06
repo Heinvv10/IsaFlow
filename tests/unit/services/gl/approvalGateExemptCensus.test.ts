@@ -44,12 +44,37 @@ function filesMentioning(needle: string): string[] {
 }
 
 describe('the approval-gate import exemption', () => {
-  it('is set in exactly one place, and read only by the migration 712 and 865 triggers', () => {
+  it('is set in exactly one place, and read only by the migration 712, 865 and 867 triggers', () => {
     expect(filesMentioning('approval_gate_exempt')).toEqual([
       'scripts/migrations/sql/712_supplier_invoice_approval_enforcement.sql',
       'scripts/migrations/sql/865_customer_invoice_approval_enforcement.sql',
+      'scripts/migrations/sql/867_supplier_payment_approval_enforcement.sql',
       'src/modules/accounting/services/gl/approvalGateExempt.ts',
     ]);
+  });
+
+  // R-035 PR5 (Q4): a payment recorded from a bank line records money that
+  // has already moved. Exactly the four bank-feed creators may say so, and
+  // only around their INSERT straight to 'processed'.
+  it('the bank-feed value is named only by its wrapper and the 867 trigger', () => {
+    expect(filesMentioning("'bank_feed'")).toEqual([
+      'scripts/migrations/sql/867_supplier_payment_approval_enforcement.sql',
+      'src/modules/accounting/services/gl/approvalGateExempt.ts',
+    ]);
+  });
+
+  it('the bank-feed wrapper is called by exactly the four bank-feed payment creators, around their INSERT', () => {
+    const callers = filesMentioning('withApprovalGateExemptBankFeed(');
+    expect(callers).toEqual([
+      'src/modules/accounting/services/ap/provisionalInvoiceSettlement.ts',
+      'src/modules/accounting/services/ap/supplierAutoAllocate.ts',
+      'src/modules/accounting/services/ap/supplierBankPaymentService.ts',
+      'src/modules/accounting/services/ap/supplierRefundDocument.ts',
+    ]);
+    for (const file of callers) {
+      const text = readFileSync(path.join(ROOT, file), 'utf8');
+      expect(text.match(/withApprovalGateExemptBankFeed\(\(\) => sql`\s*INSERT INTO supplier_payments \(/g), file).toHaveLength(1);
+    }
   });
 
   it('is called by exactly the Sage imports, the Sage migration commit and the AP and AR take-ons', () => {

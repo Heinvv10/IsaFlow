@@ -48,6 +48,7 @@ import type { SupplierInvoice } from '../../types/ap.types';
 import { round2 } from './supplierAllocationLines';
 import { applySupplierPaymentPlan, planSupplierPaymentApplication } from './supplierPaymentApplicationService';
 import type { ProvisionalClaim } from './provisionalSettlementClaim';
+import { withApprovalGateExemptBankFeed } from '../gl/approvalGateExempt';
 
 export { claimEvidencedProvisional, type ProvisionalClaim } from './provisionalSettlementClaim';
 
@@ -100,7 +101,8 @@ export async function settleInvoiceFromProvisional(
 
   const createdBy = await resolveUserUuid(userId);
   const description = `Bank-first payment of ${invoice.invoiceNumber} (provisional ${claim.entryNumber})`;
-  const [payment] = (await sql`
+  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
+  const [payment] = (await withApprovalGateExemptBankFeed(() => sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id,
       reference, description, status, gl_journal_entry_id, settles_provisional_je_id,
@@ -111,7 +113,7 @@ export async function settleInvoiceFromProvisional(
       ${claim.journalEntryId}::UUID, ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
     )
     RETURNING id
-  `) as DbRow[];
+  `)) as DbRow[];
   const paymentId = String(payment!.id);
 
   const applied = round2(Math.min(claim.bankAmount, invoice.totalAmount - invoice.amountPaid));

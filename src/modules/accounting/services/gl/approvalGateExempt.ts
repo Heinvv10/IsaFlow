@@ -92,3 +92,30 @@ export async function withApprovalGateExempt<T>(importer: ApprovalGateImporter, 
     return result;
   });
 }
+
+/**
+ * The bank-feed exemption from the supplier-payment backstop (R-035 PR5,
+ * decision Q4: payments gate the INSTRUCTION to pay, never the record of money
+ * that has already left the bank). The four creators that record a supplier
+ * payment from a bank line — supplierBankPaymentService, supplierAutoAllocate,
+ * provisionalInvoiceSettlement, supplierRefundDocument — INSERT it straight as
+ * 'processed' inside this wrapper, which sets the transaction-local GUC to
+ * 'bank_feed' for that INSERT only. Migration 867 honours it on an INSERT of a
+ * single payment, never on an UPDATE or a batch member. No rank check: the
+ * bank line is the fact, and nobody could refuse it. The census
+ * (approvalGateExemptCensus.test.ts) pins the four callers.
+ *
+ * In a savepoint for the same reason as withApprovalGateExempt. Outside a
+ * request transaction the setting could not reach the INSERT, so it is not
+ * attempted there: such a caller is refused under enforcement (fail closed)
+ * and unchanged without it.
+ */
+export async function withApprovalGateExemptBankFeed<T>(write: () => Promise<T>): Promise<T> {
+  if (!als.getStore()?.client) return write();
+  return withSavepoint('approval_gate_exempt_bank', async () => {
+    await sql`SELECT set_config('isaflow.approval_gate_exempt', 'bank_feed', true)`;
+    const result = await write();
+    await sql`SELECT set_config('isaflow.approval_gate_exempt', '', true)`;
+    return result;
+  });
+}

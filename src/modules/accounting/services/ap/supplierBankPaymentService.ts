@@ -50,6 +50,7 @@ import {
   applySupplierPaymentPlan,
   planSupplierPaymentApplication,
 } from './supplierPaymentApplicationService';
+import { withApprovalGateExemptBankFeed } from '../gl/approvalGateExempt';
 
 export interface BankSupplierPaymentValidation {
   bankTxId: string;
@@ -224,7 +225,8 @@ export async function applyBankLineToSupplierInvoices(
     ? String(bankAccountRows[0]!.bank_account_id)
     : null;
 
-  const paymentRows = (await sql`
+  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
+  const paymentRows = (await withApprovalGateExemptBankFeed(() => sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method,
       bank_account_id, reference, description, status, gl_journal_entry_id,
@@ -237,7 +239,7 @@ export async function applyBankLineToSupplierInvoices(
       ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
     )
     RETURNING id, payment_number
-  `) as DbRow[];
+  `)) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
   const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
