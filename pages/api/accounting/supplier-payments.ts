@@ -22,6 +22,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
+import { sql } from '@/lib/neon';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   isRetryableSupplierPaymentRefusal,
@@ -55,7 +56,16 @@ async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse
       // ahead. A batch member has none of its own — its batch's page shows it.
       const approval = !payment.batchId && (payment.status === 'draft' || payment.status === 'approved')
         ? await describeApprovalGate(companyId, 'supplier_payment', payment.id) : null;
-      return apiResponse.success(res, { ...payment, approval });
+      // Where the money goes, read live like the approval digest (round 1 LOW c).
+      const [bank] = (await sql`
+        SELECT bank_name, bank_account_number, bank_branch_code, bank_account_holder FROM suppliers
+        WHERE id = ${payment.supplierId}::UUID AND company_id = ${companyId}::UUID
+      `) as Record<string, string | null>[];
+      const payeeBank = bank ? {
+        bankName: bank.bank_name, accountNumber: bank.bank_account_number,
+        branchCode: bank.bank_branch_code, accountHolder: bank.bank_account_holder,
+      } : null;
+      return apiResponse.success(res, { ...payment, approval, payeeBank });
     }
 
     const result = await getSupplierPayments(companyId, {

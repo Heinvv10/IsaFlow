@@ -182,5 +182,8 @@ describe('scope', () => {
     expect(await state()).toBe('pending');
     expect((await r.decide(pool, u.b, c, raised.id)).state.statusCode).toBe(200);
     expect(await state()).toBe('approved');
+    // Where the money goes, read live (round 1 LOW c).
+    expect(dataOf<{ payeeBank: unknown }>(await r.getPayment(u.a, c, p.id)).payeeBank).toEqual({
+      bankName: 'R035 Bank', accountNumber: '62000000001', branchCode: '250655', accountHolder: 'R035 Holder' });
   });
 });

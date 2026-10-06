@@ -105,13 +105,16 @@ describe('a batch is judged by its members\' payment rules too', () => {
     await enforcePay(pool, c, 'payment_batch', u.b);
     const b = await plantBatch(pool, c, u.a, bank, [1150, 2300]);
     await r.approvedBy(pool, u.a, u.m, c, 'payment_batch', b.id);
+    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
+    // A member rule stricter than the approval arrives after it.
     await plantRule(pool, c, 'owner', { documentType: 'supplier_payment', operator: 'greater_than', value: 2000 });
-    const raw = await pool.query("UPDATE supplier_payment_batches SET status = 'approved' WHERE id = $1", [b.id])
-      .then(() => 'written', (e: Error) => e.message);
-    expect(raw).toMatch(/^R035_APPROVAL_REQUIRED/);
     const eft = await callRoute(eftGenerate, tokens[u.a]!, c, 'POST', { batchId: b.id, bank: 'fnb' }, '/api/accounting/eft-generate');
     expect(eft.state.statusCode).toBe(409);
-    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(409);
+    expect(reasonOf(eft)).toBe('APPROVAL_REQUIRED');
+    const raw = await pool.query("UPDATE supplier_payment_batches SET status = 'processed' WHERE id = $1", [b.id])
+      .then(() => 'written', (e: Error) => e.message);
+    expect(raw).toMatch(/^R035_APPROVAL_REQUIRED/);
+    expect((await r.batch(u.a, c, 'process', b.id)).state.statusCode).toBe(409);
   });
 
   it('parity: the TypeScript match and approval_payment_batch_strictest_rank agree', async () => {

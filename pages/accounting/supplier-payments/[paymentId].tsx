@@ -15,6 +15,7 @@ import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { SUPPLIER_PAYMENT_DIALOGS as DIALOGS, type SupplierPaymentDialog } from '@/components/accounting/ap/supplierPaymentDialogs';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { PaymentDetailsCard, type PayeeBank } from '@/components/accounting/ap/PaymentDetailsCard';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -58,6 +59,7 @@ interface PaymentDetail {
   settlesProvisionalJeId?: string;
   allocations: Allocation[];
   approval?: DocumentApprovalState | null; // R-035 PR5: while approve / process is ahead; null for a batch member
+  payeeBank?: PayeeBank | null;
 }
 
 export default function SupplierPaymentDetailPage() {
@@ -221,13 +223,8 @@ export default function SupplierPaymentDetailPage() {
                 </div>
               </div>
 
-              {/* Details */}
-              {(payment.reference || payment.description) && (
-                <div className="p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-                  {payment.reference && <p className="text-sm text-[var(--ff-text-secondary)]">Reference: <span className="text-[var(--ff-text-primary)] font-mono">{payment.reference}</span></p>}
-                  {payment.description && <p className="text-sm text-[var(--ff-text-secondary)] mt-1">{payment.description}</p>}
-                </div>
-              )}
+              {/* Details, and where the money goes (R-035 PR5) */}
+              <PaymentDetailsCard reference={payment.reference} description={payment.description} payeeBank={payment.payeeBank} />
 
               {/* Allocations Table */}
               {payment.allocations && payment.allocations.length > 0 && (
