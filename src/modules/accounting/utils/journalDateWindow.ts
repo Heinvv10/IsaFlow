@@ -32,12 +32,13 @@ export function parsedDayWindowError(date: string): string | null {
 }
 
 /**
- * A journal dated outside the window, refused where it is created (gl/journalDateGuard, sec-numrace S4). `preWrite`:
- * the request transaction had written nothing when it was raised — only then is a 4xx safe (withAuth COMMITs below 500).
+ * A journal dated outside the window, refused where it is created (gl/journalDateGuard, sec-numrace S4). A route
+ * answers it 400 only through lib/apiJournalDate.withJournalDateRefusal, after its savepoint rolled back; anywhere
+ * else it is the 500 that rolls the request back. MCP: a refusal code (the registry's savepoint rolls back).
  */
 export class JournalDateRefusedError extends Error {
   readonly code = 'JOURNAL_DATE_REFUSED';
-  constructor(reason: string, readonly preWrite: boolean) {
+  constructor(reason: string) {
     super(`This journal cannot be posted: ${reason}.`);
     this.name = 'JournalDateRefusedError';
   }

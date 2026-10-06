@@ -55,22 +55,11 @@ export async function ledgerDaysOf(inputs: readonly string[]): Promise<Map<strin
   return out;
 }
 
-/**
- * Nothing written yet in this transaction: no transaction id assigned. Conservative — a row lock assigns one too, so a
- * path that locks its document before its journal checks the document's date before the lock (customer invoice
- * approve, expense-claim post). pg_stat_xact_all_tables is no finer signal: a backend's unflushed counts from its
- * previous transactions show in it (measured on 16, brk-numrace F2).
- */
-async function requestHasNotWritten(): Promise<boolean> {
-  const rows = (await sql`SELECT pg_current_xact_id_if_assigned() IS NULL AS clean`) as { clean: boolean }[];
-  return rows[0]?.clean === true;
-}
-
 /** The day a journal dated `entryDate` is stored on, or JournalDateRefusedError when it is outside the window. */
 export async function ledgerEntryDay(entryDate: string): Promise<string> {
   const day = await castDay(entryDate);
   if (day === null) return entryDate;
   const reason = journalDayWindowError(day);
-  if (reason) throw new JournalDateRefusedError(reason, await requestHasNotWritten());
+  if (reason) throw new JournalDateRefusedError(reason);
   return day;
 }
