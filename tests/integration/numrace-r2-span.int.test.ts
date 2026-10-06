@@ -35,9 +35,22 @@ describeIfDb('NUMRACE r2: the year lock is bounded by the years, not the span', 
   }, 60000);
 
   it('reversing one allocation dated 0001-06-01 holds a handful of advisory locks, not one per year since', async () => {
-    const id = await line(c, 'a0aaaaaa', '0001-06-01', 'NRSPAN ancient');
+    // Legacy data: since round 3 (S4) nothing can post a journal dated 0001, so allocate it in 2025 and backdate the
+    // line and its journal the way a pre-S4 import left them (triggers off for the rewrite only).
+    const id = await line(c, 'a0aaaaaa', '2025-06-01', 'NRSPAN ancient');
     const alloc = await txn(c);
     const body = JSON.parse((await alloc.run(() => bulkAllocate(c, [{ id }]))).content[0]!.text) as { batch_id: string };
+    const legacy = await c.fx.pool.connect();
+    try {
+      await legacy.query('BEGIN');
+      await legacy.query('SET LOCAL session_replication_role = replica');
+      const je = await legacy.query(`UPDATE gl_journal_entries SET entry_date = '0001-06-01' WHERE id = (SELECT
+        jl.journal_entry_id FROM bank_transactions bt JOIN gl_journal_lines jl ON jl.id = bt.matched_journal_line_id
+        WHERE bt.id = $1)`, [id]);
+      const bt = await legacy.query("UPDATE bank_transactions SET transaction_date = '0001-06-01' WHERE id = $1", [id]);
+      expect([je.rowCount, bt.rowCount]).toEqual([1, 1]);
+      await legacy.query('COMMIT');
+    } finally { legacy.release(); }
     const t = await txn(c);
     let held = -1;
     const out = await t.run(async () => {
