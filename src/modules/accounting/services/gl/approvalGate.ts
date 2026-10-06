@@ -3,7 +3,8 @@
  * document enters the ledger or a subledger population (R-035).
  *
  * Wired for supplier invoices since PR2 (approveSupplierInvoice, the MCP
- * approve pre-reads, the unattended creators); other types follow one PR each,
+ * approve pre-reads, the unattended creators) and for both credit-note types
+ * since PR3 (approveCreditNote, the MCP approve pre-reads); other types follow one PR each,
  * as they join ENFORCEABLE_DOCUMENT_TYPES (approvalEnforcement.ts).
  *
  * A document is CLEARED when any of these holds:
@@ -47,6 +48,8 @@ const LABELS: Record<DocumentType, string> = {
   supplier_invoice: 'Supplier invoice',
   customer_invoice: 'Customer invoice',
   credit_note: 'Credit note',
+  customer_credit_note: 'Customer credit note',
+  supplier_credit_note: 'Supplier credit note',
   payment: 'Payment',
   journal_entry: 'Journal entry',
 };

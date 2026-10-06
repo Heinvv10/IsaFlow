@@ -38,6 +38,9 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
 }));
+// R-035 PR3: the approval gate runs its own queries next; it is covered against
+// a real database by tests/integration/r035-pr3-*.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({ assertApprovalCleared: async () => undefined }));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });

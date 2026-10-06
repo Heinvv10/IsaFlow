@@ -24,6 +24,8 @@ import {
   type CreditNoteAutoApply,
 } from '../shared/creditNoteFifo';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertApprovalCleared } from '../gl/approvalGate';
+import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -56,6 +58,9 @@ export async function approveCreditNote(
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
+    // R-035 PR3: under the lock and before any other read or write, so a
+    // refusal (ApprovalRequiredError, answered 409) has written nothing.
+    await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
 
     let lines: JournalLineInput[];
 

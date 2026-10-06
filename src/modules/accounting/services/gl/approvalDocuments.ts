@@ -86,6 +86,24 @@ async function findDocument(
                approval_document_digest(company_id, 'credit_note', id) AS digest
         FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
+    // R-035 PR3: a note is found only under the type its own `type` column
+    // names. A mismatch is NOT FOUND — otherwise a requester picks the other
+    // type's (possibly laxer) rules for it. The amount is the largest leg the
+    // approve posts (approval_credit_note_gate_amount, migration 862).
+    case 'customer_credit_note':
+      return first((await sql`
+        SELECT approval_credit_note_gate_amount(total_amount, subtotal, tax_amount) AS amount,
+               credit_note_number AS reference,
+               approval_document_digest(company_id, 'customer_credit_note', id) AS digest
+        FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND type = 'customer'
+      `) as Row[]);
+    case 'supplier_credit_note':
+      return first((await sql`
+        SELECT approval_credit_note_gate_amount(total_amount, subtotal, tax_amount) AS amount,
+               credit_note_number AS reference,
+               approval_document_digest(company_id, 'supplier_credit_note', id) AS digest
+        FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND type = 'supplier'
+      `) as Row[]);
     case 'payment': {
       const customer = first((await sql`
         SELECT COALESCE(total_amount, 0) AS amount, payment_number AS reference,
