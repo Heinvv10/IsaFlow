@@ -27,8 +27,8 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-/** runner: admin who converts; author: owner who wrote the content; other: a second owner. */
-const u = { runner: '', author: '', other: '' };
+/** runner: admin who converts; author: owner who wrote the content; other: a second owner; clerk: a bookkeeper. */
+const u = { runner: '', author: '', other: '', clerk: '' };
 const r = invoiceRoutes(tokens);
 
 beforeAll(async () => {
@@ -37,7 +37,8 @@ beforeAll(async () => {
 afterAll(() => cleanupPr4(pool, companies, Object.values(u)));
 
 async function fixture(): Promise<{ c: string; customer: string }> {
-  const c = await invoiceCompany(pool, [[u.runner, 'admin'], [u.author, 'owner'], [u.other, 'owner']], companies);
+  const c = await invoiceCompany(pool,
+    [[u.runner, 'admin'], [u.author, 'owner'], [u.other, 'owner'], [u.clerk, 'bookkeeper']], companies);
   await plantRule(pool, c, 'owner', { documentType: 'customer_invoice', operator: 'greater_than', value: 500 });
   await enforceInvoices(pool, c, u.other);
   const customer = crypto.randomUUID();
@@ -117,6 +118,44 @@ describe('conversions — the source author may not approve what another user co
     const { invoiceId } = await inRequest(c, u.runner, () => convertSalesOrderToInvoice(c, order, u.runner));
     expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.author].sort());
     await authorRefusedOtherApproves(c, invoiceId);
+  });
+
+  it("quote → sales order → invoice: the quote's author, behind the order someone else created", async () => {
+    const { c, customer } = await fixture();
+    const quote = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO customer_quotes(id,company_id,quote_number,client_id,quote_date,subtotal,tax_amount,total,status,created_by)
+       VALUES($1,$2,$3,$4,DATE '2026-09-01',1000,150,1150,'converted_to_order',$5)`, [quote, c, `Q-${quote.slice(0, 6)}`, customer, u.author]);
+    const order = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO customer_sales_orders(id,company_id,order_number,customer_id,quote_id,order_date,subtotal,tax_amount,total_amount,
+         status,created_by)
+       VALUES($1,$2,$3,$4,$5,DATE '2026-09-01',1000,150,1150,'confirmed',$6)`, [order, c, `SO-${order.slice(0, 6)}`, customer, quote, u.clerk]);
+    await pool.query(
+      `INSERT INTO customer_sales_order_items(sales_order_id,description,quantity,unit_price,tax_rate,line_total)
+       VALUES($1,'Goods',1,1000,15,1000)`, [order]);
+    const { invoiceId } = await inRequest(c, u.runner, () => convertSalesOrderToInvoice(c, order, u.runner));
+    expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.author, u.clerk].sort());
+    await authorRefusedOtherApproves(c, invoiceId);
+  });
+
+  it("a sales order whose quote_id names another company's quote adds no quote author", async () => {
+    const { c, customer } = await fixture();
+    const foreign = await fixture();
+    const quote = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO customer_quotes(id,company_id,quote_number,client_id,quote_date,subtotal,tax_amount,total,status,created_by)
+       VALUES($1,$2,$3,$4,DATE '2026-09-01',1,0,1,'converted_to_order',$5)`, [quote, foreign.c, `Q-${quote.slice(0, 6)}`, foreign.customer, u.author]);
+    const order = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO customer_sales_orders(id,company_id,order_number,customer_id,quote_id,order_date,subtotal,tax_amount,total_amount,
+         status,created_by)
+       VALUES($1,$2,$3,$4,$5,DATE '2026-09-01',1000,150,1150,'confirmed',$6)`, [order, c, `SO-${order.slice(0, 6)}`, customer, quote, u.clerk]);
+    await pool.query(
+      `INSERT INTO customer_sales_order_items(sales_order_id,description,quantity,unit_price,tax_rate,line_total)
+       VALUES($1,'Goods',1,1000,15,1000)`, [order]);
+    const { invoiceId } = await inRequest(c, u.runner, () => convertSalesOrderToInvoice(c, order, u.runner));
+    expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.clerk].sort());
   });
 
   it('time entries → invoice: every user who logged an entry', async () => {
