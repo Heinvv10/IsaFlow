@@ -18,6 +18,7 @@ import { Pool } from 'pg';
 import recurringRun from '../../pages/api/accounting/recurring-invoices-run';
 import recurringAction from '../../pages/api/accounting/recurring-invoices-action';
 import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
+import approvalRequests from '../../pages/api/accounting/approval-requests';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
@@ -116,6 +117,23 @@ describe('recurring invoices', () => {
     const posted = dataOf<{ invoiceId: string; heldForApproval?: boolean }>(await generate(await template(c, customer, false)));
     expect(posted.heldForApproval).toBeUndefined();
     expect((await invoiceState(pool, posted.invoiceId)).journals).toBe(1);
+  });
+
+  it('the runner is the requester and the creator, so cannot approve the held invoice while another owner can', async () => {
+    const c = await invoiceCompany(pool, [[u.a, 'owner'], [u.b, 'owner']], companies);
+    await plantRule(pool, c, 'owner', { documentType: 'customer_invoice', operator: 'greater_than', value: 1000 });
+    await enforceInvoices(pool, c, u.b);
+    const customer = crypto.randomUUID();
+    await pool.query("INSERT INTO customers(id,company_id,name) VALUES($1,$2,'R035 SoD')", [customer, c]);
+    const result = dataOf<RunResult>(await run(c, { recurring_invoice_id: await template(c, customer, true) }));
+    const invoiceId = result.held_for_approval[0]!;
+    const { rows: [req] } = await pool.query(
+      "SELECT id, requested_by, document_digest FROM approval_requests WHERE document_id = $1 AND status = 'pending'", [invoiceId]);
+    expect(req.requested_by).toBe(u.a);
+    const decide = (user: string) => callRoute(approvalRequests, tokens[user]!, c, 'POST',
+      { action: 'approve', requestId: req.id, expectedDigest: req.document_digest }, '/api/accounting/approval-requests');
+    expect((await decide(u.a)).state.statusCode).toBe(403);
+    expect((await decide(u.b)).state.statusCode).toBe(200);
   });
 
   it('enforcement off: every template posts as before and nothing is held', async () => {
