@@ -1,27 +1,31 @@
 /**
- * Cross-year multi-journal runs take every year's journal key up front, ascending (DOCNUM follow-up (c),
- * brk-docnum F3).
+ * Cross-year multi-journal runs: ORDERED LAZY (DOCNUM follow-up (c), brk-docnum F3; Hein's ruling 2026-10-06, which
+ * replaced round 1-2's "every year's key up front" on brk-numrace N1 evidence).
  *
  * Each journal number takes 857's key ('<company>:<year>', 857) and holds it to commit. A run that posts a 2026
- * journal and then a 2025 one, against any transaction that holds 2025 and then wants 2026, deadlocks (40P01) —
- * and the bulk posters walk their lines in id order, so their year order follows the uuids. A run whose journals
- * span two or more years therefore takes all of their keys, in ascending year order, on the request transaction,
- * OUTSIDE any per-line savepoint and BEFORE its first journal. A single-year run takes nothing extra: its one key
- * is taken by the journal trigger as before.
+ * journal and then a 2025 one, against any transaction that holds 2025 and then wants 2026, deadlocks (40P01) — the
+ * bulk posters used to walk their elements in id order, so their year order followed the uuids. Now:
  *
- * ROWS FIRST (round 2, brk-numrace M3). Every single-row writer locks its row (a bank line, a bill) and THEN numbers
- * its journal. A bulk run that took the year keys before its rows inverted that order and deadlocked against a
- * single writer of one of its rows. `claimRowsThenLockYears` claims the run's rows, in the order the run walks them
- * and with the single path's own lock function, and only then takes the year keys.
+ *   1. `orderByPredictedYears` — a run processes its elements by (min predicted year, then the caller's own order),
+ *      so its keys are reached ascending. Two runs over overlapping rows still meet them in one global order:
+ *      predicted years are deterministic. Each element's predicted set must be a superset on the LOW side — an
+ *      element never numbers below its predicted min.
+ *   2. `YearKeyCursor` — a SINGLE-year element takes nothing up front: its key is taken where base takes it, by its
+ *      own posting, after its own row locks. Before a MULTI-year element (a late-claim companion, a VAT-roll
+ *      reversal, a provisional reclass…) the cursor takes every year from its min to its max that it has not taken,
+ *      ascending, before the element's rows. Safe because the held set at or above the current min is always one
+ *      contiguous range, so every acquisition is ascending.
  *
- * Bounds. The lock waits at most 5 s (migration 864): a 55P03 is raised before anything was posted, so the WHOLE run
- * is retryable (routes 503 + Retry-After, MCP "retry in a moment"). More than MAX_RUN_YEARS distinct years is
- * refused before any lock or write (`YearSpanTooWideError`, a 400): each key is an entry in the cluster-wide shared
- * lock table, and one run naming thousands of years exhausted it for every tenant (sec-numrace S1, 53200).
+ * Up-front row claims (rounds 2-3, `claimRowsThenLockYears`) are gone: they existed only to serve keys-up-front, and
+ * claimed only each element's FIRST lock (brk-numrace N1: a held claim, a contact, a chain head still landed after
+ * the keys). bank-transactions-bulk-commit is the one two-pass request: see bank/bulkCommitRulePass.
+ *
+ * Bounds. A key waits at most 5 s (migration 864): 55P03 → routes 503 + Retry-After, MCP "retry in a moment". A run
+ * whose union of predicted years (a multi-year element counts its whole min..max range) exceeds MAX_RUN_YEARS is
+ * refused before any lock or write (`YearSpanTooWideError`, a 400): every key it reaches is held to its end, in the
+ * cluster-wide shared lock table (sec-numrace S1, 53200).
  */
-import { withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { isHeldRowError } from '@/lib/lockTimeout';
 import { JOURNAL_NUMBER_SEED, takeCompanyNumberLock } from './numberLock';
 import { MAX_RUN_YEARS, YearSpanTooWideError } from './yearSpanRefusal';
 
@@ -33,6 +37,11 @@ function distinctYears(years: Iterable<number>): number[] {
   return distinct;
 }
 
+/** Refuses (YearSpanTooWideError, 400) a set of more than MAX_RUN_YEARS distinct years — before any lock or write. */
+export function assertRunYears(years: Iterable<number>): void {
+  distinctYears(years);
+}
+
 /** Takes the journal key of every distinct year, ascending, when there are two or more (at most MAX_RUN_YEARS). */
 export async function lockNumberYears(companyId: string, years: Iterable<number>): Promise<void> {
   const distinct = distinctYears(years);
@@ -40,32 +49,41 @@ export async function lockNumberYears(companyId: string, years: Iterable<number>
   for (const year of distinct) await takeCompanyNumberLock(companyId, String(year), JOURNAL_NUMBER_SEED);
 }
 
-/** One row a run will post for, and the years its journals can be dated in. */
-export interface YearClaim { id: string; years: readonly number[] }
+/** Every year a multi-year element's cursor may take: its whole min..max range. */
+function reach(years: readonly number[]): number[] {
+  const ys = distinctYears(years);
+  if (ys.length < 2) return ys;
+  return Array.from({ length: ys[ys.length - 1]! - ys[0]! + 1 }, (_, i) => ys[0]! + i);
+}
 
 /**
- * Rows, then years. When the run's years (its rows' plus `extraYears`) span two or more, claims each row — in the
- * order given, which must be the order the run walks them — with `claimRow` (the single path's own lock), each in
- * its own savepoint, and only then takes the year keys. A row a peer holds past its lock's bound is left unclaimed
- * (the run's own per-row lock then answers it as it always did) but its years stay in the set. Single-year: nothing.
+ * The run's processing order: by min predicted year (an element with none last), stable — ties keep the caller's
+ * order (its id or lock-group sort). Refuses a run whose reach exceeds MAX_RUN_YEARS, before any lock or write.
  */
-export async function claimRowsThenLockYears(
-  companyId: string,
-  rows: readonly YearClaim[],
-  claimRow: (id: string) => Promise<unknown>,
-  extraYears: readonly number[] = [],
-  isHeld: (err: unknown) => boolean = isHeldRowError,
-): Promise<void> {
-  const years = distinctYears([...rows.flatMap((r) => r.years), ...extraYears]);
-  if (years.length < 2) return;
-  for (const [n, row] of rows.entries()) {
-    try {
-      await withSavepoint(`year_claim_${n}`, () => claimRow(row.id));
-    } catch (err) {
-      if (!isHeld(err)) throw err;
+export function orderByPredictedYears<T>(items: readonly T[], yearsOf: (item: T) => readonly number[]): T[] {
+  distinctYears(items.flatMap((item) => reach(yearsOf(item))));
+  const keyed = items.map((item, i) => {
+    const ys = yearsOf(item).filter((y) => Number.isInteger(y));
+    return { item, i, min: ys.length > 0 ? Math.min(...ys) : Number.POSITIVE_INFINITY };
+  });
+  return keyed.sort((a, b) => (a.min !== b.min ? a.min - b.min : a.i - b.i)).map((k) => k.item);
+}
+
+/** The run's key cursor — see the header. Call `before(years)` OUTSIDE the element's savepoint, before its rows. */
+export class YearKeyCursor {
+  private readonly taken = new Set<number>();
+
+  constructor(private readonly companyId: string) {}
+
+  async before(years: readonly number[]): Promise<void> {
+    const range = reach(years);
+    if (range.length < 2) return;
+    for (const year of range) {
+      if (this.taken.has(year)) continue;
+      await takeCompanyNumberLock(this.companyId, String(year), JOURNAL_NUMBER_SEED);
+      this.taken.add(year);
     }
   }
-  await lockNumberYears(companyId, years);
 }
 
 /**

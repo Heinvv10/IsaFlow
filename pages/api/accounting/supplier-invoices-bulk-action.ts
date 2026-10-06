@@ -45,7 +45,8 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
-import { lockSupplierInvoiceYears } from '@/modules/accounting/services/ap/supplierInvoiceYearLocks';
+import { predictSupplierBillYears } from '@/modules/accounting/services/ap/supplierInvoiceYears';
+import { orderByPredictedYears, YearKeyCursor } from '@/modules/accounting/services/core/numberYearLocks';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -91,11 +92,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
   const ordered = [...invoiceIds].sort();
-  // The bills, then every year their journals can be dated in, ascending, before the first (ap/supplierInvoiceYearLocks).
-  // A 55P03 on a year key has posted nothing: withErrorHandler answers 503 + Retry-After.
-  await lockSupplierInvoiceYears(companyId, ordered, action);
+  // Ordered lazy (core/numberYearLocks.ts): by each bill's predicted years (ap/supplierInvoiceYears), then id; a
+  // multi-year bill (late claim, provisional reclass, a rolled reversal) has its range taken before its row, outside
+  // its savepoint — a 55P03 there answers 503 for the run. Results are reported in id order, as before.
+  const years = await predictSupplierBillYears(companyId, ordered, action);
+  const cursor = new YearKeyCursor(companyId);
 
-  for (const invoiceId of ordered) {
+  for (const invoiceId of orderByPredictedYears(ordered, (id) => years.get(id) ?? [])) {
+    await cursor.before(years.get(invoiceId) ?? []);
     try {
       // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
       // not: its bill was already approved, so already in the filed figures.
@@ -142,6 +146,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return respondRowHeld(res, 'These invoices are being processed by another request — retry in a moment.', 'ROW_LOCK_TIMEOUT');
   }
 
+  results.sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
   const succeeded = results.filter((r) => r.ok).length;
   const failed = results.length - succeeded;
 

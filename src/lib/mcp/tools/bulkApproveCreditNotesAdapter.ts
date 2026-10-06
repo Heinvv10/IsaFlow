@@ -7,7 +7,6 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
-import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 import { listCreditNoteAllocations, type CreditNoteAutoApply } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { mcpPostingOpts } from '../mcpActor';
 import type { BulkApproveAdapter, DocumentState } from './bulkApproveRunner';
@@ -41,7 +40,6 @@ export function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter
   // `bulk_appr_cn_99` — 15 characters at the widest index.
   savepointPrefix: 'bulk_appr_cn_',
   approvableStatuses: APPROVABLE,
-  lockRow: lockCreditNoteForUpdate, // approveCreditNote's first lock
   async readStates(companyId, ids) {
     const rows = (await sql`
       SELECT id, status, credit_date, credit_note_number, type, total_amount,

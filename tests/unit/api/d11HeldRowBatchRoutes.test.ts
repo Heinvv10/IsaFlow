@@ -14,8 +14,8 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () 
 vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', () => ({ runRecurringInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', async (orig) => ({ ...(await orig<object>()), approveSupplierInvoice: vi.fn(), cancelSupplierInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', async (orig) => ({ ...(await orig<object>()), postSupplierInvoiceToGL: vi.fn() }));
-// The route's up-front year lock reads the bills; these cases are about the per-item answers (NUMRACE has its own).
-vi.mock('@/modules/accounting/services/ap/supplierInvoiceYearLocks', () => ({ lockSupplierInvoiceYears: vi.fn(async () => undefined) }));
+// The route's year prediction reads the bills; these cases are about the per-item answers (NUMRACE has its own).
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceYears', () => ({ predictSupplierBillYears: vi.fn(async () => new Map()) }));
 
 import { sql } from '@/lib/neon';
 import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';

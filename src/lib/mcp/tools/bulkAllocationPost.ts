@@ -14,8 +14,7 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
-import { claimRowsThenLockYears, journalYearOf } from '@/modules/accounting/services/core/numberYearLocks';
-import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { journalYearOf, orderByPredictedYears, YearKeyCursor } from '@/modules/accounting/services/core/numberYearLocks';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -173,15 +172,12 @@ export async function postPreparedLines(
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
-  // Every year this batch numbers a journal in (each line's journal is dated its bank line's date), ascending,
-  // before the first — after claiming the lines in this walk order with allocateTransaction's own lock, the order
-  // a single allocation takes them (core/numberYearLocks.ts). Outside the per-line savepoints: a raw 55P03 on a
-  // year key posted nothing, so it reaches the registry whole and the agent is told to retry the batch.
-  await claimRowsThenLockYears(ctx.companyId,
-    ordered.map((o) => ({ id: o.txId, years: [journalYearOf(o.transactionDate)] })),
-    (id) => lockBankTransactionForUpdate(ctx.companyId, id));
-
-  for (const { index, txId, line } of ordered) {
+  // Ordered lazy (core/numberYearLocks.ts): by the year each line's journal is dated in (its bank line's), then
+  // this id order, so the batch reaches its year keys ascending. Every line is single-year: its key is taken by its
+  // own allocation, after its row lock, where a single allocation takes it.
+  const cursor = new YearKeyCursor(ctx.companyId);
+  for (const { index, txId, line, transactionDate } of orderByPredictedYears(ordered, (o) => [journalYearOf(o.transactionDate)])) {
+    await cursor.before([journalYearOf(transactionDate)]);
     // Sequential, not Promise.all: these share one pg connection, and
     // concurrent statements on it interleave (and corrupt the savepoint stack —
     // postgresql-gotchas §36).
@@ -232,5 +228,9 @@ export async function postPreparedLines(
     }
   }
 
+  // Reported in the id order the batch was handed, as before the year order.
+  const at = new Map(ordered.map((o, i) => [o.txId, i]));
+  lines.sort((a, b) => at.get(a.transaction_id)! - at.get(b.transaction_id)!);
+  vatCoerced.sort((a, b) => at.get(a.transaction_id)! - at.get(b.transaction_id)!);
   return { lines, raced, vatCoerced };
 }

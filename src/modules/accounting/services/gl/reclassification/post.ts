@@ -23,7 +23,7 @@ import type { PostingActorOpts } from '../journalEntryMeta';
 import { actorMeta } from '../journalEntryMeta';
 import type { ReclassJournalDraft } from './journals';
 import { createReclassBatch, recordReclassBatchLines } from './batchService';
-import { journalYearOf, lockNumberYears } from '../../core/numberYearLocks';
+import { journalYearOf, orderByPredictedYears } from '../../core/numberYearLocks';
 
 export interface PostedReclassJournal {
   journalEntryId: string;
@@ -75,11 +75,11 @@ export async function postReclassBatch(
 ): Promise<PostedReclassBatch> {
   const posted: PostedReclassJournal[] = [];
   const batchLines: { sourceLineId: string; journalEntryId: string }[] = [];
-  // Every year these journals are dated in, ascending, before the first (core/numberYearLocks.ts): a batch walking
-  // its drafts across a year end in caller order deadlocked against one walking the other way.
-  await lockNumberYears(companyId, input.drafts.map((d) => journalYearOf(d.date)));
-
-  for (const draft of input.drafts) {
+  const postedFrom: number[] = [];
+  // Ordered lazy (core/numberYearLocks.ts): drafts post by year, then caller order — in caller order a batch crossing
+  // a year end deadlocked against one walking the other way. Each draft's key is taken by its own journal; the
+  // journals are reported back in the caller's order below.
+  for (const draft of orderByPredictedYears(input.drafts, (d) => [journalYearOf(d.date)])) {
     // Sequential, not Promise.all: these share the one pg client the request
     // transaction holds, and concurrent statements on it corrupt the savepoint
     // stack (postgresql-gotchas §36).
@@ -122,6 +122,7 @@ export async function postReclassBatch(
     // journals already posted behind a reply that says the call failed.
     await postJournalEntry(companyId, entry.id, userId);
 
+    postedFrom.push(input.drafts.indexOf(draft));
     posted.push({
       journalEntryId: entry.id,
       entryNumber: entry.entryNumber ?? null,
@@ -136,6 +137,9 @@ export async function postReclassBatch(
     }
   }
 
+  // Back in the caller's draft order (posted[k] belongs to postedFrom[k]).
+  const reordered = posted.map((p, k) => ({ p, n: postedFrom[k]! })).sort((a, b) => a.n - b.n).map((x) => x.p);
+  posted.splice(0, posted.length, ...reordered);
   const batchId = await createReclassBatch(companyId, userId, {
     tool: input.tool,
     sourceAccountId: input.sourceAccountId,

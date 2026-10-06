@@ -229,7 +229,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Every year the import's sweep and the rule pass can post in, ascending, before either (bank/bulkCommitRulePass) —
   // and before the PAYG debit: it writes nothing, so a held year (503) or a span refusal (400) charges nothing.
-  await lockBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate), applyBankRules === true);
+  const heldRuleLines = await lockBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate),
+    applyBankRules === true);
 
   // 5. PAYG metering — debit one `bank.import` charge per successful
   //    file. We do this manually instead of via withFlowMeter because
@@ -289,7 +290,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     const rulePass = applyBankRules === true
-      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename)
+      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename, heldRuleLines)
       : { applied: 0, skippedLocked: 0, warnings: [] };
 
     if (isPayg && didDebit) {

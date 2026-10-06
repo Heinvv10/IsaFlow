@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type ImportRowContext, type MigrationError } from './migrationService';
-import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
+import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, takeOnRowOrder, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 import type { DbRow } from '@/types/db';
@@ -62,7 +62,7 @@ export async function importARInvoices(
     await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
   }
   // Before any read: the idempotency check below is a read-then-write.
-  await lockMigrationImport(companyId, invoices.map((inv) => inv.invoiceDate));
+  await lockMigrationImport(companyId);
   await assertNoOpeningControlTotal(companyId, sessionId, 'receivable');
 
   // No default_revenue and no vat_output: a take-on document posts neither. See
@@ -83,7 +83,7 @@ export async function importARInvoices(
   `) as DbRow[];
   const sourceSystem = sessRows.length > 0 ? String(sessRows[0]!.source_system) : 'csv_import';
 
-  for (let i = 0; i < invoices.length; i++) {
+  for (const i of takeOnRowOrder(invoices.map((inv) => inv.invoiceDate))) { // by year, then file order
     const inv = invoices[i]!;
     try {
       const customerId = matchContact(inv.customerName, custRows);
