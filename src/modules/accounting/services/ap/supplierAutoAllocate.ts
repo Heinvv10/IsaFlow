@@ -65,6 +65,7 @@ import {
   type AutoApplyMode,
 } from '../shared/autoAllocateStrategy';
 import { fetchOpenSupplierBills } from './openSupplierBills';
+import { withApprovalGateExemptBankFeed } from '../gl/approvalGateExempt';
 
 // Re-exported: this module is the documented home of the supplier side of the
 // bank-line payment, and every existing caller and test reaches the fetch
@@ -137,7 +138,8 @@ export async function recordSupplierBankPayment(args: {
   // uuid-shaped — the same trap the customer_payments insert works around.
   const createdBy = await resolveUserUuid(userId);
 
-  const paymentRows = (await sql`
+  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
+  const paymentRows = (await withApprovalGateExemptBankFeed(() => sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method,
       bank_account_id, reference, description, status, gl_journal_entry_id,
@@ -150,7 +152,7 @@ export async function recordSupplierBankPayment(args: {
       ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
     )
     RETURNING id
-  `) as DbRow[];
+  `)) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
   // THE MODE DECIDES FIRST, and the order is deliberate: a sweep of 200 lines

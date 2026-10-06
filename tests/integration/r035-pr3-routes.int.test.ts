@@ -156,9 +156,9 @@ describe('the enforcement switch', () => {
   const call = (user: string, c: string, documentType: string, enabled: boolean) => callRoute(
     approvalEnforcement, tokens[user]!, c, 'POST', { documentType, enabled }, '/api/accounting/approval-enforcement');
 
-  it('still refuses an R-035 type no PR has wired (supplier_payment)', async () => {
+  it('still refuses an R-035 type no PR has wired (journal_entry)', async () => {
     const c = await company();
-    const res = await call(u.b, c, 'supplier_payment', true);
+    const res = await call(u.b, c, 'journal_entry', true);
     expect(res.state.statusCode).toBe(400);
     expect((await pool.query('SELECT 1 FROM approval_enforcement WHERE company_id = $1', [c])).rows).toEqual([]);
   });

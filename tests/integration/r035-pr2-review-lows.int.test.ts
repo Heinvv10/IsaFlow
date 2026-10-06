@@ -81,7 +81,8 @@ describe('the enforcement preview is computed on demand (LOW-3)', () => {
   it('the plain GET carries no preview', async () => {
     const { c } = await gatedDraft();
     const data = dataOf<Record<string, unknown>>(await get(c));
-    expect(data).toMatchObject({ enforceable: ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice'] });
+    expect(data).toMatchObject({ enforceable: ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+      'supplier_payment', 'payment_batch'] });
     expect(data).not.toHaveProperty('preview');
   });
 
