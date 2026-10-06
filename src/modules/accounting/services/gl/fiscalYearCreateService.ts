@@ -171,9 +171,8 @@ export async function createFiscalYear(
   const startMonth = startMonthOverride ?? (await resolveCompanyPeriodAlignment(companyId)).startMonth;
   const range = fiscalYearRange(year, startMonth);
   // Ledger-date window (utils/journalDateWindow): a period dates the journals no createJournalEntry check sees (the
-  // year-end close, depreciation). Checked on the range itself — iso() writes a 6-digit year as its first 4 digits.
-  const outside = journalDateWindowError(range.startDate) ?? journalDateWindowError(range.endDate);
-  if (!Number.isInteger(year) || outside || Number(range.endDate.slice(0, 4)) !== year) {
+  // year-end close, depreciation), so the year's whole range must lie inside it.
+  if (journalDateWindowError(range.startDate) ?? journalDateWindowError(range.endDate)) {
     throw new Error(`Fiscal year ${year} is outside ${JOURNAL_DATE_MIN} to ${JOURNAL_DATE_MAX}`);
   }
 
