@@ -9,7 +9,7 @@
  * demands, decided at or after enforcement was (last) switched on.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Pool, type PoolClient } from 'pg';
+import { Pool } from 'pg';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
@@ -170,24 +170,6 @@ describe.each(['customer', 'supplier'] as const)('%s credit notes', (type) => {
 });
 
 describe('tenant isolation', () => {
-  async function asAppUser<T>(userId: string, companyId: string, fn: (c: PoolClient) => Promise<T>): Promise<T> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SET LOCAL ROLE app_user');
-      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: userId, role: 'authenticated' })]);
-      await client.query("SELECT set_config('app.current_company_id', $1, true)", [companyId]);
-      const result = await fn(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
   it.each(['customer', 'supplier'] as const)("a forged approved row in company B carrying A's %s note id does not clear it", async (type) => {
     const c = await company();
     await plantRule(pool, c, 'owner', { documentType: approvalTypeOf(type) });
@@ -196,10 +178,13 @@ describe('tenant isolation', () => {
     const b = await company();
     await enforceType(pool, b, type, u.b); // B enforces too: only company_id keeps its row off A's note
     const digest = (await pool.query('SELECT approval_document_digest($1,$2,$3) AS d', [c, approvalTypeOf(type), note.id])).rows[0].d;
-    await asAppUser(u.b, b, (client) => client.query(
+    // Planted as the owner role: app_user may no longer INSERT a decided
+    // credit-note request at all (review A3, r035-pr3-review) — the row stands
+    // for any approval company B legitimately holds.
+    await pool.query(
       `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role,
          decided_by, decided_at, document_digest)
-       VALUES($1,$2,$3,'approved',$4,'owner',$5,now(),$6)`, [b, approvalTypeOf(type), note.id, u.a, u.b, digest]));
+       VALUES($1,$2,$3,'approved',$4,'owner',$5,now(),$6)`, [b, approvalTypeOf(type), note.id, u.a, u.b, digest]);
     const res = await r.approve(u.a, c, note.id);
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');
