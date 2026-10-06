@@ -132,24 +132,28 @@ export async function approveCustomerInvoice(
   // must have written nothing. The gate reads the invoice's digest, so the row
   // is locked first: an edit committing between the gate's read and the UPDATE
   // would otherwise post content nobody approved. Inside the same lock_timeout
-  // window as the UPDATE. Only an approvable status is gated; anything else
-  // falls through to the UPDATE, which refuses it as before. A soft-deleted
-  // row is not found here and is left to the UPDATE and, when enforced, the
-  // database backstop (migration 865), which refuses it.
+  // window as the UPDATE. Only an approvable invoice is locked and gated;
+  // anything else falls through to the UPDATE, which refuses it as before. A
+  // soft-deleted row is not found here and is left to the UPDATE and, when
+  // enforced, the database backstop (migration 865), which refuses it.
+  // FOR NO KEY UPDATE, not FOR UPDATE (review F2): it still excludes every
+  // content edit (the draft PUT and the merge lock FOR UPDATE; an UPDATE takes
+  // NO KEY UPDATE), but not the FOR KEY SHARE an insert referencing the
+  // invoice takes — an allocation, a portal view, a dispute, a line — which
+  // FOR UPDATE held off for the whole approve, enforcement on or off.
   let locked: Row[];
   try {
     locked = (await sql`
       SELECT status FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
-      FOR UPDATE
+        AND status = ANY(${APPROVABLE_STATUSES}::text[])
+      FOR NO KEY UPDATE
     `) as Row[];
   } catch (err) {
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
-  if (locked[0] && APPROVABLE_STATUSES.includes(String(locked[0].status))) {
-    await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
-  }
+  if (locked[0]) await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR

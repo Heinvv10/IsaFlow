@@ -108,7 +108,7 @@ beforeEach(() => {
 describe('customer-invoices-detail POST action guards', () => {
   it('rejects approve for a cancelled invoice with a 400 and never posts GL', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ status: 'cancelled' }]) // the row lock (R-035): not approvable, so no gate
+      .mockResolvedValueOnce([]) // the row lock (R-035) matches approvable invoices only: none, so no gate
       .mockResolvedValueOnce([]) // guarded UPDATE matches no row (status not approvable)
       .mockResolvedValueOnce([{ status: 'cancelled' }]); // existence/status probe
 
@@ -173,7 +173,8 @@ describe('customer-invoices-detail POST action guards', () => {
 
     await call({ id: INV_ID, action: 'approve' });
 
-    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status FROM customer_invoices[\s\S]*FOR UPDATE/);
+    // FOR NO KEY UPDATE, approvable only (review F2): an FK insert's KEY SHARE is not held off.
+    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status FROM customer_invoices[\s\S]*status = ANY\([\s\S]*FOR NO KEY UPDATE/);
     expect(assertApprovalCleared).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice', INV_ID);
     const gateAt = vi.mocked(assertApprovalCleared).mock.invocationCallOrder[0]!;
     expect(gateAt).toBeGreaterThan(sqlMock.mock.invocationCallOrder[0]!);
