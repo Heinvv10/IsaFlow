@@ -15,6 +15,7 @@ import { withSavepoint } from '@/lib/neon';
 import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError, ApprovalFieldInvalidError } from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
+import { ApprovalRuleLegacyTypeError } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { isUuidParam } from '@/lib/validation';
 
 const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')}`;
@@ -53,7 +54,7 @@ function isForeignKeyViolation(error: unknown): boolean {
  */
 function respondToRuleWriteError(res: NextApiResponse, error: unknown, onDelete = false): boolean {
   if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError
-      || error instanceof ApprovalFieldInvalidError) {
+      || error instanceof ApprovalFieldInvalidError || error instanceof ApprovalRuleLegacyTypeError) {
     apiResponse.badRequest(res, error.message);
     return true;
   }

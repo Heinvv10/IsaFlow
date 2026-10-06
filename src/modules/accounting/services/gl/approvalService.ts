@@ -15,6 +15,7 @@ import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -26,7 +27,8 @@ export { requestApproval } from './approvalDocuments';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type DocumentType = 'customer_invoice' | 'supplier_invoice' | 'payment' | 'journal_entry' | 'credit_note';
+// `credit_note` is legacy (old rows only, never enforceable); a note's type follows credit_notes.type (approvalDocumentTypes.ts).
+export type DocumentType = 'customer_invoice' | 'supplier_invoice' | 'payment' | 'journal_entry' | 'credit_note' | 'customer_credit_note' | 'supplier_credit_note';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export interface ApprovalRule {
@@ -159,6 +161,7 @@ export async function createRule(companyId: string, input: {
   conditionValue?: number;
   approverRole?: string;
 }, actor: RuleActor): Promise<ApprovalRule> {
+  assertRuleDocumentTypeCreatable(input.documentType);
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
   assertConditionField(input.conditionField);

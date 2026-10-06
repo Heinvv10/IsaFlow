@@ -114,13 +114,21 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
   return { payments: payments.length, invoices: invoices.length };
 }
 
-/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved. */
-async function moveDocuments(tx: TxSql, c: string, s: string, t: string): Promise<number> {
+/**
+ * Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
+ * A credit note's client is approval content (R-035 PR3): the merging user `by` becomes an author of every
+ * note it moves, and an approval of the old content goes stale (Q10).
+ */
+async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  const notes = await tx`UPDATE credit_notes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const notes = await tx`
+    UPDATE credit_notes SET client_id = ${t}::UUID,
+      content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id
+  `;
   await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
   const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
@@ -213,6 +221,8 @@ export async function mergeCustomers(
   companyId: string,
   sourceIdIn: string,
   targetIdIn: string,
+  /** The user merging — stamped as an author of the credit notes moved. */
+  mergedBy: string,
 ): Promise<CustomerMergeResult> {
   // Callers validate with a case-insensitive UUID pattern; one spelling here
   // makes "same customer" a string comparison and the JSON match exact.
@@ -222,7 +232,7 @@ export async function mergeCustomers(
     throw new ArRequestError('source_id and target_id must be different customers');
   }
   try {
-    return await withTransaction((tx) => mergeInSavepoint(tx, companyId, sourceId, targetId));
+    return await withTransaction((tx) => mergeInSavepoint(tx, companyId, sourceId, targetId, mergedBy));
   } catch (err) {
     // FAIL CLOSED on contention. A merge touches every row of a customer, so
     // a multi-step settlement (a bulk allocation that takes bank line →
@@ -242,7 +252,7 @@ export async function mergeCustomers(
 }
 
 async function mergeInSavepoint(
-  tx: TxSql, companyId: string, sourceId: string, targetId: string,
+  tx: TxSql, companyId: string, sourceId: string, targetId: string, mergedBy: string,
 ): Promise<CustomerMergeResult> {
   // Bounded wait; restored below on success, and by the savepoint's ROLLBACK
   // TO on failure (SET LOCAL is subtransaction-aware).
@@ -254,7 +264,7 @@ async function mergeInSavepoint(
   // below still precedes the first write.
   const locked = await lockSettlementRows(tx, companyId, sourceId);
   await refuseOrLock(tx, companyId, sourceId, targetId);
-  const others = await moveDocuments(tx, companyId, sourceId, targetId);
+  const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
   // portal_access has no company_id and no RLS: scope it through the

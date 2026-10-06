@@ -4,7 +4,7 @@
  * off). A row in `approval_enforcement` (migration 708) means enforced.
  *
  * ENFORCEABLE_DOCUMENT_TYPES grows by one type per PR, as each type's posting
- * paths are wired to `approvalGate` — supplier invoices since PR2. Per-type rather than one company flag so a
+ * paths are wired to `approvalGate` — supplier invoices since PR2, both credit-note types since PR3. Per-type rather than one company flag so a
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
@@ -22,7 +22,7 @@ import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
 import { logAuditOrThrow } from '../core/auditTrailService';
 
-export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['supplier_invoice'];
+export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note'];
 
 export interface ApprovalEnforcement {
   documentType: DocumentType;
@@ -62,6 +62,19 @@ export async function listEnforcement(companyId: string): Promise<ApprovalEnforc
     WHERE company_id = ${companyId} ORDER BY document_type
   `) as Row[];
   return rows.map(mapEnforcement);
+}
+
+/**
+ * Active rules of the legacy `credit_note` type: they govern neither
+ * credit-note type (R-035 PR3), so the Enforce switch warns that they must be
+ * re-created as customer / supplier credit-note rules (review B2).
+ */
+export async function countLegacyCreditNoteRules(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type = 'credit_note' AND is_active = true
+  `) as Row[];
+  return Number(rows[0]?.n ?? 0);
 }
 
 export async function isEnforced(companyId: string, documentType: DocumentType): Promise<boolean> {

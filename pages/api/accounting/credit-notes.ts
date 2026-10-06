@@ -1,6 +1,7 @@
 /**
  * Credit Notes API
- * GET  /api/accounting/credit-notes - List credit notes (with filters)
+ * GET  /api/accounting/credit-notes - List credit notes (with filters); with ?id=, one note
+ *   and, while it is a draft, its derived approval state (R-035)
  * POST /api/accounting/credit-notes - Create draft credit note
  */
 
@@ -17,6 +18,8 @@ import {
   createCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
+import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
+import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -27,7 +30,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (id) {
         const note = await getCreditNoteById(companyId, id as string);
         if (!note) return apiResponse.notFound(res, 'Credit Note', id as string);
-        return apiResponse.success(res, note);
+        // R-035: the derived approval state, under the type the note's own `type` names.
+        const approval = note.status === 'draft'
+          ? await describeApprovalGate(companyId, creditNoteApprovalType(note.type), note.id) : null;
+        return apiResponse.success(res, { ...note, approval });
       }
       const result = await getCreditNotes(companyId, {
         type: type as 'customer' | 'supplier' | undefined,

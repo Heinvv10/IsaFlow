@@ -77,6 +77,8 @@ describe('the enforcement GET previews what switching on would hold', () => {
 
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement', { preview: '1' });
     expect(res.state.statusCode).toBe(200);
-    expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({ supplier_invoice: 2 });
+    expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({
+      supplier_invoice: 2, customer_credit_note: 0, supplier_credit_note: 0,
+    });
   });
 });

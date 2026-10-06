@@ -23,7 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   }
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const { source_id, target_id } = (req.body ?? {}) as Record<string, unknown>;
 
   if (!isUuidParam(source_id) || !isUuidParam(target_id)) {
@@ -31,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const result = await mergeCustomers(companyId, source_id, target_id);
+    const result = await mergeCustomers(companyId, source_id, target_id, user.id);
     log.info('Customer merge completed', { source_id, companyId, ...result, module: 'accounting' });
     return apiResponse.success(res, result);
   } catch (err: unknown) {
