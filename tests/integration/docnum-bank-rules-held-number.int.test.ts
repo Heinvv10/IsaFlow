@@ -9,9 +9,9 @@
  * counted in `autoPostSkippedLocked` (the pass's existing held counter, in the response), the other lines post, and
  * `appliedRules` is exactly what was posted.
  *
- * NUMRACE (2026-10-06): a rule pass whose lines span two years now takes both years' keys up front
- * (core/numberYearLocks.ts), so with one of them held it posts NOTHING and the import reports a retryable warning;
- * the per-line skip is kept for a single-year pass.
+ * NUMRACE (2026-10-06): a request whose import and rule pass span two years takes both years' keys before the
+ * import (bank/bulkCommitRulePass), so with one of them held it fails retryable and writes nothing; the per-line
+ * skip is kept for a single-year pass.
  *
  * Driven through the real route the way withAuth runs it: one transaction, COMMIT below 500.
  */
@@ -76,6 +76,10 @@ async function bulkCommit(csvContent: string) {
       } as unknown as NextApiRequest, result.res);
     });
     await client.query(result.state.statusCode < 500 ? 'COMMIT' : 'ROLLBACK');
+  } catch (err) {
+    // A throw is a 5xx under withErrorHandler (mocked away here): withAuth rolls back.
+    await client.query('ROLLBACK');
+    throw err;
   } finally { client.release(); }
   return { status: result.state.statusCode, body: result.state.body as Record<string, unknown> };
 }
@@ -111,13 +115,14 @@ it('single-year pass: a rule line whose journal number is held past 5 s is skipp
   expect(data.autoPostSkippedLocked).toBe(2);
 }, 60000);
 
-it('cross-year pass with one year held: nothing posted, the import lands, a retryable warning says so', async () => {
+it('cross-year statement with one year held: the request fails retryable (55P03 -> 503) before anything is written', async () => {
+  // NUMRACE round 2 (brk-numrace M1): the route takes every year the import sweep and the rule pass can post in
+  // BEFORE the import, so a held year fails the whole request — nothing imported, nothing posted, PAYG refunded —
+  // where round 1 landed the import and skipped the pass. withErrorHandler answers the 55P03 503 + Retry-After.
   const csv = ['Date,Description,Amount', '2025-05-10,DOCNUMFEE A,-100.00', '2026-05-12,DOCNUMFEE B,-50.00'].join('\n');
-  const out = await heldRun(csv, 2026);
-  expect(out.status, JSON.stringify(out.body)).toBe(200);
-  const data = (out.body.data ?? out.body) as Record<string, unknown>;
-  expect((await linesLike('DOCNUMFEE ')).filter((l) => !l.description.startsWith('DOCNUMFEE S'))
-    .map((l) => [l.description, l.posted])).toEqual([['DOCNUMFEE A', false], ['DOCNUMFEE B', false]]);
-  expect(data.appliedRules).toBe(0);
-  expect(JSON.stringify(data.warnings)).toMatch(/Bank rules were not applied.*again in a moment/);
+  const err = await heldRun(csv, 2026).then(() => null, (e: unknown) => e as { code?: string });
+  expect(err?.code).toBe('55P03');
+  const { isHeldRowError } = await import('@/lib/lockTimeout');
+  expect(isHeldRowError(err)).toBe(true);
+  expect((await linesLike('DOCNUMFEE ')).filter((l) => !l.description.startsWith('DOCNUMFEE S'))).toEqual([]);
 }, 60000);
