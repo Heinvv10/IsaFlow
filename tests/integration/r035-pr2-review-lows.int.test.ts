@@ -89,6 +89,7 @@ describe('the enforcement preview is computed on demand (LOW-3)', () => {
   it('?preview=1 computes it', async () => {
     const { c } = await gatedDraft();
     expect(dataOf<{ preview: Record<string, number> }>(await get(c, { preview: '1' })).preview)
-      .toEqual({ supplier_invoice: 1, customer_credit_note: 0, supplier_credit_note: 0, customer_invoice: 0 });
+      .toEqual({ supplier_invoice: 1, customer_credit_note: 0, supplier_credit_note: 0, customer_invoice: 0,
+        supplier_payment: 0, payment_batch: 0 });
   });
 });
