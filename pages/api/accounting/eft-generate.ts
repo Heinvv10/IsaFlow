@@ -14,6 +14,8 @@ import {
   generateNedbankEFT, generateCapitecEFT, validateEFTBatch,
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
+import { assertApprovalCleared } from '@/modules/accounting/services/gl/approvalGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 type Row = Record<string, unknown>;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
@@ -41,6 +43,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Get batch details — scoped to company
   const batches = await sql`SELECT * FROM supplier_payment_batches WHERE id = ${batchId} AND company_id = ${companyId}::UUID` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
+  // R-035 PR5: a bank file is money leaving, so under payment_batch
+  // enforcement only a batch the approval gate clears gets one (409 with the
+  // gate's reason). Enforcement off: unchanged.
+  try {
+    await assertApprovalCleared(companyId, 'payment_batch', String(batches[0].id));
+  } catch (err) {
+    if (respondIfApprovalRequired(res, err)) return;
+    throw err;
+  }
 
   // Get payments in batch — scoped to company via batch ownership already validated above
   const payments = await sql`
