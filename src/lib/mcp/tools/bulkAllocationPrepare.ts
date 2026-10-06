@@ -32,8 +32,8 @@ export interface ResolvedLine {
    * query on the hot path.
    */
   signedAmount?: number;
-  /** The bank line's date, from the same state read — the date its journal carries, for the batch's up-front year
-   *  lock (core/numberYearLocks.ts). */
+  /** The bank line's date, from the same state read — the date its journal carries: the batch walks its lines by
+   *  this year (ordered lazy, core/numberYearLocks.ts). */
   transactionDate?: string | Date | null;
   /**
    * Index into the caller's own `allocations` array — carried, not recomputed.

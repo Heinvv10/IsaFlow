@@ -100,8 +100,6 @@ export interface AllocationBatchLineState extends AllocationBatchLine {
   currentJournalEntryId: string | null;
   /** False when the transaction row itself is gone (deleted, or undone import). */
   transactionExists: boolean;
-  /** The transaction's date — its allocation journal's — for a reversal's up-front year lock (numberYearLocks). */
-  transactionDate: string | Date | null;
 }
 
 /**
@@ -131,7 +129,7 @@ export async function getAllocationBatchLines(
 
   const rows = (await sql`
     SELECT l.bank_transaction_id, l.journal_entry_id, jl.journal_entry_id AS current_journal_entry_id,
-           (bt.id IS NOT NULL) AS transaction_exists, bt.transaction_date
+           (bt.id IS NOT NULL) AS transaction_exists
     FROM bank_allocation_batch_lines l
     LEFT JOIN bank_transactions bt
       ON bt.id = l.bank_transaction_id AND bt.company_id = l.company_id
@@ -149,7 +147,6 @@ export async function getAllocationBatchLines(
         ? null
         : String(r.current_journal_entry_id),
     transactionExists: r.transaction_exists === true,
-    transactionDate: (r.transaction_date as string | Date | null | undefined) ?? null,
   }));
 }
 
