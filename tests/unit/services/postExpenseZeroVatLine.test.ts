@@ -56,6 +56,7 @@ vi.mock('@/lib/neon', () => ({
   sql: sqlMock,
   withTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(sqlMock)),
   fmtDate: (d: unknown) => String(d),
+  withSavepoint: (_n: string, fn: () => unknown) => fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   createJournalEntry: createMock,
