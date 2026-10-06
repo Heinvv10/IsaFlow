@@ -325,31 +325,48 @@ END $$;
 -- All refused for the types listed here; a role that bypasses RLS (the owner a
 -- script, a migration or a test fixture runs as) is not held to it. SECURITY
 -- INVOKER on purpose: current_user must be the caller. auth.uid() is the JWT
--- subject withAuth sets; with no claims it is NULL, which refuses.
+-- subject withAuth sets, compared as a UUID (round 3: case and spelling do not
+-- matter); a subject that is no canonical uuid, or none at all, refuses as a
+-- forgery rather than failing a cast.
 -- Each later R-035 PR adds its own types to the list.
 -- OUT OF SCOPE, deliberately, and open for EVERY type (follow-up for Hein):
 --   * supplier_invoice — live enforcement, unchanged;
 --   * the UPDATE half (round 2 N1): app_user can INSERT a pending request and
---     then raw-UPDATE it to 'approved', which this INSERT guard cannot see.
---     Closing it needs the request and decide paths to write through a
---     SECURITY DEFINER function (with app_user losing direct UPDATE on
---     approval_requests), shared with the live supplier-invoice enforcement —
---     a change to that enforcement, so not made here.
+--     then raw-UPDATE it to 'approved', which this INSERT guard cannot see;
+--   * the subject itself (round 3 N3): request.jwt.claims is an ordinary GUC,
+--     so a session issuing raw SQL can set_config it to any user and pass the
+--     auth.uid() check. The check binds the request to the caller only for
+--     writers that do not choose their own claims (withAuth does not).
+--   Closing both needs the request and decide paths to write through a
+--   SECURITY DEFINER function (with app_user losing direct INSERT/UPDATE on
+--   approval_requests), shared with the live supplier-invoice enforcement — a
+--   change to that enforcement, so not made here.
 CREATE OR REPLACE FUNCTION public.approval_request_insert_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
+DECLARE
+  v_subject pg_catalog.text;
+  v_uid pg_catalog.uuid;
 BEGIN
-  IF NEW.document_type = ANY (ARRAY['customer_credit_note', 'supplier_credit_note']::pg_catalog.text[])
-     AND NOT EXISTS (
+  IF NOT (NEW.document_type = ANY (ARRAY['customer_credit_note', 'supplier_credit_note']::pg_catalog.text[]))
+     OR EXISTS (
        SELECT 1 FROM pg_catalog.pg_roles r
-       WHERE r.rolname = current_user AND (r.rolbypassrls OR r.rolsuper))
-     AND (COALESCE(NEW.status, '') <> 'pending'
-          OR NEW.requested_by::pg_catalog.text IS DISTINCT FROM auth.uid()
-          OR NEW.decided_by IS NOT NULL
-          OR NEW.decided_at IS NOT NULL
-          OR pg_catalog.cardinality(COALESCE(NEW.past_requesters, '{}')) > 0) THEN
+       WHERE r.rolname = current_user AND (r.rolbypassrls OR r.rolsuper)) THEN
+    RETURN NEW;
+  END IF;
+  -- Only a canonical uuid is cast (any case); anything else leaves v_uid NULL,
+  -- which no requested_by (NOT NULL) equals: a refusal, never a cast error.
+  v_subject := auth.uid();
+  IF v_subject ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    v_uid := v_subject::pg_catalog.uuid;
+  END IF;
+  IF COALESCE(NEW.status, '') <> 'pending'
+     OR NEW.requested_by IS DISTINCT FROM v_uid
+     OR NEW.decided_by IS NOT NULL
+     OR NEW.decided_at IS NOT NULL
+     OR pg_catalog.cardinality(COALESCE(NEW.past_requesters, '{}')) > 0 THEN
     RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a % approval request may only be inserted pending, undecided and raised by the session''s own user', NEW.document_type
       USING HINT = 'Raise the request through IsaFlow, then have an eligible approver decide it.';
   END IF;
