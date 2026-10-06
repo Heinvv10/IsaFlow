@@ -37,13 +37,14 @@ afterAll(() => cleanupPr3(pool, companies, Object.values(u)));
 const company = () => noteCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.m, 'manager']], companies);
 
 /** What withAuth sets up: app_user, the session's claims (a non-impersonation session) and the company. */
-async function asAppUser<T>(userId: string, companyId: string, body: (c: PoolClient) => Promise<T>): Promise<T> {
+async function asAppUser<T>(userId: string, companyId: string, body: (c: PoolClient) => Promise<T>,
+  sub: string = userId): Promise<T> {
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
     await c.query('SET LOCAL ROLE app_user');
     await c.query("SELECT set_config('request.jwt.claims', $1, true), set_config('app.current_company_id', $2, true)",
-      [JSON.stringify({ sub: userId, role: 'authenticated', session_id: crypto.randomUUID() }), companyId]);
+      [JSON.stringify({ sub, role: 'authenticated', session_id: crypto.randomUUID() }), companyId]);
     const out = await body(c);
     await c.query('COMMIT');
     return out;
@@ -106,6 +107,22 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
     const note = await plantNote(pool, c, u.a, type);
     await expect(asAppUser(u.b, c, (cl) => insertPending(cl, c, note.id, u.a))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
   });
+
+  it('compares the subject as a uuid: the same id in upper case may still raise (round 3)', async () => {
+    const c = await company();
+    const note = await plantNote(pool, c, u.a, type);
+    await asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a), u.a.toUpperCase());
+    const { rows } = await pool.query('SELECT requested_by FROM approval_requests WHERE document_id = $1', [note.id]);
+    expect(rows).toEqual([{ requested_by: u.a }]);
+  });
+
+  it.each(['not-a-uuid', ''])(
+    'refuses a subject %j that is no uuid — as a forgery, not a cast error', async (badSub) => {
+      const c = await company();
+      const note = await plantNote(pool, c, u.a, type);
+      await expect(asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a), badSub))
+        .rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    });
 
   it('refuses any insert from a session with no JWT subject (auth.uid() NULL), whoever it names', async () => {
     const c = await company();
