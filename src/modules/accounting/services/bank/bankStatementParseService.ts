@@ -21,6 +21,7 @@ import { parseQifStatement } from '../../utils/bankQifParser';
 import { parseMt940Statement } from '../../utils/bankMt940Parser';
 import type { BankCsvParseResult, BankFormat } from '../../types/bank.types';
 import { StatementNotImportableError } from './bankStatementImportErrors';
+import { journalDateWindowError } from '../../utils/journalDateWindow';
 
 export type StatementFileType = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
 
@@ -42,6 +43,23 @@ export interface ParseStatementArgs {
  * accountNumber (PDFs only) which downstream code uses for auto-match.
  */
 export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvParseResult> {
+  return withinLedgerDates(await parseStatementRaw(args));
+}
+
+/**
+ * A statement line dated outside the ledger window (utils/journalDateWindow) is not imported: reported as a row error,
+ * like any line a parser could not read, so the rest of the file still lands (sec-numrace S2).
+ */
+function withinLedgerDates(result: BankCsvParseResult): BankCsvParseResult {
+  const kept = result.transactions.filter((t) => journalDateWindowError(String(t.transactionDate)) === null);
+  if (kept.length === result.transactions.length) return result;
+  const refused = result.transactions.filter((t) => !kept.includes(t)).map((t) => ({
+    row: 0, error: `${journalDateWindowError(String(t.transactionDate))} (${String(t.description ?? '').slice(0, 60)})`,
+  }));
+  return { ...result, transactions: kept, errors: [...result.errors, ...refused] };
+}
+
+async function parseStatementRaw(args: ParseStatementArgs): Promise<BankCsvParseResult> {
   const { fileType, pdfBase64, csvContent, bankFormat } = args;
 
   if (fileType === 'pdf') {

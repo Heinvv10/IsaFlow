@@ -42,6 +42,22 @@ describe('lockNumberYears', () => {
   });
 });
 
+describe('journalYearOf is the trigger\'s EXTRACT(YEAR FROM entry_date) (sec-numrace S2)', () => {
+  it('counts every year digit and negates a BC date', () => {
+    expect(journalYearOf('2026-01-05')).toBe(2026);
+    expect(journalYearOf('100000-01-01')).toBe(100000);
+    expect(journalYearOf('101999-06-30')).toBe(101999);
+    expect(journalYearOf('0044-03-15 BC')).toBe(-44);
+    expect(journalYearOf('not a date')).toBeNaN();
+  });
+
+  it('2000 distinct 6-digit years are 2000 years to the cap, not 2', async () => {
+    await expect(lockNumberYears('c1', Array.from({ length: 2000 }, (_, i) => journalYearOf(`${100000 + i}-01-01`))))
+      .rejects.toBeInstanceOf(YearSpanTooWideError);
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('claimRowsThenLockYears', () => {
   it('claims the rows in walk order, THEN takes the years ascending', async () => {
     const order: string[] = [];

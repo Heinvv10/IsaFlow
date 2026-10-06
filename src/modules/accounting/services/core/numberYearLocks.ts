@@ -68,8 +68,15 @@ export async function claimRowsThenLockYears(
   await lockNumberYears(companyId, years);
 }
 
-/** The calendar year a journal dated `date` is numbered in (EXTRACT(YEAR FROM entry_date)); NaN when undated. */
+/**
+ * The year a journal dated `date` is numbered in — exactly the trigger's EXTRACT(YEAR FROM entry_date): every leading
+ * digit (Postgres takes 5- to 7-digit years: '100000-01-01' is year 100000) and negative for a BC date
+ * ('0044-03-15 BC' is -44). Counting the first four digits let 2000 distinct years pass the cap as two (sec-numrace
+ * S2). NaN when undated or unparseable.
+ */
 export function journalYearOf(date: string | Date | null | undefined): number {
   const day = date ? fmtDate(date) : '';
-  return day ? Number(day.slice(0, 4)) : Number.NaN;
+  const m = /^(-?\d+)-\d{2}-\d{2}(\s+BC)?/i.exec(day.trim());
+  if (!m) return Number.NaN;
+  return m[2] ? -Number(m[1]) : Number(m[1]);
 }
