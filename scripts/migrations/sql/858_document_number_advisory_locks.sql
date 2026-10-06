@@ -48,9 +48,23 @@
 --   same holds between document types in one transaction (createBatch: batch
 --   then its payments; a bulk allocate: receipts, payments and refunds in input
 --   order).
---   The cost: a document insert also queues behind any in-flight transaction
---   that has numbered a journal for that company and year (and vice versa),
---   e.g. a credit-note draft behind a long bulk bank allocation.
+--   The cost: a pure document insert (a credit-note, VAT-adjustment or
+--   write-off draft) queues behind any in-flight transaction that has numbered
+--   a journal for that company and year, and vice versa — e.g. behind a long
+--   bulk bank allocation — with no pool lock_timeout to bound it (deferred by
+--   Hein, 2026-10-02). Journal posts already queue the same way since 857.
+--   Year boundary: the key includes the year, so a transaction that numbered
+--   a document in one year and a journal in another would hold two keys and
+--   could invert against one doing the reverse. Census 2026-10-06: no path
+--   does. Every transaction that numbers both dates them alike — bank
+--   allocation uses the bank line's date for the journal and for the receipt,
+--   supplier payment or refund; the gateway receipt and the contra use the
+--   payment date; the provisional settlement its reclass date; the supplier
+--   credit note create-and-post its credit date. ADJ/BAT/VA/WO take the year
+--   from CURRENT_DATE (UTC), but their journals are posted by a separate
+--   request (approve / process), never in the numbering transaction. A bulk
+--   allocation over lines of two years takes two keys in line order — true of
+--   journals alone since 857 (brk-jenum A2).
 --
 -- What changes for waits (as in 857):
 --   * Same scope + year, two writers: the second used to mint the same number
@@ -59,15 +73,28 @@
 --   * A burst QUEUES: writer k holds a pool connection behind the k-1 ahead.
 --   * The wait is bounded ONLY by the caller's lock_timeout (55P03); the app
 --     pool sets none.
---   * The lock is taken in BEFORE INSERT, ahead of the row's FK checks. Known
---     residual (no key choice avoids it; needs the same row at the same
---     moment): a writer that holds the number lock and then waits on a row
---     another transaction holds, while that one then numbers a document or a
---     journal for the same company+year, deadlocks (40P01) where it used to
---     wait and succeed. In-app shapes: customer-payments / supplier-payments
---     POST (lock, then the FK KEY SHARE on the customer / bill) against a
---     bank-allocated refund (contact FOR UPDATE, then the lock) or createBatch
---     (bills FOR UPDATE, then the lock).
+--   * Known residual, any in-trigger lock whatever its key: the lock is taken
+--     in BEFORE INSERT, AHEAD of the row's FK checks, and a transaction that
+--     holds it and then waits on a row deadlocks (40P01) against one holding
+--     that row and then wanting the lock. Needs the same row at the same
+--     moment. In-app pairs (code reading, not reproduced):
+--     - contact row: customer-payments POST (createCustomerPayment) and the
+--       gateway receipt number a receipt, then its client_id FK takes KEY
+--       SHARE on the customer; a bank-allocated customer refund locks that
+--       customer FOR UPDATE (lockContactForRefund, paymentLock.ts) and then
+--       numbers its journal. The supplier mirror: supplier-payments POST,
+--       createBatch's payments and the provisional settlement against a
+--       bank-allocated supplier refund. (The bank-allocated receipt itself
+--       already had this shape with 857's journal lock alone.)
+--     - bill row: supplier-payments POST numbers the payment, then its
+--       payment_allocations FK takes KEY SHARE on the bill; createBatch locks
+--       its bills FOR UPDATE (assertBatchAllocatable) and then numbers the
+--       batch. A bank-allocated supplier payment (journal, then
+--       supplierAutoAllocate / planSupplierPaymentApplication lock the bills
+--       FOR UPDATE) against createBatch is the same pair: createBatch took no
+--       number lock before 858 (a lock per document type would not avoid it —
+--       both sides number a supplier payment).
+--     Before 858 the first transaction of each pair just waited.
 --   * Released at COMMIT/ROLLBACK, and at ROLLBACK TO SAVEPOINT when taken
 --     inside that savepoint. READ COMMITTED only, as 857.
 --
