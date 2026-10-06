@@ -8,7 +8,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
-import { journalDateWindowError } from '@/modules/accounting/utils/journalDateWindow';
+import { journalDateWindowError, ledgerDay } from '@/modules/accounting/utils/journalDateWindow';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -21,7 +21,7 @@ type Row = Record<string, unknown>;
 const ClassifiedBankTxSchema = z.object({
   transactionDate: z.string().min(8).max(30).refine((d) => journalDateWindowError(d.trim()) === null, {
     message: 'transactionDate must be YYYY-MM-DD between 1900-01-01 and 2199-12-31',
-  }),
+  }).transform((d) => ledgerDay(d) ?? d),
   description: z.string().max(500),
   debit: z.number().nonnegative().optional(),
   credit: z.number().nonnegative().optional(),

@@ -67,4 +67,25 @@ describeIfDb('NUMRACE r3: ledger dates outside 1900..2199 are refused', () => {
     expect(JSON.stringify(out.body)).toMatch(/between 1900-01-01 and 2199-12-31/);
     expect(n[0]!.n).toBe(0);
   }, 60000);
+
+  it('blind review LOW 3: a GL import dated 2025-03-31T00:00:00 (validated on base) posts on 2025-03-31', async () => {
+    const rows = groups([2025], 'NRDWT').map((r) => ({ ...r, date: '2025-03-31T00:00:00' }));
+    const out = await callRoute(c.fx, token, glImport, { rows, postImmediately: true });
+    const jes = (await sql`SELECT entry_date::text AS d FROM gl_journal_entries
+      WHERE company_id = ${c.fx.companyId}::UUID AND description LIKE 'NRDWT-%'`) as { d: string }[];
+    process.stdout.write(`DW-ts ${JSON.stringify({ status: out.statusCode, body: out.body, jes })}\n`);
+    expect(out.statusCode, JSON.stringify(out.body).slice(0, 300)).toBe(200);
+    expect(jes.map((j) => j.d)).toEqual(['2025-03-31']);
+  }, 60000);
+
+  it('blind review LOW 3: a manual bank line dated 2025-12-20T00:00:00 is stored on 2025-12-20', async () => {
+    const out = await callRoute(c.fx, token, manualTx, {
+      type: 'spend', bankAccountId: c.fx.bankAccountId, date: '2025-12-20T00:00:00', amount: 10,
+      description: 'NRDWT manual', allocationType: 'account', contraAccountId: c.expense,
+    });
+    const rows = (await sql`SELECT transaction_date::text AS d FROM bank_transactions
+      WHERE company_id = ${c.fx.companyId}::UUID AND description LIKE 'NRDWT manual%'`) as { d: string }[];
+    expect(out.statusCode, JSON.stringify(out.body).slice(0, 300)).toBeLessThan(300);
+    expect(rows.map((r) => r.d)).toEqual(['2025-12-20']);
+  }, 60000);
 });

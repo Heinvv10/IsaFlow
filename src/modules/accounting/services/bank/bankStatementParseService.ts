@@ -21,7 +21,7 @@ import { parseQifStatement } from '../../utils/bankQifParser';
 import { parseMt940Statement } from '../../utils/bankMt940Parser';
 import type { BankCsvParseResult, BankFormat } from '../../types/bank.types';
 import { StatementNotImportableError } from './bankStatementImportErrors';
-import { journalDateWindowError } from '../../utils/journalDateWindow';
+import { journalDateWindowError, ledgerDay } from '../../utils/journalDateWindow';
 
 export type StatementFileType = 'pdf' | 'csv' | 'ofx' | 'qif' | 'mt940';
 
@@ -51,9 +51,11 @@ export async function parseStatement(args: ParseStatementArgs): Promise<BankCsvP
  * like any line a parser could not read, so the rest of the file still lands (sec-numrace S2).
  */
 function withinLedgerDates(result: BankCsvParseResult): BankCsvParseResult {
-  const kept = result.transactions.filter((t) => journalDateWindowError(String(t.transactionDate)) === null);
-  if (kept.length === result.transactions.length) return result;
-  const refused = result.transactions.filter((t) => !kept.includes(t)).map((t) => ({
+  const ok = (t: BankCsvParseResult['transactions'][number]) => journalDateWindowError(String(t.transactionDate)) === null;
+  // A parser's own form (a timestamp, say) is stored as the day it names, as the ::DATE cast did before the window.
+  const kept = result.transactions.filter(ok)
+    .map((t) => ({ ...t, transactionDate: ledgerDay(String(t.transactionDate)) ?? t.transactionDate }));
+  const refused = result.transactions.filter((t) => !ok(t)).map((t) => ({
     row: 0, error: `${journalDateWindowError(String(t.transactionDate))} (${String(t.description ?? '').slice(0, 60)})`,
   }));
   return { ...result, transactions: kept, errors: [...result.errors, ...refused] };
