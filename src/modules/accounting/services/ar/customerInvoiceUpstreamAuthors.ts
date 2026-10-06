@@ -1,35 +1,31 @@
 /**
- * The UPSTREAM authors of a customer invoice minted from someone else's
- * content (R-035 PR4 review F1).
+ * The UPSTREAM authors of a customer invoice minted from a recurring template
+ * (R-035 PR4 review F1).
  *
- * A recurring template, a quote, a sales order and logged time are content a
- * person wrote; whoever runs the schedule or clicks Convert only mints it.
- * Recording the minter alone (created_by) let the template's pricer approve
- * the invoice another user's run minted from their price. So the source's
- * authors are unioned into the invoice's `content_authors` (migration 865) —
- * which approval_document_authors reads, and the decide path refuses — right
- * after the invoice and its lines are written and before any request is
- * raised or the invoice approved.
- *
- * Each source is read from its own, real author columns only:
+ * A template is content a person wrote; whoever runs the schedule only mints
+ * it. Recording the minter alone (created_by) let the template's pricer
+ * approve the invoice another user's run minted from their price. A minted
+ * invoice carries no link back to its template, so the template's authors are
+ * WRITTEN into the invoice's `content_authors` (migration 865) — which
+ * approval_document_authors reads, and the decide path refuses — right after
+ * the invoice and its lines are written, before any request is raised or the
+ * invoice approved. Read from the template's own author columns:
  *   - recurring_invoices: created_by and content_authors (every editor whose
- *     change moved what it bills);
+ *     change moved what it bills, and a merging user);
  *   - recurring_transaction_templates: the same (created_by is VARCHAR, cast
- *     only when it is a canonical uuid);
- *   - customer_quotes and customer_sales_orders: created_by (neither tracks
- *     its editors);
- *   - time_entries: user_id, the person who logged the time.
+ *     only when it is a canonical uuid).
  * Append-only and de-duplicated; a NULL or non-uuid author adds nobody.
- * Supplier invoices are deliberately not covered (see migration 865).
+ *
+ * Conversions (quote, sales order, time entries) are NOT stamped here: their
+ * invoices keep a link to the source, so approval_document_authors DERIVES
+ * those authors at read time (migration 865) and the converting services
+ * write nothing. Supplier invoices are deliberately not covered (865).
  */
 import { sql } from '@/lib/neon';
 
 export type UpstreamSource =
   | { kind: 'recurring_invoice'; id: string }
-  | { kind: 'recurring_transaction_template'; id: string }
-  | { kind: 'quote'; id: string }
-  | { kind: 'sales_order'; id: string }
-  | { kind: 'time_entries'; ids: readonly string[] };
+  | { kind: 'recurring_transaction_template'; id: string };
 
 type Row = Record<string, unknown>;
 
@@ -50,24 +46,6 @@ async function authorsOf(companyId: string, source: UpstreamSource): Promise<str
           unnest(t.content_authors || ARRAY[CASE WHEN t.created_by
             ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN t.created_by::UUID END]) a
         WHERE t.id = ${source.id}::UUID AND t.company_id = ${companyId}::UUID
-      `) as Row[];
-      break;
-    case 'quote':
-      rows = (await sql`
-        SELECT created_by::TEXT AS author FROM customer_quotes
-        WHERE id = ${source.id}::UUID AND company_id = ${companyId}::UUID
-      `) as Row[];
-      break;
-    case 'sales_order':
-      rows = (await sql`
-        SELECT created_by::TEXT AS author FROM customer_sales_orders
-        WHERE id = ${source.id}::UUID AND company_id = ${companyId}::UUID
-      `) as Row[];
-      break;
-    case 'time_entries':
-      rows = (await sql`
-        SELECT user_id::TEXT AS author FROM time_entries
-        WHERE id = ANY(${[...source.ids]}::UUID[]) AND company_id = ${companyId}::UUID
       `) as Row[];
       break;
   }

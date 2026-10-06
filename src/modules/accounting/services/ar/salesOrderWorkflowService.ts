@@ -10,7 +10,6 @@ import { log } from '@/lib/logger';
 import { getSalesOrder } from './salesOrderService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
-import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 
 type Row = DbRow;
 
@@ -124,9 +123,6 @@ export async function convertSalesOrderToInvoice(
       )
     `;
   }
-
-  // R-035 PR4 review F1: whoever wrote the order is an author of the invoice.
-  await stampUpstreamAuthors(companyId, invoiceId, { kind: 'sales_order', id: salesOrderId });
 
   // Status and invoiced_at were set by the claim above; only the link is left.
   await sql`
