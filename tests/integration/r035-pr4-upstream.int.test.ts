@@ -106,6 +106,27 @@ describe('recurring invoices (recurring-invoices + run)', () => {
   });
 });
 
+describe('templates from before migration 865', () => {
+  it("a template's created_by is an author even with no content_authors recorded", async () => {
+    const { c, customer } = await fixture();
+    await pool.query(
+      `INSERT INTO recurring_invoices(company_id,template_name,client_id,frequency,next_run_date,line_items,subtotal,tax_rate,
+         tax_amount,total_amount,created_by,status)
+       VALUES($1,'R035 legacy',$2,'monthly',CURRENT_DATE - 1,$3::jsonb,100000,15,15000,115000,$4,'active')`,
+      [c, customer, JSON.stringify([{ description: 'Retainer', quantity: 1, unitPrice: 100_000 }]), u.author]);
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,next_run_date,auto_post,created_by)
+       VALUES($1,$2,'R035 legacy AR','customer_invoice',$3,'monthly',CURRENT_DATE,true,$4)`,
+      [id, c, JSON.stringify({ clientId: customer, subtotal: 100_000, vatAmount: 15_000, totalAmount: 115_000,
+        lines: [{ description: 'Retainer', quantity: 1, unitPrice: 100_000, taxRate: 15, lineTotal: 100_000 }] }), u.author]);
+    const ran = await as(u.runner, c, recurringRun as never, 'POST', {}, '/api/accounting/recurring-invoices-run');
+    expect(await authorsOf(dataOf<{ held_for_approval: string[] }>(ran).held_for_approval[0]!)).toEqual([u.author]);
+    const executed = await as(u.runner, c, recurringExecute as never, 'POST', { templateId: id }, '/api/accounting/recurring-transactions-execute');
+    expect(await authorsOf(dataOf<{ entityId: string }>(executed).entityId)).toEqual([u.author]);
+  });
+});
+
 describe('the customer merge', () => {
   it('re-pointing a template at another customer makes the merging user an author of both kinds of template', async () => {
     const { c, customer } = await fixture();
