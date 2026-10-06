@@ -160,8 +160,12 @@ export async function commitARInvoice(
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
   const settled = settledAtSource(inv.invoiceNumber, inv.amountPaid, inv.totalAmount);
   const amountPaid = settled.amountPaid;
+  // R-035 PR4: an open invoice past enforcement needs the strictest rule's rank — before any write.
+  const open = amountPaid < Number(inv.totalAmount);
+  if (open) await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
 
-  const inserted = (await sql`
+  // R-035 Q1: issued in Sage, so exempt from the approval backstop.
+  const inserted = (await withApprovalGateExempt({ companyId, userId, open, documentType: 'customer_invoice' }, () => sql`
     INSERT INTO customer_invoices (
       company_id, invoice_number, customer_id, client_id,
       invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
@@ -172,7 +176,7 @@ export async function commitARInvoice(
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
       ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id
-  `) as Row[];
+  `)) as Row[];
   const invoiceId = String(inserted[0]!.id);
 
   await sql`

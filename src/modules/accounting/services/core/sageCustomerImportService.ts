@@ -12,6 +12,7 @@ import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, withRunRecovery } from './sageMigrationService';
 import { lockMigrationImport } from './migrationPostingSupport';
 import { deriveSageVat, SAGE_VAT_NOT_STATED_NOTE } from '../shared/sageVatDerivation';
+import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 
 type RowOutcome = 'imported' | 'already_in_ar' | 'credit_note' | 'failed';
 
@@ -43,6 +44,8 @@ const IN_AR_STATUSES = new Set(['approved', 'sent', 'paid', 'partially_paid', 'o
  * `findExistingInvoice`. The run holds the company's migration import lock.
  */
 export async function importCustomerInvoices(companyId: string, userId: string): Promise<MigrationRun> {
+  // R-035 PR4: every staged invoice is open (amount_paid 0) — refuse before the run is recorded.
+  await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
   const runId = await startRun('customer_invoice_import', userId, companyId);
 
   return withRunRecovery(runId, companyId, async () => {
@@ -126,7 +129,8 @@ export async function importCustomerInvoices(companyId: string, userId: string):
             const vat = deriveSageVat(null, null, totalAmount);
             rowVatNotStated = vat.vatNotStated;
             const paymentTerms = customer.payment_terms == null ? null : Number(customer.payment_terms);
-            const newInv = (await sql`
+            // R-035 Q1: issued in Sage, so exempt from the approval backstop.
+            const newInv = (await withApprovalGateExempt({ companyId, userId, open: true, documentType: 'customer_invoice' }, () => sql`
               INSERT INTO customer_invoices (
                 company_id, invoice_number, customer_id, invoice_date, due_date,
                 subtotal, tax_rate, tax_amount, total_amount, amount_paid, status,
@@ -139,7 +143,7 @@ export async function importCustomerInvoices(companyId: string, userId: string):
                 ${sageId}, ${inv.invoice_number ?? null}, ${sageId ? 'sage' : null},
                 ${rowVatNotStated ? SAGE_VAT_NOT_STATED_NOTE : null}, ${userId}
               ) RETURNING id
-            `) as DbRow[];
+            `)) as DbRow[];
             invoiceId = String(newInv[0]!.id);
           }
 

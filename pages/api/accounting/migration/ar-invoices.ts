@@ -18,6 +18,7 @@ import {
 import {
   importARInvoices,
 } from '@/modules/accounting/services/core/migrationImportService';
+import { respondIfImportRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -39,10 +40,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     ARInvoiceRowSchema, 'ar_invoices', invoices,
   );
 
-  const result = await importARInvoices(companyId, sessionId, rows, userId, {
-    sourceRows,
-    priorErrors: rowErrors,
-  });
+  let result;
+  try {
+    result = await importARInvoices(companyId, sessionId, rows, userId, {
+      sourceRows,
+      priorErrors: rowErrors,
+    });
+  } catch (err) {
+    // R-035 PR4: raised before the first write, so the 4xx commits nothing.
+    if (respondIfImportRefused(res, err)) return;
+    throw err;
+  }
 
   log.info('AR invoices imported', {
     companyId,
