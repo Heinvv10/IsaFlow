@@ -16,7 +16,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '../../src/lib/als';
-import { strictestMatchingRule } from '../../src/modules/accounting/services/gl/approvalMatching';
+import { isConditionOperator, strictestMatchingRule } from '../../src/modules/accounting/services/gl/approvalMatching';
 import { APPROVER_ROLES, requiredRank } from '../../src/modules/accounting/services/gl/approvalAuthority';
 import type { DocumentType } from '../../src/modules/accounting/services/gl/approvalService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -59,16 +59,22 @@ const AMOUNTS = [0, 999.99, 1000, 1000.01, 5000, 5000.01];
 const TYPES: DocumentType[] = ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note'];
 
 /**
- * Runs inside one transaction that is rolled back: the 647 CHECK refuses an
- * ACTIVE rule with an operator outside the allowlist, but rows written before
- * it exist (it is NOT VALID), so the constraint is dropped for the duration to
- * plant one.
+ * Runs inside one transaction that is rolled back. Only the case that needs an
+ * ACTIVE rule with an operator outside the allowlist takes DDL: the 647 CHECK
+ * refuses one (rows written before it exist — it is NOT VALID — but no INSERT
+ * or UPDATE can make one now), so that case drops the constraint for the
+ * duration. Dropping it takes ACCESS EXCLUSIVE on approval_rules, so the wait
+ * for it is bounded: a busy table fails this case fast rather than queueing
+ * every other session's rule read behind it.
  */
-async function inRolledBackTx(fn: (client: PoolClient) => Promise<void>): Promise<void> {
+async function inRolledBackTx(fn: (client: PoolClient) => Promise<void>, legacyOperator: boolean): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('ALTER TABLE approval_rules DROP CONSTRAINT IF EXISTS approval_rules_condition_operator_check');
+    if (legacyOperator) {
+      await client.query("SET LOCAL lock_timeout = '2s'");
+      await client.query('ALTER TABLE approval_rules DROP CONSTRAINT IF EXISTS approval_rules_condition_operator_check');
+    }
     await als.run({ client, userId: user, companyId: c, claims: {} } as never, () => fn(client));
   } finally {
     await client.query('ROLLBACK');
@@ -96,7 +102,7 @@ describe.each(TYPES)('rule matching agrees for %s', (type) => {
         expect(sql.rank, at).toBe(ts === null ? null : requiredRank(ts.approverRole));
         if (type === 'supplier_invoice') expect(sql.si_matches, at).toBe(ts !== null);
       }
-    });
+    }, rules.some((rule) => (rule.active ?? true) && !isConditionOperator(rule.operator)));
   });
 });
 
