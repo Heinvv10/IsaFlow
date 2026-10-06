@@ -44,6 +44,8 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', () => (
 // "Cannot access '<name>' before initialization".
 vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () => ({
   approveCustomerInvoice: vi.fn(),
+  // R-035: the approval-gate pre-read has its own real-PG suite (r035-pr4-mcp); none of these invoices is gated.
+  approvableCustomerInvoiceIds: vi.fn(async () => []),
   InvoiceNotApprovableError: class InvoiceNotApprovableError extends Error {
     readonly notFound: boolean;
     constructor(message: string, notFound = false) {

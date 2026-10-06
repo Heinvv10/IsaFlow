@@ -17,6 +17,21 @@ export function respondIfApprovalRequired(res: NextApiResponse, err: unknown): b
 }
 
 /**
+ * A write refused by an approval backstop trigger (migrations 712, 862, 865
+ * raise `R035_APPROVAL_REQUIRED: …` as P0001) — a path that moves a document
+ * into its population without approving it, e.g. a receipt confirmed against
+ * a gated DRAFT invoice (R-035 PR4 review F3). Answered 409 with `message`,
+ * the caller's plain words, never the trigger's text. Only for a caller whose
+ * failed write rolled back to its own savepoint first (withAuth COMMITs a 4xx).
+ */
+export function respondIfBackstopRefused(res: NextApiResponse, err: unknown, message: string): boolean {
+  if (!(err instanceof Error) || (err as { code?: unknown }).code !== 'P0001'
+      || !err.message.startsWith('R035_APPROVAL_REQUIRED')) return false;
+  apiResponse.conflict(res, message, { reason: 'APPROVAL_REQUIRED' });
+  return true;
+}
+
+/**
  * 403 for an import of open bills past enforcement by a role below the
  * strictest rule (review HIGH-2). The importers raise it before their first write.
  */

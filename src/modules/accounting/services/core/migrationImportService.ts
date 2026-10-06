@@ -13,6 +13,7 @@ import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type ImportRowContext, type MigrationError } from './migrationService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
+import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 import type { DbRow } from '@/types/db';
 
 // Re-exported: migrationApService and the wizard's unit tests have imported
@@ -56,6 +57,10 @@ export async function importARInvoices(
   let imported = 0;
   let skipped = errors.length;
 
+  // R-035 PR4: open invoices past enforcement need the strictest rule's rank — before any write.
+  if (invoices.some((i) => i.totalAmount - (i.amountPaid ?? 0) > 0)) {
+    await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
+  }
   // Before any read: the idempotency check below is a read-then-write.
   await lockMigrationImport(companyId);
   await assertNoOpeningControlTotal(companyId, sessionId, 'receivable');
@@ -145,7 +150,10 @@ export async function importARInvoices(
       // per-row failure must not leave the request transaction aborted, or the
       // updateSession below dies with 25P02 and the whole route 500s.
       const rowImported = await withSavepoint('mig_ar_invoice_row', async () => {
-        const invRows = (await sql`
+        // R-035 Q1: issued in the source system, so exempt from the approval backstop.
+        const invRows = (await withApprovalGateExempt({
+          companyId, userId, open: status !== 'paid', documentType: 'customer_invoice',
+        }, () => sql`
           INSERT INTO customer_invoices (
             company_id, customer_id, invoice_number, invoice_date, due_date,
             subtotal, tax_amount, total_amount, amount_paid,
@@ -159,7 +167,7 @@ export async function importARInvoices(
           )
           ON CONFLICT (company_id, invoice_number) DO NOTHING
           RETURNING id
-        `) as DbRow[];
+        `)) as DbRow[];
 
         // uq_customer_invoices_company_number swallowed the row silently; the
         // operator saw a skip count with no reason and no invoice number.

@@ -2,6 +2,8 @@
  * Customer invoice types shared between the detail page and its hooks.
  */
 
+import type { DocumentApprovalState } from './approval.types';
+
 export interface CustomerInvoiceItem {
   id: string;
   description: string;
@@ -38,6 +40,8 @@ export interface CustomerInvoiceDetail {
   /** An active, unexpired standing (`charges_balance`) payment link exists, whether or not payment_url names it. The link payment_url names never expires. */
   has_standing_link?: boolean;
   items: CustomerInvoiceItem[];
+  /** R-035: the derived approval state while the invoice is a draft or pending approval, else null. */
+  approval?: DocumentApprovalState | null;
 }
 
 export const CUSTOMER_INVOICE_STATUS_COLORS: Record<string, string> = {

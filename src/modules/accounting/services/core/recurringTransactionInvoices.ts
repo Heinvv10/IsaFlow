@@ -18,6 +18,7 @@ import type { RecurringTemplate } from './recurringTransactionService';
 import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
+import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -80,6 +81,9 @@ export async function mintRecurringCustomerInvoice(
       }
       return id;
     });
+  // R-035 PR4 review F1: the template's authors are the invoice's, before any
+  // request is raised. (Not done for bills below: see migration 865.)
+  await stampUpstreamAuthors(companyId, entityId, { kind: 'recurring_transaction_template', id: template.id });
 
   let posted = false;
   if (template.autoPost) {
@@ -93,6 +97,12 @@ export async function mintRecurringCustomerInvoice(
     // and approveCustomerInvoice is what writes the DR AR / CR Revenue / CR VAT
     // journal behind it, so a bare status change would leave AR and the GL
     // apart by the invoice total. Delegating makes auto_post mean what it says.
+    // R-035 PR4: an invoice an enforced approval rule governs is left a draft,
+    // with the request raised as the runner — not refused after the INSERT.
+    if (await evaluateApprovalGate(companyId, 'customer_invoice', entityId)) {
+      await raiseUnattendedApproval(companyId, 'customer_invoice', entityId, userId);
+      return { entityId, posted: false };
+    }
     const { approveCustomerInvoice } = await import('../ar/customerInvoiceApprovalService');
     await approveCustomerInvoice(companyId, entityId, userId);
     posted = true;

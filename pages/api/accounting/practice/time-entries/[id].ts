@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     if (!isJsonObjectBody(req.body)) return apiResponse.badRequest(res, 'Request body must be a JSON object');
     try {
-      const entry = await updatePracticeEntry(companyId, id, req.body);
+      const entry = await updatePracticeEntry(companyId, id, req.body, (req as CompanyAuthedRequest).user.id);
       return apiResponse.success(res, entry);
     } catch (err) {
       if (isJobFenceRefusal(err)) {

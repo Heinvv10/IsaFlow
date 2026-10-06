@@ -15,6 +15,7 @@ import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/custom
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertApprovalCleared } from '../gl/approvalGate';
 
 type Row = DbRow;
 
@@ -62,6 +63,22 @@ export class InvoiceNotApprovableError extends Error {
   }
 }
 
+/**
+ * Of `ids`, those naming an invoice of this company that the approve below
+ * could act on — approvable status, not soft-deleted. The MCP tools ask the
+ * approval gate about these only (R-035 PR4, Q6): a missing or soft-deleted
+ * invoice is no document to the gate, and the approve reports it as before.
+ */
+export async function approvableCustomerInvoiceIds(companyId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = (await sql`
+    SELECT id FROM customer_invoices
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[]) AND deleted_at IS NULL
+      AND status = ANY(${APPROVABLE_STATUSES}::text[])
+  `) as Row[];
+  return rows.map((r) => String(r.id));
+}
+
 export interface ApproveCustomerInvoiceResult {
   id: string;
   status: string;
@@ -90,9 +107,10 @@ export async function approveCustomerInvoice(
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
-  // both win, so no lock is needed to stop a second journal — but the loser
-  // does not get "matched zero rows": it BLOCKS on the winner's row lock for as
-  // long as the winner's transaction runs. With bulk_finalize_invoices that is
+  // both win, so no lock is needed to stop a second journal (the FOR UPDATE
+  // below is for the approval gate's read, R-035) — but the loser does not get
+  // "matched zero rows": it BLOCKS on the winner's row lock for as long as the
+  // winner's transaction runs. With bulk_finalize_invoices that is
   // up to 100 invoices, each rendering and uploading a PDF, so the wait is the
   // whole batch. Nothing sets lock_timeout globally, so without this the wait
   // is unbounded and an agent retrying an apparently-hung call piles on.
@@ -108,6 +126,34 @@ export async function approveCustomerInvoice(
     assertTxUsable();
     await client.query("SET LOCAL lock_timeout = '5s'");
   }
+
+  // R-035 PR4: the approval gate, BEFORE the guarded UPDATE below — a refusal
+  // (ApprovalRequiredError) is answered 409, withAuth COMMITs a 4xx, and so it
+  // must have written nothing. The gate reads the invoice's digest, so the row
+  // is locked first: an edit committing between the gate's read and the UPDATE
+  // would otherwise post content nobody approved. Inside the same lock_timeout
+  // window as the UPDATE. Only an approvable invoice is locked and gated;
+  // anything else falls through to the UPDATE, which refuses it as before. A
+  // soft-deleted row is not found here and is left to the UPDATE and, when
+  // enforced, the database backstop (migration 865), which refuses it.
+  // FOR NO KEY UPDATE, not FOR UPDATE (review F2): it still excludes every
+  // content edit (the draft PUT and the merge lock FOR UPDATE; an UPDATE takes
+  // NO KEY UPDATE), but not the FOR KEY SHARE an insert referencing the
+  // invoice takes — an allocation, a portal view, a dispute, a line — which
+  // FOR UPDATE held off for the whole approve, enforcement on or off.
+  let locked: Row[];
+  try {
+    locked = (await sql`
+      SELECT status FROM customer_invoices
+      WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
+        AND status = ANY(${APPROVABLE_STATUSES}::text[])
+      FOR NO KEY UPDATE
+    `) as Row[];
+  } catch (err) {
+    if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
+    throw err;
+  }
+  if (locked[0]) await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR

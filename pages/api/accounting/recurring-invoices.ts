@@ -63,13 +63,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       const taxRate = req.body.taxRate ?? 15;
       const taxAmount = Math.round(subtotal * (taxRate / 100) * 100) / 100;
+      const lines = lineItems ? JSON.stringify(lineItems) : null;
+      // R-035 PR4 review F1: an edit that changes what the template bills makes
+      // the editor an author of every invoice it mints from now on.
       await sql`
         UPDATE recurring_invoices SET
+          content_authors = CASE WHEN ${lines}::JSONB IS NOT NULL
+              AND (line_items, subtotal, tax_amount, total_amount) IS DISTINCT FROM
+                  (${lines}::JSONB, ${subtotal}::NUMERIC, ${taxAmount}::NUMERIC, ${subtotal + taxAmount}::NUMERIC)
+            THEN approval_add_author(content_authors, ${req.user.id}::UUID) ELSE content_authors END,
           template_name = COALESCE(${templateName || null}, template_name),
           frequency = COALESCE(${frequency || null}, frequency),
           next_run_date = COALESCE(${nextRunDate || null}, next_run_date),
           description = COALESCE(${description || null}, description),
-          line_items = COALESCE(${lineItems ? JSON.stringify(lineItems) : null}::JSONB, line_items),
+          line_items = COALESCE(${lines}::JSONB, line_items),
           subtotal = CASE WHEN ${lineItems ? 'true' : 'false'} = 'true' THEN ${subtotal} ELSE subtotal END,
           tax_amount = CASE WHEN ${lineItems ? 'true' : 'false'} = 'true' THEN ${taxAmount} ELSE tax_amount END,
           total_amount = CASE WHEN ${lineItems ? 'true' : 'false'} = 'true' THEN ${subtotal + taxAmount} ELSE total_amount END,

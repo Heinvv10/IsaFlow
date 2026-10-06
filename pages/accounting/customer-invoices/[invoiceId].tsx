@@ -8,10 +8,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, Pencil } from 'lucide-react';
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import { startPayNowCheckout } from '@/modules/accounting/utils/payNowCheckout';
 import { InvoiceActionBar } from '@/components/invoices/InvoiceActionBar';
 import { InvoiceEmailModal } from '@/components/invoices/InvoiceEmailModal';
@@ -24,6 +23,8 @@ import { useCustomerInvoiceActions } from '@/modules/accounting/hooks/useCustome
 import { MarkVatDeclaredElsewhereButton } from '@/components/accounting/sars/MarkVatDeclaredElsewhereButton';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
 import { CUSTOMER_INVOICE_STATUS_COLORS } from '@/modules/accounting/types/customerInvoice.types';
+import { InvoiceAdjacentNav, useAdjacentInvoices } from '@/components/invoices/InvoiceAdjacentNav';
+import { DocumentApprovalPanel } from '@/components/accounting/approvals/DocumentApprovalPanel';
 
 export default function CustomerInvoiceDetailPage() {
   const router = useRouter();
@@ -41,25 +42,9 @@ export default function CustomerInvoiceDetailPage() {
   const [portalUrl, setPortalUrl] = useState('');
   const [portalLinkLoading, setPortalLinkLoading] = useState(false);
   const [portalLinkCopied, setPortalLinkCopied] = useState(false);
-  const [prevId, setPrevId] = useState<string | null>(null);
-  const [nextId, setNextId] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
-
-  const loadAdjacent = useCallback(async (id: string) => {
-    try {
-      const res = await apiFetch(`/api/accounting/customer-invoices-adjacent?id=${id}`);
-      await assertOk(res, 'Could not load the neighbouring invoices');
-      const json = await res.json() as { data: { prevId: string | null; nextId: string | null } };
-      setPrevId(json.data?.prevId ?? null);
-      setNextId(json.data?.nextId ?? null);
-    } catch (err) {
-      // non-critical — navigation stays disabled
-      setPrevId(null);
-      setNextId(null);
-      log.warn('Adjacent invoices unavailable', { error: err }, 'customer-invoice-detail');
-    }
-  }, []);
+  const { prevId, nextId, loadAdjacent, clear: clearAdjacent } = useAdjacentInvoices();
 
   const loadInvoice = useCallback(async () => {
     setLoading(true);
@@ -70,12 +55,12 @@ export default function CustomerInvoiceDetailPage() {
       const json = await res.json();
       setInvoice(json.data || json);
     } catch (err) {
-      setInvoice(null); setPrevId(null); setNextId(null);
+      setInvoice(null); clearAdjacent();
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
     } finally {
       setLoading(false);
     }
-  }, [invoiceId]);
+  }, [invoiceId, clearAdjacent]);
 
   useEffect(() => {
     if (!invoiceId) return;
@@ -92,6 +77,8 @@ export default function CustomerInvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: invoiceId, action }),
       });
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      if (res.status === 409) await loadInvoice();
       await assertOk(res, 'Could not complete that action - try again');
       await loadInvoice();
     } catch (e) {
@@ -191,14 +178,8 @@ export default function CustomerInvoiceDetailPage() {
             <Link href={trail.back.href} className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-blue-400">
               <ArrowLeft className="h-4 w-4" /> Back to {trail.back.label}
             </Link>
-            <div className="flex items-center gap-1">
-              <button onClick={() => prevId && void router.push(`/accounting/customer-invoices/${prevId}`)} disabled={!prevId} title="Previous invoice" className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                <ArrowLeft className="h-3.5 w-3.5" /> Prev
-              </button>
-              <button onClick={() => nextId && void router.push(`/accounting/customer-invoices/${nextId}`)} disabled={!nextId} title="Next invoice" className="inline-flex items-center gap-1 px-2.5 py-1 text-xs text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-tertiary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-                Next <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <InvoiceAdjacentNav prevId={prevId} nextId={nextId}
+              onGo={(id) => { void router.push(`/accounting/customer-invoices/${id}`); }} />
           </div>
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
@@ -223,6 +204,8 @@ export default function CustomerInvoiceDetailPage() {
         </div>
 
         {error && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{error}</div>}
+        <DocumentApprovalPanel documentType="customer_invoice" documentId={invoice.id} noun="invoice"
+          approval={invoice.approval} onChanged={loadInvoice} />
         {portalUrl && (
           <div className="mx-6 mt-3 flex items-center gap-2">
             <span className="text-xs text-[var(--ff-text-secondary)] shrink-0">Portal link:</span>

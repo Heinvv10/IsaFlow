@@ -35,6 +35,32 @@ export interface ContentAuthorFacts {
   /** The decider's company role, and whether enforcement is on — the sole-approver route needs both. */
   deciderRole: string | null;
   enforced: boolean;
+  /** The request's document type: the refusal names the document (R-035 PR4 round 2). */
+  documentType?: string;
+}
+
+/**
+ * The words that differ by document. A customer invoice may carry authors of
+ * the content it was converted or minted from (a quote, an order, a template),
+ * so its dead end — every member of the rank authored or raised it, e.g. two
+ * owners where one priced the quote and the other converted it — has its own
+ * way out (Hein, 2026-10-06, an accepted limit): the source's author performs
+ * the conversion, run or invoicing themselves. Never "leave it to another
+ * member": whoever converts, runs or invoices is an author of the invoice too,
+ * so handing the step on re-makes the dead end (round 4). Every other type
+ * keeps PR2's text byte for byte.
+ */
+function wording(documentType: string | undefined) {
+  if (documentType === 'customer_invoice') {
+    return {
+      created: 'you created the invoice, made an edit that changed it, or wrote or re-priced the quote, sales order, '
+        + 'time entry or recurring template it came from',
+      deadEnd: 'Have the author of the source — the quote, sales order or recurring template, or whoever set the rate '
+        + 'or hours of a time entry it bills — perform the conversion, run or invoicing themselves, so another '
+        + 'eligible approver can approve the invoice, or have someone',
+    };
+  }
+  return { created: 'you created the document or made an edit that changed it', deadEnd: 'Cancel and re-enter the bill, or have someone' };
 }
 
 type MemberRow = { user_id: string; role: string; is_active: boolean | null; status: string | null; suspended_at: string | null };
@@ -76,8 +102,8 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
 
   const { eligible: n, requesterCould, anyOtherOfRank } =
     await approversLeft(companyId, decidedBy, facts.requester, authors, qualifies);
-  const refusal = 'You cannot approve this request: you authored the content it covers (you created the document or '
-    + 'made an edit that changed it).';
+  const words = wording(facts.documentType);
+  const refusal = `You cannot approve this request: you authored the content it covers (${words.created}).`;
   if (n > 0) {
     return `${refusal} It needs a member who neither raised the request nor authored the content — ${n} other `
       + `member${n === 1 ? '' : 's'} with the ${demandedRole} role or above ${n === 1 ? 'qualifies' : 'qualify'}.`;
@@ -93,6 +119,6 @@ export async function contentAuthorRefusal(companyId: string, decidedBy: string,
       + 'reject this request and submit it for approval yourself — as the sole approver you may then approve your own request.';
   }
   return `${refusal} No eligible approver remains: every member with the ${demandedRole} role or above either `
-    + 'authored the content or raised the request. Cancel and re-enter the bill, or have someone with the '
+    + `authored the content or raised the request. ${words.deadEnd} with the `
     + `${demandedRole} role or above who did not author it approve it.`;
 }

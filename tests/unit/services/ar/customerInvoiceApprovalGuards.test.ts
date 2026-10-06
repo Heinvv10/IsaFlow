@@ -45,6 +45,11 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn(),
 }));
+// R-035 PR4: the approval gate has its own real-PG suites (r035-pr4-*); here it clears.
+vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
+  assertApprovalCleared: vi.fn(async () => undefined),
+}));
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { als } from '@/lib/als';

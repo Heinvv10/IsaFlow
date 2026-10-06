@@ -87,8 +87,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'import_customer_invoices': {
-      const run = await importCustomerInvoices(companyId, userId);
-      return apiResponse.success(res, run);
+      try {
+        const run = await importCustomerInvoices(companyId, userId);
+        return apiResponse.success(res, run);
+      } catch (err) {
+        // R-035 PR4: raised before the run is recorded, so the 4xx commits nothing.
+        if (respondIfImportRefused(res, err)) return;
+        throw err;
+      }
     }
 
     case 'compare': {
