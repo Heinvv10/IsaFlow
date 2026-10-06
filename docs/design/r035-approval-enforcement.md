@@ -227,7 +227,9 @@ Mutation checks. Each one must turn a test red:
 
   Paystack receipts never reach it for a draft; they are banked unapplied. It honours the import GUC (Q1). A raw-SQL session can set that GUC itself (the N3 class, in the SECURITY DEFINER follow-up).
 - **Lock:** the gate reads under `FOR NO KEY UPDATE`, taken only on an approvable invoice. Content edits wait for it, inserts that reference the invoice do not.
-- **Upstream authors:** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it. Supplier invoices minted from templates are not stamped; this is a known limit, because stamping them would change live enforcement.
+- **Upstream authors:** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it.
+  - Template authors are written into the invoice at mint, because the invoice keeps no link to its template.
+  - Conversion authors are derived by `approval_document_authors` from the links the converters already write. Supplier invoices minted from templates are not stamped; this is a known limit, because stamping them would change live enforcement.
 - **Unattended (recurring invoices, recurring-transaction autoPost):** the invoice stays a draft, the request is raised as the runner, and the schedule advances. The run reports `held_for_approval`.
 - **Imports (Q1):** the AR take-on, the Sage customer import and the Sage migration commit are exempt by rank against the strictest customer-invoice rule.
 - **Q7:** the legacy "Post to GL" stays ungated.

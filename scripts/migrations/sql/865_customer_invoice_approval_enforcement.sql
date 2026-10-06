@@ -39,11 +39,11 @@
 --      own user.
 --
 -- Upstream authors (review F1): an invoice minted from a template, a quote, a
--- sales order or time entries carries content someone else wrote. The
--- templates gain content_authors (below); the minting code unions the
--- source's authors into the invoice's content_authors before any request is
--- raised (ar/customerInvoiceUpstreamAuthors.ts), so they are refused as its
--- approvers. KNOWN LIMIT, follow-up for Hein: a SUPPLIER invoice minted from a
+-- sales order or time entries carries content someone else wrote, and those
+-- authors are refused as its approvers. The templates gain content_authors
+-- (below), unioned into the invoice's content_authors at mint
+-- (ar/customerInvoiceUpstreamAuthors.ts); a conversion's authors are derived
+-- by approval_document_authors from the link the converter already writes. KNOWN LIMIT, follow-up for Hein: a SUPPLIER invoice minted from a
 -- recurring_transaction_templates row gets no upstream authors — stamping
 -- them would change the live supplier-invoice enforcement; a template's
 -- author may still approve the bill someone else's run minted.
@@ -199,6 +199,15 @@ $$;
 -- creator's uuid, a legacy or system row may carry anything. Only a canonical
 -- uuid (any case) is cast — never a bare ::uuid, which would make a single
 -- such row raise 22P02 on every raise or decide that reads its authors.
+-- An invoice CONVERTED from someone else's content carries that content's
+-- authors too (review F1), DERIVED here from the links the converters already
+-- write — the quote's created_by (customer_quotes.converted_invoice_id), the
+-- sales order's (customer_sales_orders.invoice_id) and the users who logged
+-- the billed time (time_entries.invoice_id, set by both time billing paths),
+-- each company-scoped, NULLs dropped, de-duplicated. Derived, not stamped: the
+-- converting services write nothing new, so they run unchanged on a database
+-- without this migration. A recurring template has no such link, so its
+-- authors are written into content_authors at mint instead.
 CREATE OR REPLACE FUNCTION public.approval_document_authors(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.uuid[]
@@ -222,10 +231,25 @@ AS $$
       WHERE cn.id = p_document_id AND cn.company_id = p_company_id AND cn.type = 'supplier'
     )
     WHEN 'customer_invoice' THEN (
-      SELECT public.approval_add_author(ci.content_authors,
-        CASE WHEN ci.created_by ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-             THEN ci.created_by::pg_catalog.uuid END)
+      SELECT b.base || ARRAY(
+        SELECT d.author FROM (
+          SELECT q.created_by FROM public.customer_quotes q
+          WHERE q.converted_invoice_id = ci.id AND q.company_id = ci.company_id
+          UNION
+          SELECT so.created_by FROM public.customer_sales_orders so
+          WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
+          UNION
+          SELECT te.user_id FROM public.time_entries te
+          WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
+        ) d(author)
+        WHERE d.author IS NOT NULL AND d.author <> ALL (b.base)
+        ORDER BY d.author)
       FROM public.customer_invoices ci
+      CROSS JOIN LATERAL (
+        SELECT public.approval_add_author(ci.content_authors,
+          CASE WHEN ci.created_by ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+               THEN ci.created_by::pg_catalog.uuid END) AS base
+      ) b
       WHERE ci.id = p_document_id AND ci.company_id = p_company_id AND ci.deleted_at IS NULL
     )
   END

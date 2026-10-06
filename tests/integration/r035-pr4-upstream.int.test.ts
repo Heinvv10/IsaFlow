@@ -1,30 +1,23 @@
 /**
- * R-035 PR4 review F1: an invoice minted from someone else's content carries
- * that content's authors, so they cannot approve it.
+ * R-035 PR4 review F1: an invoice minted from a RECURRING TEMPLATE carries the
+ * template's authors, so they cannot approve it.
  *
- * A recurring template (recurring-invoices, recurring-transactions), a quote,
- * a sales order and logged time are content a person wrote. The user who ran
- * the schedule or clicked Convert only minted it. Before this, the minted
- * invoice's authors were the minter alone: the template's pricer could approve
- * the R115 000 invoice someone else's run minted from their price. Now the
- * template's creator and every editor whose change moved what it bills
- * (`content_authors`), the quote's and sales order's creator and the users who
- * logged the time are unioned into the invoice's content_authors before any
- * request is raised — and are refused as approvers while another eligible
- * approver exists.
+ * A template (recurring-invoices, recurring-transactions) is content a person
+ * wrote; the user who ran the schedule only minted it. Before this, the minted
+ * invoice's authors were the runner alone: the template's pricer could approve
+ * the R115 000 invoice someone else's run minted from their price. A template
+ * now records its creator and every editor whose change moved what it bills
+ * (`content_authors`: create, the PUT / update, the customer merge), and both
+ * are written into the minted invoice's content_authors before any request is
+ * raised. Conversions (quote, sales order, time) are derived instead:
+ * r035-pr4-conversions.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { als } from '../../src/lib/als';
 import recurringInvoices from '../../pages/api/accounting/recurring-invoices';
 import recurringRun from '../../pages/api/accounting/recurring-invoices-run';
 import recurringTxns from '../../pages/api/accounting/recurring-transactions';
 import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
-import customerQuotes from '../../pages/api/accounting/customer-quotes';
-import customerQuotesAction from '../../pages/api/accounting/customer-quotes-action';
-import timeEntriesInvoice from '../../pages/api/accounting/time-entries-invoice';
-import { convertSalesOrderToInvoice } from '../../src/modules/accounting/services/ar/salesOrderWorkflowService';
-import { generateWipInvoice } from '../../src/modules/accounting/services/practice/practiceWipService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
@@ -166,79 +159,5 @@ describe('recurring transactions (autoPost)', () => {
     const ran = await as(u.other, c, recurringExecute as never, 'POST', { templateId }, '/api/accounting/recurring-transactions-execute');
     const invoiceId = dataOf<{ entityId: string; posted: boolean }>(ran).entityId;
     expect(await authorsOf(invoiceId)).toEqual([u.runner, u.author].sort());
-  });
-});
-
-describe('conversions', () => {
-  it("quote → invoice: the quote's author is refused as the approver of the invoice the converter minted", async () => {
-    const { c, customer } = await fixture();
-    const quote = dataOf<{ id: string }>(await as(u.author, c, customerQuotes as never, 'POST', {
-      clientId: customer, quoteDate: '2026-09-01', lines: [{ description: 'Build', quantity: 1, unitPrice: 100_000, taxRate: 15 }],
-    }, '/api/accounting/customer-quotes'));
-    await as(u.runner, c, customerQuotesAction as never, 'POST', { id: quote.id, action: 'accept' }, '/api/accounting/customer-quotes-action');
-    const converted = await as(u.runner, c, customerQuotesAction as never, 'POST', { id: quote.id, action: 'convert' },
-      '/api/accounting/customer-quotes-action');
-    expect(converted.state.statusCode, JSON.stringify(converted.state.body)).toBe(200);
-    const invoiceId = (dataOf<{ invoiceId?: string; id?: string }>(converted).invoiceId)!;
-    expect(await authorsOf(invoiceId)).toEqual([u.author]);
-    await authorRefusedOtherApproves(c, invoiceId);
-  });
-
-  async function inRequest<T>(c: string, user: string, fn: () => Promise<T>): Promise<T> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const out = await als.run({ client, userId: user, companyId: c, claims: { sub: user } } as never, fn);
-      await client.query('COMMIT');
-      return out;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-  }
-
-  it("sales order → invoice: the order's creator is an author", async () => {
-    const { c, customer } = await fixture();
-    const order = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO customer_sales_orders(id,company_id,order_number,customer_id,order_date,subtotal,tax_amount,total_amount,status,created_by)
-       VALUES($1,$2,$3,$4,DATE '2026-09-01',1000,150,1150,'confirmed',$5)`, [order, c, `SO-${order.slice(0, 6)}`, customer, u.author]);
-    await pool.query(
-      `INSERT INTO customer_sales_order_items(sales_order_id,description,quantity,unit_price,tax_rate,line_total)
-       VALUES($1,'Goods',1,1000,15,1000)`, [order]);
-    const { invoiceId } = await inRequest(c, u.runner, () => convertSalesOrderToInvoice(c, order, u.runner));
-    expect(await authorsOf(invoiceId)).toEqual([u.author]);
-  });
-
-  async function timeEntry(c: string, loggedBy: string, extra: Record<string, unknown> = {}): Promise<string> {
-    const id = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO time_entries(id,company_id,user_id,task_description,entry_date,hours,rate,billable,invoiced,status,
-         practice_client_id,applied_rate,line_total,origin)
-       VALUES($1,$2,$3,'Fieldwork',DATE '2026-09-01',4,250,true,false,$4,$5,250,1000,'manual')`,
-      [id, c, loggedBy, extra.status ?? 'draft', extra.practiceClientId ?? null]);
-    return id;
-  }
-
-  it('time entries → invoice: every user who logged an entry is an author', async () => {
-    const { c, customer } = await fixture();
-    const ids = [await timeEntry(c, u.author), await timeEntry(c, u.other)];
-    const res = await as(u.runner, c, timeEntriesInvoice as never, 'POST', { timeEntryIds: ids, customerId: customer },
-      '/api/accounting/time-entries-invoice');
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
-    expect(await authorsOf(dataOf<{ invoiceId: string }>(res).invoiceId)).toEqual([u.author, u.other].sort());
-  });
-
-  it('WIP billing → invoice: every user who logged an entry is an author', async () => {
-    const { c, customer } = await fixture();
-    const practiceClientId = crypto.randomUUID();
-    await pool.query(
-      `INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status,link_customer_id)
-       VALUES($1,$2,'R035 practice client','hourly','active',$3)`, [practiceClientId, c, customer]);
-    const ids = [await timeEntry(c, u.author, { status: 'approved', practiceClientId })];
-    const out = await inRequest(c, u.runner, () => generateWipInvoice(c, u.runner, { practiceClientId, timeEntryIds: ids }));
-    expect(await authorsOf(out.invoiceId)).toEqual([u.author]);
   });
 });

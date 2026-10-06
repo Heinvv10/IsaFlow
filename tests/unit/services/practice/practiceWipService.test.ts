@@ -15,8 +15,6 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
-// R-035 PR4 review F1: the time loggers become the invoice's authors — real-PG in r035-pr4-upstream.
-vi.mock('@/modules/accounting/services/ar/customerInvoiceUpstreamAuthors', () => ({ stampUpstreamAuthors: vi.fn(async () => undefined) }));
 vi.mock('@/modules/accounting/services/practice/practiceTimeEntryWorkflow', () => ({
   markEntriesBilled: markEntriesBilledMock,
 }));
