@@ -18,6 +18,7 @@ import type { RecurringTemplate } from './recurringTransactionService';
 import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
+import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -80,6 +81,9 @@ export async function mintRecurringCustomerInvoice(
       }
       return id;
     });
+  // R-035 PR4 review F1: the template's authors are the invoice's, before any
+  // request is raised. (Not done for bills below: see migration 865.)
+  await stampUpstreamAuthors(companyId, entityId, { kind: 'recurring_transaction_template', id: template.id });
 
   let posted = false;
   if (template.autoPost) {

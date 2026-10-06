@@ -22,6 +22,7 @@ import { lockRecurringTemplate } from './recurringInvoiceLock';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
+import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 
 type Row = DbRow;
 
@@ -158,6 +159,9 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
   // R-035 PR4: unless an enforced rule governs it — then it stays a draft, the
   // request is raised as the runner (nothing is raised under Login-as; the
   // invoice page then still offers Submit), and the schedule advances below.
+  // The template's authors become the invoice's first, so none of them may
+  // approve what their template billed (review F1).
+  await stampUpstreamAuthors(companyId, invoiceId, { kind: 'recurring_invoice', id });
   const heldForApproval = (await evaluateApprovalGate(companyId, 'customer_invoice', invoiceId)) !== null;
   if (heldForApproval) {
     await raiseUnattendedApproval(companyId, 'customer_invoice', invoiceId, userId);

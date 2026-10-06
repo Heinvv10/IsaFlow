@@ -23,22 +23,43 @@
 --      TypeScript gate in approveCustomerInvoice refuses first with a 409;
 --      this is the fail-closed floor for every other writer — raw SQL, scripts,
 --      and the two services that move an invoice into the population without
---      approving it (confirmCustomerPayment and the write-off on a DRAFT
---      invoice), which now answer a 500 and roll back when enforced. Unlike
---      862's, it honours the import GUC: the Sage staging import, the Sage
---      migration commit and the AR take-on bring in invoices issued in the
---      source system (decision Q1), and the census
---      (approvalGateExemptCensus.test.ts) pins who sets it.
+--      approving it, when they act on a DRAFT invoice under enforcement:
+--      confirmCustomerPayment (its savepoint rolls the whole confirm back; the
+--      customer-payments-action route answers 409) and approveWriteOff of the
+--      whole balance (a 500 and a rollback). Paystack receipts never reach it
+--      for a draft: their allocation plan refuses drafts and banks the receipt
+--      unapplied. Unlike 862's, it honours the import GUC: the Sage staging
+--      import, the Sage migration commit and the AR take-on bring in invoices
+--      issued in the source system (decision Q1), and the census
+--      (approvalGateExemptCensus.test.ts) pins who sets it. The GUC is an
+--      ordinary setting, so a session issuing raw SQL can set it itself — the
+--      N3 class below, not closable from a trigger.
 --   5. approval_request_insert_guard() (862) binds customer_invoice requests
 --      too: pending, undecided, no past requesters, raised by the session's
 --      own user.
+--
+-- Upstream authors (review F1): an invoice minted from a template, a quote, a
+-- sales order or time entries carries content someone else wrote. The
+-- templates gain content_authors (below); the minting code unions the
+-- source's authors into the invoice's content_authors before any request is
+-- raised (ar/customerInvoiceUpstreamAuthors.ts), so they are refused as its
+-- approvers. KNOWN LIMIT, follow-up for Hein: a SUPPLIER invoice minted from a
+-- recurring_transaction_templates row gets no upstream authors — stamping
+-- them would change the live supplier-invoice enforcement; a template's
+-- author may still approve the bill someone else's run minted.
 
 -- ── 1. The authors ────────────────────────────────────────────────────────
 -- Append-only, through approval_add_author (712). The digest-moving edits are
--- the detail PUT (customerInvoiceContentEditor) and the customer merge
+-- the detail PUT (customerInvoiceDraftEdit) and the customer merge
 -- (customerMergeService.moveDocuments); both stamp the acting user.
 ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
+-- The templates an invoice is minted from: everyone whose edit changed what
+-- the template bills (the recurring-invoices PUT, the recurring-transactions
+-- update, the customer merge re-pointing its client). Their creator is
+-- created_by. Both are unioned into each invoice the template mints.
+ALTER TABLE recurring_invoices ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
+ALTER TABLE recurring_transaction_templates ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 
 -- ── 2. The amount a rule sees ──────────────────────────────────────────────
 -- approveCustomerInvoice books total_amount, UNCONVERTED, into the ledger
@@ -314,10 +335,13 @@ END $$;
 -- OUT OF SCOPE, as 862 records for every type (follow-up for Hein): the UPDATE
 -- half (round 2 N1: insert pending, then raw-UPDATE to approved) and the
 -- subject itself (round 3 N3: request.jwt.claims is a GUC a raw-SQL session
--- can set). Both need the request and decide paths behind a SECURITY DEFINER
--- function with app_user's direct INSERT/UPDATE revoked — a change to the live
--- supplier-invoice enforcement, so not made here. supplier_invoice stays
--- outside the list for the same reason.
+-- can set), and with it the import GUC isaflow.approval_gate_exempt, which a
+-- raw-SQL app_user session can set_config itself to pass both invoice
+-- backstops (PR4 review REPRO 2). All need the request and decide paths — and
+-- the import exemption — behind SECURITY DEFINER functions with app_user's
+-- direct INSERT/UPDATE revoked — a change to the live supplier-invoice
+-- enforcement, so not made here. supplier_invoice stays outside the list for
+-- the same reason.
 CREATE OR REPLACE FUNCTION public.approval_request_insert_guard()
 RETURNS trigger
 LANGUAGE plpgsql

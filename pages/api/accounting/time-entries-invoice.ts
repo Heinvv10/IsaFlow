@@ -17,6 +17,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { assertNonNegativeDocumentTotal, NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
+import { stampUpstreamAuthors } from '@/modules/accounting/services/ar/customerInvoiceUpstreamAuthors';
 
 type Row = Record<string, unknown>;
 
@@ -137,6 +138,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         )
       `;
     }
+
+    // R-035 PR4 review F1: whoever logged the time is an author of the invoice.
+    await stampUpstreamAuthors(companyId, invoiceId, { kind: 'time_entries', ids: entries.map((e) => String(e.id)) });
 
     // 6. Claim the entries with a PREDICATED update, and check the row count.
     // The old UPDATE matched on id + company only and its count was discarded,

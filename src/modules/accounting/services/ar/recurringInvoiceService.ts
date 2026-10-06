@@ -91,13 +91,14 @@ export async function createRecurringInvoice(companyId: string,
     INSERT INTO recurring_invoices (
       company_id, template_name, client_id, project_id, frequency, next_run_date,
       end_date, description, line_items, subtotal, tax_rate, tax_amount,
-      total_amount, payment_terms, created_by
+      total_amount, payment_terms, created_by, content_authors
     ) VALUES (
       ${companyId}, ${input.templateName}, ${input.clientId}::UUID,
       ${input.projectId || null}, ${input.frequency}, ${input.nextRunDate},
       ${input.endDate || null}, ${input.description || null},
       ${JSON.stringify(input.lineItems)}::JSONB, ${subtotal}, ${taxRate},
-      ${taxAmount}, ${totalAmount}, ${input.paymentTerms || '30 days'}, ${userId}::UUID
+      ${taxAmount}, ${totalAmount}, ${input.paymentTerms || '30 days'}, ${userId}::UUID,
+      ARRAY[${userId}::UUID]
     ) RETURNING *
   `) as Row[];
 
