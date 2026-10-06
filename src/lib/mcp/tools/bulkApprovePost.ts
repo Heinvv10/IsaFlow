@@ -9,6 +9,7 @@ import { withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import { safeLineDetail } from './bulkAllocationPost';
+import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
 import {
   getFiscalPeriodIdForDate,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -73,7 +74,9 @@ export async function postPartitionedDocuments<TResult>(
         () => adapter.postOne(ctx, id),
       ));
     } catch (err) {
-      if (isLockTimeout(err)) {
+      // ...and a raw 55P03: the document's number or journal number waited past its 5 s bound on a peer's
+      // company+year number lock (migration 858). The element's savepoint rolled back; skip it as retryable.
+      if (isLockTimeout(err) || isLockNotAvailable(err)) {
         raced.push({ index, document_id: id, reason: 'locked by another request — retry' });
         continue;
       }

@@ -97,10 +97,7 @@ describeIfDb('JENUM: journal numbering under concurrent posting', () => {
 
   // Pins PRE-EXISTING behaviour, not the fix: before migration 857 the same wait (on the uncommitted index entry)
   // also ended 55P03 under a lock_timeout, so this passes with the lock line removed. It guards "no new hang".
-  // Since migration 858 the function carries its own lock_timeout = 5s (function-level SET), which replaces the
-  // caller's for the call: a caller's tighter 1 s becomes 5 s, an unbounded caller is bounded at 5 s
-  // (docnum-lock-timeout.int.test.ts). Before 858 this answered at the caller's 1 s.
-  it("the wait is bounded by the numbering function's 5 s lock_timeout: 55P03, not a hang", async () => {
+  it("the wait is bounded by the caller's lock_timeout: 55P03, not a hang", async () => {
     const a = await holdJournal(fx, journalInput(expense, fx.bankAccountId, '2026-06-01'));
     const b = await fx.pool.connect();
     try {
@@ -112,8 +109,7 @@ describeIfDb('JENUM: journal numbering under concurrent posting', () => {
       const ms = Date.now() - t0;
       expect(out.ok).toBe(false);
       expect((out as { error: { code?: string } }).error.code, errText((out as { error: unknown }).error)).toBe('55P03');
-      expect(ms).toBeGreaterThanOrEqual(4500);
-      expect(ms).toBeLessThan(10000);
+      expect(ms).toBeLessThan(5000);
     } finally {
       await b.query('ROLLBACK').catch(() => undefined);
       b.release();

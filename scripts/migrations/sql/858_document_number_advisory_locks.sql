@@ -25,7 +25,8 @@
 -- (862 is taken by another branch).
 --
 -- Each function is re-created from its live definition (last defined in 220 /
--- 240) with these changes and no others:
+-- 240) with these changes and no others (857's generate_journal_entry_number is
+-- re-created from 857 with change 3 only):
 --   1. before the MAX, pg_advisory_xact_lock on (scope, year): the second writer
 --      waits for the first to COMMIT (or roll back), and its MAX — a later
 --      statement under READ COMMITTED, so a fresh snapshot — sees the first
@@ -33,7 +34,7 @@
 --   2. LPAD(next_seq, 5) truncated past 99999 (`-100000` became `-10000`); the
 --      pad is now GREATEST(5, digits). The MAX casts the suffix to INT, so mixed
 --      5- and 6-digit suffixes order numerically;
---   3. SET lock_timeout = '5s' on the function (below);
+--   3. the wait for that lock is bounded at 5 s, tighten-only (THE BOUND);
 --   4. ADJ / BAT / VA / WO take the year from the document's own date, as the
 --      other four (and journals) do. A back-dated batch or adjustment is now
 --      numbered in its date's year (lead's call, 2026-10-06). Without this a
@@ -53,19 +54,22 @@
 -- re-entrant and the second simply queues. The same holds for two document
 -- types in one transaction (createBatch: batch, then its payments).
 --
--- THE BOUND (sec-docnum F1). Every numbering function, and 857's
--- generate_journal_entry_number (ALTER below), runs with lock_timeout = 5s for
--- the duration of the call. Without it a numbering insert waited, with no
--- limit but production's 95 s statement_timeout, behind ANY open transaction
--- that had numbered a journal or a document for that company and year, holding
--- its pool connection — one company could fill the shared auth pool (measured
--- by sec-docnum). Two effects, both deliberate:
---   * a caller with no lock_timeout (the app pool sets none) now gets 55P03
---     after 5 s instead of waiting; routes that map lock timeouts answer 503 +
---     Retry-After (D11, src/lib/lockTimeout.ts);
---   * a caller with a TIGHTER lock_timeout gets 5 s inside the function: a
---     function-level SET replaces the session value for the call and restores it
---     on exit.
+-- THE BOUND (sec-docnum F1, N1). Every numbering function, 857's
+-- generate_journal_entry_number included (re-created below with this one
+-- change), waits at most 5 s for the number lock. Without it a numbering insert
+-- waited, with no limit but production's 95 s statement_timeout, behind ANY
+-- open transaction that had numbered a journal or a document for that company
+-- and year, holding its pool connection — one company could fill the shared
+-- auth pool (measured by sec-docnum). The bound TIGHTENS only: around the
+-- advisory lock the function reads current_setting('lock_timeout'), sets the
+-- transaction-local value to 5 s only when the caller's is 0 (unbounded) or
+-- longer, takes the lock, and puts the caller's value back. A caller with a
+-- tighter value — withRowLockBudget's remaining share of one D8 flow deadline —
+-- keeps it. On a 55P03 the (sub)transaction aborts, and its rollback restores
+-- the caller's value too. (Round 3 used a function-level SET lock_timeout, which
+-- REPLACED a tighter caller value for the call and stretched a D8 flow budget by
+-- up to 5 s per number; sec-docnum N1.) Callers: a route maps the 55P03 to 503 +
+-- Retry-After (D11); the MCP posters skip the element as retryable.
 --
 -- What changes for waits:
 --   * Same scope + year, two writers: the second waits (at most 5 s) and mints
@@ -132,27 +136,63 @@
 -- Unchanged: inserts that supply the number take no lock (the function returns
 -- at IS NOT NULL; the WHEN clause, where there is one, skips it); owner,
 -- SECURITY INVOKER, search_path and grants (CREATE OR REPLACE keeps owner and
--- ACL; proconfig now carries lock_timeout). Pre-existing and untouched: four
+-- ACL, and clears the round-3 lock_timeout proconfig wherever that was applied). Pre-existing and untouched: four
 -- triggers fire on '' too (WHEN ... OR number = '') but the function returns at
 -- IS NOT NULL, so an explicit '' is stored as ''.
 --
--- Idempotent: CREATE OR REPLACE of the same bodies; ALTER FUNCTION ... SET of
--- the same value.
+-- Idempotent: CREATE OR REPLACE of the same bodies.
+
+CREATE OR REPLACE FUNCTION public.generate_journal_entry_number()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  entry_year INT;
+  next_seq INT;
+  prev_lock_timeout TEXT;
+BEGIN
+  IF NEW.entry_number IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+  entry_year := EXTRACT(YEAR FROM COALESCE(NEW.entry_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || entry_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
+  SELECT COALESCE(MAX(
+    CAST(NULLIF(SPLIT_PART(entry_number, '-', 3), '') AS INT)
+  ), 0) + 1 INTO next_seq
+  FROM gl_journal_entries
+  WHERE company_id = NEW.company_id
+    AND entry_number LIKE 'JE-' || entry_year || '-%';
+  NEW.entry_number := 'JE-' || entry_year || '-' || LPAD(next_seq::TEXT, GREATEST(5, LENGTH(next_seq::TEXT)), '0');
+  RETURN NEW;
+END;
+$function$;
 
 CREATE OR REPLACE FUNCTION public.generate_credit_note_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   cn_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.credit_note_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   cn_year := EXTRACT(YEAR FROM COALESCE(NEW.credit_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || cn_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(credit_note_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -167,17 +207,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_customer_payment_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   pay_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.payment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   pay_year := EXTRACT(YEAR FROM COALESCE(NEW.payment_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || pay_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(payment_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -192,17 +238,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_supplier_payment_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   pay_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.payment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   pay_year := EXTRACT(YEAR FROM COALESCE(NEW.payment_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || pay_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(payment_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -217,17 +269,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_consolidation_adj_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   adj_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.adjustment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   adj_year := EXTRACT(YEAR FROM COALESCE(NEW.period_start, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.group_id::text || ':' || adj_year, 858));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(adjustment_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -242,17 +300,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_adjustment_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   adj_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.adjustment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   adj_year := EXTRACT(YEAR FROM COALESCE(NEW.adjustment_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || adj_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(adjustment_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -267,17 +331,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_batch_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   bat_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.batch_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   bat_year := EXTRACT(YEAR FROM COALESCE(NEW.batch_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || bat_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(batch_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -292,17 +362,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_vat_adjustment_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   va_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.adjustment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   va_year := EXTRACT(YEAR FROM COALESCE(NEW.adjustment_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || va_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(adjustment_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -317,17 +393,23 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_write_off_number()
  RETURNS trigger
  LANGUAGE plpgsql
- SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   wo_year INT;
   next_seq INT;
+  prev_lock_timeout TEXT;
 BEGIN
   IF NEW.write_off_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
   wo_year := EXTRACT(YEAR FROM COALESCE(NEW.write_off_date, CURRENT_DATE));
+  -- Bound the wait at 5 s, never loosen a caller's tighter bound (0 = unbounded).
+  prev_lock_timeout := current_setting('lock_timeout');
+  IF prev_lock_timeout::interval = interval '0' OR prev_lock_timeout::interval > interval '5s' THEN
+    PERFORM set_config('lock_timeout', '5s', true);
+  END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || wo_year, 857));
+  PERFORM set_config('lock_timeout', prev_lock_timeout, true);
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(write_off_number, '-', 3), '') AS INT)
   ), 0) + 1 INTO next_seq
@@ -339,5 +421,3 @@ BEGIN
 END;
 $function$;
 
--- 857's journal-number function: same bound (see THE BOUND above).
-ALTER FUNCTION public.generate_journal_entry_number() SET lock_timeout = '5s';
