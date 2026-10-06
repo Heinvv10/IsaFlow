@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
-import { stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
+import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
 
 const MergeBodySchema = z.object({
   source_id: UUID,
@@ -70,15 +70,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // 3. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
       // an author of every payment it moves, and of each batch they belong to.
-      const moved = (await tx`
+      // Their batches are locked first: batch before members, the order
+      // approveBatch / processBatch take (bank/.claude.md lock order).
+      const batchIds = await lockBatchesPayingSupplier(companyId, source_id, null);
+      await tx`
         UPDATE supplier_payments
         SET supplier_id = ${target_id},
             content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-        RETURNING batch_id
-      `) as { batch_id: unknown }[];
-      await stampBatchesOfMovedPayments(companyId, moved.map((m) => m.batch_id), user.id);
+      `;
+      await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
 
       // 4. Re-parent supplier_purchase_orders
       await tx`

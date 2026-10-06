@@ -22,7 +22,8 @@
  *
  * Supplier payments and payment batches (PR5): single payments and batches
  * not yet paid (draft or approved — process re-checks the approval) an
- * active rule matches on the gate amount the 867 backstop reads.
+ * active rule matches on the gate amount the 867 backstop reads; a batch
+ * also when a member's supplier_payment rule matches it (D1, coupled).
  */
 import { sql } from '@/lib/neon';
 import type { DocumentType } from './approvalService';
@@ -88,7 +89,7 @@ async function batchesHeld(companyId: string): Promise<number> {
     SELECT count(*)::INT AS n
     FROM supplier_payment_batches b
     WHERE b.company_id = ${companyId}::UUID AND b.status IN ('draft', 'approved')
-      AND approval_rule_matches(b.company_id, 'payment_batch', approval_payment_batch_gate_amount(b.company_id, b.id))
+      AND approval_payment_batch_strictest_rank(b.company_id, b.id) IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM approval_requests ar
         JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type

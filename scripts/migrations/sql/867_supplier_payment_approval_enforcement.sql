@@ -23,8 +23,16 @@
 --      branches. Every earlier branch (supplier_invoice 708 / 712, both
 --      credit-note types 862, customer_invoice 865) is copied verbatim, and a
 --      guard refuses the migration if any of their digests or authors changed.
---   5. Two backstop triggers, one per table (see §5).
+--   5. The backstops (see §5): a row trigger for single payments, a
+--      STATEMENT trigger for batch members (one check per batch, not per
+--      line), and a row trigger for batches.
 --   6. approval_request_insert_guard() (862) binds both types too.
+--
+-- The two types are COUPLED (Hein, 2026-10-06, D1): a single payment and a
+-- one-line batch pay the same bill, so the API switches them on and off
+-- together (gl/approvalEnforcement.coupledTypes), and a batch is judged by
+-- the strictest of its own rule AND every member's supplier_payment rule
+-- (approval_payment_batch_strictest_rank, §5).
 
 -- ── 1. The payment types may carry an enforcement row ─────────────────────
 ALTER TABLE approval_enforcement DROP CONSTRAINT IF EXISTS approval_enforcement_document_type_check;
@@ -44,19 +52,25 @@ ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS content_authors UUID[] NO
 ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
 ALTER TABLE supplier_payment_batches ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE supplier_payment_batches ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
--- WHO SET WHERE A SUPPLIER'S MONEY GOES (decision (b), 2026-10-06): the last
--- user to change any bank column, or to create the supplier WITH bank details
--- (supplierWriteService create / update — the UI route and MCP update_supplier —
--- and the supplier take-on, ap/supplierPaymentAuthors.recordBankDetailsSetter).
--- Derived LIVE into the authors of every payment to the supplier (below), so
--- whoever points the account somewhere before a colleague creates the payment
--- may not approve it. A write that changes no bank column never references the
+-- WHO SET WHERE A SUPPLIER'S MONEY GOES (decision (b), 2026-10-06; round 1
+-- blind MEDIUM 2): every user who changed a bank column since the account
+-- itself was last re-pointed, and whoever created the supplier WITH bank
+-- details (supplierWriteService create / update — the UI route and MCP
+-- update_supplier — and the supplier take-on, through
+-- ap/supplierPaymentAuthors.recordBankDetailsSetter). APPEND-ONLY: a change to
+-- any bank column appends its editor; only a change to the account NUMBER or
+-- BRANCH CODE themselves — a new destination, whose setter is answerable for
+-- it — resets the list to that editor. So B, who redirects the account, stays
+-- an author after an innocent C corrects its type or bank name. Derived LIVE
+-- into the authors of every payment to the supplier (below), so whoever
+-- points the account somewhere before a colleague creates the payment may not
+-- approve it. A write that changes no bank column never references the
 -- column: golden path d creates a supplier with no bank details on a database
--- without this migration. KNOWN LIMIT (collusion, needs two people): only the
--- LAST setter counts — if B changes the account number and C then changes
--- only another bank column, C becomes the setter and B drops out (C is then
--- refused). Payments in flight at B's edit keep B, stamped append-only.
-ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bank_details_set_by UUID;
+-- without this migration. KNOWN LIMIT: re-pointing the account again (number
+-- or branch code) replaces the list with that editor — the old destination is
+-- gone and they answer for the new one; payments in flight at the earlier
+-- edit keep its editor, stamped append-only.
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bank_details_setters UUID[] NOT NULL DEFAULT '{}';
 
 -- ── 3. The amount a rule sees ──────────────────────────────────────────────
 -- processSupplierPayment posts total_amount (DR AP / CR bank). ABS because the
@@ -152,7 +166,7 @@ $$;
 
 -- Who set what a payment pays (Hein, 2026-10-06: whoever sets the amount or
 -- the destination of the money is an author): its creator, every stamped
--- editor (§2), the payee's CURRENT bank-details setter (read live, the way
+-- editor (§2), the payee's current bank-details setters (read live, the way
 -- the digest reads the bank details), and the authors of every bill it
 -- allocates to — DERIVED here
 -- from payment_allocations through approval_document_authors' own
@@ -171,8 +185,10 @@ AS $$
     ORDER BY d.author)
   FROM public.supplier_payments sp
   LEFT JOIN public.suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
-  CROSS JOIN LATERAL (SELECT public.approval_add_author(
-    public.approval_add_author(sp.content_authors, sp.created_by), s.bank_details_set_by) AS base) b
+  CROSS JOIN LATERAL (SELECT public.approval_add_author(sp.content_authors, sp.created_by) AS own) o
+  CROSS JOIN LATERAL (SELECT o.own || ARRAY(
+    SELECT DISTINCT x.author FROM unnest(COALESCE(s.bank_details_setters, '{}')) x(author)
+    WHERE x.author IS NOT NULL AND x.author <> ALL (o.own) ORDER BY x.author) AS base) b
   WHERE sp.id = p_payment_id AND sp.company_id = p_company_id
 $$;
 
@@ -371,14 +387,33 @@ END $$;
 -- the TypeScript gate (approvalGate.ts): an approval clears only when decided
 -- at or after enforcement was switched on, for the CURRENT digest, bound to a
 -- role ranking at or above what the strictest rule matching today demands.
---
--- One check, for whichever document governs the row: a single payment is its
--- own `supplier_payment`; a batch MEMBER (batch_id set) is governed by its
--- BATCH's `payment_batch` approval, so a raw UPDATE cannot approve or pay a
--- member outside a cleared batch.
+
+-- What a batch demands (Hein, 2026-10-06, D1): the strictest of its own
+-- payment_batch rules on the batch amount AND every member's supplier_payment
+-- rules on that member's amount — a one-line batch is no laxer a way to pay a
+-- bill than the payment itself. NULL: nothing matches. The TypeScript twin is
+-- approvalMatching.strictestBatchRule (r035-pr5-coupling holds them together).
+CREATE OR REPLACE FUNCTION public.approval_payment_batch_strictest_rank(
+  p_company_id pg_catalog.uuid, p_batch_id pg_catalog.uuid
+) RETURNS pg_catalog.int4
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT GREATEST(
+    public.approval_rule_strictest_rank(p_company_id, 'payment_batch',
+      public.approval_payment_batch_gate_amount(p_company_id, p_batch_id)),
+    (SELECT MAX(public.approval_rule_strictest_rank(p_company_id, 'supplier_payment', m.amount))
+     FROM (SELECT DISTINCT public.approval_supplier_payment_gate_amount(sp.total_amount) AS amount
+           FROM public.supplier_payments sp
+           WHERE sp.batch_id = p_batch_id AND sp.company_id = p_company_id) m))
+$$;
+
+-- One check, for whichever document governs a row: a single payment is its
+-- own `supplier_payment` (on its gate amount); a batch is its `payment_batch`
+-- (on approval_payment_batch_strictest_rank). Members are judged as their
+-- batch, so a raw UPDATE cannot approve or pay a member outside a cleared batch.
 CREATE OR REPLACE FUNCTION public.payment_approval_cleared(
-  p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid,
-  p_amount pg_catalog.numeric
+  p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.bool
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
@@ -392,7 +427,13 @@ BEGIN
   WHERE ae.company_id = p_company_id AND ae.document_type = p_document_type;
   IF NOT FOUND THEN RETURN true; END IF;
 
-  v_demanded := public.approval_rule_strictest_rank(p_company_id, p_document_type, p_amount);
+  IF p_document_type = 'payment_batch' THEN
+    v_demanded := public.approval_payment_batch_strictest_rank(p_company_id, p_document_id);
+  ELSE
+    v_demanded := public.approval_rule_strictest_rank(p_company_id, 'supplier_payment',
+      (SELECT public.approval_supplier_payment_gate_amount(sp.total_amount) FROM public.supplier_payments sp
+       WHERE sp.id = p_document_id AND sp.company_id = p_company_id));
+  END IF;
   IF v_demanded IS NULL THEN RETURN true; END IF;
 
   RETURN EXISTS (
@@ -407,53 +448,99 @@ BEGIN
 END
 $$;
 
-REVOKE ALL ON FUNCTION public.payment_approval_cleared(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid, pg_catalog.numeric) FROM PUBLIC;
+DROP FUNCTION IF EXISTS public.payment_approval_cleared(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid, pg_catalog.numeric);
+REVOKE ALL ON FUNCTION public.payment_approval_cleared(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;
 
--- supplier_payments: fires whenever a row ENTERS approved / processed /
--- reconciled — an INSERT so, or an UPDATE into one from any other status —
--- and on approved -> processed too: processSupplierPayment and processBatch
--- re-check the approval where the money moves (an approval taken before
--- enforcement, or a bank-detail change since, must not be paid), and the
--- floor checks the same transition. processed <-> reconciled (applying or
--- unapplying cash already paid) is not an instruction and passes.
--- Exempt (Q4: the money has already moved): an INSERT of a SINGLE payment
--- while the transaction-local `isaflow.approval_gate_exempt` is 'bank_feed'
--- (the four bank-feed creators, inside withApprovalGateExemptBankFeed — a
--- census pins exactly those) or 'import' (scripts/import-sage-britech.ts may
--- set it for its raw 'processed' rows; it does not today, so under
--- enforcement it is refused). Never an UPDATE, never a batch member. The GUC
--- is an ordinary setting, so a raw-SQL session can set it itself — the N3
--- class 865 records, open for every type.
+-- SINGLE supplier payments (batch_id NULL), per row: fires whenever one
+-- ENTERS approved / processed / reconciled — an INSERT so, or an UPDATE into
+-- one from any other status — and on approved -> processed too:
+-- processSupplierPayment re-checks the approval where the money moves (an
+-- approval taken before enforcement, or a bank-detail change since, must not
+-- be paid), and the floor checks the same transition. processed <->
+-- reconciled (applying or unapplying cash already paid) is not an
+-- instruction and passes. Batch members are the statement trigger's.
+-- Exempt, on an INSERT only:
+--   * a REFUND (payment_method 'refund', a negative total): money coming IN
+--     from the supplier. Decision Q4 gates money going out; a refund document
+--     is never applied to a bill (supplierRefundDocument), so it can pay
+--     nothing — whichever line it was keyed from.
+--   * a payment recorded from a bank line that came from a live bank feed or
+--     an imported statement (Q4: the money has already moved, and the bank
+--     says so): withApprovalGateExemptBankFeed sets the transaction-local
+--     `isaflow.approval_gate_exempt` to 'bank_feed' — and only after reading
+--     the line's provenance itself (bank_feed_connection_id or
+--     import_batch_id; Hein, 2026-10-06, D2): a hand-keyed line is no
+--     evidence, so its payment is judged here like any other. The census
+--     pins the wrapper's callers. The GUC is an ordinary setting, so a
+--     raw-SQL session can set it itself — the N3 class 865 records, open for
+--     every type. No other value is honoured (round 1: the unused 'import').
 CREATE OR REPLACE FUNCTION public.supplier_payment_approval_gate()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
+  IF NEW.batch_id IS NOT NULL THEN RETURN NULL; END IF;
   IF COALESCE(NEW.status, '') NOT IN ('approved', 'processed', 'reconciled') THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND (OLD.status IS NOT DISTINCT FROM NEW.status
       OR (OLD.status IN ('processed', 'reconciled') AND NEW.status IN ('processed', 'reconciled'))) THEN
     RETURN NULL;
   END IF;
-  IF TG_OP = 'INSERT' AND NEW.batch_id IS NULL
-     AND COALESCE(pg_catalog.current_setting('isaflow.approval_gate_exempt', true), '') IN ('bank_feed', 'import') THEN
+  IF TG_OP = 'INSERT' AND NEW.payment_method = 'refund' AND NEW.total_amount < 0 THEN RETURN NULL; END IF;
+  IF TG_OP = 'INSERT'
+     AND COALESCE(pg_catalog.current_setting('isaflow.approval_gate_exempt', true), '') = 'bank_feed' THEN
     RETURN NULL;
   END IF;
 
-  IF NEW.batch_id IS NULL THEN
-    IF public.payment_approval_cleared(NEW.company_id, 'supplier_payment', NEW.id,
-         public.approval_supplier_payment_gate_amount(NEW.total_amount)) THEN
-      RETURN NULL;
-    END IF;
-    RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: supplier payment % cannot be approved or paid without an approval for its current content', NEW.id
-      USING HINT = 'Raise an approval request and have it approved, then approve or process the payment.';
+  IF public.payment_approval_cleared(NEW.company_id, 'supplier_payment', NEW.id) THEN RETURN NULL; END IF;
+  RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: supplier payment % cannot be approved or paid without an approval for its current content', NEW.id
+    USING HINT = 'Raise an approval request and have it approved, then approve or process the payment.';
+END
+$$;
+
+-- BATCH MEMBERS, per STATEMENT (round 1 REPRO 2): approveBatch and
+-- processBatch move every member in one UPDATE, and a row trigger re-derived
+-- the whole batch digest once per member — 8.5 s for 300 lines, 84 s for 600.
+-- This runs once per statement over the transition tables, and checks each
+-- DISTINCT batch whose members entered approved / processed / reconciled
+-- (same transitions as above) once. A member is cleared only by its BATCH's
+-- approval; no exemption applies to a member.
+CREATE OR REPLACE FUNCTION public.payment_batch_member_gate()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  r record;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    FOR r IN
+      SELECT n.company_id, n.batch_id, (pg_catalog.array_agg(n.id ORDER BY n.id))[1] AS member
+      FROM new_rows n
+      WHERE n.batch_id IS NOT NULL AND COALESCE(n.status, '') IN ('approved', 'processed', 'reconciled')
+      GROUP BY n.company_id, n.batch_id
+    LOOP
+      IF NOT public.payment_approval_cleared(r.company_id, 'payment_batch', r.batch_id) THEN
+        RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: batch member % cannot be approved or paid without an approval of batch % for its current content', r.member, r.batch_id
+          USING HINT = 'Raise an approval request for the batch and have it approved, then approve or process the batch.';
+      END IF;
+    END LOOP;
+  ELSE
+    FOR r IN
+      SELECT n.company_id, n.batch_id, (pg_catalog.array_agg(n.id ORDER BY n.id))[1] AS member
+      FROM new_rows n JOIN old_rows o ON o.id = n.id
+      WHERE n.batch_id IS NOT NULL AND COALESCE(n.status, '') IN ('approved', 'processed', 'reconciled')
+        AND o.status IS DISTINCT FROM n.status
+        AND NOT (o.status IN ('processed', 'reconciled') AND n.status IN ('processed', 'reconciled'))
+      GROUP BY n.company_id, n.batch_id
+    LOOP
+      IF NOT public.payment_approval_cleared(r.company_id, 'payment_batch', r.batch_id) THEN
+        RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: batch member % cannot be approved or paid without an approval of batch % for its current content', r.member, r.batch_id
+          USING HINT = 'Raise an approval request for the batch and have it approved, then approve or process the batch.';
+      END IF;
+    END LOOP;
   END IF;
-  IF public.payment_approval_cleared(NEW.company_id, 'payment_batch', NEW.batch_id,
-       public.approval_payment_batch_gate_amount(NEW.company_id, NEW.batch_id)) THEN
-    RETURN NULL;
-  END IF;
-  RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: batch member % cannot be approved or paid without an approval of batch % for its current content', NEW.id, NEW.batch_id
-    USING HINT = 'Raise an approval request for the batch and have it approved, then approve or process the batch.';
+  RETURN NULL;
 END
 $$;
 
@@ -467,22 +554,30 @@ AS $$
 BEGIN
   IF COALESCE(NEW.status, '') NOT IN ('approved', 'processed') THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND OLD.status IS NOT DISTINCT FROM NEW.status THEN RETURN NULL; END IF;
-  IF public.payment_approval_cleared(NEW.company_id, 'payment_batch', NEW.id,
-       public.approval_payment_batch_gate_amount(NEW.company_id, NEW.id)) THEN
-    RETURN NULL;
-  END IF;
+  IF public.payment_approval_cleared(NEW.company_id, 'payment_batch', NEW.id) THEN RETURN NULL; END IF;
   RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: payment batch % cannot be approved or paid without an approval for its current content', NEW.id
     USING HINT = 'Raise an approval request for the batch and have it approved, then approve or process the batch.';
 END
 $$;
 
 REVOKE ALL ON FUNCTION public.supplier_payment_approval_gate() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.payment_batch_member_gate() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.payment_batch_approval_gate() FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS trg_supplier_payment_approval_gate ON supplier_payments;
 CREATE TRIGGER trg_supplier_payment_approval_gate
   AFTER INSERT OR UPDATE OF status ON supplier_payments
   FOR EACH ROW EXECUTE FUNCTION public.supplier_payment_approval_gate();
+
+DROP TRIGGER IF EXISTS trg_payment_batch_member_gate_ins ON supplier_payments;
+CREATE TRIGGER trg_payment_batch_member_gate_ins
+  AFTER INSERT ON supplier_payments REFERENCING NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.payment_batch_member_gate();
+
+DROP TRIGGER IF EXISTS trg_payment_batch_member_gate_upd ON supplier_payments;
+CREATE TRIGGER trg_payment_batch_member_gate_upd
+  AFTER UPDATE ON supplier_payments REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows
+  FOR EACH STATEMENT EXECUTE FUNCTION public.payment_batch_member_gate();
 
 DROP TRIGGER IF EXISTS trg_payment_batch_approval_gate ON supplier_payment_batches;
 CREATE TRIGGER trg_payment_batch_approval_gate
@@ -496,8 +591,9 @@ BEGIN
   -- FORCE RLS on approval_enforcement / approval_requests / supplier_payments
   -- binds the definer's owner too: an owner without BYPASSRLS would see no
   -- enforcement row and let every payment through. Refuse to ship it that way.
-  FOREACH v_fn IN ARRAY ARRAY['public.supplier_payment_approval_gate()', 'public.payment_batch_approval_gate()',
-      'public.payment_approval_cleared(pg_catalog.uuid,pg_catalog.text,pg_catalog.uuid,pg_catalog.numeric)'] LOOP
+  FOREACH v_fn IN ARRAY ARRAY['public.supplier_payment_approval_gate()', 'public.payment_batch_member_gate()',
+      'public.payment_batch_approval_gate()',
+      'public.payment_approval_cleared(pg_catalog.uuid,pg_catalog.text,pg_catalog.uuid)'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
       WHERE p.oid = v_fn::pg_catalog.regprocedure AND (r.rolbypassrls OR r.rolsuper)

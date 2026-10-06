@@ -141,14 +141,19 @@ describe('who reaches the four choke points', () => {
 });
 
 describe('who changes where the money goes', () => {
-  it('every UPDATE of a supplier bank column records its setter and stamps the unpaid payments it re-routes', () => {
+  // Round 1 (blind MEDIUM 2): the change is judged against the row as LOCKED,
+  // read before the UPDATE, and the setters list is append-only.
+  it('every UPDATE of a supplier bank column locks the row first and records its setter', () => {
     const editors = matching(/UPDATE\s+suppliers\s+SET[\s\S]{0,1500}?bank_account_number\s*=/);
     expect(editors).toEqual([
       'src/modules/accounting/services/core/migrationContactService.ts',
       'src/modules/accounting/services/core/supplierWriteService.ts',
     ]);
     for (const rel of editors) {
-      expect(text(rel), rel).toMatch(/bankDetailsMoved\((rows\[0\]!|after)\)\)( \{\s*|\s)await recordBankDetailsSetter\(companyId, /);
+      const t = text(rel);
+      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
+      expect(t, rel).toMatch(/bankDetailsChange\(before, (rows\[0\]!|after)\)/);
+      expect(t, rel).toMatch(/if \(change !== 'none'\) await recordBankDetailsSetter\(companyId, [\w.]+, \w+, change\)/);
     }
   });
 
@@ -159,8 +164,17 @@ describe('who changes where the money goes', () => {
       'src/modules/accounting/services/core/migrationContactService.ts',
       'src/modules/accounting/services/core/supplierWriteService.ts',
     ]);
-    for (const rel of creators) expect(text(rel), rel).toMatch(/hasBankDetails\([^)]*\)\) await recordBankDetailsSetter\(companyId, /);
+    for (const rel of creators) {
+      expect(text(rel), rel).toMatch(/hasBankDetails\(\w+(\[0\]!)?\)\) await recordBankDetailsSetter\(companyId, .*, 'repointed'\);/);
+    }
     // Only through the helper: no other file names the column.
-    expect(matching(/bank_details_set_by/)).toEqual(['src/modules/accounting/services/ap/supplierPaymentAuthors.ts']);
+    expect(matching(/bank_details_setters/)).toEqual(['src/modules/accounting/services/ap/supplierPaymentAuthors.ts']);
+  });
+
+  // Round 1 LOW (b): batch before members, the order approveBatch / processBatch take.
+  it('both merges lock the batches of the payments they move before moving them', () => {
+    for (const rel of ['pages/api/accounting/supplier-merge.ts', 'src/modules/accounting/services/core/duplicateMergeService.ts']) {
+      expect(text(rel), rel).toMatch(/lockBatchesPayingSupplier\(companyId, \w+, null\);[\s\S]{0,400}UPDATE supplier_payments/);
+    }
   });
 });

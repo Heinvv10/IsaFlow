@@ -40,10 +40,18 @@ export async function payCompany(pool: Pool, members: [string, string][], compan
   return { company, bank };
 }
 
-export async function enforcePay(db: Db, company: string, type: PayType, by: string, enabledAt?: string): Promise<void> {
-  await db.query(
-    `INSERT INTO approval_enforcement(company_id, document_type, enabled_by, enabled_at)
-     VALUES($1,$2,$3,COALESCE($4::TIMESTAMPTZ, now()))`, [company, type, by, enabledAt ?? null]);
+/**
+ * Enforcement planted directly, for BOTH payment types: the switches are
+ * coupled (Hein, 2026-10-06, D1 — the API always moves them together), so a
+ * company never has one without the other. `type` is kept for readability.
+ */
+export async function enforcePay(db: Db, company: string, _type: PayType, by: string, enabledAt?: string): Promise<void> {
+  for (const type of ['supplier_payment', 'payment_batch']) {
+    await db.query(
+      `INSERT INTO approval_enforcement(company_id, document_type, enabled_by, enabled_at)
+       VALUES($1,$2,$3,COALESCE($4::TIMESTAMPTZ, now()))
+       ON CONFLICT (company_id, document_type) DO NOTHING`, [company, type, by, enabledAt ?? null]);
+  }
 }
 
 /** A supplier with a full set of bank details. */

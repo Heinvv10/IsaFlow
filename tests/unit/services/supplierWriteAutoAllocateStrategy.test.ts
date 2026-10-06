@@ -32,8 +32,11 @@ const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise
 const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
 const SUPPLIER_ID = 'ssssssss-0000-4000-8000-ssssssssssss';
 
+/** The parameters of the INSERT or UPDATE itself (updateSupplier reads the bank details under a lock first). */
 function insertParams(): unknown[] {
-  return mockSql.mock.calls[0]!.slice(1);
+  const call = mockSql.mock.calls.find((c) => /INSERT INTO suppliers|UPDATE suppliers SET/
+    .test((c[0] as unknown as readonly string[]).join('')))!;
+  return call.slice(1);
 }
 
 beforeEach(() => {

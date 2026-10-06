@@ -46,13 +46,13 @@ async function footprint(c: string, id: string) {
 }
 
 describe('approve', () => {
-  it('the enforcement API switches supplier_payment on (200)', async () => {
+  it('the enforcement API switches supplier_payment on (200) — and payment_batch with it (coupled, D1)', async () => {
     const { company: c } = await company();
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'POST',
       { documentType: 'supplier_payment', enabled: true }, '/api/accounting/approval-enforcement');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1', [c]);
-    expect(rows.map((x) => x.document_type)).toEqual(['supplier_payment']);
+    const { rows } = await pool.query('SELECT document_type FROM approval_enforcement WHERE company_id = $1 ORDER BY 1', [c]);
+    expect(rows.map((x) => x.document_type)).toEqual(['payment_batch', 'supplier_payment']);
   });
 
   it('refuses 409 APPROVAL_REQUIRED before any write, naming the payment', async () => {

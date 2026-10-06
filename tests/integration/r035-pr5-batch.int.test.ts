@@ -135,12 +135,12 @@ describe('scope', () => {
     expect((await r.batch(u.a, c, 'process', b.id)).state.statusCode).toBe(200);
   });
 
-  it('supplier_payment enforcement does not gate a batch, nor payment_batch a single payment', async () => {
+  it('the types are coupled (D1): a supplier_payment rule gates a batch paying that much; a batch rule never gates a single payment', async () => {
     const { company: c, bank } = await company();
     await plantRule(pool, c, 'owner', { documentType: 'supplier_payment' });
     await enforcePay(pool, c, 'supplier_payment', u.b);
     const b = await plantBatch(pool, c, u.a, bank);
-    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
+    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(409);
     const { company: c2, bank: bank2 } = await company();
     await plantRule(pool, c2, 'owner', { documentType: 'payment_batch' });
     await enforcePay(pool, c2, 'payment_batch', u.b);
