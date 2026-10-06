@@ -20,9 +20,8 @@
 -- Retry-After) and its MAX — a later statement under READ COMMITTED — sees the
 -- first number.
 --
--- THE KEYS (scope, seed). A number minted in a transaction that also posts a
--- journal shares 857's journal key — one key, not one per type, because a
--- per-type key against the journal key deadlocked (858, measured):
+-- THE KEYS (scope, seed): one seed per number type, each taken by exactly
+-- one path, before that path's MAX read.
 --
 --   number                     scope                          seed
 --   asset <PFX>-NNNN           '<company_id>:<PFX>'           864001
@@ -30,6 +29,7 @@
 --   CL-YYYY-NNNN (claim)       '<company_id>:<YYYY>'          864003
 --   ITEM-NNNN                  '<company_id>'                 864004
 --   INV-YYYYMM-NNNN (admin)    'INV-YYYYMM-' (platform-wide)  864005
+--   GRN-NNNNN                  '<company_id>'                 620 (its existing key, now bounded)
 --
 -- Not covered: TXF- bank-transfer numbers. That route fails on every call
 -- before it numbers anything (it inserts gl_journal_entries columns that do not
