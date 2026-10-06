@@ -1,8 +1,8 @@
 /**
  * Ledger-date window: a fiscal year must lie inside 1900-01-01..2199-12-31 (createFiscalYear). Its periods date the
  * journals no createJournalEntry check sees — the year-end closing journal is dated the year's last day, a
- * depreciation run its period — and POST fiscal-periods took any number as a year (1, 100000; 21990 even wrote
- * periods dated 2199, its first four digits).
+ * depreciation run its period — and POST fiscal-periods took any number as a year (1, 1899, 2200 and 100000 each
+ * created twelve periods).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
