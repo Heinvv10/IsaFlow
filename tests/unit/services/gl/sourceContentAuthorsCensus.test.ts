@@ -46,7 +46,7 @@ const text = (rel: string) => files.find((f) => f.rel === rel)!.text;
 const STAMPS = {
   'src/modules/accounting/services/ar/sourceContentEditor.ts': 'the quote and sales-order draft edits: stamps when the fingerprint moved',
   'src/modules/accounting/services/ar/customerMergeService.ts': 'merge: re-points a quote/order customer — stamps the merging user',
-  'src/modules/accounting/services/core/timeTrackingService.ts': 'time-entries PUT: stamps when the rate or billable flag changes',
+  'src/modules/accounting/services/core/timeTrackingService.ts': 'time-entries PUT: stamps on a rate, billable or someone-else\'s-hours change',
   'src/modules/accounting/services/practice/practiceTimeEntryService.ts': 'practice timesheet edit: stamps when the resolved rate or billable flag changes',
 };
 
@@ -87,7 +87,7 @@ describe('writers of the content an invoice is converted from', () => {
     expect(writers('time_entries')).toEqual([
       'pages/api/accounting/time-entries-invoice.ts', // billing claim: status + link
       'src/modules/accounting/services/ar/customerMergeService.ts', // customer_id: not the price
-      'src/modules/accounting/services/core/timeTrackingService.ts', // create; edit (stamped); submit/approve: status
+      'src/modules/accounting/services/core/timeTrackingService.ts', // create (stamps a logger who types a rate); edit (stamped); submit/approve: status
       'src/modules/accounting/services/practice/practiceTimeEntryService.ts', // create; timesheet edit (stamped)
       'src/modules/accounting/services/practice/practiceTimeEntryWorkflow.ts', // submit / approve / bill / write off: status + link
       'src/modules/accounting/services/reports/timeTrackingReportService.ts', // markAsInvoiced: status + link

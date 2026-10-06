@@ -180,8 +180,8 @@ export async function updatePracticeEntry(
   const lineTotal = lineTotalFor(effectiveHours, appliedRate);
 
   // R-120: store effectiveHours, not raw input — PG rounds 1.005 up, JS down; the line must match.
-  // R-035 PR4 round 2: an edit that re-prices the entry (its resolved rate) or flips billable makes the editor an
-  // author of the invoice it is billed on; hours are effort and stamp nobody.
+  // R-035 PR4: an edit that re-prices the entry (its resolved rate), flips billable, or changes SOMEONE ELSE'S hours
+  // makes the editor an author of the invoice it is billed on (rounds 2, 3); your own hours are effort.
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
 
@@ -189,6 +189,8 @@ export async function updatePracticeEntry(
     UPDATE time_entries SET
       content_authors    = CASE WHEN applied_rate IS DISTINCT FROM ${appliedRate}::NUMERIC
                                   OR billable IS DISTINCT FROM COALESCE(${input.billable ?? null}::BOOLEAN, billable)
+                                  OR (hours IS DISTINCT FROM COALESCE(${input.hours !== undefined ? effectiveHours : null}::NUMERIC, hours)
+                                      AND user_id IS DISTINCT FROM ${editedBy}::UUID)
                              THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
       hours              = COALESCE(${input.hours !== undefined ? effectiveHours : null}, hours),
