@@ -95,13 +95,25 @@
 -- that holds that row and then needs K. Needs the same row at the same moment.
 -- Shapes that can cycle (code reading 2026-10-06; brk-docnum A2 measured the
 -- first):
---   * customer invoice. K then the invoice: createCustomerPayment (customer-
---     payments POST, MCP contra; KEY SHARE through the allocation FK), the
---     gateway receipt (gatewayReceiptAllocation FOR UPDATE), a bank-allocated
---     receipt auto-applying (autoApplyCustomerReceipt, FOR UPDATE on the
---     customer's open invoices). The invoice then K: cancelCustomerInvoice
---     (FOR UPDATE, then reverseJournalEntry). New with 858 for the first two;
---     the bank auto-apply pair has existed since 857.
+--   * customer invoice. AR has NO single order between an invoice row and K:
+--     some paths lock the invoice and then number, others number and then lock
+--     the invoice. Pairs that cycle on the same invoice:
+--     - cancelCustomerInvoice (invoice FOR UPDATE, customerInvoiceCancelService
+--       :102, then reverseJournalEntry numbers the reversal) vs the
+--       customer-payments POST / MCP contra (createCustomerPayment: K at the
+--       payment INSERT, then KEY SHARE on the invoice through the allocation
+--       FK). New with 858; measured by brk-docnum A2.
+--     - cancelCustomerInvoice vs a bank-allocated receipt (allocateTransaction:
+--       journal + payment number, then autoApplyCustomerReceipt locks the
+--       customer's open invoices FOR UPDATE — the default 'fifo' mode, so every
+--       bank receipt). Pre-existing since 857 (journal key alone).
+--     - cancelCustomerInvoice vs the gateway receipt
+--       (recordGatewayInvoiceReceipt: payment INSERT, then
+--       gatewayReceiptAllocation FOR UPDATE on the invoice). New with 858.
+--     Locking the invoices before the payment INSERT in createCustomerPayment
+--     would only move the cycle onto the bank receipt (measured 2026-10-06:
+--     40P01 at 1.1 s), so it is not done; one canonical AR order is a
+--     follow-up.
 --   * contact (customer / supplier). K then the contact (FK KEY SHARE on
 --     client_id / supplier_id): every receipt, supplier payment and credit-note
 --     insert. The contact then K: a bank-allocated refund (lockContactForRefund
