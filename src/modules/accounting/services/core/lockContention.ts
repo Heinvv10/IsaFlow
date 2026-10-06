@@ -32,3 +32,13 @@ export function isLockContention(err: unknown): boolean {
   const code = (err as { code?: unknown }).code;
   return code === LOCK_NOT_AVAILABLE || code === DEADLOCK_DETECTED;
 }
+
+/**
+ * A raw `lock_not_available` only — a lock wait that hit its `lock_timeout`, with NO deadlock. Since migration 858 the
+ * usual source is the document / journal number lock (company + year), bounded at 5 s inside the numbering trigger.
+ * Unlike 40P01 it does not mean this transaction was chosen as a victim: raised inside a savepoint that rolled back,
+ * the transaction is live and the element is simply retryable.
+ */
+export function isLockNotAvailable(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE;
+}

@@ -34,6 +34,7 @@ import { insufficientScopeMessage } from './scopeRemediation';
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
 import { isRefusalCoded } from './tools/toolHelpers';
+import { lockWaitErrorText } from './lockWaitError';
 import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 
 export function savepointNameFor(toolName: string): string {
@@ -308,6 +309,8 @@ export class McpRegistry {
       // The savepoint has rolled back; the text is caller-facing, no SQL. An
       // unclassified Error or a pg error still falls through to GENERIC_FAILURE.
       if (isRefusalCoded(err)) return errorResult(err.message);
+      const lockWait = lockWaitErrorText(name, err); // a raw 55P03 — see lockWaitError.ts
+      if (lockWait) return errorResult(lockWait);
       return errorResult(GENERIC_FAILURE);
     }
   }
