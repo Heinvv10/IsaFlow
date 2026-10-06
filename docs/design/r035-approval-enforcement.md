@@ -227,7 +227,12 @@ Mutation checks. Each one must turn a test red:
 
   Paystack receipts never reach it for a draft; they are banked unapplied. It honours the import GUC (Q1). A raw-SQL session can set that GUC itself (the N3 class, in the SECURITY DEFINER follow-up).
 - **Lock:** the gate reads under `FOR NO KEY UPDATE`, taken only on an approvable invoice. Content edits wait for it, inserts that reference the invoice do not.
-- **Upstream authors:** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it.
+- **Upstream authors (Hein, 2026-10-06: whoever sets the price upstream is an author):** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it.
+  - A quote's or order's creator and every editor whose change moved what it billed count as authors. So does every user who changed a time entry's rate or billable flag.
+  - The time entry's logger does not count (decision 1): hours are effort, and the rate sets the price.
+  - Source editors are stamped on the edit itself, never at creation.
+  - A converted quote is terminal, so the link authors are derived through cannot be moved.
+  - Accepted dead end: if every member of the rank authored or raised the invoice (two owners, one priced the quote and the other converted it), nobody may approve it. The refusal tells them to have the source's author perform the conversion instead.
   - Template authors are written into the invoice at mint, because the invoice keeps no link to its template.
   - Conversion authors are derived by `approval_document_authors` from the links the converters already write. Supplier invoices minted from templates are not stamped; this is a known limit, because stamping them would change live enforcement.
 - **Unattended (recurring invoices, recurring-transaction autoPost):** the invoice stays a draft, the request is raised as the runner, and the schedule advances. The run reports `held_for_approval`.
