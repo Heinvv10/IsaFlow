@@ -8,12 +8,34 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { commitARInvoice } from '@/modules/admin/services/sageMigrationCommitService';
+import { commitARInvoice as commitARInvoiceInTx } from '@/modules/admin/services/sageMigrationCommitService';
 import { mapSageARInvoices } from '@/modules/accounting/services/core/sageAutoImportService';
+import { als } from '@/lib/als';
 
 assertDisposable();
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+/**
+ * commitARInvoice runs, as in production (withPlatformAdmin), inside a request
+ * transaction: its import exemption (R-035 PR4) is transaction-local and refuses
+ * to run without one. Committed, so the reads below see it.
+ */
+async function commitARInvoice(...args: Parameters<typeof commitARInvoiceInTx>) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: args[1], companyId: args[0], claims: {} } as never,
+      () => commitARInvoiceInTx(...args));
+    await client.query('COMMIT');
+    return out;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 const companyId = randomUUID();
 const userId = randomUUID();
 const tag = companyId.slice(0, 8);
