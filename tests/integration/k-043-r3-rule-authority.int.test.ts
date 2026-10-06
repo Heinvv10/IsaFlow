@@ -119,7 +119,7 @@ describe('HIGH-2 — an admin cannot weaken a rule that demands more than they h
 
   it('records every rule change in audit_log, since approval_rules keeps no history', async () => {
     const created = await call(approvalRules, owner, 'POST', {
-      name: 'audited rule', documentType: 'payment',
+      name: 'audited rule', documentType: 'journal_entry',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
     });
     expect(created.state.statusCode).toBe(200);
