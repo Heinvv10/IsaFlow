@@ -61,6 +61,11 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () =>
   postSupplierInvoiceToGL: postGlMock,
 }));
 
+// The route's up-front year lock reads the bills (NUMRACE, tested against Postgres); not this file's subject.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceYearLocks', () => ({
+  lockSupplierInvoiceYears: vi.fn(async () => undefined),
+}));
+
 import handler from '../../../pages/api/accounting/supplier-invoices-bulk-action';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';

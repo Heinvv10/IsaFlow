@@ -32,6 +32,7 @@ import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/ban
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { lockNumberYears, reversalYears } from '@/modules/accounting/services/core/numberYearLocks';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
 
@@ -154,7 +155,10 @@ export const reverseAllocationsTool: McpTool = {
 
     // No try/catch, deliberately — see the file header. Rows arrive ordered by
     // id, the same deterministic lock order the allocate and batch-reverse
-    // paths use, so this cannot deadlock against a concurrent batch.
+    // paths use, so this cannot deadlock against a concurrent batch. Every year
+    // the contra journals can be dated in is taken first, ascending
+    // (core/numberYearLocks.ts); a raw 55P03 there reversed nothing.
+    await lockNumberYears(ctx.companyId, reversalYears(rows.map((r) => r.transactionDate), reversalDate));
     for (const row of rows) {
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings,

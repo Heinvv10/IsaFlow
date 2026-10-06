@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
+import { journalYearOf, lockNumberYears } from '../core/numberYearLocks';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
 
@@ -153,6 +154,9 @@ export async function importJournalEntries(
     let entriesCreated = 0;
     let linesCreated = 0;
     let totalValue = 0;
+    // Every year these groups are dated in, ascending, before the first journal (core/numberYearLocks.ts): the
+    // groups post in file order, so a multi-year import deadlocked against any run walking the years the other way.
+    await lockNumberYears(companyId, resolved.map((g) => journalYearOf(g.entryDate)));
 
     for (const group of resolved) {
       // createJournalEntry resolves the fiscal period from entryDate and runs

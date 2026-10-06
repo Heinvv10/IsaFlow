@@ -20,6 +20,7 @@ import {
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { lockNumberYears, reversalYears } from '@/modules/accounting/services/core/numberYearLocks';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
 
@@ -106,6 +107,10 @@ export const reverseBankAllocationBatchTool: McpTool = {
     const orderedReversals = [...toReverse].sort(
       (a, b) => (a.transactionId < b.transactionId ? -1 : a.transactionId > b.transactionId ? 1 : 0),
     );
+
+    // Every year these contra journals can be dated in, ascending, before the first (core/numberYearLocks.ts). A
+    // raw 55P03 here reversed nothing and reaches the registry as "retry".
+    await lockNumberYears(ctx.companyId, reversalYears(orderedReversals.map((l) => l.transactionDate), reversalDate));
 
     // No try/catch, same reasoning as the allocate handler: a half-reversed
     // batch is worse than a failed one, and only a throw rolls it back.

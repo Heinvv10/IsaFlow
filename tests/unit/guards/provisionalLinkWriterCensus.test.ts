@@ -44,7 +44,8 @@ const CLASSIFICATION: Record<string, { why: string; lines: string[] }> = {
     lines: [
       'if (tx.matched_journal_line_id && tx.provisional_je_id) {',
       "SET status = 'imported', provisional_je_id = NULL, updated_at = NOW()",
-      'SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id',
+      // NUMRACE 2026-10-06: + transaction_date, a read for the run's up-front year lock; no link write.
+      'SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id, transaction_date',
     ],
   },
   'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': {

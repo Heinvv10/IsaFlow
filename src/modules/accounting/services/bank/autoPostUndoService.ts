@@ -24,46 +24,13 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
+import { lockNumberYears, reversalYears } from '../core/numberYearLocks';
+import type { UndoSkips, UndoResult } from './autoPostUndoResult';
 
 type Row = DbRow;
 
-/**
- * Why a row was skipped — each has a different remedy for the user.
- * `reconciled`: unreconcile it first. `contended`: a peer holds it, retry.
- * `failed`: the reversal itself refused (a closed period, a row still marked
- * posted with nothing linked to reverse, a provisional journal whose reversal
- * was itself reversed); the reason is in the log. `offsetByHand`: a manual
- * journal already offsets the posting (R-079) — reverse that journal, or
- * confirm it is the correction (autoPostHandCorrection.ts); `handOffsets`
- * names it.
- */
-export interface UndoSkips {
-  reconciled: number;
-  contended: number;
-  failed: number;
-  offsetByHand: number;
-}
-
-export interface UndoResult {
-  reversed: number;
-  /** The sum of `skippedBy`. */
-  skipped: number;
-  skippedBy: UndoSkips;
-  /**
-   * Rows carrying the run's tag with nothing left to reverse. The product
-   * makes them: `unmatchTransaction` and `reverseReconciledTransaction` clear
-   * `matched_journal_line_id` and leave `auto_post_run_id` set, and a user can
-   * reverse a provisional JE by hand. The undo finishes such a row — clears the
-   * tag, and for a hand-reversed JE resets the line to `imported` — without
-   * posting anything, so it must not be counted in `reversed`, the number the
-   * operator reconciles against.
-   */
-  alreadyUndone: number;
-  /** TRUE only when `skipped` is 0 — the run was recorded undone. */
-  undone: boolean;
-  /** One entry per `offsetByHand` skip: the row and the journal that offsets it. */
-  handOffsets: HandOffset[];
-}
+// The result shapes live in autoPostUndoResult.ts (the 300-line ceiling), re-exported for every caller.
+export type { UndoSkips, UndoResult } from './autoPostUndoResult';
 
 /**
  * Savepoint name for one row of the undo. `withSavepoint` caps names at 31
@@ -190,11 +157,14 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   if (runRows[0]!.undone_at) throw new Error('Run already undone');
 
   const txRows = (await sql`
-    SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id
+    SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id, transaction_date
     FROM bank_transactions
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY id
   `) as Row[];
+  // Every year the contra journals can be dated in (each original is dated its bank line's date), ascending, before
+  // the first (core/numberYearLocks.ts). A 55P03 here reversed nothing: the route answers 503 + Retry-After.
+  await lockNumberYears(companyId, reversalYears(txRows.map((t) => t.transaction_date as string | Date)));
 
   let reversed = 0;
   let alreadyUndone = 0;
