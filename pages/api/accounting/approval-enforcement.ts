@@ -5,6 +5,9 @@
  *        it holds now (`preview` — computed on demand, it hashes every such bill)
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
+ * Both GETs carry `legacyCreditNoteRules`: the company's ACTIVE rules of the
+ * legacy `credit_note` type, which govern neither credit-note type (R-035 PR3).
+ *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
  * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
  * active rule of the type (mayWeakenAtLevel, R-048: a rank strictly above it,
@@ -22,11 +25,13 @@ import type { DocumentType } from '@/modules/accounting/services/gl/approvalServ
 import type { RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import {
   ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
-  disableEnforcement, enableEnforcement, listEnforcement,
+  countLegacyCreditNoteRules, disableEnforcement, enableEnforcement, listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
-const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
+const DOCUMENT_TYPES = new Set<DocumentType>([
+  'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
+]);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -36,10 +41,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const items = await listEnforcement(companyId);
+    // Active legacy `credit_note` rules govern nothing (R-035 PR3): the switch warns about them.
+    const legacyCreditNoteRules = await countLegacyCreditNoteRules(companyId);
+    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
-    if (req.query.preview !== '1') return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES });
+    if (req.query.preview !== '1') return apiResponse.success(res, base);
     const preview = await previewEnforcement(companyId);
-    return apiResponse.success(res, { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, preview });
+    return apiResponse.success(res, { ...base, preview });
   }
 
   if (req.method === 'POST') {

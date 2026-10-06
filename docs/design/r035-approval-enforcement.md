@@ -1,0 +1,217 @@
+# R-035 design: enforcing approvals on posting paths
+
+Everything here was read from `origin/master` at `c82cb65d2`. I did not query any database.
+
+## 0. Facts that change the plan
+
+1. **The 234 seed rules are inert.** Migration 234 inserts them with no `company_id`. Migration 280 (`280_add_company_id_indexes.sql:20`) adds the column as nullable and never backfills it. The 251 demo seed also omits `company_id`. `checkApproval` filters on `company_id = ${companyId}` (`approvalMatching.ts:55`), so rows with a NULL company never match anything. Migration 665's own comment confirms NULL-company seeds exist.
+   - New companies get no rules. The only writer of `approval_rules` is `createRule` (`approvalService.ts:166`).
+   - So the overnight risk comes only from rules tenants created themselves through the UI or API. I can't see those without prod access, which is why the census in §3 is needed.
+2. **`supplier_invoices.status` already allows `pending_approval`.** The CHECK in `201_accounts_payable.sql:36` permits it, and `documentPopulation.ts:55` keeps it out of the AP population. Nothing writes it today.
+3. **Four supplier-invoice paths put a bill into the AP population (payable and ageable) without ever calling approve.** They are listed in §1 as B1–B4. Gating `approveSupplierInvoice` alone would leave all four open.
+4. **Currency bypass.** `findDocument` matches rules against `total_amount` (`approvalDocuments.ts:58`), which is in the document's own currency. The ZAR figure is `functional_total` (`supplierInvoiceService.ts:100`). A USD 5,000 bill (about R92,500) would slip under a R50,000 rule. The fix is to match on `COALESCE(functional_total, total_amount)`.
+5. **Journals can't be gated at `postJournalEntry`.** It has about 46 callers, almost all of them system journals (`source auto_*`). A rule like "All journal entries → accountant" would stop every invoice posting, depreciation run and bank allocation. Journal enforcement has to cover manual journals only.
+6. **Existing defect in the route PR2 changes.** `supplier-invoices-action.ts:68-72` catches every error and returns 400. `withAuth` commits on 4xx, so a failure after the journal is written commits partial work. This is the same class `approveActionsNo4xxAfterWrite.test.ts` fixed for other routes. The new 409 must be mapped explicitly and everything else rethrown.
+
+## 1. Inventory
+
+### Supplier invoices: every path into posted or AP-population state
+
+| # | Path | file:line | Who acts | Treatment |
+|---|---|---|---|---|
+| A1 | UI approve | `pages/api/accounting/supplier-invoices-action.ts:54` → `approveSupplierInvoice` | human | 409 |
+| A2 | UI bulk approve | `supplier-invoices-bulk-action.ts:94` | human | per-row 409 message |
+| A3 | UI bulk "Post to GL" | `supplier-invoices-bulk-action.ts:99` → `postSupplierInvoiceToGL` (`supplierInvoiceWorkflowService.ts:154`) | human | Already refuses drafts (R-118, `:201`). Only posts bills already in the population, so not gated (see Q7) |
+| A4 | MCP `approve_supplier_invoice` | `src/lib/mcp/tools/writeSupplierInvoices.ts:162-178` | agent | Refused by a pre-read, which the tool's design requires (comment at `:157-161`) |
+| A5 | MCP `bulk_approve_supplier_invoices` | `writeBulkApproveSupplierInvoices.ts:42` (APPROVABLE pre-read), `:108` (postOne) | agent | Skipped with reason `approval_required` |
+| A6 | Recurring template with `autoPost` | `recurringTransactionInvoices.ts:184-193` → `approveSupplierInvoice`. Only caller is the `recurring-transactions-execute.ts:27` route; no cron | human-triggered run, unattended per bill | Leave the bill as draft, raise a request, return `posted:false` |
+| B1 | Capture post | `pages/api/accounting/capture/[id]/post.ts:187-189` sets status, INSERT at `:220` | unattended (`auto_publish`/`auto_approve`) | **Inserts `'approved'` directly: no approve call, no journal, `approved_by` NULL.** Insert `'draft'` and raise a request |
+| B2 | AI invoice pipeline | `pages/api/accounting/ai-invoice-pipeline.ts:196`, INSERT at `:184` | unattended | Same bypass; same fix as B1 |
+| B3 | Sage import (staging) | `core/sageSupplierInvoiceImportService.ts:147`, route `sage-migration-action.ts:78` | import | Inserts `'approved'` directly. Exempt (Q1) |
+| B4 | Sage migration commit | `admin/services/sageMigrationCommitService.ts:208` create, `:267` UPDATE to `'approved'` plus raw journal post | import | Exempt (Q1) |
+| B5 | AP take-on CSV | `ap/migrationApService.ts:140` status, `:232` INSERT, route `migration/ap-invoices.ts:57` | import | Exempt (Q1) |
+| B6 | Offline scripts | `scripts/import-sage-britech.ts:119`, `scripts/seed-historical-data.mjs:120`, `scripts/qa-seed/transactions.ts:70` | operator | Covered by the DB trigger |
+
+Edit paths, which must invalidate an approval:
+- `supplier-invoices-detail.ts:35-46`: header PUT (number, date, due date) on draft or `pending_approval`, taken without a lock.
+- MCP `update_supplier_invoice` → `supplierInvoiceDraftUpdate.ts:70/179`: line edits, draft only. It deletes and re-inserts the item rows (`:215`).
+- `gl/accountMergeDocumentRows.ts:70`: repoints `gl_account_id` on bill lines.
+- The 3-way match (`supplierInvoiceWorkflowService.ts:428`) writes only match-state columns and should not affect the digest.
+
+### Other document types: choke points and their callers
+- **credit_note**: `approveCreditNote` (`ar/creditNoteApproveService.ts:35`). Callers: `credit-notes-action.ts:57`, `supplier-credit-notes.ts:110` (create-and-approve in one call) and `:147`, MCP `writeCreditNotes.ts:116`, `writeBulkApproveCreditNotes.ts:133`.
+- **customer_invoice**: `approveCustomerInvoice` (`ar/customerInvoiceApprovalService.ts:83`) and `postCustomerInvoiceToGL` (`ar/customerPaymentAllocationService.ts:219`, via `customer-invoices-gl.ts:28`). Also recurring `mintRecurringCustomerInvoice`, MCP `finalize_invoice`/`bulk_finalize_invoices`, and Sage commit `sageMigrationCommitService.ts:187` (`historicalImport`).
+- **payment**: `approveSupplierPayment`/`processSupplierPayment` (`ap/supplierPaymentWorkflowService.ts:35/82`), `processBatch` (`ap/batchPaymentService.ts:149`), `confirmCustomerPayment` (`ar/customerPaymentAllocationService.ts:44`). Unattended callers: `gatewayInvoiceReceiptService.ts:173` and MCP `writeSettleByContra.ts:237/262`. Payments created from bank lines record money that has already moved (Q4).
+- **journal_entry** (manual sources only): `journal-entries-action.ts:65`, MCP `writeJournals.ts:149`, `recurringJournalService.ts:188`, `glImportExecuteService.ts:170`, `receipt-to-journal.ts:246`, `writeOpeningBalance.ts:172`. Provisional and bank-rule auto-posts (`capture/provisionalPostingService.ts:265`, `bank/autoPostGateService.ts:220`) are system journals.
+
+## 2. Supplier-invoice design
+
+**How "approved" is represented: derived, not stored.** Hein asked for a document-level approval status. I recommend it be a read-model field computed on the server, not a new column that writers set.
+- A stored column would be a second writer set: nine insert sites, three edit paths, and a decide path that would have to write into five different document tables. Each of those is a way for the column to drift.
+- The derived answer is: an `approved` request exists for this document whose `document_digest` equals the document's current digest and whose `required_role` rank is at least that of the strictest rule matching today.
+- The detail GET returns `approval: { state: 'not_required'|'required'|'pending'|'approved'|'stale', requiredRole, requestId, ruleName }`.
+- The bill stays `draft` while it waits. `pending_approval` is left unwritten (Q3).
+- Why this is safer given 665 and 669: approved requests are terminal and `decideRequest` only updates pending rows. So the gate reads immutable rows plus a digest recomputed live. Nothing can be flipped to "approved" except through `assertMayDecide`.
+- **Strongest argument against:** filtering the bill list by "awaiting approval" needs an EXISTS on `approval_requests`. That's cheap, because `uq_approval_requests_pending` covers the lookup.
+
+**Binding the approval to what was approved: the digest.** One SQL function, `approval_document_digest(company uuid, doc_type text, doc_id uuid)`, created in the migration. Both `findDocument` and the trigger call it, so it has a single definition.
+- For supplier invoices it is an md5 over `supplier_id, invoice_date, currency_code, exchange_rate, subtotal, tax_amount, total_amount, functional_total` plus a **content-sorted** `string_agg` of each line's `gl_account_id, quantity, unit_price, tax_rate, tax_amount, line_total`, and any other column `supplierInvoiceExpenseLines.ts` reads.
+- Line ids are deliberately excluded because the draft edit re-inserts every row.
+- Any header or line edit, and an account merge, therefore makes the approval stale. Reverting to identical content makes it valid again (Q9).
+- Old approved requests have a NULL digest and never clear anything, which is the intended fail-closed behaviour.
+
+**The choke point:** a new `src/modules/accounting/services/gl/approvalGate.ts`, generic across the five types.
+- `evaluateApprovalGate(companyId, type, id)` returns `null` or a refusal, and reads only. MCP pre-reads and the bulk runner classification use it.
+- `assertApprovalCleared(...)` throws `ApprovalRequiredError { reason: 'APPROVAL_REQUIRED'|'APPROVAL_PENDING'|'APPROVAL_STALE', requiredRole, requestId }`.
+- Steps:
+  1. Is there an `approval_enforcement` row for this company and type? If not, return.
+  2. Call `resolveApprovalDocument`, which now returns amount (using the functional total) and digest.
+  3. Call `checkApproval`. If no rule matches, return.
+  4. Look up approved requests for the document with a matching digest, scoped to `company_id`, and compare rank with `requiredRank` in TypeScript.
+- Placement: in `approveSupplierInvoice` directly after the status check at `supplierInvoiceWorkflowService.ts:60`. That is after the row lock at `:53` and **before** the journal-reuse branch at `:84` and before any write, so the 409 is a pre-write refusal.
+
+**Backstop: a DB trigger** on `supplier_invoices`, BEFORE INSERT OR UPDATE OF status.
+- It fires when the status enters the population, i.e. an INSERT, or an UPDATE from draft or `pending_approval`.
+- It raises when enforcement is on, an active rule matches, and no approved request with the current digest exists.
+- Only `migrationApService`, the Sage import and the Sage commit may bypass it, by setting `set_config('isaflow.approval_gate_exempt','import',true)`. A census test pins exactly those setters.
+- **Why add it:** the B-paths are raw INSERTs, and a census of code misses scripts and future writers. The repo's lesson "Table must refuse forged rows" points the same way.
+- **Cost:** the trigger checks existence only; the rank ratchet lives in the TypeScript gate. Two layers, with the trigger acting as a fail-closed floor that surfaces as a 500 and a rollback.
+
+**Unattended paths (B1, B2, A6).** Before the INSERT, evaluate the rules against the amount. If approval is required, insert `'draft'`, write the items, then call `requestApproval` with `requested_by` set to the uploader or runner. The response carries `approvalRequest`. They should not refuse outright: the captured document is already claimed, and a refusal would strand it.
+
+**How requests get raised.** Reuse the existing `POST /api/accounting/approval-requests {action:'request'}`; no new route.
+- `rebindPendingRequest` (`approvalDocuments.ts:143-146`) must add the digest to its "unchanged" check and refresh it. A pending request has no approval yet, so refreshing its digest is safe.
+- `decideRequest` must refuse `approve` with a 409 `DOCUMENT_CHANGED` when the request's digest no longer matches the current one. Otherwise the approver would be approving a figure the bill no longer has.
+- The migration adds `approval_requests.document_digest`, written by the INSERT at `approvalDocuments.ts:205`.
+
+**The 409 body:** `"Supplier invoice INV-123 needs <role> approval before it can be posted (rule: <name>)."`, with a variant for pending ("awaiting approval by a <role>") and for stale ("the invoice changed after it was approved; submit it again"). `details: { reason, requiredRole, requestId }`.
+
+**UI changes** (`useSupplierInvoiceActions.ts:41-105`, `[invoiceId].tsx`):
+- Detail page: states `required` and `stale` show **Submit for approval** instead of "Approve & Post GL". `pending` shows a badge naming the required role, plus **Withdraw** for the requester (self-reject is allowed, per K-043 round 7). `approved` shows the approve button.
+- The approve handler must still handle a 409 from a race: check `res.ok` (apiFetch resolves on 4xx) and show the message plus the Submit button.
+- Bulk results show the per-row reason.
+- `pages/accounting/approvals/index.tsx` needs a document link and must surface `DOCUMENT_CHANGED`.
+- The rules page gets a per-type **Enforce** switch with a "would block N bills" preview.
+
+## 3. Rollout
+
+**Recommendation: opt-in per company and per document type, default off.**
+- New table `approval_enforcement(company_id, document_type, enabled_at, enabled_by, PK(company_id, document_type))`, with RLS. I haven't checked whether the 498 drift test requires RLS on new `company_id` tables; assume it does.
+- The server holds a constant `ENFORCEABLE_DOCUMENT_TYPES` that grows by one type per PR. The API refuses to enable a type that isn't in it.
+- That makes each PR's ship inert. A company that opted into supplier invoices isn't silently enrolled in journals when that PR lands, which a single per-company flag would do.
+- **Turning enforcement off weakens a control.** It needs rank at least equal to the strictest active rule of that type, the same ladder as `assertMayEditRule`, and writes an audit row through `logAuditOrThrow`. Without that it reproduces the round-3 bypass: an admin switches enforcement off to clear their own bill.
+- **Refuse to enable** when no user other than the most likely requester holds rank at least equal to the rule's approver role. Under K-043's self-approval ban, a sole-owner company would otherwise be unable to post at all.
+- Enabling also needs Hein's go-ahead on sole-user tenants (Q2).
+
+**Census for Hein to run read-only on prod before PR2 is enabled anywhere:**
+```sql
+-- 1. Active rules per company, and how many users could approve each
+SELECT c.name, r.company_id, r.document_type, r.name, r.condition_operator, r.condition_value,
+       r.approver_role, r.created_at,
+       (SELECT count(*) FROM company_users cu WHERE cu.company_id = r.company_id
+          AND (CASE cu.role WHEN 'super_admin' THEN 8 WHEN 'owner' THEN 7 WHEN 'system' THEN 6 WHEN 'admin' THEN 5
+               WHEN 'manager' THEN 4 WHEN 'accountant' THEN 3 WHEN 'bookkeeper' THEN 2 WHEN 'viewer' THEN 0 ELSE 1 END)
+           >= (CASE r.approver_role WHEN 'super_admin' THEN 8 WHEN 'owner' THEN 7 WHEN 'system' THEN 6 WHEN 'admin' THEN 5
+               WHEN 'manager' THEN 4 WHEN 'accountant' THEN 3 WHEN 'bookkeeper' THEN 2 WHEN 'viewer' THEN 0 ELSE 5 END)) AS eligible_approvers
+FROM approval_rules r LEFT JOIN companies c ON c.id = r.company_id
+WHERE r.is_active ORDER BY c.name NULLS FIRST, r.document_type;
+-- 2. Supplier bills from the last 90 days that a rule would have blocked
+SELECT si.company_id, count(DISTINCT si.id) FROM supplier_invoices si
+JOIN approval_rules r ON r.company_id = si.company_id AND r.is_active AND r.document_type = 'supplier_invoice'
+WHERE si.created_at > now() - interval '90 days' AND si.status <> 'cancelled'
+  AND (r.condition_operator = 'any'
+       OR (r.condition_operator = 'greater_than'  AND COALESCE(si.functional_total, si.total_amount) >  r.condition_value)
+       OR (r.condition_operator = 'greater_equal' AND COALESCE(si.functional_total, si.total_amount) >= r.condition_value))
+GROUP BY 1;
+-- 3. Existing requests (none of them carry a digest, so none will clear anything)
+SELECT company_id, document_type, status, count(*) FROM approval_requests GROUP BY 1,2,3;
+```
+
+## 4. PR plan (in order)
+
+**PR1: shared infrastructure, no behaviour change** (`ENFORCEABLE = []`)
+- Migration `708_` (re-check the prefix at PR time; the prefix-race gotcha applies): the `document_digest` column, the `approval_enforcement` table with RLS, and the `approval_document_digest()` function for supplier invoices.
+- `approvalGate.ts`.
+- `findDocument`: switch to the functional total and add the digest.
+- Rebind and decide digest checks; enable/disable API with the authority guard and audit.
+- Tests: digest changes for each hashed column and not for match-state columns or line-id churn (mutate each column and watch it go red); stale decide → 409; disabling above one's rank → 403 plus an audit row; functional-total matching.
+
+**PR2: supplier invoices.** Add the type to ENFORCEABLE, add the SI trigger, wire A1–A6 and B1–B5, narrow the catch-all at `supplier-invoices-action.ts:68`, and ship the UI. Real-PG integration tests through the real routes:
+1. Enforcement on, rule matches, no request → approve returns 409; status stays draft; `gl_journal_entry_id` is NULL; no `auto_supplier_invoice` journal, draft or posted.
+2. Request raised by A, approved by B, posted by A → 200 with the journal.
+3. Approve, then edit the date through the detail PUT → 409 STALE. Edit lines through MCP → 409. Revert to identical content → 200.
+4. Owner rule added after a manager approval → 409 (the rank ratchet).
+5. Enforcement off → posts as today.
+6. Tenant isolation: a forged approved row in company B carrying A's document id, inserted as `app_user`, does not clear A's bill; B's enforcement row does not enforce on A.
+7. NULL-digest approved row → does not clear.
+8. Bypass attempts:
+   - bulk approve: the gated row fails, siblings commit;
+   - MCP approve: `toolError`, no journal, idempotency key unused;
+   - MCP bulk: skipped;
+   - capture and AI pipeline: bill created as draft with a pending request, absent from the AP ageing;
+   - recurring: draft plus request, `posted:false`;
+   - raw `UPDATE status='approved'` or INSERT `'approved'` as `app_user` → trigger raises;
+   - Sage import with the exemption → succeeds.
+9. K-043 self-approval regression.
+10. USD bill above the threshold in ZAR → gated.
+
+Mutation checks. Each one must turn a test red:
+- remove the gate call (test 1 expects 409 and would now see the trigger's 500);
+- make the digest comparison always true (test 3);
+- drop the rank comparison (test 4);
+- drop `company_id` from the approved-request lookup (test 6);
+- drop the enforcement lookup (test 5);
+- drop the trigger (raw-SQL test);
+- revert to `total_amount` (test 10);
+- remove the capture downgrade (capture test).
+
+**PR3 credit notes → PR4 customer invoices → PR5 payments → PR6 manual journals.** Each uses the same test template, the choke points in §1, and its own digest branch. PR5 and PR6 depend on the answers to Q4 and Q5.
+
+## 5. Questions only Hein can answer
+
+1. **Are imports exempt** (Sage sync, Sage commit, AP take-on)? Recommended: yes. Those documents were approved in the source system, and the exemption is a declared GUC pinned by the census test.
+2. **Sole-user or sole-top-rank companies.** Under the self-approval ban they can never post a bill a rule matches. Recommended: refuse to enable enforcement until a second eligible approver exists.
+3. **Stored `pending_approval` status or a derived state?** Recommended: derived. No new writer and no sync bugs.
+4. **Payments that come from bank-feed allocations.** Recommended: exempt, since the money has already moved. Gate only payment instructions (approve/process and batch EFT).
+5. **Journal enforcement on manual sources only?** Recommended: yes. System journals follow from documents that are already gated.
+6. **Should MCP agents be able to submit for approval?** Recommended: not in PR2. Refuse or skip only, and never let MCP decide an approval.
+7. **Bulk "Post to GL" for legacy bills that are approved but have no journal:** leave it ungated? Recommended: yes. After PR2 the gate sits where a bill enters the population, and the census shows the legacy count.
+8. **Should new companies get default rules?** Recommended: no.
+9. **Should reverting a bill to identical content make its approval valid again?** Recommended: yes.
+10. **Should an account merge invalidate approvals on unposted bills?** Recommended: yes, since it fails closed; the requester submits again.
+
+## Not verified
+- Prod data: whether anyone backfilled `company_id` on the seed rules, and which rules or requests actually exist.
+- Which route the UI "Save" on a bill uses. I assumed the detail PUT.
+- Whether the RLS drift test (498) forces a policy on the new table.
+- The exact line columns `buildExpenseLines` reads. They are what the digest must cover.
+
+---
+## HEIN'S DECISIONS (2026-09-26) — binding for implementation
+- Rollout: opt-in per company AND per document type, default OFF (`approval_enforcement` table). Turning OFF is a weakening act: needs rank >= the strictest active rule of that type, and is audited.
+- Q1 Imports (Sage sync, Sage migration commit, AP take-on): EXEMPT via the declared GUC `isaflow.approval_gate_exempt`, set only by those importers; a census test pins the setters.
+- Q2 Sole approver: ALLOW SELF-APPROVAL for sole approvers (overrides the planner's recommendation). Definition: at DECIDE time, if no OTHER active member of the company holds rank >= the request's effective required role, the requester may approve their own request. It must be audited with a distinct marker (e.g. decision recorded as sole-approver self-approval) and must still pass every other check (rank, digest). Enabling enforcement is therefore NOT refused for sole-approver companies.
+- Q3 Approval state: DERIVED (digest-matched approved request), no stored pending_approval writes.
+- Q4 Payments (later PR): gate payment INSTRUCTIONS only; exempt payments recorded from bank-feed allocations.
+- Q5 Journals (later PR): MANUAL sources only.
+- Q6 MCP: may not submit or decide approvals in these PRs; refuse/skip only.
+- Q7 Legacy approved-but-unposted bulk "Post to GL": ungated.
+- Q8 No default rules for new companies.
+- Q9 Reverting to identical content makes an approval valid again (digest match).
+- Q10 An account merge invalidates approvals on unposted documents (fail closed).
+
+---
+## Decisions 2026-10-06 (Hein)
+
+1. **Credit notes are two types:** `customer_credit_note` and `supplier_credit_note`, each with its own rules and switch. Both pass through `approveCreditNote`; the type follows `credit_notes.type`.
+2. **Manual journals gate the human-composed paths:**
+   - UI manual journal post (`journal-entries-action.ts`);
+   - MCP `post_journal` (`writeJournals.ts`);
+   - receipt-to-journal (`receipt-to-journal.ts`);
+   - GL import with post-immediately (`glImportExecuteService.ts`);
+   - reclassification batches (`reclassification/post.ts`);
+   - recurring journal templates (`recurringJournalService.ts`, and recurring-transaction autoPost when it produces a journal). These are unattended, so they leave a draft and raise a request.
+
+   Exempt: opening balances (`writeOpeningBalance.ts`, an import under Q1), close-run accruals, and every system journal that follows from an already-gated document (bank auto-post sweep, Paystack receipts, document postings, depreciation, payroll, VAT).
+3. **A batch EFT is one approvable document** (`payment_batch`). Its digest covers every line: payee, bank details, amount. Changing any line voids the approval, and one request covers the batch.
+4. **Merging is delegated:** the run merges each PR itself before starting the next, but only when every GitHub check passes on the exact head, the blind and adversarial reviewers both SHIP on that head, and the merge uses `--match-head-commit <full sha>`. **No deploys.**

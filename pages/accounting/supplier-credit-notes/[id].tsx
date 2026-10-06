@@ -2,7 +2,7 @@
  * Supplier Credit Note Detail Page
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -14,6 +14,11 @@ import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+
+/** R-035: the detail GET adds the derived approval state while the note is a draft. */
+type NoteWithApproval = CreditNote & { approval?: DocumentApprovalState | null };
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
@@ -40,23 +45,30 @@ function toDateStr(val: Date | string | null | undefined): string {
 export default function SupplierCreditNoteDetailPage() {
   const router = useRouter();
   const { id } = router.query;
-  const [note, setNote] = useState<CreditNote | null>(null);
+  const [note, setNote] = useState<NoteWithApproval | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState('');
 
+  const loadNote = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiFetch(`/api/accounting/supplier-credit-notes?id=${id}`);
+      await assertOk(r, 'Could not load the supplier credit note - try again');
+      const json = await r.json() as { data?: NoteWithApproval } | NoteWithApproval;
+      setNote((json as { data?: NoteWithApproval }).data ?? (json as NoteWithApproval));
+    } catch (err) {
+      setNote(null);
+      setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again'));
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!id || typeof id !== 'string') return;
-    setLoading(true);
-    apiFetch(`/api/accounting/supplier-credit-notes?id=${id}`)
-      .then(async r => { await assertOk(r, 'Could not load the supplier credit note - try again'); return r.json(); })
-      .then((json: { data?: CreditNote } | CreditNote) => {
-        const data = (json as { data?: CreditNote }).data ?? (json as CreditNote);
-        setNote(data);
-      })
-      .catch((err: unknown) => { setNote(null); setError(apiErrorMessage(err, 'Could not load the supplier credit note - try again')); })
-      .finally(() => setLoading(false));
-  }, [id]);
+    void loadNote();
+  }, [id, loadNote]);
 
   const doAction = async (action: 'post' | 'reverse') => {
     if (!note) return;
@@ -68,6 +80,8 @@ export default function SupplierCreditNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: note.id, action }),
       });
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      if (res.status === 409) await loadNote();
       await assertOk(res, 'Could not update the credit note - try again');
       const json = await res.json() as { data?: CreditNote };
       setNote(json.data ?? (json as unknown as CreditNote));
@@ -163,14 +177,17 @@ export default function SupplierCreditNoteDetailPage() {
             <div className="flex items-center gap-2">
               {note.status === 'draft' && (
                 <>
-                  <button
-                    onClick={() => { void doAction('post'); }}
-                    disabled={!!actionLoading}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50"
-                  >
-                    <CheckCircle2 className="h-4 w-4" />
-                    {actionLoading === 'post' ? 'Posting...' : 'Post'}
-                  </button>
+                  {/* R-035: while approval holds the note, the panel offers Submit instead. */}
+                  {!isApprovalHeld(note.approval) && (
+                    <button
+                      onClick={() => { void doAction('post'); }}
+                      disabled={!!actionLoading}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {actionLoading === 'post' ? 'Posting...' : 'Post'}
+                    </button>
+                  )}
                   <Link
                     href={`/accounting/supplier-credit-notes/new?edit=${note.id}`}
                     className="inline-flex items-center gap-1.5 px-3 py-2 border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] rounded-lg text-sm hover:bg-[var(--ff-bg-primary)]"
@@ -206,6 +223,8 @@ export default function SupplierCreditNoteDetailPage() {
             <AlertCircle className="h-4 w-4" /> {error}
           </div>
         )}
+        <DocumentApprovalPanel documentType="supplier_credit_note" documentId={note.id} noun="credit note"
+          approval={note.approval} onChanged={loadNote} />
 
         <div className="p-6 space-y-6">
           {/* Info cards */}

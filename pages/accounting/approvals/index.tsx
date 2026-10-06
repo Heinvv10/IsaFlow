@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
   Shield, CheckCircle2, XCircle, Loader2, Trash2, AlertCircle,
@@ -10,6 +11,7 @@ import {
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ApprovalEnforcementPanel } from '@/components/accounting/approvals/ApprovalEnforcementPanel';
+import { approvalDocumentHref } from '@/components/accounting/approvals/approvalDocumentHref';
 
 function formatCurrency(amount: number): string {
   return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,6 +51,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   payment: 'Payment',
   journal_entry: 'Journal Entry',
   credit_note: 'Credit Note',
+  customer_credit_note: 'Customer Credit Note',
+  supplier_credit_note: 'Supplier Credit Note',
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -239,7 +243,12 @@ export default function ApprovalsPage() {
                     )}
                   </div>
                   <p className="text-sm font-medium text-[var(--ff-text-primary)]">
-                    {req.documentReference || req.documentId.slice(0, 8)}
+                    {(() => {
+                      // R-035: the document the request is for, linked where it has a page.
+                      const label = req.documentReference || req.documentId.slice(0, 8);
+                      const href = approvalDocumentHref(req.documentType, req.documentId);
+                      return href ? <Link href={href} className="hover:text-teal-500 hover:underline">{label}</Link> : label;
+                    })()}
                     {req.amount != null && <span className="ml-2 text-teal-500">{formatCurrency(req.amount)}</span>}
                   </p>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">

@@ -1,7 +1,9 @@
 /**
  * R-035 decision Q1: only the three importers of bills approved in their
  * source system may exempt a write from the supplier-invoice approval
- * backstop (migration 712). The exemption is a GUC any statement could set,
+ * backstop (migration 712). The credit-note backstop (migration 862) honours
+ * no exemption at all — no importer writes credit notes — so 862 must not name
+ * the GUC either. The exemption is a GUC any statement could set,
  * so the control is WHO sets it: this census walks the source tree on disk
  * (not `git ls-files` — an untracked new setter must fail too) and pins every
  * file that names it.

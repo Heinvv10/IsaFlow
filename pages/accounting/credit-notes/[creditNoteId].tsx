@@ -2,7 +2,7 @@
  * Credit Note Detail Page
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -10,6 +10,9 @@ import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, XCircle, Downl
 import { AccountingDocumentPanel } from '@/modules/accounting/documents';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
@@ -24,6 +27,8 @@ interface CreditNote {
   creditDate: string; reason?: string; subtotal: number; taxRate: number;
   taxAmount: number; totalAmount: number; status: string; glJournalEntryId?: string;
   approvedBy?: string; approvedAt?: string; createdAt: string;
+  /** R-035: the derived approval state while the note is a draft. */
+  approval?: DocumentApprovalState | null;
 }
 
 interface OutstandingInvoice {
@@ -49,15 +54,25 @@ export default function CreditNoteDetailPage() {
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
 
+  const loadNote = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiFetch(`/api/accounting/credit-notes?id=${creditNoteId}`);
+      await assertOk(r, 'Could not load the credit note - try again');
+      const json = await r.json();
+      setNote(json.data || json);
+    } catch (err) {
+      setNote(null);
+      setError(apiErrorMessage(err, 'Could not load the credit note - try again'));
+    } finally {
+      setLoading(false);
+    }
+  }, [creditNoteId]);
+
   useEffect(() => {
     if (!creditNoteId) return;
-    setLoading(true);
-    apiFetch(`/api/accounting/credit-notes?id=${creditNoteId}`)
-      .then(async r => { await assertOk(r, 'Could not load the credit note - try again'); return r.json(); })
-      .then(json => setNote(json.data || json))
-      .catch(err => setError(apiErrorMessage(err, 'Could not load the credit note - try again')))
-      .finally(() => setLoading(false));
-  }, [creditNoteId]);
+    void loadNote();
+  }, [creditNoteId, loadNote]);
 
   async function openApplyModal() {
     if (!note?.clientId) return;
@@ -97,6 +112,8 @@ export default function CreditNoteDetailPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, creditNoteId, ...extra }),
       });
+      // R-035: 409 is the approval gate — reload so the page offers Submit for approval.
+      if (res.status === 409) await loadNote();
       await assertOk(res, 'Could not complete that action - try again');
       const json = await res.json();
       setNote(json.data || json);
@@ -110,6 +127,8 @@ export default function CreditNoteDetailPage() {
 
   const entityName = note.type === 'customer' ? note.clientName : note.supplierName;
   const canApply = note.status === 'approved' && note.type === 'customer';
+  // R-035: while approval holds the note, the panel offers Submit instead of Approve.
+  const canApprove = note.status === 'draft' && !isApprovalHeld(note.approval);
 
   return (
     <AppLayout>
@@ -140,7 +159,7 @@ export default function CreditNoteDetailPage() {
                   <CreditCard className="h-4 w-4" />Apply to Invoice
                 </button>
               )}
-              {note.status === 'draft' && (
+              {canApprove && (
                 <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
                   className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
                   <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL'}
@@ -156,6 +175,8 @@ export default function CreditNoteDetailPage() {
         </div>
 
         {error && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{error}</div>}
+        <DocumentApprovalPanel documentType={creditNoteApprovalType(note.type)} documentId={note.id} noun="credit note"
+          approval={note.approval} onChanged={loadNote} />
 
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
