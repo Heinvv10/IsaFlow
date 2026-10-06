@@ -8,16 +8,18 @@
  *   `planBulkCommitYears` (before the PAYG debit; reads only): the rule candidates that already exist (bankRuleRun's
  *   read and cap); a request whose statement + candidate years exceed 20 is refused (400) and charges nothing.
  *
- *   `lockBulkCommitYears` (AFTER the debit, outside the route's refund block: a held key is a 503 whose rollback
- *   undoes the debit). Every lock base takes before a journal number is taken here before the keys:
- *     1. the PAYG wallet — by the debit itself; withFlowMeter routes lock it, then number, as base bulk-commit did;
- *     2. the suggestion pass over the existing lines (the rule pass's first statement, which row-locks every line
- *        whose suggestion changes) — run here, so a single allocator of one of them is waited for, not cycled with;
- *     3. the existing rule candidates' bank lines (lockBankTransactionForUpdate), in id order, each in its own
+ *   `lockBulkCommitYears` runs inside the import (its `beforeFirstJournal`): after the debit and the import's own row
+ *   locks, before its sweep. A held key is a 503 whose rollback undoes the debit. Every lock base takes before a
+ *   journal number is taken before the keys:
+ *     1. the PAYG wallet — by the debit; withFlowMeter routes lock it, then number, as base bulk-commit did;
+ *     2. the import's transfer re-link (bankTransferLinkPasses): existing imported lines and journal chain heads;
+ *     3. the suggestion pass (the rule pass's first statement, which row-locks every line whose suggestion
+ *        changes) — run here, so a single allocator of one of them is waited for, not cycled with;
+ *     4. the existing rule candidates' bank lines (lockBankTransactionForUpdate), in id order, each in its own
  *        savepoint — a line a peer holds past 5 s is left out of the pass and reported held (brk-numrace G);
- *     4. every statement + candidate year's key, ascending (lockNumberYears).
- * The import's own lines are this transaction's rows: nothing else can lock them. After the keys a rule line locks
- * only rows it already holds or its own new ones before its journal, and after its journal what base locks after it.
+ *     5. then every statement + candidate year's key, ascending (lockNumberYears).
+ * The import's own lines are this transaction's rows: nothing else can lock them. After the keys the sweep and a rule
+ * line lock only rows they already hold or their own new ones before a journal, and after it what base locks after it.
  * Residual: a line committed, or re-suggested, by a peer between these reads and the rule pass is locked after them.
  *
  * `runBulkCommitRulePass`: the pass in a savepoint, its failure swallowed so the import still lands.

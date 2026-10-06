@@ -116,4 +116,32 @@ describe.skipIf(!DATABASE_URL)('NUMRACE r3: a line a peer allocated is reported 
     expect(rr.ok && rr.value.status, JSON.stringify(rr)).toBe(200);
     expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
   }, 90000);
+
+  it('the same vs a single allocation of an existing line the import transfer re-link claims: no deadlock', async () => {
+    const c = await fixture('BRK-GT');
+    // A posted transfer from another bank account whose leg on this one no bank line claims yet: the import's
+    // relinkTransferCounterparts row-locks every imported line here that matches it (bank/bankTransferLinkPasses).
+    const other = crypto.randomUUID(), je = crypto.randomUUID(), legA = crypto.randomUUID();
+    await sql`INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance)
+      VALUES (${other}::UUID, ${c.fx.companyId}::UUID, 'NRTA', ${`NR other bank ${c.fx.tag}`}, 'asset', 'debit')`;
+    await sql`INSERT INTO gl_journal_entries (id, company_id, entry_date, description, source, status, created_by)
+      VALUES (${je}::UUID, ${c.fx.companyId}::UUID, '2025-12-20', 'NR transfer', 'manual', 'draft', ${c.fx.userId}::UUID)`;
+    await sql`INSERT INTO gl_journal_lines (id, company_id, journal_entry_id, gl_account_id, debit, credit)
+      VALUES (${legA}::UUID, ${c.fx.companyId}::UUID, ${je}::UUID, ${other}::UUID, 0, 37),
+             (gen_random_uuid(), ${c.fx.companyId}::UUID, ${je}::UUID, ${c.fx.bankAccountId}::UUID, 37, 0)`;
+    await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW(), posted_by = ${c.fx.userId}::UUID
+      WHERE id = ${je}::UUID`;
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+        matched_journal_line_id, allocation_type)
+      VALUES (${c.fx.companyId}::UUID, ${other}::UUID, '2025-12-20', -37, 'NR transfer out', 'allocated', ${legA}::UUID,
+        'transfer')`;
+    const l = await line(c, '33333333', '2025-12-20', 'NR transfer in');
+    await sql`UPDATE bank_transactions SET amount = 37 WHERE id = ${l}::UUID`;
+    const { rp, rr, before, after, peerPosted } = await peerAllocatesDuringBulkCommit(c, l);
+    process.stdout.write(`GT ${JSON.stringify({ rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after } })}\n`);
+    expect(rp.ok, JSON.stringify(rp)).toBe(true);
+    expect(peerPosted, 'the peer allocated the line').toBe(true);
+    expect(rr.ok && rr.value.status, JSON.stringify(rr)).toBe(200);
+    expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
+  }, 90000);
 });
