@@ -13,6 +13,7 @@ import { Pool } from 'pg';
 import supplierMerge from '../../pages/api/accounting/supplier-merge';
 import migrationSuppliers from '../../pages/api/accounting/migration/suppliers';
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import { mergeEntities } from '@/modules/accounting/services/core/duplicateMergeService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
@@ -140,6 +141,16 @@ describe('stamped editors', () => {
     expect(rows[0]).toEqual({ payment: [u.c], batch: [u.c] });
     const req = await raise(c, 'payment_batch', b.id);
     expect(await decided(c, u.c, req)).toBe(403);
+  });
+  it('the duplicate-merge wizard stamps the merging user onto the moved payment and its batch too', async () => {
+    const { c, bank } = await company();
+    const b = await plantBatch(pool, c, u.a, bank);
+    const target = await plantSupplier(pool, c);
+    await inRequest(pool, u.d, c, () => mergeEntities(c, 'supplier', target, b.members[0]!.supplierId, u.d));
+    const { rows } = await pool.query(
+      `SELECT (SELECT content_authors FROM supplier_payments WHERE id = $1) AS payment,
+              (SELECT content_authors FROM supplier_payment_batches WHERE id = $2) AS batch`, [b.members[0]!.id, b.id]);
+    expect(rows[0]).toEqual({ payment: [u.d], batch: [u.d] });
   });
 });
 
