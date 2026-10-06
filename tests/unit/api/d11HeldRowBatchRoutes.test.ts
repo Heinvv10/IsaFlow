@@ -11,12 +11,12 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/als', () => ({ als: { getStore: () => ({ txUnusable: false }) }, assertTxUsable: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
-vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', () => ({ generateInvoiceFromRecurring: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', () => ({ runRecurringInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', async (orig) => ({ ...(await orig<object>()), approveSupplierInvoice: vi.fn(), cancelSupplierInvoice: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', async (orig) => ({ ...(await orig<object>()), postSupplierInvoiceToGL: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { generateInvoiceFromRecurring } from '@/modules/accounting/services/ar/recurringInvoiceService';
+import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import recurringRun from '../../../pages/api/accounting/recurring-invoices-run';
@@ -43,11 +43,11 @@ beforeEach(() => { vi.clearAllMocks(); });
 
 describe('recurring-invoices-run', () => {
   it('a single id that is held -> 503 + Retry-After', async () => {
-    vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(heldErr());
+    vi.mocked(runRecurringInvoice).mockRejectedValueOnce(heldErr());
     held(await call(recurringRun, { recurring_invoice_id: A }));
   });
   it.each(['40P01', '55P03'])('a single id held as a raw %s answers 503 WITHOUT the driver text', async (code) => {
-    vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(
+    vi.mocked(runRecurringInvoice).mockRejectedValueOnce(
       Object.assign(new Error('deadlock detected: relation "recurring_invoices" key (id)=(x)'), { code }));
     const r = await call(recurringRun, { recurring_invoice_id: A });
     held(r);
@@ -55,18 +55,18 @@ describe('recurring-invoices-run', () => {
     expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
   });
   it('a single id that fails ordinarily keeps 200 with the error in the body', async () => {
-    vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(new Error('bad template'));
+    vi.mocked(runRecurringInvoice).mockRejectedValueOnce(new Error('bad template'));
     const r = await call(recurringRun, { recurring_invoice_id: A });
     expect(r.statusCode).toBe(200); expect(r.headers['Retry-After']).toBeUndefined();
   });
   it('every due template held -> 503', async () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: A }, { id: B }] as never);
-    vi.mocked(generateInvoiceFromRecurring).mockRejectedValueOnce(heldErr()).mockRejectedValueOnce(deadlock());
+    vi.mocked(runRecurringInvoice).mockRejectedValueOnce(heldErr()).mockRejectedValueOnce(deadlock());
     held(await call(recurringRun, {}));
   });
   it('mixed (one generated, one held) keeps 200 with per-item results', async () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: A }, { id: B }] as never);
-    vi.mocked(generateInvoiceFromRecurring).mockResolvedValueOnce('inv').mockRejectedValueOnce(heldErr());
+    vi.mocked(runRecurringInvoice).mockResolvedValueOnce({ invoiceId: 'inv', heldForApproval: false }).mockRejectedValueOnce(heldErr());
     const r = await call(recurringRun, {});
     expect(r.statusCode).toBe(200); expect(r.headers['Retry-After']).toBeUndefined();
     expect(r.sent).toMatchObject({ data: { generated: 1 } });
@@ -78,7 +78,7 @@ describe('mixed batches show NEUTRAL text for a raw held-row item, ok items unch
   const clean = (r: Awaited<ReturnType<typeof call>>) => expect(JSON.stringify(r.sent)).not.toMatch(/deadlock|supplier_invoices|key \(id\)/);
   it('recurring-invoices-run', async () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: A }, { id: B }] as never);
-    vi.mocked(generateInvoiceFromRecurring).mockResolvedValueOnce('inv').mockRejectedValueOnce(raw());
+    vi.mocked(runRecurringInvoice).mockResolvedValueOnce({ invoiceId: 'inv', heldForApproval: false }).mockRejectedValueOnce(raw());
     const r = await call(recurringRun, {});
     expect(r.statusCode).toBe(200); clean(r);
     expect(r.sent).toMatchObject({ data: { generated: 1, invoice_ids: ['inv'] } });

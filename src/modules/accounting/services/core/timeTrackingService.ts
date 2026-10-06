@@ -148,16 +148,20 @@ export async function createTimeEntry(
   // customer's name joined on it.
   await assertCustomerInCompany(companyId, input.customerId);
   const entryDate = input.entryDate || new Date().toISOString().split('T')[0];
+  // R-035 PR4 round 3: here the logger TYPES the rate, which sets the price, so
+  // a logger who stores one is an author of the invoice it is billed on. (A
+  // practice entry's rate comes from the rate tables: its logger is not.)
   const rows = (await sql`
     INSERT INTO time_entries (
       company_id, user_id, project_name, task_description, entry_date,
-      hours, rate, billable, customer_id, notes
+      hours, rate, billable, customer_id, notes, content_authors
     ) VALUES (
       ${companyId}::UUID, ${userId}::UUID, ${input.projectName || null},
       ${input.taskDescription}, ${entryDate}::DATE,
       ${input.hours}, ${input.rate ?? null},
       ${input.billable !== false}, ${input.customerId || null}::UUID,
-      ${input.notes || null}
+      ${input.notes || null},
+      CASE WHEN ${input.rate ?? null}::NUMERIC IS NOT NULL THEN ARRAY[${userId}::UUID] ELSE '{}'::UUID[] END
     ) RETURNING *
   `) as DbRow[];
 
@@ -169,6 +173,8 @@ export async function updateTimeEntry(
   companyId: string,
   id: string,
   input: Partial<TimeEntryInput>,
+  /** R-035 PR4 round 2: an author of the invoice the entry is billed on, if this edit changes its rate or billable flag. */
+  editedBy: string,
 ): Promise<TimeEntry> {
   const existing = (await sql`
     SELECT status, practice_client_id, hours, rate FROM time_entries
@@ -192,8 +198,18 @@ export async function updateTimeEntry(
   }
   await assertCustomerInCompany(companyId, input.customerId);
 
+  // R-035 PR4 (Hein): the rate sets the price, so whoever changes it — or the
+  // billable flag — is an author of the invoice it is billed on (round 2); so
+  // is whoever changes SOMEONE ELSE'S hours, which re-quantifies their effort
+  // and sets the billed amount (round 3). Your own hours are effort.
   const rows = (await sql`
     UPDATE time_entries SET
+      content_authors = CASE
+        WHEN rate IS DISTINCT FROM COALESCE(${input.rate ?? null}::NUMERIC, rate)
+          OR billable IS DISTINCT FROM COALESCE(${input.billable ?? null}::BOOLEAN, billable)
+          OR (hours IS DISTINCT FROM COALESCE(${input.hours ?? null}::NUMERIC, hours)
+              AND user_id IS DISTINCT FROM ${editedBy}::UUID)
+        THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       project_name = COALESCE(${input.projectName ?? null}, project_name),
       task_description = COALESCE(${input.taskDescription ?? null}, task_description),
       entry_date = COALESCE(${input.entryDate ?? null}::DATE, entry_date),

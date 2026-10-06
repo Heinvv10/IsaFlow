@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
+import { withSourceEditorStamp } from './sourceContentEditor';
 
 type Row = DbRow;
 
@@ -226,13 +227,15 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   return (await getQuote(companyId, id))!;
 }
 
-export async function updateQuote(companyId: string, id: string, input: QuoteInput): Promise<Quote | null> {
+/** @param editedBy R-035 PR4 round 2: an author of the quote, and of its invoice, when the edit changes what it bills. */
+export async function updateQuote(companyId: string, id: string, input: QuoteInput, editedBy: string): Promise<Quote | null> {
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
   assertValidLines(input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
+  await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {
   await sql`
     UPDATE customer_quotes SET customer_name = ${input.customerName}, client_id = ${input.clientId || null},
       quote_date = ${input.quoteDate || existing.quoteDate}, expiry_date = ${input.expiryDate || null},
@@ -251,6 +254,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
       VALUES (${id}::UUID, ${i + 1}, ${l.description}, ${l.quantity}, ${l.unitPrice}, ${l.taxRate ?? 15}, ${amount}, ${l.accountId || null})
     `;
   }
+  });
   log.info('Quote updated', { id });
   return getQuote(companyId, id);
 }
@@ -260,9 +264,31 @@ export async function deleteQuote(companyId: string, id: string): Promise<boolea
   return rows.length > 0;
 }
 
+/**
+ * A converted quote is terminal (R-035 PR4 round 2, review REPRO B): its
+ * converted_invoice_id / converted_order_id is the link an invoice's derived
+ * authors are read through, and re-accepting it let a second conversion
+ * re-point that link at a throwaway invoice — dropping the quote's author
+ * from the first. Routes answer 409.
+ */
+export class QuoteConvertedError extends Error {
+  constructor(readonly quoteStatus: string) {
+    super(`A quote with status '${quoteStatus}' has been converted and can no longer change status`);
+    this.name = 'QuoteConvertedError';
+  }
+}
+
 export async function updateQuoteStatus(companyId: string, id: string, status: string): Promise<Quote | null> {
-  const result = (await sql`UPDATE customer_quotes SET status = ${status}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-  if (result.length === 0) throw new Error(`Quote not found: ${id}`);
+  const result = (await sql`
+    UPDATE customer_quotes SET status = ${status}, updated_at = NOW()
+    WHERE id = ${id}::UUID AND company_id = ${companyId} AND status NOT IN ('converted', 'converted_to_order')
+    RETURNING id
+  `) as Row[];
+  if (result.length === 0) {
+    const [current] = (await sql`SELECT status FROM customer_quotes WHERE id = ${id}::UUID AND company_id = ${companyId}`) as Row[];
+    if (current) throw new QuoteConvertedError(String(current.status));
+    throw new Error(`Quote not found: ${id}`);
+  }
   log.info('Quote status changed', { id, status });
   return getQuote(companyId, id);
 }

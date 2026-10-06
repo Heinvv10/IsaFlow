@@ -8,7 +8,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { updateQuoteStatus, convertToInvoice, convertToSalesOrder } from '@/modules/accounting/services/ar/quoteService';
+import {
+  updateQuoteStatus, convertToInvoice, convertToSalesOrder, QuoteConvertedError,
+} from '@/modules/accounting/services/ar/quoteService';
 import { QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -20,22 +22,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const userId = req.user.id;
 
+  // R-035 PR4 round 2: a converted quote is terminal — 409, nothing written.
+  const setStatus = async (status: string) => {
+    try {
+      const quote = await updateQuoteStatus(companyId, id, status);
+      if (!quote) return apiResponse.notFound(res, 'Quote', id);
+      return apiResponse.success(res, quote);
+    } catch (err) {
+      if (err instanceof QuoteConvertedError) return apiResponse.conflict(res, err.message, { quoteStatus: err.quoteStatus });
+      throw err;
+    }
+  };
+
   switch (action) {
-    case 'send': {
-      const quote = await updateQuoteStatus(companyId, id, 'sent');
-      if (!quote) return apiResponse.notFound(res, 'Quote', id);
-      return apiResponse.success(res, quote);
-    }
-    case 'accept': {
-      const quote = await updateQuoteStatus(companyId, id, 'accepted');
-      if (!quote) return apiResponse.notFound(res, 'Quote', id);
-      return apiResponse.success(res, quote);
-    }
-    case 'decline': {
-      const quote = await updateQuoteStatus(companyId, id, 'declined');
-      if (!quote) return apiResponse.notFound(res, 'Quote', id);
-      return apiResponse.success(res, quote);
-    }
+    case 'send':
+      return setStatus('sent');
+    case 'accept':
+      return setStatus('accepted');
+    case 'decline':
+      return setStatus('declined');
     case 'convert': {
       try {
         const result = await convertToInvoice(companyId, id, userId);

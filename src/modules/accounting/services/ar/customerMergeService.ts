@@ -3,10 +3,9 @@
  * `targetId`, then soft-delete the source. One transaction; every refusal is
  * raised before the first write, because withAuth COMMITs on a 4xx.
  *
- * The tables moved are the census in docs/audits/remediation/K-061/fix.md.
- * A new table that stores a customer id must be added here AND to
- * `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge
- * strands its rows on the merged-away customer.
+ * The tables moved are the census in docs/audits/remediation/K-061/fix.md. A new table that stores a customer id
+ * must be added here AND to `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge strands its
+ * rows on the merged-away customer.
  *
  * Product rules (Hein, 2026-09-26):
  *   - both customers with a dunning override → refused, nothing written;
@@ -114,24 +113,32 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
   return { payments: payments.length, invoices: invoices.length };
 }
 
-/**
- * Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
- * A credit note's client is approval content (R-035 PR3): the merging user `by` becomes an author of every
- * note it moves, and an approval of the old content goes stale (Q10).
- */
+/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
+ * A credit note's client (R-035 PR3), an invoice's customer_id/client_id and a quote's or order's customer (PR4) are
+ * approval content: the merging user `by` becomes an author of each it moves; an old approval goes stale (Q10). */
 async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  await tx`
+    UPDATE customer_invoices SET customer_id = ${t}::UUID,
+      content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
+    WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID
+  `;
+  await tx`
+    UPDATE customer_invoices SET client_id = ${t}::UUID,
+      content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID
+  `;
   const notes = await tx`
     UPDATE credit_notes SET client_id = ${t}::UUID,
       content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
     WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id
   `;
   await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
-  const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
   await tx`UPDATE delivery_notes SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE projects SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE time_entries SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
@@ -190,18 +197,19 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
 }
 
 /**
- * Both recurring stores move to the target PAUSED (Hein): `recurring_invoices`
- * by column, and `recurring_transaction_templates` whose customer_invoice
- * template names the customer inside its JSON (`template_data.clientId`, read
- * by recurringTransactionInvoices). Returns how many running ones were paused.
+ * Both recurring stores move to the target PAUSED (Hein): `recurring_invoices` by column, and
+ * `recurring_transaction_templates` whose customer_invoice template names the customer inside its JSON
+ * (`template_data.clientId`, read by recurringTransactionInvoices). Returns how many running ones were paused.
+ * The client is what a template bills: the merging user `by` becomes an author of each (R-035 PR4 review F1).
  */
-async function moveRecurring(tx: TxSql, c: string, s: string, t: string): Promise<number> {
+async function moveRecurring(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   const paused = await tx`
     UPDATE recurring_invoices SET status = 'paused'
     WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID AND status = 'active'
     RETURNING id
   `;
-  await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   const pausedTemplates = await tx`
     UPDATE recurring_transaction_templates SET is_active = false
     WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
@@ -210,7 +218,8 @@ async function moveRecurring(tx: TxSql, c: string, s: string, t: string): Promis
   `;
   await tx`
     UPDATE recurring_transaction_templates
-    SET template_data = jsonb_set(template_data, '{clientId}', to_jsonb(${t}::TEXT))
+    SET template_data = jsonb_set(template_data, '{clientId}', to_jsonb(${t}::TEXT)),
+      content_authors = approval_add_author(content_authors, ${by}::UUID)
     WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
       AND lower(template_data->>'clientId') = ${s}
   `;
@@ -221,7 +230,7 @@ export async function mergeCustomers(
   companyId: string,
   sourceIdIn: string,
   targetIdIn: string,
-  /** The user merging — stamped as an author of the credit notes moved. */
+  /** The user merging — stamped as an author of the credit notes and invoices moved. */
   mergedBy: string,
 ): Promise<CustomerMergeResult> {
   // Callers validate with a case-insensitive UUID pattern; one spelling here
@@ -266,7 +275,7 @@ async function mergeInSavepoint(
   await refuseOrLock(tx, companyId, sourceId, targetId);
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
-  const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
+  const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);
   // portal_access has no company_id and no RLS: scope it through the
   // customer, which refuseOrLock proved is this company's.
   const revoked = await tx`

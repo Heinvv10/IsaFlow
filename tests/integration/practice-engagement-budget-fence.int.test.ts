@@ -123,7 +123,7 @@ describeIfDb('Engagement budgets — the jobId fence on time entries', () => {
   describe('duplicate', () => {
     it('carries the job', async () => {
       const e = await create('EBF dup', { jobId: J.own2 });
-      const d = await f.inTx(() => duplicatePracticeEntry(f.A, e.id, '2026-01-13'));
+      const d = await f.inTx(() => duplicatePracticeEntry(f.A, e.id, '2026-01-13', f.USER));
       expect(await f.jobOf(d.id)).toBe(J.own2);
     });
 
@@ -133,7 +133,7 @@ describeIfDb('Engagement budgets — the jobId fence on time entries', () => {
     ])('refuses a legacy source entry that names %s', async (label, src) => {
       const desc = `EBF legacy ${label}`;
       const id = await f.plantLegacy({ company: f.A, cat: f.CAT, item: f.ITEM, hours: 1, rate: 1000, desc, ...src() });
-      await expect(f.inTx(() => duplicatePracticeEntry(f.A, id, '2026-01-14')))
+      await expect(f.inTx(() => duplicatePracticeEntry(f.A, id, '2026-01-14', f.USER)))
         .rejects.toBeInstanceOf(PracticeJobNotForClientError);
       expect(await f.entriesNamed(desc)).toBe(1);
     });

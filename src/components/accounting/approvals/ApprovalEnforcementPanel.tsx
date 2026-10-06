@@ -1,6 +1,6 @@
 /**
  * R-035 PR2: the per-document-type "Enforce" switch on the approval-rules tab
- * (supplier invoices; both credit-note types since PR3).
+ * (supplier invoices; both credit-note types since PR3; customer invoices since PR4).
  *
  * Off by default (Hein: opt-in per company and type). On, the type's posting
  * paths refuse a document an active rule governs until it is approved. The
@@ -34,6 +34,7 @@ const LABELS: Record<string, { name: string; noun: string }> = {
   supplier_invoice: { name: 'supplier invoice', noun: 'bill' },
   customer_credit_note: { name: 'customer credit note', noun: 'customer credit note' },
   supplier_credit_note: { name: 'supplier credit note', noun: 'supplier credit note' },
+  customer_invoice: { name: 'customer invoice', noun: 'invoice' },
 };
 
 export function ApprovalEnforcementPanel() {

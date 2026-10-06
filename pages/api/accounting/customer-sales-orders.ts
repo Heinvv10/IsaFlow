@@ -57,7 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { id, ...input } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      const order = await updateSalesOrder(companyId, id, input);
+      const order = await updateSalesOrder(companyId, id, input, req.user.id);
       if (!order) return apiResponse.badRequest(res, 'Sales order not found or not in draft status');
       return apiResponse.success(res, order);
     } catch (err) {

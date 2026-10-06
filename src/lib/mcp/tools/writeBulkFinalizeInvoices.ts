@@ -15,7 +15,9 @@
  * `FOR UPDATE` here would be ceremony over a race the UPDATE already settles.
  *
  * The refusal is raised BEFORE the GL post, so an element that loses the CAS
- * wrote nothing and is a skip rather than a batch failure.
+ * wrote nothing and is a skip rather than a batch failure. (Since R-035 PR4 the
+ * service also takes the invoice's row lock first, for the approval gate's
+ * read; this arm still adds none of its own.)
  *
  * ── THE COST THIS ARM CARRIES AND THE AP ARM DOES NOT ───────────────────────
  *
@@ -38,9 +40,12 @@ import type { McpTool } from '../types';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
+  approvableCustomerInvoiceIds,
   approveCustomerInvoice,
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
 import {
@@ -76,8 +81,14 @@ interface FinalizedRow {
  * service throws a bare Error), which is why no message parsing is needed: the
  * class is the contract, and `notFound` separates the two cases the agent can
  * act on differently.
+ *
+ * R-035: `ApprovalRequiredError` is a skip too — the gate refuses under the
+ * row lock, before the guarded UPDATE, when an invoice the pre-read let
+ * through was gated in between (a rule added, the invoice edited). Exported for
+ * bulkFinalizeInvoicesApprovalRace.test.ts.
  */
-function racedReason(err: unknown): string | null {
+export function racedReason(err: unknown): string | null {
+  if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
   if (!(err instanceof InvoiceNotApprovableError)) return null;
   // The service's own message names the settled status, which is the fact that
   // distinguishes "someone else approved it" from "it was cancelled". Passed
@@ -174,7 +185,16 @@ export const bulkFinalizeInvoicesTool: McpTool = {
       );
     }
 
-    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const partitioned = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { states } = partitioned;
+    // R-035 (Q6): gated by an enforced approval rule — skipped, never submitted.
+    // Read, not written, so the dry run and the live call decide it alike.
+    const refusals = await agentApprovalRefusals(ctx.companyId, 'customer_invoice',
+      await approvableCustomerInvoiceIds(ctx.companyId, partitioned.postable.map((p) => p.id)));
+    const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
+    const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
+      .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]
+      .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
       const preview = ok({

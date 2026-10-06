@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { assertTxUsable } from '@/lib/als';
 import {
   updateRecurringStatus,
-  generateInvoiceFromRecurring,
+  runRecurringInvoice,
 } from '@/modules/accounting/services/ar/recurringInvoiceService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -39,8 +39,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await updateRecurringStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        const invoiceId = await generateInvoiceFromRecurring(companyId, id, userId);
-        return apiResponse.success(res, { invoiceId });
+        // R-035 PR4: a gated invoice is generated as a draft awaiting approval, and says so.
+        const { invoiceId, heldForApproval } = await runRecurringInvoice(companyId, id, userId);
+        return apiResponse.success(res, heldForApproval ? { invoiceId, heldForApproval } : { invoiceId });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);

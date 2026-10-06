@@ -117,6 +117,8 @@ export async function updatePracticeEntry(
   companyId: string,
   id: string,
   input: PracticeTimeEntryUpdateInput,
+  /** R-035 PR4 round 2: an author of the invoice the entry is billed on, if this edit changes its rate or billable flag. */
+  editedBy: string,
 ): Promise<PracticeTimeEntry> {
   const existing = (await sql`
     SELECT status, practice_client_id, entry_date, user_id, hours, job_category_id, work_item_id, job_id
@@ -178,11 +180,18 @@ export async function updatePracticeEntry(
   const lineTotal = lineTotalFor(effectiveHours, appliedRate);
 
   // R-120: store effectiveHours, not raw input — PG rounds 1.005 up, JS down; the line must match.
+  // R-035 PR4: an edit that re-prices the entry (its resolved rate), flips billable, or changes SOMEONE ELSE'S hours
+  // makes the editor an author of the invoice it is billed on (rounds 2, 3); your own hours are effort.
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
 
   const rows = await withSavepoint(`te_upd_${++writeSeq}`, async () => (await sql`
     UPDATE time_entries SET
+      content_authors    = CASE WHEN applied_rate IS DISTINCT FROM ${appliedRate}::NUMERIC
+                                  OR billable IS DISTINCT FROM COALESCE(${input.billable ?? null}::BOOLEAN, billable)
+                                  OR (hours IS DISTINCT FROM COALESCE(${input.hours !== undefined ? effectiveHours : null}::NUMERIC, hours)
+                                      AND user_id IS DISTINCT FROM ${editedBy}::UUID)
+                             THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       entry_date         = COALESCE(${input.entryDate ?? null}::DATE, entry_date),
       hours              = COALESCE(${input.hours !== undefined ? effectiveHours : null}, hours),
       practice_client_id = COALESCE(${input.practiceClientId ?? null}::UUID, practice_client_id),

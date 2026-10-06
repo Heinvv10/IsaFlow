@@ -93,12 +93,13 @@ export async function createRecurringTemplate(
 ): Promise<RecurringTemplate> {
   const rows = (await sql`
     INSERT INTO recurring_transaction_templates
-      (company_id, name, entity_type, template_data, frequency, next_run_date, is_active, auto_post, created_by)
+      (company_id, name, entity_type, template_data, frequency, next_run_date, is_active, auto_post, created_by,
+       content_authors)
     VALUES (
       ${companyId}, ${input.name}, ${input.entityType},
       ${JSON.stringify(input.templateData)}::JSONB,
       ${input.frequency}, ${input.nextRunDate ?? null},
-      ${input.isActive ?? true}, ${input.autoPost ?? false}, ${userId}
+      ${input.isActive ?? true}, ${input.autoPost ?? false}, ${userId}, ARRAY[${userId}::UUID]
     )
     RETURNING *
   `) as DbRow[];
@@ -110,15 +111,20 @@ export async function updateRecurringTemplate(
   companyId: string,
   id: string,
   updates: Partial<TemplateInput>,
+  /** R-035 PR4 review F1: an author of what the template bills when the edit changes it. */
+  editedBy: string,
 ): Promise<RecurringTemplate> {
+  const data = updates.templateData ? JSON.stringify(updates.templateData) : null;
   const rows = (await sql`
     UPDATE recurring_transaction_templates SET
+      content_authors = CASE WHEN ${data}::JSONB IS NOT NULL AND template_data IS DISTINCT FROM ${data}::JSONB
+        THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       name          = COALESCE(${updates.name ?? null}, name),
       frequency     = COALESCE(${updates.frequency ?? null}, frequency),
       next_run_date = COALESCE(${updates.nextRunDate ?? null}::DATE, next_run_date),
       is_active     = COALESCE(${updates.isActive ?? null}, is_active),
       auto_post     = COALESCE(${updates.autoPost ?? null}, auto_post),
-      template_data = COALESCE(${updates.templateData ? JSON.stringify(updates.templateData) : null}::JSONB, template_data)
+      template_data = COALESCE(${data}::JSONB, template_data)
     WHERE id = ${id}::UUID AND company_id = ${companyId}
     RETURNING *
   `) as DbRow[];

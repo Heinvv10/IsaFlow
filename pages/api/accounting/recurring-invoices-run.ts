@@ -2,7 +2,12 @@
  * Recurring Invoices Run API
  * POST — run one recurring invoice by ID, or all currently due
  * Body: { recurring_invoice_id?: string }
- * Returns: { generated: number; invoice_ids: string[]; errors: string[] }
+ * Returns: { generated: number; invoice_ids: string[]; held_for_approval: string[]; errors: string[] }
+ *
+ * R-035 PR4: an invoice an enforced approval rule governs is generated as a
+ * draft with its approval request raised as the runner, and its schedule still
+ * advances; it is counted in `generated`, listed in `invoice_ids`, and named
+ * again in `held_for_approval` — it is not posted until it is approved.
  */
 
 import type { NextApiResponse } from 'next';
@@ -20,12 +25,14 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { assertTxUsable } from '@/lib/als';
-import { generateInvoiceFromRecurring } from '@/modules/accounting/services/ar/recurringInvoiceService';
+import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import type { DbRow } from '@/lib/neon';
 
 interface RunResult {
   generated: number;
   invoice_ids: string[];
+  /** The generated invoices left as drafts awaiting approval (R-035 PR4). */
+  held_for_approval: string[];
   errors: string[];
   /** True when more due invoices remain beyond this run's batch cap —
    *  run again to continue. */
@@ -45,15 +52,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.user.id;
   const { recurring_invoice_id } = req.body as { recurring_invoice_id?: string };
 
-  const result: RunResult = { generated: 0, invoice_ids: [], errors: [] };
+  const result: RunResult = { generated: 0, invoice_ids: [], held_for_approval: [], errors: [] };
 
   if (recurring_invoice_id) {
     // Run a single recurring invoice
     try {
-      const invoiceId = await generateInvoiceFromRecurring(companyId, recurring_invoice_id, userId);
+      const { invoiceId, heldForApproval } = await runRecurringInvoice(companyId, recurring_invoice_id, userId);
       result.generated = 1;
       result.invoice_ids = [invoiceId];
-      log.info('Single recurring invoice run', { recurring_invoice_id, invoiceId }, 'recurring-run');
+      if (heldForApproval) result.held_for_approval = [invoiceId];
+      log.info('Single recurring invoice run', { recurring_invoice_id, invoiceId, heldForApproval }, 'recurring-run');
     } catch (err) {
       const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${recurring_invoice_id}: ${msg}`);
@@ -99,9 +107,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   for (const row of dueRows) {
     const id = String(row.id);
     try {
-      const invoiceId = await generateInvoiceFromRecurring(companyId, id, userId);
+      const { invoiceId, heldForApproval } = await runRecurringInvoice(companyId, id, userId);
       result.generated += 1;
       result.invoice_ids.push(invoiceId);
+      if (heldForApproval) result.held_for_approval.push(invoiceId);
     } catch (err) {
       const msg = itemFailureMessage(err, 'Failed to generate invoice');
       result.errors.push(`${id}: ${msg}`);
@@ -127,6 +136,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   log.info('Bulk recurring invoice run complete', {
     total: dueRows.length,
     generated: result.generated,
+    heldForApproval: result.held_for_approval.length,
     errors: result.errors.length,
   }, 'recurring-run');
 

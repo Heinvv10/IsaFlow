@@ -3,8 +3,10 @@
  * document enters the ledger or a subledger population (R-035).
  *
  * Wired for supplier invoices since PR2 (approveSupplierInvoice, the MCP
- * approve pre-reads, the unattended creators) and for both credit-note types
- * since PR3 (approveCreditNote, the MCP approve pre-reads); other types follow one PR each,
+ * approve pre-reads, the unattended creators), for both credit-note types
+ * since PR3 (approveCreditNote, the MCP approve pre-reads) and for customer
+ * invoices since PR4 (approveCustomerInvoice, the MCP finalize pre-reads, the
+ * recurring runs); other types follow one PR each,
  * as they join ENFORCEABLE_DOCUMENT_TYPES (approvalEnforcement.ts).
  *
  * A document is CLEARED when any of these holds:
