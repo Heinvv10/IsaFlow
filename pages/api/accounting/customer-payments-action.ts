@@ -14,6 +14,7 @@ import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationComplet
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { respondIfBackstopRefused } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -56,6 +57,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.info('Customer payment action hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
     }
+    // R-035 PR4 (review F3): the receipt settles a DRAFT invoice an enforced
+    // approval rule governs — the backstop refused it, and confirm's own
+    // savepoint has rolled the whole confirm back, so the 409 commits nothing.
+    if (respondIfBackstopRefused(res, err, 'This receipt settles a draft invoice that needs approval before it can '
+      + 'enter accounts receivable. Have the invoice approved and posted first, then confirm the receipt.')) return;
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Customer payment action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
