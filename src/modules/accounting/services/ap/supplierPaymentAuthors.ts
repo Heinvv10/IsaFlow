@@ -23,8 +23,12 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
 const BANK_COLUMNS = ['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'] as const;
-/** A new DESTINATION: the columns the money is routed by. Changing one resets the setters to its editor. */
-const DESTINATION_COLUMNS = ['bank_account_number', 'bank_branch_code'] as const;
+/**
+ * A new DESTINATION: only the account number resets the setters to its editor.
+ * Not the branch code (round 2): an innocent "fix" to the universal branch code
+ * would otherwise drop whoever redirected the number, who then approves.
+ */
+const DESTINATION_COLUMNS = ['bank_account_number'] as const;
 
 /**
  * The supplier's bank details, under a row lock held to the end of the request
@@ -47,8 +51,8 @@ export type BankDetailsChange = 'none' | 'appended' | 'repointed';
 
 /**
  * What an UPDATE did to the bank details: nothing; a change to the account
- * NUMBER or BRANCH CODE ('repointed' — a new destination); or a change to any
- * other bank column ('appended'). A column the returned row does not carry
+ * NUMBER ('repointed' — a new destination); or a change to any other bank
+ * column, the branch code included ('appended'). A column the returned row does not carry
  * counts as unchanged.
  */
 export function bankDetailsChange(before: DbRow, after: DbRow): BankDetailsChange {
@@ -87,8 +91,8 @@ export async function lockBatchesPayingSupplier(companyId: string, supplierId: s
  * `userId` set the supplier's bank details (decision (b), 2026-10-06; round 1
  * append-only): they join `bank_details_setters` — derived LIVE into the
  * authors of every payment to the supplier, payments created later included —
- * and the list restarts at them only when the account number or branch code
- * itself changed (`'repointed'`, and every create with bank details): the
+ * and the list restarts at them only when the account number itself
+ * changed (`'repointed'`, and every create with bank details): the
  * old destination is gone, and they answer for the new one. They are also
  * stamped onto every draft or approved batch carrying such a payment, then
  * onto every draft or approved payment to the supplier, append-only, so a
