@@ -10,7 +10,7 @@ import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import { journalYearOf, orderByPredictedYears } from '../core/numberYearLocks';
-import { journalDateWindowError } from '../../utils/journalDateWindow';
+import { journalDateWindowError, ledgerDay } from '../../utils/journalDateWindow';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
 
@@ -144,7 +144,7 @@ export async function importJournalEntries(
       }
 
       resolved.push({
-        entryDate: firstRow.date,
+        entryDate: ledgerDay(String(firstRow.date)) ?? String(firstRow.date), // the day the window check passed
         description: firstRow.reference
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
