@@ -16,6 +16,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -247,6 +248,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');
       return;
     }
+    // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule, refused from the locked row pre-write.
+    if (respondIfApprovalRequired(res, err)) return;
     const refusal = classifyBankMatchRefusal(err);
     if (refusal) {
       if (refusal.contended) {

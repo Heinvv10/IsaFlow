@@ -3,7 +3,8 @@
  * record of money that has already moved. With supplier_payment AND
  * payment_batch enforcement on and an 'any' rule for each:
  *   - the bank-feed creators still record their payment straight as
- *     'processed' (withApprovalGateExemptBankFeed, pinned by the census);
+ *     'processed' from a line of an imported statement or a live feed
+ *     (withApprovalGateExemptBankFeed, which checks the line; pinned by the census);
  *   - the exemption ends with their INSERT — a raw 'processed' INSERT later in
  *     the same transaction is refused;
  *   - money IN is untouched: a customer receipt confirms as before.
@@ -52,7 +53,9 @@ async function bankLine(db: PoolClient, amount: number) {
     "INSERT INTO gl_journal_entries(company_id,entry_date,created_by,status,description) VALUES($1,DATE '2026-09-01',$2,'posted','R035 bank') RETURNING id",
     [fx.company, a])).rows[0].id as string;
   const bt = (await db.query(
-    "INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description) VALUES($1,$2,DATE '2026-09-01',$3,'R035') RETURNING id",
+    // From an imported statement: bank evidence the money moved (D2).
+    `INSERT INTO bank_transactions(company_id,bank_account_id,transaction_date,amount,description,import_batch_id)
+     VALUES($1,$2,DATE '2026-09-01',$3,'R035',gen_random_uuid()) RETURNING id`,
     [fx.company, fx.bank, amount])).rows[0].id as string;
   return { je, bt };
 }

@@ -291,6 +291,12 @@ export interface RuleApplyResult {
    */
   autoPostSkippedVatLocked?: number;
   /**
+   * R-035 PR5 (D2): supplier-rule auto-posts skipped because the line was keyed
+   * by hand and an enforced supplier_payment rule governs the amount — a payment
+   * instruction, recorded through a supplier payment and its approval instead.
+   */
+  autoPostSkippedApprovalRequired?: number;
+  /**
    * Number of auto-post attempts skipped because the transaction had been
    * allocated (or otherwise moved off `imported`) by another request between
    * the rule's candidate query and the row lock. Counted rather than silently

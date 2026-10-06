@@ -34,6 +34,7 @@ import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
+import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
 
 
 type Row = DbRow;
@@ -175,6 +176,10 @@ export async function allocateTransaction(
   // the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
+  // R-035 PR5 (Hein, D2): money OUT to a supplier from a HAND-KEYED line is a
+  // payment instruction, not bank evidence — refused (409) under an enforced
+  // supplier_payment rule, from the locked row, before the first write.
+  if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies

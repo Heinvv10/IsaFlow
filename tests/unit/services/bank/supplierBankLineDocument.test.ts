@@ -20,6 +20,13 @@ vi.mock('@/lib/neon', async () => {
     fmtDate: actual.fmtDate,
   };
 });
+// R-035 PR5 (D2): whether a hand-keyed line may pay a supplier is proved against
+// real PostgreSQL (r035-pr5-manual); here it lets the path under test run.
+vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({
+  assertBankLineMayPaySupplier: vi.fn().mockResolvedValue(undefined),
+  isBankEvidenced: () => true,
+  manualLinePaymentRefusal: vi.fn().mockResolvedValue(null),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),

@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { settleByContraTool } from '../../src/lib/mcp/tools/writeSettleByContra';
+import { allocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankAllocate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule } from './r035-approval.helpers';
 import { cleanupPr5, enforcePay, inRequest, payCompany, plantBill, plantSupplier } from './r035-pr5.helpers';
@@ -21,10 +22,14 @@ const tokens: Record<string, string> = {};
 let a = '';
 
 beforeAll(async () => { a = await createUser(pool, tokens); });
-afterAll(() => cleanupPr5(pool, companies, [a]));
+afterAll(async () => {
+  await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
+  await cleanupPr5(pool, companies, [a]);
+});
 
 const registry = new McpRegistry();
 registry.register(settleByContraTool);
+registry.register(allocateBankTransactionTool);
 const settle = (c: string, documentId: string, contra: string, amount: number, extra: Record<string, unknown> = {}) =>
   inRequest(pool, a, c, () => registry.call('settle_by_contra', {
     subledger: 'ap', document_id: documentId, contra_account_id: contra, amount, reason: 'R035 netted',
@@ -76,5 +81,23 @@ describe('settle_by_contra on a payable', () => {
     const { rows } = await pool.query(
       "SELECT status FROM supplier_payments WHERE company_id = ANY($1) AND payment_method = 'contra'", [[below.c, off.c]]);
     expect(rows).toEqual([{ status: 'processed' }, { status: 'processed' }]);
+  });
+});
+
+describe('allocate_bank_transaction (D2)', () => {
+  it('refuses a hand-keyed line paying a supplier under enforcement: a tool error, no journal, no payment', async () => {
+    const { company: c, bank } = await payCompany(pool, [[a, 'owner']], companies);
+    await plantRule(pool, c, 'owner', { documentType: 'supplier_payment', operator: 'greater_than', value: 1000 });
+    await enforcePay(pool, c, 'supplier_payment', a);
+    const supplierId = await plantSupplier(pool, c);
+    const line = (await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status)
+       VALUES($1,$2,DATE '2026-09-01',-5000,'keyed','imported') RETURNING id`, [c, bank])).rows[0].id;
+    const res = await inRequest(pool, a, c, () => registry.call('allocate_bank_transaction', {
+      transaction_id: line, alloc_type: 'supplier', entity_id: supplierId, idempotency_key: crypto.randomUUID(),
+    }, { userId: a, companyId: c, scopes: ['write:bank-tx', 'write:post'], tokenJti: 'r035-pr5', oauthAppId: null }));
+    expect(res.isError).toBe(true);
+    expect(text(res)).toMatch(/a bank line keyed by hand is no evidence the money left/);
+    expect({ payments: await payments(c), journals: await journals(c) }).toEqual({ payments: 0, journals: 0 });
   });
 });

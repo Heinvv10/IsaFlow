@@ -33,6 +33,7 @@ import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { actorRank, requiredRank } from './approvalAuthority';
 import { isEnforced, strictestActiveRuleRole } from './approvalEnforcement';
+import { bankLineIsEvidenced } from '../ap/bankLinePaymentGate';
 
 /** The document types an importer may bring in past their backstop. */
 export type ImportedDocumentType = 'supplier_invoice' | 'customer_invoice';
@@ -96,22 +97,27 @@ export async function withApprovalGateExempt<T>(importer: ApprovalGateImporter, 
 /**
  * The bank-feed exemption from the supplier-payment backstop (R-035 PR5,
  * decision Q4: payments gate the INSTRUCTION to pay, never the record of money
- * that has already left the bank). The four creators that record a supplier
+ * that has already left the bank). The creators that record a supplier
  * payment from a bank line — supplierBankPaymentService, supplierAutoAllocate,
- * provisionalInvoiceSettlement, supplierRefundDocument — INSERT it straight as
- * 'processed' inside this wrapper, which sets the transaction-local GUC to
- * 'bank_feed' for that INSERT only. Migration 867 honours it on an INSERT of a
- * single payment, never on an UPDATE or a batch member. No rank check: the
- * bank line is the fact, and nobody could refuse it. The census
- * (approvalGateExemptCensus.test.ts) pins the four callers.
+ * provisionalInvoiceSettlement — INSERT it straight as 'processed' inside this
+ * wrapper, naming the line. The wrapper reads the line's provenance ITSELF
+ * (Hein, 2026-10-06, D2): only a line from a live bank feed or an imported
+ * statement is evidence the money moved (ap/bankLinePaymentGate), so only then
+ * is the transaction-local GUC set to 'bank_feed' for that INSERT. For a
+ * hand-keyed line the write runs unexempt, and the 867 backstop judges the
+ * payment like any instruction — no caller can claim the exemption for one.
+ * Migration 867 honours the GUC on an INSERT of a single payment only. No rank
+ * check: the bank line is the fact. The census (approvalGateExemptCensus.test.ts)
+ * pins the callers. A refund (money in) needs no exemption: 867 passes it by content.
  *
  * In a savepoint for the same reason as withApprovalGateExempt. Outside a
  * request transaction the setting could not reach the INSERT, so it is not
  * attempted there: such a caller is refused under enforcement (fail closed)
  * and unchanged without it.
  */
-export async function withApprovalGateExemptBankFeed<T>(write: () => Promise<T>): Promise<T> {
-  if (!als.getStore()?.client) return write();
+export async function withApprovalGateExemptBankFeed<T>(companyId: string, bankTxId: string,
+  write: () => Promise<T>): Promise<T> {
+  if (!als.getStore()?.client || !(await bankLineIsEvidenced(companyId, bankTxId))) return write();
   return withSavepoint('approval_gate_exempt_bank', async () => {
     await sql`SELECT set_config('isaflow.approval_gate_exempt', 'bank_feed', true)`;
     const result = await write();
