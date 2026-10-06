@@ -13,7 +13,8 @@
  *    stay effort and stamp nothing.
  *  - Practice duplicate: a copy of SOMEONE ELSE'S entry adds billable hours
  *    under their name, so its copier is an author of it; copying your own
- *    entry is effort (round 4, REPRO F).
+ *    entry is effort (round 4, REPRO F). A copy carries its source's authors:
+ *    the copied rate and hours are theirs too (round 5, REPRO G).
  * An author is refused 403 as the approver while another eligible one exists.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -185,5 +186,20 @@ describe('practice timesheets: the rate comes from the rate tables', () => {
     expect(await stamped(copy.id)).toEqual([u.bob]);
     expect(await stamped(entry)).toEqual([]); // the source is untouched
     await refusedThenApproved(c, await invoice(c, customer, [entry, own.id, copy.id]), u.bob, u.carol);
+  });
+
+  it("a copy keeps its source's authors: bob re-quantifies carol's entry, carol copies it, bob is refused on the copies (REPRO G)", async () => {
+    const { c, customer } = await fixture();
+    const { inTx, logCarol } = await practice(c);
+    const entry = (await logCarol()).id;
+    await inTx(u.bob, () => updatePracticeEntry(c, entry, { hours: 6 }, u.bob));
+    expect(await stamped(entry)).toEqual([u.bob]);
+    const duplicate = async (user: string, newDate: string) => ok<{ id: string }>(await callRoute(
+      duplicateRoute as never, tokens[user]!, c, 'POST', { id: entry, newDate }, '/api/accounting/practice/time-entries/duplicate')).id;
+    const own = await duplicate(u.carol, '2026-01-06');
+    expect(await stamped(own)).toEqual([u.bob]); // her own copy: she adds nobody, bob's hours come along
+    const other = await duplicate(u.alice, '2026-01-07');
+    expect(await stamped(other)).toEqual([u.alice, u.bob].sort());
+    await refusedThenApproved(c, await invoice(c, customer, [own]), u.bob, u.carol);
   });
 });

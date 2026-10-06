@@ -73,7 +73,8 @@ ALTER TABLE recurring_transaction_templates ADD COLUMN IF NOT EXISTS content_aut
 -- exception: a time-tracking entry's logger TYPES its rate, so createTimeEntry
 -- stamps them when it stores one (round 3); and a practice DUPLICATE of
 -- someone else's entry — new hours under their name — stamps its copier
--- (round 4; duplicating your own is effort). Golden path a creates and converts
+-- (round 4; duplicating your own is effort), and a copy keeps its source's
+-- authors (round 5). Golden path a creates and converts
 -- a quote and logs no time, so it writes none of these columns.
 -- KNOWN LIMIT (like PR2's default_expense): the practice rate tables
 -- (practice_staff_rates, practice_client_rate_overrides,

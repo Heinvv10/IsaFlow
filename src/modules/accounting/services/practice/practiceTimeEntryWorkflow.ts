@@ -136,7 +136,8 @@ export async function bulkCreateFromTemplate(
  * Copies an entry to `newDate` under the SOURCE's logger and rate. A copy of
  * someone else's entry adds billable hours in their name, so `copiedBy` is an
  * author of the copy (R-035 PR4 round 4, REPRO F); copying your own entry is
- * effort, like logging it (decision 1).
+ * effort, like logging it (decision 1). Either way the copy keeps the source's
+ * content_authors (round 5, REPRO G).
  */
 export async function duplicatePracticeEntry(
   companyId: string,
@@ -170,6 +171,8 @@ export async function duplicatePracticeEntry(
   );
   const hours = roundHours(Number(src.hours));
   const lineTotal = lineTotalFor(hours, appliedRate);
+  // The copy bills the source's hours, so whoever set them is its author too (round 5, REPRO G).
+  const srcAuthors = (src.content_authors ?? []) as string[];
 
   const rows = await withSavepoint(`dup_ins_${++workflowSeq}`, async () => (await sql`
     INSERT INTO time_entries (
@@ -185,7 +188,7 @@ export async function duplicatePracticeEntry(
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
       'recurring', 'draft', ${jobId}::UUID,
       CASE WHEN ${copiedBy}::UUID IS DISTINCT FROM ${String(src.user_id)}::UUID
-           THEN approval_add_author('{}'::UUID[], ${copiedBy}::UUID) ELSE '{}'::UUID[] END
+           THEN approval_add_author(${srcAuthors}::UUID[], ${copiedBy}::UUID) ELSE ${srcAuthors}::UUID[] END
     ) RETURNING *
   `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');
