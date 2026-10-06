@@ -110,7 +110,7 @@ export async function approveCustomerInvoice(
   // outside the ledger window nothing is written yet, so a route answers 400, not 500 (brk-numrace F2).
   const dated = (await sql`SELECT invoice_date::text AS d FROM customer_invoices
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL`) as Row[];
-  if (dated[0]) await ledgerEntryDay(String(dated[0].d));
+  if (dated[0]?.d) await ledgerEntryDay(String(dated[0].d));
   // A COMPARE-AND-SWAP IS STRONGER THAN A LOCK AGAINST DOUBLE-POSTING, AND
   // WEAKER AGAINST HANGING. The guarded UPDATE below means two callers cannot
   // both win, so no lock is needed to stop a second journal (the FOR UPDATE
