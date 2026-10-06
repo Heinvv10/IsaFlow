@@ -40,6 +40,7 @@ vi.mock('@/modules/accounting/services/core/smartCategorizationService', async (
 vi.mock('@/modules/accounting/services/reports/vatAdjustmentService', async (orig) => ({ ...(await orig<object>()), createVATAdjustment: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatSubmissionService', async (orig) => ({ ...(await orig<object>()), submitVATReturn: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/writeOffService', async (orig) => ({ ...(await orig<object>()), createWriteOff: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/creditNoteService', async (orig) => ({ ...(await orig<object>()), createCreditNote: vi.fn() }));
 
 import { createAdjustment } from '@/modules/accounting/services/items/adjustmentService';
 import { completeReconciliation, startReconciliation } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -60,6 +61,9 @@ import { smartCategorizeForAccount } from '@/modules/accounting/services/core/sm
 import { createVATAdjustment } from '@/modules/accounting/services/reports/vatAdjustmentService';
 import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
 import { createWriteOff } from '@/modules/accounting/services/ar/writeOffService';
+import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import hCreditNotes from '../../../pages/api/accounting/credit-notes';
+import hSupplierCreditNotes from '../../../pages/api/accounting/supplier-credit-notes';
 import { sql, withTransaction } from '@/lib/neon';
 import { reserveNextDocumentNumber as reserveSiv } from '@/modules/accounting/services/core/companyService';
 import { DocumentNumberLockTimeoutError, reserveNextDocumentNumber } from '@/modules/accounting/services/core/companySettingsService';
@@ -111,6 +115,8 @@ function call(handler: Handler, method: string, body: unknown, query: Record<str
 }
 const heldTyped = () => new DocumentNumberLockTimeoutError('supplier_invoice');
 const deadlock = () => Object.assign(new Error('deadlock detected'), { code: '40P01' });
+// A document or journal number held past the number lock's 5 s bound (migration 858) surfaces as a raw 55P03.
+const numberLockTimeout = () => Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
 
 type Row = [string, Handler, ReturnType<typeof vi.fn>, string, Record<string, unknown>, Record<string, string>];
 const idify = (v: unknown): unknown => JSON.parse(JSON.stringify(v).replace(/"ID"/g, `"${ID}"`));
@@ -140,6 +146,8 @@ const rows: Row[] = [
   ['vat-adjustments', hVatAdjustments as Handler, vi.mocked(createVATAdjustment) as never, 'POST', idify({}) as Record<string, unknown>, idify({}) as Record<string, string>],
   ['vat-returns/index', hVatReturnsIndex as Handler, vi.mocked(submitVATReturn) as never, 'POST', idify({"periodStart": "2026-08-01", "periodEnd": "2026-08-31"}) as Record<string, unknown>, idify({}) as Record<string, string>],
   ['write-offs', hWriteOffs as Handler, vi.mocked(createWriteOff) as never, 'POST', idify({}) as Record<string, unknown>, idify({}) as Record<string, string>],
+  ['credit-notes', hCreditNotes as Handler, vi.mocked(createCreditNote) as never, 'POST', idify({"type": "customer", "creditDate": "2026-09-01", "subtotal": 10}) as Record<string, unknown>, idify({}) as Record<string, string>],
+  ['supplier-credit-notes', hSupplierCreditNotes as Handler, vi.mocked(createCreditNote) as never, 'POST', idify({"supplierId": "ID", "creditDate": "2026-09-01", "lineItems": [{"description": "x", "quantity": 1, "unitPrice": 10}]}) as Record<string, unknown>, idify({}) as Record<string, string>],
 ];
 
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(sql).mockResolvedValue([{ id: ID, rate: 4.5, km_rate: 4.5 }] as never); });
@@ -158,6 +166,14 @@ describe.each(rows)('D11 %s', (_key, handler, service, method, body, query) => {
     expect(res.headers['Retry-After']).toBe('2');
     expect(JSON.stringify(res.sent)).not.toMatch(/deadlock detected/);
   });
+  it('a number lock held past its bound (raw 55P03) -> 503 + Retry-After, without the driver text', async () => {
+    service.mockRejectedValueOnce(numberLockTimeout());
+    const res = await call(handler, method, body, query);
+    expect(service).toHaveBeenCalled();
+    expect(res.statusCode, JSON.stringify(res.sent)).toBe(503);
+    expect(res.headers['Retry-After']).toBe('2');
+    expect(JSON.stringify(res.sent)).not.toMatch(/lock timeout/);
+  });
   it('an ordinary failure keeps its status (not a 503)', async () => {
     service.mockRejectedValueOnce(new Error('ordinary failure'));
     const res = await call(handler, method, body, query);
@@ -172,7 +188,11 @@ describe.each([
     { supplierId: ID, invoiceDate: '2026-09-01', useSequence: true, items: [{ description: 'x', quantity: 1, unitPrice: 1 }] }, {},
     (e: Error) => vi.mocked(reserveSiv).mockRejectedValueOnce(e)],
   ['supplier-returns POST (the supplier_return sequence row)', hSupplierReturns as Handler, 'POST',
-    { supplierId: ID, amount: 10, reason: 'x' }, {}, (e: Error) => vi.mocked(reserveNextDocumentNumber).mockRejectedValueOnce(e)],
+    { supplierId: ID, amount: 10, reason: 'x' }, {}, (e: Error) => {
+      // The reservation runs inside the route's savepoint (withTransaction) since DOCNUM round 3.
+      vi.mocked(withTransaction).mockImplementationOnce((fn) => fn(sql as never) as never);
+      vi.mocked(reserveNextDocumentNumber).mockRejectedValueOnce(e);
+    }],
   ['bank-transfers POST (the journal transaction)', hBankTransfers as Handler, 'POST',
     { fromAccountId: ID, toAccountId: '77777777-7777-4777-8777-777777777777', amount: 10 }, {},
     (e: Error) => {

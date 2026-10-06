@@ -126,6 +126,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.created(res, note);
     } catch (err) {
       if (respondIfImpersonationForbidden(res, err)) return;
+      // Numbering the note (and, on 'post', its journal) waits on the company+year number lock (migration 858).
+      if (respondIfLockTimeout(res, err)) return;
       log.error('supplier-credit-notes POST failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create supplier credit note');
     }

@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
   getCreditNotes,
   getCreditNoteById,
@@ -72,6 +73,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.created(res, creditNote);
     } catch (err) {
+      // The credit-note number is minted under the company+year number lock (migration 858): held past its 5 s
+      // bound it is a 55P03, which is contention (503 + Retry-After), not a server fault.
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create credit note');
     }
