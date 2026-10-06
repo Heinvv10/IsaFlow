@@ -217,7 +217,8 @@ $$;
 -- DERIVED here from the links the converters already write: the quote's
 -- creator and editors (customer_quotes.converted_invoice_id), the sales
 -- order's (customer_sales_orders.invoice_id) and those of the quote behind
--- that order (customer_sales_orders.quote_id), and every user who changed a
+-- that order (customer_quotes.converted_order_id, the link convertToSalesOrder
+-- writes, or customer_sales_orders.quote_id), and every user who changed a
 -- billed time entry's rate or billable flag (time_entries.invoice_id, set by
 -- both time billing paths: the time-entries-invoice claim and the WIP
 -- markEntriesBilled). Not the time entry's LOGGER (decision 1): hours are
@@ -266,7 +267,8 @@ AS $$
           WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
           UNION
           SELECT qa.author FROM public.customer_sales_orders so
-          JOIN public.customer_quotes q ON q.id = so.quote_id AND q.company_id = ci.company_id
+          JOIN public.customer_quotes q ON (q.id = so.quote_id OR q.converted_order_id = so.id)
+            AND q.company_id = ci.company_id
           CROSS JOIN LATERAL unnest(q.content_authors || ARRAY[q.created_by]) qa(author)
           WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
           UNION

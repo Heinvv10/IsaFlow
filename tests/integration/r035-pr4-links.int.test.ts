@@ -87,6 +87,21 @@ describe('a converted quote is terminal (REPRO B)', () => {
     expect(await quoteRow(quoteId)).toMatchObject({ status: 'converted_to_order', converted_order_id: orderId, converted_invoice_id: null });
   });
 
+  it('even forced back to accepted, a quote holding a conversion link converts no second time', async () => {
+    const { c, customer } = await fixture();
+    const toInvoice = await newQuote(u.bob, c, customer, 100_000);
+    ok(await quoteDo(u.alice, c, toInvoice, 'accept'));
+    ok(await quoteDo(u.alice, c, toInvoice, 'convert'));
+    const toOrder = await newQuote(u.bob, c, customer, 100_000);
+    ok(await quoteDo(u.alice, c, toOrder, 'accept'));
+    ok(await quoteDo(u.alice, c, toOrder, 'convert-to-order'));
+    await pool.query("UPDATE customer_quotes SET status = 'accepted' WHERE id = ANY($1)", [[toInvoice, toOrder]]);
+    for (const id of [toInvoice, toOrder]) {
+      expect((await quoteDo(u.bob, c, id, 'convert')).state.statusCode, `convert ${id}`).toBe(409);
+      expect((await quoteDo(u.bob, c, id, 'convert-to-order')).state.statusCode, `convert-to-order ${id}`).toBe(409);
+    }
+  });
+
   it('a quote that is not converted still moves between its open statuses', async () => {
     const { c, customer } = await fixture();
     const quoteId = await newQuote(u.alice, c, customer, 100);
