@@ -62,7 +62,7 @@ export async function importARInvoices(
     await assertMayImportOpenBills(companyId, userId, 'customer_invoice');
   }
   // Before any read: the idempotency check below is a read-then-write.
-  await lockMigrationImport(companyId);
+  await lockMigrationImport(companyId, invoices.map((inv) => inv.invoiceDate));
   await assertNoOpeningControlTotal(companyId, sessionId, 'receivable');
 
   // No default_revenue and no vat_output: a take-on document posts neither. See

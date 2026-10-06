@@ -6,7 +6,7 @@
  * tests/unit/services/journalEntryReversalDate.test.ts.
  */
 
-import { fmtDate } from '@/lib/fmtDate';
+import { fmtDate, postingToday } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from './periodStatusService';
 import {
   VatPeriodLockedError, findActiveVatLock, journalMovesVatFigure, takeVatLockShared, type VatLineRef,
@@ -177,7 +177,7 @@ export async function resolveReversalDateDetailed(
     const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
     // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
     // latter stamps yesterday.
-    const today = fmtDate(new Date());
+    const today = postingToday();
     let date = originalPeriod === 'open' ? originalDate : today;
     // R-012: today would precede a future-dated original.
     //  - its period is CLOSED → refuse, pre-write (open the period);

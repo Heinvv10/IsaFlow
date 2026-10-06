@@ -16,7 +16,8 @@ import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot } from './autoPostSettingsService';
 import { evaluate } from './autoPostGateDecision';
 import { feedStateOf } from './bankFeedStateGuard';
-import { journalYearOf, lockNumberYears } from '../core/numberYearLocks';
+import { claimRowsThenLockYears, journalYearOf } from '../core/numberYearLocks';
+import { lockBankTransactionForUpdate } from './bankTxLock';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -132,11 +133,12 @@ export async function sweep(
     settings,
     isImport ? null : (row.suggested_strategy ?? null),
   )]));
-  // Every year this sweep will number a journal in, ascending, before its first (core/numberYearLocks.ts). A
-  // 55P03 here posted nothing: the whole sweep is retryable.
-  await lockNumberYears(companyId, postable
-    .filter((row) => decisions.get(row.id)!.outcome === 'post')
-    .map((row) => journalYearOf(row.transaction_date)));
+  // Every year this sweep will number a journal in, ascending, before its first and after claiming those lines in
+  // walk order with the bank-line lock (core/numberYearLocks.ts). A 55P03 on a year key posted nothing: the whole
+  // sweep is retryable.
+  await claimRowsThenLockYears(companyId, postable.filter((row) => decisions.get(row.id)!.outcome === 'post')
+    .map((row) => ({ id: row.id, years: [journalYearOf(row.transaction_date)] })),
+  (id) => lockBankTransactionForUpdate(companyId, id));
 
   for (const row of postable) {
     const decision = decisions.get(row.id)!;

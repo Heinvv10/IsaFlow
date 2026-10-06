@@ -10,6 +10,7 @@ import { safeCorsOrigin } from '@/lib/cors';
 import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
+import { respondIfYearSpanTooWide } from '@/lib/apiYearSpan';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const SENSITIVE_KEYS = new Set([
@@ -210,6 +211,10 @@ export function respondToUnhandledError(res: NextApiResponse, error: unknown): v
   }
   // D12: a write refused because it would change a COMPLETED bank reconciliation — 409, raised before any write.
   if (respondIfReconciliationCompleted(res, error)) {
+    return;
+  }
+  // NUMRACE: a run that would post in more than MAX_RUN_YEARS years — refused before any lock or write, so a 400.
+  if (respondIfYearSpanTooWide(res, error)) {
     return;
   }
 

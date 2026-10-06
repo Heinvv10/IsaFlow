@@ -17,6 +17,7 @@ import bankRulesAction from '../../pages/api/accounting/bank-rules-action';
 import { lockWaitErrorText } from '@/lib/mcp/lockWaitError';
 import { postPartitionedDocuments } from '@/lib/mcp/tools/bulkApproveRunner';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { sweep } from '@/modules/accounting/services/bank/autoPostGateService';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture } from './helpers/l1FifoFixture';
@@ -92,6 +93,7 @@ describeIfDb('NUMRACE: a cross-year run whose year keys are held is retryable as
     const b = await line(c, '22222222', '2026-08-03', 'NRDOC h26');
     const adapter = {
       toolName: 'numrace_bulk', savepointPrefix: 'nr_el_', approvableStatuses: [],
+      lockRow: (_co: string, id: string) => lockBankTransactionForUpdate(c.fx.companyId, id),
       postOne: (_ctx: unknown, id: string) => allocateTransaction(c.fx.companyId, id, c.expense, c.fx.userId,
         undefined, 'account', undefined, undefined),
     };

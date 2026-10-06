@@ -45,6 +45,7 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { lockCustomerInvoiceForApproval } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
@@ -103,6 +104,7 @@ const adapter: BulkApproveAdapter<FinalizedRow> = {
   // above 31, which would fail the batch before it posted anything.
   savepointPrefix: 'bulk_fin_inv_',
   approvableStatuses: APPROVABLE,
+  lockRow: lockCustomerInvoiceForApproval, // approveCustomerInvoice's first lock
   async readStates(companyId, ids) {
     // ONE query for the batch. `invoice_date` is what postCustomerInvoiceToGL
     // uses as the entry date (via fmtDate), so it is what the fiscal-period

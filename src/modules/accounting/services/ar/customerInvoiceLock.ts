@@ -31,6 +31,7 @@
  */
 
 import { als, assertTxUsable } from '@/lib/als';
+import { sql } from '@/lib/neon';
 import { currentLockTimeout, restoreLockTimeout } from '../core/rowLockBudget';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
@@ -85,4 +86,15 @@ export async function withCustomerInvoiceLock<T>(
   } finally {
     await restoreLockTimeout(client, previousLockTimeout, failure);
   }
+}
+
+/**
+ * The row lock `approveCustomerInvoice` takes first — FOR NO KEY UPDATE on the live invoice, 5 s, typed — for a bulk
+ * finalize to claim its rows before a cross-year batch takes its year keys (core/numberYearLocks.ts).
+ */
+export function lockCustomerInvoiceForApproval(companyId: string, invoiceId: string): Promise<unknown> {
+  return withCustomerInvoiceLock('lockCustomerInvoiceForApproval', `Customer invoice ${invoiceId}`, () => sql`
+    SELECT id FROM customer_invoices
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+    FOR NO KEY UPDATE`);
 }

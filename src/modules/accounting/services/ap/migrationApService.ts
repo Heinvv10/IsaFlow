@@ -58,7 +58,7 @@ export async function importAPInvoices(
   // R-035 HIGH-2: open bills past enforcement need the strictest rule's rank — before any write.
   if (invoices.some((i) => i.totalAmount - (i.amountPaid ?? 0) > 0)) await assertMayImportOpenBills(companyId, userId);
   // Before any read: the idempotency check below is a read-then-write.
-  await lockMigrationImport(companyId);
+  await lockMigrationImport(companyId, invoices.map((inv) => inv.invoiceDate));
   await assertNoOpeningControlTotal(companyId, sessionId, 'payable');
 
   // No default_expense and no vat_input: a take-on document posts neither. See

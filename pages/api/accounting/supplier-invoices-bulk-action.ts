@@ -91,9 +91,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
   const ordered = [...invoiceIds].sort();
-  // Every year these bills' journals can be dated in, ascending, before the first (core/numberYearLocks.ts). A
-  // 55P03 here has posted nothing: withErrorHandler answers 503 + Retry-After.
-  await lockSupplierInvoiceYears(companyId, ordered, action === 'cancel');
+  // The bills, then every year their journals can be dated in, ascending, before the first (ap/supplierInvoiceYearLocks).
+  // A 55P03 on a year key has posted nothing: withErrorHandler answers 503 + Retry-After.
+  await lockSupplierInvoiceYears(companyId, ordered, action);
 
   for (const invoiceId of ordered) {
     try {

@@ -35,3 +35,12 @@ export function fmtDate(val: unknown): string {
   if (s.includes('T')) return s.split('T')[0]!;
   return s;
 }
+
+/**
+ * "Today" as every posting path stamps it: the host's local calendar day (fmtDate, never toISOString). The reversal
+ * default (resolveReversalDateDetailed), its VAT-lock roll and the up-front year locks that predict them all read
+ * it here, so a run near midnight on 31 December predicts the year it then posts in.
+ */
+export function postingToday(): string {
+  return fmtDate(new Date());
+}

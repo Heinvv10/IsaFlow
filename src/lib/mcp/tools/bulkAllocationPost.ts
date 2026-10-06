@@ -14,7 +14,8 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
-import { journalYearOf, lockNumberYears } from '@/modules/accounting/services/core/numberYearLocks';
+import { claimRowsThenLockYears, journalYearOf } from '@/modules/accounting/services/core/numberYearLocks';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -173,9 +174,12 @@ export async function postPreparedLines(
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
   // Every year this batch numbers a journal in (each line's journal is dated its bank line's date), ascending,
-  // before the first (core/numberYearLocks.ts). Outside the per-line savepoints: a raw 55P03 here posted nothing,
-  // so it reaches the registry whole and the agent is told to retry the batch.
-  await lockNumberYears(ctx.companyId, ordered.map((o) => journalYearOf(o.transactionDate)));
+  // before the first — after claiming the lines in this walk order with allocateTransaction's own lock, the order
+  // a single allocation takes them (core/numberYearLocks.ts). Outside the per-line savepoints: a raw 55P03 on a
+  // year key posted nothing, so it reaches the registry whole and the agent is told to retry the batch.
+  await claimRowsThenLockYears(ctx.companyId,
+    ordered.map((o) => ({ id: o.txId, years: [journalYearOf(o.transactionDate)] })),
+    (id) => lockBankTransactionForUpdate(ctx.companyId, id));
 
   for (const { index, txId, line } of ordered) {
     // Sequential, not Promise.all: these share one pg connection, and

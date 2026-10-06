@@ -107,6 +107,9 @@ export interface BulkApproveAdapter<TResult> {
   readStates(companyId: string, ids: readonly string[]): Promise<Map<string, DocumentState>>;
   /** Post one document. Throws on every failure; never returns an error shape. */
   postOne(ctx: McpToolContext, id: string): Promise<TResult>;
+  /** Take the row lock `postOne`'s service takes first, with the same strength and bound — the runner claims every
+   *  row with it, in walk order, before a cross-year batch takes its year keys (core/numberYearLocks.ts). */
+  lockRow(companyId: string, id: string): Promise<unknown>;
 }
 
 /** Everything the pre-write pass decided, before anything was written. */

@@ -24,7 +24,8 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
-import { lockNumberYears, reversalYears } from '../core/numberYearLocks';
+import { claimRowsThenLockYears } from '../core/numberYearLocks';
+import { predictBankLineReversalYears } from '../gl/journalReversalYears';
 import type { UndoSkips, UndoResult } from './autoPostUndoResult';
 
 type Row = DbRow;
@@ -157,14 +158,16 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   if (runRows[0]!.undone_at) throw new Error('Run already undone');
 
   const txRows = (await sql`
-    SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id, transaction_date
+    SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id
     FROM bank_transactions
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY id
   `) as Row[];
-  // Every year the contra journals can be dated in (each original is dated its bank line's date), ascending, before
-  // the first (core/numberYearLocks.ts). A 55P03 here reversed nothing: the route answers 503 + Retry-After.
-  await lockNumberYears(companyId, reversalYears(txRows.map((t) => t.transaction_date as string | Date)));
+  // Every year the contra journals can be dated in (gl/journalReversalYears), ascending, before the first and after
+  // claiming the lines in this walk order (core/numberYearLocks.ts). A 55P03 on a year key reversed nothing: 503.
+  const lineIds = txRows.map((t) => String(t.id));
+  await claimRowsThenLockYears(companyId, lineIds.map((id) => ({ id, years: [] })),
+    (id) => lockBankTransactionForUpdate(companyId, id), await predictBankLineReversalYears(companyId, lineIds));
 
   let reversed = 0;
   let alreadyUndone = 0;
