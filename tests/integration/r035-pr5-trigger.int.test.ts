@@ -4,8 +4,9 @@
  * A supplier payment may not ENTER approved / processed / reconciled (nor go
  * approved -> processed), and a batch may not enter approved / processed,
  * without a cleared approval of the governing document: the payment's own
- * for a single payment, its BATCH's for a member. Only an INSERT of a single
- * payment under the bank-feed or import GUC is exempt (Q4, Q1).
+ * for a single payment, its BATCH's for a member (checked once per batch by a
+ * statement trigger). Exempt, on an INSERT of a single payment only: the
+ * bank-feed GUC (Q4) and a refund (money in).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -130,13 +131,13 @@ describe('supplier_payments', () => {
          VALUES($1,$2,DATE '2026-09-01',1150,'eft','processed',$3,$4)`, [c, supplierId, batchId, u.a]);
     };
 
-  it("an INSERT straight to 'processed' passes only under the bank-feed or import GUC", async () => {
+  it("an INSERT straight to 'processed' passes only under the bank-feed GUC (round 1: 'import' is no longer honoured)", async () => {
     const { c } = await enforced();
     const s = await plantSupplier(pool, c);
     expect(await attempt(c, 'app_user', insertProcessed(c, s, null))).toMatch(REFUSED);
     expect(await attempt(c, 'app_user', insertProcessed(c, s, 'something'))).toMatch(REFUSED);
     expect(await attempt(c, 'app_user', insertProcessed(c, s, 'bank_feed'))).toBe('written');
-    expect(await attempt(c, 'app_user', insertProcessed(c, s, 'import'))).toBe('written');
+    expect(await attempt(c, 'app_user', insertProcessed(c, s, 'import'))).toMatch(REFUSED);
   });
 
   it('the GUC never exempts an UPDATE, nor an INSERT of a batch member', async () => {

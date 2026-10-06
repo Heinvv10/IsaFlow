@@ -9,27 +9,52 @@
  * of every unpaid payment to that supplier, and of every batch carrying one —
  * the approval goes stale (fail closed) — and its editor joins their authors
  * here, append-only, so they cannot approve the re-submitted payment either.
- * They also become the supplier's `bank_details_set_by` (decision (b)), which
- * the authors function derives into payments created AFTER the edit. Paid
- * payments are history and are left alone. Creating a payment stamps nothing
- * (its creator is created_by).
+ * They also join the supplier's `bank_details_setters` (decision (b), made
+ * append-only in round 1), which the authors function derives into payments
+ * created AFTER the edit. Paid payments are history and are left alone.
+ * Creating a payment stamps nothing (its creator is created_by).
+ *
+ * Lock order (bank/.claude.md): supplier, then batches, then their member
+ * payments — the order approveBatch / processBatch take batch then members,
+ * so a stamp racing a batch approve waits rather than deadlocking.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
+const BANK_COLUMNS = ['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'] as const;
+/** A new DESTINATION: the columns the money is routed by. Changing one resets the setters to its editor. */
+const DESTINATION_COLUMNS = ['bank_account_number', 'bank_branch_code'] as const;
+
 /**
- * True when a supplier UPDATE moved the bank details it writes. The UPDATE
- * returns them twice, as `bank_after` (RETURNING jsonb_build_array(...)) and
- * as `bank_before` — a RETURNING subquery on the same row, which runs with the
- * statement's snapshot and so reads the row as it stood before the UPDATE (one
- * statement: no separate read to race, and no extra query). A concurrent edit
- * the UPDATE waited for can make `bank_before` the pre-concurrent value: the
- * comparison then errs toward a stamp, or misses only an edit that restored
- * the details every earlier approval was given for.
+ * The supplier's bank details, under a row lock held to the end of the request
+ * (the row updateSupplier, the take-on overwrite and both merges lock). Read
+ * BEFORE the UPDATE so the change is judged against the row actually replaced:
+ * a concurrent edit the lock waited for is in it (round 1 — the statement
+ * snapshot the UPDATE's own RETURNING saw was the row before that edit, so a
+ * non-bank edit could pass for a bank change). Null: no such supplier.
  */
-export function bankDetailsMoved(row: DbRow): boolean {
-  return row.bank_before != null && JSON.stringify(row.bank_before) !== JSON.stringify(row.bank_after);
+export async function lockSupplierBankDetails(companyId: string, supplierId: string): Promise<DbRow | null> {
+  const rows = (await sql`
+    SELECT bank_name, bank_account_number, bank_branch_code, bank_account_type, bank_account_holder
+    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+    FOR UPDATE
+  `) as DbRow[];
+  return rows[0] ?? null;
+}
+
+export type BankDetailsChange = 'none' | 'appended' | 'repointed';
+
+/**
+ * What an UPDATE did to the bank details: nothing; a change to the account
+ * NUMBER or BRANCH CODE ('repointed' — a new destination); or a change to any
+ * other bank column ('appended'). A column the returned row does not carry
+ * counts as unchanged.
+ */
+export function bankDetailsChange(before: DbRow, after: DbRow): BankDetailsChange {
+  const moved = (c: string) => c in after && (before[c] ?? null) !== (after[c] ?? null);
+  if (DESTINATION_COLUMNS.some(moved)) return 'repointed';
+  return BANK_COLUMNS.some(moved) ? 'appended' : 'none';
 }
 
 /** True when the supplier row carries any bank detail (a create that sets where money goes). */
@@ -39,46 +64,76 @@ export function hasBankDetails(row: DbRow): boolean {
 }
 
 /**
- * `userId` set the supplier's bank details (decision (b), 2026-10-06): record
- * them as its `bank_details_set_by` — derived LIVE into the authors of every
- * payment to it, including payments created later — and stamp them onto every
- * draft or approved payment to the supplier and every draft or approved batch
- * carrying one, append-only, so a later setter cannot strip them from a payment
- * already in flight. Not an UPDATE OF status, so the 867 backstop does not
- * fire. Called only for a write that changed (or created) bank details: any
- * other supplier write never references the column.
+ * Lock the batches carrying `supplierId`'s payments in `statuses`, in id order,
+ * BEFORE their members are written — batch then members, as approveBatch and
+ * processBatch take them. Returns their ids.
  */
-export async function recordBankDetailsSetter(companyId: string, supplierId: string, userId: string): Promise<void> {
+export async function lockBatchesPayingSupplier(companyId: string, supplierId: string,
+  statuses: readonly string[] | null): Promise<string[]> {
+  const rows = (await sql`
+    SELECT b.id FROM supplier_payment_batches b
+    WHERE b.company_id = ${companyId}::UUID
+      AND (${statuses === null} OR b.status = ANY(${statuses ?? []}::TEXT[]))
+      AND b.id IN (SELECT sp.batch_id FROM supplier_payments sp
+                   WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ${supplierId}::UUID
+                     AND sp.batch_id IS NOT NULL)
+    ORDER BY b.id
+    FOR UPDATE OF b
+  `) as DbRow[];
+  return rows.map((r) => String(r.id));
+}
+
+/**
+ * `userId` set the supplier's bank details (decision (b), 2026-10-06; round 1
+ * append-only): they join `bank_details_setters` — derived LIVE into the
+ * authors of every payment to the supplier, payments created later included —
+ * and the list restarts at them only when the account number or branch code
+ * itself changed (`'repointed'`, and every create with bank details): the
+ * old destination is gone, and they answer for the new one. They are also
+ * stamped onto every draft or approved batch carrying such a payment, then
+ * onto every draft or approved payment to the supplier, append-only, so a
+ * later setter cannot strip them from money already in flight. Not an UPDATE
+ * OF status, so the 867 backstops do not fire. Called only for a write that
+ * changed (or created) bank details: no other supplier write names the column.
+ */
+export async function recordBankDetailsSetter(companyId: string, supplierId: string, userId: string,
+  change: Exclude<BankDetailsChange, 'none'>): Promise<void> {
   await sql`
-    UPDATE suppliers SET bank_details_set_by = ${userId}::UUID
+    UPDATE suppliers
+    SET bank_details_setters = CASE WHEN ${change === 'repointed'} THEN ARRAY[${userId}::UUID]
+                                    ELSE approval_add_author(bank_details_setters, ${userId}::UUID) END
     WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
   `;
-  await sql`
-    WITH stamped AS (
-      UPDATE supplier_payments
+  const batches = await lockBatchesPayingSupplier(companyId, supplierId, ['draft', 'approved']);
+  if (batches.length > 0) {
+    await sql`
+      UPDATE supplier_payment_batches
       SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
-      WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID AND status IN ('draft', 'approved')
-      RETURNING batch_id
-    )
-    UPDATE supplier_payment_batches
+      WHERE company_id = ${companyId}::UUID AND id = ANY(${batches}::UUID[])
+        AND id IN (SELECT sp.batch_id FROM supplier_payments sp
+                   WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ${supplierId}::UUID
+                     AND sp.status IN ('draft', 'approved'))
+    `;
+  }
+  await sql`
+    UPDATE supplier_payments
     SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
-    WHERE company_id = ${companyId}::UUID AND status IN ('draft', 'approved')
-      AND id IN (SELECT batch_id FROM stamped WHERE batch_id IS NOT NULL)
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID AND status IN ('draft', 'approved')
   `;
 }
 
 /**
- * A supplier merge re-pointed these payments (supplier_id is approval
- * content, and with it the payee's bank details): stamp the merging user
- * onto each batch any of them belongs to. The payments themselves are
- * stamped by the merge's own re-pointing UPDATE.
+ * A supplier merge re-points payments (supplier_id is approval content, and
+ * with it the payee's bank details): stamp the merging user onto each batch
+ * that carries one of them. The merge locks those batches FIRST
+ * (lockBatchesPayingSupplier), then re-points and stamps the payments, then
+ * calls this — batch before members, as everywhere else.
  */
-export async function stampBatchesOfMovedPayments(companyId: string, batchIds: unknown[], userId: string): Promise<void> {
-  const ids = [...new Set(batchIds.filter((b): b is string => typeof b === 'string'))];
-  if (ids.length === 0) return;
+export async function stampBatchesOfMovedPayments(companyId: string, batchIds: readonly string[], userId: string): Promise<void> {
+  if (batchIds.length === 0) return;
   await sql`
     UPDATE supplier_payment_batches
     SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${batchIds}::UUID[])
   `;
 }
