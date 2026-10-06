@@ -146,7 +146,7 @@ export async function assertMayDecide(
   const rows = (await sql`
     SELECT (ar.requested_by::TEXT = ${decidedBy}) AS is_self,
            (${decidedBy} = ANY (ar.past_requesters::TEXT[])) AS was_requester,
-           ar.requested_by::TEXT AS requester, ar.content_authors::TEXT[] AS snapshot_authors,
+           ar.requested_by::TEXT AS requester, ar.content_authors::TEXT[] AS snapshot_authors, ar.document_type,
            approval_document_authors(ar.company_id, ar.document_type, ar.document_id)::TEXT[] AS live_authors,
            ar.rule_id,
            ar.required_role,
@@ -213,6 +213,7 @@ export async function assertMayDecide(
       wasRequester: row.was_requester === true,
       deciderRole: row.decider_role != null ? String(row.decider_role) : null,
       enforced: row.enforced === true,
+      documentType: String(row.document_type),
     }, demandedRole, (role) => actorRank(role) >= requiredRank(demandedRole));
     if (refusal) throw new ApprovalDecisionError('SELF_APPROVAL_FORBIDDEN', refusal);
   }
