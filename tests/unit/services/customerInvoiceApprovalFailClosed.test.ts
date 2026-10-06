@@ -118,6 +118,7 @@ describe('approveCustomerInvoice', () => {
   it('still rejects a non-approvable invoice before touching the GL', async () => {
     // Guarded UPDATE matches nothing, then the status lookup returns 'cancelled'.
     sqlMock
+      .mockResolvedValueOnce([{ status: 'cancelled' }]) // the row lock (R-035): not approvable, so no gate
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ status: 'cancelled' }]);
 
