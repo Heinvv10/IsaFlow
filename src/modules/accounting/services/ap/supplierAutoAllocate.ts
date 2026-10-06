@@ -138,8 +138,8 @@ export async function recordSupplierBankPayment(args: {
   // uuid-shaped — the same trap the customer_payments insert works around.
   const createdBy = await resolveUserUuid(userId);
 
-  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
-  const paymentRows = (await withApprovalGateExemptBankFeed(() => sql`
+  // R-035 PR5 (Q4, D2): exempt from the payment backstop only when the line is bank evidence — the wrapper checks.
+  const paymentRows = (await withApprovalGateExemptBankFeed(companyId, bankTxId, () => sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method,
       bank_account_id, reference, description, status, gl_journal_entry_id,

@@ -86,7 +86,6 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
-import { withApprovalGateExemptBankFeed } from '../gl/approvalGateExempt';
 
 /** The one `payment_method` value that carries a negative total. */
 export const REFUND_PAYMENT_METHOD = 'refund';
@@ -251,8 +250,8 @@ export async function recordSupplierRefund(args: {
   const createdBy = await resolveUserUuid(userId);
   const total = round2(-plan.amount);
 
-  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
-  const rows = (await withApprovalGateExemptBankFeed(() => sql`
+  // R-035 PR5: a refund is money IN, never an instruction to pay — the 867 backstop passes it by content.
+  const rows = (await sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method,
       bank_account_id, reference, description, status, gl_journal_entry_id,
@@ -265,7 +264,7 @@ export async function recordSupplierRefund(args: {
       ${createdBy}::UUID, ${createdBy}::UUID, NOW(), NOW()
     )
     RETURNING id
-  `)) as DbRow[];
+  `) as DbRow[];
 
   const paymentId = String(rows[0]!.id);
   log.info('Supplier refund document recorded', {

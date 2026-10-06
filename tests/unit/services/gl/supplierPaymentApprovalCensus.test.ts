@@ -46,16 +46,16 @@ const text = (rel: string) => files.find((f) => f.rel === rel)!.text;
 const AP = 'src/modules/accounting/services/ap/';
 
 describe('supplier-payment writers', () => {
-  it('INSERTs: two draft creators, the four bank-feed creators (exempt), two offline scripts', () => {
+  it('INSERTs: two draft creators, three bank-line creators (exempt for bank evidence only), a refund, two scripts', () => {
     expect(matching(/INSERT\s+INTO\s+supplier_payments\b/)).toEqual([
       'scripts/import-sage-britech.ts', // raw 'processed'; refused under enforcement (it sets no GUC)
       'scripts/seed-historical-data.mjs', // demo seed; its status is not even a legal one
       `${AP}batchPaymentService.ts`, // createBatch: members as 'draft'
-      `${AP}provisionalInvoiceSettlement.ts`, // bank-feed
-      `${AP}supplierAutoAllocate.ts`, // bank-feed
-      `${AP}supplierBankPaymentService.ts`, // bank-feed
+      `${AP}provisionalInvoiceSettlement.ts`, // bank line: exempt only when it is bank evidence (D2)
+      `${AP}supplierAutoAllocate.ts`, // bank line: exempt only when it is bank evidence (D2)
+      `${AP}supplierBankPaymentService.ts`, // bank line: exempt only when it is bank evidence (D2)
       `${AP}supplierPaymentService.ts`, // createSupplierPayment: column default 'draft'
-      `${AP}supplierRefundDocument.ts`, // bank-feed
+      `${AP}supplierRefundDocument.ts`, // a refund: money in, passed by content (867)
     ]);
     const createInsert = text(`${AP}supplierPaymentService.ts`).match(/INSERT INTO supplier_payments \([^)]*\)/)![0];
     expect(createInsert).not.toMatch(/status/);

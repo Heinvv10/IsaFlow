@@ -101,8 +101,8 @@ export async function settleInvoiceFromProvisional(
 
   const createdBy = await resolveUserUuid(userId);
   const description = `Bank-first payment of ${invoice.invoiceNumber} (provisional ${claim.entryNumber})`;
-  // R-035 PR5 (Q4): the money has already moved — exempt from the payment approval backstop.
-  const [payment] = (await withApprovalGateExemptBankFeed(() => sql`
+  // R-035 PR5 (Q4, D2): exempt from the payment backstop only when the line is bank evidence — the wrapper checks.
+  const [payment] = (await withApprovalGateExemptBankFeed(companyId, claim.bankTxId, () => sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method, bank_account_id,
       reference, description, status, gl_journal_entry_id, settles_provisional_je_id,
