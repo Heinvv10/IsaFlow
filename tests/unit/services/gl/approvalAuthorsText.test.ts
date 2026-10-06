@@ -61,9 +61,10 @@ describe('the content-author refusal names its document', () => {
   it.each([['supplier_payment', 'payment'], ['payment_batch', 'batch']])('%s: names the %s and gives its way out', async (type, doc) => {
     expect(await deadEnd(type)).toBe(
       `You cannot approve this request: you authored the content it covers (you created the ${doc}, merged a supplier `
-      + "it pays, changed a payee's bank details while it was unpaid, or captured or edited a bill it pays). No eligible "
-      + 'approver remains: every member with the owner role or above either authored the content or raised the request. '
-      + `Cancel the ${doc} and have the author of the bills it pays create it themselves, so another eligible approver can `
-      + 'approve it, or have someone with the owner role or above who did not author it approve it.');
+      + "it pays, set a payee's current bank details or changed them while it was unpaid, or captured or edited a bill it "
+      + 'pays). No eligible approver remains: every member with the owner role or above either authored the content or '
+      + `raised the request. Cancel the ${doc} and have the author of the bills it pays create it themselves, so another `
+      + "eligible approver — one who did not set the payee's bank details — can approve it, or have someone with the owner "
+      + 'role or above who did not author it approve it.');
   });
 });

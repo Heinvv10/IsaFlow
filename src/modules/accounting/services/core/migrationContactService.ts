@@ -8,7 +8,7 @@ import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
-import { bankDetailsMoved, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
+import { bankDetailsMoved, hasBankDetails, recordBankDetailsSetter } from '../ap/supplierPaymentAuthors';
 
 
 export interface CustomerImportRow {
@@ -162,13 +162,13 @@ export async function importSuppliers(
         `) as DbRow[];
         // Re-routes every unpaid payment to this supplier (R-035 PR5).
         if (after && bankDetailsMoved(after)) {
-          await stampUnpaidPaymentsToSupplier(companyId, duplicate.id, importedBy);
+          await recordBankDetailsSetter(companyId, duplicate.id, importedBy);
         }
         imported++;
         continue;
       }
 
-      await sql`
+      const [created] = (await sql`
         INSERT INTO suppliers (
           company_id, name, email, phone, vat_number, registration_number,
           billing_address, contact_person, payment_terms,
@@ -181,7 +181,10 @@ export async function importSuppliers(
           ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
           ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
         )
-      `;
+        RETURNING id, bank_name, bank_account_number, bank_branch_code, bank_account_type
+      `) as DbRow[];
+      // A new supplier imported WITH bank details: the importer set where its money goes (decision (b)).
+      if (created && hasBankDetails(created)) await recordBankDetailsSetter(companyId, String(created.id), importedBy);
       imported++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

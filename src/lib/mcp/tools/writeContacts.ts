@@ -150,7 +150,7 @@ export const createSupplierTool: McpTool = {
   handler: async (args, ctx) => {
     if (!strArg(args, 'name')) return toolError('name is required');
     try {
-      const row = await createSupplier(ctx.companyId, supplierInput(args));
+      const row = await createSupplier(ctx.companyId, supplierInput(args), ctx.userId);
       return ok({ id: String(row.id), name: String(row.name), is_active: row.is_active });
     } catch (err) {
       const message = validationError(err);
