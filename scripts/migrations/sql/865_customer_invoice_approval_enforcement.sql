@@ -67,9 +67,16 @@ ALTER TABLE recurring_invoices ADD COLUMN IF NOT EXISTS content_authors UUID[] N
 ALTER TABLE recurring_transaction_templates ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 -- The sources a customer invoice is CONVERTED from: every user whose EDIT
 -- changed what they bill (a quote's or order's lines, prices, tax, client or
--- date; a time entry's rate or billable flag; a customer merge re-pointing
--- one). Stamped by those edits only, never at creation — the creator is
--- created_by — so creating and converting writes none of these columns.
+-- date; a time entry's rate or billable flag, or SOMEONE ELSE'S hours, which
+-- re-quantifies their effort; a customer merge re-pointing one). Stamped by
+-- those edits only — the creator of a quote or order is created_by — with one
+-- exception: a time-tracking entry's logger TYPES its rate, so createTimeEntry
+-- stamps them when it stores one (round 3). Golden path a creates and converts
+-- a quote and logs no time, so it writes none of these columns.
+-- KNOWN LIMIT (like PR2's default_expense): the practice rate tables
+-- (practice_staff_rates, practice_client_rate_overrides,
+-- practice_work_items.default_rate_override) are configuration; whoever sets
+-- them is not an author of the entries they price.
 ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE customer_sales_orders ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
@@ -219,15 +226,16 @@ $$;
 -- order's (customer_sales_orders.invoice_id) and those of the quote behind
 -- that order (customer_quotes.converted_order_id, the link convertToSalesOrder
 -- writes, or customer_sales_orders.quote_id), and every user who changed a
--- billed time entry's rate or billable flag (time_entries.invoice_id, set by
+-- billed time entry's rate or billable flag, or someone else's hours, and the
+-- time-tracking logger who typed its rate (time_entries.invoice_id, set by
 -- both time billing paths: the time-entries-invoice claim and the WIP
--- markEntriesBilled). Not the time entry's LOGGER (decision 1): hours are
--- effort, the rate sets the price. Each lookup is company-scoped, NULLs
--- dropped, de-duplicated; every column is a uuid. Derived, not stamped onto
--- the invoice: the converting services write nothing new, so they run
--- unchanged on a database without this migration (golden path a creates,
--- accepts and converts a quote on isaflow_dev — and a source's content_authors
--- is written only by an EDIT, never at creation). The links must not move: a
+-- markEntriesBilled). Not a practice entry's LOGGER (decision 1): its rate
+-- comes from the rate tables, and your own hours are effort. Each lookup is
+-- company-scoped, NULLs dropped, de-duplicated; every column is a uuid.
+-- Derived, not stamped onto the invoice: the converting services write
+-- nothing new, so they run unchanged on a database without this migration
+-- (golden path a creates, accepts and converts a quote on isaflow_dev, and a
+-- quote's content_authors is written only by an EDIT; it logs no time). The links must not move: a
 -- converted quote is terminal (quoteService.updateQuoteStatus, the
 -- conversion claims), an invoiced order and a billed entry cannot be billed
 -- again. A recurring template has no link from the invoice it mints, so its

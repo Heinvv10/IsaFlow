@@ -2,9 +2,10 @@
  * R-035 PR4 review F1, conversions: an invoice converted from someone else's
  * quote or sales order carries that content's authors — its creator, the
  * editors stamped on it, and those of the quote behind an order — so they
- * cannot approve it while another eligible approver exists. Time: only a user
- * who changed an entry's rate or billable flag is an author; the logger is
- * not (Hein, 2026-10-06, decision 1).
+ * cannot approve it while another eligible approver exists. Time: an entry
+ * carries the authors STAMPED on it (r035-pr4-time-authors); its user_id alone
+ * — a practice logger, whose rate came from the tables — makes nobody an
+ * author (Hein, 2026-10-06, decision 1).
  *
  * DERIVED, not stamped onto the invoice: approval_document_authors'
  * customer_invoice branch (migration 865) reads them through the link each
@@ -162,7 +163,7 @@ describe('conversions — the source author may not approve what another user co
     expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.clerk].sort());
   });
 
-  it('time entries → invoice: the users who only LOGGED the time are no authors (decision 1)', async () => {
+  it("time entries → invoice: an entry's user_id alone (no stamp) makes nobody an author (decision 1)", async () => {
     const { c, customer } = await fixture();
     const ids = [await timeEntry(c, u.author), await timeEntry(c, u.author)];
     const res = await as(u.runner, c, timeEntriesInvoice as never, { timeEntryIds: ids, customerId: customer },

@@ -1,12 +1,10 @@
 /**
  * R-035 PR4 round 2 (Hein, 2026-10-06, decision 2): whoever SETS THE PRICE
  * upstream of a customer invoice is one of its authors — the creator of the
- * quote or sales order it came from (derived from created_by), and every
- * user whose EDIT changed what they bill (customer_quotes / customer_sales_orders
- * / time_entries.content_authors, stamped only on a content-changing update,
- * never at creation). Decision 1: a time entry's LOGGER is not an author —
- * hours are effort; the rate sets the price — but a user who changes an
- * entry's rate or billable flag is.
+ * quote or sales order it came from (derived from created_by), and every user
+ * whose EDIT changed what they bill (customer_quotes / customer_sales_orders
+ * .content_authors, stamped only on a content-changing update, never at
+ * creation). Time entries: r035-pr4-time-authors.
  *
  * Each case: someone other than the converter edits the price, the converter
  * converts and raises, and the editor is refused 403 while another owner of
@@ -14,14 +12,10 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { als } from '../../src/lib/als';
 import customerQuotes from '../../pages/api/accounting/customer-quotes';
 import quoteAction from '../../pages/api/accounting/customer-quotes-action';
 import salesOrders from '../../pages/api/accounting/customer-sales-orders';
 import salesOrderAction from '../../pages/api/accounting/customer-sales-orders-action';
-import timeEntries from '../../pages/api/accounting/time-entries';
-import timeEntriesInvoice from '../../pages/api/accounting/time-entries-invoice';
-import { createPracticeEntry, updatePracticeEntry } from '../../src/modules/accounting/services/practice/practiceTimeEntryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
@@ -38,14 +32,7 @@ const r = invoiceRoutes(tokens);
 beforeAll(async () => {
   for (const k of Object.keys(u) as (keyof typeof u)[]) u[k] = await createUser(pool, tokens);
 });
-afterAll(async () => {
-  await pool.query('DELETE FROM practice_staff_rates WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM practice_client_rate_overrides WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM time_entries WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM practice_work_items WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM practice_job_categories WHERE company_id = ANY($1)', [companies]);
-  await cleanupPr4(pool, companies, Object.values(u));
-});
+afterAll(() => cleanupPr4(pool, companies, Object.values(u)));
 
 async function fixture() {
   const c = await invoiceCompany(pool, [[u.alice, 'admin'], [u.bob, 'owner'], [u.carol, 'owner']], companies);
@@ -134,70 +121,6 @@ describe('a sales-order editor', () => {
       { id: orderId, action: 'invoice' }, '/api/accounting/customer-sales-orders-action'));
     expect(await authorsOf(c, invoiceId)).toEqual([u.alice, u.bob].sort());
     await bobRefusedCarolApproves(c, invoiceId);
-  });
-});
-
-describe('a time-entry rate editor (REPRO C; decision 1: the logger is no author)', () => {
-  it("bob raises the rate on carol's entry; alice invoices; bob is refused, and carol — who only logged it — approves", async () => {
-    const { c, customer } = await fixture();
-    const entry = ok<{ id: string }>(await call(timeEntries as never, u.carol, c, 'POST',
-      { taskDescription: 'Advice', hours: 1, rate: 100, billable: true, customerId: customer }, '/api/accounting/time-entries')).id;
-    // Hours and the description are effort, not price: nobody is stamped.
-    ok(await call(timeEntries as never, u.alice, c, 'PUT', { id: entry, hours: 2, taskDescription: 'More advice' }, '/api/accounting/time-entries'));
-    expect(await stamped('time_entries', entry)).toEqual([]);
-    ok(await call(timeEntries as never, u.bob, c, 'PUT', { id: entry, rate: 100_000 }, '/api/accounting/time-entries'));
-    expect(await stamped('time_entries', entry)).toEqual([u.bob]);
-    const { invoiceId } = ok<{ invoiceId: string }>(await call(timeEntriesInvoice as never, u.alice, c, 'POST',
-      { timeEntryIds: [entry], customerId: customer }, '/api/accounting/time-entries-invoice'));
-    expect(await authorsOf(c, invoiceId)).toEqual([u.alice, u.bob].sort()); // carol logged it: not an author
-    await bobRefusedCarolApproves(c, invoiceId);
-  });
-
-  it('turning an entry billable stamps the user who did', async () => {
-    const { c, customer } = await fixture();
-    const entry = ok<{ id: string }>(await call(timeEntries as never, u.alice, c, 'POST',
-      { taskDescription: 'Advice', hours: 1, rate: 100, billable: false, customerId: customer }, '/api/accounting/time-entries')).id;
-    ok(await call(timeEntries as never, u.bob, c, 'PUT', { id: entry, billable: true }, '/api/accounting/time-entries'));
-    expect(await stamped('time_entries', entry)).toEqual([u.bob]);
-  });
-});
-
-describe('a practice-timesheet rate editor', () => {
-  it('moving an entry to a client with a different rate stamps the editor; an hours-only edit stamps nobody', async () => {
-    const { c } = await fixture();
-    const [clientA, clientB, category, item] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
-    await pool.query(
-      `INSERT INTO practice_clients(id,company_id,legal_name,billing_model,status)
-       VALUES($1,$3,'R035 A','hourly','active'),($2,$3,'R035 B','hourly','active')`, [clientA, clientB, c]);
-    await pool.query('INSERT INTO practice_job_categories(id,company_id,name) VALUES($1,$2,$3)', [category, c, 'R035 cat']);
-    await pool.query('INSERT INTO practice_work_items(id,company_id,category_id,name) VALUES($1,$2,$3,$4)', [item, c, category, 'R035 item']);
-    await pool.query("INSERT INTO practice_staff_rates(company_id,user_id,rate,effective_from) VALUES($1,$2,850,'2020-01-01')", [c, u.carol]);
-    await pool.query(
-      `INSERT INTO practice_client_rate_overrides(company_id,client_id,staff_user_id,user_id,rate_per_hour,rate,effective_from)
-       VALUES($1,$2,$3,$3,5000,5000,'2020-01-01')`, [c, clientB, u.carol]);
-    const inTx = async <T>(user: string, fn: () => Promise<T>): Promise<T> => {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const out = await als.run({ client, userId: user, companyId: c, claims: { sub: user } } as never, fn);
-        await client.query('COMMIT');
-        return out;
-      } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-      } finally {
-        client.release();
-      }
-    };
-    const entry = await inTx(u.carol, () => createPracticeEntry(c, u.carol, {
-      entryDate: '2026-01-05', hours: 2, practiceClientId: clientA, jobCategoryId: category, workItemId: item, taskDescription: 'Audit',
-    }));
-    await inTx(u.alice, () => updatePracticeEntry(c, entry.id, { hours: 3 }, u.alice));
-    expect(await stamped('time_entries', entry.id)).toEqual([]);
-    await inTx(u.bob, () => updatePracticeEntry(c, entry.id, { practiceClientId: clientB }, u.bob));
-    expect(await stamped('time_entries', entry.id)).toEqual([u.bob]);
-    const { rows: [row] } = await pool.query('SELECT applied_rate::FLOAT8 AS rate FROM time_entries WHERE id = $1', [entry.id]);
-    expect(row.rate).toBe(5000);
   });
 });
 
