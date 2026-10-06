@@ -116,14 +116,23 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
 
 /**
  * Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
- * A credit note's client is approval content (R-035 PR3): the merging user `by` becomes an author of every
- * note it moves, and an approval of the old content goes stale (Q10).
+ * A credit note's client (R-035 PR3) and an invoice's customer_id and client_id (PR4) are approval content: the
+ * merging user `by` becomes an author of every note and invoice it moves, and an approval of the old content
+ * goes stale (Q10).
  */
 async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_invoices SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE customer_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  await tx`
+    UPDATE customer_invoices SET customer_id = ${t}::UUID,
+      content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
+    WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID
+  `;
+  await tx`
+    UPDATE customer_invoices SET client_id = ${t}::UUID,
+      content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID
+  `;
   const notes = await tx`
     UPDATE credit_notes SET client_id = ${t}::UUID,
       content_authors = approval_add_author(content_authors, ${by}::UUID), content_edited_at = NOW()
@@ -221,7 +230,7 @@ export async function mergeCustomers(
   companyId: string,
   sourceIdIn: string,
   targetIdIn: string,
-  /** The user merging — stamped as an author of the credit notes moved. */
+  /** The user merging — stamped as an author of the credit notes and invoices moved. */
   mergedBy: string,
 ): Promise<CustomerMergeResult> {
   // Callers validate with a case-insensitive UUID pattern; one spelling here

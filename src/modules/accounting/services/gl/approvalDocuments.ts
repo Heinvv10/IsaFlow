@@ -60,6 +60,10 @@ const first = (rows: Row[]): Row | undefined => rows[0];
  * (about R92 500) slipped under a R50 000 rule. A supplier invoice is matched
  * on the LARGER of the two (approval_supplier_invoice_gate_amount, migration
  * 712): its approval posts total_amount, so an exchange rate must not shrink it.
+ * A customer invoice likewise (approval_customer_invoice_gate_amount, migration
+ * 865) — a change, in R-035 PR4, from its functional total alone, which only
+ * ever widens what a rule sees: approveCustomerInvoice posts total_amount
+ * unconverted too.
  */
 async function findDocument(
   companyId: string,
@@ -69,7 +73,8 @@ async function findDocument(
   switch (documentType) {
     case 'customer_invoice':
       return first((await sql`
-        SELECT COALESCE(functional_total, total_amount, 0) AS amount, invoice_number AS reference,
+        SELECT approval_customer_invoice_gate_amount(total_amount, functional_total) AS amount,
+               invoice_number AS reference,
                approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
       `) as Row[]);

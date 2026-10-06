@@ -34,7 +34,9 @@ vi.mock('@/lib/apiResponse', () => ({
     validationError: vi.fn((_res: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
     internalError: vi.fn(() => ({ kind: 'internalError' })),
+    conflict: vi.fn((_res: unknown, error: string, details: unknown) => ({ kind: 'conflict', error, details })),
   },
+  ErrorCode: {},
 }));
 
 const { sqlMock, cancelMock, postGlMock, snapshotMock } = vi.hoisted(() => ({
@@ -52,10 +54,17 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCancelService', () => (
 }));
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({ postCustomerInvoiceToGL: postGlMock }));
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({ snapshotInvoicePdf: snapshotMock }));
+// R-035 PR4: the approval gate has its own real-PG suites (r035-pr4-*); here it clears.
+vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
+  assertApprovalCleared: vi.fn(async () => undefined),
+}));
 
 // Real ClosedFiscalPeriodError so the route's instanceof check matches.
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import handler from '../../../pages/api/accounting/customer-invoices-detail';
+import { assertApprovalCleared, ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { apiResponse } from '@/lib/apiResponse';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -99,13 +108,14 @@ beforeEach(() => {
 describe('customer-invoices-detail POST action guards', () => {
   it('rejects approve for a cancelled invoice with a 400 and never posts GL', async () => {
     sqlMock
+      .mockResolvedValueOnce([{ status: 'cancelled' }]) // the row lock (R-035): not approvable, so no gate
       .mockResolvedValueOnce([]) // guarded UPDATE matches no row (status not approvable)
       .mockResolvedValueOnce([{ status: 'cancelled' }]); // existence/status probe
 
     const result = await call({ id: INV_ID, action: 'approve' });
 
     // The rejection must come from the DB guard, not just the mock returning [].
-    expectApproveGuard(sqlMock.mock.calls[0]!);
+    expectApproveGuard(sqlMock.mock.calls[1]!);
     expect(result.kind).toBe('badRequest');
     expect(result.error).toMatch(/cannot approve/i);
     expect(result.error).toMatch(/cancelled/);
@@ -127,6 +137,7 @@ describe('customer-invoices-detail POST action guards', () => {
 
   it('returns 404 when approving a non-existent invoice', async () => {
     sqlMock
+      .mockResolvedValueOnce([]) // the row lock (R-035): no such invoice
       .mockResolvedValueOnce([]) // UPDATE matches nothing
       .mockResolvedValueOnce([]); // probe: invoice does not exist
 
@@ -136,14 +147,16 @@ describe('customer-invoices-detail POST action guards', () => {
   });
 
   it('approves a draft invoice and posts GL', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: INV_ID }]); // guarded UPDATE matched a draft row
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft' }]) // the row lock (R-035)
+      .mockResolvedValueOnce([{ id: INV_ID }]); // guarded UPDATE matched a draft row
     postGlMock.mockResolvedValueOnce('je-123');
     snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
 
     const result = await call({ id: INV_ID, action: 'approve' });
 
     // Even the happy path must go through the status-guarded UPDATE.
-    expectApproveGuard(sqlMock.mock.calls[0]!);
+    expectApproveGuard(sqlMock.mock.calls[1]!);
     expect(result.kind).toBe('success');
     // This route is a human clicking Approve, so it must NOT supply a posting
     // agent — the AR journal keeps its human:<userId> attribution. Only the
@@ -151,6 +164,35 @@ describe('customer-invoices-detail POST action guards', () => {
     const glCall = postGlMock.mock.calls[0]!;
     expect(glCall.slice(0, 3)).toEqual([COMPANY_ID, INV_ID, USER_ID]);
     expect((glCall[3] as { postingAgent?: string } | undefined)?.postingAgent).toBeUndefined();
+  });
+
+  it('R-035: consults the approval gate for a draft under the row lock, BEFORE the guarded UPDATE', async () => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    postGlMock.mockResolvedValueOnce('je-123');
+    snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
+
+    await call({ id: INV_ID, action: 'approve' });
+
+    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status FROM customer_invoices[\s\S]*FOR UPDATE/);
+    expect(assertApprovalCleared).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice', INV_ID);
+    const gateAt = vi.mocked(assertApprovalCleared).mock.invocationCallOrder[0]!;
+    expect(gateAt).toBeGreaterThan(sqlMock.mock.invocationCallOrder[0]!);
+    expect(gateAt).toBeLessThan(sqlMock.mock.invocationCallOrder[1]!);
+  });
+
+  it('R-035: a gate refusal answers 409 and the guarded UPDATE never runs', async () => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]);
+    vi.mocked(assertApprovalCleared).mockRejectedValueOnce(new ApprovalRequiredError({
+      reason: 'APPROVAL_REQUIRED', requiredRole: 'owner', ruleName: 'r', requestId: null,
+      documentType: 'customer_invoice', documentReference: 'INV-1',
+    }));
+
+    await call({ id: INV_ID, action: 'approve' });
+
+    expect(apiResponse.conflict).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/needs owner approval/),
+      { reason: 'APPROVAL_REQUIRED', requiredRole: 'owner', requestId: null });
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    expect(postGlMock).not.toHaveBeenCalled();
   });
 
   it('maps a closed-period reversal error on cancel to a 400, not a 500', async () => {

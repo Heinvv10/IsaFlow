@@ -59,6 +59,11 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn().mockResolvedValue({ documentId: 'doc-1', wasExisting: false }),
 }));
+// R-035 PR4: the approval gate has its own real-PG suites (r035-pr4-*); here it clears.
+vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
+  assertApprovalCleared: vi.fn(async () => undefined),
+}));
 
 import { sql } from '@/lib/neon';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
@@ -125,10 +130,11 @@ describe('postCustomerInvoiceToGL posting agent', () => {
 });
 
 describe('approveCustomerInvoice threads the stamp to the GL journal', () => {
-  /** approve UPDATE returns a row, then the invoice lookup, then UPDATEs. */
+  /** The row lock, the approve UPDATE returns a row, then the invoice lookup, then UPDATEs. */
   function armApprove(): void {
     mockSql.mockReset();
     mockSql
+      .mockResolvedValueOnce([{ status: 'draft' }])  // the row lock (R-035)
       .mockResolvedValueOnce([{ id: INVOICE_ID }])   // status transition
       .mockResolvedValueOnce([INVOICE_ROW])          // invoice load inside postCustomerInvoiceToGL
       .mockResolvedValue([]);
