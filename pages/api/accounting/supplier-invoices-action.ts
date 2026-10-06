@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
@@ -54,7 +55,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       case 'approve': {
         // A person approving: a bill dated in a filed VAT period claims its input
         // VAT late (s16(3)) where the law allows, and `lateClaim` says so.
-        const invoice = await approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true });
+        const invoice = await withJournalDateRefusal(res, () =>
+          approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true }));
+        if (invoice === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {

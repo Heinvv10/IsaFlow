@@ -43,6 +43,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -113,7 +114,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
   // journal as its first act, and any failure after that must reach withAuth as
   // a 5xx so the transaction rolls back. Catching it would COMMIT the journal
   // behind a response saying the request failed.
-  const result = await confirmReceiptMatch(companyId, { bankTxId, userId: user.id, allocations });
+  const result = await withJournalDateRefusal(res, () =>
+    confirmReceiptMatch(companyId, { bankTxId, userId: user.id, allocations }));
+  if (result === JOURNAL_DATE_REFUSED) return;
   apiResponse.success(res, result);
 }
 

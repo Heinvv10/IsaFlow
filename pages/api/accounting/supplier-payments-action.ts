@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -46,7 +47,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, payment);
       }
       case 'process': {
-        const payment = await processSupplierPayment(companyId, paymentId, userId);
+        const payment = await withJournalDateRefusal(res, () => processSupplierPayment(companyId, paymentId, userId));
+        if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
       }
       case 'cancel': {

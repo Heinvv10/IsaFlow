@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -106,9 +107,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // settle, what it must refuse, and — load-bearing — the fact that every
       // refusal is decided from READS, before the first write, because a 4xx
       // raised after one COMMITs it.
-      const outcome = await confirmSupplierInvoiceMatch(
+      const outcome = await withJournalDateRefusal(res, () => confirmSupplierInvoiceMatch(
         companyId, bankTransactionId, candidateId, userId, paymentAmount,
-      );
+      ));
+      if (outcome === JOURNAL_DATE_REFUSED) return;
       if (!outcome.ok) {
         if (outcome.kind === 'not_found') {
           return apiResponse.notFound(res, 'Supplier invoice', candidateId);
@@ -133,9 +135,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // — one journal, one `customer_payments` document carrying it, applied
       // through the allocation table `bankAllocationUnwind` reads — and refuses
       // everything it must refuse from READS, before the first write.
-      const outcome = await confirmCustomerInvoiceMatch(
+      const outcome = await withJournalDateRefusal(res, () => confirmCustomerInvoiceMatch(
         companyId, bankTransactionId, candidateId, userId, paymentAmount,
-      );
+      ));
+      if (outcome === JOURNAL_DATE_REFUSED) return;
       if (!outcome.ok) {
         if (outcome.kind === 'not_found') {
           return apiResponse.notFound(res, 'Customer invoice', candidateId);

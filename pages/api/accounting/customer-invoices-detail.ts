@@ -8,6 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -142,7 +143,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'approve') {
       try {
-        const result = await approveCustomerInvoice(companyId, id, userId);
+        const result = await withJournalDateRefusal(res, () => approveCustomerInvoice(companyId, id, userId));
+        if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {
           id, status: result.status, glJournalEntryId: result.glJournalEntryId,

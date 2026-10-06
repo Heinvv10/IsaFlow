@@ -134,7 +134,6 @@ describe('approveCustomerInvoice threads the stamp to the GL journal', () => {
   function armApprove(): void {
     mockSql.mockReset();
     mockSql
-      .mockResolvedValueOnce([]) // the journal-date pre-check (gl/journalDateGuard): no date, nothing to check
       .mockResolvedValueOnce([{ status: 'draft' }])  // the row lock (R-035)
       .mockResolvedValueOnce([{ id: INVOICE_ID }])   // status transition
       .mockResolvedValueOnce([INVOICE_ROW])          // invoice load inside postCustomerInvoiceToGL

@@ -3,12 +3,11 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
-import { ledgerEntryDay } from '@/modules/accounting/services/gl/journalDateGuard';
-import { sql } from '@/lib/neon';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,20 +50,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
   }
 
-  // The claim's journal date, checked BEFORE postClaimToGl locks the claim (gl/journalDateGuard): outside the ledger
-  // window nothing is written yet, so it answers 400, not the 500 a refusal after the lock would be (brk-numrace F2).
-  const dated = (await sql`SELECT claim_date::text AS d FROM expense_claims
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid`) as { d: string }[];
-  if (dated[0]) await ledgerEntryDay(dated[0].d);
-
+  const reimbursementAccountId = body.reimbursementAccountId;
   try {
-    const claim = await postClaimToGl(id, companyId, {
+    const claim = await withJournalDateRefusal(res, () => postClaimToGl(id, companyId, {
       userId,
-      reimbursementAccountId: body.reimbursementAccountId,
+      reimbursementAccountId,
       vatInputAccountId: body.vatInputAccountId ?? null,
       // A person posting: s16(3) late input-VAT claim where allowed (claim.lateClaim).
       allowLateInputClaim: true,
-    });
+    }));
+    if (claim === JOURNAL_DATE_REFUSED) return;
     if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
     return apiResponse.success(res, { claim });
   } catch (err) {
