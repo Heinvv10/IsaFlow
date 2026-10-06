@@ -11,6 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfYearSpanTooWide } from '@/lib/apiYearSpan';
+import { respondIfJournalDateRefused } from '@/lib/apiJournalDate';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 
 const SENSITIVE_KEYS = new Set([
@@ -217,6 +218,8 @@ export function respondToUnhandledError(res: NextApiResponse, error: unknown): v
   if (respondIfYearSpanTooWide(res, error)) {
     return;
   }
+  // sec-numrace S4: a journal dated outside 1900..2199 — 400 only when nothing was written before it (apiJournalDate).
+  if (respondIfJournalDateRefused(res, error)) return;
 
   // Send error response — mask internal details in production
   const errorMessage =

@@ -48,3 +48,19 @@ export function journalDateWindowError(date: string): string | null {
   }
   return null;
 }
+
+/**
+ * A journal dated outside the window, refused where it is created (gl/journalDateGuard, sec-numrace S4). `preWrite`:
+ * the request transaction had written nothing when it was raised — only then is a 4xx safe (withAuth COMMITs below 500).
+ */
+export class JournalDateRefusedError extends Error {
+  readonly code = 'JOURNAL_DATE_REFUSED';
+  constructor(reason: string, readonly preWrite: boolean) {
+    super(`This journal cannot be posted: ${reason}.`);
+    this.name = 'JournalDateRefusedError';
+  }
+}
+
+export function isJournalDateRefused(err: unknown): err is JournalDateRefusedError {
+  return err instanceof Error && (err as { code?: unknown }).code === 'JOURNAL_DATE_REFUSED';
+}

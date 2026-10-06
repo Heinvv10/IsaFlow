@@ -15,6 +15,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { getSystemAccountId } from './systemAccountResolver';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
+import { assertJournalDateInWindow } from './journalDateGuard';
 import { lockAssetTaxBase, writeAssetTaxAccumulation } from './assetTaxAccumulation';
 import {
   calculatePolicyDepreciation,
@@ -91,6 +92,7 @@ async function postAssetDepreciationToGLThrows(
   // before P1.5 made failures loud. Treat an existing entry as already
   // posted and return it instead of failing the asset.
   const period = periodDate ?? fmtDate(new Date());
+  await assertJournalDateInWindow(period); // sec-numrace S4: this INSERTs its journal itself, not via the funnel
   const entryNumber = `DEP-${assetNumber}-${period.slice(0, 7)}`;
   // Standing, by its reversal chain (D8, shared/journalInForceAsAt): a re-reversed
   // entry is back in the ledger and IS already posted. A REVERSED one must NOT count —
