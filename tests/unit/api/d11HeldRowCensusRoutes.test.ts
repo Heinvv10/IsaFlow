@@ -172,7 +172,11 @@ describe.each([
     { supplierId: ID, invoiceDate: '2026-09-01', useSequence: true, items: [{ description: 'x', quantity: 1, unitPrice: 1 }] }, {},
     (e: Error) => vi.mocked(reserveSiv).mockRejectedValueOnce(e)],
   ['supplier-returns POST (the supplier_return sequence row)', hSupplierReturns as Handler, 'POST',
-    { supplierId: ID, amount: 10, reason: 'x' }, {}, (e: Error) => vi.mocked(reserveNextDocumentNumber).mockRejectedValueOnce(e)],
+    { supplierId: ID, amount: 10, reason: 'x' }, {}, (e: Error) => {
+      // The reservation runs inside the route's savepoint (withTransaction) since DOCNUM round 3.
+      vi.mocked(withTransaction).mockImplementationOnce((fn) => fn(sql as never) as never);
+      vi.mocked(reserveNextDocumentNumber).mockRejectedValueOnce(e);
+    }],
   ['bank-transfers POST (the journal transaction)', hBankTransfers as Handler, 'POST',
     { fromAccountId: ID, toAccountId: '77777777-7777-4777-8777-777777777777', amount: 10 }, {},
     (e: Error) => {

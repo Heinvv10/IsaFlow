@@ -11,116 +11,126 @@
 --   generate_customer_payment_number   customer_payments          CP      payment_date
 --   generate_supplier_payment_number   supplier_payments          SP      payment_date
 --   generate_consolidation_adj_number  consolidation_adjustments  ELIM    period_start
---   generate_adjustment_number         accounting_adjustments     ADJ     CURRENT_DATE
---   generate_batch_number              supplier_payment_batches   BAT     CURRENT_DATE
---   generate_vat_adjustment_number     vat_adjustments            VA      CURRENT_DATE
---   generate_write_off_number          customer_write_offs        WO      CURRENT_DATE
+--   generate_adjustment_number         accounting_adjustments     ADJ     adjustment_date *
+--   generate_batch_number              supplier_payment_batches   BAT     batch_date *
+--   generate_vat_adjustment_number     vat_adjustments            VA      adjustment_date *
+--   generate_write_off_number          customer_write_offs        WO      write_off_date *
+--   (* was CURRENT_DATE until this migration; COALESCE(<date>, CURRENT_DATE).)
 --
--- Scope is the company, except consolidation adjustments: that table has no
--- company_id and numbers per group_id. Two writers for one scope and year read
--- the same MAX and mint the same number. On the last four tables a unique index
--- on (company_id, number) made the second wait for the first and then fail
--- 23505; the first four had NO index, so the duplicate was stored silently.
+-- Scope is the company, except consolidation adjustments: no company_id, they
+-- number per group_id. Two writers for one scope and year read the same MAX and
+-- mint the same number. Where a unique index on the number existed (ADJ, BAT,
+-- VA, WO) the second then failed 23505; elsewhere the duplicate was stored
+-- silently. Migrations 859-861 and 863 add the missing indexes, one per file
+-- (862 is taken by another branch).
 --
--- The fix, per function, re-created from its live definition (last defined in
--- 220 / 240) with exactly two changes, as in 857:
---   1. before the MAX, a transaction-scoped advisory lock on (scope, year), so
---      the second writer waits for the first to COMMIT (or roll back) and its
---      MAX — a later statement under READ COMMITTED, so a fresh snapshot — sees
---      the first number and mints the next;
+-- Each function is re-created from its live definition (last defined in 220 /
+-- 240) with these changes and no others:
+--   1. before the MAX, pg_advisory_xact_lock on (scope, year): the second writer
+--      waits for the first to COMMIT (or roll back), and its MAX — a later
+--      statement under READ COMMITTED, so a fresh snapshot — sees the first
+--      number and mints the next;
 --   2. LPAD(next_seq, 5) truncated past 99999 (`-100000` became `-10000`); the
 --      pad is now GREATEST(5, digits). The MAX casts the suffix to INT, so mixed
---      5- and 6-digit suffixes order numerically.
--- And a unique index on the number for the four tables without one (below).
+--      5- and 6-digit suffixes order numerically;
+--   3. SET lock_timeout = '5s' on the function (below);
+--   4. ADJ / BAT / VA / WO take the year from the document's own date, as the
+--      other four (and journals) do. A back-dated batch or adjustment is now
+--      numbered in its date's year (lead's call, 2026-10-06). Without this a
+--      batch back-dated into last year took this year's key for its number and
+--      last year's for its payments, and deadlocked against a bulk allocation
+--      crossing the year end (brk-docnum A1, measured).
 --
 -- THE KEY. The seven company-scoped functions take EXACTLY the journal-number
--- lock of 857: pg_advisory_xact_lock(hashtextextended('<company_id>:<year>',
--- 857)). Consolidation adjustments (group-scoped, and no path posts a journal
--- with them) take hashtextextended('<group_id>:<year>', 858).
---   Why one key and not one per function: a separate lock per document type is
---   a lock-ORDER inversion with the journal lock the app reaches every day.
---   allocateTransaction numbers a journal and THEN inserts the customer payment
---   (bankAllocationService:449 then :505; supplier side likewise), while the
---   gateway receipt inserts the payment and THEN numbers its journal
---   (gatewayInvoiceReceiptService:191 then confirmCustomerPayment), as do the
---   MCP contra settlements. With two locks the pair deadlocked (40P01 after 1 s,
---   measured); with one lock it is re-entrant, so the second simply queues. The
---   same holds between document types in one transaction (createBatch: batch
---   then its payments; a bulk allocate: receipts, payments and refunds in input
---   order).
---   The cost: a pure document insert (a credit-note, VAT-adjustment or
---   write-off draft) queues behind any in-flight transaction that has numbered
---   a journal for that company and year, and vice versa — e.g. behind a long
---   bulk bank allocation — with no pool lock_timeout to bound it (deferred by
---   Hein, 2026-10-02). Journal posts already queue the same way since 857.
---   Year boundary: the key includes the year, so a transaction that numbered
---   a document in one year and a journal in another would hold two keys and
---   could invert against one doing the reverse. Census 2026-10-06: no path
---   does. Every transaction that numbers both dates them alike — bank
---   allocation uses the bank line's date for the journal and for the receipt,
---   supplier payment or refund; the gateway receipt and the contra use the
---   payment date; the provisional settlement its reclass date; the supplier
---   credit note create-and-post its credit date. ADJ/BAT/VA/WO take the year
---   from CURRENT_DATE (UTC), but their journals are posted by a separate
---   request (approve / process), never in the numbering transaction. A bulk
---   allocation over lines of two years takes two keys in line order — true of
---   journals alone since 857 (brk-jenum A2).
+-- lock of 857: hashtextextended('<company_id>:<year>', 857). Consolidation
+-- adjustments (no path posts a journal with them) take
+-- hashtextextended('<group_id>:<year>', 858). One key, not one per document
+-- type: allocateTransaction numbers a journal and THEN the receipt / supplier
+-- payment / refund (bankAllocationService:449, then :505 / :551 / :596), while
+-- the gateway receipt and the MCP contra number the payment and THEN its
+-- journal. With a lock per type that pair deadlocked (40P01, measured,
+-- tests/integration/docnum-journal-order.int.test.ts); with one key it is
+-- re-entrant and the second simply queues. The same holds for two document
+-- types in one transaction (createBatch: batch, then its payments).
 --
--- What changes for waits (as in 857):
---   * Same scope + year, two writers: the second used to mint the same number
---     (stored silently, or 23505 where an index existed); it now waits for the
---     first to commit and mints the next.
---   * A burst QUEUES: writer k holds a pool connection behind the k-1 ahead.
---   * The wait is bounded ONLY by the caller's lock_timeout (55P03); the app
---     pool sets none.
---   * Known residual, any in-trigger lock whatever its key: the lock is taken
---     in BEFORE INSERT, AHEAD of the row's FK checks, and a transaction that
---     holds it and then waits on a row deadlocks (40P01) against one holding
---     that row and then wanting the lock. Needs the same row at the same
---     moment. In-app pairs (code reading, not reproduced):
---     - contact row: customer-payments POST (createCustomerPayment) and the
---       gateway receipt number a receipt, then its client_id FK takes KEY
---       SHARE on the customer; a bank-allocated customer refund locks that
---       customer FOR UPDATE (lockContactForRefund, paymentLock.ts) and then
---       numbers its journal. The supplier mirror: supplier-payments POST,
---       createBatch's payments and the provisional settlement against a
---       bank-allocated supplier refund. (The bank-allocated receipt itself
---       already had this shape with 857's journal lock alone.)
---     - bill row: supplier-payments POST numbers the payment, then its
---       payment_allocations FK takes KEY SHARE on the bill; createBatch locks
---       its bills FOR UPDATE (assertBatchAllocatable) and then numbers the
---       batch. A bank-allocated supplier payment (journal, then
---       supplierAutoAllocate / planSupplierPaymentApplication lock the bills
---       FOR UPDATE) against createBatch is the same pair: createBatch took no
---       number lock before 858 (a lock per document type would not avoid it —
---       both sides number a supplier payment).
---     Before 858 the first transaction of each pair just waited.
---   * Released at COMMIT/ROLLBACK, and at ROLLBACK TO SAVEPOINT when taken
---     inside that savepoint. READ COMMITTED only, as 857.
+-- THE BOUND (sec-docnum F1). Every numbering function, and 857's
+-- generate_journal_entry_number (ALTER below), runs with lock_timeout = 5s for
+-- the duration of the call. Without it a numbering insert waited, with no
+-- limit but production's 95 s statement_timeout, behind ANY open transaction
+-- that had numbered a journal or a document for that company and year, holding
+-- its pool connection — one company could fill the shared auth pool (measured
+-- by sec-docnum). Two effects, both deliberate:
+--   * a caller with no lock_timeout (the app pool sets none) now gets 55P03
+--     after 5 s instead of waiting; routes that map lock timeouts answer 503 +
+--     Retry-After (D11, src/lib/lockTimeout.ts);
+--   * a caller with a TIGHTER lock_timeout gets 5 s inside the function: a
+--     function-level SET replaces the session value for the call and restores it
+--     on exit.
+--
+-- What changes for waits:
+--   * Same scope + year, two writers: the second waits (at most 5 s) and mints
+--     the next number.
+--   * A pure document insert (a credit-note, VAT-adjustment or write-off draft)
+--     now queues behind any in-flight transaction that has numbered a journal
+--     for that company and year, and vice versa — journal posts already queued
+--     the same way among themselves since 857.
+--   * A burst queues: writer k waits for the k-1 ahead of it, up to 5 s.
+--   * Released at COMMIT/ROLLBACK, and at ROLLBACK TO SAVEPOINT when taken inside
+--     that savepoint. READ COMMITTED only, as 857.
+--
+-- Year boundary: the key includes the year, so a transaction that numbers in two
+-- years holds two keys. Census 2026-10-06: every transaction that numbers a
+-- document AND a journal dates them alike (bank allocation: the bank line's
+-- date; gateway receipt and contra: the payment date; provisional settlement:
+-- its reclass date; supplier credit note create-and-post: the credit date;
+-- createBatch: batch_date for the batch and its payments, after change 4).
+-- Known residual, pre-existing since 857 (brk-docnum F3, measured): two bulk
+-- allocations over lines of two years, posting them in opposite year order
+-- (writeBankBulkAllocate sorts by bank line id, so the order follows the uuids),
+-- deadlock on the journal key itself.
+--
+-- Known residual: a ROW lock against the number lock. The number lock is taken
+-- in BEFORE INSERT, ahead of the row's FK checks, so a transaction that holds K
+-- (this company+year's key) and then needs a row deadlocks (40P01) against one
+-- that holds that row and then needs K. Needs the same row at the same moment.
+-- Shapes that can cycle (code reading 2026-10-06; brk-docnum A2 measured the
+-- first):
+--   * customer invoice. K then the invoice: createCustomerPayment (customer-
+--     payments POST, MCP contra; KEY SHARE through the allocation FK), the
+--     gateway receipt (gatewayReceiptAllocation FOR UPDATE), a bank-allocated
+--     receipt auto-applying (autoApplyCustomerReceipt, FOR UPDATE on the
+--     customer's open invoices). The invoice then K: cancelCustomerInvoice
+--     (FOR UPDATE, then reverseJournalEntry). New with 858 for the first two;
+--     the bank auto-apply pair has existed since 857.
+--   * contact (customer / supplier). K then the contact (FK KEY SHARE on
+--     client_id / supplier_id): every receipt, supplier payment and credit-note
+--     insert. The contact then K: a bank-allocated refund (lockContactForRefund
+--     FOR UPDATE, paymentLock.ts, then its journal). New with 858 except for
+--     the bank-allocated receipt / payment, which already numbered a journal
+--     first under 857.
+--   * supplier bill. The bills then K: createBatch (assertBatchAllocatable
+--     FOR UPDATE, then the batch number) and the supplier-payments POST
+--     (fetchBillCandidates FOR UPDATE, then the payment number). K then the
+--     bills: a bank-allocated supplier payment (journal, then supplierAutoAllocate
+--     / planSupplierPaymentApplication FOR UPDATE). New with 858: createBatch and
+--     the POST took no number lock before. (createBatch against the POST does
+--     NOT cycle: both lock the bills first, in id order.)
+-- Before 858 the first transaction of each new pair just waited.
 --
 -- Unchanged: inserts that supply the number take no lock (the function returns
--- at IS NOT NULL; the WHEN clause, where there is one, skips it), the owner,
+-- at IS NOT NULL; the WHEN clause, where there is one, skips it); owner,
 -- SECURITY INVOKER, search_path and grants (CREATE OR REPLACE keeps owner and
--- ACL). App writers of an explicit number into the four newly indexed tables
--- (census 2026-10-06): supplier returns (credit_notes, RTN-, the company's
--- document sequence) — a duplicate now fails 23505, reachable only if that
--- sequence's next_number is set back below an issued number; and
--- scripts/import-sage-britech.ts (customer / supplier payments, Sage's own
--- numbers, ON CONFLICT DO NOTHING) — a duplicate is now skipped instead of
--- stored. Seed scripts write RCP-/PAY-/CRN- numbers. Pre-existing and untouched:
--- four triggers fire on '' too (WHEN ... OR number = '') but the function
--- returns at IS NOT NULL, so an explicit '' is stored as ''.
+-- ACL; proconfig now carries lock_timeout). Pre-existing and untouched: four
+-- triggers fire on '' too (WHEN ... OR number = '') but the function returns at
+-- IS NOT NULL, so an explicit '' is stored as ''.
 --
--- Idempotent: CREATE OR REPLACE of the same bodies; the index block skips an
--- index that exists.
-
--- Every DDL below takes a strong lock on a document table; queued behind a long
--- transaction it would block every write to it, so fail instead (as 853).
-SET LOCAL lock_timeout = '5s';
+-- Idempotent: CREATE OR REPLACE of the same bodies; ALTER FUNCTION ... SET of
+-- the same value.
 
 CREATE OR REPLACE FUNCTION public.generate_credit_note_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   cn_year INT;
@@ -145,6 +155,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_customer_payment_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   pay_year INT;
@@ -169,6 +180,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_supplier_payment_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   pay_year INT;
@@ -193,6 +205,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_consolidation_adj_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   adj_year INT;
@@ -217,6 +230,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_adjustment_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   adj_year INT;
@@ -225,7 +239,7 @@ BEGIN
   IF NEW.adjustment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
-  adj_year := EXTRACT(YEAR FROM CURRENT_DATE);
+  adj_year := EXTRACT(YEAR FROM COALESCE(NEW.adjustment_date, CURRENT_DATE));
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || adj_year, 857));
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(adjustment_number, '-', 3), '') AS INT)
@@ -241,6 +255,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_batch_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   bat_year INT;
@@ -249,7 +264,7 @@ BEGIN
   IF NEW.batch_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
-  bat_year := EXTRACT(YEAR FROM CURRENT_DATE);
+  bat_year := EXTRACT(YEAR FROM COALESCE(NEW.batch_date, CURRENT_DATE));
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || bat_year, 857));
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(batch_number, '-', 3), '') AS INT)
@@ -265,6 +280,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_vat_adjustment_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   va_year INT;
@@ -273,7 +289,7 @@ BEGIN
   IF NEW.adjustment_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
-  va_year := EXTRACT(YEAR FROM CURRENT_DATE);
+  va_year := EXTRACT(YEAR FROM COALESCE(NEW.adjustment_date, CURRENT_DATE));
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || va_year, 857));
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(adjustment_number, '-', 3), '') AS INT)
@@ -289,6 +305,7 @@ $function$;
 CREATE OR REPLACE FUNCTION public.generate_write_off_number()
  RETURNS trigger
  LANGUAGE plpgsql
+ SET lock_timeout TO '5s'
 AS $function$
 DECLARE
   wo_year INT;
@@ -297,7 +314,7 @@ BEGIN
   IF NEW.write_off_number IS NOT NULL THEN
     RETURN NEW;
   END IF;
-  wo_year := EXTRACT(YEAR FROM CURRENT_DATE);
+  wo_year := EXTRACT(YEAR FROM COALESCE(NEW.write_off_date, CURRENT_DATE));
   PERFORM pg_advisory_xact_lock(hashtextextended(NEW.company_id::text || ':' || wo_year, 857));
   SELECT COALESCE(MAX(
     CAST(NULLIF(SPLIT_PART(write_off_number, '-', 3), '') AS INT)
@@ -310,36 +327,5 @@ BEGIN
 END;
 $function$;
 
--- ── Unique indexes for the four tables that had none ─────────────────────────
--- On exactly the scope the trigger numbers within. Created only where the table
--- holds no duplicate already; otherwise a NOTICE names the table and the count
--- and the index is skipped, so existing data can never fail this migration.
--- (isaflow_dev, read 2026-10-06: 0 duplicate groups in all four.) The table is
--- locked SHARE before the count, so no writer can add a duplicate between the
--- count and the build. NULL numbers never conflict in a unique index, so the
--- index is not partial.
-DO $$
-DECLARE
-  t RECORD;
-  dup BIGINT;
-BEGIN
-  FOR t IN SELECT * FROM (VALUES
-    ('credit_notes',              'company_id', 'credit_note_number', 'uq_credit_notes_company_number'),
-    ('customer_payments',         'company_id', 'payment_number',     'uq_customer_payments_company_number'),
-    ('supplier_payments',         'company_id', 'payment_number',     'uq_supplier_payments_company_number'),
-    ('consolidation_adjustments', 'group_id',   'adjustment_number',  'uq_consol_adj_group_number')
-  ) AS v(tbl, scope_col, num_col, idx)
-  LOOP
-    CONTINUE WHEN to_regclass('public.' || t.idx) IS NOT NULL;
-    EXECUTE format('LOCK TABLE public.%I IN SHARE MODE', t.tbl);
-    EXECUTE format(
-      'SELECT count(*) FROM (SELECT 1 FROM public.%1$I WHERE %3$I IS NOT NULL GROUP BY %2$I, %3$I HAVING count(*) > 1) d',
-      t.tbl, t.scope_col, t.num_col) INTO dup;
-    IF dup = 0 THEN
-      EXECUTE format('CREATE UNIQUE INDEX IF NOT EXISTS %I ON public.%I (%I, %I)', t.idx, t.tbl, t.scope_col, t.num_col);
-    ELSE
-      RAISE NOTICE '858: % has % duplicate (%, %) group(s); % NOT created; dedupe, then create it by hand (858_document_number_advisory_locks.sql)',
-        t.tbl, dup, t.scope_col, t.num_col, t.idx;
-    END IF;
-  END LOOP;
-END $$;
+-- 857's journal-number function: same bound (see THE BOUND above).
+ALTER FUNCTION public.generate_journal_entry_number() SET lock_timeout = '5s';

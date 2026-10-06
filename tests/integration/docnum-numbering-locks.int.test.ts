@@ -27,11 +27,11 @@ import {
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-/** The year for rows whose trigger reads it from the row's date. */
+/** Every trigger reads the year from the row's own date (858 moved ADJ/BAT/VA/WO off CURRENT_DATE). */
 const ROW_YEAR = 2031;
 
 let admin: Client, holder: Client, waiter: Client;
-let holderPid = 0, waiterPid = 0, thisYear = 0;
+let holderPid = 0, waiterPid = 0;
 let s1: Scope | undefined, s2: Scope | undefined;
 
 describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
@@ -41,7 +41,6 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
     for (const c of [admin, holder, waiter]) await c.connect();
     holderPid = await pidOf(holder);
     waiterPid = await pidOf(waiter);
-    thisYear = Number((await admin.query('SELECT EXTRACT(YEAR FROM CURRENT_DATE)::int AS y')).rows[0].y);
     s1 = await seedScope(admin, 'DOCNUM-1');
     s2 = await seedScope(admin, 'DOCNUM-2');
   }, 60000);
@@ -66,12 +65,26 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
   }
 
   describe.each(CASES)('$fn ($table)', (k) => {
-    const yearOf = (): number => (k.datedRow ? ROW_YEAR : thisYear);
+    // The trigger's lock must be EXACTLY this key: the journal key of 857 (company-scoped) or the group key of 858.
+    // A key off by its scope, year, separator or seed would still serialise two inserts of this table and pass
+    // every other test here, while missing the journal lock it has to share (docnum-journal-order).
+    it('waits on exactly hashtextextended(<scope>:<year>, seed)', async () => {
+      await holding(async () => {
+        await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, $2))',
+          [`${k.scopeOf(s1!)}:${ROW_YEAR}`, k.seed]);
+        const pB = settle(insertDoc(waiter, k, s1!, ROW_YEAR));
+        expect(await blockedBeforeSettling(admin, holderPid, waiterPid, pB), 'the insert must wait on that key')
+          .toBe(true);
+        await holder.query('ROLLBACK');
+        const out = await pB;
+        expect(out.ok, out.ok ? '' : errText(out.error)).toBe(true);
+      });
+    }, 60000);
 
     it('same scope + year: the second writer waits for the first, then gets the next number', async () => {
       await holding(async () => {
-        const nA = await insertDoc(holder, k, s1!, yearOf());
-        const pB = settle(insertDoc(waiter, k, s1!, yearOf()));
+        const nA = await insertDoc(holder, k, s1!, ROW_YEAR);
+        const pB = settle(insertDoc(waiter, k, s1!, ROW_YEAR));
         const waited = await blockedBeforeSettling(admin, holderPid, waiterPid, pB);
         await holder.query('COMMIT');
         const out = await pB;
@@ -83,8 +96,8 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
 
     it('a different scope, same year: no wait', async () => {
       await holding(async () => {
-        await insertDoc(holder, k, s1!, yearOf());
-        const pB = settle(insertDoc(waiter, k, s2!, yearOf()));
+        await insertDoc(holder, k, s1!, ROW_YEAR);
+        const pB = settle(insertDoc(waiter, k, s2!, ROW_YEAR));
         // Asserted before awaiting B: a B that waits would otherwise wait on the open holder for ever.
         expect(await blockedBeforeSettling(admin, holderPid, waiterPid, pB),
           "another scope's insert must not wait on this one").toBe(false);
@@ -93,8 +106,7 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
       });
     }, 60000);
 
-    // The other four take the year from CURRENT_DATE, so a test cannot choose a second year for them.
-    it.skipIf(!k.datedRow)('same scope, a different year: no wait', async () => {
+    it('same scope, a different year: no wait', async () => {
       await holding(async () => {
         await insertDoc(holder, k, s1!, ROW_YEAR);
         const pB = settle(insertDoc(waiter, k, s1!, ROW_YEAR + 1));
@@ -111,7 +123,7 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
     it.skipIf(k.table === 'consolidation_adjustments')(
       'a document then a journal against a journal then a document (same company + year): no deadlock',
       async () => {
-        const y = yearOf();
+        const y = ROW_YEAR;
         await holding(async () => {
           const nA = await insertDoc(holder, k, s1!, y);
           const pB = settle((async () => {
@@ -137,7 +149,7 @@ describeIfDb('DOCNUM: document numbering under concurrent inserts', () => {
       }, 60000);
 
     it('past 99999 the number keeps all its digits: 100000, then 100001', async () => {
-      const y = yearOf();
+      const y = ROW_YEAR;
       await insertDoc(admin, k, s2!, y, `${k.prefix}-${y}-99999`);
       expect(await insertDoc(admin, k, s2!, y)).toBe(`${k.prefix}-${y}-100000`);
       // The MAX must read 100000 (6 digits) above 99999 (5), or this mints 100000 again.

@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 /**
  * Supplier Returns / Debit Notes API
  * GET /api/accounting/supplier-returns - List returns
@@ -20,6 +20,12 @@ import { assertSupplierInCompany, SupplierNotInCompanyError } from '@/modules/ac
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
+
+/** The number the company's `supplier_return` sequence issued is already on a credit note (migration 859's index). */
+function isReturnNumberTaken(err: unknown): boolean {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  return e?.code === '23505' && e?.constraint === 'uq_credit_notes_company_number';
+}
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -66,33 +72,45 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
+    let returnNum = '';
     try {
       // The number comes from the company's `supplier_return` sequence. What
       // this replaced was COUNT(*)+1 over the company's supplier credit notes:
       // count is not max, so after any deletion — and on two concurrent creates
       // — it silently re-issued a number already in use. credit_notes has no
       // uniqueness constraint on the number, so nothing failed; the duplicate
-      // just existed, on a document that carries money.
-      const returnNum = await reserveNextDocumentNumber(companyId, 'supplier_return');
-
-      const createdRows = (await sql`
-        INSERT INTO credit_notes (
-          id, company_id, credit_note_number, type, supplier_id,
-          total_amount, reason,
-          status, credit_date, created_by, created_at
-        ) VALUES (
-          gen_random_uuid(), ${companyId}, ${returnNum}, 'supplier', ${supplierId},
-          ${amount}, ${reason || ''},
-          'draft', NOW(), ${userId}, NOW()
-        )
-        RETURNING *
-      `) as Row[];
+      // just existed, on a document that carries money. (Migration 859 now
+      // refuses it: uq_credit_notes_company_number.)
+      // Reservation and INSERT share a savepoint: if the number is already taken
+      // (the sequence was set back in Settings), both roll back and the 409
+      // below commits nothing — withAuth COMMITs a 4xx.
+      const createdRows = await withTransaction(async () => {
+        returnNum = await reserveNextDocumentNumber(companyId, 'supplier_return');
+        return (await sql`
+          INSERT INTO credit_notes (
+            id, company_id, credit_note_number, type, supplier_id,
+            total_amount, reason,
+            status, credit_date, created_by, created_at
+          ) VALUES (
+            gen_random_uuid(), ${companyId}, ${returnNum}, 'supplier', ${supplierId},
+            ${amount}, ${reason || ''},
+            'draft', NOW(), ${userId}, NOW()
+          )
+          RETURNING *
+        `) as Row[];
+      });
       const created = createdRows[0];
 
       log.info('Supplier return created', { id: created?.id, number: returnNum, module: 'accounting' });
       return apiResponse.success(res, { return: created });
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;
+      if (isReturnNumberTaken(err)) {
+        log.warn('Supplier return number already in use', { number: returnNum, module: 'accounting' });
+        return apiResponse.conflict(res,
+          `Supplier return number ${returnNum} is already in use: the supplier return sequence is behind an issued `
+          + 'number. Set its next number past the last one issued in Settings → Document Numbers.');
+      }
       log.error('Failed to create supplier return', { error: err, module: 'accounting' });
       return apiResponse.databaseError(res, err, 'Failed to create supplier return');
     }
