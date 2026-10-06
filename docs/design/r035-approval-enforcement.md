@@ -221,7 +221,13 @@ Mutation checks. Each one must turn a test red:
 
 - **Gate:** `approveCustomerInvoice` locks the invoice (`FOR UPDATE`) and calls `assertApprovalCleared` before its guarded status UPDATE, so a refusal writes nothing. Detail approve answers 409; MCP `finalize_invoice` refuses from a pre-read and `bulk_finalize_invoices` skips with `approval_required`.
 - **Amount:** `approval_customer_invoice_gate_amount(total, functional)`, the larger of the two in absolute terms. The approval posts `total_amount` unconverted, as 712 found for bills. It replaces the functional-total-first match described in §0.4 for customer invoices, and only ever widens what a rule sees.
-- **Backstop:** `trg_customer_invoice_approval_gate` refuses any entry into the AR population without a cleared approval at rank. That includes `confirmCustomerPayment` and a whole write-off on a DRAFT invoice, which now fail closed (500 and rollback) when enforced. It honours the import GUC (Q1).
+- **Backstop:** `trg_customer_invoice_approval_gate` refuses any entry into the AR population without a cleared approval at rank. On a DRAFT invoice under enforcement that includes:
+  - a receipt confirm: the savepoint rolls it back, and `customer-payments-action` answers 409;
+  - a whole write-off: 500 and rollback.
+
+  Paystack receipts never reach it for a draft; they are banked unapplied. It honours the import GUC (Q1). A raw-SQL session can set that GUC itself (the N3 class, in the SECURITY DEFINER follow-up).
+- **Lock:** the gate reads under `FOR NO KEY UPDATE`, taken only on an approvable invoice. Content edits wait for it, inserts that reference the invoice do not.
+- **Upstream authors:** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it. Supplier invoices minted from templates are not stamped; this is a known limit, because stamping them would change live enforcement.
 - **Unattended (recurring invoices, recurring-transaction autoPost):** the invoice stays a draft, the request is raised as the runner, and the schedule advances. The run reports `held_for_approval`.
 - **Imports (Q1):** the AR take-on, the Sage customer import and the Sage migration commit are exempt by rank against the strictest customer-invoice rule.
 - **Q7:** the legacy "Post to GL" stays ungated.
