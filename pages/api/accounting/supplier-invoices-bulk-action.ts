@@ -45,6 +45,7 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { lockSupplierInvoiceYears } from '@/modules/accounting/services/ap/supplierInvoiceYearLocks';
 
 const Schema = z.object({
   action: z.enum(['approve', 'cancel', 'post_gl']),
@@ -90,6 +91,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // there first simply blocks the other. Sorting also cannot change the outcome,
   // since each id is processed independently and reported by id.
   const ordered = [...invoiceIds].sort();
+  // Every year these bills' journals can be dated in, ascending, before the first (core/numberYearLocks.ts). A
+  // 55P03 here has posted nothing: withErrorHandler answers 503 + Retry-After.
+  await lockSupplierInvoiceYears(companyId, ordered, action === 'cancel');
 
   for (const invoiceId of ordered) {
     try {

@@ -23,6 +23,7 @@ import type { PostingActorOpts } from '../journalEntryMeta';
 import { actorMeta } from '../journalEntryMeta';
 import type { ReclassJournalDraft } from './journals';
 import { createReclassBatch, recordReclassBatchLines } from './batchService';
+import { journalYearOf, lockNumberYears } from '../../core/numberYearLocks';
 
 export interface PostedReclassJournal {
   journalEntryId: string;
@@ -74,6 +75,9 @@ export async function postReclassBatch(
 ): Promise<PostedReclassBatch> {
   const posted: PostedReclassJournal[] = [];
   const batchLines: { sourceLineId: string; journalEntryId: string }[] = [];
+  // Every year these journals are dated in, ascending, before the first (core/numberYearLocks.ts): a batch walking
+  // its drafts across a year end in caller order deadlocked against one walking the other way.
+  await lockNumberYears(companyId, input.drafts.map((d) => journalYearOf(d.date)));
 
   for (const draft of input.drafts) {
     // Sequential, not Promise.all: these share the one pg client the request

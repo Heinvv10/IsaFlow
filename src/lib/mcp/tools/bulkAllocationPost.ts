@@ -14,6 +14,7 @@ import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocation
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
+import { journalYearOf, lockNumberYears } from '@/modules/accounting/services/core/numberYearLocks';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -171,6 +172,10 @@ export async function postPreparedLines(
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
   // lines is exactly the thing a caller reading only the summary would miss.
   const vatCoerced: CoercedVatLine[] = [];
+  // Every year this batch numbers a journal in (each line's journal is dated its bank line's date), ascending,
+  // before the first (core/numberYearLocks.ts). Outside the per-line savepoints: a raw 55P03 here posted nothing,
+  // so it reaches the registry whole and the agent is told to retry the batch.
+  await lockNumberYears(ctx.companyId, ordered.map((o) => journalYearOf(o.transactionDate)));
 
   for (const { index, txId, line } of ordered) {
     // Sequential, not Promise.all: these share one pg connection, and

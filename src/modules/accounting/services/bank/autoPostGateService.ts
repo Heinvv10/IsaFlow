@@ -13,8 +13,10 @@ import { log } from '@/lib/logger';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
-import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
+import { getAutoPostSettings, autoPostRunSnapshot } from './autoPostSettingsService';
+import { evaluate } from './autoPostGateDecision';
 import { feedStateOf } from './bankFeedStateGuard';
+import { journalYearOf, lockNumberYears } from '../core/numberYearLocks';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -26,18 +28,12 @@ export {
   type AutoPostSettings,
   type AutoPostSettingsPatch,
 } from './autoPostSettingsService';
+// The pure gate, split out the same way and re-exported for the same reason.
+export { evaluate, type GateTx, type GateDecision } from './autoPostGateDecision';
 
 type Row = DbRow;
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export interface GateTx {
-  status: string;
-  amount: number;
-  suggestedGlAccountId: string | null;
-}
-
-export type GateDecision = { outcome: 'post' } | { outcome: 'skip'; reason: string };
 
 export type AutoPostSource = 'import' | 'categorization' | 'manual';
 
@@ -53,61 +49,6 @@ export interface SweepResult {
 
 export const AUTO_POST_AGENT = 'ai:auto-post:v1';
 
-// ── Pure gate ────────────────────────────────────────────────────────────────
-
-/**
- * Decision ladder, first failure wins. The status check (rung 2) now runs
- * BEFORE any feature-flag check so it always applies to both tiers.
- *
- * `strategy === 'llm'` routes through the fully-separate LLM tier: the
- * standard enabled/minConfidence/amountCap settings have NO effect here.
- * The LLM tier only posts when `llmEnabled && confidence >= llmMinConfidence
- * && within llmAmountCap`.
- *
- * `confidence === null` is the provisional path (source='import'): the
- * predictor's score is only known inside postProvisional, so rungs 3
- * (confidence) and 5 (target) defer to it; rung 2 and the amount cap
- * still apply up front.
- */
-export function evaluate(
-  tx: GateTx,
-  confidence: number | null,
-  settings: AutoPostSettings,
-  strategy: string | null,
-): GateDecision {
-  const isProvisionalPath = confidence === null;
-  const isLlm = strategy === 'llm';
-
-  // Rung 2 always applies: tx must be in the 'imported' state.
-  if (tx.status !== 'imported') return { outcome: 'skip', reason: 'not eligible' };
-
-  if (isLlm) {
-    // LLM tier — fully separate from the standard gate.
-    if (!settings.llmEnabled) return { outcome: 'skip', reason: 'llm disabled' };
-    if (confidence == null || confidence < settings.llmMinConfidence) {
-      return { outcome: 'skip', reason: 'llm confidence too low' };
-    }
-    if (settings.llmAmountCap > 0 && Math.abs(tx.amount) > settings.llmAmountCap) {
-      return { outcome: 'skip', reason: 'llm over amount cap' };
-    }
-    if (tx.suggestedGlAccountId == null) return { outcome: 'skip', reason: 'no target' };
-    return { outcome: 'post' };
-  }
-
-  // Standard tier (rules/patterns/history, or provisional import path).
-  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
-  if (!isProvisionalPath && confidence < settings.minConfidence) {
-    return { outcome: 'skip', reason: 'confidence too low' };
-  }
-  if (settings.amountCap > 0 && Math.abs(tx.amount) > settings.amountCap) {
-    return { outcome: 'skip', reason: 'over amount cap' };
-  }
-  if (!isProvisionalPath && tx.suggestedGlAccountId == null) {
-    return { outcome: 'skip', reason: 'no target' };
-  }
-  return { outcome: 'post' };
-}
-
 // ── Sweep ────────────────────────────────────────────────────────────────────
 
 interface SweepRow {
@@ -120,6 +61,7 @@ interface SweepRow {
   suggested_strategy: string | null;
   description: string | null;
   feed_state: string | null;
+  transaction_date: string | Date;
 }
 
 /**
@@ -147,7 +89,7 @@ export async function sweep(
 
   const rows = (await sql`
     SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
-           suggested_vat_code, suggested_strategy, description, feed_state
+           suggested_vat_code, suggested_strategy, description, feed_state, transaction_date
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
   `) as unknown as SweepRow[];
@@ -183,17 +125,21 @@ export async function sweep(
 
   const isImport = source === 'import';
 
-  for (const row of postable) {
-    const confidence = isImport
-      ? null
-      : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null);
+  // Decided before anything posts: the up-front year lock needs to know which rows will post.
+  const decisions = new Map(postable.map((row) => [row.id, evaluate(
+    { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
+    isImport ? null : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null),
+    settings,
+    isImport ? null : (row.suggested_strategy ?? null),
+  )]));
+  // Every year this sweep will number a journal in, ascending, before its first (core/numberYearLocks.ts). A
+  // 55P03 here posted nothing: the whole sweep is retryable.
+  await lockNumberYears(companyId, postable
+    .filter((row) => decisions.get(row.id)!.outcome === 'post')
+    .map((row) => journalYearOf(row.transaction_date)));
 
-    const decision = evaluate(
-      { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
-      confidence,
-      settings,
-      isImport ? null : (row.suggested_strategy ?? null),
-    );
+  for (const row of postable) {
+    const decision = decisions.get(row.id)!;
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });
       continue;

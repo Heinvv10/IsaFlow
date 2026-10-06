@@ -58,6 +58,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql, withSavepoint } from '@/lib/neon';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
@@ -286,6 +287,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     let appliedRuleCount = 0;
     let ruleLinesSkippedLocked = 0;
+    let ruleWarnings: string[] = [];
     if (applyBankRules === true) {
       try {
         // In a savepoint: this catch swallows a rule-pass failure so the import still lands, and withAuth COMMITs
@@ -300,6 +302,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         appliedRuleCount = ruleResult.applied;
         ruleLinesSkippedLocked = ruleResult.autoPostSkippedLocked ?? 0;
       } catch (err) {
+        // A cross-year rule pass whose up-front year keys a peer held past 5 s posted nothing: reported, retryable.
+        if (isHeldRowError(err)) ruleWarnings = ['Bank rules were not applied: another request is posting for this company. Apply the rules again in a moment.'];
         log.warn('Failed to apply bank rules after bulk commit file', {
           error: err, filename,
         }, 'accounting-api');
@@ -328,7 +332,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.
-      warnings: result.errors.map((e) => e.error),
+      warnings: [...result.errors.map((e) => e.error), ...ruleWarnings],
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {

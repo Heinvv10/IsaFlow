@@ -250,6 +250,7 @@ export interface BankTransactionAllocationState {
    * 200 round trips to ask what it already selected.
    */
   amount: number;
+  transactionDate: string | Date | null; // its allocation journal's date — a batch's up-front year lock (numberYearLocks)
 }
 
 /**
@@ -276,7 +277,7 @@ export async function findBankTransactionAllocationStates(
   if (ids.length === 0) return byId;
 
   const rows = (await sql`
-    SELECT id, status, matched_journal_line_id, amount, feed_state
+    SELECT id, status, matched_journal_line_id, amount, feed_state, transaction_date
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -292,6 +293,7 @@ export async function findBankTransactionAllocationStates(
           : String(row.matched_journal_line_id),
       amount: Number(row.amount ?? 0),
       feedState: feedStateOf(row),
+      transactionDate: (row.transaction_date as string | Date | null | undefined) ?? null,
     });
   }
   return byId;

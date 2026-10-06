@@ -14,6 +14,7 @@ import type { RuleApplyResult } from '../../types/bank.types';
 import {
   findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
 } from './bankRulesMatchingHelpers';
+import { lockRuleRunYears } from './bankRuleYearLocks';
 import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
@@ -123,6 +124,9 @@ export async function applyRules(
       fetchBankContraFlags(companyId, ruleAccountIds),
     ]);
 
+    // Every year this run will number a journal in, ascending, before its first (core/numberYearLocks.ts). Outside
+    // the per-line savepoints: a 55P03 here posted nothing, and the whole run is retryable (route 503).
+    if (bankGlAccountId) await lockRuleRunYears(companyId, bankAccountId, autoCreateRules);
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = rulePattern(rule);
       const field = String(rule.match_field);

@@ -319,6 +319,7 @@ by the depreciation workstream, which is deleting the constant; this module
 picks the fix up when it lands rather than forking the shared service.
 
 ## Recent changes
+- 2026-10-06 (NUMRACE, mig 864): `postReclassBatch` takes the journal-number year keys of every draft, ascending, before the first journal (core/numberYearLocks.ts); drafts post in caller order, so a cross-year batch deadlocked against a run walking the years the other way.
 
 - 2026-09-10: CC1 and CC2 now travel through candidate mapping, ownership sanitisation and both reclassification journal legs, alongside the business unit. Lines carrying analysis coding are no longer skipped as `unreproducible_analysis_coding`; the shared writer's explicit `historical-copy` mode preserves owned inactive references while continuing to reject a foreign or wrong-slot reference.
 
