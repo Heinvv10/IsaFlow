@@ -6,7 +6,9 @@
  * POST — { documentType, enabled } switch enforcement on or off for one type
  *
  * Both GETs carry `legacyCreditNoteRules`: the company's ACTIVE rules of the
- * legacy `credit_note` type, which govern neither credit-note type (R-035 PR3).
+ * legacy `credit_note` type, which govern neither credit-note type (R-035 PR3),
+ * and `legacyPaymentRules`: those of the legacy `payment` type, which govern
+ * neither payment type (R-035 PR5).
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
  * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
@@ -25,7 +27,7 @@ import type { DocumentType } from '@/modules/accounting/services/gl/approvalServ
 import type { RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import {
   ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
-  countLegacyCreditNoteRules, disableEnforcement, enableEnforcement, listEnforcement,
+  countLegacyCreditNoteRules, countLegacyPaymentRules, disableEnforcement, enableEnforcement, listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
@@ -44,7 +46,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const items = await listEnforcement(companyId);
     // Active legacy `credit_note` rules govern nothing (R-035 PR3): the switch warns about them.
     const legacyCreditNoteRules = await countLegacyCreditNoteRules(companyId);
-    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules };
+    // …and active legacy `payment` rules govern neither payment type (R-035 PR5).
+    const legacyPaymentRules = await countLegacyPaymentRules(companyId);
+    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules, legacyPaymentRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
     if (req.query.preview !== '1') return apiResponse.success(res, base);
     const preview = await previewEnforcement(companyId);

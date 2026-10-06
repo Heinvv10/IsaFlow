@@ -23,6 +23,8 @@ export interface DocumentApprovalPanelProps {
   noun: string;
   approval: DocumentApprovalState | null | undefined;
   onChanged: () => Promise<void> | void;
+  /** What the approval lets happen: a document is posted (default), a payment or batch is paid (R-035 PR5). */
+  action?: 'post' | 'pay';
 }
 
 const withArticle = (role: string) => `${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${role}`;
@@ -31,7 +33,12 @@ const withArticle = (role: string) => `${/^[aeiou]/i.test(role) ? 'an' : 'a'} ${
 export const isApprovalHeld = (approval: DocumentApprovalState | null | undefined): boolean =>
   approval?.state === 'required' || approval?.state === 'pending' || approval?.state === 'stale';
 
-export function DocumentApprovalPanel({ documentType, documentId, noun, approval, onChanged }: DocumentApprovalPanelProps) {
+const WORDS = {
+  post: { passive: 'posted', gerund: 'posting', verb: 'post' },
+  pay: { passive: 'paid', gerund: 'paying', verb: 'pay' },
+} as const;
+
+export function DocumentApprovalPanel({ documentType, documentId, noun, approval, onChanged, action = 'post' }: DocumentApprovalPanelProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   if (!approval || approval.state === 'not_required') return null;
@@ -64,11 +71,12 @@ export function DocumentApprovalPanel({ documentType, documentId, noun, approval
     }
   };
 
+  const words = WORDS[action];
   const message = {
-    required: `This ${noun} needs ${role} approval before it can be posted${rule}.`,
-    stale: `This ${noun} changed after it was approved. Submit it for approval again before posting.`,
+    required: `This ${noun} needs ${role} approval before it can be ${words.passive}${rule}.`,
+    stale: `This ${noun} changed after it was approved. Submit it for approval again before ${words.gerund}.`,
     pending: `Awaiting approval by ${withArticle(role)}${rule}.`,
-    approved: `Approved by ${withArticle(role)} — ready to post.`,
+    approved: `Approved by ${withArticle(role)} — ready to ${words.verb}.`,
   }[approval.state];
   const tone = approval.state === 'approved'
     ? 'bg-teal-500/10 text-teal-500'

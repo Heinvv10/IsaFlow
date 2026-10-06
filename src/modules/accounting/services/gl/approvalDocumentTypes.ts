@@ -16,18 +16,25 @@ export function creditNoteApprovalType(type: string): DocumentType {
 }
 
 /**
- * A NEW rule of the legacy `credit_note` type would govern nothing — neither
- * credit-note type reads it (R-035 PR3 review B2) — so creating one is refused,
- * naming the types that do. Existing legacy rows are left alone.
+ * A NEW rule of a legacy type would govern nothing, so creating one is
+ * refused, naming the types that do. `credit_note` governs neither
+ * credit-note type (R-035 PR3 review B2); `payment` governs neither supplier
+ * payments nor payment batches (R-035 PR5). Existing legacy rows are left alone.
  */
+const LEGACY_TYPES: Record<string, string> = {
+  credit_note: 'Approval rules of type credit_note no longer govern any credit note. Create a customer_credit_note or '
+    + 'supplier_credit_note rule instead.',
+  payment: 'Approval rules of type payment no longer govern any supplier payment. Create a supplier_payment or '
+    + 'payment_batch rule instead.',
+};
+
 export class ApprovalRuleLegacyTypeError extends Error {
-  constructor() {
-    super('Approval rules of type credit_note no longer govern any credit note. Create a customer_credit_note or '
-      + 'supplier_credit_note rule instead.');
+  constructor(documentType: string) {
+    super(LEGACY_TYPES[documentType]);
     this.name = 'ApprovalRuleLegacyTypeError';
   }
 }
 
 export function assertRuleDocumentTypeCreatable(documentType: string): void {
-  if (documentType === 'credit_note') throw new ApprovalRuleLegacyTypeError();
+  if (Object.hasOwn(LEGACY_TYPES, documentType)) throw new ApprovalRuleLegacyTypeError(documentType);
 }

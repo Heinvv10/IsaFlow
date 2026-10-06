@@ -81,6 +81,18 @@ export async function countLegacyCreditNoteRules(companyId: string): Promise<num
   return Number(rows[0]?.n ?? 0);
 }
 
+/**
+ * Active rules of the legacy `payment` type: they govern neither supplier
+ * payments nor payment batches (R-035 PR5), so both payment switches warn.
+ */
+export async function countLegacyPaymentRules(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type = 'payment' AND is_active = true
+  `) as Row[];
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function isEnforced(companyId: string, documentType: DocumentType): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${documentType}
