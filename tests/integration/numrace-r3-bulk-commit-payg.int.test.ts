@@ -13,14 +13,18 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { response } from './mfa-impersonation-postgres.helpers';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { deductFlows } from '@/modules/billing/services/flowWalletService';
 import { dropFixture, runOn } from './helpers/l1FifoFixture';
-import { dropCrossYear, seedCrossYear, type CrossYear } from './helpers/numraceCrossYear';
-import { holdKey } from './helpers/numraceGate';
+import { deadlocks, dropCrossYear, line, seedCrossYear, txn, type CrossYear } from './helpers/numraceCrossYear';
+import { holdKey, settle, waitBlockedBy } from './helpers/numraceGate';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 vi.mock('@/lib/billing/getCompanyPlan', () => ({ getCompanyPlan: vi.fn(async () => ({ planCode: 'payg' })) }));
+// The route queues its nudge recalculation for after COMMIT; this harness's transaction owner runs no such queue.
+vi.mock('@/lib/afterCommit', async (orig) => ({ ...(await orig<object>()), runAfterCommit: vi.fn() }));
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const made: CrossYear[] = [];
@@ -59,7 +63,13 @@ async function ledger(c: CrossYear) {
 describe.skipIf(!DATABASE_URL)('NUMRACE r3: bulk-commit refuses before it charges', () => {
   afterAll(async () => {
     for (const c of made) {
-      await sql`DELETE FROM flow_ledger WHERE company_id = ${c.fx.companyId}::UUID`;
+      // flow_ledger is append-only by trigger; the metered peer below commits a debit row.
+      const admin = await c.fx.pool.connect();
+      await admin.query('BEGIN');
+      await admin.query('SET LOCAL session_replication_role = replica');
+      await admin.query('DELETE FROM flow_ledger WHERE company_id = $1', [c.fx.companyId]);
+      await admin.query('COMMIT');
+      admin.release();
       await sql`DELETE FROM flow_wallet WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`UPDATE bank_transactions SET import_batch_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`DELETE FROM bank_import_batches WHERE company_id = ${c.fx.companyId}::UUID`;
@@ -102,4 +112,39 @@ describe.skipIf(!DATABASE_URL)('NUMRACE r3: bulk-commit refuses before it charge
     expect(out.status).toBe(400);
     expect(l).toEqual({ balance: 100, rows: [], imported: 0 });
   }, 60000);
+
+  it('vs a metered request holding the wallet, then numbering 2025 (withFlowMeter order): no deadlock', async () => {
+    const c = await payg();
+    const l = await line(c, '33333333', '2025-12-20', 'NRPAYG peer');
+    const before = await deadlocks(c);
+    const p = await txn(c);
+    let go!: () => void, locked!: () => void;
+    const goP = new Promise<void>((res) => { go = res; });
+    const lockedP = new Promise<void>((res) => { locked = res; });
+    try {
+      const pP = settle(p.run(async () => {
+        await deductFlows(c.fx.companyId, 1, 'journal.create', null);
+        locked();
+        await goP;
+        return allocateTransaction(c.fx.companyId, l, c.expense, c.fx.userId, undefined, 'account', undefined,
+          undefined);
+      }));
+      await lockedP;
+      const outP = asRequest(c, ['Date,Description,Amount', '2025-12-30,NRPAYG w1,-5.00', '2026-01-03,NRPAYG w2,-6.00']
+        .join('\n'));
+      await waitBlockedBy(c.fx.pool, p.pid);
+      go();
+      const [rp, out] = [await pP, await outP];
+      await new Promise((res) => setTimeout(res, 1500));
+      const after = await deadlocks(c);
+      process.stdout.write(`PAYG-wallet ${JSON.stringify({ rp: rp.ok ? 'ok' : rp, status: out.status,
+        thrown: String(out.thrown ?? ''), deadlocks: { before, after } })}\n`);
+      expect(rp.ok, JSON.stringify(rp)).toBe(true);
+      expect(out.status).toBe(200);
+      expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
+    } finally {
+      go();
+      await p.abandon();
+    }
+  }, 90000);
 });

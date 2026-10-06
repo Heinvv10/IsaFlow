@@ -48,12 +48,9 @@ describe.skipIf(!DATABASE_URL)('NUMRACE r3: a line a peer allocated is reported 
     }
   }, 60000);
 
-  it('bulk-commit (statement 2025+2026, rules on) vs a single allocation of an existing rule line: not counted as held', async () => {
-    assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    const c = await seedCrossYear('BRK-G', DATABASE_URL!);
-    made.push(c);
-    const l = await line(c, '33333333', '2025-12-20', 'NRRULE g');
-    // Inflows: the import's sweep posts outflows only, so nothing posts before the rule pass.
+  /** A peer locks `l`, bulk-commit (2025+2026 statement, inflows: the sweep posts nothing) waits on it, then the
+   *  peer allocates `l` (its 2025 number). */
+  async function peerAllocatesDuringBulkCommit(c: CrossYear, l: string) {
     const csv = ['Date,Description,Amount', `2025-12-30,stmt a ${c.fx.tag},10.00`, `2026-01-02,stmt b ${c.fx.tag},11.00`]
       .join('\n');
     const before = await deadlocks(c);
@@ -76,21 +73,47 @@ describe.skipIf(!DATABASE_URL)('NUMRACE r3: a line a peer allocated is reported 
       go();
       const [rp, rr] = [await pP, await pR];
       await new Promise((res) => setTimeout(res, 1500));
-      const after = await deadlocks(c);
-      const imported = (await sql`SELECT COUNT(*)::int AS n FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID
-        AND description LIKE 'stmt %'`) as { n: number }[];
-      process.stdout.write(`G ${JSON.stringify({ rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after }, imported })}\n`);
       const peerPosted = (await sql`SELECT matched_journal_line_id IS NOT NULL AS posted FROM bank_transactions
         WHERE id = ${l}::UUID`) as { posted: boolean }[];
-      expect(rp.ok, JSON.stringify(rp)).toBe(true);
-      expect(peerPosted[0]!.posted, 'the peer allocated the line').toBe(true);
-      const data = ((rr.ok ? rr.value.body : {}) as { data?: Record<string, unknown> }).data ?? {};
-      expect(data.autoPostSkippedLocked, 'a line the peer allocated is not "held, retry"').toBe(0);
-      expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
+      return { rp, rr, before, after: await deadlocks(c), peerPosted: peerPosted[0]!.posted };
     } finally {
       go();
       await p.abandon();
       await r.abandon();
     }
+  }
+
+  async function fixture(prefix: string): Promise<CrossYear> {
+    assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
+    const c = await seedCrossYear(prefix, DATABASE_URL!);
+    made.push(c);
+    return c;
+  }
+
+  it('bulk-commit (statement 2025+2026, rules on) vs a single allocation of an existing rule line: not counted as held', async () => {
+    const c = await fixture('BRK-G');
+    const { rp, rr, before, after, peerPosted } = await peerAllocatesDuringBulkCommit(c,
+      await line(c, '33333333', '2025-12-20', 'NRRULE g'));
+    process.stdout.write(`G ${JSON.stringify({ rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after } })}\n`);
+    expect(rp.ok, JSON.stringify(rp)).toBe(true);
+    expect(peerPosted, 'the peer allocated the line').toBe(true);
+    const data = ((rr.ok ? rr.value.body : {}) as { data?: Record<string, unknown> }).data ?? {};
+    expect(data.autoPostSkippedLocked, 'a line the peer allocated is not "held, retry"').toBe(0);
+    expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
+  }, 90000);
+
+  it('the same vs a single allocation of an existing line a SUGGESTION rule matches: no deadlock', async () => {
+    const c = await fixture('BRK-GS');
+    await sql`INSERT INTO bank_categorisation_rules (company_id, rule_name, match_field, match_type, match_pattern,
+        gl_account_id, priority, auto_create_entry, vat_code)
+      VALUES (${c.fx.companyId}::UUID, 'NUMRACE suggestion', 'description', 'contains', 'NRSUGG', ${c.expense}::UUID, 2,
+        false, 'none')`;
+    const { rp, rr, before, after, peerPosted } = await peerAllocatesDuringBulkCommit(c,
+      await line(c, '33333333', '2025-12-20', 'NRSUGG s'));
+    process.stdout.write(`GS ${JSON.stringify({ rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after } })}\n`);
+    expect(rp.ok, JSON.stringify(rp)).toBe(true);
+    expect(peerPosted, 'the peer allocated the line').toBe(true);
+    expect(rr.ok && rr.value.status, JSON.stringify(rr)).toBe(200);
+    expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
   }, 90000);
 });
