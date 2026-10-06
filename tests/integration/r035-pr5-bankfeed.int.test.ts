@@ -10,7 +10,6 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
-import { als } from '@/lib/als';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 import { recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
@@ -19,7 +18,7 @@ import { clearSystemAccountCache } from '@/modules/accounting/services/gl/system
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule } from './r035-approval.helpers';
 import { plantInvoice } from './r035-pr4.helpers';
-import { cleanupPr5, enforcePay, payCompany, plantSupplier } from './r035-pr5.helpers';
+import { cleanupPr5, enforcePay, inRequest as inRequestAs, payCompany, plantSupplier } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -46,21 +45,7 @@ beforeAll(async () => {
 });
 afterAll(() => cleanupPr5(pool, companies, [a]));
 
-/** `fn` on one request transaction (ALS-bound, as withAuth runs it), committed unless it throws. */
-async function inRequest<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await als.run({ client, userId: a, companyId: fx.company, claims: {} } as never, () => fn(client));
-    await client.query('COMMIT');
-    return result;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
+const inRequest = <T>(fn: (client: PoolClient) => Promise<T>) => inRequestAs(pool, a, fx.company, fn);
 
 async function bankLine(db: PoolClient, amount: number) {
   const je = (await db.query(

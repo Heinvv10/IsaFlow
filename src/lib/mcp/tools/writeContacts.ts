@@ -190,7 +190,7 @@ export const updateSupplierTool: McpTool = {
     if (!(await supplierBelongsToCompany(ctx.companyId, id))) return toolError(NOT_FOUND);
 
     try {
-      const row = await updateSupplier(ctx.companyId, id, supplierInput(args));
+      const row = await updateSupplier(ctx.companyId, id, supplierInput(args), ctx.userId);
       if (!row) return toolError(NOT_FOUND);
       return ok({ id: String(row.id), name: String(row.name), is_active: row.is_active });
     } catch (err) {

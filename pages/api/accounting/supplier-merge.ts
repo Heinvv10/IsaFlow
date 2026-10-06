@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
+import { stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
 
 const MergeBodySchema = z.object({
   source_id: UUID,
@@ -66,13 +67,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
 
-      // 3. Re-parent supplier_payments
-      await tx`
+      // 3. Re-parent supplier_payments. supplier_id is approval content too —
+      // with it the payee's bank details (R-035 PR5): the merging user becomes
+      // an author of every payment it moves, and of each batch they belong to.
+      const moved = (await tx`
         UPDATE supplier_payments
-        SET supplier_id = ${target_id}
+        SET supplier_id = ${target_id},
+            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
         WHERE supplier_id = ${source_id}
           AND company_id = ${companyId}
-      `;
+        RETURNING batch_id
+      `) as { batch_id: unknown }[];
+      await stampBatchesOfMovedPayments(companyId, moved.map((m) => m.batch_id), user.id);
 
       // 4. Re-parent supplier_purchase_orders
       await tx`

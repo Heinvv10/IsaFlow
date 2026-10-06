@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
+import { bankDetailsChanged, lockSupplierBankDetails, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
 
 
 export interface CustomerImportRow {
@@ -117,7 +118,9 @@ export async function importSuppliers(
   companyId: string,
   sessionId: string,
   suppliers: SupplierImportRow[],
-  duplicateStrategy: DuplicateStrategy = 'skip',
+  duplicateStrategy: DuplicateStrategy,
+  /** R-035 PR5: an overwrite that changes bank details makes them an author of the supplier's unpaid payments. */
+  importedBy: string,
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -143,7 +146,8 @@ export async function importSuppliers(
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
       if (duplicate && duplicateStrategy === 'overwrite') {
-        await sql`
+        const before = await lockSupplierBankDetails(companyId, duplicate.id);
+        const [after] = (await sql`
           UPDATE suppliers SET
             email               = COALESCE(${sup.email ?? null}, email),
             phone               = COALESCE(${sup.phone ?? null}, phone),
@@ -153,7 +157,12 @@ export async function importSuppliers(
             bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
             bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
           WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
-        `;
+          RETURNING bank_name, bank_account_number, bank_branch_code, bank_account_type
+        `) as DbRow[];
+        // Re-routes every unpaid payment to this supplier (R-035 PR5).
+        if (before && after && bankDetailsChanged(before, after)) {
+          await stampUnpaidPaymentsToSupplier(companyId, duplicate.id, importedBy);
+        }
         imported++;
         continue;
       }

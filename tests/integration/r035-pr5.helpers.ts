@@ -8,6 +8,7 @@
  * GETs, raise and decide (approval-requests).
  */
 import type { Pool, PoolClient } from 'pg';
+import { als } from '@/lib/als';
 import supplierPaymentsAction from '../../pages/api/accounting/supplier-payments-action';
 import supplierPayments from '../../pages/api/accounting/supplier-payments';
 import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
@@ -157,6 +158,22 @@ export function payRoutes(tokens: Tokens) {
     },
   };
   return r;
+}
+
+/** `fn` on one request transaction, ALS-bound as withAuth runs it, committed unless it throws. */
+export async function inRequest<T>(pool: Pool, userId: string, companyId: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run({ client, userId, companyId, claims: {} } as never, () => fn(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /** Payments, allocations and batches first (they reference bills, suppliers, journals), then PR4's teardown. */
