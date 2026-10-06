@@ -132,10 +132,17 @@ export async function bulkCreateFromTemplate(
   return { created, skipped, failed };
 }
 
+/**
+ * Copies an entry to `newDate` under the SOURCE's logger and rate. A copy of
+ * someone else's entry adds billable hours in their name, so `copiedBy` is an
+ * author of the copy (R-035 PR4 round 4, REPRO F); copying your own entry is
+ * effort, like logging it (decision 1).
+ */
 export async function duplicatePracticeEntry(
   companyId: string,
   id: string,
   newDate: string,
+  copiedBy: string,
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
   if (newDate > today) throw new Error('entry date cannot be in the future');
@@ -170,13 +177,15 @@ export async function duplicatePracticeEntry(
       practice_client_id, job_category_id, work_item_id,
       task_description, notes, billable,
       applied_rate, line_total, rate, amount,
-      origin, status, job_id
+      origin, status, job_id, content_authors
     ) VALUES (
       ${companyId}::UUID, ${String(src.user_id)}::UUID, ${newDate}::DATE, ${hours},
       ${String(src.practice_client_id)}::UUID, ${String(src.job_category_id)}::UUID, ${String(src.work_item_id)}::UUID,
       ${String(src.task_description)}, ${src.notes ? String(src.notes) : null}, ${Boolean(src.billable)},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
-      'recurring', 'draft', ${jobId}::UUID
+      'recurring', 'draft', ${jobId}::UUID,
+      CASE WHEN ${copiedBy}::UUID IS DISTINCT FROM ${String(src.user_id)}::UUID
+           THEN approval_add_author('{}'::UUID[], ${copiedBy}::UUID) ELSE '{}'::UUID[] END
     ) RETURNING *
   `) as DbRow[]).catch((err: unknown) => rethrowJobFkAsRefusal(err, jobId));
   if (!rows[0]) throw new Error('database returned no row after insert/update');

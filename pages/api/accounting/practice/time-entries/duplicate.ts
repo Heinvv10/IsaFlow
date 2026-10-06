@@ -31,7 +31,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const entry = await duplicatePracticeEntry(companyId, id, newDate);
+    const entry = await duplicatePracticeEntry(companyId, id, newDate, req.user.id);
     return apiResponse.created(res, entry);
   } catch (err) {
     if (isJobFenceRefusal(err)) {

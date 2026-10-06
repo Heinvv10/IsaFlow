@@ -71,7 +71,9 @@ ALTER TABLE recurring_transaction_templates ADD COLUMN IF NOT EXISTS content_aut
 -- re-quantifies their effort; a customer merge re-pointing one). Stamped by
 -- those edits only — the creator of a quote or order is created_by — with one
 -- exception: a time-tracking entry's logger TYPES its rate, so createTimeEntry
--- stamps them when it stores one (round 3). Golden path a creates and converts
+-- stamps them when it stores one (round 3); and a practice DUPLICATE of
+-- someone else's entry — new hours under their name — stamps its copier
+-- (round 4; duplicating your own is effort). Golden path a creates and converts
 -- a quote and logs no time, so it writes none of these columns.
 -- KNOWN LIMIT (like PR2's default_expense): the practice rate tables
 -- (practice_staff_rates, practice_client_rate_overrides,
@@ -226,8 +228,9 @@ $$;
 -- order's (customer_sales_orders.invoice_id) and those of the quote behind
 -- that order (customer_quotes.converted_order_id, the link convertToSalesOrder
 -- writes, or customer_sales_orders.quote_id), and every user who changed a
--- billed time entry's rate or billable flag, or someone else's hours, and the
--- time-tracking logger who typed its rate (time_entries.invoice_id, set by
+-- billed time entry's rate or billable flag, or someone else's hours, the
+-- copier of someone else's practice entry, and the time-tracking logger who
+-- typed its rate (time_entries.invoice_id, set by
 -- both time billing paths: the time-entries-invoice claim and the WIP
 -- markEntriesBilled). Not a practice entry's LOGGER (decision 1): its rate
 -- comes from the rate tables, and your own hours are effort. Each lookup is
