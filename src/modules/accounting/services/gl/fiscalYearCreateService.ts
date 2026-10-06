@@ -36,6 +36,7 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 import { buildFiscalYearPeriods, fiscalYearRange } from './fiscalYearCalendar';
+import { JOURNAL_DATE_MAX, JOURNAL_DATE_MIN, journalDateWindowError } from '../../utils/journalDateWindow';
 import { resolveFiscalYearStartMonth } from './fiscalYearBasis';
 
 /**
@@ -169,6 +170,12 @@ export async function createFiscalYear(
 
   const startMonth = startMonthOverride ?? (await resolveCompanyPeriodAlignment(companyId)).startMonth;
   const range = fiscalYearRange(year, startMonth);
+  // Ledger-date window (utils/journalDateWindow): a period dates the journals no createJournalEntry check sees (the
+  // year-end close, depreciation). Checked on the range itself — iso() writes a 6-digit year as its first 4 digits.
+  const outside = journalDateWindowError(range.startDate) ?? journalDateWindowError(range.endDate);
+  if (!Number.isInteger(year) || outside || Number(range.endDate.slice(0, 4)) !== year) {
+    throw new Error(`Fiscal year ${year} is outside ${JOURNAL_DATE_MIN} to ${JOURNAL_DATE_MAX}`);
+  }
 
   const conflicts = await findOverlapping(companyId, range.startDate, range.endDate);
   if (conflicts.length > 0) {
