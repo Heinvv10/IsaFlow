@@ -43,10 +43,13 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
-// R-035 PR5's up-front refusal for a governed payable is proved against real
-// PostgreSQL (r035-pr5-mcp); with no enforcement it lets the composition run.
+// R-035 PR5's refusals (a governed payable; a hand-keyed bank line) are proved
+// against real PostgreSQL (r035-pr5-mcp); unenforced, the composition runs.
 vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({
   agentNewSupplierPaymentRefusal: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({
+  bankLineIsEvidenced: vi.fn().mockResolvedValue(true), manualLinePaymentRefusal: vi.fn().mockResolvedValue(null),
 }));
 
 import {

@@ -29,6 +29,7 @@ import {
   applyBankLineToSupplierInvoices,
   validateBankSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { bankLineIsEvidenced, manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
 import { mcpPostingAgent } from '../postingAgent';
 import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
@@ -164,6 +165,13 @@ async function applyFromBankLine(
     validation = await validateBankSupplierPayment(companyId, bankTxId, allocations);
   } catch (err) {
     return toolError(safeErrorText(err, 'Could not allocate this bank transaction.'));
+  }
+  // R-035 PR5 (D2; round 2 REPRO 7): the live call refuses a hand-keyed line
+  // under an enforced rule (allocateTransaction). Asked here, before the dry
+  // run, so the preview gives the same refusal instead of a settled bill.
+  if (!(await bankLineIsEvidenced(companyId, bankTxId))) {
+    const refusal = await manualLinePaymentRefusal(companyId, validation.paymentAmount);
+    if (refusal) return toolError(refusal.message);
   }
 
   if (dryRun) {
