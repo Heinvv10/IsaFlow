@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
@@ -85,7 +86,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
-    const entry = await createJournalEntry(companyId, {
+    const entry = await withJournalDateRefusal(res, () => createJournalEntry(companyId, {
       entryDate,
       description,
       source,
@@ -94,7 +95,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       lines,
       // A person drafting: a journal dated in a filed VAT period whose only VAT
       // is input tax may be drafted; posting it claims the VAT late (s16(3)).
-    }, userId, undefined, { allowLateInputClaim: true });
+    }, userId, undefined, { allowLateInputClaim: true }));
+    if (entry === JOURNAL_DATE_REFUSED) return;
 
     return apiResponse.success(res, entry);
   } catch (err) {

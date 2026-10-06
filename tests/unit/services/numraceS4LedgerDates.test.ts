@@ -90,7 +90,6 @@ describe('depreciation period_date', () => {
 describe('year-end closing journal', () => {
   it('dated 2200-12-31: refused before its transaction opens', async () => {
     sqlMock.mockResolvedValueOnce([{ d: '2200-12-31' }]); // Postgres's ::date of the entry date
-    sqlMock.mockResolvedValueOnce([{ clean: true }]); // the guard's nothing-written probe
     const preview = {
       entryDate: '2200-12-31', entryNumber: 'YE-2200', description: 'Year-End Closing: 2200',
       lines: [
