@@ -44,6 +44,19 @@ ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS content_authors UUID[] NO
 ALTER TABLE supplier_payments ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
 ALTER TABLE supplier_payment_batches ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE supplier_payment_batches ADD COLUMN IF NOT EXISTS content_edited_at TIMESTAMPTZ;
+-- WHO SET WHERE A SUPPLIER'S MONEY GOES (decision (b), 2026-10-06): the last
+-- user to change any bank column, or to create the supplier WITH bank details
+-- (supplierWriteService create / update — the UI route and MCP update_supplier —
+-- and the supplier take-on, ap/supplierPaymentAuthors.recordBankDetailsSetter).
+-- Derived LIVE into the authors of every payment to the supplier (below), so
+-- whoever points the account somewhere before a colleague creates the payment
+-- may not approve it. A write that changes no bank column never references the
+-- column: golden path d creates a supplier with no bank details on a database
+-- without this migration. KNOWN LIMIT (collusion, needs two people): only the
+-- LAST setter counts — if B changes the account number and C then changes
+-- only another bank column, C becomes the setter and B drops out (C is then
+-- refused). Payments in flight at B's edit keep B, stamped append-only.
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS bank_details_set_by UUID;
 
 -- ── 3. The amount a rule sees ──────────────────────────────────────────────
 -- processSupplierPayment posts total_amount (DR AP / CR bank). ABS because the
@@ -139,7 +152,9 @@ $$;
 
 -- Who set what a payment pays (Hein, 2026-10-06: whoever sets the amount or
 -- the destination of the money is an author): its creator, every stamped
--- editor (§2), and the authors of every bill it allocates to — DERIVED here
+-- editor (§2), the payee's CURRENT bank-details setter (read live, the way
+-- the digest reads the bank details), and the authors of every bill it
+-- allocates to — DERIVED here
 -- from payment_allocations through approval_document_authors' own
 -- supplier_invoice branch, so the bill's capturer may not approve paying it.
 -- Company-scoped (the bill branch is), NULLs dropped, de-duplicated.
@@ -155,7 +170,9 @@ AS $$
     WHERE pa.payment_id = sp.id AND d.author IS NOT NULL AND d.author <> ALL (b.base)
     ORDER BY d.author)
   FROM public.supplier_payments sp
-  CROSS JOIN LATERAL (SELECT public.approval_add_author(sp.content_authors, sp.created_by) AS base) b
+  LEFT JOIN public.suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
+  CROSS JOIN LATERAL (SELECT public.approval_add_author(
+    public.approval_add_author(sp.content_authors, sp.created_by), s.bank_details_set_by) AS base) b
   WHERE sp.id = p_payment_id AND sp.company_id = p_company_id
 $$;
 

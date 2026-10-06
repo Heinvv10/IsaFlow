@@ -22,7 +22,7 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
-import { bankDetailsMoved, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
+import { bankDetailsMoved, hasBankDetails, recordBankDetailsSetter } from '../ap/supplierPaymentAuthors';
 
 export type { AutoAllocateStrategy };
 
@@ -105,9 +105,15 @@ function resolveStrategy(
   return undefined;
 }
 
+/**
+ * `createdBy` (R-035 PR5, decision (b)): a supplier created WITH bank details
+ * records its creator as who set where its money goes; one created without
+ * them writes nothing more (golden path d, on a database without 867).
+ */
 export async function createSupplier(
   companyId: string,
   input: SupplierWriteInput,
+  createdBy: string,
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
@@ -155,6 +161,7 @@ export async function createSupplier(
       created_at
   `) as DbRow[];
 
+  if (hasBankDetails(rows[0]!)) await recordBankDetailsSetter(companyId, String(rows[0]!.id), createdBy);
   log.info('Supplier created', { id: rows[0]?.id, name }, 'accounting');
   return rows[0]!;
 }
@@ -230,7 +237,7 @@ export async function updateSupplier(
   `) as DbRow[];
 
   if (rows.length === 0) return null;
-  if (bankDetailsMoved(rows[0]!)) await stampUnpaidPaymentsToSupplier(companyId, supplierId, editedBy);
+  if (bankDetailsMoved(rows[0]!)) await recordBankDetailsSetter(companyId, supplierId, editedBy);
   log.info('Supplier updated', { id: supplierId }, 'accounting');
   return rows[0]!;
 }

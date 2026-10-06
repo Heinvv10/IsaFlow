@@ -74,7 +74,7 @@ describe('derived authors', () => {
     const req = await raise(c, 'payment_batch', b.id);
     const res = await r.decide(pool, u.c, c, req);
     expect(res.state.statusCode).toBe(403);
-    expect(messageOf(res)).toMatch(/you created the batch, merged a supplier it pays/);
+    expect(messageOf(res)).toMatch(/you created the batch, merged a supplier it pays, set a payee's current bank details/);
     expect(await decided(c, u.b, req)).toBe(200);
   });
 });

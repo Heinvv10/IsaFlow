@@ -101,7 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocatePayments: bool('auto_allocate_payments'),
         subjectToDrcVat: bool('subject_to_drc_vat'),
-      })];
+      }, (req as CompanyAuthedRequest).user.id)];
 
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);

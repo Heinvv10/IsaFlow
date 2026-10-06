@@ -60,17 +60,18 @@ function wording(documentType: string | undefined) {
         + 'eligible approver can approve the invoice, or have someone',
     };
   }
-  // A payment or batch carries the authors of the bills it pays and whoever
-  // re-pointed it or changed its payee's bank details (R-035 PR5). Its way out
+  // A payment or batch carries the authors of the bills it pays, whoever
+  // re-pointed it or changed its payee's bank details, and whoever set the
+  // payee's current bank details (R-035 PR5, decision (b)). Its way out
   // names the payment, never a bill: the bills' author creates it themselves,
   // so whoever did not capture them may approve it.
   if (documentType === 'supplier_payment' || documentType === 'payment_batch') {
     const doc = documentType === 'supplier_payment' ? 'payment' : 'batch';
     return {
-      created: `you created the ${doc}, merged a supplier it pays, changed a payee's bank details while it was unpaid, `
-        + 'or captured or edited a bill it pays',
+      created: `you created the ${doc}, merged a supplier it pays, set a payee's current bank details or changed them `
+        + 'while it was unpaid, or captured or edited a bill it pays',
       deadEnd: `Cancel the ${doc} and have the author of the bills it pays create it themselves, so another eligible `
-        + 'approver can approve it, or have someone',
+        + "approver — one who did not set the payee's bank details — can approve it, or have someone",
     };
   }
   return { created: 'you created the document or made an edit that changed it', deadEnd: 'Cancel and re-enter the bill, or have someone' };

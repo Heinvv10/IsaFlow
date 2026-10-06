@@ -268,6 +268,7 @@ Mutation checks. Each one must turn a test red:
   - The authors of every bill paid, derived in SQL through `payment_allocations`.
   - Whoever merged the supplier: both merges stamp.
   - Whoever changed the payee's bank details while the payment was unpaid: `updateSupplier` and the take-on overwrite stamp.
+  - Whoever set the payee's CURRENT bank details (below).
   - A batch adds every member's authors.
   - Creating a payment stamps nothing, so golden path d writes no 867 column.
   - The refusal names the payment or batch, never a bill. Its way out: the bills' author creates the payment themselves.
@@ -281,4 +282,5 @@ Mutation checks. Each one must turn a test red:
   - MCP `settle_by_contra` refuses a governed payable up front (Q6), because it creates and pays in one call.
   - Under `payment_batch` enforcement, `eft-generate` and `netcash/submit` answer 409 for an uncleared batch. Netcash also refuses a raw `payments[]` list (403) under either type's enforcement.
   - Out of scope, pinned: customer receipts and Paystack (money in), the bank-feed creators, and void, cancel and reverse.
-- **Open question for Hein:** someone who changes a supplier's bank details BEFORE a colleague creates the payment is not that payment's author.
+- **Bank-details setter (decision (b), 2026-10-06):** `suppliers.bank_details_set_by` records the last user to change any bank column, or to create the supplier with bank details. It is derived live into the authors of every payment and batch to that supplier, so whoever points the account somewhere before a colleague creates the payment may not approve it. A supplier write that changes no bank column never touches the column.
+  - Known limit (collusion, needs two people): only the last setter counts. If B changes the account number and C then changes another bank column, C becomes the setter (and is refused), and B drops out of payments created afterwards.

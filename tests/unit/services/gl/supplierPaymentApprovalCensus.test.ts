@@ -141,12 +141,26 @@ describe('who reaches the four choke points', () => {
 });
 
 describe('who changes where the money goes', () => {
-  it('every UPDATE of a supplier bank column stamps the unpaid payments it re-routes', () => {
+  it('every UPDATE of a supplier bank column records its setter and stamps the unpaid payments it re-routes', () => {
     const editors = matching(/UPDATE\s+suppliers\s+SET[\s\S]{0,1500}?bank_account_number\s*=/);
     expect(editors).toEqual([
       'src/modules/accounting/services/core/migrationContactService.ts',
       'src/modules/accounting/services/core/supplierWriteService.ts',
     ]);
-    for (const rel of editors) expect(text(rel), rel).toMatch(/stampUnpaidPaymentsToSupplier\(companyId, /);
+    for (const rel of editors) {
+      expect(text(rel), rel).toMatch(/bankDetailsMoved\((rows\[0\]!|after)\)\)( \{\s*|\s)await recordBankDetailsSetter\(companyId, /);
+    }
+  });
+
+  // Decision (b): a supplier CREATED with bank details records its creator as their setter.
+  it('every INSERT of a supplier carrying bank columns records the creator as setter', () => {
+    const creators = matching(/INSERT\s+INTO\s+suppliers\s*\([^)]*bank_account_number/);
+    expect(creators).toEqual([
+      'src/modules/accounting/services/core/migrationContactService.ts',
+      'src/modules/accounting/services/core/supplierWriteService.ts',
+    ]);
+    for (const rel of creators) expect(text(rel), rel).toMatch(/hasBankDetails\([^)]*\)\) await recordBankDetailsSetter\(companyId, /);
+    // Only through the helper: no other file names the column.
+    expect(matching(/bank_details_set_by/)).toEqual(['src/modules/accounting/services/ap/supplierPaymentAuthors.ts']);
   });
 });
