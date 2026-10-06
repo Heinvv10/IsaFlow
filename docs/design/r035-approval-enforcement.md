@@ -242,3 +242,43 @@ Mutation checks. Each one must turn a test red:
 - **Unattended (recurring invoices, recurring-transaction autoPost):** the invoice stays a draft, the request is raised as the runner, and the schedule advances. The run reports `held_for_approval`.
 - **Imports (Q1):** the AR take-on, the Sage customer import and the Sage migration commit are exempt by rank against the strictest customer-invoice rule.
 - **Q7:** the legacy "Post to GL" stays ungated.
+
+---
+## As built: supplier payments and batch EFT (PR5, migration 867)
+
+- **Two types (Q4: payments gate the instruction to pay, never money already moved):**
+  - `supplier_payment` is a single payment (`batch_id` NULL).
+  - `payment_batch` is one approvable document. Its lines are its member payments and their allocations, and one request covers the whole batch.
+  - A member is approved and paid only through its batch. The single-payment approve on a member is gated as the batch, and a member is not found as a `supplier_payment`.
+  - The legacy `payment` type governs neither. New `payment` rules are refused, and both switches warn while active ones remain.
+- **Gate points:** approve and process of each type. Each runs under the row lock and before any write:
+  - `approveSupplierPayment` now locks and moves only a draft.
+  - `approveBatch` now locks, requires a draft (409), refuses a zero-row update and records who approved on the members.
+  - Process re-checks because the money moves there. An approval taken before enforcement, or content that moved since, is not paid.
+- **Digest:**
+  - A payment hashes its payee, date, amount, method, paying account, reference, dimensions and allocations.
+  - It also hashes the payee's bank details, read LIVE from `suppliers`. They are not copied onto the payment, and the bank-file routes read them at send time.
+  - A batch hashes its header (date, method, paying account, stored total) and every member line the same way.
+  - So a supplier bank-detail edit stales every unpaid approved payment and batch to that supplier (fail closed).
+- **Amount:**
+  - A payment uses `ABS(total)`.
+  - A batch uses the larger of its stored total, which its single journal posts, and its members' sum.
+- **Authors (Hein, 2026-10-06: whoever sets the amount or the destination of the money):**
+  - The creator.
+  - The authors of every bill paid, derived in SQL through `payment_allocations`.
+  - Whoever merged the supplier: both merges stamp.
+  - Whoever changed the payee's bank details while the payment was unpaid: `updateSupplier` and the take-on overwrite stamp.
+  - A batch adds every member's authors.
+  - Creating a payment stamps nothing, so golden path d writes no 867 column.
+  - The refusal names the payment or batch, never a bill. Its way out: the bills' author creates the payment themselves.
+- **Backstops:**
+  - `trg_supplier_payment_approval_gate` fires on entering approved, processed or reconciled, and on approved → processed. A member checks its batch.
+  - Exempt: an INSERT of a single payment under the `bank_feed` GUC (the four bank-feed creators, census-pinned) or the `import` GUC.
+  - `trg_payment_batch_approval_gate` has no exemption.
+  - Both use 862's rank ratchet.
+- **Callers:**
+  - Both action routes answer 409.
+  - MCP `settle_by_contra` refuses a governed payable up front (Q6), because it creates and pays in one call.
+  - Under `payment_batch` enforcement, `eft-generate` and `netcash/submit` answer 409 for an uncleared batch. Netcash also refuses a raw `payments[]` list (403) under either type's enforcement.
+  - Out of scope, pinned: customer receipts and Paystack (money in), the bank-feed creators, and void, cancel and reverse.
+- **Open question for Hein:** someone who changes a supplier's bank details BEFORE a colleague creates the payment is not that payment's author.
