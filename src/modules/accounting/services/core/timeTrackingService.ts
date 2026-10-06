@@ -169,6 +169,8 @@ export async function updateTimeEntry(
   companyId: string,
   id: string,
   input: Partial<TimeEntryInput>,
+  /** R-035 PR4 round 2: an author of the invoice the entry is billed on, if this edit changes its rate or billable flag. */
+  editedBy: string,
 ): Promise<TimeEntry> {
   const existing = (await sql`
     SELECT status, practice_client_id, hours, rate FROM time_entries
@@ -192,8 +194,15 @@ export async function updateTimeEntry(
   }
   await assertCustomerInCompany(companyId, input.customerId);
 
+  // R-035 PR4 round 2 (Hein): the rate sets the price, so whoever changes it —
+  // or the billable flag — is an author of the invoice it is billed on. Hours
+  // are effort and stamp nobody, as logging the entry makes nobody an author.
   const rows = (await sql`
     UPDATE time_entries SET
+      content_authors = CASE
+        WHEN rate IS DISTINCT FROM COALESCE(${input.rate ?? null}::NUMERIC, rate)
+          OR billable IS DISTINCT FROM COALESCE(${input.billable ?? null}::BOOLEAN, billable)
+        THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       project_name = COALESCE(${input.projectName ?? null}, project_name),
       task_description = COALESCE(${input.taskDescription ?? null}, task_description),
       entry_date = COALESCE(${input.entryDate ?? null}::DATE, entry_date),

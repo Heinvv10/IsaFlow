@@ -50,7 +50,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { id, ...input } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
-      const quote = await updateQuote(companyId, id, input);
+      const quote = await updateQuote(companyId, id, input, req.user.id);
       if (!quote) return apiResponse.badRequest(res, 'Quote not found or not in draft status');
       return apiResponse.success(res, quote);
     } catch (err) {

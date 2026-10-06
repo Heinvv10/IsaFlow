@@ -1,14 +1,18 @@
 /**
  * R-035 PR4 review F1, conversions: an invoice converted from someone else's
- * quote, sales order or logged time carries that content's authors, so they
- * cannot approve it while another eligible approver exists.
+ * quote or sales order carries that content's authors — its creator, the
+ * editors stamped on it, and those of the quote behind an order — so they
+ * cannot approve it while another eligible approver exists. Time: only a user
+ * who changed an entry's rate or billable flag is an author; the logger is
+ * not (Hein, 2026-10-06, decision 1).
  *
- * DERIVED, not stamped: approval_document_authors' customer_invoice branch
- * (migration 865) reads them from the link each converter already writes —
- * customer_quotes.converted_invoice_id, customer_sales_orders.invoice_id,
- * time_entries.invoice_id — so the converting services are unchanged. Each
- * case converts as one user (the runner, an admin) content another wrote (the
- * author, an owner), and a second owner approves.
+ * DERIVED, not stamped onto the invoice: approval_document_authors'
+ * customer_invoice branch (migration 865) reads them through the link each
+ * converter already writes — customer_quotes.converted_invoice_id,
+ * customer_sales_orders.invoice_id (and .quote_id), time_entries.invoice_id —
+ * so the converting services are unchanged. Each case converts as one user
+ * (the runner, an admin) content another wrote (the author, an owner), and a
+ * second owner approves. Editors: r035-pr4-editors.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -158,18 +162,20 @@ describe('conversions — the source author may not approve what another user co
     expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.clerk].sort());
   });
 
-  it('time entries → invoice: every user who logged an entry', async () => {
+  it('time entries → invoice: the users who only LOGGED the time are no authors (decision 1)', async () => {
     const { c, customer } = await fixture();
     const ids = [await timeEntry(c, u.author), await timeEntry(c, u.author)];
     const res = await as(u.runner, c, timeEntriesInvoice as never, { timeEntryIds: ids, customerId: customer },
       '/api/accounting/time-entries-invoice');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(201);
     const invoiceId = dataOf<{ invoiceId: string }>(res).invoiceId;
-    expect(await authorsOf(c, invoiceId)).toEqual([u.runner, u.author].sort());
-    await authorRefusedOtherApproves(c, invoiceId);
+    expect(await authorsOf(c, invoiceId)).toEqual([u.runner]);
+    // The logger, an owner, may approve the invoice of the time they logged; a rate EDITOR may not (r035-pr4-editors).
+    const requestId = dataOf<{ id: string }>(await r.raise(u.runner, c, invoiceId)).id;
+    expect((await r.decide(pool, u.author, c, requestId)).state.statusCode).toBe(200);
   });
 
-  it('WIP billing → invoice: the time loggers, through the same time_entries link', async () => {
+  it('WIP billing → invoice: a re-pricing editor through the time_entries link, never the loggers', async () => {
     const { c, customer } = await fixture();
     const practiceClientId = crypto.randomUUID();
     await pool.query(
@@ -177,8 +183,9 @@ describe('conversions — the source author may not approve what another user co
        VALUES($1,$2,'R035 practice client','hourly','active',$3)`, [practiceClientId, c, customer]);
     const ids = [await timeEntry(c, u.author, { status: 'approved', practiceClientId }),
       await timeEntry(c, u.other, { status: 'approved', practiceClientId })];
+    await pool.query('UPDATE time_entries SET content_authors = ARRAY[$2::UUID] WHERE id = $1', [ids[1], u.clerk]);
     const out = await inRequest(c, u.runner, () => generateWipInvoice(c, u.runner, { practiceClientId, timeEntryIds: ids }));
-    expect(await authorsOf(c, out.invoiceId)).toEqual([u.runner, u.author, u.other].sort());
+    expect(await authorsOf(c, out.invoiceId)).toEqual([u.runner, u.clerk].sort());
   });
 
   it("another company's link names nobody here", async () => {

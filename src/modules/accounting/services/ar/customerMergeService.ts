@@ -3,10 +3,9 @@
  * `targetId`, then soft-delete the source. One transaction; every refusal is
  * raised before the first write, because withAuth COMMITs on a 4xx.
  *
- * The tables moved are the census in docs/audits/remediation/K-061/fix.md.
- * A new table that stores a customer id must be added here AND to
- * `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge
- * strands its rows on the merged-away customer.
+ * The tables moved are the census in docs/audits/remediation/K-061/fix.md. A new table that stores a customer id
+ * must be added here AND to `MOVED` in tests/integration/k061-customer-merge.helpers.ts, or a merge strands its
+ * rows on the merged-away customer.
  *
  * Product rules (Hein, 2026-09-26):
  *   - both customers with a dunning override → refused, nothing written;
@@ -114,10 +113,9 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
   return { payments: payments.length, invoices: invoices.length };
 }
 
-/**
- * Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
- * A credit note's client (R-035 PR3) and an invoice's customer_id and client_id (PR4) are approval content: the
- * merging user `by` becomes an author of every note and invoice it moves; an old approval goes stale (Q10). */
+/** Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
+ * A credit note's client (R-035 PR3), an invoice's customer_id/client_id and a quote's or order's customer (PR4) are
+ * approval content: the merging user `by` becomes an author of each it moves; an old approval goes stale (Q10). */
 async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
@@ -137,8 +135,10 @@ async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: str
     WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id
   `;
   await tx`UPDATE customer_write_offs SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
-  const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const quotes = await tx`UPDATE customer_quotes SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
+  const orders = await tx`UPDATE customer_sales_orders SET customer_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID RETURNING id`;
   await tx`UPDATE delivery_notes SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE projects SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE time_entries SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
