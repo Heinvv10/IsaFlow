@@ -1,27 +1,29 @@
 /**
- * brk-numrace: adversarial checks of 6fa53c672 (NUMRACE). Each test asserts a claim the commit makes; a failure
- * is the evidence. Run with --no-file-parallelism on a disposable fixture (pg_stat_database.deadlocks is
- * database-wide).
+ * NUMRACE round 2: brk-numrace's attacks on 6fa53c672 (agents/brk-numrace), kept as regression tests. Each asserts
+ * the shape stays deadlock-free (pg_stat_database.deadlocks flat) or keeps its base answer. Attack A (bulk-commit) is
+ * driven through the real route in numrace-r2-bulk-commit.int.test.ts instead: the fix is in the route. Run with
+ * --no-file-parallelism on a disposable fixture (the counter is database-wide). The late-claim case (E) needs
+ * 'auto_vat_late_claim' in gl_journal_entries_source_check (migration 701).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import {
   approveSupplierInvoice, cancelSupplierInvoice,
 } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { importARInvoices } from '@/modules/accounting/services/core/migrationImportService';
+import { importAPInvoices } from '@/modules/accounting/services/ap/migrationApService';
 import supplierBulk from '../../pages/api/accounting/supplier-invoices-bulk-action';
-import { dropFixture, inTx, seedSupplier } from './helpers/l1FifoFixture';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
 import { openYear } from './helpers/jenumFixture';
 import { lockPeriod } from './helpers/vatLateClaimFixture';
 import { callRoute, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { holdKey, settle, waitBlockedBy } from './helpers/numraceGate';
 import {
-  ascendingPeerVs, bulkAllocate, deadlocks, dropCrossYear, line, rules, seedCrossYear, txn, type CrossYear,
+  ascendingPeerVs, bulkAllocate, deadlocks, dropCrossYear, line, seedCrossYear, txn, type CrossYear,
 } from './helpers/numraceCrossYear';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -56,36 +58,6 @@ describeIfDb('brk-numrace attacks', () => {
       await dropFixture(c.fx).catch(() => undefined);
     }
   }, 60000);
-
-  // CLAIM: applyRules "takes every year's journal-number key ascending before the first journal". In
-  // bank-transactions-bulk-commit the SAME transaction first runs importParsedTransactions, whose auto-post sweep
-  // numbers a journal, and only then applyRules (route lines 269-300).
-  it('A: bulk-commit (import sweep posts 2026, then applyRules over 2025+2026) vs an ascending peer: no deadlock', async () => {
-    const c = await fixture('BRK-A');
-    const supplierId = await seedSupplier(c.fx, 'Zebra Plumbing');
-    for (let i = 0; i < 3; i++) {
-      await sql`INSERT INTO supplier_coding_history (company_id, supplier_id, gl_account_id, vat_code, posted_by)
-        VALUES (${c.fx.companyId}::UUID, ${supplierId}::UUID, ${c.expense}::UUID, 'none', 'brk')`;
-    }
-    await sql`INSERT INTO bank_auto_post_settings (company_id, enabled, min_confidence, amount_cap)
-      VALUES (${c.fx.companyId}::UUID, true, 0.70, 10000)`;
-    const r25 = await line(c, '33333333', '2025-12-28', 'NRRULE r25');
-    const r26 = await line(c, '44444444', '2026-01-07', 'NRRULE r26');
-    const { rp, rr, before, after } = await ascendingPeerVs(c, async () => {
-      const imp = await importParsedTransactions(c.fx.companyId, {
-        transactions: [{ transactionDate: '2026-01-10', amount: -50, description: `Zebra Plumbing ${c.fx.tag}` }],
-        errors: [],
-      } as never, c.fx.bankAccountId, '2026-01-31', {});
-      const prov = (await sql`SELECT je.entry_number FROM bank_transactions bt
-        JOIN gl_journal_entries je ON je.id = bt.provisional_je_id
-        WHERE bt.import_batch_id = ${imp.batchId}::UUID`) as Row[];
-      // As the route: in a savepoint, a failure swallowed.
-      const ruleRes = await settle(withSavepoint('bulk_commit_rules', () => rules(c)));
-      return { imp, prov, ruleRes };
-    });
-    out('A', { rp, rr, deadlocks: { before, after }, r25, r26 });
-    expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
-  }, 90000);
 
   // NEW PAIR: a cross-year bulk allocate now holds both year keys BEFORE its first bank-line row lock. A single
   // allocation of that line (row lock, then its journal number) used to serialise on the row; now it cycles.
@@ -222,6 +194,24 @@ describeIfDb('brk-numrace attacks', () => {
     const { rp, rr, before, after } = await ascendingPeerVs(c, () => importARInvoices(c.fx.companyId,
       String(sess[0]!.id), [inv('26', '2026-01-05'), inv('25', '2025-12-20')], c.fx.userId));
     out('F', { rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after } });
+    expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
+  }, 90000);
+  // The AP twin of F: importAPInvoices posts one take-on journal per bill in file order (migrationApService).
+  it('F2: AP take-on import [2026 bill, 2025 bill] vs an ascending peer: no deadlock', async () => {
+    const c = await fixture('BRK-F2');
+    await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
+        normal_balance, is_active, is_system_account)
+      VALUES (${c.fx.companyId}::UUID, '3900', ${`OBE ${c.fx.tag}`}, 'equity', 'opening_balance_equity', 'credit',
+        true, true)`;
+    clearSystemAccountCache(c.fx.companyId);
+    const sess = (await sql`INSERT INTO migration_sessions (company_id, started_by)
+      VALUES (${c.fx.companyId}::UUID, ${c.fx.userId}::UUID) RETURNING id`) as Row[];
+    const sup = (await sql`SELECT name FROM suppliers WHERE id = ${c.fx.supplierId}::UUID`) as Row[];
+    const bill = (n: string, d: string) => ({ invoiceNumber: `NRF2-${n}-${c.fx.tag}`.slice(0, 50),
+      supplierName: String(sup[0]!.name), invoiceDate: d, dueDate: d, subtotal: 100, taxAmount: 0, totalAmount: 100 });
+    const { rp, rr, before, after } = await ascendingPeerVs(c, () => importAPInvoices(c.fx.companyId,
+      String(sess[0]!.id), [bill('26', '2026-01-05'), bill('25', '2025-12-20')], c.fx.userId));
+    out('F2', { rp: rp.ok ? 'ok' : rp, rr, deadlocks: { before, after } });
     expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
   }, 90000);
 });
