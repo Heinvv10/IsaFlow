@@ -89,6 +89,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/smart-categorize.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'pages/api/landing-stats.ts': 'filtered',
 
+  'src/modules/accounting/services/ap/supplierInvoiceYears.ts': "exempt: joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); predicts a run's year order, not a total",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "exempt: reads the settled provisional's own line by provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
   'src/modules/accounting/services/ap/provisionalSettlementClaim.ts': "exempt: the claim joins on provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
