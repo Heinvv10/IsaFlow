@@ -215,3 +215,13 @@ Mutation checks. Each one must turn a test red:
    Exempt: opening balances (`writeOpeningBalance.ts`, an import under Q1), close-run accruals, and every system journal that follows from an already-gated document (bank auto-post sweep, Paystack receipts, document postings, depreciation, payroll, VAT).
 3. **A batch EFT is one approvable document** (`payment_batch`). Its digest covers every line: payee, bank details, amount. Changing any line voids the approval, and one request covers the batch.
 4. **Merging is delegated:** the run merges each PR itself before starting the next, but only when every GitHub check passes on the exact head, the blind and adversarial reviewers both SHIP on that head, and the merge uses `--match-head-commit <full sha>`. **No deploys.**
+
+---
+## As built: customer invoices (PR4, migration 865)
+
+- **Gate:** `approveCustomerInvoice` locks the invoice (`FOR UPDATE`) and calls `assertApprovalCleared` before its guarded status UPDATE, so a refusal writes nothing. Detail approve answers 409; MCP `finalize_invoice` refuses from a pre-read and `bulk_finalize_invoices` skips with `approval_required`.
+- **Amount:** `approval_customer_invoice_gate_amount(total, functional)`, the larger of the two in absolute terms. The approval posts `total_amount` unconverted, as 712 found for bills. It replaces the functional-total-first match described in §0.4 for customer invoices, and only ever widens what a rule sees.
+- **Backstop:** `trg_customer_invoice_approval_gate` refuses any entry into the AR population without a cleared approval at rank. That includes `confirmCustomerPayment` and a whole write-off on a DRAFT invoice, which now fail closed (500 and rollback) when enforced. It honours the import GUC (Q1).
+- **Unattended (recurring invoices, recurring-transaction autoPost):** the invoice stays a draft, the request is raised as the runner, and the schedule advances. The run reports `held_for_approval`.
+- **Imports (Q1):** the AR take-on, the Sage customer import and the Sage migration commit are exempt by rank against the strictest customer-invoice rule.
+- **Q7:** the legacy "Post to GL" stays ungated.
