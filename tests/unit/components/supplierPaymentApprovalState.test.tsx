@@ -35,6 +35,7 @@ const approval = (state: State) => ({
 const payment = (state: State, status = 'draft') => ({
   id: 'pay-1', paymentNumber: 'SP-0001', supplierName: 'Acme', paymentDate: '2026-09-01', totalAmount: 1150,
   paymentMethod: 'eft', status, allocations: [], approval: approval(state),
+  payeeBank: { bankName: 'R035 Bank', accountNumber: '62000000001', branchCode: '250655', accountHolder: 'R035 Holder' },
 });
 const batch = (state: State, status = 'draft') => ({
   id: 'bat-1', batchNumber: 'BAT-0001', batchDate: '2026-09-01', totalAmount: 3450, paymentCount: 1, paymentMethod: 'eft',
@@ -68,6 +69,8 @@ describe('supplier payment page — approval state', () => {
     expect(await screen.findByText('This payment needs owner approval before it can be paid (rule: Owner pays).')).toBeDefined();
     expect(button(/submit for approval/i)).not.toBeNull();
     expect(button(/^Approve$/)).toBeNull();
+    // Where the money goes, as the approver vouches for it (round 1 LOW c).
+    expect(screen.getByText('R035 Bank · 62000000001 · branch 250655 · R035 Holder')).toBeDefined();
   });
 
   it('Submit raises the request as supplier_payment for this payment', async () => {

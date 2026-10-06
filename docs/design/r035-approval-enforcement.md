@@ -282,5 +282,16 @@ Mutation checks. Each one must turn a test red:
   - MCP `settle_by_contra` refuses a governed payable up front (Q6), because it creates and pays in one call.
   - Under `payment_batch` enforcement, `eft-generate` and `netcash/submit` answer 409 for an uncleared batch. Netcash also refuses a raw `payments[]` list (403) under either type's enforcement.
   - Out of scope, pinned: customer receipts and Paystack (money in), the bank-feed creators, and void, cancel and reverse.
-- **Bank-details setter (decision (b), 2026-10-06):** `suppliers.bank_details_set_by` records the last user to change any bank column, or to create the supplier with bank details. It is derived live into the authors of every payment and batch to that supplier, so whoever points the account somewhere before a colleague creates the payment may not approve it. A supplier write that changes no bank column never touches the column.
-  - Known limit (collusion, needs two people): only the last setter counts. If B changes the account number and C then changes another bank column, C becomes the setter (and is refused), and B drops out of payments created afterwards.
+- **Bank-details setter (decision (b), 2026-10-06):** `suppliers.bank_details_setters` records every user who changed a bank column since the account number or branch code last changed (append-only), and whoever created the supplier with bank details. It is derived live into the authors of every payment and batch to that supplier, so whoever points the account somewhere before a colleague creates the payment may not approve it. A supplier write that changes no bank column never touches the column.
+  - Known limit: re-pointing the account again (number or branch code) makes that editor the only setter. Payments that were in flight keep the earlier setter, stamped. (Round 1 replaced the last-setter-only rule.)
+
+### Round 1 (PR #658), Hein's decisions 2026-10-06
+- **D1, coupled switches:** a single payment and a one-line batch pay the same bill.
+  - Enabling or disabling either type moves both.
+  - A batch needs approval at the strictest of its own rule and every member payment's `supplier_payment` rule.
+- **D2, bank evidence only:** the bank-feed exemption covers only lines from a live bank feed or an imported statement.
+  - A hand-keyed "Spend Money" line to a supplier goes through approval: 409 before any write, or skipped by the rule sweep.
+  - A refund is money in and is not gated.
+- **Bank-details setters are append-only.** Each change to a bank column adds its editor. Only a change to the account number or branch code resets the list to that editor.
+- **Statement-level member check:** batch members are checked once per batch per statement.
+

@@ -59,6 +59,9 @@ describe('the Enforce switch', () => {
     expect(screen.getByRole('checkbox', { name: /enforce payment batch approvals/i })).toBeDefined();
     expect(screen.getByText(/2 unpaid payments would need approval/i)).toBeDefined();
     expect(screen.getByText(/1 unpaid batch would need approval/i)).toBeDefined();
+    // Coupled (D1): each says it moves the other.
+    expect(screen.getByText(/switches together with payment batch approvals/i)).toBeDefined();
+    expect(screen.getByText(/switches together with supplier payment approvals/i)).toBeDefined();
     fireEvent.click(box);
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls
       .filter(([u, init]) => String(u).startsWith('/api/accounting/approval-enforcement') && init?.method === 'POST')

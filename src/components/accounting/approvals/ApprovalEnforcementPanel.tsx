@@ -117,6 +117,13 @@ export function ApprovalEnforcementPanel() {
             <span className="text-xs text-[var(--ff-text-secondary)]">
               {on ? `${count} awaiting approval` : `${count} would need approval`}
             </span>
+            {PAYMENT_TYPES.has(type) && (
+              // Coupled (D1): the server switches both; a batch pays the same bills a payment does.
+              <p className="w-full text-xs text-[var(--ff-text-secondary)]">
+                Switches together with {type === 'supplier_payment' ? 'payment batch' : 'supplier payment'} approvals —
+                a batch is also held by each payment&apos;s own rule.
+              </p>
+            )}
             {warning && <p className="w-full text-xs text-amber-500">{warning}</p>}
           </div>
         );
