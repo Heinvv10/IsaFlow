@@ -64,9 +64,11 @@
 --     still cycle (both sides retryable); and after one, the rest of the run's
 --     elements hold its keys while they lock their rows.
 --   * bank-transactions-bulk-commit (sweep, then rule pass, one transaction)
---     claims the existing rule candidates' bank lines first, then takes every
---     statement + candidate year up front (bank/bulkCommitRulePass); what a rule
---     line locks after its row it locks after those keys, as on base.
+--     takes every statement + candidate year up front, after every lock base
+--     takes before a number: the PAYG wallet, the import's rows and transfer
+--     re-link, the suggestion pass and the existing rule candidates' bank
+--     lines (bank/bulkCommitRulePass). A line a peer commits or re-suggests
+--     between those reads and the rule pass is still locked after the keys.
 --   * READ COMMITTED only, as 857/858.
 --
 -- Idempotent: CREATE OR REPLACE of the same body.
