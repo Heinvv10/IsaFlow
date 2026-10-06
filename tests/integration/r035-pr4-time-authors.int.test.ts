@@ -83,10 +83,12 @@ describe('time tracking: the logger types the rate (R-D)', () => {
     await refusedThenApproved(c, await invoice(c, customer, [entry]), u.bob, u.carol);
   });
 
-  it('an entry logged with no rate makes nobody an author', async () => {
+  it('an entry logged with no rate makes nobody an author, nor do its logger\'s own hours', async () => {
     const { c, customer } = await fixture();
     const entry = ok<{ id: string }>(await call(u.bob, c, 'POST',
       { taskDescription: 'Advice', hours: 1, billable: true, customerId: customer })).id;
+    expect(await stamped(entry)).toEqual([]);
+    ok(await call(u.bob, c, 'PUT', { id: entry, hours: 3 }));
     expect(await stamped(entry)).toEqual([]);
   });
 });
