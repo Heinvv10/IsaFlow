@@ -31,6 +31,9 @@ export default function NewSupplierCreditNotePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<'draft' | 'post'>('draft');
   const [error, setError] = useState('');
+  // R-035: the draft a refused create-and-post kept. Posting again opens it —
+  // a second POST would create a second draft.
+  const [keptDraftId, setKeptDraftId] = useState<string | null>(null);
   const [form, setForm] = useState({
     supplierId: '',
     creditDate: localISODate(),
@@ -54,8 +57,13 @@ export default function NewSupplierCreditNotePage() {
     setLineItems(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const openDraft = async (id: string) => {
+    try { await router.push(`/accounting/supplier-credit-notes/${id}`); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-new'); }
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (keptDraftId) { await openDraft(keptDraftId); return; }
     if (!form.supplierId) { setError('Please select a supplier'); return; }
     if (lineItems.some(li => !li.description.trim())) { setError('All line items need a description'); return; }
     if (lineItems.some(li => li.quantity <= 0 || li.unitPrice <= 0)) {
@@ -78,6 +86,19 @@ export default function NewSupplierCreditNotePage() {
           submitAction,
         }),
       });
+      // R-035: approval refused the post AFTER the draft was created, and the
+      // server kept it (409 naming it). Go to it — its page offers Submit for approval.
+      if (res.status === 409) {
+        const body = await res.clone().json() as { error?: { message?: string; details?: { creditNoteId?: string } } };
+        const keptId = body.error?.details?.creditNoteId;
+        if (keptId) {
+          setKeptDraftId(keptId);
+          setError(`${body.error?.message ?? 'The credit note needs approval before it can be posted.'} `
+            + 'It was saved as a draft: submit it for approval from its page.');
+          await openDraft(keptId);
+          return;
+        }
+      }
       await assertOk(res, 'Could not create the credit note - try again');
       try { await router.push('/accounting/supplier-credit-notes'); } catch (e) { log.warn('navigation failed', { error: e }, 'supplier-credit-notes-new'); }
     } catch (err) {
