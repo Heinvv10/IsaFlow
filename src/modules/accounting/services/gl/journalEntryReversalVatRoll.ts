@@ -25,7 +25,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { fmtDate, postingToday } from '@/lib/fmtDate';
+import { fmtDate } from '@/lib/fmtDate';
 import { isAutoCreatableYear } from './fiscalPeriodAutoCreate';
 import { resolveCompanyPeriodAlignment } from './fiscalPeriodService';
 import { fiscalYearOfDate, fiscalYearRange } from './fiscalYearCalendar';
@@ -123,7 +123,7 @@ export function makeAutoCreatable(
   };
 }
 
-export async function autoCreatablePredicate(
+async function autoCreatablePredicate(
   companyId: string, existing: readonly ExistingPeriod[],
 ): Promise<(date: string) => boolean> {
   let startMonth: number;
@@ -187,7 +187,7 @@ export async function rollDefaultReversalDate(
   if (!lock || !(await journalMovesVatFigure(companyId, lines))) return { date: defaultDate, roll: null };
 
   // fmtDate, not toISOString: between 00:00 and 02:00 SAST the latter is yesterday.
-  const today = postingToday();
+  const today = fmtDate(new Date());
   const ceiling = defaultDate > today ? defaultDate : today;
   const lockRows = (await sql`
     SELECT period_start, period_end FROM vat_period_locks

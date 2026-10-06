@@ -57,13 +57,10 @@ import {
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
-import {
-  lockBulkCommitYears, planBulkCommitYears, runBulkCommitRulePass, type BulkCommitLocks,
-} from '@/modules/accounting/services/bank/bulkCommitRulePass';
-import { isHeldRowError } from '@/lib/lockTimeout';
+import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
   parseStatement,
   type StatementFileType,
@@ -230,11 +227,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  // Every year the import's sweep and the rule pass can post in (bank/bulkCommitRulePass): a span refusal (400) reads
-  // only, before the debit, so it charges nothing.
-  const yearPlan = await planBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate),
-    applyBankRules === true);
-
   // 5. PAYG metering — debit one `bank.import` charge per successful
   //    file. We do this manually instead of via withFlowMeter because
   //    withFlowMeter's cost is fixed at construction time and we
@@ -269,7 +261,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // 6. Insert. On failure, refund the PAYG debit so the user isn't
   //    charged for a no-op.
-  let ruleLocks: BulkCommitLocks = { held: new Set(), presuggested: 0 };
   try {
     const filteredResult: BankCsvParseResult = {
       ...parseResult,
@@ -290,14 +281,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           sourceFilename: filename,
           sourceFileSizeBytes: Number(sourceFileSizeBytes ?? 0),
         },
-        // The keys come after the wallet (withFlowMeter's order) and the import's own row locks, before its sweep.
-        beforeFirstJournal: async () => { ruleLocks = await lockBulkCommitYears(companyId, bankAccountId, yearPlan); },
       },
     );
 
-    const rulePass = applyBankRules === true
-      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename, ruleLocks)
-      : { applied: 0, skippedLocked: 0, warnings: [] };
+    let appliedRuleCount = 0;
+    let ruleLinesSkippedLocked = 0;
+    if (applyBankRules === true) {
+      try {
+        // In a savepoint: this catch swallows a rule-pass failure so the import still lands, and withAuth COMMITs
+        // the 200 — without it the lines the pass posted before it failed were committed behind `appliedRules: 0`.
+        // A line held by a peer (e.g. the journal number lock past its 5 s bound) is not a failure: applyRules skips
+        // it and counts it in `autoPostSkippedLocked`, which reaches the response below.
+        const ruleResult = await withSavepoint('bulk_commit_rules', () => applyBankRulesService(
+          companyId,
+          bankAccountId,
+          authReq.user.id,
+        ));
+        appliedRuleCount = ruleResult.applied;
+        ruleLinesSkippedLocked = ruleResult.autoPostSkippedLocked ?? 0;
+      } catch (err) {
+        log.warn('Failed to apply bank rules after bulk commit file', {
+          error: err, filename,
+        }, 'accounting-api');
+      }
+    }
 
     if (isPayg && didDebit) {
       runAfterCommit('recalculateNudge after bulk commit', () => recalculateNudge(companyId).catch((err: unknown) => {
@@ -316,16 +323,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       transactionCount: result.transactionCount,
       duplicateCount,
       totalParsed: parseResult.transactions.length,
-      appliedRules: rulePass.applied,
-      autoPostSkippedLocked: rulePass.skippedLocked,
+      appliedRules: appliedRuleCount,
+      autoPostSkippedLocked: ruleLinesSkippedLocked,
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.
-      warnings: [...result.errors.map((e) => e.error), ...rulePass.warnings],
+      warnings: result.errors.map((e) => e.error),
     });
   } catch (insertErr) {
-    // A held key or row is a 503: its rollback undoes the debit, and a refund on the aborted transaction would fail.
-    if (isPayg && didDebit && !isHeldRowError(insertErr)) {
+    if (isPayg && didDebit) {
       try {
         await refundFlows(companyId, flowCost, 'bank.import', bulkImportId);
       } catch (refundErr) {

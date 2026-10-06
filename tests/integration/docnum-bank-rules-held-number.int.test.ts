@@ -9,10 +9,6 @@
  * counted in `autoPostSkippedLocked` (the pass's existing held counter, in the response), the other lines post, and
  * `appliedRules` is exactly what was posted.
  *
- * NUMRACE (2026-10-06): a request whose import and rule pass span two years takes both years' keys before the
- * import (bank/bulkCommitRulePass), so with one of them held it fails retryable and writes nothing; the per-line
- * skip is kept for a single-year pass.
- *
  * Driven through the real route the way withAuth runs it: one transaction, COMMIT below 500.
  */
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
@@ -76,53 +72,36 @@ async function bulkCommit(csvContent: string) {
       } as unknown as NextApiRequest, result.res);
     });
     await client.query(result.state.statusCode < 500 ? 'COMMIT' : 'ROLLBACK');
-  } catch (err) {
-    // A throw is a 5xx under withErrorHandler (mocked away here): withAuth rolls back.
-    await client.query('ROLLBACK');
-    throw err;
   } finally { client.release(); }
   return { status: result.state.statusCode, body: result.state.body as Record<string, unknown> };
 }
 
-async function heldRun(csv: string, heldYear: number) {
-  // A peer holds this company's number key for that year (the journal key of 857) for the whole request.
+it('a rule line whose journal number is held past 5 s is skipped and counted; appliedRules is what posted', async () => {
+  const csv = [
+    'Date,Description,Amount',
+    '2025-05-10,DOCNUMFEE A,-100.00',
+    '2026-05-12,DOCNUMFEE B,-50.00',
+  ].join('\n');
+
+  // A peer holds this company's 2026 number key (the journal key of 857) for the whole request.
   const holder = await pool.connect();
+  let out: Awaited<ReturnType<typeof bulkCommit>>;
   try {
     await holder.query('BEGIN');
-    await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 857))', [`${fx.company}:${heldYear}`]);
-    return await bulkCommit(csv);
+    await holder.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 857))', [`${fx.company}:2026`]);
+    out = await bulkCommit(csv);
   } finally {
     await holder.query('ROLLBACK');
     holder.release();
   }
-}
 
-async function linesLike(prefix: string) {
-  return (await pool.query(
-    `SELECT description, matched_journal_line_id IS NOT NULL AS posted FROM bank_transactions
-     WHERE company_id=$1 AND description LIKE $2 ORDER BY description`, [fx.company, `${prefix}%`])).rows as
-    { description: string; posted: boolean }[];
-}
-
-it('single-year pass: a rule line whose journal number is held past 5 s is skipped and counted', async () => {
-  const csv = ['Date,Description,Amount', '2026-05-12,DOCNUMFEE S1,-50.00', '2026-05-13,DOCNUMFEE S2,-40.00'].join('\n');
-  const out = await heldRun(csv, 2026);
   expect(out.status, JSON.stringify(out.body)).toBe(200);
   const data = (out.body.data ?? out.body) as Record<string, unknown>;
-  expect((await linesLike('DOCNUMFEE S')).map((l) => [l.description, l.posted]))
-    .toEqual([['DOCNUMFEE S1', false], ['DOCNUMFEE S2', false]]);
-  expect(data.appliedRules, 'appliedRules must be what was posted').toBe(0);
-  expect(data.autoPostSkippedLocked).toBe(2);
-}, 60000);
-
-it('cross-year statement with one year held: the request fails retryable (55P03 -> 503) before anything is written', async () => {
-  // NUMRACE round 2 (brk-numrace M1): the route takes every year the import sweep and the rule pass can post in
-  // BEFORE the import, so a held year fails the whole request — nothing imported, nothing posted, PAYG refunded —
-  // where round 1 landed the import and skipped the pass. withErrorHandler answers the 55P03 503 + Retry-After.
-  const csv = ['Date,Description,Amount', '2025-05-10,DOCNUMFEE A,-100.00', '2026-05-12,DOCNUMFEE B,-50.00'].join('\n');
-  const err = await heldRun(csv, 2026).then(() => null, (e: unknown) => e as { code?: string });
-  expect(err?.code).toBe('55P03');
-  const { isHeldRowError } = await import('@/lib/lockTimeout');
-  expect(isHeldRowError(err)).toBe(true);
-  expect((await linesLike('DOCNUMFEE ')).filter((l) => !l.description.startsWith('DOCNUMFEE S'))).toEqual([]);
+  const lines = (await pool.query(
+    `SELECT description, status, matched_journal_line_id IS NOT NULL AS posted FROM bank_transactions
+     WHERE company_id=$1 ORDER BY description`, [fx.company])).rows as { description: string; status: string; posted: boolean }[];
+  expect(lines.map((l) => [l.description, l.posted])).toEqual([['DOCNUMFEE A', true], ['DOCNUMFEE B', false]]);
+  const postedCount = lines.filter((l) => l.posted).length;
+  expect(data.appliedRules, 'appliedRules must be what was posted').toBe(postedCount);
+  expect(data.autoPostSkippedLocked).toBe(1);
 }, 60000);

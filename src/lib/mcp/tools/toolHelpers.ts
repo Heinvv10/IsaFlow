@@ -262,7 +262,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.
-  'VAT_ADJUSTMENT_REFUSED', 'YEAR_SPAN_TOO_WIDE', 'JOURNAL_DATE_REFUSED', // NUMRACE: > 20 years / a date outside 1900..2199
+  'VAT_ADJUSTMENT_REFUSED', 'JOURNAL_DATE_REFUSED', // the latter: a journal dated outside 1900..2199, pre-write
   // Mark/unmark "VAT declared outside IsaFlow" refused: not owner/admin,
   // blank reason, document not found, or not currently marked (unmark) —
   // reports/vatDeclaredElsewhereService. Names no id/amount/table beyond the

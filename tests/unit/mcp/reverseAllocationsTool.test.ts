@@ -14,8 +14,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// The reversal tools' up-front year lock reads journals (NUMRACE; tested against Postgres) — not this file's subject.
-vi.mock('@/modules/accounting/services/gl/journalReversalYears', () => ({ predictReversalYears: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

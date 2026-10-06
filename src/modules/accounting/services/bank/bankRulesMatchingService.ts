@@ -6,15 +6,17 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
 import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
-import { prepareRuleRun } from './bankRuleRun';
-import { journalYearOf, YearKeyCursor } from '../core/numberYearLocks';
+import {
+  findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
+} from './bankRulesMatchingHelpers';
 import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
-import { applySuggestionRules } from './bankRulesSuggestionPass';
+import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
@@ -23,9 +25,7 @@ export async function applyRules(
   companyId: string,
   bankAccountId: string,
   userId: string,
-  ruleIds?: string[],
-  /** bank-transactions-bulk-commit: candidate lines it could not claim before its year keys (bulkCommitRulePass). */
-  opts?: { heldLineIds?: ReadonlySet<string> },
+  ruleIds?: string[]
 ): Promise<RuleApplyResult> {
   try {
     const rules = ruleIds && ruleIds.length > 0
@@ -123,81 +123,122 @@ export async function applyRules(
       fetchBankContraFlags(companyId, ruleAccountIds),
     ]);
 
-    // The run's (rule, line) work, read once before the first journal and walked ordered lazy — by the line's year,
-    // then id, then rule priority (bankRuleRun.ts). A line an earlier item posted is no longer a candidate.
-    const run = bankGlAccountId ? await prepareRuleRun(companyId, bankAccountId, autoCreateRules) : null;
-    const postedIds = new Set<string>();
-    const heldIds = new Set<string>();
-    autoPostTruncatedRules = run?.truncatedRules ?? 0;
-    const cursor = new YearKeyCursor(companyId);
-    for (const { ctx, tx } of run?.work ?? []) {
-      const txId = String(tx.id);
-      await cursor.before([journalYearOf(tx.transaction_date as string | Date)]); // single-year: nothing up front
-      if (postedIds.has(txId) || heldIds.has(txId)) continue;
-      // bulk-commit could not claim this line before its year keys (a peer held it): counted held, not walked.
-      if (opts?.heldLineIds?.has(txId)) { heldIds.add(txId); autoPostSkippedLocked++; continue; }
-      const { rule, ruleName, allocType, ruleGlAccountId, ruleSupplierId, apAccountId, arAccountId,
-        supplierName, customerName } = ctx;
-      let outcome;
-      try {
-        // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
-        // the transaction — without the savepoint the next candidate's
-        // first statement raises 25P02 and the whole run dies after one skip.
-        outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
-          companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
-          ruleGlAccountVatDenied: ruleGlAccountId
-            ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
-          // `?? null` and never undefined: autoPostRuleLine reads undefined
-          // as "the caller did not resolve this" and falls back to a
-          // per-line lookup, which is the safe reading but not the one we
-          // want when the sweep DID resolve it and the account has no name.
-          ruleGlAccountName: ruleGlAccountId
-            ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
-          // No `?? false`. `bankContraVat` states that absent from the map
-          // means "not asked about", never "not a bank", and coalescing here
-          // would skip the guard instead of falling back to the per-line
-          // lookup — the same reason `ruleGlAccountName` above uses `?? null`
-          // for its OWN meaning of absent rather than borrowing this one.
-          ruleGlAccountIsBank: ruleGlAccountId
-            ? ruleAccountIsBank.get(ruleGlAccountId) : false,
-          bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
-          supplierName, supplierId: ruleSupplierId ?? null, customerName,
-        }));
-      } catch (lineErr) {
-        // Another request is holding this row. One contended transaction must
-        // not abort a run that has already posted for earlier ones — the
-        // route's catch would 400 while withAuth still COMMITted them.
-        // Counted and retryable; anything else is a real failure.
-        //
-        // The UNION, not the bank-line lock alone: a supplier rule also
-        // reaches `recordSupplierBankPayment`, whose plan phase raises the
-        // payment-lock timeout and the `retryable` refusal for a held bill.
-        // Those surface HERE through a
-        // savepoint that rolled back cleanly, so the request transaction is
-        // still live and re-throwing them committed the earlier lines behind
-        // the route's 400 — measured, every bill held: 400 "Action failed",
-        // line A posted and committed, line B still imported.
-        // createJournalEntry refuses a VAT-moving line dated in a locked
-        // VAT period before its draft exists; the line's savepoint has rolled
-        // back cleanly, so it is a skip like a closed period, not a failure.
-        if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
-        // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
-        // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
-        // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
-        if (!isRetryableContention(lineErr) && !isHeldRowError(lineErr)) throw lineErr;
-        autoPostSkippedLocked++;
+    for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
+      const pattern = rulePattern(rule);
+      const field = String(rule.match_field);
+      const ruleName = String(rule.rule_name);
+      const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
+      const ruleSupplierId = rule.supplier_id ? String(rule.supplier_id) : null;
+      const ruleClientId = rule.client_id ? String(rule.client_id) : null;
+
+      // Determine allocation shape from the rule. Account/bank rules use rule.gl_account_id
+      // as the contra. Supplier rules post to AP, customer rules to AR (via systemAccountResolver).
+      const allocType: RuleAllocType = ruleSupplierId ? 'supplier'
+        : ruleClientId ? 'customer'
+        : 'account';
+
+      if (allocType === 'account' && !ruleGlAccountId) {
+        log.warn('Skipping auto-create rule with no contra account', { ruleId: rule.id, ruleName }, 'accounting');
         continue;
       }
-      if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
-      if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
-      if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
-      if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
 
-      entries.push({ bankTxId: txId, ruleName, journalEntryId: outcome.journalEntryId });
-      postedIds.add(txId);
-      if (outcome.vatDenied) autoPostVatDenied++;
-      if (outcome.nonSupplyCoerced) autoPostNonSupply++;
-      totalApplied++;
+      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+
+      // Resolve AP/AR control accounts and entity names lazily (only when needed).
+      let apAccountId: string | null = null;
+      let arAccountId: string | null = null;
+      let supplierName: string | null = null;
+      let customerName: string | null = null;
+      if (allocType === 'supplier' && ruleSupplierId) {
+        apAccountId = await getSystemAccountId('payable', companyId);
+        const supRows = (await sql`
+          SELECT name FROM suppliers
+          WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
+        `) as Record<string, unknown>[];
+        supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
+      } else if (allocType === 'customer' && ruleClientId) {
+        arAccountId = await getSystemAccountId('receivable', companyId);
+        const custRows = (await sql`
+          SELECT name FROM customers
+          WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
+        `) as Record<string, unknown>[];
+        customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
+      }
+
+      // findMatchingTxs fetches one row past the cap; the extra row is the
+      // signal that this rule matched more than one run may take.
+      const capped = matchingTxs.slice(0, MAX_RULE_CANDIDATES);
+      if (matchingTxs.length > MAX_RULE_CANDIDATES) autoPostTruncatedRules++;
+
+      // Locked in id order, not the candidate query's date order: every
+      // allocation path holds its row lock to the end of the request, so two
+      // runs touching the same rows in opposite orders deadlock (40P01).
+      const orderedTxs = [...capped].sort((a, b) => {
+        const x = String(a.id), y = String(b.id);
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+
+      for (const tx of orderedTxs) {
+        let outcome;
+        try {
+          // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
+          // the transaction — without the savepoint the next candidate's
+          // first statement raises 25P02 and the whole run dies after one skip.
+          outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
+            companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
+            ruleGlAccountVatDenied: ruleGlAccountId
+              ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
+            // `?? null` and never undefined: autoPostRuleLine reads undefined
+            // as "the caller did not resolve this" and falls back to a
+            // per-line lookup, which is the safe reading but not the one we
+            // want when the sweep DID resolve it and the account has no name.
+            ruleGlAccountName: ruleGlAccountId
+              ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
+            // No `?? false`. `bankContraVat` states that absent from the map
+            // means "not asked about", never "not a bank", and coalescing here
+            // would skip the guard instead of falling back to the per-line
+            // lookup — the same reason `ruleGlAccountName` above uses `?? null`
+            // for its OWN meaning of absent rather than borrowing this one.
+            ruleGlAccountIsBank: ruleGlAccountId
+              ? ruleAccountIsBank.get(ruleGlAccountId) : false,
+            bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
+            supplierName, supplierId: ruleSupplierId ?? null, customerName,
+          }));
+        } catch (lineErr) {
+          // Another request is holding this row. One contended transaction must
+          // not abort a run that has already posted for earlier ones — the
+          // route's catch would 400 while withAuth still COMMITted them.
+          // Counted and retryable; anything else is a real failure.
+          //
+          // The UNION, not the bank-line lock alone: a supplier rule also
+          // reaches `recordSupplierBankPayment`, whose plan phase raises the
+          // payment-lock timeout and the `retryable` refusal for a held bill.
+          // Those surface HERE through a
+          // savepoint that rolled back cleanly, so the request transaction is
+          // still live and re-throwing them committed the earlier lines behind
+          // the route's 400 — measured, every bill held: 400 "Action failed",
+          // line A posted and committed, line B still imported.
+          // createJournalEntry refuses a VAT-moving line dated in a locked
+          // VAT period before its draft exists; the line's savepoint has rolled
+          // back cleanly, so it is a skip like a closed period, not a failure.
+          if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
+          // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
+          // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
+          // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
+          if (!isRetryableContention(lineErr) && !isHeldRowError(lineErr)) throw lineErr;
+          autoPostSkippedLocked++;
+          continue;
+        }
+        if (outcome.kind === 'raced') { autoPostSkippedRaced++; continue; }
+        if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
+        if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
+        if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
+
+        entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
+        if (outcome.vatDenied) autoPostVatDenied++;
+        if (outcome.nonSupplyCoerced) autoPostNonSupply++;
+        totalApplied++;
+      }
     }
 
     const remaining = (await sql`
