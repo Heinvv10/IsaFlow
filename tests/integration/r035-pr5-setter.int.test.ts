@@ -145,12 +145,23 @@ describe('the bank-details setter is an author of payments created after the cha
     expect((await r.decide(pool, u.d, c, req)).state.statusCode).toBe(200);
   });
 
-  it('re-pointing the account (number or branch code) restarts the list at its editor — a documented limit', async () => {
+  it('a new account NUMBER restarts the list at its editor — a documented limit', async () => {
     const { c } = await company();
     const s = await plantSupplier(pool, c);
     await inRequest(pool, u.b, c, () => updateSupplier(c, s, { bankName: 'Other Bank' }, u.b));
-    await inRequest(pool, u.c, c, () => updateSupplier(c, s, { bankBranchCode: '198765' }, u.c));
+    await inRequest(pool, u.c, c, () => updateSupplier(c, s, { bankAccountNumber: '62888888888' }, u.c));
     expect(await settersOf(s)).toEqual([u.c]);
+  });
+
+  it('round 2 MEDIUM: B redirects the account number, an innocent C "corrects" the branch to the universal code, and B stays an author', async () => {
+    const { c, bank } = await company();
+    const s = await plantSupplier(pool, c);
+    await inRequest(pool, u.b, c, () => updateSupplier(c, s, { bankAccountNumber: '62777777777' }, u.b));
+    await inRequest(pool, u.c, c, () => updateSupplier(c, s, { bankBranchCode: '632005' }, u.c));
+    expect(await settersOf(s)).toEqual([u.b, u.c].sort());
+    const p = await plantPayment(pool, c, u.a, bank, { supplierId: s });
+    const req = dataOf<{ id: string }>(await r.raise(u.a, c, 'supplier_payment', p.id)).id;
+    expect((await r.decide(pool, u.b, c, req)).state.statusCode).toBe(403);
   });
 
   it('an edit that waited on a concurrent bank change, and changed no bank column itself, sets nobody', async () => {
