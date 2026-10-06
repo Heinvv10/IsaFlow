@@ -13,6 +13,8 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { SUPPLIER_PAYMENT_DIALOGS as DIALOGS, type SupplierPaymentDialog } from '@/components/accounting/ap/supplierPaymentDialogs';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -55,6 +57,7 @@ interface PaymentDetail {
   /** Set on a bank-first settlement payment (R-127): its Void undoes the settlement. */
   settlesProvisionalJeId?: string;
   allocations: Allocation[];
+  approval?: DocumentApprovalState | null; // R-035 PR5: while approve / process is ahead; null for a batch member
 }
 
 export default function SupplierPaymentDetailPage() {
@@ -64,6 +67,7 @@ export default function SupplierPaymentDetailPage() {
   const [payment, setPayment] = useState<PaymentDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const [confirming, setConfirming] = useState<'' | Exclude<SupplierPaymentDialog, 'voidSettlement'>>('');
 
@@ -85,24 +89,29 @@ export default function SupplierPaymentDetailPage() {
   }, [paymentId]);
 
   useEffect(() => { void load(); }, [load]);
+  const held = isApprovalHeld(payment?.approval); // the panel offers Submit; Approve / Process would only 409
   const dialog: SupplierPaymentDialog = confirming === 'void' && payment?.settlesProvisionalJeId
     ? 'voidSettlement' : confirming || 'cancel';
 
   async function handleAction(action: string) {
     if (!payment) return;
     setActionBusy(action);
+    setActionError('');
     try {
       const res = await apiFetch('/api/accounting/supplier-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, paymentId: payment.id }),
       });
+      // R-035: 409 is the approval gate — reload so the panel offers Submit for approval.
+      if (res.status === 409) await load();
       // The body's `error` is an object ({ code, message }); rendering it
       // crashed the page. `assertOk` pulls out the refusal's own message.
       await assertOk(res, `Could not ${action} the payment - try again`);
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, `Could not ${action} the payment - try again`));
+      // Beside the payment, not in place of it: the page must still show what was refused.
+      setActionError(apiErrorMessage(err, `Could not ${action} the payment - try again`));
     } finally {
       setActionBusy('');
     }
@@ -142,13 +151,13 @@ export default function SupplierPaymentDetailPage() {
             )}
             {payment && !payment.batchId && (
               <div className="flex items-center gap-2">
-                {payment.status === 'draft' && (
+                {payment.status === 'draft' && !held && (
                   <button onClick={() => handleAction('approve')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Approve
                   </button>
                 )}
-                {payment.status === 'approved' && (
+                {payment.status === 'approved' && !held && (
                   <button onClick={() => handleAction('process')} disabled={!!actionBusy}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                     {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
@@ -178,6 +187,9 @@ export default function SupplierPaymentDetailPage() {
           </div>
         </div>
 
+        {actionError && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{actionError}</div>}
+        {payment && <DocumentApprovalPanel documentType="supplier_payment" documentId={payment.id} noun="payment" action="pay"
+          approval={payment.approval} onChanged={load} />}
         <div className="p-6 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">

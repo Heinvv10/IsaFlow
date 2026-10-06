@@ -53,6 +53,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   credit_note: 'Credit Note',
   customer_credit_note: 'Customer Credit Note',
   supplier_credit_note: 'Supplier Credit Note',
+  supplier_payment: 'Supplier Payment',
+  payment_batch: 'Payment Batch',
 };
 
 const STATUS_STYLES: Record<string, string> = {
