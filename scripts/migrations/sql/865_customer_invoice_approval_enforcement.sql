@@ -202,12 +202,16 @@ $$;
 -- An invoice CONVERTED from someone else's content carries that content's
 -- authors too (review F1), DERIVED here from the links the converters already
 -- write — the quote's created_by (customer_quotes.converted_invoice_id), the
--- sales order's (customer_sales_orders.invoice_id) and the users who logged
--- the billed time (time_entries.invoice_id, set by both time billing paths),
--- each company-scoped, NULLs dropped, de-duplicated. Derived, not stamped: the
--- converting services write nothing new, so they run unchanged on a database
--- without this migration. A recurring template has no such link, so its
--- authors are written into content_authors at mint instead.
+-- sales order's (customer_sales_orders.invoice_id) and the quote's behind that
+-- order (customer_sales_orders.quote_id), and the users who logged the billed
+-- time (time_entries.invoice_id, set by both time billing paths: the
+-- time-entries-invoice claim and the WIP markEntriesBilled), each
+-- company-scoped, NULLs dropped, de-duplicated; every column is a uuid.
+-- Derived, not stamped: the converting services write nothing new, so they
+-- run unchanged on a database without this migration (golden path a converts
+-- a quote on isaflow_dev). A recurring template has no such link from the
+-- invoice it mints, so its authors are written into content_authors at mint
+-- instead (ar/customerInvoiceUpstreamAuthors.ts).
 CREATE OR REPLACE FUNCTION public.approval_document_authors(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.uuid[]
@@ -237,6 +241,10 @@ AS $$
           WHERE q.converted_invoice_id = ci.id AND q.company_id = ci.company_id
           UNION
           SELECT so.created_by FROM public.customer_sales_orders so
+          WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
+          UNION
+          SELECT q.created_by FROM public.customer_sales_orders so
+          JOIN public.customer_quotes q ON q.id = so.quote_id AND q.company_id = ci.company_id
           WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
           UNION
           SELECT te.user_id FROM public.time_entries te
