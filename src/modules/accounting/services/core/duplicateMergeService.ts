@@ -76,7 +76,7 @@ export async function mergeEntities(
   // One customer merge for both routes (K-061): this path used to move five
   // tables and leave the duplicate's recurring invoices billing a deleted customer.
   if (entityType === 'customer') {
-    const merged = await mergeCustomers(companyId, duplicateId, primaryId);
+    const merged = await mergeCustomers(companyId, duplicateId, primaryId, userId);
     return {
       reassignedTransactions: merged.movedDocuments,
       pausedRecurring: merged.pausedRecurring,

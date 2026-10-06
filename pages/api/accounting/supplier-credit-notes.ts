@@ -1,7 +1,8 @@
 /**
  * Supplier Credit Notes API
  * GET  /api/accounting/supplier-credit-notes          - List supplier credit notes
- * GET  /api/accounting/supplier-credit-notes?id=UUID  - Get one supplier credit note
+ * GET  /api/accounting/supplier-credit-notes?id=UUID  - Get one supplier credit note and, while it
+ *   is a draft, its derived approval state (R-035)
  * POST /api/accounting/supplier-credit-notes          - Create draft supplier credit note
  * PATCH /api/accounting/supplier-credit-notes         - Update status (post / reverse)
  */
@@ -20,7 +21,7 @@ import {
   approveCreditNote,
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
-import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
+import type { CreditNote, CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import {
   CREDIT_NOTE_AUTO_APPLY,
   listCreditNoteAllocations,
@@ -29,6 +30,8 @@ import {
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/journalEntryReversalDate';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { ApprovalRequiredError, describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -42,7 +45,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         const note = await getCreditNoteById(companyId, id as string);
         if (!note) return apiResponse.notFound(res, 'Supplier Credit Note', id as string);
         if (note.type !== 'supplier') return apiResponse.notFound(res, 'Supplier Credit Note', id as string);
-        return apiResponse.success(res, note);
+        // R-035: the derived approval state, while the note can still be posted.
+        const approval = note.status === 'draft'
+          ? await describeApprovalGate(companyId, 'supplier_credit_note', note.id) : null;
+        return apiResponse.success(res, { ...note, approval });
       }
       const result = await getCreditNotes(companyId, {
         type: 'supplier',
@@ -111,7 +117,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       // Auto-post if requested
       if (submitAction === 'post') {
-        const posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
+        let posted: CreditNote;
+        try {
+          posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
+        } catch (err) {
+          // R-035: the draft above STAYS — a 409 is committed by withAuth, and
+          // the gate refuses before approveCreditNote writes anything — so the
+          // answer names it for the client to submit for approval. Left to the
+          // catch below it was a 500, which rolled the draft back with it.
+          if (!(err instanceof ApprovalRequiredError)) throw err;
+          return apiResponse.conflict(res, err.message, {
+            reason: err.reason, requiredRole: err.requiredRole, requestId: err.requestId, creditNoteId: note.id,
+          });
+        }
         log.info('Supplier credit note created and posted', { id: posted.id }, 'accounting-api');
         // The bills this note actually settled — see the same note in
         // credit-notes-action: the link does not say where the money went.
@@ -171,6 +189,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // (approveCreditNote) refuses in createJournalEntry before its draft,
       // after only reads of the note.
       if (respondIfImpersonationForbidden(res, err)) return;
+      // R-035: 'post' refused by the approval gate, under the row lock and before any write.
+      if (respondIfApprovalRequired(res, err)) return;
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError) {
         return apiResponse.badRequest(res, err.message);
       }
