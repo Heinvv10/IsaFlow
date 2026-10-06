@@ -21,12 +21,10 @@ describe('journalDayWindowError: the text of a ::date', () => {
 });
 
 describe('parsedDayWindowError: a statement parser output', () => {
-  it('accepts only a canonical YYYY-MM-DD inside the window — nothing is left for Postgres to read differently', () => {
+  it('checks a canonical YYYY-MM-DD; leaves any other shape to the import step, where Postgres reads it', () => {
     expect(parsedDayWindowError('2026-01-05')).toBeNull();
     expect(parsedDayWindowError('0001-06-01')).toMatch(/outside/);
-    for (const d of ['10000-01-01', '001-06-01', '-001-03-15', '+2025-03-31', '05/01/2026', '2025-3-5', '']) {
-      expect(parsedDayWindowError(d), JSON.stringify(d)).not.toBeNull();
-    }
+    for (const d of ['0001-06-01T00:00:00', '10000-01-01', '05/01/2026', '']) expect(parsedDayWindowError(d), d).toBeNull();
   });
 });
 

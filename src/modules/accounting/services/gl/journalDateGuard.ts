@@ -19,10 +19,16 @@ const CANONICAL_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const isCastError = (err: unknown) =>
   typeof (err as { code?: unknown })?.code === 'string' && String((err as { code: string }).code).startsWith('22');
 
+/**
+ * The day as YYYY-MM-DD whatever the session's DateStyle (sec: 'SQL, DMY' prints 31/12/2199): to_char, with ' BC'
+ * kept for a BC date and ±infinity (to_char gives NULL) as its own text — both then fail the window.
+ */
 async function castDay(value: string | Date): Promise<string | null> {
   if (typeof value === 'string' && CANONICAL_DAY.test(value)) return value;
   try {
-    const rows = (await withSavepoint('ledger_day', () => sql`SELECT ${value}::date::text AS d`)) as { d: string }[];
+    const rows = (await withSavepoint('ledger_day', () => sql`
+      SELECT COALESCE(replace(to_char(${value}::date, 'YYYY-MM-DD BC'), ' AD', ''), ${value}::date::text) AS d
+    `)) as { d: string }[];
     return rows[0]!.d;
   } catch (err) {
     if (!isCastError(err)) throw err;
@@ -38,7 +44,8 @@ export async function ledgerDaysOf(inputs: readonly string[]): Promise<Map<strin
   if (distinct.length === 0) return out;
   try {
     const rows = (await withSavepoint('ledger_days', () => sql`
-      SELECT s, s::date::text AS d FROM unnest(${distinct}::text[]) AS s`)) as { s: string; d: string }[];
+      SELECT s, COALESCE(replace(to_char(s::date, 'YYYY-MM-DD BC'), ' AD', ''), s::date::text) AS d
+      FROM unnest(${distinct}::text[]) AS s`)) as { s: string; d: string }[];
     for (const r of rows) out.set(r.s, r.d);
     return out;
   } catch (err) {
