@@ -7,15 +7,18 @@
 -- type and it never becomes enforceable.
 --
 -- Pieces:
---   1. approval_enforcement accepts every R-035 type, so PR4–PR6 need not
---      touch the constraint again. It is not the gate:
---      ENFORCEABLE_DOCUMENT_TYPES (gl/approvalEnforcement.ts) is, and the API
---      refuses to enable a type outside it.
+--   1. approval_enforcement accepts the two credit-note types (each later PR
+--      widens the constraint for its own types). The constraint is a floor,
+--      not the gate: ENFORCEABLE_DOCUMENT_TYPES (gl/approvalEnforcement.ts) is,
+--      and the API refuses to enable a type outside it.
 --   2. WHO AUTHORED a note's content: credit_notes.content_authors /
 --      content_edited_at, as 712 added them to supplier_invoices.
---   3. approval_credit_note_gate_amount() — the amount a rule sees — and
---      approval_rule_matches(), the type-parameterised SQL copy of rule
---      matching. approval_supplier_invoice_rule_matches is NOT re-pointed.
+--   3. approval_credit_note_gate_amount() — the amount a rule sees —,
+--      approval_rule_strictest_rank() / approval_rule_matches(), the
+--      type-parameterised SQL copy of rule matching, and
+--      approval_required_rank(), the SQL copy of the TypeScript rank ladder.
+--      approval_supplier_invoice_rule_matches is NOT re-pointed; a parity test
+--      (r035-pr3-parity) holds the copies to the TypeScript.
 --   4. approval_document_digest() and approval_document_authors() gain the two
 --      credit-note branches. Their supplier_invoice branches are copied
 --      verbatim from 708 / 712, and a guard below refuses the migration if any
@@ -24,15 +27,21 @@
 --      posted status (insert as, or move to, approved / partially_applied /
 --      applied) while enforcement is on for its type, an active rule of that
 --      type matches it, and no APPROVED request for its CURRENT digest, decided
---      at or after enforcement was switched on, exists. The TypeScript gate in
---      approveCreditNote refuses first with a 409 and ranks the approver; this
---      is the fail-closed floor for raw writers, as 712's is for bills.
+--      at or after enforcement was switched on, at a rank at or above the
+--      strictest rule matching today (the ratchet, review A4), exists. The
+--      TypeScript gate in approveCreditNote refuses first with a 409; this is
+--      the fail-closed floor for raw writers, as 712's is for bills. Unlike
+--      712's, it honours NO import exemption: no importer writes credit notes
+--      (review A2), so a session setting the import GUC gains nothing here.
+--   6. app_user may not INSERT a credit-note approval request that is already
+--      decided (review A3): the backstop reads approved rows, and one nobody
+--      decided would clear it.
 
--- ── 1. Every R-035 type may carry an enforcement row ───────────────────────
+-- ── 1. The credit-note types may carry an enforcement row ──────────────────
 ALTER TABLE approval_enforcement DROP CONSTRAINT IF EXISTS approval_enforcement_document_type_check;
 ALTER TABLE approval_enforcement ADD CONSTRAINT approval_enforcement_document_type_check CHECK (document_type IN (
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note',
-  'customer_credit_note', 'supplier_credit_note', 'supplier_payment', 'payment_batch', 'manual_journal'));
+  'customer_credit_note', 'supplier_credit_note'));
 
 -- ── 2. The authors ────────────────────────────────────────────────────────
 -- Append-only, through approval_add_author (712). Credit notes have no
@@ -56,25 +65,53 @@ AS $$
   SELECT GREATEST(ABS(COALESCE(p_total, 0)), ABS(COALESCE(p_subtotal, 0) + COALESCE(p_tax, 0)))
 $$;
 
--- approval_supplier_invoice_rule_matches (712) with the type a parameter:
--- 'any', and any operator checkApproval cannot evaluate, match (fail closed);
--- a NULL threshold is 0. Read by the credit-note backstop and the enforcement
--- preview. The supplier-invoice trigger keeps its own function.
+-- APPROVER_RANK / requiredRank (gl/approvalAuthority.ts) in SQL: the rank a
+-- rule's or request's role demands. An unrecognised role — NULL included —
+-- ranks as 'admin', the floor requiredRank falls back to. Keep the two ladders
+-- identical; r035-pr3-parity compares them role by role.
+CREATE OR REPLACE FUNCTION public.approval_required_rank(p_role pg_catalog.text)
+RETURNS pg_catalog.int4
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT CASE p_role
+    WHEN 'super_admin' THEN 8 WHEN 'owner' THEN 7 WHEN 'system' THEN 6 WHEN 'admin' THEN 5
+    WHEN 'manager' THEN 4 WHEN 'accountant' THEN 3 WHEN 'bookkeeper' THEN 2
+    WHEN 'storeman' THEN 1 WHEN 'technician' THEN 1 WHEN 'user' THEN 1 WHEN 'viewer' THEN 0
+    ELSE 5
+  END
+$$;
+
+-- approval_supplier_invoice_rule_matches (712) with the type a parameter, and
+-- answering the RANK the strictest matching rule demands (NULL: none matches)
+-- — strictestMatchingRule's choice, which the backstop's ratchet compares an
+-- approval against. 'any', and any operator checkApproval cannot evaluate,
+-- match (fail closed); a NULL threshold is 0. approval_rule_matches is the
+-- yes/no of the same thing, read by the enforcement preview. The
+-- supplier-invoice trigger keeps its own function.
+CREATE OR REPLACE FUNCTION public.approval_rule_strictest_rank(
+  p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_amount pg_catalog.numeric
+) RETURNS pg_catalog.int4
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT MAX(public.approval_required_rank(r.approver_role))
+  FROM public.approval_rules r
+  WHERE r.company_id = p_company_id AND r.document_type = p_document_type AND r.is_active = true
+    AND CASE r.condition_operator
+          WHEN 'greater_than' THEN p_amount > COALESCE(r.condition_value, 0)
+          WHEN 'greater_equal' THEN p_amount >= COALESCE(r.condition_value, 0)
+          ELSE true
+        END
+$$;
+
 CREATE OR REPLACE FUNCTION public.approval_rule_matches(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_amount pg_catalog.numeric
 ) RETURNS pg_catalog.bool
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.approval_rules r
-    WHERE r.company_id = p_company_id AND r.document_type = p_document_type AND r.is_active = true
-      AND CASE r.condition_operator
-            WHEN 'greater_than' THEN p_amount > COALESCE(r.condition_value, 0)
-            WHEN 'greater_equal' THEN p_amount >= COALESCE(r.condition_value, 0)
-            ELSE true
-          END
-  )
+  SELECT public.approval_rule_strictest_rank(p_company_id, p_document_type, p_amount) IS NOT NULL
 $$;
 
 -- ── 4. The content and the authors ─────────────────────────────────────────
@@ -202,6 +239,12 @@ $$;
 -- content and status together is judged on the NEW content), and a caller
 -- whose RLS context hides approval_enforcement must not read "not enforced".
 -- Every relation and function is schema-qualified; pg_temp is searched last.
+-- Unlike 712's it checks RANK as well as existence (review A4): an approval
+-- clears only when the role it was bound to — its snapshot, or for a row
+-- predating the snapshot its rule's live role — ranks at or above what the
+-- strictest rule matching today demands, the TypeScript gate's ratchet. A row
+-- bound to no role proves no rank and clears nothing. There is no import
+-- exemption (review A2): no importer writes credit notes.
 CREATE OR REPLACE FUNCTION public.credit_note_approval_gate()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
@@ -210,15 +253,12 @@ AS $$
 DECLARE
   v_type pg_catalog.text;
   v_enabled_at pg_catalog.timestamptz;
+  v_demanded pg_catalog.int4;
 BEGIN
   IF COALESCE(NEW.status, '') IN ('draft', 'cancelled') THEN RETURN NULL; END IF;
   IF TG_OP = 'UPDATE' AND COALESCE(OLD.status, '') NOT IN ('draft', 'cancelled') THEN
     RETURN NULL;
   END IF;
-  IF COALESCE(pg_catalog.current_setting('isaflow.approval_gate_exempt', true), '') = 'import' THEN
-    RETURN NULL;
-  END IF;
-
   v_type := CASE NEW.type WHEN 'customer' THEN 'customer_credit_note'
                           WHEN 'supplier' THEN 'supplier_credit_note' END;
   SELECT ae.enabled_at INTO v_enabled_at
@@ -226,18 +266,20 @@ BEGIN
   WHERE ae.company_id = NEW.company_id AND ae.document_type = v_type;
   IF NOT FOUND THEN RETURN NULL; END IF;
 
-  IF NOT public.approval_rule_matches(
+  v_demanded := public.approval_rule_strictest_rank(
     NEW.company_id, v_type,
-    public.approval_credit_note_gate_amount(NEW.total_amount, NEW.subtotal, NEW.tax_amount)) THEN
-    RETURN NULL;
-  END IF;
+    public.approval_credit_note_gate_amount(NEW.total_amount, NEW.subtotal, NEW.tax_amount));
+  IF v_demanded IS NULL THEN RETURN NULL; END IF;
 
   IF EXISTS (
     SELECT 1 FROM public.approval_requests ar
+    LEFT JOIN public.approval_rules rl ON rl.id = ar.rule_id AND rl.company_id = ar.company_id
     WHERE ar.company_id = NEW.company_id AND ar.document_type = v_type
       AND ar.document_id = NEW.id AND ar.status = 'approved'
       AND ar.decided_at >= v_enabled_at
       AND ar.document_digest = public.approval_document_digest(NEW.company_id, v_type, NEW.id)
+      AND COALESCE(ar.required_role, rl.approver_role) IS NOT NULL
+      AND public.approval_required_rank(COALESCE(ar.required_role, rl.approver_role)) >= v_demanded
   ) THEN
     RETURN NULL;
   END IF;
@@ -267,3 +309,38 @@ BEGIN
     RAISE EXCEPTION 'migration 862: the owner of credit_note_approval_gate must bypass RLS';
   END IF;
 END $$;
+
+-- ── 6. No decided request by INSERT (review A3) ────────────────────────────
+-- A request is raised 'pending' (requestApproval) and decided by UPDATE
+-- (decideRequest, behind assertMayDecide). Under RLS app_user may INSERT into
+-- approval_requests for its own company, so without this it could write an
+-- 'approved' row carrying the live digest — an approval nobody gave, which the
+-- backstop above would accept. Refused for the types listed here; a role that
+-- bypasses RLS (the owner a script, a migration or a test fixture runs as) is
+-- not held to it. SECURITY INVOKER on purpose: current_user must be the caller.
+-- Each later R-035 PR adds its own types to the list.
+-- OUT OF SCOPE, deliberately: supplier_invoice (live enforcement — unchanged),
+-- and the UPDATE half (raw pending → approved by app_user), which needs a
+-- decided-request guard on UPDATE of its own.
+CREATE OR REPLACE FUNCTION public.approval_request_insert_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.document_type = ANY (ARRAY['customer_credit_note', 'supplier_credit_note']::pg_catalog.text[])
+     AND COALESCE(NEW.status, '') <> 'pending'
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_roles r
+       WHERE r.rolname = current_user AND (r.rolbypassrls OR r.rolsuper)) THEN
+    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a % approval request may only be inserted as pending', NEW.document_type
+      USING HINT = 'Raise the request, then have an eligible approver decide it.';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS trg_approval_request_insert_guard ON approval_requests;
+CREATE TRIGGER trg_approval_request_insert_guard
+  BEFORE INSERT ON approval_requests
+  FOR EACH ROW EXECUTE FUNCTION public.approval_request_insert_guard();

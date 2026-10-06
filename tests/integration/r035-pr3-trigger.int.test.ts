@@ -6,7 +6,8 @@
  * not leave draft (or cancelled) for any posted status — by INSERT or UPDATE,
  * as app_user or as the owner role a script runs as — without an APPROVED
  * request for its CURRENT content decided since enforcement was switched on.
- * The declared import GUC passes (Q1); draft → cancelled always passes.
+ * Draft → cancelled always passes. The import GUC does NOT: no importer writes
+ * credit notes, so the credit-note backstop honours no exemption (review A2).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -116,7 +117,7 @@ describe.each(['customer', 'supplier'] as const)('the %s credit note backstop', 
       .rejects.toThrow(/R035_APPROVAL_REQUIRED/);
   });
 
-  it('lets through: a cleared approval; draft → cancelled; enforcement off; the import GUC', async () => {
+  it('lets through: a cleared approval; draft → cancelled; enforcement off', async () => {
     const cleared = await gated(type);
     await approvedRequest(cleared.c, cleared.note);
     await approveRaw(pool, cleared.note.id);
@@ -130,12 +131,15 @@ describe.each(['customer', 'supplier'] as const)('the %s credit note backstop', 
     await approveRaw(pool, off.note.id);
     expect(await statusOf(off.note.id)).toBe('approved');
 
+  });
+
+  it('the import GUC exempts nothing: no importer writes credit notes (review A2)', async () => {
     const imported = await gated(type);
-    await asAppUser(imported.c, async (client) => {
+    await expect(asAppUser(imported.c, async (client) => {
       await client.query("SELECT set_config('isaflow.approval_gate_exempt', 'import', true)");
       await approveRaw(client, imported.note.id);
-    });
-    expect(await statusOf(imported.note.id)).toBe('approved');
+    })).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
+    expect(await statusOf(imported.note.id)).toBe('draft');
   });
 
   it('enforcement on for the OTHER type only does not hold this note', async () => {
