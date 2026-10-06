@@ -6,7 +6,7 @@
  * tests/unit/services/journalEntryReversalDate.test.ts.
  */
 
-import { fmtDate, postingToday } from '@/lib/fmtDate';
+import { postingToday } from '@/lib/fmtDate';
 import { getPeriodStatusForDate } from './periodStatusService';
 import {
   VatPeriodLockedError, findActiveVatLock, journalMovesVatFigure, takeVatLockShared, type VatLineRef,
