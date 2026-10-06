@@ -10,7 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type ImportRowContext, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
-import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
+import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId, takeOnRowOrder } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
 type Row = DbRow;
@@ -58,7 +58,7 @@ export async function importAPInvoices(
   // R-035 HIGH-2: open bills past enforcement need the strictest rule's rank — before any write.
   if (invoices.some((i) => i.totalAmount - (i.amountPaid ?? 0) > 0)) await assertMayImportOpenBills(companyId, userId);
   // Before any read: the idempotency check below is a read-then-write.
-  await lockMigrationImport(companyId, invoices.map((inv) => inv.invoiceDate));
+  await lockMigrationImport(companyId);
   await assertNoOpeningControlTotal(companyId, sessionId, 'payable');
 
   // No default_expense and no vat_input: a take-on document posts neither. See
@@ -71,7 +71,7 @@ export async function importAPInvoices(
     WHERE company_id = ${companyId}::UUID
   `) as Row[];
 
-  for (let i = 0; i < invoices.length; i++) {
+  for (const i of takeOnRowOrder(invoices.map((inv) => inv.invoiceDate))) { // by year, then file order
     const inv = invoices[i]!;
     try {
       // The page's manual correction wins over the name match, but only after

@@ -109,8 +109,10 @@ export async function postedCount(ids: string[]): Promise<number> {
     WHERE id = ANY(${ids}::UUID[]) AND matched_journal_line_id IS NOT NULL`) as Row[])[0]!.n);
 }
 
-// The peer holds the 2025 key (a 2025 journal, uncommitted) and, once the run is waiting on it, numbers a 2026 one.
-export async function ascendingPeerVs(c: CrossYear, run: () => Promise<unknown>) {
+// The peer holds the first year's key (a journal, uncommitted) and, once the run is waiting on it, numbers the second.
+export async function ascendingPeerVs(
+  c: CrossYear, run: () => Promise<unknown>, peerDates: [string, string] = ['2025-10-01', '2026-10-01'],
+) {
   const before = await deadlocks(c);
   const peer = await txn(c);
   const other = await txn(c);
@@ -119,10 +121,10 @@ export async function ascendingPeerVs(c: CrossYear, run: () => Promise<unknown>)
   const peerHolds = new Promise<void>((r) => { holding = r; });
   try {
     const pPeer = settle(peer.run(async () => {
-      await createJournalEntry(c.fx.companyId, journalInput(c.expense, c.fx.bankAccountId, '2025-10-01', 5), c.fx.userId);
+      await createJournalEntry(c.fx.companyId, journalInput(c.expense, c.fx.bankAccountId, peerDates[0], 5), c.fx.userId);
       holding();
       await peerGo;
-      return createJournalEntry(c.fx.companyId, journalInput(c.expense, c.fx.bankAccountId, '2026-10-01', 6), c.fx.userId);
+      return createJournalEntry(c.fx.companyId, journalInput(c.expense, c.fx.bankAccountId, peerDates[1], 6), c.fx.userId);
     }));
     await peerHolds;
     const pRun = settle(other.run(run));

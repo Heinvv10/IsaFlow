@@ -24,7 +24,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
-import { claimRowsThenLockYears } from '../core/numberYearLocks';
+import { orderByPredictedYears, YearKeyCursor } from '../core/numberYearLocks';
 import { predictBankLineReversalYears } from '../gl/journalReversalYears';
 import type { UndoSkips, UndoResult } from './autoPostUndoResult';
 
@@ -163,11 +163,11 @@ export async function undoRun(companyId: string, runId: string, userId: string):
     WHERE auto_post_run_id = ${runId}::UUID AND company_id = ${companyId}::UUID
     ORDER BY id
   `) as Row[];
-  // Every year the contra journals can be dated in (gl/journalReversalYears), ascending, before the first and after
-  // claiming the lines in this walk order (core/numberYearLocks.ts). A 55P03 on a year key reversed nothing: 503.
-  const lineIds = txRows.map((t) => String(t.id));
-  await claimRowsThenLockYears(companyId, lineIds.map((id) => ({ id, years: [] })),
-    (id) => lockBankTransactionForUpdate(companyId, id), await predictBankLineReversalYears(companyId, lineIds));
+  // Ordered lazy (core/numberYearLocks.ts): by the years each line's contra can be dated in (gl/journalReversalYears),
+  // then id; a multi-year one has its range taken before its row (outside its savepoint), a single-year one takes
+  // its key in its own reversal. A 55P03 on a key reversed nothing: the route answers 503.
+  const years = await predictBankLineReversalYears(companyId, txRows.map((t) => String(t.id)));
+  const cursor = new YearKeyCursor(companyId);
 
   let reversed = 0;
   let alreadyUndone = 0;
@@ -175,8 +175,9 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   const handOffsets: HandOffset[] = [];
   let contention: unknown = null;
 
-  for (const tx of txRows) {
+  for (const tx of orderByPredictedYears(txRows, (t) => years.get(String(t.id)) ?? [])) {
     const txId = String(tx.id);
+    await cursor.before(years.get(txId) ?? []);
     // An unlocked fast path by the same shared rule; `undoRow` re-decides it
     // under the row lock.
     const lock = await reconciliationLockOf(companyId, tx);

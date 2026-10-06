@@ -16,8 +16,7 @@ import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot } from './autoPostSettingsService';
 import { evaluate } from './autoPostGateDecision';
 import { feedStateOf } from './bankFeedStateGuard';
-import { claimRowsThenLockYears, journalYearOf } from '../core/numberYearLocks';
-import { lockBankTransactionForUpdate } from './bankTxLock';
+import { journalYearOf, orderByPredictedYears, YearKeyCursor } from '../core/numberYearLocks';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -126,21 +125,19 @@ export async function sweep(
 
   const isImport = source === 'import';
 
-  // Decided before anything posts: the up-front year lock needs to know which rows will post.
+  // Decided once, before anything posts.
   const decisions = new Map(postable.map((row) => [row.id, evaluate(
     { status: row.status, amount: Number(row.amount), suggestedGlAccountId: row.suggested_gl_account_id },
     isImport ? null : (row.suggested_confidence != null ? Number(row.suggested_confidence) : null),
     settings,
     isImport ? null : (row.suggested_strategy ?? null),
   )]));
-  // Every year this sweep will number a journal in, ascending, before its first and after claiming those lines in
-  // walk order with the bank-line lock (core/numberYearLocks.ts). A 55P03 on a year key posted nothing: the whole
-  // sweep is retryable.
-  await claimRowsThenLockYears(companyId, postable.filter((row) => decisions.get(row.id)!.outcome === 'post')
-    .map((row) => ({ id: row.id, years: [journalYearOf(row.transaction_date)] })),
-  (id) => lockBankTransactionForUpdate(companyId, id));
-
-  for (const row of postable) {
+  // Ordered lazy (core/numberYearLocks.ts): by the year each line's journal is dated in (the line's), then id, so the
+  // sweep reaches its year keys ascending; each line's key is taken by its own posting, after its row lock.
+  const byId = [...postable].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const cursor = new YearKeyCursor(companyId);
+  for (const row of orderByPredictedYears(byId, (r) => [journalYearOf(r.transaction_date)])) {
+    await cursor.before([journalYearOf(row.transaction_date)]);
     const decision = decisions.get(row.id)!;
     if (decision.outcome === 'skip') {
       skipped.push({ txId: row.id, reason: decision.reason });

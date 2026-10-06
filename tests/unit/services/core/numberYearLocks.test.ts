@@ -12,7 +12,7 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_n: string, fn: () 
 
 import { postingToday } from '@/lib/fmtDate';
 import {
-  claimRowsThenLockYears, journalYearOf, lockNumberYears, YearSpanTooWideError,
+  journalYearOf, lockNumberYears, orderByPredictedYears, YearKeyCursor, YearSpanTooWideError,
 } from '@/modules/accounting/services/core/numberYearLocks';
 import { predictReversalYears } from '@/modules/accounting/services/gl/journalReversalYears';
 
@@ -58,46 +58,44 @@ describe('journalYearOf is the trigger\'s EXTRACT(YEAR FROM entry_date) (sec-num
   });
 });
 
-describe('claimRowsThenLockYears', () => {
-  it('claims the rows in walk order, THEN takes the years ascending', async () => {
-    const order: string[] = [];
-    sqlMock.mockImplementation(async (...a: unknown[]) => { order.push(`year ${String(a[2])}`); return []; });
-    await claimRowsThenLockYears('c1', [{ id: 'b', years: [2026] }, { id: 'a', years: [2025] }],
-      async (id) => { order.push(`row ${id}`); });
-    expect(order).toEqual(['row b', 'row a', 'year 2025', 'year 2026']);
+describe('ordered lazy: orderByPredictedYears + YearKeyCursor', () => {
+  it('orders by min predicted year, stable on ties, undated last', () => {
+    const items = [{ id: 'a', ys: [2026] }, { id: 'b', ys: [2025, 2027] }, { id: 'c', ys: [] }, { id: 'd', ys: [2025] }];
+    expect(orderByPredictedYears(items, (x) => x.ys).map((x) => x.id)).toEqual(['b', 'd', 'a', 'c']);
   });
 
-  it('a single-year run claims nothing and takes nothing; a held row is left to the run, its year still taken', async () => {
-    const claim = vi.fn(async () => undefined);
-    await claimRowsThenLockYears('c1', [{ id: 'a', years: [2026] }], claim);
-    expect(claim).not.toHaveBeenCalled();
-    const held = Object.assign(new Error('held'), { code: 'BANK_TX_LOCK_TIMEOUT' });
-    await claimRowsThenLockYears('c1', [{ id: 'a', years: [2025] }], async () => { throw held; }, [2026]);
-    expect(locked().map((l) => l[1])).toEqual(['2025', '2026']);
+  it('refuses a run whose reach (multi-year ranges filled) exceeds 20 years, before any lock', () => {
+    expect(() => orderByPredictedYears([{ ys: [2000, 2021] }], (x) => x.ys)).toThrow(YearSpanTooWideError);
+    expect(orderByPredictedYears([{ ys: [2000, 2019] }], (x) => x.ys)).toHaveLength(1);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
-  it('a non-contention failure while claiming propagates', async () => {
-    await expect(claimRowsThenLockYears('c1', [{ id: 'a', years: [2025, 2026] }], async () => { throw new Error('boom'); }))
-      .rejects.toThrow('boom');
+  it('a single-year element takes nothing; a multi-year one takes its whole range ascending, once', async () => {
+    const cursor = new YearKeyCursor('c1');
+    await cursor.before([2025]);
+    expect(sqlMock).not.toHaveBeenCalled();
+    await cursor.before([2027, 2025]);
+    await cursor.before([2026, 2028]);
+    expect(locked().map((l) => l[1])).toEqual(['2025', '2026', '2027', '2028']);
   });
 });
 
 describe('the "today" a reversal is predicted with is the posting path\'s (blind LOW3)', () => {
-  // One original dated 2025-12-20 in an open December period, no VAT lock: its contra is dated 2025-12-20, so the
-  // prediction is that year plus TODAY's — which flips exactly at SAST midnight, as resolveReversalDateDetailed's.
+  // One original dated 2025-06-20 in a CLOSED period, no VAT lock: its contra is dated today, so the prediction is
+  // TODAY's year — which flips exactly at SAST midnight, as resolveReversalDateDetailed's.
   const predictAt = async (instant: string) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(instant));
     sqlMock
-      .mockResolvedValueOnce([{ entry_date: '2025-12-20', companion: false }])
-      .mockResolvedValueOnce([{ fiscal_year: 2025, start_date: '2025-12-01', end_date: '2025-12-31', status: 'open' }])
+      .mockResolvedValueOnce([{ id: 'je1', entry_date: '2025-06-20', late_claim_of_id: null }])
+      .mockResolvedValueOnce([{ fiscal_year: 2025, start_date: '2025-06-01', end_date: '2025-06-30', status: 'closed' }])
       .mockResolvedValueOnce([]);
-    return { today: postingToday(), years: (await predictReversalYears('c1', ['je1'])).sort() };
+    return { today: postingToday(), years: ((await predictReversalYears('c1', ['je1'])).get('je1') ?? []).sort() };
   };
 
   it('31 Dec 23:30 SAST is still 2025; 1 Jan 00:30 SAST is 2026 (UTC is still 31 Dec)', async () => {
     expect(await predictAt('2025-12-31T21:30:00Z')).toEqual({ today: '2025-12-31', years: [2025] });
-    expect(await predictAt('2025-12-31T22:30:00Z')).toEqual({ today: '2026-01-01', years: [2025, 2026] });
+    expect(await predictAt('2025-12-31T22:30:00Z')).toEqual({ today: '2026-01-01', years: [2026] });
     expect(journalYearOf(postingToday())).toBe(2026);
   });
 });

@@ -7,8 +7,8 @@
  *
  * gl-import and reclassification have no per-journal savepoint, so a held year already failed them whole; what
  * changes is the deadlock: a run walking 2026 then 2025 against a peer holding 2025 that then wants 2026 (the
- * shape of helpers/numraceCrossYear.ascendingPeerVs) was a 40P01 and is now a wait. The bulk-action route skipped
- * a held bill per item; with its year taken up front a held year now answers 503 for the whole request.
+ * shape of helpers/numraceCrossYear.ascendingPeerVs) was a 40P01 and is now a wait. The bulk-action route still
+ * answers a held bill per item (ordered lazy takes a single-year bill's key in its own posting).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -84,7 +84,7 @@ describeIfDb('NUMRACE: gl-import, reclassification and the supplier bulk action 
     expect(after, 'pg_stat_database.deadlocks moved').toBe(before);
   }, 90000);
 
-  it('supplier-invoices-bulk-action approve, bills in 2025 and 2026, 2025 held: 503 + Retry-After, nothing approved', async () => {
+  it('supplier-invoices-bulk-action approve, bills in 2025 and 2026, 2025 held: the 2025 bill held, the 2026 one approved', async () => {
     const { c, token } = await fixture(true);
     const b25 = await seedBill(c.fx, { number: 'NR-B25', date: '2025-12-15', total: 100, status: 'draft' });
     const b26 = await seedBill(c.fx, { number: 'NR-B26', date: '2026-01-15', total: 100, status: 'draft' });
@@ -100,10 +100,10 @@ describeIfDb('NUMRACE: gl-import, reclassification and the supplier bulk action 
     } finally {
       await held.open();
     }
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(503);
-    expect(out.getHeader?.('retry-after')).toBe('2');
-    const st = (await sql`SELECT status FROM supplier_invoices WHERE id IN (${b25}::UUID, ${b26}::UUID)`) as
-      { status: string }[];
-    expect(st.map((r) => r.status)).toEqual(['draft', 'draft']);
+    // Ordered lazy: the 2025 bill waits on its own key and is answered held, the 2026 bill approves (as on base).
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    const st = (await sql`SELECT status FROM supplier_invoices WHERE id IN (${b25}::UUID, ${b26}::UUID)
+      ORDER BY invoice_date`) as { status: string }[];
+    expect(st.map((r) => r.status)).toEqual(['draft', 'approved']);
   }, 60000);
 });

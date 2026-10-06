@@ -27,7 +27,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
-import { journalYearOf, lockNumberYears } from './numberYearLocks';
+import { journalYearOf, orderByPredictedYears } from './numberYearLocks';
 
 export interface TakeOnLine {
   glAccountId: string;
@@ -94,14 +94,8 @@ export function buildTakeOnLines(
  *
  * Keyed on the company: two different tenants never wait on each other.
  */
-export async function lockMigrationImport(
-  companyId: string, takeOnDates: readonly (string | null | undefined)[] = [],
-): Promise<void> {
+export async function lockMigrationImport(companyId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId + ':migration-import'}))`;
-  // The document steps post one take-on journal per row, in FILE order, all in this transaction: every year they
-  // can be dated in is taken up front, ascending (core/numberYearLocks.ts; brk-numrace P1). No row is claimed
-  // first — the documents are this run's own inserts. More than 20 years is refused before any write.
-  await lockNumberYears(companyId, takeOnDates.map((d) => journalYearOf(d)));
 }
 
 /**
@@ -176,4 +170,13 @@ export function rethrowIfConflictTargetMissing(err: unknown, missingIndex: strin
       `Invoice import is unavailable: this database has no ${missingIndex} index, which the import depends on. No invoices were imported.`,
     );
   }
+}
+
+/**
+ * The order a take-on document step posts its rows in: by the year each row's journal is dated in, then file order
+ * — ordered lazy (core/numberYearLocks.ts). In file order a file crossing a year end deadlocked against any run
+ * walking the years the other way (brk-numrace P1). Refuses a file spanning more than 20 years (400), before any write.
+ */
+export function takeOnRowOrder(dates: readonly (string | null | undefined)[]): number[] {
+  return orderByPredictedYears(dates.map((_, n) => n), (n) => [journalYearOf(dates[n])]);
 }

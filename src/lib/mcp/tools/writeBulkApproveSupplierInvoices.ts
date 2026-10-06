@@ -19,7 +19,6 @@ import type { McpTool } from '../types';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
-import { lockSupplierInvoiceForUpdate } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { invoiceVatRefusals } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import { supplierInvoiceLineAccountRefusals } from '@/modules/accounting/services/ap/billLineAccountGuard';
@@ -90,7 +89,6 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
   // above 31, which would fail the batch before it posted anything.
   savepointPrefix: 'bulk_appr_si_',
   approvableStatuses: APPROVABLE,
-  lockRow: lockSupplierInvoiceForUpdate, // approveSupplierInvoice's first lock
   async readStates(companyId, ids) {
     // ONE query for the batch. `invoice_date` is what createJournalEntry uses
     // as the entry date, so it is what the fiscal-period verdict must be read

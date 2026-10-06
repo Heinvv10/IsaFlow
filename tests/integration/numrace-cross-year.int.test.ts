@@ -15,7 +15,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { postPartitionedDocuments } from '@/lib/mcp/tools/bulkApproveRunner';
 import { dropFixture } from './helpers/l1FifoFixture';
 import {
@@ -106,7 +105,6 @@ describeIfDb('NUMRACE: cross-year multi-journal runs', () => {
     const e25 = await line(c, '22222222', '2025-11-28', 'NRDOC p25');
     const adapter = {
       toolName: 'numrace_bulk', savepointPrefix: 'nr_el_', approvableStatuses: [],
-      lockRow: (_co: string, id: string) => lockBankTransactionForUpdate(c.fx.companyId, id),
       postOne: (_ctx: unknown, id: string) => allocateTransaction(c.fx.companyId, id, c.expense, c.fx.userId,
         undefined, 'account', undefined, undefined),
     };
