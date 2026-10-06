@@ -1,7 +1,8 @@
 /**
  * R-035 decision Q1: only the three importers of bills approved in their
  * source system may exempt a write from the supplier-invoice approval
- * backstop (migration 712). The exemption is a GUC any statement could set,
+ * backstop (migration 712); the credit-note backstop (migration 862) honours
+ * the same GUC, and no importer writes credit notes today. The exemption is a GUC any statement could set,
  * so the control is WHO sets it: this census walks the source tree on disk
  * (not `git ls-files` — an untracked new setter must fail too) and pins every
  * file that names it.
@@ -40,9 +41,10 @@ function filesMentioning(needle: string): string[] {
 }
 
 describe('the approval-gate import exemption', () => {
-  it('is set in exactly one place, and read only by the migration 712 trigger', () => {
+  it('is set in exactly one place, and read only by the migration 712 and 862 triggers', () => {
     expect(filesMentioning('approval_gate_exempt')).toEqual([
       'scripts/migrations/sql/712_supplier_invoice_approval_enforcement.sql',
+      'scripts/migrations/sql/862_credit_note_approval_enforcement.sql',
       'src/modules/accounting/services/gl/approvalGateExempt.ts',
     ]);
   });
