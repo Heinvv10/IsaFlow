@@ -19,6 +19,7 @@ import {
   listCreditNoteAllocations,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
   // autoApply defaults to 'fifo' — approving a note applies its remainder to the
@@ -83,6 +84,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
+    if (respondIfApprovalRequired(res, err)) return;
     // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
     if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';

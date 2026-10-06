@@ -26,7 +26,9 @@ import {
 } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
-const DOCUMENT_TYPES = new Set<DocumentType>(['customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note']);
+const DOCUMENT_TYPES = new Set<DocumentType>([
+  'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
+]);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
