@@ -34,6 +34,8 @@ import {
   listCreditNoteAllocations,
   parseCreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
+import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
+import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 // Re-exported so the registry and the tests keep ONE import surface for the
@@ -93,6 +95,11 @@ export const approveCreditNoteTool: McpTool = {
     if (note.status !== 'draft') {
       return toolError(`Cannot approve credit note with status: ${note.status}`);
     }
+    // R-035 (Q6): a note an enforced approval rule of its type governs is
+    // refused from this read too — an agent can neither raise nor decide the
+    // approval it needs.
+    const approvalRefusal = await agentApprovalRefusal(ctx.companyId, creditNoteApprovalType(note.type), id);
+    if (approvalRefusal) return toolError(approvalRefusal);
 
     // A missing system account is the likeliest reason an approve fails, and it
     // is the one an agent can actually do something about (create_gl_account

@@ -26,23 +26,16 @@
  * Free to call: `approve_credit_note` is `null` in TOOL_FLOW_OPERATIONS.
  */
 import type { McpTool } from '../types';
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
-import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { mcpPostingOpts } from '../mcpActor';
 import {
   CREDIT_NOTE_AUTO_APPLY,
-  listCreditNoteAllocations,
   parseCreditNoteAutoApply,
-  type CreditNoteAutoApply,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
-import {
-  type BulkApproveAdapter,
-  type DocumentState,
-  partitionDocuments,
-  postPartitionedDocuments,
-} from './bulkApproveRunner';
+import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
+import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
+import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
+import { type DocumentState, partitionDocuments, postPartitionedDocuments } from './bulkApproveRunner';
+import { TOOL, buildAdapter } from './bulkApproveCreditNotesAdapter';
 import {
   MAX_DOCUMENTS,
   nothingToApproveText,
@@ -50,29 +43,11 @@ import {
 } from './bulkApproveArgs';
 import { ok, toolError } from './toolHelpers';
 
-const TOOL = 'bulk_approve_credit_notes';
-
-/** approveCreditNote refuses anything that is not a draft. */
-const APPROVABLE = ['draft'] as const;
-
 /** The system-account roles each note type's journal needs. */
 const ROLES_BY_TYPE: Record<string, readonly string[]> = {
   customer: ['default_revenue', 'receivable', 'vat_output'],
   supplier: ['payable', 'default_expense', 'vat_input'],
 };
-
-interface ApprovedNoteRow {
-  index: number;
-  id: string;
-  credit_note_number: string;
-  type: string;
-  status: string;
-  total_amount: number;
-  gl_journal_entry_id: string | null;
-  applied_amount: number;
-  /** Every document this note settled — the FIFO walk can settle several. */
-  applied_to_invoice_ids: { invoice_id: string; amount: number }[];
-}
 
 /**
  * `approveCreditNote` refuses a note whose status moved on with
@@ -89,6 +64,8 @@ const NOT_FOUND_REFUSAL = /^Credit note \S+ not found$/;
  * restate the drift rather than catch it.
  */
 export function racedReason(err: unknown): string | null {
+  // R-035: the gate refuses under the row lock, before any write — a skip.
+  if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -96,61 +73,24 @@ export function racedReason(err: unknown): string | null {
 }
 
 /**
- * The adapter is built per call rather than declared once, because `auto_apply`
- * is an argument and `postOne` has no other way to see it. A module-level
- * mutable would be shared by concurrent requests on the same process.
+ * R-035 (Q6): id → `approval_required: <why>` for each note an enforced rule
+ * of ITS type holds. A batch may mix both types, so the notes are grouped by
+ * the type the partition read from the row, never by what the agent sent.
  */
-function buildAdapter(autoApply: CreditNoteAutoApply): BulkApproveAdapter<ApprovedNoteRow> {
-  return {
-  toolName: TOOL,
-  // `bulk_appr_cn_99` — 15 characters at the widest index.
-  savepointPrefix: 'bulk_appr_cn_',
-  approvableStatuses: APPROVABLE,
-  async readStates(companyId, ids) {
-    const rows = (await sql`
-      SELECT id, status, credit_date, credit_note_number, type, total_amount,
-             COALESCE(customer_invoice_id, supplier_invoice_id) AS linked_invoice_id
-      FROM credit_notes
-      WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
-    `) as DbRow[];
-    return new Map<string, DocumentState>(rows.map((r) => [
-      String(r.id),
-      {
-        id: String(r.id),
-        status: String(r.status),
-        entryDate: r.credit_date as string | Date,
-        documentNumber: r.credit_note_number == null ? undefined : String(r.credit_note_number),
-        documentType: String(r.type),
-        totalAmount: Number(r.total_amount),
-        // The invoice this note is linked to, or '' when standalone. Carried
-        // because it decides the SECOND row lock each element takes — see the
-        // ordering note in the handler.
-        lockGroup: r.linked_invoice_id == null ? '' : String(r.linked_invoice_id),
-      },
-    ]));
-  },
-  async postOne(ctx, id) {
-    const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
-      ...mcpPostingOpts(ctx, TOOL),
-      autoApply,
-    });
-    return {
-      index: -1,
-      id: updated.id,
-      credit_note_number: updated.creditNoteNumber,
-      type: updated.type,
-      status: updated.status,
-      total_amount: updated.totalAmount,
-      gl_journal_entry_id: updated.glJournalEntryId ?? null,
-      applied_amount: updated.appliedAmount,
-      // Read back from the allocation rows rather than inferred from the
-      // status: a partially applied note settles documents too, and the status
-      // alone cannot name them.
-      applied_to_invoice_ids: (await listCreditNoteAllocations(ctx.companyId, id))
-        .map((l) => ({ invoice_id: l.invoiceId, amount: l.amount })),
-    };
-  },
-  };
+async function approvalRefusals(companyId: string, ids: readonly string[],
+  states: Map<string, DocumentState>): Promise<Map<string, string>> {
+  const byType = new Map<string, string[]>();
+  for (const id of ids) {
+    const type = states.get(id)?.documentType ?? '';
+    byType.set(type, [...(byType.get(type) ?? []), id]);
+  }
+  const refusals = new Map<string, string>();
+  for (const [type, typeIds] of byType) {
+    for (const [id, why] of await agentApprovalRefusals(companyId, creditNoteApprovalType(type), typeIds)) {
+      refusals.set(id, why);
+    }
+  }
+  return refusals;
 }
 
 export const bulkApproveCreditNotesTool: McpTool = {
@@ -205,7 +145,15 @@ export const bulkApproveCreditNotesTool: McpTool = {
     }
     const adapter = buildAdapter(autoApply);
 
-    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const partitioned = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { states } = partitioned;
+    // R-035 (Q6): gated by an enforced approval rule — skipped, never submitted.
+    // Read, not written, so the dry run and the live call decide it alike.
+    const refusals = await approvalRefusals(ctx.companyId, partitioned.postable.map((p) => p.id), states);
+    const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
+    const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
+      .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]
+      .sort((a, b) => a.index - b.index);
 
     // Checked AFTER the partition, unlike the two invoice arms, because the
     // roles needed depend on which note TYPES the batch actually contains — and

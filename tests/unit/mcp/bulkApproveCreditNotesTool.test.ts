@@ -11,6 +11,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// R-035 PR3: the approval skip is proven against a real database (r035-pr3-mcp.int.test.ts).
+vi.mock('@/modules/accounting/services/gl/approvalUnattended', () => ({ agentApprovalRefusals: vi.fn(async () => new Map()) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
