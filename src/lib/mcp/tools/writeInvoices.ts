@@ -10,9 +10,11 @@ import {
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import {
+  approvableCustomerInvoiceIds,
   approveCustomerInvoice,
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
@@ -190,6 +192,13 @@ export const finalizeInvoiceTool: McpTool = {
     if (badArg) return badArg;
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
+    // R-035 (Q6): an invoice an enforced approval rule governs is refused from
+    // this read — an agent can neither raise nor decide the approval it needs,
+    // and nothing is written, so the idempotency key stays free.
+    if ((await approvableCustomerInvoiceIds(ctx.companyId, [invoiceId])).length > 0) {
+      const approvalRefusal = await agentApprovalRefusal(ctx.companyId, 'customer_invoice', invoiceId);
+      if (approvalRefusal) return toolError(approvalRefusal);
+    }
     try {
       // Approval POSTS the AR journal. Unstamped it lands as human:<userId> —
       // the agent's posting attributed to the token owner and missing from

@@ -63,6 +63,22 @@ export class InvoiceNotApprovableError extends Error {
   }
 }
 
+/**
+ * Of `ids`, those naming an invoice of this company that the approve below
+ * could act on — approvable status, not soft-deleted. The MCP tools ask the
+ * approval gate about these only (R-035 PR4, Q6): a missing or soft-deleted
+ * invoice is no document to the gate, and the approve reports it as before.
+ */
+export async function approvableCustomerInvoiceIds(companyId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = (await sql`
+    SELECT id FROM customer_invoices
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[]) AND deleted_at IS NULL
+      AND status = ANY(${APPROVABLE_STATUSES}::text[])
+  `) as Row[];
+  return rows.map((r) => String(r.id));
+}
+
 export interface ApproveCustomerInvoiceResult {
   id: string;
   status: string;

@@ -33,7 +33,7 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', () => (
   InvoiceLineValidationError: class InvoiceLineValidationError extends Error {},
 }));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () => ({
-  approveCustomerInvoice: vi.fn(),
+  approveCustomerInvoice: vi.fn(), approvableCustomerInvoiceIds: vi.fn(async () => []), // R-035: no gate pre-read here
   // finalize_invoice does `err instanceof InvoiceNotApprovableError` to decide
   // whether a failure is safe to report as a tool error or must be rethrown so
   // the registry's SAVEPOINT rolls the write back. Omitting it from this mock
