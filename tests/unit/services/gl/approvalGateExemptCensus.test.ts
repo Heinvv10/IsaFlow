@@ -1,9 +1,11 @@
 /**
- * R-035 decision Q1: only the three importers of bills approved in their
- * source system may exempt a write from the supplier-invoice approval
- * backstop (migration 712). The credit-note backstop (migration 862) honours
- * no exemption at all — no importer writes credit notes — so 862 must not name
- * the GUC either. The exemption is a GUC any statement could set,
+ * R-035 decision Q1: only the importers of documents approved or issued in
+ * their source system may exempt a write from an approval backstop — the
+ * three bill importers from the supplier-invoice one (migration 712), and the
+ * AR take-on, the Sage customer-invoice import and the Sage migration commit
+ * from the customer-invoice one (migration 865). The credit-note backstop
+ * (migration 862) honours no exemption at all — no importer writes credit
+ * notes — so 862 must not name the GUC either. The exemption is a GUC any statement could set,
  * so the control is WHO sets it: this census walks the source tree on disk
  * (not `git ls-files` — an untracked new setter must fail too) and pins every
  * file that names it.
@@ -42,18 +44,33 @@ function filesMentioning(needle: string): string[] {
 }
 
 describe('the approval-gate import exemption', () => {
-  it('is set in exactly one place, and read only by the migration 712 trigger', () => {
+  it('is set in exactly one place, and read only by the migration 712 and 865 triggers', () => {
     expect(filesMentioning('approval_gate_exempt')).toEqual([
       'scripts/migrations/sql/712_supplier_invoice_approval_enforcement.sql',
+      'scripts/migrations/sql/865_customer_invoice_approval_enforcement.sql',
       'src/modules/accounting/services/gl/approvalGateExempt.ts',
     ]);
   });
 
-  it('is called by exactly the Sage import, the Sage migration commit and the AP take-on', () => {
+  it('is called by exactly the Sage imports, the Sage migration commit and the AP and AR take-ons', () => {
     expect(filesMentioning('withApprovalGateExempt(')).toEqual([
       'src/modules/accounting/services/ap/migrationApService.ts',
+      'src/modules/accounting/services/core/migrationImportService.ts',
+      'src/modules/accounting/services/core/sageCustomerImportService.ts',
       'src/modules/accounting/services/core/sageSupplierInvoiceImportService.ts',
       'src/modules/admin/services/sageMigrationCommitService.ts',
     ]);
+  });
+
+  it('exempts a customer invoice only where the importer says so — every customer-invoice write names its type', () => {
+    for (const file of [
+      'src/modules/accounting/services/core/migrationImportService.ts',
+      'src/modules/accounting/services/core/sageCustomerImportService.ts',
+      'src/modules/admin/services/sageMigrationCommitService.ts',
+    ]) {
+      const text = readFileSync(path.join(ROOT, file), 'utf8');
+      expect(text, file).toMatch(/withApprovalGateExempt\(\{[^}]*documentType: 'customer_invoice'/);
+      expect(text, file).toMatch(/assertMayImportOpenBills\(companyId, userId, 'customer_invoice'\)/);
+    }
   });
 });
