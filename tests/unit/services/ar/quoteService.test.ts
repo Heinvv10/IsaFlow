@@ -40,6 +40,10 @@ vi.mock('@/lib/neon', () => {
 });
 
 import { sql } from '@/lib/neon';
+// R-035 PR4 round 2: the editor stamp is real-PG tested (r035-pr4-editors); here it only wraps the edit.
+vi.mock('@/modules/accounting/services/ar/sourceContentEditor', () => ({
+  withSourceEditorStamp: (_c: string, _s: unknown, _e: string, edit: () => Promise<unknown>) => edit(),
+}));
 import { getQuote, createQuote, updateQuote } from '@/modules/accounting/services/ar/quoteService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;

@@ -77,11 +77,13 @@ export async function convertToSalesOrder(
   // status-predicated UPDATE is the guard — the first caller moves the quote
   // out of a convertible status and every later one sees zero rows and stops
   // here, before the sequence is touched and before any status is rewritten.
+  // R-035 PR4 round 2: nor one already holding a conversion link (migration 865 reads it).
   const claimed = await claimUnderLockTimeout('quote', async () => (await sql`
     UPDATE customer_quotes
     SET status = 'converted_to_order', updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
       AND status = ANY(${CONVERTIBLE_TO_ORDER}::TEXT[])
+      AND converted_invoice_id IS NULL AND converted_order_id IS NULL
     RETURNING id
   `) as Row[]);
   if (claimed.length === 0) {
@@ -163,11 +165,14 @@ export async function convertToInvoice(
   // UPDATE is the guard: the first caller moves the quote out of 'accepted' and
   // every later one sees zero rows and stops here, before the sequence is
   // touched and before any line is written.
+  // R-035 PR4 round 2: nor may a quote that already holds a conversion link —
+  // an invoice's derived authors are read through it (migration 865).
   const claimed = await claimUnderLockTimeout('quote', async () => (await sql`
     UPDATE customer_quotes
     SET status = 'converted', updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
       AND status = 'accepted'
+      AND converted_invoice_id IS NULL AND converted_order_id IS NULL
     RETURNING id
   `) as Row[]);
   if (claimed.length === 0) {

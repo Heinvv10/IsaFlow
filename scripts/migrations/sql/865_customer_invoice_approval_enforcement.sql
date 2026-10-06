@@ -38,12 +38,17 @@
 --      too: pending, undecided, no past requesters, raised by the session's
 --      own user.
 --
--- Upstream authors (review F1): an invoice minted from a template, a quote, a
--- sales order or time entries carries content someone else wrote, and those
--- authors are refused as its approvers. The templates gain content_authors
--- (below), unioned into the invoice's content_authors at mint
--- (ar/customerInvoiceUpstreamAuthors.ts); a conversion's authors are derived
--- by approval_document_authors from the link the converter already writes. KNOWN LIMIT, follow-up for Hein: a SUPPLIER invoice minted from a
+-- Upstream authors (review F1; Hein 2026-10-06: whoever sets the price
+-- upstream is an author): an invoice minted from a template, a quote, a sales
+-- order or time entries carries content someone else priced, and those
+-- authors are refused as its approvers. Recurring templates are STAMPED: they
+-- gain content_authors (below), unioned into the invoice's content_authors at
+-- mint (ar/customerInvoiceUpstreamAuthors.ts), because the invoice keeps no
+-- link to its template. Conversions are DERIVED by approval_document_authors
+-- from the link each converter already writes, so the converters write
+-- nothing new (golden path a runs them without this migration); quotes,
+-- sales orders and time entries gain content_authors, stamped only by a
+-- content-changing edit. KNOWN LIMIT, follow-up for Hein: a SUPPLIER invoice minted from a
 -- recurring_transaction_templates row gets no upstream authors — stamping
 -- them would change the live supplier-invoice enforcement; a template's
 -- author may still approve the bill someone else's run minted.
@@ -60,6 +65,14 @@ ALTER TABLE customer_invoices ADD COLUMN IF NOT EXISTS content_edited_at TIMESTA
 -- created_by. Both are unioned into each invoice the template mints.
 ALTER TABLE recurring_invoices ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 ALTER TABLE recurring_transaction_templates ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
+-- The sources a customer invoice is CONVERTED from: every user whose EDIT
+-- changed what they bill (a quote's or order's lines, prices, tax, client or
+-- date; a time entry's rate or billable flag; a customer merge re-pointing
+-- one). Stamped by those edits only, never at creation — the creator is
+-- created_by — so creating and converting writes none of these columns.
+ALTER TABLE customer_quotes ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
+ALTER TABLE customer_sales_orders ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
+ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS content_authors UUID[] NOT NULL DEFAULT '{}';
 
 -- ── 2. The amount a rule sees ──────────────────────────────────────────────
 -- approveCustomerInvoice books total_amount, UNCONVERTED, into the ledger
@@ -199,19 +212,26 @@ $$;
 -- creator's uuid, a legacy or system row may carry anything. Only a canonical
 -- uuid (any case) is cast — never a bare ::uuid, which would make a single
 -- such row raise 22P02 on every raise or decide that reads its authors.
--- An invoice CONVERTED from someone else's content carries that content's
--- authors too (review F1), DERIVED here from the links the converters already
--- write — the quote's created_by (customer_quotes.converted_invoice_id), the
--- sales order's (customer_sales_orders.invoice_id) and the quote's behind that
--- order (customer_sales_orders.quote_id), and the users who logged the billed
--- time (time_entries.invoice_id, set by both time billing paths: the
--- time-entries-invoice claim and the WIP markEntriesBilled), each
--- company-scoped, NULLs dropped, de-duplicated; every column is a uuid.
--- Derived, not stamped: the converting services write nothing new, so they
--- run unchanged on a database without this migration (golden path a converts
--- a quote on isaflow_dev). A recurring template has no such link from the
--- invoice it mints, so its authors are written into content_authors at mint
--- instead (ar/customerInvoiceUpstreamAuthors.ts).
+-- An invoice CONVERTED from someone else's content carries the authors of
+-- that content too — whoever set its price (review F1; Hein, 2026-10-06) —
+-- DERIVED here from the links the converters already write: the quote's
+-- creator and editors (customer_quotes.converted_invoice_id), the sales
+-- order's (customer_sales_orders.invoice_id) and those of the quote behind
+-- that order (customer_sales_orders.quote_id), and every user who changed a
+-- billed time entry's rate or billable flag (time_entries.invoice_id, set by
+-- both time billing paths: the time-entries-invoice claim and the WIP
+-- markEntriesBilled). Not the time entry's LOGGER (decision 1): hours are
+-- effort, the rate sets the price. Each lookup is company-scoped, NULLs
+-- dropped, de-duplicated; every column is a uuid. Derived, not stamped onto
+-- the invoice: the converting services write nothing new, so they run
+-- unchanged on a database without this migration (golden path a creates,
+-- accepts and converts a quote on isaflow_dev — and a source's content_authors
+-- is written only by an EDIT, never at creation). The links must not move: a
+-- converted quote is terminal (quoteService.updateQuoteStatus, the
+-- conversion claims), an invoiced order and a billed entry cannot be billed
+-- again. A recurring template has no link from the invoice it mints, so its
+-- authors are written into content_authors at mint instead
+-- (ar/customerInvoiceUpstreamAuthors.ts).
 CREATE OR REPLACE FUNCTION public.approval_document_authors(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.uuid[]
@@ -237,17 +257,21 @@ AS $$
     WHEN 'customer_invoice' THEN (
       SELECT b.base || ARRAY(
         SELECT d.author FROM (
-          SELECT q.created_by FROM public.customer_quotes q
+          SELECT qa.author FROM public.customer_quotes q
+          CROSS JOIN LATERAL unnest(q.content_authors || ARRAY[q.created_by]) qa(author)
           WHERE q.converted_invoice_id = ci.id AND q.company_id = ci.company_id
           UNION
-          SELECT so.created_by FROM public.customer_sales_orders so
+          SELECT sa.author FROM public.customer_sales_orders so
+          CROSS JOIN LATERAL unnest(so.content_authors || ARRAY[so.created_by]) sa(author)
           WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
           UNION
-          SELECT q.created_by FROM public.customer_sales_orders so
+          SELECT qa.author FROM public.customer_sales_orders so
           JOIN public.customer_quotes q ON q.id = so.quote_id AND q.company_id = ci.company_id
+          CROSS JOIN LATERAL unnest(q.content_authors || ARRAY[q.created_by]) qa(author)
           WHERE so.invoice_id = ci.id AND so.company_id = ci.company_id
           UNION
-          SELECT te.user_id FROM public.time_entries te
+          SELECT ta.author FROM public.time_entries te
+          CROSS JOIN LATERAL unnest(te.content_authors) ta(author)
           WHERE te.invoice_id = ci.id AND te.company_id = ci.company_id
         ) d(author)
         WHERE d.author IS NOT NULL AND d.author <> ALL (b.base)

@@ -62,7 +62,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const { id, ...input } = req.body;
       if (!id) return apiResponse.badRequest(res, 'id is required');
-      const entry = await updateTimeEntry(companyId, id, input);
+      const entry = await updateTimeEntry(companyId, id, input, req.user.id);
       return apiResponse.success(res, entry);
     } catch (err) {
       // badRequestFromError masks the message; a refusal is written for the operator.
