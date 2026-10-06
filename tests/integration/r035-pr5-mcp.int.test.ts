@@ -11,6 +11,7 @@ import { Pool } from 'pg';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { settleByContraTool } from '../../src/lib/mcp/tools/writeSettleByContra';
 import { allocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankAllocate';
+import { applyPaymentToSupplierInvoiceTool } from '../../src/lib/mcp/tools/writeApplySupplierPayment';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule } from './r035-approval.helpers';
 import { cleanupPr5, enforcePay, inRequest, payCompany, plantBill, plantSupplier } from './r035-pr5.helpers';
@@ -30,6 +31,7 @@ afterAll(async () => {
 const registry = new McpRegistry();
 registry.register(settleByContraTool);
 registry.register(allocateBankTransactionTool);
+registry.register(applyPaymentToSupplierInvoiceTool);
 const settle = (c: string, documentId: string, contra: string, amount: number, extra: Record<string, unknown> = {}) =>
   inRequest(pool, a, c, () => registry.call('settle_by_contra', {
     subledger: 'ap', document_id: documentId, contra_account_id: contra, amount, reason: 'R035 netted',
@@ -99,5 +101,42 @@ describe('allocate_bank_transaction (D2)', () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toMatch(/a bank line keyed by hand is no evidence the money left/);
     expect({ payments: await payments(c), journals: await journals(c) }).toEqual({ payments: 0, journals: 0 });
+  });
+});
+
+describe('apply_payment_to_supplier_invoice from a bank line (D2; round 2 adversarial REPRO 7: dry-run parity)', () => {
+  async function lineAndBill(provenance: 'manual' | 'import') {
+    const { company: c, bank } = await payCompany(pool, [[a, 'owner']], companies);
+    await plantRule(pool, c, 'owner', { documentType: 'supplier_payment', operator: 'greater_than', value: 1000 });
+    await enforcePay(pool, c, 'supplier_payment', a);
+    const bill = await plantBill(pool, c, await plantSupplier(pool, c), a);
+    const line = (await pool.query(
+      `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+       VALUES($1,$2,DATE '2026-09-01',-5000,'R035 line','imported',$3) RETURNING id`,
+      [c, bank, provenance === 'import' ? crypto.randomUUID() : null])).rows[0].id as string;
+    return { c, bill, line };
+  }
+  const apply = (c: string, line: string, bill: string, dry: boolean) => inRequest(pool, a, c, () => registry.call(
+    'apply_payment_to_supplier_invoice', {
+      bank_transaction_id: line, allocations: [{ invoice_id: bill, amount: 5000 }], dry_run: dry,
+      idempotency_key: crypto.randomUUID(),
+    }, { userId: a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr5', oauthAppId: null }));
+
+  it('a hand-keyed line: the dry run refuses with the live call\'s own words, and nothing is written', async () => {
+    const { c, bill, line } = await lineAndBill('manual');
+    const dry = await apply(c, line, bill, true);
+    const live = await apply(c, line, bill, false);
+    expect(dry.isError).toBe(true);
+    expect(live.isError).toBe(true);
+    expect(text(dry)).toMatch(/a bank line keyed by hand is no evidence the money left/);
+    expect(text(dry)).toBe(text(live));
+    expect({ payments: await payments(c), journals: await journals(c) }).toEqual({ payments: 0, journals: 0 });
+  });
+
+  it('an imported line: the dry run previews the payment (no refusal)', async () => {
+    const { c, bill, line } = await lineAndBill('import');
+    const dry = await apply(c, line, bill, true);
+    expect(dry.isError, text(dry)).toBeFalsy();
+    expect(text(dry)).toMatch(/DR Accounts Payable \/ CR Bank R5000\.00/);
   });
 });
