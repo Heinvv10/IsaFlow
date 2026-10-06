@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
+import { stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 
 export interface MergeResult {
   reassignedTransactions: number;
@@ -97,12 +98,16 @@ async function mergeSuppliers(companyId: string, primaryId: string, duplicateId:
 
   // (2) PAYMENTS BEFORE (3) INVOICES, for the reason given in `mergeCustomers`
   // above — the AP twin of the same inversion.
+  // supplier_id is approval content, and with it the payee's bank details
+  // (R-035 PR5): the merging user becomes an author of every moved payment and its batch.
   const r1 = await sql`
-    UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID
+    UPDATE supplier_payments SET supplier_id = ${primaryId}::UUID,
+      content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND supplier_id = ${duplicateId}::UUID
-    RETURNING id
+    RETURNING id, batch_id
   `;
   count += r1.length;
+  await stampBatchesOfMovedPayments(companyId, r1.map((m) => (m as { batch_id: unknown }).batch_id), userId);
 
   // supplier_id is approval content (R-035): the merging user becomes an author of every moved bill.
   const r2 = await sql`

@@ -22,6 +22,7 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
+import { bankDetailsChanged, lockSupplierBankDetails, stampUnpaidPaymentsToSupplier } from '../ap/supplierPaymentAuthors';
 
 export type { AutoAllocateStrategy };
 
@@ -168,11 +169,16 @@ export async function createSupplier(
  * mention.
  *
  * Returns `null` when the supplier is not in this company.
+ *
+ * `editedBy` (R-035 PR5): a change to the bank details re-routes every unpaid
+ * payment to this supplier, so its editor becomes an author of those payments
+ * and their batches — and may not approve sending them.
  */
 export async function updateSupplier(
   companyId: string,
   supplierId: string,
   input: SupplierWriteInput,
+  editedBy: string,
 ): Promise<DbRow | null> {
   let name: string | null = null;
   if (input.name !== undefined) {
@@ -182,6 +188,7 @@ export async function updateSupplier(
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
 
+  const before = await lockSupplierBankDetails(companyId, supplierId);
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
@@ -221,6 +228,7 @@ export async function updateSupplier(
   `) as DbRow[];
 
   if (rows.length === 0) return null;
+  if (before && bankDetailsChanged(before, rows[0]!)) await stampUnpaidPaymentsToSupplier(companyId, supplierId, editedBy);
   log.info('Supplier updated', { id: supplierId }, 'accounting');
   return rows[0]!;
 }
