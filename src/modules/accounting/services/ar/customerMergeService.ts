@@ -117,9 +117,7 @@ async function lockSettlementRows(tx: TxSql, c: string, s: string): Promise<{ pa
 /**
  * Documents: every customer column moves independently; a NULL stays NULL. Returns the other documents moved.
  * A credit note's client (R-035 PR3) and an invoice's customer_id and client_id (PR4) are approval content: the
- * merging user `by` becomes an author of every note and invoice it moves, and an approval of the old content
- * goes stale (Q10).
- */
+ * merging user `by` becomes an author of every note and invoice it moves; an old approval goes stale (Q10). */
 async function moveDocuments(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   await tx`UPDATE bank_transactions SET suggested_client_id = ${t}::UUID WHERE suggested_client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE customer_payments SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
@@ -199,18 +197,19 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
 }
 
 /**
- * Both recurring stores move to the target PAUSED (Hein): `recurring_invoices`
- * by column, and `recurring_transaction_templates` whose customer_invoice
- * template names the customer inside its JSON (`template_data.clientId`, read
- * by recurringTransactionInvoices). Returns how many running ones were paused.
+ * Both recurring stores move to the target PAUSED (Hein): `recurring_invoices` by column, and
+ * `recurring_transaction_templates` whose customer_invoice template names the customer inside its JSON
+ * (`template_data.clientId`, read by recurringTransactionInvoices). Returns how many running ones were paused.
+ * The client is what a template bills: the merging user `by` becomes an author of each (R-035 PR4 review F1).
  */
-async function moveRecurring(tx: TxSql, c: string, s: string, t: string): Promise<number> {
+async function moveRecurring(tx: TxSql, c: string, s: string, t: string, by: string): Promise<number> {
   const paused = await tx`
     UPDATE recurring_invoices SET status = 'paused'
     WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID AND status = 'active'
     RETURNING id
   `;
-  await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
+  await tx`UPDATE recurring_invoices SET client_id = ${t}::UUID, content_authors = approval_add_author(content_authors, ${by}::UUID)
+    WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   const pausedTemplates = await tx`
     UPDATE recurring_transaction_templates SET is_active = false
     WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
@@ -219,7 +218,8 @@ async function moveRecurring(tx: TxSql, c: string, s: string, t: string): Promis
   `;
   await tx`
     UPDATE recurring_transaction_templates
-    SET template_data = jsonb_set(template_data, '{clientId}', to_jsonb(${t}::TEXT))
+    SET template_data = jsonb_set(template_data, '{clientId}', to_jsonb(${t}::TEXT)),
+      content_authors = approval_add_author(content_authors, ${by}::UUID)
     WHERE company_id = ${c}::UUID AND entity_type = 'customer_invoice'
       AND lower(template_data->>'clientId') = ${s}
   `;
@@ -275,7 +275,7 @@ async function mergeInSavepoint(
   await refuseOrLock(tx, companyId, sourceId, targetId);
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
-  const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId);
+  const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);
   // portal_access has no company_id and no RLS: scope it through the
   // customer, which refuseOrLock proved is this company's.
   const revoked = await tx`

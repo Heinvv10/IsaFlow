@@ -145,6 +145,13 @@ export async function cleanupPr4(pool: Pool, companies: string[], users: string[
     'DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ANY($1))',
     [companies]);
   await pool.query('DELETE FROM customer_payments WHERE company_id = ANY($1)', [companies]);
+  await pool.query(
+    'DELETE FROM customer_quote_lines WHERE quote_id IN (SELECT id FROM customer_quotes WHERE company_id = ANY($1))', [companies]);
+  await pool.query('DELETE FROM customer_quotes WHERE company_id = ANY($1)', [companies]);
+  await pool.query(
+    'DELETE FROM customer_sales_order_items WHERE sales_order_id IN (SELECT id FROM customer_sales_orders WHERE company_id = ANY($1))',
+    [companies]);
+  await pool.query('DELETE FROM customer_sales_orders WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM recurring_invoices WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM recurring_transaction_templates WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1)', [companies]);
@@ -156,5 +163,6 @@ export async function cleanupPr4(pool: Pool, companies: string[], users: string[
     'DELETE FROM customer_invoice_items WHERE invoice_id IN (SELECT id FROM customer_invoices WHERE company_id = ANY($1))',
     [companies]);
   await pool.query('DELETE FROM time_entries WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM practice_clients WHERE company_id = ANY($1)', [companies]);
   await cleanupPr3(pool, companies, users);
 }

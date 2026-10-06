@@ -8,6 +8,7 @@ import { mapEntry } from './practiceTimeEntryMap';
 import { lockEligibleWipEntries } from './wipEntryLock';
 import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
 
 export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
@@ -254,6 +255,9 @@ export async function generateWipInvoice(
         lineCount++;
       }
     }
+
+    // R-035 PR4 review F1: whoever logged the time is an author of the invoice.
+    await stampUpstreamAuthors(companyId, invoiceId, { kind: 'time_entries', ids: eligibleIds });
 
     // 5. Mark entries billed via workflow. The count is the workflow's way of
     //    reporting a loss: anything short of the full selection means an entry

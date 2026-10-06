@@ -67,6 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       const item = await updateRecurringTemplate(
         companyId, id,
         updates as Parameters<typeof updateRecurringTemplate>[2],
+        req.user.id,
       );
       return apiResponse.success(res, item);
     } catch (err) {

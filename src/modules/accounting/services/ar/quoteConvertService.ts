@@ -19,6 +19,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
+import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
 
 type Row = DbRow;
 
@@ -212,6 +213,9 @@ export async function convertToInvoice(
       VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId})
     `;
   }
+
+  // R-035 PR4 review F1: whoever wrote the quote is an author of the invoice.
+  await stampUpstreamAuthors(companyId, invoiceId, { kind: 'quote', id });
 
   // Status was already set by the claim above; only the link is left to write.
   await sql`UPDATE customer_quotes SET converted_invoice_id = ${invoiceId}::UUID, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
