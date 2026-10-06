@@ -229,8 +229,12 @@ Mutation checks. Each one must turn a test red:
 - **Lock:** the gate reads under `FOR NO KEY UPDATE`, taken only on an approvable invoice. Content edits wait for it, inserts that reference the invoice do not.
 - **Upstream authors (Hein, 2026-10-06: whoever sets the price upstream is an author):** an invoice minted from a recurring template, a quote, a sales order or logged time carries the source's authors, who may not approve it.
   - A quote's or order's creator and every editor whose change moved what it billed count as authors. So does every user who changed a time entry's rate or billable flag.
-  - The time entry's logger does not count (decision 1): hours are effort, and the rate sets the price.
-  - Source editors are stamped on the edit itself, never at creation.
+  - Time entries (decision 1, round 3):
+    - The rate sets the price.
+    - A practice entry's logger does not count, because the rate comes from the rate tables. The tables are configuration, so whoever sets them is not an author either; this is a known limit.
+    - A time-tracking logger types the rate, so they do count.
+    - Changing someone else's hours counts. Your own hours are effort.
+  - Source editors are stamped on the edit itself. The only stamp at creation is a time-tracking logger who types a rate.
   - A converted quote is terminal, so the link authors are derived through cannot be moved.
   - Accepted dead end: if every member of the rank authored or raised the invoice (two owners, one priced the quote and the other converted it), nobody may approve it. The refusal tells them to have the source's author perform the conversion instead.
   - Template authors are written into the invoice at mint, because the invoice keeps no link to its template.

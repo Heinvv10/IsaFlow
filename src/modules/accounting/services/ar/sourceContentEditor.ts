@@ -30,7 +30,8 @@ async function fingerprint(companyId: string, source: PricedSource): Promise<str
         SELECT md5(jsonb_build_array(q.client_id, q.quote_date, trim_scale(q.subtotal), trim_scale(q.tax_amount),
           trim_scale(q.total), COALESCE((
             SELECT jsonb_agg(jsonb_build_array(l.description, trim_scale(l.quantity), trim_scale(l.unit_price),
-                     trim_scale(l.tax_rate), trim_scale(l.amount), l.gl_account_id) ORDER BY l.sort_order, l.description)
+                     trim_scale(l.tax_rate), trim_scale(l.amount), l.gl_account_id)
+                     ORDER BY l.sort_order, l.description, l.quantity, l.unit_price, l.tax_rate, l.amount, l.gl_account_id, l.id)
             FROM customer_quote_lines l WHERE l.quote_id = q.id), '[]'::jsonb))::TEXT) AS f
         FROM customer_quotes q WHERE q.id = ${source.id}::UUID AND q.company_id = ${companyId}::UUID
       `) as Row[]
@@ -38,7 +39,8 @@ async function fingerprint(companyId: string, source: PricedSource): Promise<str
         SELECT md5(jsonb_build_array(so.customer_id, so.order_date, trim_scale(so.subtotal), trim_scale(so.tax_amount),
           trim_scale(so.total_amount), COALESCE((
             SELECT jsonb_agg(jsonb_build_array(i.description, trim_scale(i.quantity), trim_scale(i.unit_price),
-                     trim_scale(i.tax_rate), trim_scale(i.line_total), i.gl_account_id) ORDER BY i.line_number, i.description)
+                     trim_scale(i.tax_rate), trim_scale(i.line_total), i.gl_account_id)
+                     ORDER BY i.line_number, i.description, i.quantity, i.unit_price, i.tax_rate, i.line_total, i.gl_account_id, i.id)
             FROM customer_sales_order_items i WHERE i.sales_order_id = so.id), '[]'::jsonb))::TEXT) AS f
         FROM customer_sales_orders so WHERE so.id = ${source.id}::UUID AND so.company_id = ${companyId}::UUID
       `) as Row[];

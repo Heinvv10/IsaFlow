@@ -42,7 +42,10 @@ describe('the content-author refusal names its document', () => {
     const text = (await deadEnd('customer_invoice'))!;
     expect(text).not.toMatch(/\bbill\b/);
     expect(text).toMatch(/you created the invoice/);
+    expect(text).toMatch(/quote, sales order, time entry or recurring template it came from/);
+    expect(text).not.toMatch(/order, time or /);
     expect(text).toMatch(/have the author of the source \(quote, sales order or recurring template\) perform the conversion or run/i);
+    expect(text).toMatch(/whoever re-priced a time entry/i);
     expect(text).toMatch(/so another eligible approver can approve/);
   });
 });

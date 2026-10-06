@@ -51,9 +51,10 @@ function wording(documentType: string | undefined) {
   if (documentType === 'customer_invoice') {
     return {
       created: 'you created the invoice, made an edit that changed it, or wrote or re-priced the quote, sales order, '
-        + 'time or recurring template it came from',
+        + 'time entry or recurring template it came from',
       deadEnd: 'Have the author of the source (quote, sales order or recurring template) perform the conversion or run '
-        + 'instead, so another eligible approver can approve the invoice, or have someone',
+        + 'instead — and whoever re-priced a time entry on it leave the invoicing to another member — so another '
+        + 'eligible approver can approve the invoice, or have someone',
     };
   }
   return { created: 'you created the document or made an edit that changed it', deadEnd: 'Cancel and re-enter the bill, or have someone' };
