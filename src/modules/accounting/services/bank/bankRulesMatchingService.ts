@@ -11,13 +11,11 @@ import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
 import { fetchBankContraFlags } from '../gl/bankContraVat';
 import type { RuleApplyResult } from '../../types/bank.types';
-import {
-  findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
-} from './bankRulesMatchingHelpers';
-import { lockRuleRunYears } from './bankRuleYearLocks';
+import type { RuleAllocType } from './bankRulesMatchingHelpers';
+import { prepareRuleRun } from './bankRuleYearLocks';
 import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
-import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
+import { applySuggestionRules } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
@@ -124,12 +122,12 @@ export async function applyRules(
       fetchBankContraFlags(companyId, ruleAccountIds),
     ]);
 
-    // Every year this run will number a journal in, ascending, before its first (core/numberYearLocks.ts). Outside
-    // the per-line savepoints: a 55P03 here posted nothing, and the whole run is retryable (route 503).
-    if (bankGlAccountId) await lockRuleRunYears(companyId, bankAccountId, autoCreateRules);
-    for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
-      const pattern = rulePattern(rule);
-      const field = String(rule.match_field);
+    // The run's candidates, read once, claimed, then every year they can post in, ascending, before the first journal
+    // (bankRuleYearLocks.ts). Outside the per-line savepoints: a 55P03 on a year key posted nothing (route 503).
+    const run = bankGlAccountId ? await prepareRuleRun(companyId, bankAccountId, autoCreateRules) : null;
+    const postedIds = new Set<string>();
+    autoPostTruncatedRules = run?.truncatedRules ?? 0;
+    for (const rule of (run ? autoCreateRules : [])) {
       const ruleName = String(rule.rule_name);
       const ruleGlAccountId = rule.gl_account_id ? String(rule.gl_account_id) : null;
       const ruleSupplierId = rule.supplier_id ? String(rule.supplier_id) : null;
@@ -145,8 +143,6 @@ export async function applyRules(
         log.warn('Skipping auto-create rule with no contra account', { ruleId: rule.id, ruleName }, 'accounting');
         continue;
       }
-
-      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
 
       // Resolve AP/AR control accounts and entity names lazily (only when needed).
       let apAccountId: string | null = null;
@@ -169,18 +165,12 @@ export async function applyRules(
         customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
       }
 
-      // findMatchingTxs fetches one row past the cap; the extra row is the
-      // signal that this rule matched more than one run may take.
-      const capped = matchingTxs.slice(0, MAX_RULE_CANDIDATES);
-      if (matchingTxs.length > MAX_RULE_CANDIDATES) autoPostTruncatedRules++;
-
       // Locked in id order, not the candidate query's date order: every
       // allocation path holds its row lock to the end of the request, so two
-      // runs touching the same rows in opposite orders deadlock (40P01).
-      const orderedTxs = [...capped].sort((a, b) => {
-        const x = String(a.id), y = String(b.id);
-        return x < y ? -1 : x > y ? 1 : 0;
-      });
+      // runs touching the same rows in opposite orders deadlock (40P01). The
+      // set was read before the first journal; a line an earlier rule posted is
+      // no longer a candidate, as its re-read used to show.
+      const orderedTxs = (run!.candidates.get(rule) ?? []).filter((tx) => !postedIds.has(String(tx.id)));
 
       for (const tx of orderedTxs) {
         let outcome;
@@ -239,6 +229,7 @@ export async function applyRules(
         if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
+        postedIds.add(String(tx.id));
         if (outcome.vatDenied) autoPostVatDenied++;
         if (outcome.nonSupplyCoerced) autoPostNonSupply++;
         totalApplied++;

@@ -10,7 +10,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import { safeLineDetail } from './bulkAllocationPost';
 import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
-import { journalYearOf, lockNumberYears } from '@/modules/accounting/services/core/numberYearLocks';
+import { claimRowsThenLockYears, journalYearOf } from '@/modules/accounting/services/core/numberYearLocks';
 import {
   getFiscalPeriodIdForDate,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -65,9 +65,11 @@ export async function postPartitionedDocuments<TResult>(
   const posted: TResult[] = [];
   const raced: SkippedDocument[] = [];
   // Every year these documents' journals are dated in (entryDate: the date each adapter's journal carries),
-  // ascending, before the first (core/numberYearLocks.ts). Outside the per-element savepoints: a raw 55P03 here
-  // posted nothing, so it reaches the registry whole and the agent is told to retry the batch.
-  await lockNumberYears(ctx.companyId, ordered.map((o) => journalYearOf(o.entryDate)));
+  // ascending, before the first and after claiming the rows in walk order with the adapter's own lock
+  // (core/numberYearLocks.ts). Outside the per-element savepoints: a raw 55P03 on a year key posted nothing, so
+  // it reaches the registry whole and the agent is told to retry the batch.
+  await claimRowsThenLockYears(ctx.companyId,
+    ordered.map((o) => ({ id: o.id, years: [journalYearOf(o.entryDate)] })), (id) => adapter.lockRow(ctx.companyId, id));
 
   for (const { index, id, entryDate } of ordered) {
     // Sequential, never Promise.all: these share one pg connection, and

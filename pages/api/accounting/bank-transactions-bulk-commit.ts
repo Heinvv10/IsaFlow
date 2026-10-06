@@ -57,11 +57,10 @@ import {
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { sql, withSavepoint } from '@/lib/neon';
-import { isHeldRowError } from '@/lib/lockTimeout';
+import { sql } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
-import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
+import { lockBulkCommitYears, runBulkCommitRulePass } from '@/modules/accounting/services/bank/bulkCommitRulePass';
 import {
   parseStatement,
   type StatementFileType,
@@ -268,6 +267,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       transactions: dedupedTxs,
     };
 
+    // Every year the import's sweep and the rule pass can post in, ascending, before either (bank/bulkCommitRulePass).
+    await lockBulkCommitYears(companyId, bankAccountId, dedupedTxs.map((t) => t.transactionDate), applyBankRules === true);
     const result = await importParsedTransactions(
       companyId,
       filteredResult,
@@ -285,30 +286,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       },
     );
 
-    let appliedRuleCount = 0;
-    let ruleLinesSkippedLocked = 0;
-    let ruleWarnings: string[] = [];
-    if (applyBankRules === true) {
-      try {
-        // In a savepoint: this catch swallows a rule-pass failure so the import still lands, and withAuth COMMITs
-        // the 200 — without it the lines the pass posted before it failed were committed behind `appliedRules: 0`.
-        // A line held by a peer (e.g. the journal number lock past its 5 s bound) is not a failure: applyRules skips
-        // it and counts it in `autoPostSkippedLocked`, which reaches the response below.
-        const ruleResult = await withSavepoint('bulk_commit_rules', () => applyBankRulesService(
-          companyId,
-          bankAccountId,
-          authReq.user.id,
-        ));
-        appliedRuleCount = ruleResult.applied;
-        ruleLinesSkippedLocked = ruleResult.autoPostSkippedLocked ?? 0;
-      } catch (err) {
-        // A cross-year rule pass whose up-front year keys a peer held past 5 s posted nothing: reported, retryable.
-        if (isHeldRowError(err)) ruleWarnings = ['Bank rules were not applied: another request is posting for this company. Apply the rules again in a moment.'];
-        log.warn('Failed to apply bank rules after bulk commit file', {
-          error: err, filename,
-        }, 'accounting-api');
-      }
-    }
+    const rulePass = applyBankRules === true
+      ? await runBulkCommitRulePass(companyId, bankAccountId, authReq.user.id, filename)
+      : { applied: 0, skippedLocked: 0, warnings: [] };
 
     if (isPayg && didDebit) {
       runAfterCommit('recalculateNudge after bulk commit', () => recalculateNudge(companyId).catch((err: unknown) => {
@@ -327,12 +307,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       transactionCount: result.transactionCount,
       duplicateCount,
       totalParsed: parseResult.transactions.length,
-      appliedRules: appliedRuleCount,
-      autoPostSkippedLocked: ruleLinesSkippedLocked,
+      appliedRules: rulePass.applied,
+      autoPostSkippedLocked: rulePass.skippedLocked,
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.
-      warnings: [...result.errors.map((e) => e.error), ...ruleWarnings],
+      warnings: [...result.errors.map((e) => e.error), ...rulePass.warnings],
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {

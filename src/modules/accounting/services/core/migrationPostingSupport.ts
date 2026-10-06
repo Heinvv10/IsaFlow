@@ -27,6 +27,7 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { journalYearOf, lockNumberYears } from './numberYearLocks';
 
 export interface TakeOnLine {
   glAccountId: string;
@@ -93,8 +94,14 @@ export function buildTakeOnLines(
  *
  * Keyed on the company: two different tenants never wait on each other.
  */
-export async function lockMigrationImport(companyId: string): Promise<void> {
+export async function lockMigrationImport(
+  companyId: string, takeOnDates: readonly (string | null | undefined)[] = [],
+): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtext(${companyId + ':migration-import'}))`;
+  // The document steps post one take-on journal per row, in FILE order, all in this transaction: every year they
+  // can be dated in is taken up front, ascending (core/numberYearLocks.ts; brk-numrace P1). No row is claimed
+  // first — the documents are this run's own inserts. More than 20 years is refused before any write.
+  await lockNumberYears(companyId, takeOnDates.map((d) => journalYearOf(d)));
 }
 
 /**
