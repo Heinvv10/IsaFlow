@@ -178,3 +178,29 @@ describe('the enforcement switch', () => {
       expect(rows).toEqual([{ action: 'create', entity_ref: documentType }, { action: 'delete', entity_ref: documentType }]);
     });
 });
+
+describe('the enforcement GET previews what switching on would hold', () => {
+  it('counts, per credit-note type, the drafts a rule of that type matches and nothing posted, cancelled, cleared or below it', async () => {
+    const c = await company();
+    for (const type of ['customer', 'supplier'] as const) {
+      await plantRule(pool, c, 'owner', { documentType: `${type}_credit_note`, operator: 'greater_than', value: 1000 });
+    }
+    await plantNote(pool, c, u.a, 'customer');
+    await plantNote(pool, c, u.a, 'customer', { subtotal: 1000, tax: 150, total: 900 }); // the larger leg matches
+    await plantNote(pool, c, u.a, 'customer', { subtotal: 800, tax: 120, total: 920 }); // below the threshold
+    const posted = await plantNote(pool, c, u.a, 'customer');
+    await pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [posted.id]);
+    const cancelled = await plantNote(pool, c, u.a, 'customer');
+    await pool.query("UPDATE credit_notes SET status = 'cancelled' WHERE id = $1", [cancelled.id]);
+    await plantNote(pool, c, u.a, 'supplier');
+    const cleared = await plantNote(pool, c, u.a, 'supplier');
+    await enforceType(pool, c, 'supplier', u.b);
+    await raiseAndApprove(c, 'supplier_credit_note', cleared.id);
+
+    const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement', { preview: '1' });
+    expect(res.state.statusCode).toBe(200);
+    expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({
+      supplier_invoice: 0, customer_credit_note: 2, supplier_credit_note: 1,
+    });
+  });
+});
