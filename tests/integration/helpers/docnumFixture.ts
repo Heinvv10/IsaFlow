@@ -3,9 +3,8 @@
  * 858, as a table the docnum-*.int.test.ts files iterate over, plus the scope they insert into.
  *
  * Every insert goes straight at the table on a dedicated `pg.Client`, so the trigger is the only code under test.
- * Each case's SQL takes exactly the parameters it binds: $1 the scope id (company or group), then the row date
- * where the trigger reads its year from one, then the number — NULL lets the trigger mint it, a string is an
- * explicit number (the trigger skips).
+ * Each case's SQL binds $1 the scope id (company or group), $2 the row date the trigger reads its year from, $3
+ * the number — NULL lets the trigger mint it, a string is an explicit number (the trigger skips) — then `extra`.
  */
 import { Client } from 'pg';
 import { randomUUID } from 'crypto';
@@ -16,12 +15,12 @@ export interface NumberingCase {
   fn: string;
   table: string;
   prefix: string;
-  /** True when the trigger reads the year from the row's date; false = CURRENT_DATE. */
-  datedRow: boolean;
+  /** The advisory-lock seed of the key `hashtextextended('<scope>:<year>', seed)`: 857 (the journal key) or 858. */
+  seed: 857 | 858;
   /** The id the trigger's MAX filters on: the company, or the consolidation group. */
   scopeOf: (s: Scope) => string;
   sql: string;
-  /** Bound after the scope id (and the date, when `datedRow`): whatever else the row needs. */
+  /** Bound after the scope id, the row date and the number: whatever else the row needs. */
   extra: (s: Scope) => unknown[];
 }
 
@@ -29,53 +28,56 @@ const actor = (): string => randomUUID();
 
 export const CASES: NumberingCase[] = [
   {
-    fn: 'generate_credit_note_number', table: 'credit_notes', prefix: 'CN', datedRow: true,
+    fn: 'generate_credit_note_number', table: 'credit_notes', prefix: 'CN', seed: 857,
     scopeOf: (s) => s.companyId, extra: () => [actor()],
     sql: `INSERT INTO credit_notes (company_id, credit_date, credit_note_number, type, created_by)
           VALUES ($1, $2, $3, 'customer', $4) RETURNING credit_note_number AS n`,
   },
   {
-    fn: 'generate_customer_payment_number', table: 'customer_payments', prefix: 'CP', datedRow: true,
+    fn: 'generate_customer_payment_number', table: 'customer_payments', prefix: 'CP', seed: 857,
     scopeOf: (s) => s.companyId, extra: (s) => [s.customerId, actor()],
     sql: `INSERT INTO customer_payments (company_id, payment_date, payment_number, client_id, total_amount, created_by)
           VALUES ($1, $2, $3, $4, 1, $5) RETURNING payment_number AS n`,
   },
   {
-    fn: 'generate_supplier_payment_number', table: 'supplier_payments', prefix: 'SP', datedRow: true,
+    fn: 'generate_supplier_payment_number', table: 'supplier_payments', prefix: 'SP', seed: 857,
     scopeOf: (s) => s.companyId, extra: (s) => [s.supplierId, actor()],
     sql: `INSERT INTO supplier_payments (company_id, payment_date, payment_number, supplier_id, total_amount, created_by)
           VALUES ($1, $2, $3, $4, 1, $5) RETURNING payment_number AS n`,
   },
   {
-    fn: 'generate_consolidation_adj_number', table: 'consolidation_adjustments', prefix: 'ELIM', datedRow: true,
+    fn: 'generate_consolidation_adj_number', table: 'consolidation_adjustments', prefix: 'ELIM', seed: 858,
     scopeOf: (s) => s.groupId, extra: () => [],
     sql: `INSERT INTO consolidation_adjustments (group_id, period_start, adjustment_number, adjustment_type)
           VALUES ($1, $2, $3, 'interco_balance') RETURNING adjustment_number AS n`,
   },
   {
-    fn: 'generate_adjustment_number', table: 'accounting_adjustments', prefix: 'ADJ', datedRow: false,
+    fn: 'generate_adjustment_number', table: 'accounting_adjustments', prefix: 'ADJ', seed: 857,
     scopeOf: (s) => s.companyId, extra: (s) => [s.customerId, actor()],
     sql: `INSERT INTO accounting_adjustments
-            (company_id, adjustment_number, entity_type, entity_id, adjustment_type, amount, reason, created_by)
-          VALUES ($1, $2, 'customer', $3, 'debit', 1, 'docnum', $4) RETURNING adjustment_number AS n`,
+            (company_id, adjustment_date, adjustment_number, entity_type, entity_id, adjustment_type, amount, reason,
+             created_by)
+          VALUES ($1, $2, $3, 'customer', $4, 'debit', 1, 'docnum', $5) RETURNING adjustment_number AS n`,
   },
   {
-    fn: 'generate_batch_number', table: 'supplier_payment_batches', prefix: 'BAT', datedRow: false,
+    fn: 'generate_batch_number', table: 'supplier_payment_batches', prefix: 'BAT', seed: 857,
     scopeOf: (s) => s.companyId, extra: () => [actor()],
-    sql: `INSERT INTO supplier_payment_batches (company_id, batch_number, created_by)
-          VALUES ($1, $2, $3) RETURNING batch_number AS n`,
+    sql: `INSERT INTO supplier_payment_batches (company_id, batch_date, batch_number, created_by)
+          VALUES ($1, $2, $3, $4) RETURNING batch_number AS n`,
   },
   {
-    fn: 'generate_vat_adjustment_number', table: 'vat_adjustments', prefix: 'VA', datedRow: false,
+    fn: 'generate_vat_adjustment_number', table: 'vat_adjustments', prefix: 'VA', seed: 857,
     scopeOf: (s) => s.companyId, extra: () => [actor()],
-    sql: `INSERT INTO vat_adjustments (company_id, adjustment_number, adjustment_type, amount, reason, created_by)
-          VALUES ($1, $2, 'input', 1, 'docnum', $3) RETURNING adjustment_number AS n`,
+    sql: `INSERT INTO vat_adjustments
+            (company_id, adjustment_date, adjustment_number, adjustment_type, amount, reason, created_by)
+          VALUES ($1, $2, $3, 'input', 1, 'docnum', $4) RETURNING adjustment_number AS n`,
   },
   {
-    fn: 'generate_write_off_number', table: 'customer_write_offs', prefix: 'WO', datedRow: false,
+    fn: 'generate_write_off_number', table: 'customer_write_offs', prefix: 'WO', seed: 857,
     scopeOf: (s) => s.companyId, extra: (s) => [s.customerId, s.invoiceId, actor()],
-    sql: `INSERT INTO customer_write_offs (company_id, write_off_number, client_id, invoice_id, amount, reason, created_by)
-          VALUES ($1, $2, $3, $4, 1, 'docnum', $5) RETURNING write_off_number AS n`,
+    sql: `INSERT INTO customer_write_offs
+            (company_id, write_off_date, write_off_number, client_id, invoice_id, amount, reason, created_by)
+          VALUES ($1, $2, $3, $4, $5, 1, 'docnum', $6) RETURNING write_off_number AS n`,
   },
 ];
 
@@ -83,8 +85,7 @@ export const CASES: NumberingCase[] = [
 export async function insertDoc(
   c: Client, k: NumberingCase, s: Scope, year: number, number: string | null = null,
 ): Promise<string> {
-  const head = k.datedRow ? [k.scopeOf(s), `${year}-03-01`, number] : [k.scopeOf(s), number];
-  return String((await c.query(k.sql, [...head, ...k.extra(s)])).rows[0].n);
+  return String((await c.query(k.sql, [k.scopeOf(s), `${year}-03-01`, number, ...k.extra(s)])).rows[0].n);
 }
 
 /** A draft journal with a trigger-minted number, dated in `year` (no lines: only its number matters here). */
