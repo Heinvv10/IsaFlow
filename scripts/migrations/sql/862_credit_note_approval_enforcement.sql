@@ -33,9 +33,9 @@
 --      the fail-closed floor for raw writers, as 712's is for bills. Unlike
 --      712's, it honours NO import exemption: no importer writes credit notes
 --      (review A2), so a session setting the import GUC gains nothing here.
---   6. app_user may not INSERT a credit-note approval request that is already
---      decided (review A3): the backstop reads approved rows, and one nobody
---      decided would clear it.
+--   6. app_user may INSERT a credit-note approval request only as
+--      requestApproval writes one (review A3, round 2 N2): pending, undecided,
+--      no past requesters, raised by the session's own user.
 
 -- ── 1. The credit-note types may carry an enforcement row ──────────────────
 ALTER TABLE approval_enforcement DROP CONSTRAINT IF EXISTS approval_enforcement_document_type_check;
@@ -310,18 +310,31 @@ BEGIN
   END IF;
 END $$;
 
--- ── 6. No decided request by INSERT (review A3) ────────────────────────────
--- A request is raised 'pending' (requestApproval) and decided by UPDATE
--- (decideRequest, behind assertMayDecide). Under RLS app_user may INSERT into
--- approval_requests for its own company, so without this it could write an
--- 'approved' row carrying the live digest — an approval nobody gave, which the
--- backstop above would accept. Refused for the types listed here; a role that
--- bypasses RLS (the owner a script, a migration or a test fixture runs as) is
--- not held to it. SECURITY INVOKER on purpose: current_user must be the caller.
+-- ── 6. A request is inserted only as requestApproval writes it ────────────
+-- A request is raised 'pending' by the session's own user (requestApproval /
+-- raiseUnattendedApproval: requested_by = the withAuth user, no decision, no
+-- past requesters) and decided by UPDATE (decideRequest, behind
+-- assertMayDecide). Under RLS app_user may INSERT into approval_requests for
+-- its own company, so without this guard it could write:
+--   * an 'approved' row carrying the live digest — an approval nobody gave,
+--     which the backstop above would accept (review A3);
+--   * a pending row naming ANOTHER requester — the real raiser is then not
+--     the requester, and may decide the request themselves (round 2 N2);
+--   * a pending row already carrying decided_by / decided_at, or a
+--     past_requesters list it never had.
+-- All refused for the types listed here; a role that bypasses RLS (the owner a
+-- script, a migration or a test fixture runs as) is not held to it. SECURITY
+-- INVOKER on purpose: current_user must be the caller. auth.uid() is the JWT
+-- subject withAuth sets; with no claims it is NULL, which refuses.
 -- Each later R-035 PR adds its own types to the list.
--- OUT OF SCOPE, deliberately: supplier_invoice (live enforcement — unchanged),
--- and the UPDATE half (raw pending → approved by app_user), which needs a
--- decided-request guard on UPDATE of its own.
+-- OUT OF SCOPE, deliberately, and open for EVERY type (follow-up for Hein):
+--   * supplier_invoice — live enforcement, unchanged;
+--   * the UPDATE half (round 2 N1): app_user can INSERT a pending request and
+--     then raw-UPDATE it to 'approved', which this INSERT guard cannot see.
+--     Closing it needs the request and decide paths to write through a
+--     SECURITY DEFINER function (with app_user losing direct UPDATE on
+--     approval_requests), shared with the live supplier-invoice enforcement —
+--     a change to that enforcement, so not made here.
 CREATE OR REPLACE FUNCTION public.approval_request_insert_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -329,12 +342,16 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF NEW.document_type = ANY (ARRAY['customer_credit_note', 'supplier_credit_note']::pg_catalog.text[])
-     AND COALESCE(NEW.status, '') <> 'pending'
      AND NOT EXISTS (
        SELECT 1 FROM pg_catalog.pg_roles r
-       WHERE r.rolname = current_user AND (r.rolbypassrls OR r.rolsuper)) THEN
-    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a % approval request may only be inserted as pending', NEW.document_type
-      USING HINT = 'Raise the request, then have an eligible approver decide it.';
+       WHERE r.rolname = current_user AND (r.rolbypassrls OR r.rolsuper))
+     AND (COALESCE(NEW.status, '') <> 'pending'
+          OR NEW.requested_by::pg_catalog.text IS DISTINCT FROM auth.uid()
+          OR NEW.decided_by IS NOT NULL
+          OR NEW.decided_at IS NOT NULL
+          OR pg_catalog.cardinality(COALESCE(NEW.past_requesters, '{}')) > 0) THEN
+    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a % approval request may only be inserted pending, undecided and raised by the session''s own user', NEW.document_type
+      USING HINT = 'Raise the request through IsaFlow, then have an eligible approver decide it.';
   END IF;
   RETURN NEW;
 END
