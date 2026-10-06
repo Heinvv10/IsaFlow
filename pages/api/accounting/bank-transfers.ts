@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
+import { journalDateWindowError, ledgerDay } from '@/modules/accounting/utils/journalDateWindow';
 import { log } from '@/lib/logger';
 import { assertJournalVatPeriodOpen, VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 
@@ -25,7 +26,10 @@ const TransferSchema = z.object({
     message: 'Transfer amount must be a positive number',
   }),
   reference: z.string().max(500).optional(),
-  transferDate: z.string().max(30).optional(),
+  // sec-numrace S4: this route INSERTs its journal itself, not via createJournalEntry — a ledger date only.
+  transferDate: z.string().max(30).refine((d) => journalDateWindowError(d) === null, {
+    message: 'transferDate must be a date between 1900-01-01 and 2199-12-31',
+  }).transform((d) => ledgerDay(d) ?? d).optional(),
 }).refine(v => v.fromAccountId !== v.toAccountId, {
   message: 'Source and destination accounts must be different',
   path: ['toAccountId'],

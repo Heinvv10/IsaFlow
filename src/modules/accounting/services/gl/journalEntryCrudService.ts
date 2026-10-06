@@ -16,6 +16,7 @@ import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { planLockedVatPosting } from './vatLateClaimPlan';
 import { assertNoLateClaimClearingLines } from './lateClaimClearingGuard';
 import { assertDocumentNotAlreadyPosted } from './documentJournalClaimGuard';
+import { assertJournalDateInWindow } from './journalDateGuard';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -212,6 +213,7 @@ async function createJournalEntryInTransaction(
   opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
 ): Promise<JournalEntry> {
   try {
+    await assertJournalDateInWindow(input.entryDate); // sec-numrace S4: first, before this journal writes anything
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
     await assertJournalLinesOwned(
