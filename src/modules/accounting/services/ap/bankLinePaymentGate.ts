@@ -38,18 +38,21 @@ export async function bankLineIsEvidenced(companyId: string, bankTxId: string): 
   return line ? isBankEvidenced(line) : false;
 }
 
-/** A hand-keyed line would pay a supplier past an enforced rule. Routes answer 409 (an ApprovalRequiredError). */
-export class ManualBankLinePaymentError extends ApprovalRequiredError {
-  constructor(amount: number, requiredRole: string, ruleName: string) {
-    super({
-      reason: 'APPROVAL_REQUIRED', requiredRole, ruleName, requestId: null,
-      documentType: 'supplier_payment', documentReference: null,
-    });
-    this.message = `A supplier payment of R${amount.toFixed(2)} needs ${requiredRole} approval before it can be paid `
-      + `(rule: ${ruleName}), and a bank line keyed by hand is no evidence the money left. Record it as a supplier `
-      + 'payment and submit it for approval, or import the bank statement that shows it.';
-    this.name = 'ManualBankLinePaymentError';
-  }
+/**
+ * The refusal for a hand-keyed line paying a supplier past an enforced rule:
+ * an ApprovalRequiredError (routes answer it 409; MCP shows its code's
+ * message) whose text names the way out. Built, not subclassed, so this module
+ * loads no class from approvalGate at import time.
+ */
+function manualLineRefusal(amount: number, requiredRole: string, ruleName: string): ApprovalRequiredError {
+  const err = new ApprovalRequiredError({
+    reason: 'APPROVAL_REQUIRED', requiredRole, ruleName, requestId: null,
+    documentType: 'supplier_payment', documentReference: null,
+  });
+  err.message = `A supplier payment of R${amount.toFixed(2)} needs ${requiredRole} approval before it can be paid `
+    + `(rule: ${ruleName}), and a bank line keyed by hand is no evidence the money left. Record it as a supplier `
+    + 'payment and submit it for approval, or import the bank statement that shows it.';
+  return err;
 }
 
 /**
@@ -57,13 +60,13 @@ export class ManualBankLinePaymentError extends ApprovalRequiredError {
  * when supplier payments are not enforced, or no active rule matches the
  * amount (approval_supplier_payment_gate_amount: its absolute value). Reads only.
  */
-export async function manualLinePaymentRefusal(companyId: string, amount: number): Promise<ManualBankLinePaymentError | null> {
+export async function manualLinePaymentRefusal(companyId: string, amount: number): Promise<ApprovalRequiredError | null> {
   if (!(await isEnforced(companyId, 'supplier_payment'))) return null;
   const rule = await strictestMatchingRule(companyId, 'supplier_payment', Math.abs(amount));
-  return rule ? new ManualBankLinePaymentError(Math.abs(amount), rule.approverRole, rule.name) : null;
+  return rule ? manualLineRefusal(Math.abs(amount), rule.approverRole, rule.name) : null;
 }
 
-/** Throws ManualBankLinePaymentError unless `line` may pay a supplier `amount` without an approval. */
+/** Throws the refusal (an ApprovalRequiredError) unless `line` may pay a supplier `amount` without an approval. */
 export async function assertBankLineMayPaySupplier(companyId: string, line: DbRow, amount: number): Promise<void> {
   if (isBankEvidenced(line)) return;
   const refusal = await manualLinePaymentRefusal(companyId, amount);
