@@ -22,9 +22,13 @@ export function journalDayWindowError(day: string): string | null {
   return `Date ${day} is outside ${JOURNAL_DATE_MIN} to ${JOURNAL_DATE_MAX}`;
 }
 
-/** A statement parser's own Y-M-D output (any year width): its window error. Other shapes are left to Postgres. */
+/**
+ * A statement parser's output, which has no database to read it: every parser emits a canonical YYYY-MM-DD, which
+ * Postgres reads as itself under every DateStyle, so that is the only shape accepted — anything else is a row error,
+ * never left for Postgres to read some other way at insert.
+ */
 export function parsedDayWindowError(date: string): string | null {
-  return /^\d+-\d{2}-\d{2}$/.test(date) ? journalDayWindowError(date) : null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? journalDayWindowError(date) : `Date "${date}" is not a YYYY-MM-DD day`;
 }
 
 /**
