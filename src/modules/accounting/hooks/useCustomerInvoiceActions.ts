@@ -9,6 +9,7 @@ import { Mail, Copy, Download, CreditCard, CheckCircle2, Send, FileText, XCircle
 import type { InvoiceActionGroup } from '@/components/invoices/InvoiceActionBar';
 import type { ActionMenuItem } from '@/components/ui/ActionMenu';
 import type { CustomerInvoiceDetail } from '@/modules/accounting/types/customerInvoice.types';
+import { isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 
 interface Options {
   invoiceId: string;
@@ -45,7 +46,8 @@ export function useCustomerInvoiceActions(opts: Options | null): {
   } = opts;
 
   const balance = Number(invoice.total_amount) - Number(invoice.amount_paid);
-  const canApprove = invoice.status === 'draft' || invoice.status === 'pending_approval';
+  // R-035 PR4: while approval holds the invoice, the page's approval panel offers Submit instead.
+  const canApprove = (invoice.status === 'draft' || invoice.status === 'pending_approval') && !isApprovalHeld(invoice.approval);
   const canSend = invoice.status === 'approved';
   // Server blocks cancel whenever amount_paid > 0 (P1.1) — partially_paid
   // would always fail there, so don't offer it.

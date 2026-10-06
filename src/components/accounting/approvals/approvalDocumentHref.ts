@@ -8,6 +8,7 @@ const PAGES: Record<string, string> = {
   supplier_invoice: '/accounting/supplier-invoices',
   customer_credit_note: '/accounting/credit-notes',
   supplier_credit_note: '/accounting/supplier-credit-notes',
+  customer_invoice: '/accounting/customer-invoices',
 };
 
 export function approvalDocumentHref(documentType: string, documentId: string): string | null {
