@@ -162,6 +162,9 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Listed because every `readonly code` must be; no MCP tool reverses or
   // processes a batch yet, so no agent can receive it today.
   'BATCH_ALREADY_REVERSED',
+  // R-035 PR5: a batch that is no longer a draft when approve runs; names its
+  // status only, raised before any write. No MCP tool approves a batch today.
+  'BATCH_NOT_APPROVABLE',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
   // A captured document already claimed for posting, or rejected (K-072), or its

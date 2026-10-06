@@ -21,6 +21,7 @@ import {
   createSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierPaymentService';
 import type { PaymentStatus } from '@/modules/accounting/types/ap.types';
+import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   isRetryableSupplierPaymentRefusal,
@@ -50,7 +51,11 @@ async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse
     if (id) {
       const payment = await getSupplierPaymentById(companyId, id as string);
       if (!payment) return apiResponse.notFound(res, 'Payment', id as string);
-      return apiResponse.success(res, payment);
+      // R-035 PR5: the derived approval state while approve or process is still
+      // ahead. A batch member has none of its own — its batch's page shows it.
+      const approval = !payment.batchId && (payment.status === 'draft' || payment.status === 'approved')
+        ? await describeApprovalGate(companyId, 'supplier_payment', payment.id) : null;
+      return apiResponse.success(res, { ...payment, approval });
     }
 
     const result = await getSupplierPayments(companyId, {
