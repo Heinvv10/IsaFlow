@@ -48,6 +48,11 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
 vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
   snapshotInvoicePdf: vi.fn().mockResolvedValue({ documentId: 'doc-1', wasExisting: false }),
 }));
+// R-035 PR4: the approval gate has its own real-PG suites (r035-pr4-*); here it clears.
+vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
+  assertApprovalCleared: vi.fn(async () => undefined),
+}));
 
 import { sql } from '@/lib/neon';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
@@ -118,7 +123,7 @@ describe('approveCustomerInvoice', () => {
   it('still rejects a non-approvable invoice before touching the GL', async () => {
     // Guarded UPDATE matches nothing, then the status lookup returns 'cancelled'.
     sqlMock
-      .mockResolvedValueOnce([{ status: 'cancelled' }]) // the row lock (R-035): not approvable, so no gate
+      .mockResolvedValueOnce([]) // the row lock (R-035) matches approvable invoices only: none, so no gate
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ status: 'cancelled' }]);
 
