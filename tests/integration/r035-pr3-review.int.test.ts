@@ -107,6 +107,21 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
     await expect(asAppUser(u.b, c, (cl) => insertPending(cl, c, note.id, u.a))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
   });
 
+  it('refuses any insert from a session with no JWT subject (auth.uid() NULL), whoever it names', async () => {
+    const c = await company();
+    const note = await plantNote(pool, c, u.a, type);
+    const cl = await pool.connect();
+    try {
+      await cl.query('BEGIN');
+      await cl.query('SET LOCAL ROLE app_user');
+      await cl.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await expect(insertPending(cl, c, note.id, u.a)).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    } finally {
+      await cl.query('ROLLBACK');
+      cl.release();
+    }
+  });
+
   it.each([
     ['decided_by', `'${SOMEONE}'::UUID`],
     ['decided_at', 'now()'],
