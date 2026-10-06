@@ -1,10 +1,11 @@
 /**
  * DOCNUM: the numbering wait is bounded at 5 s (sec-docnum F1).
  *
- * Every numbering trigger function — the eight of 858 and 857's journal one — runs with `lock_timeout = 5s`
- * (function-level SET). Before, an insert waited with no limit behind any open transaction that had numbered a
- * journal or a document for the company and year, holding its pool connection: one company could fill the shared
- * pool. Now it fails 55P03 after 5 s, which the routes already answer 503 + Retry-After (D11).
+ * Every numbering trigger function — the eight of 858 and 857's journal one — bounds its wait for the number lock
+ * at 5 s, tighten-only: a caller with no lock_timeout (or a looser one) gets 5 s, a caller with a tighter one keeps
+ * it, and the caller's value is put back afterwards. Before, an insert waited with no limit behind any open
+ * transaction that had numbered a journal or a document for the company and year, holding its pool connection:
+ * one company could fill the shared pool. Now it fails 55P03, which the routes answer 503 + Retry-After (D11).
  *
  * The key is held by hand here (`pg_advisory_xact_lock` on the exact key the triggers take), so every waiter is
  * blocked on the numbering lock and on nothing else. Each waiter connection has statement_timeout = 20 s: a function
@@ -98,27 +99,56 @@ describeIfDb('DOCNUM: a numbering insert waits at most 5 s', () => {
     }
   }
 
-  it('all nine numbering functions give up with 55P03 after about 5 s (caller sets no lock_timeout)', async () => {
-    const out = await holdingKeys(scope!.companyId, scope!.groupId, () => Promise.all([
-      ...CASES.map((k) => timed((c) => insertDoc(c, k, scope!, YEAR)).then((r) => [k.fn, r] as const)),
-      timed((c) => insertJournal(c, scope!, YEAR)).then((r) => ['generate_journal_entry_number', r] as const),
-    ]));
-    for (const [fn, r] of out) {
+  /** All nine inserts at once, each on its own connection with `setup`, while the keys are held. */
+  const allNine = (setup: string) => holdingKeys(scope!.companyId, scope!.groupId, () => Promise.all([
+    ...CASES.map((k) => timed((c) => insertDoc(c, k, scope!, YEAR), setup).then((r) => [k.fn, r] as const)),
+    timed((c) => insertJournal(c, scope!, YEAR), setup).then((r) => ['generate_journal_entry_number', r] as const),
+  ]));
+
+  // Tighten-only: the function bounds the wait at 5 s when the caller has no bound or a looser one, and keeps a
+  // caller's tighter bound — withRowLockBudget hands a D8 flow's REMAINING budget down this way (sec-docnum N1).
+  it.each([
+    ['no lock_timeout (0)', '', 4500, 10000],
+    ['a looser 30 s', "SET lock_timeout = '30s'", 4500, 10000],
+    ['a tighter 500 ms', "SET lock_timeout = '500ms'", 400, 2500],
+  ] as const)('caller with %s: all nine functions give up with 55P03 in the bound', async (_label, setup, min, max) => {
+    for (const [fn, r] of await allNine(setup)) {
       expect(r.code, `${fn}: ${JSON.stringify(r)}`).toBe('55P03');
-      expect(r.ms, `${fn}: ${JSON.stringify(r)}`).toBeGreaterThanOrEqual(4500);
-      expect(r.ms, `${fn}: ${JSON.stringify(r)}`).toBeLessThan(10000);
+      expect(r.ms, `${fn}: ${JSON.stringify(r)}`).toBeGreaterThanOrEqual(min);
+      expect(r.ms, `${fn}: ${JSON.stringify(r)}`).toBeLessThan(max);
     }
   }, 60000);
 
-  // The other effect of a function-level SET, pinned so nobody mistakes it for a bug: inside the function the 5 s
-  // replaces a caller's TIGHTER lock_timeout too.
-  it("a caller's tighter lock_timeout (1 s) is 5 s inside the numbering function", async () => {
-    const cp = CASES.find((k) => k.table === 'customer_payments')!;
-    const r = await holdingKeys(scope!.companyId, null,
-      () => timed((c) => insertDoc(c, cp, scope!, YEAR), "SET lock_timeout = '1s'"));
-    expect(r.code, JSON.stringify(r)).toBe('55P03');
-    expect(r.ms, JSON.stringify(r)).toBeGreaterThanOrEqual(4500);
-  }, 60000);
+  it("the caller's lock_timeout is unchanged after a numbered insert, and after a timeout rolled back to a savepoint",
+    async () => {
+      const cp = CASES.find((k) => k.table === 'customer_payments')!;
+      const c = new Client({ connectionString: DATABASE_URL });
+      await c.connect();
+      const show = async (): Promise<string> => String((await c.query('SHOW lock_timeout')).rows[0].lock_timeout);
+      try {
+        await c.query('BEGIN');
+        expect(await show()).toBe('0');
+        await insertDoc(c, cp, scope!, YEAR + 1); // nobody holds YEAR + 1: numbered without a wait
+        expect(await show(), 'an unbounded caller stays unbounded').toBe('0');
+        await c.query("SET LOCAL lock_timeout = '750ms'");
+        await insertDoc(c, cp, scope!, YEAR + 1);
+        expect(await show()).toBe('750ms');
+        const r = await holdingKeys(scope!.companyId, null, async () => {
+          await c.query('SAVEPOINT s');
+          const t0 = Date.now();
+          const code = await insertDoc(c, cp, scope!, YEAR).then(() => 'ok', (e: unknown) => String((e as { code?: string }).code));
+          const ms = Date.now() - t0;
+          await c.query('ROLLBACK TO SAVEPOINT s');
+          return { code, ms };
+        });
+        expect(r.code).toBe('55P03');
+        expect(r.ms, 'the caller\'s 750 ms, not 5 s').toBeLessThan(2500);
+        expect(await show(), 'after ROLLBACK TO SAVEPOINT').toBe('750ms');
+      } finally {
+        await c.query('ROLLBACK');
+        await c.end();
+      }
+    }, 60000);
 
   it('customer-payments POST held past 5 s: 503 + Retry-After, nothing written', async () => {
     const invoiceId = await seedInvoice(fx!, { number: 'DOCNUM-TMO', date: `${ROUTE_YEAR}-02-01`, total: 100 });

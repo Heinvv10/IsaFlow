@@ -57,7 +57,7 @@ import {
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
@@ -285,14 +285,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     let appliedRuleCount = 0;
+    let ruleLinesSkippedLocked = 0;
     if (applyBankRules === true) {
       try {
-        const ruleResult = await applyBankRulesService(
+        // In a savepoint: this catch swallows a rule-pass failure so the import still lands, and withAuth COMMITs
+        // the 200 — without it the lines the pass posted before it failed were committed behind `appliedRules: 0`.
+        // A line held by a peer (e.g. the journal number lock past its 5 s bound) is not a failure: applyRules skips
+        // it and counts it in `autoPostSkippedLocked`, which reaches the response below.
+        const ruleResult = await withSavepoint('bulk_commit_rules', () => applyBankRulesService(
           companyId,
           bankAccountId,
           authReq.user.id,
-        );
+        ));
         appliedRuleCount = ruleResult.applied;
+        ruleLinesSkippedLocked = ruleResult.autoPostSkippedLocked ?? 0;
       } catch (err) {
         log.warn('Failed to apply bank rules after bulk commit file', {
           error: err, filename,
@@ -318,6 +324,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       duplicateCount,
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
+      autoPostSkippedLocked: ruleLinesSkippedLocked,
       // Non-fatal problems the import swallowed to stay non-fatal — today, a
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.

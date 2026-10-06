@@ -13,6 +13,7 @@ import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { prefetchAllocationVatFacts, type VatCoercionReason } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { isLockNotAvailable } from '@/modules/accounting/services/core/lockContention';
 import type { McpToolContext } from '../types';
 
 export interface PostedLine {
@@ -207,7 +208,10 @@ export async function postPreparedLines(
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
         continue;
       }
-      if (isRetryableContention(err)) {
+      // A raw 55P03 is a lock wait that hit its bound — since migration 858 usually the company+year NUMBER lock a
+      // peer holds past 5 s. The line's savepoint has rolled back, so it is the same retryable skip as a held row,
+      // never `database error 55P03` naming the agent's line as the fault.
+      if (isRetryableContention(err) || isLockNotAvailable(err)) {
         raced.push({
           index, transaction_id: txId, reason: 'locked by another request — retry',
         });

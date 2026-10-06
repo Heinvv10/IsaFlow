@@ -15,6 +15,7 @@ import {
   findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
 } from './bankRulesMatchingHelpers';
 import { isRetryableContention } from '../core/retryableContention';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
@@ -221,7 +222,10 @@ export async function applyRules(
           // VAT period before its draft exists; the line's savepoint has rolled
           // back cleanly, so it is a skip like a closed period, not a failure.
           if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
-          if (!isRetryableContention(lineErr)) throw lineErr;
+          // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
+          // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
+          // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
+          if (!isRetryableContention(lineErr) && !isHeldRowError(lineErr)) throw lineErr;
           autoPostSkippedLocked++;
           continue;
         }
