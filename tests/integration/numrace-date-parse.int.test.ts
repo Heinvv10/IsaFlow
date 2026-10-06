@@ -1,61 +1,75 @@
 /**
- * Ledger-date window: the JavaScript check against Postgres's own date parse (security scan: parser differential in
- * gl/journalDateGuard). createJournalEntry checks `entryDate` in JavaScript and then hands the SAME string to
- * Postgres, so for every string the check accepts, Postgres must store exactly the day the check read — inside
- * 1900-01-01..2199-12-31. A string the check refuses and Postgres would accept is fine (a refusal); the reverse is not.
+ * Ledger-date window: the day checked is the day stored (brk-numrace F1, sec-numrace DateStyle note). Every DB-backed
+ * path reads a tenant's date with Postgres (gl/journalDateGuard: `::date`, as its INSERT would), checks the window on
+ * that day, and stores it. So:
+ *   - every form base accepted still reads as its day (brk's list: 20250331, 2025-3-31, 31-Mar-2025, 2025.03.31,
+ *     03-31-2025, 3/31/25, "Monday, March 31, 2025", …);
+ *   - every string Postgres reads outside 1900..2199 (5- and 6-digit years, BC, ±infinity, 0001, 2200) is refused;
+ *   - a string Postgres cannot read is handed back (null day) to fail as it did before, inside a request too (the
+ *     batch's failure falls back to one savepoint per string; the transaction stays usable).
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
-import { journalDateWindowError, ledgerDay } from '@/modules/accounting/utils/journalDateWindow';
+import { ledgerDaysOf, ledgerEntryDay } from '@/modules/accounting/services/gl/journalDateGuard';
+import { isJournalDateRefused, journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
+import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
+let c: DateFixture;
 
-const EDGE = [
-  // whitespace, signs, years Postgres takes and the window must not
-  ' 2025-03-31', '2025-03-31 ', '  03/31/2025  ', '+2025-03-31', '-2025-03-31', '2025-03-31 BC', '0044-03-15 BC',
-  '100000-01-01', '10000-01-01', '100000-01-01T00:00:00', '0001-06-01', '1899-12-31', '2200-01-01',
-  // special values
-  'infinity', '-infinity', 'epoch', 'allballs', '2025-03-31 allballs', 'today', 'tomorrow', 'yesterday', 'now',
-  'J2460000', '20250331', '2025.03.31', '31-Mar-2025',
-  // times: ignored by a date cast, but only within what it accepts
-  '1999-12-31 24:00', '2199-12-31 24:00', '2199-12-31 24:00:00', '2199-12-31 24:01', '2199-12-31 23:59:60',
-  '2025-03-31 25:00', '2025-03-31 23:60', '2025-03-31T10:15', '2025-03-31T10:15:00.5+05:30',
-  '2199-12-31T23:00:00-05:00', '1900-01-01T00:30:00+05:00', '2025-03-31Z', '2025-03-31T10:15:00 BC',
-  '2025-03-31 10:15 PST',
-  // the other accepted forms, and their roll-over traps
-  '2025/3/31', '03/31/2025', '1/1/1900', '12/31/2199', '2/30/2025', '2025/2/30', '31/03/2025',
-  'March 31, 2025', 'Mar 31 2025', '31 March 2025', 'sept 30, 2025', 'Feb 30, 2025', 'Dec 31, 2199', '31 Dec 2199 BC',
-  '2026-02-29', '2024-02-29', '',
-];
+const BASE_FORMS = ['2025-03-31', '2025-3-31', '31-Mar-2025', '2025.03.31', '03-31-2025', 'Mar 31 2025', '31 Mar 2025',
+  '2025/3/31', '3/31/2025', '3/31/25', '20250331', '2025-03-31T10:00:00.000Z', 'Monday, March 31, 2025',
+  ' 2025-03-31 ', '2025-03-31 24:00', '2025-03-31T23:00:00-05:00', 'March 31, 2025'];
+const OUTSIDE = ['100000-01-01', '10000-01-01', '100000-01-01T00:00:00', '2025-03-31 BC', '0044-03-15 BC', 'infinity',
+  '-infinity', '0001-06-01', '1899-12-31', '2200-01-01', '2199-12-31 BC', 'Dec 31, 2200'];
+const UNREADABLE = ['allballs', '2/30/2025', '2025-03-31 25:00', '+2025-03-31', 'not a date', ''];
 
 async function postgresDay(s: string): Promise<string | null> {
   try {
-    const rows = (await sql`SELECT ${s}::date::text AS d`) as { d: string }[];
-    return rows[0]!.d;
+    return ((await sql`SELECT ${s}::date::text AS d`) as { d: string }[])[0]!.d;
   } catch (err) {
-    if (err instanceof Error && /invalid input syntax|out of range|displacement/i.test(err.message)) return null;
+    if (String((err as { code?: string }).code ?? '').startsWith('22')) return null;
     throw err;
   }
 }
 
-describe.skipIf(!DATABASE_URL)('ledger-date window: no parser differential with Postgres', () => {
-  it('every string the check accepts, Postgres stores as the same day, inside the window', async () => {
+describe.skipIf(!DATABASE_URL)('ledger-date window: Postgres reads the date', () => {
+  beforeAll(async () => {
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
-    const rows: Array<{ s: string; js: string | null; pg: string | null }> = [];
-    for (const s of EDGE) {
-      rows.push({ s, js: journalDateWindowError(s) === null ? ledgerDay(s) : null, pg: await postgresDay(s) });
-    }
+    c = await seedDateFixture('NUMRACE-DP', DATABASE_URL!);
+  }, 60000);
+  afterAll(async () => { await dropFixture(c.fx); }, 60000);
+
+  it('ledgerDaysOf is exactly ::date (null where it cannot cast), inside a request transaction', async () => {
+    const all = [...BASE_FORMS, ...OUTSIDE, ...UNREADABLE];
+    const days = await inTx(c.fx, async () => {
+      const d = await ledgerDaysOf(all);
+      await sql`SELECT 1`; // the request transaction is still usable after the per-string fallback
+      return d;
+    });
+    const rows = [];
+    for (const s of all) rows.push({ s, mine: days.get(s) ?? null, pg: await postgresDay(s) });
     process.stdout.write(`DATE-PARSE ${JSON.stringify(rows)}\n`);
-    const accepted = rows.filter((r) => r.js !== null);
-    for (const r of accepted) {
-      expect(r.pg, `${JSON.stringify(r.s)}: Postgres stores ${r.pg}, the check read ${r.js}`).toBe(r.js);
-      expect(r.pg! >= '1900-01-01' && r.pg! <= '2199-12-31', JSON.stringify(r.s)).toBe(true);
+    for (const r of rows) expect(r.mine, JSON.stringify(r.s)).toBe(r.pg);
+  }, 60000);
+
+  it("brk F1: every form base accepted reads as 2025-03-31 and passes the window", async () => {
+    const days = await ledgerDaysOf(BASE_FORMS);
+    for (const s of BASE_FORMS) {
+      expect(days.get(s), JSON.stringify(s)).toBe('2025-03-31');
+      expect(journalDayWindowError(days.get(s)!), JSON.stringify(s)).toBeNull();
     }
-    // And the window refuses every string Postgres reads outside it.
-    const outside = rows.filter((r) => r.pg !== null && !/^\d{4}-\d{2}-\d{2}$/.test(r.pg) || (r.pg !== null
-      && (r.pg < '1900-01-01' || r.pg > '2199-12-31')));
-    expect(outside.filter((r) => r.js !== null).map((r) => r.s)).toEqual([]);
-    expect(accepted.length).toBeGreaterThan(15);
+  }, 60000);
+
+  it('every string Postgres reads outside 1900..2199 is refused; an unreadable one is handed back unchanged', async () => {
+    for (const s of OUTSIDE) {
+      let err: unknown = null;
+      try { await inTx(c.fx, () => ledgerEntryDay(s)); } catch (e) { err = e; }
+      expect(isJournalDateRefused(err), `${JSON.stringify(s)}: ${String(err)}`).toBe(true);
+    }
+    for (const s of UNREADABLE) expect(await inTx(c.fx, () => ledgerEntryDay(s))).toBe(s);
+    expect(await inTx(c.fx, () => ledgerEntryDay('Monday, March 31, 2025'))).toBe('2025-03-31');
   }, 60000);
 });

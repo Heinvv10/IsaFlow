@@ -1,9 +1,8 @@
 /** Journal CRUD; trial balance lives in trialBalanceService.ts. */
 
-import { sql } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { randomUUID } from 'crypto';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withAlsTransaction } from '@/lib/alsTransaction';
 import { validateJournalEntry } from '../../utils/doubleEntry';
@@ -16,7 +15,7 @@ import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { planLockedVatPosting } from './vatLateClaimPlan';
 import { assertNoLateClaimClearingLines } from './lateClaimClearingGuard';
 import { assertDocumentNotAlreadyPosted } from './documentJournalClaimGuard';
-import { assertJournalDateInWindow } from './journalDateGuard';
+import { ledgerEntryDay } from './journalDateGuard'; // S4: the date window, first, on the day Postgres stores
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -213,7 +212,6 @@ async function createJournalEntryInTransaction(
   opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
 ): Promise<JournalEntry> {
   try {
-    await assertJournalDateInWindow(input.entryDate); // sec-numrace S4: first, before this journal writes anything
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
     await assertJournalLinesOwned(
@@ -332,8 +330,8 @@ export async function createJournalEntry(
   meta?: JournalEntryMeta,
   opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
 ): Promise<JournalEntry> {
-  return withAlsTransaction({ companyId, userId }, () =>
-    createJournalEntryInTransaction(companyId, input, userId, meta, opts));
+  return withAlsTransaction({ companyId, userId }, async () => createJournalEntryInTransaction(
+    companyId, { ...input, entryDate: await ledgerEntryDay(input.entryDate) }, userId, meta, opts));
 }
 
 // Trial balance split to trialBalanceService.ts — re-exported for backward compat

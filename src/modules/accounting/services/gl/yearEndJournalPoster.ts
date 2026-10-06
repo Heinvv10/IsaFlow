@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
 import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
-import { assertJournalDateInWindow } from './journalDateGuard';
+import { ledgerEntryDay } from './journalDateGuard';
 import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
 
 /** The two refusals a row holding the closing entry number can earn. */
@@ -156,7 +156,7 @@ export async function postClosingJournal(
     throw new Error(`Year-end closing journal is invalid: ${validation.errors.join('; ')}`);
   }
   // sec-numrace S4: this INSERTs its journal itself, not via the funnel; the date is a tenant-created fiscal year's end.
-  await assertJournalDateInWindow(preview.entryDate);
+  await ledgerEntryDay(preview.entryDate);
 
   // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
   // the periods left open.

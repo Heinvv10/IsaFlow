@@ -9,7 +9,8 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
-import { journalDateWindowError, ledgerDay } from '@/modules/accounting/utils/journalDateWindow';
+import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
+import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -30,9 +31,7 @@ import {
 const ManualTxSchema = z.object({
   type: z.enum(['spend', 'receive']),
   bankAccountId: UUID,
-  date: z.string().min(8).max(30).refine((d) => journalDateWindowError(d) === null, {
-    message: 'date must be YYYY-MM-DD between 1900-01-01 and 2199-12-31',
-  }).transform((d) => ledgerDay(d) ?? d),
+  date: z.string().min(8).max(30),
   amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
     message: 'amount must be a positive number',
   }),
@@ -69,9 +68,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const {
-    type, bankAccountId, date, amount: numericAmount,
+    type, bankAccountId, date: rawDate, amount: numericAmount,
     reference, description, allocationType, contraAccountId, entityId, vatCode, autoApply,
   } = parsed.data;
+  // The day Postgres stores (gl/journalDateGuard); outside the ledger window it is a 422 like any schema error.
+  const day = (await ledgerDaysOf([rawDate])).get(rawDate) ?? null;
+  const windowError = day === null ? null : journalDayWindowError(day);
+  if (windowError) return apiResponse.validationError(res, { date: [windowError] });
+  const date = day ?? rawDate;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 
