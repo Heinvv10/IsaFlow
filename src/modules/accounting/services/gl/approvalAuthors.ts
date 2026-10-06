@@ -45,15 +45,18 @@ export interface ContentAuthorFacts {
  * so its dead end — every member of the rank authored or raised it, e.g. two
  * owners where one priced the quote and the other converted it — has its own
  * way out (Hein, 2026-10-06, an accepted limit): the source's author performs
- * the conversion or run. Every other type keeps PR2's text byte for byte.
+ * the conversion, run or invoicing themselves. Never "leave it to another
+ * member": whoever converts, runs or invoices is an author of the invoice too,
+ * so handing the step on re-makes the dead end (round 4). Every other type
+ * keeps PR2's text byte for byte.
  */
 function wording(documentType: string | undefined) {
   if (documentType === 'customer_invoice') {
     return {
       created: 'you created the invoice, made an edit that changed it, or wrote or re-priced the quote, sales order, '
         + 'time entry or recurring template it came from',
-      deadEnd: 'Have the author of the source (quote, sales order or recurring template) perform the conversion or run '
-        + 'instead — and whoever re-priced a time entry on it leave the invoicing to another member — so another '
+      deadEnd: 'Have the author of the source — the quote, sales order or recurring template, or whoever set the rate '
+        + 'or hours of a time entry it bills — perform the conversion, run or invoicing themselves, so another '
         + 'eligible approver can approve the invoice, or have someone',
     };
   }

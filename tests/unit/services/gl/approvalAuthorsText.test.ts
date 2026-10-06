@@ -4,8 +4,10 @@
  * "bill", and gives the way out of the accepted dead end — every member of the
  * rank authored the content or raised the request (two owners: one priced the
  * quote, the other converted it): have the author of the source perform the
- * conversion or run, so another eligible approver can approve. The supplier
- * invoice and credit-note texts are unchanged, byte for byte.
+ * conversion, run or invoicing themselves, so another eligible approver can
+ * approve (round 4: never "leave it to another member" — the invoicer is an
+ * author too). The supplier invoice and credit-note texts are unchanged, byte
+ * for byte.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
@@ -38,14 +40,18 @@ describe('the content-author refusal names its document', () => {
     expect(await deadEnd(type)).toBe(OLD);
   });
 
-  it('customer_invoice: says invoice, never bill, and how to get out of the dead end', async () => {
-    const text = (await deadEnd('customer_invoice'))!;
-    expect(text).not.toMatch(/\bbill\b/);
-    expect(text).toMatch(/you created the invoice/);
-    expect(text).toMatch(/quote, sales order, time entry or recurring template it came from/);
-    expect(text).not.toMatch(/order, time or /);
-    expect(text).toMatch(/have the author of the source \(quote, sales order or recurring template\) perform the conversion or run/i);
-    expect(text).toMatch(/whoever re-priced a time entry/i);
-    expect(text).toMatch(/so another eligible approver can approve/);
+  it('customer_invoice: says invoice, never bill, and gives the way out that works', async () => {
+    // Round 4: the way out is that a source's author performs the step that
+    // makes the invoice themselves — the invoicer is an author of the invoice
+    // too, so telling a time-entry re-pricer to leave the invoicing to another
+    // member only re-made the dead end.
+    expect(await deadEnd('customer_invoice')).toBe(
+      'You cannot approve this request: you authored the content it covers (you created the invoice, made an edit '
+      + 'that changed it, or wrote or re-priced the quote, sales order, time entry or recurring template it came from). '
+      + 'No eligible approver remains: every member with the owner role or above either authored the content or raised '
+      + 'the request. Have the author of the source — the quote, sales order or recurring template, or whoever set the '
+      + 'rate or hours of a time entry it bills — perform the conversion, run or invoicing themselves, so another '
+      + 'eligible approver can approve the invoice, or have someone with the owner role or above who did not author it '
+      + 'approve it.');
   });
 });
