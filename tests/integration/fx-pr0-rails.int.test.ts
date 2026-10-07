@@ -50,7 +50,7 @@ async function invoice(currency: string): Promise<string> {
     `INSERT INTO customer_invoices (id, company_id, customer_id, client_id, invoice_number, invoice_date,
        subtotal, tax_amount, total_amount, amount_paid, status, created_by, currency_code, exchange_rate)
      VALUES ($1, $2, $3, $3, $4, CURRENT_DATE, 100, 15, 115, 0, 'sent', $5, $6, $7)`,
-    [id, CO, CUSTOMER, `FX0-${id.slice(0, 8)}`, USER, currency, currency === 'ZAR' ? 1 : 18.5]);
+    [id, CO, CUSTOMER, `FX0-${id.slice(0, 8)}`, USER, currency, currency.toUpperCase() === 'ZAR' ? 1 : 18.5]);
   return id;
 }
 const FOREIGN = /USD.*cannot be paid online|charges rands/i;
@@ -84,10 +84,12 @@ describe('no route mints a payment link for a foreign-currency invoice', () => {
     expect(await links(id)).toEqual([]);
   });
 
-  it('the currency is compared case-folded: a lower-case `usd` invoice is refused too', async () => {
-    const id = await invoice('usd');
-    expect((await payNow(id)).statusCode).toBe(400);
-    expect(await links(id)).toEqual([]);
+  it('the currency is compared case-folded: lower-case `usd` is refused, lower-case `zar` is rands', async () => {
+    const usd = await invoice('usd');
+    expect((await payNow(usd)).statusCode).toBe(400);
+    expect(await links(usd)).toEqual([]);
+    const zar = await invoice('zar');
+    expect((await payNow(zar)).statusCode).toBe(200);
   });
 
   it('the test fails closed: a company it cannot read makes the invoice foreign; NULL is the functional currency', async () => {
