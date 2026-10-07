@@ -20,6 +20,7 @@ import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from './bankFeedStateGuard';
+import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePaymentGate';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -32,7 +33,9 @@ export type AutoPostOutcome =
   /** No fiscal period covers its date - the year has not been created. */
   | { kind: 'no_period' }
   /** Its journal moves a VAT figure and its date is inside a locked (filed) VAT period. */
-  | { kind: 'vat_period_locked' };
+  | { kind: 'vat_period_locked' }
+  /** A hand-keyed line would pay a supplier past an enforced supplier_payment rule (R-035 PR5, D2). */
+  | { kind: 'approval_required' };
 
 export interface AutoPostLineInput {
   companyId: string;
@@ -108,6 +111,14 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
 
   const totalAmount = Math.abs(Number(tx.amount));
   const isDeposit = Number(tx.amount) > 0;
+  // R-035 PR5 (Hein, D2): a supplier rule paying out from a HAND-KEYED line is
+  // a payment instruction with nobody deciding it: skipped (counted), before
+  // any write, under an enforced supplier_payment rule. Feed and imported
+  // lines are bank evidence; refunds are money in.
+  if (allocType === 'supplier' && supplierId && !isDeposit && !isBankEvidenced(locked)
+      && await manualLinePaymentRefusal(companyId, totalAmount)) {
+    return { kind: 'approval_required' };
+  }
   const entryDesc = rule.description_template
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))

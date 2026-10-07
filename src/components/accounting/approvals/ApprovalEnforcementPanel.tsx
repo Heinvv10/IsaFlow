@@ -1,6 +1,7 @@
 /**
  * R-035 PR2: the per-document-type "Enforce" switch on the approval-rules tab
- * (supplier invoices; both credit-note types since PR3; customer invoices since PR4).
+ * (supplier invoices; both credit-note types since PR3; customer invoices since PR4;
+ * supplier payments and payment batches since PR5).
  *
  * Off by default (Hein: opt-in per company and type). On, the type's posting
  * paths refuse a document an active rule governs until it is approved. The
@@ -19,22 +20,27 @@ interface EnforcementData {
   preview: Record<string, number>;
   /** Active rules of the legacy `credit_note` type, which govern neither credit-note type. */
   legacyCreditNoteRules?: number;
+  /** Active rules of the legacy `payment` type, which govern neither payment type (PR5). */
+  legacyPaymentRules?: number;
 }
 
 const CREDIT_NOTE_TYPES = new Set(['customer_credit_note', 'supplier_credit_note']);
+const PAYMENT_TYPES = new Set(['supplier_payment', 'payment_batch']);
 
-/** R-035 PR3 review B2: legacy rules look like they govern credit notes, and do not. */
-function legacyWarning(n: number): string {
+/** R-035 PR3 review B2 (and PR5): legacy rules look like they govern these documents, and do not. */
+function legacyWarning(n: number, kind: string, replacement: string): string {
   return n === 1
-    ? '1 legacy credit-note rule governs nothing — re-create it as a customer/supplier credit-note rule'
-    : `${n} legacy credit-note rules govern nothing — re-create them as customer/supplier credit-note rules`;
+    ? `1 legacy ${kind} rule governs nothing — re-create it as a ${replacement} rule`
+    : `${n} legacy ${kind} rules govern nothing — re-create them as ${replacement} rules`;
 }
 
-const LABELS: Record<string, { name: string; noun: string }> = {
+const LABELS: Record<string, { name: string; noun: string; pending?: string }> = {
   supplier_invoice: { name: 'supplier invoice', noun: 'bill' },
   customer_credit_note: { name: 'customer credit note', noun: 'customer credit note' },
   supplier_credit_note: { name: 'supplier credit note', noun: 'supplier credit note' },
   customer_invoice: { name: 'customer invoice', noun: 'invoice' },
+  supplier_payment: { name: 'supplier payment', noun: 'payment', pending: 'unpaid' },
+  payment_batch: { name: 'payment batch', noun: 'batch', pending: 'unpaid' },
 };
 
 export function ApprovalEnforcementPanel() {
@@ -91,8 +97,11 @@ export function ApprovalEnforcementPanel() {
         const label = LABELS[type] ?? { name: type.replace(/_/g, ' '), noun: 'document' };
         const on = data.items.some((i) => i.documentType === type);
         const n = data.preview[type] ?? 0;
-        const count = `${n} unposted ${label.noun}${n === 1 ? '' : 's'}`;
-        const legacy = CREDIT_NOTE_TYPES.has(type) ? data.legacyCreditNoteRules ?? 0 : 0;
+        const count = `${n} ${label.pending ?? 'unposted'} ${label.noun}${n === 1 ? '' : (label.noun === 'batch' ? 'es' : 's')}`;
+        const warning = CREDIT_NOTE_TYPES.has(type) && (data.legacyCreditNoteRules ?? 0) > 0
+          ? legacyWarning(data.legacyCreditNoteRules!, 'credit-note', 'customer/supplier credit-note')
+          : PAYMENT_TYPES.has(type) && (data.legacyPaymentRules ?? 0) > 0
+            ? legacyWarning(data.legacyPaymentRules!, 'payment', 'supplier payment or payment batch') : null;
         return (
           <div key={type} className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
@@ -108,7 +117,14 @@ export function ApprovalEnforcementPanel() {
             <span className="text-xs text-[var(--ff-text-secondary)]">
               {on ? `${count} awaiting approval` : `${count} would need approval`}
             </span>
-            {legacy > 0 && <p className="w-full text-xs text-amber-500">{legacyWarning(legacy)}</p>}
+            {PAYMENT_TYPES.has(type) && (
+              // Coupled (D1): the server switches both; a batch pays the same bills a payment does.
+              <p className="w-full text-xs text-[var(--ff-text-secondary)]">
+                Switches together with {type === 'supplier_payment' ? 'payment batch' : 'supplier payment'} approvals —
+                a batch is also held by each payment&apos;s own rule.
+              </p>
+            )}
+            {warning && <p className="w-full text-xs text-amber-500">{warning}</p>}
           </div>
         );
       })}

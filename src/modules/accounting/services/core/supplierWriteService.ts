@@ -22,6 +22,9 @@ import {
   parseAutoAllocateStrategy,
   type AutoAllocateStrategy,
 } from '../shared/autoAllocateStrategy';
+import {
+  bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
+} from '../ap/supplierPaymentAuthors';
 
 export type { AutoAllocateStrategy };
 
@@ -104,9 +107,15 @@ function resolveStrategy(
   return undefined;
 }
 
+/**
+ * `createdBy` (R-035 PR5, decision (b)): a supplier created WITH bank details
+ * records its creator as who set where its money goes; one created without
+ * them writes nothing more (golden path d, on a database without 867).
+ */
 export async function createSupplier(
   companyId: string,
   input: SupplierWriteInput,
+  createdBy: string,
 ): Promise<DbRow> {
   const name = assertName(input.name);
   const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
@@ -154,6 +163,7 @@ export async function createSupplier(
       created_at
   `) as DbRow[];
 
+  if (hasBankDetails(rows[0]!)) await recordBankDetailsSetter(companyId, String(rows[0]!.id), createdBy, 'repointed');
   log.info('Supplier created', { id: rows[0]?.id, name }, 'accounting');
   return rows[0]!;
 }
@@ -168,11 +178,16 @@ export async function createSupplier(
  * mention.
  *
  * Returns `null` when the supplier is not in this company.
+ *
+ * `editedBy` (R-035 PR5): a change to the bank details re-routes every unpaid
+ * payment to this supplier, so its editor becomes an author of those payments
+ * and their batches — and may not approve sending them.
  */
 export async function updateSupplier(
   companyId: string,
   supplierId: string,
   input: SupplierWriteInput,
+  editedBy: string,
 ): Promise<DbRow | null> {
   let name: string | null = null;
   if (input.name !== undefined) {
@@ -181,25 +196,40 @@ export async function updateSupplier(
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
   const strategy = resolveStrategy(input.autoAllocateStrategy);
+  // Every value validated BEFORE the first statement: a refusal runs no SQL.
+  const v = {
+    phone: boundedText(input.phone, 'phone', 50),
+    vatNumber: boundedText(input.vatNumber, 'vat_number', 50),
+    registrationNumber: boundedText(input.registrationNumber, 'registration_number', 50),
+    bankName: boundedText(input.bankName, 'bank_name', 100),
+    bankAccountNumber: boundedText(input.bankAccountNumber, 'bank_account_number', 50),
+    bankBranchCode: boundedText(input.bankBranchCode, 'bank_branch_code', 20),
+    bankAccountType: boundedText(input.bankAccountType, 'bank_account_type', 20),
+    category: boundedText(input.category, 'category', 100),
+  };
 
+  // R-035 PR5: the bank details as they stand, under the row lock the UPDATE
+  // below would take anyway — read here so the change is judged against the
+  // row actually replaced, even when a concurrent edit committed first.
+  const before = await lockSupplierBankDetails(companyId, supplierId);
   const rows = (await sql`
     UPDATE suppliers SET
       name                = COALESCE(${name}, name),
       company_name        = COALESCE(${trimmed(input.companyName)}, company_name),
       email               = COALESCE(${trimmed(input.email)}, email),
-      phone               = COALESCE(${boundedText(input.phone, 'phone', 50)}, phone),
-      vat_number          = COALESCE(${boundedText(input.vatNumber, 'vat_number', 50)}, vat_number),
-      registration_number = COALESCE(${boundedText(input.registrationNumber, 'registration_number', 50)}, registration_number),
+      phone               = COALESCE(${v.phone}, phone),
+      vat_number          = COALESCE(${v.vatNumber}, vat_number),
+      registration_number = COALESCE(${v.registrationNumber}, registration_number),
       address             = COALESCE(${trimmed(input.address)}, address),
       contact_person      = COALESCE(${trimmed(input.contactPerson)}, contact_person),
       payment_terms       = COALESCE(${input.paymentTerms ?? null}, payment_terms),
-      bank_name           = COALESCE(${boundedText(input.bankName, 'bank_name', 100)}, bank_name),
-      bank_account_number = COALESCE(${boundedText(input.bankAccountNumber, 'bank_account_number', 50)}, bank_account_number),
-      bank_branch_code    = COALESCE(${boundedText(input.bankBranchCode, 'bank_branch_code', 20)}, bank_branch_code),
-      bank_account_type   = COALESCE(${boundedText(input.bankAccountType, 'bank_account_type', 20)}, bank_account_type),
+      bank_name           = COALESCE(${v.bankName}, bank_name),
+      bank_account_number = COALESCE(${v.bankAccountNumber}, bank_account_number),
+      bank_branch_code    = COALESCE(${v.bankBranchCode}, bank_branch_code),
+      bank_account_type   = COALESCE(${v.bankAccountType}, bank_account_type),
       is_active           = COALESCE(${input.isActive ?? null}, is_active),
       notes               = COALESCE(${trimmed(input.notes)}, notes),
-      category            = COALESCE(${boundedText(input.category, 'category', 100)}, category),
+      category            = COALESCE(${v.category}, category),
       auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
       auto_allocate_payments = COALESCE(
         ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_payments
@@ -221,6 +251,8 @@ export async function updateSupplier(
   `) as DbRow[];
 
   if (rows.length === 0) return null;
+  const change = before ? bankDetailsChange(before, rows[0]!) : 'none';
+  if (change !== 'none') await recordBankDetailsSetter(companyId, supplierId, editedBy, change);
   log.info('Supplier updated', { id: supplierId }, 'accounting');
   return rows[0]!;
 }

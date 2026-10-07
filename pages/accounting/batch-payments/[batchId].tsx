@@ -11,6 +11,8 @@ import { ArrowLeft, Layers, Loader2, AlertCircle, Check, Zap, XCircle } from 'lu
 import { formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
 const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -28,6 +30,7 @@ interface BatchPayment {
   supplierName: string;
   amount: number;
   status: string;
+  payeeBank: string | null;
 }
 
 interface BatchDetail {
@@ -41,6 +44,7 @@ interface BatchDetail {
   status: string;
   payments: BatchPayment[];
   billCount?: number;
+  approval?: DocumentApprovalState | null; // R-035 PR5: while approve / process is ahead
 }
 
 export default function BatchPaymentDetailPage() {
@@ -50,6 +54,7 @@ export default function BatchPaymentDetailPage() {
   const [batch, setBatch] = useState<BatchDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const [confirmReverse, setConfirmReverse] = useState(false);
 
@@ -75,22 +80,28 @@ export default function BatchPaymentDetailPage() {
   async function doAction(action: string) {
     if (!batch) return;
     setActionBusy(action);
+    setActionError('');
     try {
       const res = await apiFetch('/api/accounting/batch-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, id: batch.id }),
       });
+      // R-035: 409 is the approval gate — reload so the panel offers Submit for approval.
+      if (res.status === 409) await load();
       // The body's `error` is an object ({ code, message }); rendering it
       // crashed the page. `assertOk` pulls out the refusal's own message.
       await assertOk(res, `Could not ${action} the batch - try again`);
       void load();
     } catch (err) {
-      setError(apiErrorMessage(err, `Could not ${action} the batch - try again`));
+      // Beside the batch, not in place of it: the page must still show what was refused.
+      setActionError(apiErrorMessage(err, `Could not ${action} the batch - try again`));
     } finally {
       setActionBusy('');
     }
   }
+
+  const held = isApprovalHeld(batch?.approval); // the panel offers Submit; Approve / Process would only 409
 
   return (
     <AppLayout>
@@ -122,10 +133,10 @@ export default function BatchPaymentDetailPage() {
               <div className="flex items-center gap-2">
                 {batch.status === 'draft' && (
                   <>
-                    <button onClick={() => doAction('approve')} disabled={!!actionBusy}
+                    {!held && <button onClick={() => doAction('approve')} disabled={!!actionBusy}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
                       {actionBusy === 'approve' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Approve
-                    </button>
+                    </button>}
                     <button onClick={() => doAction('cancel')} disabled={!!actionBusy}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/10 text-red-400 rounded-lg hover:bg-red-600/20 text-sm font-medium disabled:opacity-50">
                       <XCircle className="h-4 w-4" /> Cancel
@@ -134,10 +145,10 @@ export default function BatchPaymentDetailPage() {
                 )}
                 {batch.status === 'approved' && (
                   <>
-                    <button onClick={() => doAction('process')} disabled={!!actionBusy}
+                    {!held && <button onClick={() => doAction('process')} disabled={!!actionBusy}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                       {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
-                    </button>
+                    </button>}
                     {/* Nothing has moved yet, so an approved batch the process
                         gate refuses must be cancellable. */}
                     <button onClick={() => doAction('cancel')} disabled={!!actionBusy}
@@ -157,6 +168,9 @@ export default function BatchPaymentDetailPage() {
           </div>
         </div>
 
+        {actionError && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{actionError}</div>}
+        {batch && <DocumentApprovalPanel documentType="payment_batch" documentId={batch.id} noun="batch" action="pay"
+          approval={batch.approval} onChanged={load} />}
         <div className="p-6 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -199,6 +213,7 @@ export default function BatchPaymentDetailPage() {
                       <tr className="border-b border-[var(--ff-border-light)]">
                         <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Payment #</th>
                         <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid into</th>
                         <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
                         <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                       </tr>
@@ -212,6 +227,7 @@ export default function BatchPaymentDetailPage() {
                             </Link>
                           </td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
+                          <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono">{p.payeeBank ?? '—'}</td>
                           <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
                           <td className="px-4 py-3">
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[p.status] || ''}`}>{p.status}</span>

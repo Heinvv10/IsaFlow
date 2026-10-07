@@ -66,3 +66,21 @@ export async function agentApprovalRefusals(companyId: string, documentType: Doc
   }
   return refusals;
 }
+
+/**
+ * An agent about to CREATE a supplier payment and pay it in the same call
+ * (MCP settle_by_contra, R-035 PR5). The gate cannot be read for a payment
+ * that does not exist yet, and one created and then refused would be left
+ * half-made — so the call is refused up front, from reads, when supplier
+ * payments are enforced and an active rule matches the amount the payment
+ * would carry (approval_supplier_payment_gate_amount: its absolute value).
+ * The agent could neither raise nor decide the approval it needs (Q6).
+ */
+export async function agentNewSupplierPaymentRefusal(companyId: string, amount: number): Promise<string | null> {
+  if (!(await isEnforced(companyId, 'supplier_payment'))) return null;
+  const rule = await strictestMatchingRule(companyId, 'supplier_payment', Math.abs(amount));
+  if (!rule) return null;
+  return `Supplier payments are enforced: a payment of R${Math.abs(amount).toFixed(2)} needs ${rule.approverRole} approval `
+    + `before it can be paid (rule: ${rule.name}). This connector cannot raise or decide approvals: a person must record `
+    + 'the settlement in IsaFlow, submit it for approval, and an eligible approver must approve it.';
+}

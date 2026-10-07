@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -219,6 +220,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // D12: a line in (or a run into) a COMPLETED reconciliation — 409, refused before any write, on every verb.
     if (respondIfReconciliationCompleted(res, err)) return;
+    // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule — refused before any write.
+    if (respondIfApprovalRequired(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /

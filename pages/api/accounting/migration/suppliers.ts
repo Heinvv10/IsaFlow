@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const strategy: DuplicateStrategy = duplicateStrategy ?? 'skip';
-  const result = await importSuppliers(companyId, sessionId, suppliers, strategy);
+  const result = await importSuppliers(companyId, sessionId, suppliers, strategy, (req as CompanyAuthedRequest).user.id);
 
   log.info('Suppliers imported', {
     companyId,

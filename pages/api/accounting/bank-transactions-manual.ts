@@ -22,6 +22,8 @@ import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
 } from '@/modules/accounting/services/core/contactDirectoryService';
@@ -85,6 +87,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, err.message);
     }
     throw err;
+  }
+
+  // R-035 PR5 (Hein, D2): this line is keyed by hand — no evidence the money
+  // left. Spending it to a supplier is a payment instruction, refused (409)
+  // under an enforced supplier_payment rule BEFORE the line is inserted, so
+  // nothing is written. Money in (a refund) is not an instruction to pay.
+  if (allocationType === 'supplier' && type === 'spend') {
+    const refusal = await manualLinePaymentRefusal(companyId, numericAmount);
+    if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
 
   try {

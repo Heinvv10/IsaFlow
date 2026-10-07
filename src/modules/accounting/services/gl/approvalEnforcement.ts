@@ -5,7 +5,7 @@
  *
  * ENFORCEABLE_DOCUMENT_TYPES grows by one type per PR, as each type's posting
  * paths are wired to `approvalGate` — supplier invoices since PR2, both credit-note types since PR3, customer
- * invoices since PR4. Per-type rather than one company flag so a
+ * invoices since PR4, supplier payments and payment batches since PR5. Per-type rather than one company flag so a
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
@@ -25,6 +25,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 
 export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
   'supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+  'supplier_payment', 'payment_batch',
 ];
 
 export interface ApprovalEnforcement {
@@ -80,6 +81,18 @@ export async function countLegacyCreditNoteRules(companyId: string): Promise<num
   return Number(rows[0]?.n ?? 0);
 }
 
+/**
+ * Active rules of the legacy `payment` type: they govern neither supplier
+ * payments nor payment batches (R-035 PR5), so both payment switches warn.
+ */
+export async function countLegacyPaymentRules(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type = 'payment' AND is_active = true
+  `) as Row[];
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function isEnforced(companyId: string, documentType: DocumentType): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${documentType}
@@ -101,18 +114,35 @@ async function auditEnforcement(companyId: string, actor: RuleActor, action: 'cr
   });
 }
 
-/** Idempotent: enabling an enforced type changes and records nothing. */
+/**
+ * The types one switch moves (Hein, 2026-10-06, D1). A single payment and a
+ * one-line batch pay the same bill, so the two payment types are COUPLED:
+ * enforcing one alone left the other path to the same money open (R-035 PR5
+ * round 1). Every other type is its own switch.
+ */
+export function coupledTypes(documentType: DocumentType): DocumentType[] {
+  return documentType === 'supplier_payment' || documentType === 'payment_batch'
+    ? ['supplier_payment', 'payment_batch'] : [documentType];
+}
+
+/**
+ * Idempotent: enabling an enforced type changes and records nothing. Enables
+ * every coupled type with it, each row audited; the caller's savepoint makes
+ * the pair atomic.
+ */
 export async function enableEnforcement(companyId: string, documentType: DocumentType, actor: RuleActor): Promise<void> {
   if (!ENFORCEABLE_DOCUMENT_TYPES.includes(documentType)) throw new ApprovalEnforcementUnavailableError(documentType);
-  const rows = (await sql`
-    INSERT INTO approval_enforcement (company_id, document_type, enabled_by)
-    VALUES (${companyId}::UUID, ${documentType}, ${actor.userId})
-    ON CONFLICT (company_id, document_type) DO NOTHING
-    RETURNING *
-  `) as Row[];
-  if (!rows[0]) return;
-  await auditEnforcement(companyId, actor, 'create', rows[0]);
-  log.info('Approval enforcement enabled', { companyId, documentType }, 'accounting');
+  for (const type of coupledTypes(documentType)) {
+    const rows = (await sql`
+      INSERT INTO approval_enforcement (company_id, document_type, enabled_by)
+      VALUES (${companyId}::UUID, ${type}, ${actor.userId})
+      ON CONFLICT (company_id, document_type) DO NOTHING
+      RETURNING *
+    `) as Row[];
+    if (!rows[0]) continue;
+    await auditEnforcement(companyId, actor, 'create', rows[0]);
+    log.info('Approval enforcement enabled', { companyId, documentType: type }, 'accounting');
+  }
 }
 
 /**
@@ -132,10 +162,18 @@ export async function strictestActiveRuleRole(companyId: string, documentType: D
 
 /**
  * Refuses (ApprovalEnforcementAuthorityError, a 403) when the actor may not
- * weaken the strictest active rule of the type (`mayWeakenAtLevel`). Idempotent otherwise.
+ * weaken the strictest active rule of the type — or of any type coupled with
+ * it (`mayWeakenAtLevel`). Idempotent otherwise; disables every coupled type.
  */
 export async function disableEnforcement(companyId: string, documentType: DocumentType, actor: RuleActor): Promise<void> {
-  const strictest = await strictestActiveRuleRole(companyId, documentType);
+  // Coupled types switch off together, so the authority asked is the one to
+  // weaken the strictest active rule of ANY of them.
+  const types = coupledTypes(documentType);
+  let strictest: string | null = null;
+  for (const type of types) {
+    const role = await strictestActiveRuleRole(companyId, type);
+    if (role !== null && (strictest === null || requiredRank(role) > requiredRank(strictest))) strictest = role;
+  }
   if (strictest !== null && !mayWeakenAtLevel(actor.role, strictest)) {
     // No audit_log action fits a refusal, and withAuth commits a 4xx — so the
     // attempt to weaken the control is recorded here rather than not at all.
@@ -144,11 +182,13 @@ export async function disableEnforcement(companyId: string, documentType: Docume
     }, 'accounting');
     throw new ApprovalEnforcementAuthorityError(documentType, strictest);
   }
-  const rows = (await sql`
-    DELETE FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${documentType}
-    RETURNING *
-  `) as Row[];
-  if (!rows[0]) return;
-  await auditEnforcement(companyId, actor, 'delete', rows[0], strictest ? { strictestRuleRole: strictest } : {});
-  log.info('Approval enforcement disabled', { companyId, documentType }, 'accounting');
+  for (const type of types) {
+    const rows = (await sql`
+      DELETE FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${type}
+      RETURNING *
+    `) as Row[];
+    if (!rows[0]) continue;
+    await auditEnforcement(companyId, actor, 'delete', rows[0], strictest ? { strictestRuleRole: strictest } : {});
+    log.info('Approval enforcement disabled', { companyId, documentType: type }, 'accounting');
+  }
 }

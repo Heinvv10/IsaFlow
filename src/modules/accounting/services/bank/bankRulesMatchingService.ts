@@ -92,6 +92,7 @@ export async function applyRules(
     let autoPostSkippedNoPeriod = 0;
     // Its journal moves a VAT figure inside a locked (filed) VAT period.
     let autoPostSkippedVatLocked = 0;
+    let autoPostSkippedApprovalRequired = 0;
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
     let autoPostTruncatedRules = 0;
@@ -233,6 +234,7 @@ export async function applyRules(
         if (outcome.kind === 'no_period') { autoPostSkippedNoPeriod++; continue; }
         if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
         if (outcome.kind === 'vat_period_locked') { autoPostSkippedVatLocked++; continue; }
+        if (outcome.kind === 'approval_required') { autoPostSkippedApprovalRequired++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
         if (outcome.vatDenied) autoPostVatDenied++;
@@ -264,6 +266,7 @@ export async function applyRules(
         autoPostSkippedClosedPeriod,
         autoPostSkippedNoPeriod,
         autoPostSkippedVatLocked,
+        autoPostSkippedApprovalRequired,
         autoPostSkippedRaced,
         autoPostSkippedLocked,
         autoPostTruncatedRules,
@@ -280,6 +283,7 @@ export async function applyRules(
       autoPostSkippedClosedPeriod,
       autoPostSkippedNoPeriod,
       autoPostSkippedVatLocked,
+      autoPostSkippedApprovalRequired,
       autoPostSkippedRaced,
       autoPostSkippedLocked,
       autoPostTruncatedRules,
