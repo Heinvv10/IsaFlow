@@ -15,6 +15,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import {
   withAuth,
   type CompanyAuthedRequest,
@@ -54,11 +55,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      const record = await submitVATReturn(
+      const record = await withJournalDateRefusal(res, () => submitVATReturn(
         companyId,
         { periodStart, periodEnd, sarsReference },
         userId,
-      );
+      ));
+      if (record === JOURNAL_DATE_REFUSED) return;
       return apiResponse.success(res, record);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;

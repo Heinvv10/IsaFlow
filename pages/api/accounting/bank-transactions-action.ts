@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
@@ -127,7 +128,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         if (aType === 'transfer' && !body.contraAccountId) {
           return apiResponse.badRequest(res, 'contraAccountId is required for transfer allocation (the counterparty bank account)');
         }
-        const result = await allocateTransaction(
+        const result = await withJournalDateRefusal(res, () => allocateTransaction(
           companyId, body.bankTransactionId, body.contraAccountId || null, userId,
           body.description, aType, body.entityId, body.vatCode,
           body.cc1Id, body.cc2Id, body.buId,
@@ -136,13 +137,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           // default, and a second copy of it is how two entry points drift apart.
           // A person allocating: s16(3) late input-VAT claim where allowed.
           { ...(body.autoApply ? { autoApply: body.autoApply } : {}), allowLateInputClaim: true },
-        );
+        ));
+        if (result === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, result);
       }
       case 'split_allocate': {
         const splitLines = body.lines as SplitLine[];
-        const splitResult = await splitAllocateTransaction(
-          companyId, body.bankTransactionId, splitLines, userId, { allowLateInputClaim: true });
+        const splitResult = await withJournalDateRefusal(res, () => splitAllocateTransaction(
+          companyId, body.bankTransactionId, splitLines, userId, { allowLateInputClaim: true }));
+        if (splitResult === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, splitResult);
       }
       case 'delete': {
@@ -209,7 +212,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, { saved: true });
       }
       case 'reverse': {
-        await reverseReconciledTransaction(companyId, body.bankTransactionId, userId);
+        if (await withJournalDateRefusal(res, () => reverseReconciledTransaction(companyId, body.bankTransactionId, userId)) === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, { reversed: true });
       }
     }

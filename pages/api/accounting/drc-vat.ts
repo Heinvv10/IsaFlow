@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess, withVatVendor} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -33,7 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { supplierInvoiceId } = req.body;
     if (!supplierInvoiceId) return apiResponse.badRequest(res, 'supplierInvoiceId required');
     try {
-      const result = await applyDRCVat(companyId, supplierInvoiceId, userId);
+      const result = await withJournalDateRefusal(res, () => applyDRCVat(companyId, supplierInvoiceId, userId));
+      if (result === JOURNAL_DATE_REFUSED) return;
       return apiResponse.success(res, result);
     } catch (err) {
       if (respondIfLockTimeout(res, err)) return;

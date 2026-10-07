@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -69,14 +70,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await assertNotImpersonating();
         // A person posting: s16(3) late input-VAT claim where allowed; the
         // result's `lateClaim` names the claim date and the locked period.
-        result = await postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
+        const postedJe = await withJournalDateRefusal(res, () => postJournalEntry(companyId, id, userId, { allowLateInputClaim: true }));
+        if (postedJe === JOURNAL_DATE_REFUSED) return;
+        result = postedJe;
         break;
       case 'reverse':
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
-        result = await reverseJournalEntry(companyId, id, userId, {
-          reversalDate, cashLinesLocked: await refuseJournalCashOfCompletedReconciliation(companyId, id) });
+        const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(companyId, id);
+        const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
+          reversalDate, cashLinesLocked }));
+        if (reversed === JOURNAL_DATE_REFUSED) return;
+        result = reversed;
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);

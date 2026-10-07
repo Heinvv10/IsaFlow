@@ -9,6 +9,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { executeSizeError } from '@/modules/accounting/services/core/migrationRowCaps';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -46,7 +47,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }, 'migration');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await executeMigration(companyId, userId, source as MigrationSource, accounts as any, customers as any, suppliers as any);
+  const result = await withJournalDateRefusal(res, () => executeMigration(companyId, userId, source as MigrationSource, accounts as any, customers as any, suppliers as any));
+  if (result === JOURNAL_DATE_REFUSED) return;
   return apiResponse.success(res, result);
 }
 

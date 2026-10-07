@@ -238,25 +238,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
   if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
-  // The claim and its journal in one savepoint: a ledger-date refusal of the journal rolls the claim back too.
+  // The claim, its journal and the post in one savepoint: a ledger-date refusal rolls all of them back.
   const claimed = await withJournalDateRefusal(res, async () => {
     const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
     if (refusal) return { kind: 'refused' as const, refusal };
-    return { kind: 'posted' as const, entry: await createJournalEntry(companyId, {
+    const created = await createJournalEntry(companyId, {
       entryDate: journalInput.entryDate,
       description: journalInput.description,
       source: 'auto_expense_receipt',
       sourceDocumentId: documentId,
       lines: postableLines,
-    }, userId) };
+    }, userId);
+    if (autoPost) await postJournalEntry(companyId, created.id, userId);
+    return { kind: 'posted' as const, entry: created };
   });
   if (claimed === JOURNAL_DATE_REFUSED) return;
   if (claimed.kind === 'refused') return respondCapturedDocumentRefusal(res, claimed.refusal);
   const entry = claimed.entry;
-
-  if (autoPost) {
-    await postJournalEntry(companyId, entry.id, userId);
-  }
 
   const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
 

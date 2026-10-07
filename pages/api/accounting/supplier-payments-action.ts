@@ -60,7 +60,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
       case 'void': {
         // P2.1 (audit W4): reverses the GL journal and un-applies allocations.
-        const payment = await voidSupplierPayment(companyId, paymentId, userId);
+        const payment = await withJournalDateRefusal(res, () => voidSupplierPayment(companyId, paymentId, userId));
+        if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
       }
       case 'unapply': {
