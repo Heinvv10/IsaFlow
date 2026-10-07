@@ -23,7 +23,9 @@
  * The internal arm takes the full row and adds the draft, the badge and the
  * approve/reject controls.
  */
+import { useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
+import { CommentaryEditor } from './CommentaryEditor';
 
 /** Everything the published render needs and nothing it must not have. A full
  *  `CommentaryRow` satisfies it structurally, so the app can hand its own rows
@@ -36,7 +38,9 @@ export type CommentaryBlockProps =
       mode: 'internal';
       sectionRef: string;
       rows: CommentaryRow[];
-      onApprove?: (id: string) => void;
+      /** `text` present = approve with the approver's own wording. Resolves
+       *  true when the approval was accepted. */
+      onApprove?: (id: string, text?: string) => void | Promise<boolean>;
       onReject?: (id: string) => void;
     };
 
@@ -54,6 +58,7 @@ function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; s
 
 export function CommentaryBlock(props: CommentaryBlockProps) {
   const { sectionRef, rows, mode } = props;
+  const [editingId, setEditingId] = useState<string | null>(null);
   if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef} />;
   const { onApprove, onReject } = props;
 
@@ -64,6 +69,21 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
     <div className="mt-3 space-y-2" data-commentary="internal">
       {mine.map(r => {
         const approved = r.status === 'approved' && r.approvedText !== null;
+        if (!approved && onApprove && editingId === r.id) {
+          return (
+            <div key={r.id} className="flex items-start gap-2">
+              <CommentaryEditor
+                initialText={r.draftText}
+                onCancel={() => setEditingId(null)}
+                onApprove={async text => {
+                  const ok = await onApprove(r.id, text);
+                  if (ok === true) setEditingId(null);
+                  return ok === true;
+                }}
+              />
+            </div>
+          );
+        }
         return (
           <div key={r.id} className="flex items-start gap-2">
             <p className="flex-1 text-sm leading-relaxed text-[var(--ff-text-secondary)]">
@@ -78,6 +98,12 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
               <button type="button" onClick={() => onApprove(r.id)}
                 className="shrink-0 rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)]">
                 Approve
+              </button>
+            )}
+            {!approved && onApprove && (
+              <button type="button" onClick={() => setEditingId(r.id)}
+                className="shrink-0 rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)]">
+                Edit
               </button>
             )}
             {!approved && onReject && (

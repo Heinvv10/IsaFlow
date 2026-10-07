@@ -31,6 +31,7 @@ vi.mock('@/lib/logger', () => ({
 import {
   approveCommentary, rejectCommentary, listCommentary, generateDrafts,
 } from '@/modules/accounting/services/commentary/commentaryService';
+import { MAX_APPROVED_TEXT_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 
@@ -154,6 +155,111 @@ describe('approveCommentary', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('invalid_state');
+  });
+});
+
+describe('approveCommentary with edited text', () => {
+  const EDITED = 'Revenue grew 25% on the Gauteng rollout; the CFO expects it to hold.';
+  const approvedRow = (over: Record<string, unknown> = {}) => dbRow({
+    status: 'approved', approved_text: EDITED, approved_by: 'approver-9',
+    approved_at: new Date('2026-04-01T10:00:00Z'), ...over,
+  });
+
+  it('writes the supplied text, trimmed, as approved_text in the one guarded UPDATE', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
+      .mockResolvedValueOnce([approvedRow()]);
+
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', `  ${EDITED}\n`);
+    expect(result.ok).toBe(true);
+    expect(sqlMock).toHaveBeenCalledTimes(2); // the read, then ONE write
+    const update = text(1);
+    expect(values(1)).toContain(EDITED);
+    expect(values(1)).toContain('approver-9');
+    expect(values(1)).toContain(COMPANY);
+    expect(values(1)).toContain(ID);
+    expect(update).toContain("status = 'draft'");
+    expect(update).toContain('approved_by');
+    expect(update).toContain('approved_at');
+    // The WHERE repeats the emptiness guard on the SUPPLIED text.
+    expect(update).toMatch(/btrim\(\s*\?\s*\)\s*<>/);
+    if (result.ok) expect(result.row.approvedText).toBe(EDITED);
+  });
+
+  it('leaves draft_text untouched: the edited UPDATE never assigns it', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
+      .mockResolvedValueOnce([approvedRow()]);
+    await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
+    const setClause = text(1).split('WHERE')[0]!;
+    expect(setClause).not.toMatch(/draft_text\s*=/);
+    // ...and does not copy the draft over the edit.
+    expect(setClause).not.toContain('approved_text = draft_text');
+  });
+
+  it('approves an edit over a blank machine draft: the person wrote the sentence', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: '   ' }])
+      .mockResolvedValueOnce([approvedRow()]);
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses whitespace-only supplied text as empty_draft, before any statement', async () => {
+    for (const blank of ['', '   ', '\n\t ']) {
+      sqlMock.mockReset();
+      const result = await approveCommentary(COMPANY, ID, 'approver-9', blank);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.code).toBe('empty_draft');
+      expect(sqlMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it('refuses text over the cap as text_too_long, and accepts exactly the cap', async () => {
+    const over = await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(MAX_APPROVED_TEXT_CHARS + 1));
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.code).toBe('text_too_long');
+    expect(sqlMock).not.toHaveBeenCalled();
+
+    const atCap = 'x'.repeat(MAX_APPROVED_TEXT_CHARS);
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }])
+      .mockResolvedValueOnce([approvedRow({ approved_text: atCap })]);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', atCap)).ok).toBe(true);
+  });
+
+  it('measures the cap on the TRIMMED text, not the padded input', async () => {
+    const padded = ` ${'x'.repeat(MAX_APPROVED_TEXT_CHARS)} `;
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }])
+      .mockResolvedValueOnce([approvedRow()]);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', padded)).ok).toBe(true);
+  });
+
+  it('keeps not_found and invalid_state distinct on the edited path', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    const missing = await approveCommentary(OTHER_COMPANY, ID, 'approver-9', EDITED);
+    if (!missing.ok) expect(missing.code).toBe('not_found');
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([{ status: 'approved', draft_text: 'd' }]);
+    const done = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
+    if (!done.ok) expect(done.code).toBe('invalid_state');
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }]).mockResolvedValueOnce([]);
+    const raced = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
+    if (!raced.ok) expect(raced.code).toBe('invalid_state');
+  });
+
+  it('without supplied text still copies draft_text exactly as before', async () => {
+    sqlMock
+      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
+      .mockResolvedValueOnce([dbRow({ status: 'approved', approved_text: 'Revenue increased by 25.0%.' })]);
+    await approveCommentary(COMPANY, ID, 'approver-9');
+    expect(text(1)).toContain('approved_text = draft_text');
   });
 });
 

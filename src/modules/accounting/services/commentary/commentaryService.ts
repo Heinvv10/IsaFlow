@@ -16,6 +16,7 @@ import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { MAX_APPROVED_TEXT_CHARS } from './commentaryLimits';
 
 export interface CommentaryRow {
   id: string;
@@ -33,10 +34,10 @@ export interface CommentaryRow {
   withdrawnAt: string | null;
 }
 
-/** `not_found` is a 404, `empty_draft` a 400, `invalid_state` a 409. The route
- *  must not collapse them: an id that is not this company's is not the same
- *  answer as a draft that has already been approved. */
-export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'invalid_state';
+/** `not_found` is a 404, `empty_draft` and `text_too_long` a 400, `invalid_state`
+ *  a 409. The route must not collapse them: an id that is not this company's is
+ *  not the same answer as a draft that has already been approved. */
+export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'text_too_long' | 'invalid_state';
 export type CommentaryResult =
   | { ok: true; row: CommentaryRow }
   | { ok: false; code: CommentaryFailureCode; reason: string };
@@ -156,14 +157,33 @@ async function currentRow(
   return r ? { status: String(r.status) as CommentaryStatus, draftText: String(r.draft_text ?? '') } : null;
 }
 
-export async function approveCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+/**
+ * `editedText` absent: the machine draft is approved unchanged. Present: the
+ * approver's own trimmed wording becomes `approved_text` and `draft_text` stays
+ * the machine draft, so the row shows what was drafted against what a named
+ * person signed. The cap is measured against page 4 of the board pack, which
+ * refuses the whole pack when its commentary overflows (commentaryLimits.ts).
+ */
+export async function approveCommentary(
+  companyId: string, id: string, userId: string, editedText?: string,
+): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
+  const edited = editedText === undefined ? undefined : editedText.trim();
+  if (edited !== undefined) {
+    if (edited.length === 0) return { ok: false, code: 'empty_draft', reason: 'There is no text to approve.' };
+    if (edited.length > MAX_APPROVED_TEXT_CHARS) {
+      return {
+        ok: false, code: 'text_too_long',
+        reason: `Commentary is limited to ${MAX_APPROVED_TEXT_CHARS} characters so the board pack page holds it.`,
+      };
+    }
+  }
   const row = await currentRow(companyId, id);
   if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
   // An approval is a person putting their name to a sentence. There is no
   // sentence here, so there is nothing to put a name to — and the 611 CHECK
-  // would happily store the blank.
-  if (row.draftText.trim().length === 0) {
+  // would happily store the blank. (An edit supplies its own sentence.)
+  if (edited === undefined && row.draftText.trim().length === 0) {
     return { ok: false, code: 'empty_draft', reason: 'There is no draft text to approve.' };
   }
 
@@ -174,17 +194,24 @@ export async function approveCommentary(companyId: string, id: string, userId: s
   // constraint never sees a partially approved row. `status = 'draft'` and the
   // non-empty test are in the WHERE, not only in the branches above: two
   // approvals racing must not both write, and the second finds no row.
-  const rows = (await sql`
+  const rows = (edited === undefined ? await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
         approved_at = NOW(), updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
       AND status = 'draft' AND btrim(draft_text) <> ''
     RETURNING *
+  ` : await sql`
+    UPDATE report_commentary
+    SET status = 'approved', approved_text = ${edited}, approved_by = ${userId},
+        approved_at = NOW(), updated_at = NOW()
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+      AND status = 'draft' AND btrim(${edited}) <> ''
+    RETURNING *
   `) as DbRow[];
   if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
 
-  log.info('Commentary approved', { companyId, userId, commentaryId: id }, 'commentary');
+  log.info('Commentary approved', { companyId, userId, commentaryId: id, edited: edited !== undefined }, 'commentary');
   return { ok: true, row: toRow(rows[0]) };
 }
 

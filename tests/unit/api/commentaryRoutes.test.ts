@@ -246,6 +246,42 @@ describe('POST /api/accounting/commentary/[id]/approve', () => {
     expect(second.res.statusCode).toBe(409);
   });
 
+  it('passes a supplied text through as the fourth argument, never from the body for anything else', async () => {
+    const { req, res } = mockReqRes({
+      method: 'POST', query: { id: ID }, body: { text: 'CFO wording.', approvedBy: 'someone-else' },
+    });
+    await approveHandler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(COMPANY, ID, 'user-1', 'CFO wording.');
+  });
+
+  it('treats a body with no text key (or no body) as a plain approval', async () => {
+    for (const body of [undefined, {}, { other: 1 }]) {
+      approveMock.mockClear();
+      const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body });
+      await approveHandler(req, res);
+      expect(res.statusCode).toBe(200);
+      expect(approveMock).toHaveBeenCalledWith(COMPANY, ID, 'user-1');
+    }
+  });
+
+  it('rejects a non-string text with 400 and never reaches the service (no coercion)', async () => {
+    for (const text of [['CFO wording.'], 42, null, true, { toString: () => 'x' }]) {
+      approveMock.mockClear();
+      const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text } });
+      await approveHandler(req, res);
+      expect(res.statusCode, JSON.stringify(text)).toBe(400);
+      expect(approveMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it('answers 400 for text_too_long as it does for an empty text', async () => {
+    approveMock.mockResolvedValue({ ok: false, code: 'text_too_long', reason: 'Too long.' });
+    const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text: 'x' } });
+    await approveHandler(req, res);
+    expect(res.statusCode).toBe(400);
+  });
+
   it('refuses a manager and a viewer, and allows an owner', async () => {
     for (const role of ['manager', 'viewer']) {
       approveMock.mockClear();

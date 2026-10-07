@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
+import { MAX_APPROVED_TEXT_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 function envelope(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -207,5 +208,102 @@ describe('CommentaryPanel', () => {
 
     expect(screen.getByText('ROW B TEXT — FAST, CURRENT')).toBeTruthy();
     expect(screen.queryByText('ROW A TEXT — SLOW, STALE')).toBeNull();
+  });
+});
+
+describe('CommentaryPanel approve with edits', () => {
+  async function openEditor() {
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    return screen.getByRole('textbox', { name: /commentary text/i }) as HTMLTextAreaElement;
+  }
+  const typeInto = (box: HTMLTextAreaElement, value: string) => fireEvent.change(box, { target: { value } });
+
+  it('opens a textarea prefilled with the machine draft and a count against the cap', async () => {
+    const box = await openEditor();
+    expect(box.value).toBe('DRAFT REVENUE SENTENCE');
+    expect(screen.getByText(`${'DRAFT REVENUE SENTENCE'.length} / ${MAX_APPROVED_TEXT_CHARS}`)).toBeTruthy();
+  });
+
+  it('approves the edited text: POSTs { text } and refreshes', async () => {
+    const box = await openEditor();
+    typeInto(box, 'The CFO\u2019s own sentence.');
+    fetchMock
+      .mockResolvedValueOnce(envelope({ commentary: { ...ROW, status: 'approved' } }))
+      .mockResolvedValueOnce(envelope({ commentary: [{ ...ROW, status: 'approved', approvedText: 'The CFO\u2019s own sentence.' }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve edited text' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const [url, init] = fetchMock.mock.calls[1]!;
+    expect(String(url)).toBe('/api/accounting/commentary/row-1/approve');
+    expect((init as RequestInit).method).toBe('POST');
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ text: 'The CFO\u2019s own sentence.' });
+    await waitFor(() => expect(screen.getByText('The CFO\u2019s own sentence.')).toBeTruthy());
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('Cancel restores the draft row and sends nothing', async () => {
+    const box = await openEditor();
+    typeInto(box, 'half-written');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.getByText('DRAFT REVENUE SENTENCE')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the initial load only
+    // Re-opening starts from the draft again, not from the abandoned edit.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('DRAFT REVENUE SENTENCE');
+  });
+
+  it('will not submit text over the cap, and says so', async () => {
+    const box = await openEditor();
+    typeInto(box, 'x'.repeat(MAX_APPROVED_TEXT_CHARS + 1));
+    expect(screen.getByText(`${MAX_APPROVED_TEXT_CHARS + 1} / ${MAX_APPROVED_TEXT_CHARS}`)).toBeTruthy();
+    const approve = screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('will not submit whitespace-only text', async () => {
+    const box = await openEditor();
+    typeInto(box, '   \n ');
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('accepts exactly the cap', async () => {
+    const box = await openEditor();
+    typeInto(box, 'x'.repeat(MAX_APPROVED_TEXT_CHARS));
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('keeps the editor and the typed text when the server refuses, and shows why', async () => {
+    const box = await openEditor();
+    typeInto(box, 'My sentence.');
+    fetchMock.mockResolvedValueOnce(errorEnvelope(400, 'That commentary is too long.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve edited text' }));
+
+    await waitFor(() => expect(screen.getByText('That commentary is too long.')).toBeTruthy());
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('My sentence.');
+  });
+
+  it('plain Approve still sends no body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(envelope({ commentary: [ROW] }))
+      .mockResolvedValueOnce(envelope({ commentary: ROW }))
+      .mockResolvedValueOnce(envelope({ commentary: [ROW] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect((fetchMock.mock.calls[1]![1] as RequestInit).body).toBeUndefined();
+  });
+
+  it('shows no Edit button to a non-approver', async () => {
+    fetchMock.mockResolvedValue(envelope({ commentary: [ROW] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove={false} params={PARAMS} />);
+    await waitFor(() => expect(screen.getByText('DRAFT REVENUE SENTENCE')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
   });
 });
