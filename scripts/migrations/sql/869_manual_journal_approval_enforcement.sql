@@ -146,8 +146,8 @@ CREATE TEMP TABLE r035_pr6_before ON COMMIT DROP AS
 -- content_authors and the marker itself — none changes what posts. There is no
 -- draft-journal edit route; the account merge re-points a draft's lines (Q10:
 -- that stales its approval, and the merger becomes an author), and the s16(3)
--- late-claim split rewrites them as part of posting, after the status flip the
--- backstop judges (gl/vatLateClaimSplit.ts). trim_scale() makes 100 and 100.00
+-- late-claim split rewrites them as part of posting — for a MARKED journal,
+-- after the status flip the backstop judges (gl/vatLateClaimSplit.ts). trim_scale() makes 100 and 100.00
 -- the same value; sha256 over UTF-8.
 CREATE OR REPLACE FUNCTION public.approval_document_digest(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid

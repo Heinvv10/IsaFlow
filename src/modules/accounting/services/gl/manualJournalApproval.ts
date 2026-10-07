@@ -90,6 +90,19 @@ export async function markManualJournal(companyId: string, id: string): Promise<
   `;
 }
 
+/**
+ * A journal migration 869's backstop will judge as it enters 'posted': marked,
+ * while manual-journal enforcement is on. Reads the marker only then, so with
+ * enforcement off no statement names the 869 column (the s16(3) split asks).
+ */
+export async function isMarkedUnderEnforcement(companyId: string, id: string): Promise<boolean> {
+  if (!(await isEnforced(companyId, TYPE))) return false;
+  const [row] = (await sql`
+    SELECT approval_document_type FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return row?.approval_document_type === TYPE;
+}
+
 /** Whether an unattended creator's new journal will be held, decided before it writes anything. */
 export interface NewJournalGate {
   enforced: boolean;
