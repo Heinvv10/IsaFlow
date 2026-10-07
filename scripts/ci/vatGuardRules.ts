@@ -119,7 +119,15 @@ export function callsAPostingFunction(strippedSource: string): boolean {
 /** Handing a vat code to the poster that deliberately enforces nothing. */
 const ALLOCATE_CALL = /\ballocateTransaction\s*\(/;
 
-export type VatDecisionKind = 'rate_constant' | 'vat_field_on_a_posting_path' | 'allocate_call';
+/**
+ * The VAT-inclusive split moved out of bankAllocationService (R-035 PR6 round
+ * 4) behind a function name: a new caller carries no rate constant of its own,
+ * so calling it is a kind of its own, allowlisted only where it lives and where
+ * the attended poster uses it.
+ */
+const VAT_INCLUSIVE_SPLIT = /\bvatInclusiveSplit\s*\(/;
+
+export type VatDecisionKind = 'rate_constant' | 'vat_field_on_a_posting_path' | 'allocate_call' | 'vat_inclusive_split';
 
 export interface VatGuardFinding {
   /** Why the file is in scope. */
@@ -135,6 +143,7 @@ export function inspectVatGuardCoverage(source: string): VatGuardFinding | null 
   if (RATE_CONSTANTS.test(code)) kinds.push('rate_constant');
   if (VAT_FIELD.test(code) && callsAPostingFunction(code)) kinds.push('vat_field_on_a_posting_path');
   if (ALLOCATE_CALL.test(code)) kinds.push('allocate_call');
+  if (VAT_INCLUSIVE_SPLIT.test(code)) kinds.push('vat_inclusive_split');
   if (kinds.length === 0) return null;
   return { kinds, guarded: importsAndUsesGuard(code) };
 }

@@ -95,13 +95,13 @@ const ALLOWED: Record<string, AllowedEntry> = {
     + 'It posts nothing and decides no claim.',
   },
   'src/modules/accounting/services/bank/bankVatInclusive.ts': {
-    kinds: ['rate_constant'],
+    kinds: ['rate_constant', 'vat_inclusive_split'],
     reason: 'No claim decided: the VAT-inclusive split moved verbatim out of bankAllocationService '
     + '(R-035 PR6 round 4, its line cap). Pure arithmetic on a code its attended caller already chose; '
     + 'it picks no account and posts nothing.',
   },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
-    kinds: ['rate_constant', 'vat_field_on_a_posting_path', 'allocate_call'],
+    kinds: ['vat_field_on_a_posting_path', 'allocate_call', 'vat_inclusive_split'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
     + 'warnings and the user\'s choice stands. Its unattended callers guard '
     + 'BEFORE calling it; moving a coercion in here would turn every attended '

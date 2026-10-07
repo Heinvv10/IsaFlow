@@ -82,6 +82,15 @@ describe('inspectVatGuardCoverage — what is in scope', () => {
       .toContain('allocate_call');
   });
 
+  // R-035 PR6 round 5 (blind LOW): the VAT-inclusive split moved out of
+  // bankAllocationService behind a function name, so a new caller would carry
+  // no rate constant of its own. Calling it is its own kind, allowlisted only
+  // where it lives and where the attended poster uses it.
+  it('catches a call to the moved VAT-inclusive split', () => {
+    expect(inspectVatGuardCoverage('const { netAmount } = vatInclusiveSplit(total, hasVat);')?.kinds)
+      .toEqual(['vat_inclusive_split']);
+  });
+
   it('leaves a vat type alone when the file posts nothing', () => {
     // Reports read vat_type constantly. The field is only a decision when
     // something puts it in the ledger.
