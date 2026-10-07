@@ -203,14 +203,14 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
     expect([...first, ...second].reduce((s, l) => s + l.debit, 0)).toBeCloseTo(100, 10);
   });
 
-  it('clamps a rounding cent that would push a small leg past what it carries', () => {
-    // 1 cent of 3 on a leg of 0.01: allocateByWeight gives it a cent it may keep, never two.
-    const out = prorate([
-      { glAccountId: COMMERCIALS, projectId: null, costCenterId: null, net: 0.01 },
-      { glAccountId: POST, projectId: null, costCenterId: null, net: 0.01 },
-    ], 0.01);
-    expect(out.reduce((s, l) => s + l.debit, 0)).toBeCloseTo(0.01, 10);
-    expect(out.every((l) => l.debit <= 0.01)).toBe(true);
+  it('clamps the rounding cent that would push a leg past what it carries, and posts it untagged', () => {
+    // Found by search: unclamped, the second leg (0.29 left) would take 0.30.
+    const carries = [17, 29, 29, 18, 20, 29, 28, 18, 26, 14];
+    const out = prorate(carries.map((c, i) => ({ glAccountId: `acct-${i}`, projectId: null, costCenterId: null, net: c / 100 })), 2.21);
+    const taken = carries.map((_c, i) => Math.round((out.find((l) => l.glAccountId === `acct-${i}`)?.debit ?? 0) * 100));
+    taken.forEach((t, i) => expect(t).toBeLessThanOrEqual(carries[i]!));
+    expect(Math.round(out.reduce((s, l) => s + l.debit, 0) * 100)).toBe(221);
+    expect(out.find((l) => l.glAccountId === DEFAULT)?.debit).toBe(0.01);
   });
 
   it('a leg the invoice posted as a debit (a discount) is credited back pro rata', () => {
@@ -220,6 +220,14 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
     ], 450);
     expect(out.map((l) => [l.debit, l.credit])).toEqual([[500, 0], [0, 50]]);
     expect(validateJournalEntry([...out, { glAccountId: 'acct-ar', debit: 0, credit: 450 }]).valid).toBe(true);
+  });
+
+  it('an over-credit never credits a discount leg back past what the invoice debited there', () => {
+    const out = prorate([
+      { glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, net: 1000 },
+      { glAccountId: POST, projectId: P1, costCenterId: null, net: -100 },
+    ], 1500);
+    expect(debits(out)).toEqual([[COMMERCIALS, P1, 1000], [POST, P1, -100], [DEFAULT, null, 600]]);
   });
 
   it('legs netting to nothing, or none at all, put the whole note on default_revenue', () => {
