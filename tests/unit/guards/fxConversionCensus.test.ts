@@ -143,6 +143,11 @@ export function conversionSites(fileName: string, source: string): string[] {
   return sites;
 }
 
+/** Every site in a file whose count is not EXACTLY the reviewed count (a file not listed has a count of 0). */
+export function unexplainedSites(perFile: ReadonlyMap<string, string[]>, allowed = NOT_EXCHANGE_RATES): string[] {
+  return [...perFile].filter(([file, sites]) => (allowed[file]?.sites ?? 0) !== sites.length).flatMap(([, s]) => s);
+}
+
 describe('exchange-rate conversions happen in one place', () => {
   it('no code in src/ or pages/ multiplies or divides by an exchange rate outside functionalAmounts.ts', () => {
     const perFile = new Map<string, string[]>();
@@ -154,8 +159,7 @@ describe('exchange-rate conversions happen in one place', () => {
       const sites = conversionSites(rel, source);
       if (sites.length > 0) perFile.set(rel, sites);
     }
-    const unexplained = [...perFile].filter(([file, sites]) => NOT_EXCHANGE_RATES[file]?.sites !== sites.length).flatMap(([, s]) => s);
-    expect(unexplained).toEqual([]);
+    expect(unexplainedSites(perFile)).toEqual([]);
     // An entry that no longer matches anything is stale and must go.
     expect(Object.keys(NOT_EXCHANGE_RATES).filter((f) => !perFile.has(f))).toEqual([]);
   }, 20_000);
@@ -189,6 +193,13 @@ describe('exchange-rate conversions happen in one place', () => {
       'const q = sql`SELECT total / exchange_rates.rate FROM exchange_rates`;',
       "const q = 'SELECT total_amount * NULLIF(ci.exchange_rate, 0)';",
     ]) expect(conversionSites('t.ts', code), code).toHaveLength(1);
+  });
+
+  it('the allowlist is a COUNT: one more site in a listed file fails (self-test)', () => {
+    const allowed = { 'a.ts': { sites: 1, why: 'tax rate' } };
+    expect(unexplainedSites(new Map([['a.ts', ['a.ts: x * rate']]]), allowed)).toEqual([]);
+    expect(unexplainedSites(new Map([['a.ts', ['a.ts: x * rate', 'a.ts: y * er']]]), allowed)).toHaveLength(2);
+    expect(unexplainedSites(new Map([['b.ts', ['b.ts: y * er']]]), allowed)).toEqual(['b.ts: y * er']);
   });
 
   it('does not flag what is not a conversion (self-test)', () => {

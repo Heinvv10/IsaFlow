@@ -31,6 +31,7 @@ import { als } from '@/lib/als';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostService';
 import { planAllocationLines } from '@/modules/accounting/services/ar/receiptAllocationLines';
 import { fetchCustomerInvoiceCandidates, fetchSupplierInvoiceCandidates } from '@/modules/accounting/services/bank/bankMatchDbQueries';
+import { getReceiptMatchCandidates } from '@/modules/accounting/services/ar/receiptMatchService';
 import { fetchOpenCustomerInvoices } from '@/modules/accounting/services/ar/openCustomerInvoices';
 import { fetchOpenSupplierBills } from '@/modules/accounting/services/ap/openSupplierBills';
 
@@ -47,6 +48,7 @@ beforeAll(async () => { owner = await createUser(pool, tokens); });
 afterAll(async () => {
   for (const q of [
     'DELETE FROM exchange_rates WHERE company_id = ANY($1)',
+    'DELETE FROM bank_transactions WHERE company_id = ANY($1)',
     'DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = ANY($1))',
     'DELETE FROM customer_payments WHERE company_id = ANY($1)',
     'DELETE FROM supplier_payments WHERE company_id = ANY($1)',
@@ -123,6 +125,14 @@ describe('AR receipts against a foreign invoice', () => {
     const bills = await fetchSupplierInvoiceCandidates(c, 1150, -1150, '2026-09-15', 'payment', '', []);
     expect(bills.map((m) => m.id)).toContain(zarBill.id);
     expect(bills.map((m) => m.id)).not.toContain(usdBill.id);
+    // The receipt-match pool (ar/receipt-match) is a reader of its own.
+    const tx = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description)
+       SELECT $1, $2, id, DATE '2026-09-15', 1150, 'receipt' FROM gl_accounts WHERE company_id = $2 AND account_subtype = 'receivable'`, [tx, c]);
+    const pool2 = (await getReceiptMatchCandidates(tx, c)).candidates.map((m) => m.id);
+    expect(pool2).toContain(zar.id);
+    expect(pool2).not.toContain(usd.id);
   });
 });
 
