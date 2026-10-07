@@ -9,7 +9,7 @@ import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/se
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { journalVatRefusal } from '@/modules/accounting/services/capture/capturedVatEvidence';
 import {
-  agentManualJournalRefusal, lockManualJournalIfEnforced, markManualJournal,
+  agentManualJournalRefusal, lockManualJournalIfEnforced, markCreatedManualJournal, markManualJournal,
 } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput, VatType } from '@/modules/accounting/types/gl.types';
@@ -134,6 +134,7 @@ export const createDraftJournalTool: McpTool = {
         );
       }
     }
+    let entry: Awaited<ReturnType<typeof createJournalEntry>>;
     try {
       // Stamp the agent. Without meta, createJournalEntry falls back to
       // defaultHumanMeta(userId) and the entry lands as human:<userId> — agent
@@ -141,19 +142,23 @@ export const createDraftJournalTool: McpTool = {
       // invisible to list_agent_postings (which filters posting_agent LIKE
       // 'mcp:%'). Drafts count: post_journal does not restamp, so an unstamped
       // draft stays mislabelled after it is posted.
-      const entry = await createJournalEntry(
+      entry = await createJournalEntry(
         ctx.companyId,
         { entryDate, description: strArg(args, 'memo'), lines },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_draft_journal'),
         { allowLateInputClaim: allowLateInputClaim(args) },
       );
-      return ok(entry);
     } catch (err) {
       // Balance/period validation errors (plain Errors) are safe to surface;
       // pg errors (with a SQLSTATE code) are generic-ified to avoid leaking schema.
       return toolError(safeErrorText(err, 'Failed to create journal (check it balances and the date is in an open period).'));
     }
+    // R-035 PR6: an agent composed it — marked under manual-journal enforcement
+    // (still only a draft). Outside the catch: a failure here must reach the
+    // registry's savepoint, not commit an unmarked draft behind a tool error.
+    await markCreatedManualJournal(ctx.companyId, entry.id);
+    return ok(entry);
   },
 };
 

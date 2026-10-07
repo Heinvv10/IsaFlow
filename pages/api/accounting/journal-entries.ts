@@ -20,6 +20,7 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryService';
 import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
+import { markCreatedManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -95,6 +96,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       // A person drafting: a journal dated in a filed VAT period whose only VAT
       // is input tax may be drafted; posting it claims the VAT late (s16(3)).
     }, userId, undefined, { allowLateInputClaim: true });
+    // R-035 PR6: a person composed it — marked under manual-journal enforcement.
+    await markCreatedManualJournal(companyId, entry.id);
 
     return apiResponse.success(res, entry);
   } catch (err) {

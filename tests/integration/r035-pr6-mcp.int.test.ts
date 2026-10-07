@@ -103,7 +103,9 @@ describe('post_journal', () => {
 });
 
 describe('create_draft_journal', () => {
-  it('stays ungated under enforcement: a draft, unmarked, no request', async () => {
+  // Round 3 (blind LOW): marked at create under enforcement, so the backstop
+  // covers a person's draft too; still a draft only, and no request.
+  it('stays ungated under enforcement: a draft, marked, no request', async () => {
     const f = await fixture();
     const res = await mcp(f.c, 'create_draft_journal', {
       date: '2026-09-01', memo: 'agent draft', idempotency_key: `r035-pr6-draft-${f.c}`,
@@ -111,7 +113,7 @@ describe('create_draft_journal', () => {
     });
     expect(res.isError, text(res)).toBeFalsy();
     const { id } = JSON.parse(text(res)) as { id: string };
-    expect(await journalState(pool, id)).toMatchObject({ status: 'draft', marker: null });
+    expect(await journalState(pool, id)).toMatchObject({ status: 'draft', marker: 'manual_journal' });
     expect(await requestsFor(id)).toBe(0);
   });
 });
