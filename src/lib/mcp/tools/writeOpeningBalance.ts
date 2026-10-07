@@ -29,6 +29,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -82,6 +83,16 @@ export const setOpeningBalanceTool: McpTool = {
       date: ['as_at'],
     });
     if (bad) return bad;
+
+    // R-035 PR6 (Hein, 2026-10-07, round 4): an opening balance is exempt from
+    // manual-journal approval (decision 2) only because a PERSON enters it. An
+    // agent can relabel any asset 'bank' (update_gl_account) and post it
+    // against Opening Balance Equity, so under manual_journal enforcement the
+    // tool is refused outright — from a read, before any write, the key free.
+    if (await isEnforced(ctx.companyId, 'manual_journal')) {
+      return toolError('Manual journals are enforced for this company, so a person enters opening balances in IsaFlow '
+        + '(Accounting > Opening Balances); this connector cannot post them.');
+    }
 
     const amount = Number(args.amount);
     if (!Number.isFinite(amount)) return toolError('amount must be a number');

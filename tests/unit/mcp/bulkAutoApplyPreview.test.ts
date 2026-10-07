@@ -8,7 +8,9 @@
  * `docs/mcp/CONTRACTS.md` §6 calls worse than having no dry run at all.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -76,7 +78,6 @@ vi.mock('@/modules/accounting/services/ap/openSupplierBills', () => ({
 vi.mock('@/modules/accounting/services/ar/openCustomerInvoices', () => ({
   fetchOpenCustomerInvoices: vi.fn(),
 }));
-
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
@@ -88,7 +89,6 @@ import { resolveCustomerAutoAllocateStrategy } from '@/modules/accounting/servic
 import { fetchOpenSupplierBills } from '@/modules/accounting/services/ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '@/modules/accounting/services/ar/openCustomerInvoices';
 import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkAllocate';
-
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const SUPPLIER = '0c000000-0000-4000-8000-000000000001';

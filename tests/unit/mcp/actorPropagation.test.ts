@@ -26,6 +26,10 @@ vi.mock('@/lib/neon', async () => {
   return { ...original, sql: sqlFn };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// R-035 PR6: the create-time marker reads Postgres; enforcement off here (proven in r035-pr6-mcp).
+vi.mock('@/modules/accounting/services/gl/manualJournalApproval', async (orig) => ({
+  ...(await orig<object>()), markCreatedManualJournal: vi.fn(),
+}));
 
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { createDraftJournalTool } from '@/lib/mcp/tools/writeJournals';

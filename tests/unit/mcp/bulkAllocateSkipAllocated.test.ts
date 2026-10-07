@@ -18,7 +18,9 @@
  * typed `BulkAllocationLineError` the registry renders WITH its index.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -63,7 +65,6 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customersBelongToCompany: vi.fn(),
   suppliersBelongToCompany: vi.fn(),
 }));
-
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   findBankTransactionAllocationStates,
@@ -88,7 +89,6 @@ import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paymentLock';
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
-
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const BATCH = '0f000000-0000-4000-8000-000000000001';
 const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

@@ -30,15 +30,15 @@ vi.mock('@/modules/accounting/services/gl/reclassification/plan', async (orig) =
 vi.mock('@/modules/accounting/services/gl/reclassification/post', () => ({
   postReclassBatch: mocks.postReclassBatch,
 }));
-// The role-write lock and the bounded wait issue real SQL. Stubbed, or this "unit" file opens a database
-// connection: it passed only where one was reachable (a developer's .env.local) and failed in CI, which
-// has none. Their behaviour against Postgres is proven in tests/integration/w2-28-system-role-round1*.int.test.ts;
-// here they are spies, so the ORDER the tool calls them in can be asserted.
+// The role-write lock, the bounded wait and the manual-journal approval read (R-035 PR6) issue real SQL. Stubbed, or
+// this "unit" file opens a database connection — it failed in CI, which has none. Proven against Postgres in
+// w2-28-system-role-round1*.int.test.ts and r035-pr6-mcp.int.test.ts; here the lock and wait are ORDER-asserting spies.
 vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/gl/systemRoleWriteLock')>()),
   lockSystemRoleWrites: vi.fn(async () => undefined),
   boundedRowWait: vi.fn(<T,>(take: () => PromiseLike<T>) => take()),
 }));
+vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({ agentNewManualJournalsRefusal: vi.fn(async () => null) }));
 
 import { proposeReclassificationTool } from '@/lib/mcp/tools/reclassificationPropose';
 import { postReclassificationBatchTool } from '@/lib/mcp/tools/writeReclassification';

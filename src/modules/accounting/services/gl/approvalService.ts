@@ -27,9 +27,9 @@ export { requestApproval } from './approvalDocuments';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-// `credit_note` / `payment` are legacy (never enforceable); a note's type follows credit_notes.type (approvalDocumentTypes.ts).
+// `credit_note` / `payment` / `journal_entry` are legacy (never enforceable); a note's type follows credit_notes.type (approvalDocumentTypes.ts).
 export type DocumentType = 'customer_invoice' | 'supplier_invoice' | 'payment' | 'journal_entry' | 'credit_note'
-  | 'customer_credit_note' | 'supplier_credit_note' | 'supplier_payment' | 'payment_batch';
+  | 'customer_credit_note' | 'supplier_credit_note' | 'supplier_payment' | 'payment_batch' | 'manual_journal';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export interface ApprovalRule {

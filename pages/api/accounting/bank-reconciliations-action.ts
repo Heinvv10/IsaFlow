@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 import { reopenReconciliation } from '@/modules/accounting/services/bank/bankReconciliationReopenService';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('complete'), reconciliationId: UUID }),
@@ -74,6 +75,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // D12: complete / cancel / adjustment on a COMPLETED reconciliation — 409, decided under its header lock, pre-write.
     if (respondIfReconciliationCompleted(res, err)) return;
+    if (respondIfApprovalRequired(res, err)) return; // R-035 PR6 H1: an adjustment a manual-journal rule holds, pre-write
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank reconciliation action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);
