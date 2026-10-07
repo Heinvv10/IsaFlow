@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import receiptRoute from '../../pages/api/accounting/receipt-to-journal';
 import glImport from '../../pages/api/accounting/gl-import';
+import postExpenseRoute from '../../pages/api/accounting/capture/[id]/post-expense';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
@@ -109,6 +110,40 @@ describe('receipt-to-journal autoPost', () => {
     expect(body.autoPosted).toBe(true);
     expect(await journalState(pool, body.journalEntry.id)).toMatchObject({ status: 'posted', marker: null });
     expect(await requestOf(body.journalEntry.id)).toEqual([]);
+  });
+});
+
+describe('petty-cash capture post-expense (round 3, Hein)', () => {
+  // The anonymous branch of the capture inbox posts the slip as a journal, under the same confidence gate.
+  async function captured(f: JournalCompany, total: number): Promise<string> {
+    const doc = await receipt(f, total);
+    const eventId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO capture_events(id,company_id,channel,status,captured_document_id) VALUES($1,$2,'pwa','extracted',$3)`,
+      [eventId, f.c, doc]);
+    return eventId;
+  }
+  const postExpense = (f: JournalCompany, eventId: string) => callRoute(postExpenseRoute, tokens[u.a]!, f.c, 'POST',
+    { glAccountId: f.expA }, `/api/accounting/capture/${eventId}/post-expense`, { id: eventId });
+
+  it('holds a gated slip: claimed, a marked draft, the request raised by the uploader — a 200, never a 4xx', async () => {
+    const f = await fixture();
+    const res = await postExpense(f, await captured(f, 1150));
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    const body = dataOf<{ journalEntry: { id: string; status: string }; heldForApproval: boolean }>(res);
+    expect(body).toMatchObject({ journalEntry: { status: 'draft' }, heldForApproval: true });
+    expect(await journalState(pool, body.journalEntry.id)).toMatchObject({ status: 'draft', marker: 'manual_journal' });
+    expect(await requestOf(body.journalEntry.id)).toEqual([{ requested_by: u.a, status: 'pending' }]);
+  });
+
+  it('auto-posts an ungated slip, and every slip with enforcement off, as before', async () => {
+    const f = await fixture();
+    const small = dataOf<{ journalEntry: { id: string; status: string }; heldForApproval: boolean }>(
+      await postExpense(f, await captured(f, 575)));
+    expect(small).toMatchObject({ journalEntry: { status: 'posted' }, heldForApproval: false });
+    const off = await fixture({ enforced: false });
+    const big = dataOf<{ journalEntry: { id: string; status: string } }>(await postExpense(off, await captured(off, 1150)));
+    expect(await journalState(pool, big.journalEntry.id)).toMatchObject({ status: 'posted', marker: null });
   });
 });
 
