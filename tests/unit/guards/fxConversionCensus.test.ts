@@ -141,6 +141,8 @@ describe('exchange-rate conversions happen in one place', () => {
       'const k = row.exchange_rate; const f = total * k;',
       'let t = total; t *= er;',
       'const q = sql`SELECT total_amount\n  * exchange_rate FROM customer_invoices`;',
+      'const q = sql`SELECT total_amount *\n         ci.exchange_rate FROM customer_invoices ci`;',
+      'const q = sql`SELECT ci.exchange_rate\n  * total_amount FROM customer_invoices ci`;',
       "const q = 'SELECT total_amount * ci.exchange_rate';",
     ]) expect(caught(code), code).toBe(1);
   });
