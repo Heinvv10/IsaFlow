@@ -226,6 +226,23 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     expect(report.closing_cash).toBe(0.3);
   });
 
+  it('states the net change in whole cents, with no float residue', async () => {
+    // Net income 0.1 plus a 0.2 receivables change is 0.30000000000000004 in
+    // floating point; the report printed that residue as the net change.
+    openingCash = 0;
+    mockSqlResults.push(
+      [{ net_income: '0.1', ar_delta: '0.2', ap_delta: '0', investing: '0', financing: '0' }],
+    );
+
+    const mod = await import('../../../pages/api/accounting/reports-cash-flow');
+    const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
+    await handler(makeReq({ start_date: PERIOD_START, end_date: PERIOD_END }), makeRes());
+
+    const report = (jsonCapture as { data: { report: { net_change: number; closing_cash: number } } }).data.report;
+    expect(report.net_change).toBe(0.3);
+    expect(report.closing_cash).toBe(0.3);
+  });
+
   it('returns all-zero report when no journal lines exist', async () => {
     openingCash = 0;
     mockSqlResults.push(

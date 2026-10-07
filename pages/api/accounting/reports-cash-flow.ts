@@ -126,7 +126,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           total: financingTotal,
         },
       ],
-      net_change: netChange,
+      // In whole cents: the section totals summed as floats carry sub-cent residue.
+      net_change: toMoney(netChange),
       // In whole cents: opening + net change in floats carries sub-cent residue.
       closing_cash: toMoney(openingBalance + netChange),
     };
