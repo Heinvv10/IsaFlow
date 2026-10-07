@@ -46,8 +46,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await updateRecurringJournalStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        const journalId = await generateJournalFromRecurring(companyId, id, userId);
-        return apiResponse.success(res, { journalId });
+        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
+        const { journalId, heldForApproval } = await generateJournalFromRecurring(companyId, id, userId);
+        return apiResponse.success(res, { journalId, heldForApproval });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);

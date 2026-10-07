@@ -9,6 +9,8 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { RecurringTemplateNotDueError, RecurringTemplateNotFoundError } from './recurringTransactionErrors';
 import { lockRecurringTransactionTemplate } from './recurringTemplateLock';
+import { newManualJournalGate, settleUnattendedJournal } from '../gl/manualJournalApproval';
+import { templateAuthors } from '../gl/manualJournalAuthors';
 import {
   mintRecurringCustomerInvoice,
   mintRecurringSupplierInvoice,
@@ -144,7 +146,7 @@ export async function executeRecurring(
   companyId: string,
   templateId: string,
   userId: string,
-): Promise<{ entityType: string; entityId: string; posted: boolean }> {
+): Promise<{ entityType: string; entityId: string; posted: boolean; heldForApproval: string[] }> {
   const row = await lockRecurringTransactionTemplate(companyId, templateId);
   if (!row) throw new RecurringTemplateNotFoundError(templateId);
   // THE SCHEDULE IS THE IDEMPOTENCY KEY. Without this check `executeRecurring`
@@ -163,20 +165,31 @@ export async function executeRecurring(
 
   let entityId: string;
   let posted = false;
+  const heldForApproval: string[] = [];
 
   if (template.entityType === 'journal_entry') {
     const { createJournalEntry, postJournalEntry } =
       await import('../gl/journalEntryService');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = template.templateData as any;
+    const lines = data.lines || [];
+    // R-035 PR6: an autoPost run is unattended, so a journal an enforced
+    // manual-journal rule governs is held — left a draft, marked, carrying the
+    // template's authors, the request raised as the runner — and the schedule
+    // below still advances. Decided from reads before the journal is written.
+    const approval = await newManualJournalGate(companyId, lines);
+    const held = template.autoPost && approval.held;
     const je = await createJournalEntry(companyId, {
       entryDate: new Date().toISOString().split('T')[0]!,
       description: data.description || template.name,
       source: 'auto_recurring',
-      lines: data.lines || [],
+      lines,
     }, userId);
     entityId = je.id;
-    if (template.autoPost) {
+    await settleUnattendedJournal(companyId, je.id, userId, { enforced: approval.enforced, held }, approval.enforced
+      ? await templateAuthors(companyId, { kind: 'recurring_transaction_template', id: template.id }) : []);
+    if (held) heldForApproval.push(je.id);
+    else if (template.autoPost) {
       await postJournalEntry(companyId, je.id, userId);
       posted = true;
     }
@@ -196,7 +209,7 @@ export async function executeRecurring(
   `;
 
   log.info('Recurring template executed', { templateId, entityId, entityType: template.entityType }, 'recurring');
-  return { entityType: template.entityType, entityId, posted };
+  return { entityType: template.entityType, entityId, posted, heldForApproval };
 }
 
 export async function getUpcomingRecurring(
