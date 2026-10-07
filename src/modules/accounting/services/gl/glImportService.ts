@@ -8,6 +8,8 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { VatType } from '../../types/gl.types';
+import { journalDayWindowError } from '../../utils/journalDateWindow';
+import { ledgerDaysOf } from './journalDateGuard';
 type Row = DbRow;
 
 
@@ -94,6 +96,8 @@ export async function validateImportRows(
     let validCount = 0;
     let errorCount = 0;
     let warningCount = 0;
+    // The day Postgres stores for each date (gl/journalDateGuard) — the ledger window applies to that day.
+    const days = await ledgerDaysOf(rows.map((r) => String(r.date ?? '')));
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!;
@@ -106,8 +110,12 @@ export async function validateImportRows(
       }
 
       const parsedDate = parseDate(row.date);
+      const day = days.get(String(row.date ?? '')) ?? null;
+      const windowError = day === null ? null : journalDayWindowError(day);
       if (!parsedDate) {
         errors.push(`Invalid date: "${row.date}" — expected YYYY-MM-DD`);
+      } else if (windowError) {
+        errors.push(windowError);
       } else {
         const inOpenPeriod = periodRows.some((p: Row) => {
           const start = new Date(String(p.start_date));

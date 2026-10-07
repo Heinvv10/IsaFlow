@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -30,7 +31,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const result = await closeLoanPeriod(companyId, yyyymm, userId);
+    const result = await withJournalDateRefusal(res, () => closeLoanPeriod(companyId, yyyymm, userId));
+    if (result === JOURNAL_DATE_REFUSED) return;
     return apiResponse.created(res, result);
   }
 

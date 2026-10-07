@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondRowHeld } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess, withVatVendor} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -44,7 +45,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        const item = await approveVATAdjustment(companyId, id, userId);
+        const item = await withJournalDateRefusal(res, () => approveVATAdjustment(companyId, id, userId));
+        if (item === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, item);
       }
       case 'cancel':

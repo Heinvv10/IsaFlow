@@ -9,6 +9,8 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
+import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -68,9 +70,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const {
-    type, bankAccountId, date, amount: numericAmount,
+    type, bankAccountId, date: rawDate, amount: numericAmount,
     reference, description, allocationType, contraAccountId, entityId, vatCode, autoApply,
   } = parsed.data;
+  // The day Postgres stores (gl/journalDateGuard); outside the ledger window it is a 422 like any schema error.
+  const day = (await ledgerDaysOf([rawDate])).get(rawDate) ?? null;
+  const windowError = day === null ? null : journalDayWindowError(day);
+  if (windowError) return apiResponse.validationError(res, { date: [windowError] });
+  const date = day ?? rawDate;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 

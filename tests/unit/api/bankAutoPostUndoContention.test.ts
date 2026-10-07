@@ -21,7 +21,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   getAutoPostSettings: vi.fn(),
   updateAutoPostSettings: vi.fn(),

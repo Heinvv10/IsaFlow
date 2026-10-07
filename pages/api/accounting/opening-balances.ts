@@ -11,6 +11,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -47,7 +48,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const userId = (req as AuthenticatedNextApiRequest).user.id;
     try {
-      const entry = await postOpeningBalances(companyId, userId, req.body?.balances);
+      const entry = await withJournalDateRefusal(res, () => postOpeningBalances(companyId, userId, req.body?.balances));
+      if (entry === JOURNAL_DATE_REFUSED) return;
       log.info('Opening balances posted', { entryId: entry.id, companyId }, 'accounting');
       return apiResponse.success(res, { journalEntry: entry });
     } catch (err) {

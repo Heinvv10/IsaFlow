@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -57,10 +58,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   let result;
   try {
-    result = await importAPInvoices(companyId, sessionId, rows, userId, {
+    const posted = await withJournalDateRefusal(res, () => importAPInvoices(companyId, sessionId, rows, userId, {
       sourceRows,
       priorErrors: rowErrors,
-    });
+    }));
+    if (posted === JOURNAL_DATE_REFUSED) return;
+    result = posted;
   } catch (err) {
     // R-035 HIGH-2: raised before the first write, so the 4xx commits nothing.
     if (respondIfImportRefused(res, err)) return;
