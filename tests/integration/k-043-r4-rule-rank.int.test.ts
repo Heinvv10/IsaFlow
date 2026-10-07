@@ -187,7 +187,7 @@ describe('HIGH-1 — the round-4 separation-of-duties bypass, reproduced end to 
 describe('HIGH-1 — a rule may not be created or moved above the actor\'s own rank', () => {
   it('refuses an admin creating an owner-only rule and stores nothing', async () => {
     const res = await call(approvalRules, admin, 'POST', {
-      name: 'r4 admin mints owner', documentType: 'journal_entry',
+      name: 'r4 admin mints owner', documentType: 'manual_journal',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
     });
     expect(res.state.statusCode).toBe(403);
@@ -199,7 +199,7 @@ describe('HIGH-1 — a rule may not be created or moved above the actor\'s own r
 
   it('refuses a manager creating an admin-level rule', async () => {
     const res = await call(approvalRules, manager, 'POST', {
-      name: 'r4 manager mints admin', documentType: 'journal_entry',
+      name: 'r4 manager mints admin', documentType: 'manual_journal',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'admin',
     });
     expect(res.state.statusCode).toBe(403);
@@ -218,13 +218,13 @@ describe('HIGH-1 — a rule may not be created or moved above the actor\'s own r
 
   it('lets the owner create the owner-only rule, and the admin an admin-level one', async () => {
     const byOwner = await call(approvalRules, owner, 'POST', {
-      name: 'r4 owner mints owner', documentType: 'journal_entry',
+      name: 'r4 owner mints owner', documentType: 'manual_journal',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'owner',
     });
     expect(byOwner.state.statusCode).toBe(200);
 
     const byAdmin = await call(approvalRules, admin, 'POST', {
-      name: 'r4 admin mints admin', documentType: 'journal_entry',
+      name: 'r4 admin mints admin', documentType: 'manual_journal',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'admin',
     });
     expect(byAdmin.state.statusCode).toBe(200);
@@ -236,7 +236,7 @@ describe('HIGH-1 — a rule may not be created or moved above the actor\'s own r
     // The INSERT defaults approver_role to 'admin'; ranking only what the caller
     // typed would let a manager create an admin-level rule by omitting it.
     const res = await call(approvalRules, manager, 'POST', {
-      name: 'r4 manager omits role', documentType: 'journal_entry',
+      name: 'r4 manager omits role', documentType: 'manual_journal',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0,
     });
     expect(res.state.statusCode).toBe(403);
