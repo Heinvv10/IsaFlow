@@ -15,7 +15,7 @@ import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/cus
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
-import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
+import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
@@ -107,17 +107,29 @@ describeIfDisposable('credit notes against coded invoices (migration 870)', () =
     expect(await revenueLegs(j2)).toEqual([{ code: '4100', debit: 400, project: f.project.p1 }]);
   });
 
-  it('a failure after the journal is written is a 5xx class, and the request rolls back', async () => {
+  it('a closed period, or an AR account deactivated since, is refused BEFORE the journal is written: the 400 commits nothing', async () => {
     const inv = await invoice([{ unitPrice: 100, glAccountId: f.acct.commercials }]);
     const cnId = await note(inv, 100);
+    const journals = async () => Number(((await sql`
+      SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${f.fx.companyId}::UUID AND source = 'auto_credit_note'`) as { n: string }[])[0]!.n);
+    const before = await journals();
+    // No inTx here: a request that answers 400 COMMITs, so what the refusal wrote would stay.
+    const commitAnyway = () => inTx(f.fx, async () => approveCreditNote(f.fx.companyId, cnId, f.fx.userId)
+      .catch((e: unknown) => e));
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${f.fx.companyId}::UUID`;
     try {
-      const before = await draftCreditJournals();
-      const err = await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cnId, f.fx.userId)).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(ArPostingAfterWriteError);
-      expect(await draftCreditJournals()).toBe(before); // inTx rolled the draft back with the throw
+      expect(await commitAnyway()).toBeInstanceOf(ClosedFiscalPeriodError);
     } finally {
       await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${f.fx.companyId}::UUID`;
     }
+    const ar = ((await sql`SELECT id FROM gl_accounts WHERE company_id = ${f.fx.companyId}::UUID AND account_subtype = 'receivable'`) as { id: string }[])[0]!.id;
+    await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${ar}::UUID`;
+    try {
+      expect(await commitAnyway()).toBeInstanceOf(InactiveAccountError);
+    } finally {
+      await sql`UPDATE gl_accounts SET is_active = true WHERE id = ${ar}::UUID`;
+    }
+    expect(await journals()).toBe(before);
+    expect(((await sql`SELECT status FROM credit_notes WHERE id = ${cnId}::UUID`) as { status: string }[])[0]!.status).toBe('draft');
   });
 });

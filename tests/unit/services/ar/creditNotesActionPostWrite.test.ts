@@ -17,7 +17,9 @@ vi.mock('@/lib/apiResponse', () => ({
     badRequest: vi.fn((_res: unknown, error: string) => ({ kind: 'badRequest', error })),
     validationError: vi.fn(() => ({ kind: 'validationError' })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
+    error: vi.fn(() => ({ kind: 'error' })),
   },
+  ErrorCode: { SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE' },
 }));
 const { approveMock } = vi.hoisted(() => ({ approveMock: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
@@ -26,11 +28,13 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 
 import handler from '../../../../pages/api/accounting/credit-notes-action';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
+import { afterJournalWritten } from '@/modules/accounting/services/ar/creditNotePostingChecks';
+import { apiResponse } from '@/lib/apiResponse';
 
-const call = () => (handler as unknown as (r: NextApiRequest, s: NextApiResponse) => Promise<{ kind: string }>)(
+const call = (res: NextApiResponse = {} as NextApiResponse) => (handler as unknown as (r: NextApiRequest, s: NextApiResponse) => Promise<{ kind: string }>)(
   { method: 'POST', companyId: 'c', user: { id: 'u' },
     body: { action: 'approve', creditNoteId: '11111111-1111-4111-8111-111111111111' } } as unknown as NextApiRequest,
-  {} as NextApiResponse,
+  res,
 );
 
 describe('credit-notes-action approve: a failure after the journal is written is not a 400', () => {
@@ -42,5 +46,30 @@ describe('credit-notes-action approve: a failure after the journal is written is
   it('still answers a pre-write refusal 400', async () => {
     approveMock.mockRejectedValueOnce(new Error('Cannot approve credit note with status: applied'));
     expect(await call()).toEqual({ kind: 'badRequest', error: 'Cannot approve credit note with status: applied' });
+  });
+});
+
+describe('after the journal is written, a held row keeps its retryable class', () => {
+  const held = () => Object.assign(new Error('Credit note row is held by another request — retry in a moment.'), { code: 'CREDIT_NOTE_LOCK_TIMEOUT' });
+
+  it('afterJournalWritten passes a held row through and wraps anything else', async () => {
+    const h = held();
+    await expect(afterJournalWritten('CN-1', async () => { throw h; })).rejects.toBe(h);
+    const raw = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    await expect(afterJournalWritten('CN-1', async () => { throw raw; })).rejects.toBe(raw);
+    const other = new Error('period closed');
+    const err = await afterJournalWritten('CN-1', async () => { throw other; }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ArPostingAfterWriteError);
+    expect((err as Error).cause).toBe(other);
+  });
+
+  it('credit-notes-action answers a held row 503 + Retry-After, never 400', async () => {
+    vi.clearAllMocks();
+    approveMock.mockRejectedValueOnce(held());
+    const res = { setHeader: vi.fn() } as unknown as NextApiResponse;
+    await call(res);
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String));
+    expect(apiResponse.error).toHaveBeenCalledWith(res, 'SERVICE_UNAVAILABLE', expect.any(String), { code: 'CREDIT_NOTE_LOCK_TIMEOUT' });
+    expect(apiResponse.badRequest).not.toHaveBeenCalled();
   });
 });
