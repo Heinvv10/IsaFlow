@@ -18,6 +18,8 @@ import {
 import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
+import { newManualJournalRefusal } from '../gl/manualJournalApproval';
+import { ApprovalRequiredError } from '../gl/approvalGate';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -177,6 +179,14 @@ export async function createAdjustmentEntry(
     if (bankAccountId !== recon.bankAccountId) {
       throw new Error('Adjustment bank account does not match the reconciliation');
     }
+    // R-035 PR6 (Hein, 2026-10-07, H1): a person names the contra account and
+    // the amount — a manual journal — and nobody decides the request it would
+    // need, so under enforcement a matching rule refuses it HERE, before the
+    // journal exists (the route's 409; nothing written), with the way out.
+    const refusal = await newManualJournalRefusal(companyId, amount, (role, rule, amountText) =>
+      `A bank reconciliation adjustment of ${amountText} is a manual journal, and it needs ${role} approval before it can `
+      + `be posted (rule: ${rule}). Post it as a journal through Journal Entries, have it approved, then reconcile it.`);
+    if (refusal) throw refusal;
     const je = await createJournalEntry(companyId, {
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
@@ -194,6 +204,7 @@ export async function createAdjustmentEntry(
     log.info('Created adjustment entry', { reconciliationId, journalEntryId: je.id }, 'accounting');
     return je.id;
   } catch (err) {
+    if (err instanceof ApprovalRequiredError) throw err; // R-035 PR6: an expected refusal (the route's 409), not a fault
     log.error('Failed to create adjustment entry', { error: err }, 'accounting');
     throw err;
   }

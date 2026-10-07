@@ -8,7 +8,8 @@ export async function createGoodsReceived(companyId: string, userId: string, inp
   if (ctx.companyId !== companyId || ctx.userId !== userId) throw new Error('Receipt requires the authenticated company transaction');
   const body = parseGoodsReceived(input, userId);
   return withTransaction(async () => {
-    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId}::text, 620))`;
+    // The same key as before (scope = the company id, seed 620), now bounded at 5 s tighten-only (migration 864).
+    await sql`SELECT public.take_number_lock(${companyId}::text, 620)`;
     const orders = await sql<{ id: string; status: string }>`
       SELECT id,status FROM purchase_orders WHERE id=${body.purchaseOrderId}::uuid AND company_id=${companyId}::uuid FOR UPDATE
     `;

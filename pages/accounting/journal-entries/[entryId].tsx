@@ -1,7 +1,10 @@
 /**
  * Journal Entry Detail Page
  * GET /accounting/journal-entries/:entryId
- * Shows full entry with lines, and actions (post/reverse)
+ * Shows full entry with lines, and actions (post/reverse). R-035 PR6: a draft
+ * shows its manual-journal approval state (DocumentApprovalPanel) and offers
+ * Post only once nothing holds it; a post refused 409 reloads the entry and
+ * shows why, above it.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -21,14 +24,18 @@ import {
   Hash,
 } from 'lucide-react';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
+import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import { JournalLinesTable } from '@/components/accounting/gl/JournalLinesTable';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 
 export default function JournalEntryDetailPage() {
   const router = useRouter();
   const { entryId } = router.query;
-  const [entry, setEntry] = useState<JournalEntry | null>(null);
+  const [entry, setEntry] = useState<(JournalEntry & { approval?: DocumentApprovalState | null }) | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -60,6 +67,7 @@ export default function JournalEntryDetailPage() {
   const handleAction = useCallback(async (action: 'post' | 'reverse') => {
     if (!entry) return;
     setActionLoading(action);
+    setNotice(null);
     try {
       const res = await apiFetch('/api/accounting/journal-entries-action', {
         method: 'POST',
@@ -74,7 +82,8 @@ export default function JournalEntryDetailPage() {
       await loadEntry();
     } catch (err) {
       const msg = apiErrorMessage(err, `Could not ${action} the entry - try again`);
-      setError(msg);
+      // 409: approval holds the journal (or it changed): reload to show its state, and say why beside it.
+      if (err instanceof ApiRequestError && err.status === 409) { await loadEntry(); setNotice(msg); } else setError(msg);
       log.error('Journal entry action failed', { entryId, action, error: err }, 'accounting-ui');
     } finally {
       setActionLoading(null);
@@ -122,7 +131,7 @@ export default function JournalEntryDetailPage() {
                   {entry.status}
                 </span>
 
-                {entry.status === 'draft' && (
+                {entry.status === 'draft' && !isApprovalHeld(entry.approval) && (
                   <button
                     onClick={() => handleAction('post')}
                     disabled={actionLoading === 'post'}
@@ -156,6 +165,9 @@ export default function JournalEntryDetailPage() {
           </div>
         </div>
 
+        {entry && <DocumentApprovalPanel documentType="manual_journal" documentId={entry.id} noun="journal"
+          approval={entry.approval} onChanged={loadEntry} />}
+
         <div className="p-6">
           {isLoading ? (
             <div className="flex justify-center py-12">
@@ -171,6 +183,7 @@ export default function JournalEntryDetailPage() {
             </div>
           ) : entry ? (
             <div className="space-y-6">
+              {notice && <p className="text-sm text-amber-500">{notice}</p>}
               {/* Entry Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
@@ -229,54 +242,7 @@ export default function JournalEntryDetailPage() {
                 </div>
               </div>
 
-              {/* Journal Lines */}
-              <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
-                <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
-                  <h3 className="text-lg font-semibold text-[var(--ff-text-primary)]">Journal Lines</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
-                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">#</th>
-                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Account</th>
-                        <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Description</th>
-                        <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Debit</th>
-                        <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Credit</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entry.lines?.map((line, idx) => (
-                        <tr key={line.id} className="border-b border-[var(--ff-border-light)] hover:bg-teal-500/[0.04] transition-colors">
-                          <td className="px-6 py-3 text-sm text-[var(--ff-text-tertiary)]">{idx + 1}</td>
-                          <td className="px-6 py-3">
-                            <div className="text-sm font-medium text-[var(--ff-text-primary)]">{line.accountCode || '-'}</div>
-                            <div className="text-xs text-[var(--ff-text-secondary)]">{line.accountName || ''}</div>
-                          </td>
-                          <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">{line.description || '-'}</td>
-                          <td className="px-6 py-3 text-sm text-right font-medium tabular-nums text-[var(--ff-text-primary)]">
-                            {formatCurrency(line.debit)}
-                          </td>
-                          <td className="px-6 py-3 text-sm text-right font-medium tabular-nums text-[var(--ff-text-primary)]">
-                            {formatCurrency(line.credit)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-[var(--ff-bg-tertiary)] border-t-2 border-[var(--ff-border-medium)]">
-                        <td colSpan={3} className="px-6 py-3 text-sm font-semibold text-[var(--ff-text-primary)]">Total</td>
-                        <td className="px-6 py-3 text-sm text-right font-bold text-[var(--ff-text-primary)]">
-                          {formatCurrency(entry.lines?.reduce((s, l) => s + Number(l.debit), 0) || 0)}
-                        </td>
-                        <td className="px-6 py-3 text-sm text-right font-bold text-[var(--ff-text-primary)]">
-                          {formatCurrency(entry.lines?.reduce((s, l) => s + Number(l.credit), 0) || 0)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
+              <JournalLinesTable lines={entry.lines ?? []} formatCurrency={formatCurrency} />
             </div>
           ) : null}
         </div>

@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { validateProject } from '@/modules/accounting/services/reports/projectAccountingService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
+import { PROJECT_NUMBER_SEED, takeCompanyNumberLock } from '@/modules/accounting/services/core/numberLock';
 
 type Row = Record<string, unknown>;
 
@@ -53,9 +54,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // MAX, not COUNT: projects carries UNIQUE(company_id, project_number), and
     // count is not max — after a single project was deleted every later create
     // re-issued an existing number and 23505'd permanently, since the count
-    // never caught up. Concurrent creates still collide on the index and fail
-    // the request rather than duplicating; there is no `project` sequence in
-    // company_document_numbers to reserve from.
+    // never caught up. The company's project-number lock (migration 864),
+    // taken before the MAX, makes a concurrent create wait for this one to
+    // commit and mint the next number instead of failing 23505; held past
+    // 5 s -> 55P03 -> 503 + Retry-After (withErrorHandler).
+    await takeCompanyNumberLock(companyId, null, PROJECT_NUMBER_SEED);
     const maxRes = await sql`
       SELECT COALESCE(MAX(CAST(SUBSTRING(project_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
       FROM projects WHERE company_id = ${companyId}::UUID AND project_number ~ '^PROJ-[0-9]+$'

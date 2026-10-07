@@ -20,6 +20,7 @@
  * the SAME predicates, and `mergeAccounts` aborts if their numbers differ.
  */
 import { sql } from '@/lib/neon';
+import { stampMergedDraftJournals } from './manualJournalAuthors';
 
 export const DOCUMENT_ROW_TABLES = [
   'supplier_invoice_items', 'customer_invoice_items', 'expense_claim_lines', 'po_items', 'capture_events',
@@ -76,11 +77,15 @@ function ids(rows: unknown): string[] {
  * (`content_authors`), whom the decide path refuses as approvers (decision
  * Q10: the merge also stales any approval on those bills). A customer invoice
  * line's account is in its digest too (migration 865), so its invoice gets the
- * same stamp.
+ * same stamp. So is a draft journal's (R-035 PR6): every draft owning one of
+ * `movedJournalLineIds` — the ledger lines the merge already moved — gains the
+ * merging user, while manual-journal enforcement is on.
  */
 export async function repointDocumentRows(
   companyId: string, sourceId: string, targetId: string, editedBy?: string,
+  movedJournalLineIds: readonly string[] = [],
 ): Promise<MovedDocumentRows> {
+  await stampMergedDraftJournals(companyId, movedJournalLineIds, editedBy);
   const supplierInvoiceItems = ids(await sql`
     WITH moved AS (
       UPDATE supplier_invoice_items i

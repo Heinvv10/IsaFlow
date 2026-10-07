@@ -157,9 +157,11 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
     const balance = normalBal === 'debit' ? debit - credit : credit - debit;
     if (Math.abs(balance) < 0.01) continue;
 
-    // Contra-assets (asset type, credit normal balance e.g. Accumulated Depreciation) must
-    // reduce total assets. Negate the balance so they subtract from totalAssets correctly.
-    const reportBalance = (type === 'asset' && normalBal === 'credit') ? -balance : balance;
+    // Report by SECTION, not by the account's own normal side: assets as debit − credit, liabilities and
+    // equity as credit − debit. A contra account then subtracts from its section: accumulated depreciation
+    // (credit-normal asset), and Dividends Declared / Drawings (debit-normal equity), which were added to
+    // equity and overstated it by twice their balance (isaflow_dev 2026-10-07: R5,069,731.70).
+    const reportBalance = type === 'asset' ? debit - credit : credit - debit;
     const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance: reportBalance };
     if (type === 'asset') assets.push(item);
     else if (type === 'liability') liabilities.push(item);
