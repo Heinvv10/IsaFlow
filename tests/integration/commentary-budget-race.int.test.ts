@@ -1,8 +1,8 @@
 /**
  * Two approvals of DIFFERENT rows of one pack, racing.
  *
- * Each is within the pack budget on its own (~330 of 420 ems) and together they
- * are not (~660). Both read the sum "before" the other writes, so without a per-pack
+ * Each is sized from the CURRENT budget: it fits alone (about 60% of it) and the
+ * two together do not (about 120%). Both read the sum "before" the other writes, so without a per-pack
  * lock both pass and page 4 — which joins every approved row — overflows and
  * refuses the whole board pack. The proof is by outcome against real Postgres:
  * the second approval must be seen WAITING on the lock while the first is
@@ -18,7 +18,7 @@ import { Pool, type PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { approveCommentary } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_PACK_EMS, packEmsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { MAX_APPROVED_PACK_EMS, commentaryCost } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 // The Login-as guard reads the sessions table, which this minimal fixture does
@@ -33,6 +33,15 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const company = randomUUID();
 const rowA = randomUUID();
 const rowB = randomUUID();
+/** Prose costing about `share` of the pack budget, so the test follows the budget. */
+function sized(share: number, seed: string): string {
+  const sentence = `${seed} revenue grew because the two largest contracts renewed and the rollout reached full billing. `;
+  let out = '';
+  while (commentaryCost([out + sentence]) <= MAX_APPROVED_PACK_EMS * share) out += sentence;
+  return out.trim();
+}
+const textA = sized(0.6, 'Alpha');
+const textB = sized(0.6, 'Bravo');
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'commentary race']);
@@ -57,15 +66,21 @@ async function inTx(user: string): Promise<{ client: PoolClient; run: <T>(f: () 
   return { client, run: (f) => als.run({ client, userId: user, companyId: company, claims: {} } as never, f) };
 }
 
+it('sizes the premise from the budget: each fits alone, both together do not', () => {
+  expect(commentaryCost([textA])).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+  expect(commentaryCost([textB])).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+  expect(commentaryCost([textA, textB])).toBeGreaterThan(MAX_APPROVED_PACK_EMS);
+});
+
 it('serialises two approvals of one pack: the second waits, then is refused by name', async () => {
   const a = await inTx('u1');
   const b = await inTx('u2');
   try {
-    const first = await a.run(() => approveCommentary(company, rowA, 'u1', 'a'.repeat(700)));
+    const first = await a.run(() => approveCommentary(company, rowA, 'u1', textA));
     expect(first.ok).toBe(true); // A holds the pack lock, uncommitted
 
     let settled = false;
-    const second = b.run(() => approveCommentary(company, rowB, 'u2', 'b'.repeat(700)))
+    const second = b.run(() => approveCommentary(company, rowB, 'u2', textB))
       .finally(() => { settled = true; });
 
     let waiting = false;
@@ -93,6 +108,5 @@ it('serialises two approvals of one pack: the second waits, then is refused by n
   const { rows } = await pool.query(
     "SELECT approved_text FROM report_commentary WHERE company_id=$1 AND status='approved'", [company]);
   expect(rows).toHaveLength(1);
-  const approved = rows.map((r: { approved_text: string }) => ({ status: 'approved', approvedText: r.approved_text }));
-  expect(packEmsUsed(approved)).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+  expect(commentaryCost(rows.map((r: { approved_text: string }) => r.approved_text))).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
 }, 30_000);

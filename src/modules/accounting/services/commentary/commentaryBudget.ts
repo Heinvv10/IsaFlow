@@ -6,7 +6,7 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
 import { canonicalParamsHash, PACK_TYPES } from '@/modules/accounting/services/reports/packParamsHash';
-import { approxCharsLeft, packEmsUsed } from './commentaryLimits';
+import { approxCharsLeft } from './commentaryLimits';
 
 /** Only the board pack prints approved commentary on a fixed sheet (page 4);
  *  management and monthly packs flow it on screen and in the share link. The
@@ -25,25 +25,28 @@ export function budgetReason(remainingEms: number): string {
 }
 
 /**
- * Serialises approvals PER PACK, then reads what the pack has already spent —
- * costed in TS with the page's own ruler (`commentaryEms`), on the rows read
- * under the lock. The lock is a transaction advisory lock, so it only holds
- * inside the request transaction `withAuth` opens (released at COMMIT, after
- * the UPDATE): on a pooled connection it would be released the instant it was
- * taken and two approvals could both pass the sum — hence the refusal, as in
+ * Serialises approvals PER PACK, then reads the paragraph page 4 will print:
+ * every approved row of the pack in the page's own order (`section_ref,
+ * row_ref`, as `listCommentary` reads them) plus the row being approved at its
+ * own position, whose `text` here is a placeholder the caller substitutes. The
+ * lock is a transaction advisory lock, so it only holds inside the request
+ * transaction `withAuth` opens (released at COMMIT, after the UPDATE): on a
+ * pooled connection it would be released the instant it was taken and two
+ * approvals could both pass the cost — hence the refusal, as in
  * `assertClosesInOrder`. Tag 611 is this table's migration number.
  */
-export async function lockPackAndSumApproved(
+export async function lockAndReadPack(
   companyId: string, id: string, reportKind: string, paramsHash: string,
-): Promise<number> {
+): Promise<Array<{ id: string; text: string }>> {
   if (!als.getStore()?.client) {
     throw new Error('approveCommentary requires a request transaction (withAuth): the pack lock would release immediately otherwise');
   }
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${companyId}:${reportKind}:${paramsHash}`}::text, 611))`;
   const rows = (await sql`
-    SELECT approved_text FROM report_commentary
+    SELECT id, approved_text FROM report_commentary
     WHERE company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND params_hash = ${paramsHash}
-      AND status = 'approved' AND approved_text IS NOT NULL AND id <> ${id}::uuid
+      AND ((status = 'approved' AND approved_text IS NOT NULL) OR id = ${id}::uuid)
+    ORDER BY section_ref, row_ref
   `) as DbRow[];
-  return packEmsUsed(rows.map((r) => ({ status: 'approved', approvedText: String(r.approved_text) })));
+  return rows.map((r) => ({ id: String(r.id), text: r.approved_text === null ? '' : String(r.approved_text) }));
 }

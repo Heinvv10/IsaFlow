@@ -13,7 +13,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import {
-  MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryEms,
+  MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryCost,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 function envelope(data: unknown, status = 200): Response {
@@ -216,8 +216,9 @@ describe('CommentaryPanel', () => {
 describe('CommentaryPanel approve with edits', () => {
   const BOARD = { type: 'board' as const, from: '2026-08-01', to: '2026-08-31' };
   const DRAFT = 'DRAFT REVENUE SENTENCE';
-  const left = (usedByOthers: number, typed: string) =>
-    `about ${approxCharsLeft(MAX_APPROVED_PACK_EMS - usedByOthers - commentaryEms(typed))} characters left`;
+  /** The count the editor shows for `typed` in this row's place beside `others`' approved text (page order: others first). */
+  const left = (others: string[], typed: string) =>
+    `about ${approxCharsLeft(MAX_APPROVED_PACK_EMS - commentaryCost([...others, typed]))} characters left`;
 
   async function openEditor(rows: CommentaryRow[] = [ROW], params = BOARD) {
     fetchMock.mockResolvedValueOnce(envelope({ commentary: rows }));
@@ -233,7 +234,7 @@ describe('CommentaryPanel approve with edits', () => {
     expect(box.value).toBe(DRAFT);
     expect(document.activeElement).toBe(box);
     const status = screen.getByRole('status');
-    expect(status.textContent).toBe(left(0, DRAFT));
+    expect(status.textContent).toBe(left([], DRAFT));
   });
 
   it('counts the trimmed text: padding with whitespace changes nothing', async () => {
@@ -243,13 +244,14 @@ describe('CommentaryPanel approve with edits', () => {
     expect(screen.getByRole('status').textContent).toBe(before);
     typeInto(box, 'x'.repeat(50));
     typeInto(box, `  ${'x'.repeat(50)}  `);
-    expect(screen.getByRole('status').textContent).toBe(left(0, 'x'.repeat(50)));
+    expect(screen.getByRole('status').textContent).toBe(left([], 'x'.repeat(50)));
   });
 
   it('counts what OTHER approved rows already spent, so the figure is the pack\u2019s, not the row\u2019s', async () => {
     const other: CommentaryRow = { ...ROW, id: 'row-2', rowRef: 'cogs', status: 'approved', approvedText: 'z'.repeat(499) };
     await openEditor([ROW, other]);
-    expect(screen.getByRole('status').textContent).toBe(left(commentaryEms('z'.repeat(499)), DRAFT));
+    expect(screen.getByRole('status').textContent).toBe(`about ${approxCharsLeft(MAX_APPROVED_PACK_EMS - commentaryCost([DRAFT, 'z'.repeat(499)]))} characters left`);
+    // ...and the row is costed where the page prints it: before the other row, not after.
   });
 
   it('names every Edit button by the sentence the row shows, not by an internal key', async () => {
@@ -294,7 +296,7 @@ describe('CommentaryPanel approve with edits', () => {
 
   it('will not submit text past the page limit, and says by about how much', async () => {
     const box = await openEditor();
-    typeInto(box, 'x'.repeat(1200));
+    typeInto(box, 'x'.repeat(1500));
     expect(screen.getByRole('status').textContent).toMatch(/^over the page limit by about \d+ characters$/);
     const approve = screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
     expect(approve.disabled).toBe(true);
@@ -311,7 +313,7 @@ describe('CommentaryPanel approve with edits', () => {
   it('accepts text that exactly fills the room', async () => {
     const box = await openEditor();
     let n = 0;
-    while (commentaryEms('x'.repeat(n + 1)) <= MAX_APPROVED_PACK_EMS) n += 1;
+    while (commentaryCost(['x'.repeat(n + 1)]) <= MAX_APPROVED_PACK_EMS) n += 1;
     typeInto(box, 'x'.repeat(n));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
     typeInto(box, 'x'.repeat(n + 1));
@@ -323,6 +325,14 @@ describe('CommentaryPanel approve with edits', () => {
     expect(screen.queryByRole('status')).toBeNull();
     typeInto(box, 'x'.repeat(1200));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('collapses newlines, tabs and runs of spaces in the Edit button name', async () => {
+    const messy: CommentaryRow = { ...ROW, draftText: '  Revenue\ngrew\t\tby   25%.\n\n  Costs held.  ' };
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [messy] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={BOARD} />);
+    const button = await screen.findByRole('button', { name: /^Edit:/ });
+    expect(button.getAttribute('aria-label')).toBe('Edit: Revenue grew by 25%. Costs held.');
   });
 
   it('shortens a long sentence in the Edit button name', async () => {

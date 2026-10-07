@@ -5,68 +5,49 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryEms, editedTextProblem, normaliseEditedText, packEmsUsed,
+  MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryCost, editedTextProblem, normaliseEditedText,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
-import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import {
+  PAGE_WIDTH_MM, emsPerLine, wrapEms,
+} from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { GUTTER_MM } from '@/modules/accounting/services/packs/pages/packDisclosureHeight';
 
-describe('commentaryEms', () => {
-  const JOIN = textWidthEms(' ');
+describe('commentaryCost', () => {
+  const PERLINE = [emsPerLine(10, PAGE_WIDTH_MM.portrait), emsPerLine(10, (PAGE_WIDTH_MM.portrait - GUTTER_MM) * (2 / 3))];
 
-  it('trims, and an empty text costs only the joining space', () => {
-    expect(commentaryEms('  abc \n')).toBe(commentaryEms('abc'));
-    expect(commentaryEms('')).toBeCloseTo(JOIN, 9);
-    expect(JOIN).toBeCloseTo(0.26, 9);
+  it('is zero for nothing, and ignores blank rows and padding', () => {
+    expect(commentaryCost([])).toBe(0);
+    expect(commentaryCost(['', '  '])).toBe(0);
+    expect(commentaryCost(['  abc \n'])).toBe(commentaryCost(['abc']));
   });
 
-  it('never costs less than the width the page ruler gives the words', () => {
-    for (const t of ['Revenue grew', 'WWWW MMMM', '收入增长是因为', 'a'.repeat(200), '1234 5678 90']) {
-      expect(commentaryEms(t)).toBeGreaterThanOrEqual(textWidthEms(t.trim()) + JOIN - 1e-9);
-    }
+  it('IS the page wrapper: the worse of lines x line-ems at the two prose measures, on the joined paragraph', () => {
+    const texts = ['Revenue grew on the Gauteng rollout.', 'Costs were held flat.', 'a'.repeat(46), 'W'.repeat(26), 'i'];
+    const joined = texts.join(' ');
+    expect(commentaryCost(texts)).toBe(Math.max(...PERLINE.map((p) => wrapEms(joined, p) * p)));
   });
 
-  it('charges ordinary words about their width, so prose is nearly unaffected', () => {
-    const prose = 'Revenue grew because the two largest contracts renewed and the Gauteng rollout reached full billing.';
-    const ratio = (commentaryEms(prose) - JOIN) / textWidthEms(prose);
-    expect(ratio).toBeGreaterThan(1);
-    expect(ratio).toBeLessThan(1.25);
+  it('costs the JOIN, in order, not the rows one by one: two half-line rows share a line', () => {
+    const half = 'word '.repeat(5).trim();
+    expect(commentaryCost([half, half])).toBeLessThan(commentaryCost([half]) * 2);
   });
 
-  it('charges a word a line cannot share by the line it takes: a word just over half a line costs about twice its width', () => {
-    // 28 em lines beside the panel, 44 stacked. A 28-character word is ~13 ems: two to a line.
-    const half = (n: number) => (commentaryEms('a'.repeat(n)) - JOIN) / textWidthEms('a'.repeat(n));
-    expect(half(28)).toBeLessThan(1.15);
-    expect(half(31)).toBeGreaterThan(1.8);
-    // A word wider than any line is charged whole lines.
-    const wide = 'a'.repeat(400);
-    expect(commentaryEms(wide) - JOIN).toBeGreaterThanOrEqual(textWidthEms(wide));
+  it('charges alternating line-wide and short words what the page sets them in', () => {
+    const alt = Array.from({ length: 30 }, () => `${'a'.repeat(46)} a`).join(' ');
+    const uniform = Array.from({ length: 30 }, () => 'a'.repeat(46)).join(' ');
+    expect(commentaryCost([alt])).toBeGreaterThanOrEqual(commentaryCost([uniform]));
   });
 
   it('charges by glyph width, not by count: capitals and CJK cost more than lowercase', () => {
-    expect(commentaryEms('WWWW')).toBeGreaterThan(commentaryEms('aaaa') * 1.5);
-    expect(commentaryEms('收入增长')).toBeGreaterThan(commentaryEms('aaaa') * 1.5);
-  });
-});
-
-describe('packEmsUsed', () => {
-  it('sums only approved rows with text', () => {
-    const rows = [
-      { status: 'approved', approvedText: 'one' },
-      { status: 'draft', approvedText: 'not counted' },
-      { status: 'rejected', approvedText: 'not counted either' },
-      { status: 'approved', approvedText: null },
-      { status: 'approved', approvedText: 'two' },
-    ];
-    expect(packEmsUsed(rows)).toBeCloseTo(commentaryEms('one') + commentaryEms('two'), 9);
-  });
-
-  it('is zero for no rows', () => {
-    expect(packEmsUsed([])).toBe(0);
+    const run = (ch: string) => ch.repeat(300);
+    expect(commentaryCost([run('W')])).toBeGreaterThan(commentaryCost([run('a')]) * 1.3);
+    expect(commentaryCost([run('收')])).toBeGreaterThan(commentaryCost([run('a')]) * 1.5);
   });
 });
 
 describe('approxCharsLeft', () => {
   it('turns room into ordinary-prose characters, never negative', () => {
-    expect(approxCharsLeft(MAX_APPROVED_PACK_EMS)).toBe(1244);
+    expect(approxCharsLeft(MAX_APPROVED_PACK_EMS)).toBe(Math.floor(MAX_APPROVED_PACK_EMS / 0.45));
     expect(approxCharsLeft(0)).toBe(0);
     expect(approxCharsLeft(-50)).toBe(0);
   });
@@ -79,8 +60,27 @@ describe('editedTextProblem', () => {
   it('calls text with no visible character empty', () => {
     for (const blank of ['', ' ', '​', '﻿⁠', ' ­ ']) expect(editedTextProblem(blank)).toBe('empty');
   });
+  // ONE CASE PER CHARACTER OR RANGE, so removing any of them goes red on its own.
+  it.each([
+    ['Hangul choseong filler U+115F', '\u115f'], ['Hangul jungseong filler U+1160', '\u1160'],
+    ['Hangul filler U+3164', '\u3164'], ['halfwidth Hangul filler U+FFA0', '\uffa0'],
+    ['braille blank U+2800', '\u2800'],
+    ['Khmer inherent vowel U+17B4', '\u17b4'], ['Khmer inherent vowel U+17B5', '\u17b5'],
+    ['combining grapheme joiner U+034F', '\u034f'],
+    ['variation selector U+FE00', '\ufe00'], ['variation selector U+FE0F', '\ufe0f'],
+    ['Mongolian variation selector U+180B', '\u180b'], ['U+180C', '\u180c'], ['U+180D', '\u180d'],
+    ['variation selector supplement U+E0100', '\u{e0100}'], ['U+E01EF', '\u{e01ef}'],
+    ['a combining acute accent alone U+0301', '\u0301'], ['marks only U+0301 U+0308 U+20DD', '\u0301\u0308\u20dd'],
+  ])('calls %s empty, alone and among spaces', (_name, ch) => {
+    expect(editedTextProblem(ch)).toBe('empty');
+    expect(editedTextProblem(` ${ch} ${ch}`)).toBe('empty');
+  });
+  it('but one visible character among blank ones is text, and a mark on a letter is text', () => {
+    expect(editedTextProblem('\u3164a\u2800')).toBeNull();
+    expect(editedTextProblem('e\u0301')).toBeNull();
+  });
   it('calls control characters and lone surrogates invalid', () => {
-    for (const bad of ['a\u0000', '\u0001', '\u007f', '\ud800', 'a\udfffb']) expect(editedTextProblem(bad)).toBe('invalid');
+    for (const bad of ['a\u0000', '\u0001', '\u007f', '\u0080', 'a\u0085b', '\u009f', '\ud800', 'a\udfffb']) expect(editedTextProblem(bad)).toBe('invalid');
   });
 });
 

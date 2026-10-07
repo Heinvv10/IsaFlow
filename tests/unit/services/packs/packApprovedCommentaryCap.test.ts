@@ -1,27 +1,24 @@
 /**
- * THE PACK-WIDE BUDGET ON APPROVED COMMENTARY IS MEASURED IN THE PAGE'S OWN UNITS.
+ * THE PACK-WIDE BUDGET ON APPROVED COMMENTARY IS THE PAGE'S OWN LINE COUNT.
  *
  * A person can now write the sentence they approve. Page 4 joins every
  * approved row's text into one paragraph (`packDraftState.approvedCommentary`)
  * and a page that does not fit its sheet is REFUSED — `buildBoardPackPages`
- * throws `PackRefusal` and the company gets no board pack at all. What can
- * overflow is the SUM of the rows, so the limit is on the sum, costed with
- * `commentaryEms`: the page's em ruler, with each word charged by the lines it
- * takes the way `wrapEms` sets it (a word a line cannot share wastes the rest
- * of its line). A character count let all-caps or CJK text take twice the room
- * of prose, and a plain ems sum let a text of line-wide words pass the editor
- * and be refused by the page.
+ * throws `PackRefusal` and the company gets no board pack at all. The limit is
+ * therefore on the pack, and the cost is `commentaryCost`: the page model's
+ * own wrapper (`wrapEms`) run on the joined paragraph at the two prose
+ * measures, lines x line-ems. Approximating word shapes lost every arms race
+ * (a character count, a plain ems sum, a per-word line charge each admitted a
+ * text the page then refused); running the page's wrapper cannot.
  *
- * MEASUREMENT (real page builder; the cost of the joined text page 4 holds
- * before it refuses, tightest fixture `liveDemoShortPanelsInput`): wide glyphs
- * 619, digits 620, prose/caps/long words 639, URL in prose 724, CJK 799, and
- * uniform words of 10..70 characters 620 to 1178. Other fixtures hold up to
- * 1766. MAX_APPROVED_PACK_EMS = 560 sits 9% under the lowest, so EVERY kind at
- * the budget fits EVERY fixture, including the N = 10..70 sweep of uniform
- * words; 3.5x the budget refuses on every fixture for every kind, and 1.3x
- * refuses on the tightest for the kinds whose capacity is nearest the budget.
+ * MEASUREMENT (real page builder; the cost page 4 holds before it refuses,
+ * tightest fixture `liveDemoShortPanelsInput`): 617 for wide glyphs,
+ * alternating line-wide and short words and every word-length sweep (the
+ * capacity is the page's line count, not a function of word shape); prose 644,
+ * caps 672, CJK 784. Other fixtures hold 793 to 980. MAX_APPROVED_PACK_EMS =
+ * 600 is 3% under the tightest.
  *
- * Mutation check: raise MAX_APPROVED_PACK_EMS to 1750 and the at-budget tests
+ * Mutation check: raise MAX_APPROVED_PACK_EMS to 1200 and the at-budget tests
  * go red with a PackRefusal on page 4.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -42,7 +39,7 @@ import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
 import { fitBodyPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import {
-  MAX_APPROVED_PACK_EMS, commentaryEms, packEmsUsed,
+  MAX_APPROVED_PACK_EMS, commentaryCost,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
 import {
   liveDemoShortPanelsInput, liveDemoInput, liveDemoRenderedInput, manyLongNullQuantumMattersInput,
@@ -60,29 +57,40 @@ const KINDS: Record<string, string> = {
   url: 'Revenue grew; the supplier schedule is at https://x.co/?id=0a1b2c3d4e0a1b2c3d4e0a1b2c3d4e0a1b2c3d4e for detail. ',
   cjk: '收入增长是因为两个最大的合同续签并且豪登省的推广达到了全面计费。 ',
 };
+// Alternating line-wide and short words: what a per-word charge priced as if neighbours matched.
+KINDS['alternating 46+1'] = `${'a'.repeat(46)} a `;
+KINDS['alternating W26+i'] = `${'W'.repeat(26)} i `;
+KINDS['alternating W52+i'] = `${'W'.repeat(52)} i `;
 // Uniform words of N characters, N = 10..70: the line-wide cases a plain ems sum missed.
 for (let n = 10; n <= 70; n += 4) KINDS[`words of ${n}`] = `${'a'.repeat(n)} `;
 
-/** The longest text of `kind` whose cost is at most `ems`. */
-function textCosting(kind: string, ems: number): string {
+/** The longest text of `kind` whose cost is at most `cost`. */
+function textCosting(kind: string, cost: number): string {
   const pattern = KINDS[kind]!;
-  let out = '';
-  for (let i = 0; ; i++) {
-    const next = out + pattern[i % pattern.length]!;
-    if (commentaryEms(next) > ems) return out.trim();
-    out = next;
+  let lo = 0;
+  let hi = 6000;
+  const make = (n: number) => pattern.repeat(Math.ceil(n / pattern.length)).slice(0, n).replace(/\s+$/, '.');
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (commentaryCost([make(mid)]) <= cost) lo = mid; else hi = mid - 1;
   }
+  return make(lo);
 }
 
-/** `rows` approved rows of `kind` that together cost `factor` x the budget. */
+/** `rows` approved rows of `kind`, the pack costing about `factor` x the budget as joined. */
 function approvedRows(kind: string, rows: number, factor: number): CommentaryRow[] {
+  const whole = textCosting(kind, MAX_APPROVED_PACK_EMS * factor);
+  const per = Math.ceil(whole.length / rows);
   return Array.from({ length: rows }, (_, i) => ({
-    id: `row-${i}`, sectionRef: i < 3 ? 'income_statement' : 'balance_sheet', rowRef: `r${i}`,
-    draftText: 'machine draft', approvedText: textCosting(kind, (MAX_APPROVED_PACK_EMS * factor) / rows),
+    id: `row-${i}`, sectionRef: i < 3 ? 'income_statement' : 'balance_sheet', rowRef: `r${String(i).padStart(2, '0')}`,
+    draftText: 'machine draft', approvedText: whole.slice(i * per, (i + 1) * per).trim() || '.',
     status: 'approved' as const, approvedBy: 'u1', approvedAt: '2026-10-01T00:00:00.000Z',
     withdrawnBy: null, withdrawnAt: null,
   }));
 }
+
+/** What the page costs the rows, in the page's own order and join. */
+const costOf = (rows: CommentaryRow[]): number => commentaryCost(rows.map((r) => r.approvedText ?? ''));
 
 const FIXTURES = {
   liveDemoShortPanelsInput, liveDemoInput, liveDemoRenderedInput, manyLongNullQuantumMattersInput,
@@ -108,8 +116,8 @@ describe('the pack at its approved-commentary budget, whatever the text is made 
       for (const rows of [1, MAX_ROWS]) {
         it(`composes twelve sheets — ${name}, ${kind}, ${rows} row(s)`, async () => {
           const approved = approvedRows(kind, rows, 1);
-          expect(packEmsUsed(approved)).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
-          expect(packEmsUsed(approved), 'the rows are not near the budget').toBeGreaterThan(MAX_APPROVED_PACK_EMS * (rows === 1 ? 0.8 : 0.4));
+          expect(costOf(approved)).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+          expect(costOf(approved), 'the rows are not near the budget').toBeGreaterThan(MAX_APPROVED_PACK_EMS * (rows === 1 ? 0.8 : 0.6));
           const doc = await compose(input, approved);
           expect(doc.pages).toHaveLength(12);
           const page4 = doc.pages.find((p) => p.navLabel === 'Commentary and actions')!;
@@ -130,7 +138,7 @@ describe('mixed word lengths at the budget (next-fit wrapping can waste a line b
       const len = 1 + Math.floor(next() ** 2 * 58);
       const word = 'abcdefghijklmnopqrstuvwxyz'.repeat(3).slice(0, len);
       const candidate = out === '' ? word : `${out} ${word}`;
-      if (commentaryEms(candidate) > ems) return out;
+      if (commentaryCost([candidate]) > ems) return out;
       out = candidate;
     }
   }

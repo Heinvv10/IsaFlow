@@ -20,7 +20,7 @@ describe('CommentaryEditor', () => {
   it('sends a double click ONCE, even when both clicks land before React re-renders', async () => {
     const d = deferred<boolean>();
     const onApprove = vi.fn().mockReturnValue(d.promise);
-    render(<CommentaryEditor initialText="A sentence." packRemainingEms={100} onApprove={onApprove} onCancel={vi.fn()} />);
+    render(<CommentaryEditor initialText="A sentence." costWith={() => 1} onApprove={onApprove} onCancel={vi.fn()} />);
     act(() => { approveBtn().click(); approveBtn().click(); });
     expect(onApprove).toHaveBeenCalledTimes(1);
     expect(onApprove).toHaveBeenCalledWith('A sentence.');
@@ -29,7 +29,7 @@ describe('CommentaryEditor', () => {
 
   it('is busy while the approval is in flight: both buttons disabled', async () => {
     const d = deferred<boolean>();
-    render(<CommentaryEditor initialText="A sentence." packRemainingEms={100} onApprove={() => d.promise} onCancel={vi.fn()} />);
+    render(<CommentaryEditor initialText="A sentence." costWith={() => 1} onApprove={() => d.promise} onCancel={vi.fn()} />);
     fireEvent.click(approveBtn());
     await waitFor(() => expect(approveBtn().disabled).toBe(true));
     expect(cancelBtn().disabled).toBe(true);
@@ -38,7 +38,7 @@ describe('CommentaryEditor', () => {
 
   it('after a refusal it is usable again, with the typed text, and can be sent a second time', async () => {
     const onApprove = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    render(<CommentaryEditor initialText="A sentence." packRemainingEms={100} onApprove={onApprove} onCancel={vi.fn()} />);
+    render(<CommentaryEditor initialText="A sentence." costWith={() => 1} onApprove={onApprove} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Typed text.' } });
     fireEvent.click(approveBtn());
     await waitFor(() => expect(approveBtn().disabled).toBe(false));
@@ -49,7 +49,7 @@ describe('CommentaryEditor', () => {
 
   it('stays busy after an accepted approval: the parent closes it, a second send must not be possible', async () => {
     const onApprove = vi.fn().mockResolvedValue(true);
-    render(<CommentaryEditor initialText="A sentence." packRemainingEms={100} onApprove={onApprove} onCancel={vi.fn()} />);
+    render(<CommentaryEditor initialText="A sentence." costWith={() => 1} onApprove={onApprove} onCancel={vi.fn()} />);
     fireEvent.click(approveBtn());
     await waitFor(() => expect(onApprove).toHaveBeenCalledTimes(1));
     await act(async () => { await Promise.resolve(); });
@@ -59,7 +59,7 @@ describe('CommentaryEditor', () => {
   });
 
   it('with no room figure (a pack with no fixed page) shows no count and imposes only the ceiling', () => {
-    render(<CommentaryEditor initialText="A sentence." packRemainingEms={null} onApprove={vi.fn()} onCancel={vi.fn()} />);
+    render(<CommentaryEditor initialText="A sentence." costWith={null} onApprove={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByRole('status')).toBeNull();
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x'.repeat(4000) } });
     expect(approveBtn().disabled).toBe(false);

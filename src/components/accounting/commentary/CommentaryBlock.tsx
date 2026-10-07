@@ -26,7 +26,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import { CommentaryEditor } from './CommentaryEditor';
-import { MAX_APPROVED_PACK_EMS, packEmsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { commentaryCost } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 /** Everything the published render needs and nothing it must not have. A full
  *  `CommentaryRow` satisfies it structurally, so the app can hand its own rows
@@ -96,7 +96,9 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
             <div key={r.id} className="flex items-start gap-2">
               <CommentaryEditor
                 initialText={r.draftText}
-                packRemainingEms={budgeted ? MAX_APPROVED_PACK_EMS - packEmsUsed(rows) : null}
+                costWith={budgeted ? (text) => commentaryCost(
+                  rows.filter(x => x.id === r.id || (x.status === 'approved' && x.approvedText !== null))
+                    .map(x => (x.id === r.id ? text : x.approvedText ?? ''))) : null}
                 onCancel={() => closeEditor(r.id)}
                 onApprove={async text => {
                   const ok = await onApprove(r.id, text);

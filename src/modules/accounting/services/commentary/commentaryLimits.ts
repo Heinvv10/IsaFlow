@@ -1,47 +1,40 @@
 /**
  * What a board pack's approved commentary may cost, in the page's own units.
  *
- * Page 4 of the board pack joins EVERY approved row into one paragraph set in
- * a fixed sheet, and a page that overflows refuses the whole pack. So the
- * limit is on the SUM, and it is measured with the ruler the page is fitted
- * with — `packTextMetrics.textWidthEms`, em widths per glyph class — rather than
- * with a character count, which let an all-caps or all-CJK text take 2x the
- * room of prose for the same number.
- *
- * ONE FUNCTION for every layer: the service (on the rows it reads under the
- * lock), the editor (on the rows on screen) and the tests all call
- * `commentaryEms`, so none of them can disagree about what a row costs.
- * Client-safe on purpose: `packTextMetrics` imports only `pdfTransport`,
- * which imports nothing.
+ * Page 4 of the board pack joins EVERY approved row into one paragraph set on a
+ * fixed sheet, and a page that overflows refuses the whole pack. So the limit
+ * is on the pack, and the cost is the page model's own wrapper run on that
+ * paragraph (`commentaryCost`): lines x line-ems at the worse of the two prose
+ * measures. ONE FUNCTION for every layer — the service (on the rows it reads
+ * under the lock), the editor (on the rows on screen) and the tests — so none
+ * can disagree about the pack. Client-safe on purpose: `packTextMetrics`
+ * imports only `pdfTransport`, which imports nothing.
  *
  * CALIBRATION (tests/unit/services/packs/packApprovedCommentaryCap.test.ts):
- * the cost of the joined text page 4 holds before it refuses, on the tightest
- * fixture (`liveDemoShortPanelsInput`), by kind of text: wide glyphs 619,
- * digits 620, prose/caps/long words 639, URL in prose 724, CJK 799, and
- * uniform words of 10 to 70 characters 620 to 1178. Words are charged by the
- * lines they take (`wordEms`), which is why unlike a plain ems sum these agree
- * within a few per cent. 560 sits 9% under the lowest, so every kind fits
- * every fixture, and gives about 1200 characters of prose.
+ * the cost page 4 holds before it refuses, on the tightest fixture
+ * (`liveDemoShortPanelsInput`): 617 for wide glyphs, alternating line-wide and
+ * short words, and every word-length sweep (the cost is the page's own line
+ * count, so the capacity is a constant, not a function of word shape); prose
+ * 644, caps 672, CJK 784. Other fixtures hold 793 to 980. 600 sits 3% under the
+ * tightest, which is only rounding margin (mm to lines), and is about 1330
+ * characters of prose.
  */
 import {
-  PAGE_WIDTH_MM, breakableWords, emsPerLine, textWidthEms,
+  PAGE_WIDTH_MM, emsPerLine, wrapEms,
 } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import { GUTTER_MM } from '@/modules/accounting/services/packs/pages/packDisclosureHeight';
 
-export const MAX_APPROVED_PACK_EMS = 560;
+/** The budget, in lines x line-ems of page 4's prose (see `commentaryCost`). */
+export const MAX_APPROVED_PACK_EMS = 600;
 
 /** What a pack that prints on no fixed page may carry in one edited row: a
  *  generous ceiling, not a layout limit — it only stops an unbounded body. */
 export const MAX_UNBUDGETED_CHARS = 4000;
 
-/** The ems of one joining space between rows. */
-const JOIN_EMS = textWidthEms(' ');
-
 /**
  * The two measures page 4's prose is wrapped at (`narrativeMm`): the full
  * page when the block is stacked, two thirds of it beside the action panel.
- * A text must fit whichever the page ends up drawn in, so a word is charged at
- * the worse of the two.
+ * A text must fit whichever the page ends up drawn in.
  */
 const LINE_EMS = [
   emsPerLine(10, PAGE_WIDTH_MM.portrait),
@@ -49,41 +42,24 @@ const LINE_EMS = [
 ] as const;
 
 /**
- * What a word really costs on a line of `line` ems, the way `wrapEms` sets it.
- * A word is not broken across lines unless it is wider than one, so a line
- * holds only `floor` of them and the rest of it is wasted: a word a little over
- * half a line wide takes the whole line (cost 2x its width). Charged as the
- * line's share, `line / k`, for a word of up to a line; a word wider than a
- * line breaks inside itself and is charged whole lines. Ordinary words are
- * charged about their width, which is why prose is nearly unaffected.
+ * WHAT THE PACK'S APPROVED COMMENTARY COSTS: the page model's own wrapper
+ * (`wrapEms`) run on the paragraph page 4 prints — every approved row, trimmed,
+ * joined by one space, in `section_ref, row_ref` order — at each of the two
+ * prose measures, as lines x line-ems, the worse of the two. No approximation
+ * of word shapes: the editor, the service and the page agree by construction.
+ *
+ * The JOINED text is costed, not each row: a per-row line ceiling charges every
+ * row its half-empty last line, which over-counts by up to ~100 ems across
+ * seven rows. Callers pass the texts in page order, with the row being
+ * approved at its own position.
  */
-function wordEms(width: number, line: number): number {
-  if (width >= line) return Math.ceil(width / line) * line;
-  return line / Math.floor((line + JOIN_EMS) / (width + JOIN_EMS));
+export function commentaryCost(texts: ReadonlyArray<string>): number {
+  const joined = texts.map((t) => t.trim()).filter((t) => t !== '').join(' ');
+  if (joined === '') return 0;
+  return Math.max(...LINE_EMS.map((perLine) => wrapEms(joined, perLine) * perLine));
 }
 
-/** What one approved row costs: its words charged as the page sets them, plus
- *  the space that joins it to the next, so a sum is never smaller than the
- *  joined paragraph. */
-export function commentaryEms(text: string): number {
-  let ems = JOIN_EMS;
-  for (const word of breakableWords(text.trim())) {
-    const width = textWidthEms(word);
-    ems += Math.max(...LINE_EMS.map((line) => wordEms(width, line)));
-  }
-  return ems;
-}
-
-/** Ems already spent by the approved rows among `rows`. */
-export function packEmsUsed(rows: ReadonlyArray<{ status: string; approvedText: string | null }>): number {
-  return rows.reduce(
-    (sum, r) => (r.status === 'approved' && r.approvedText !== null ? sum + commentaryEms(r.approvedText) : sum),
-    0,
-  );
-}
-
-/** Ordinary English prose costs ~0.45 a character (639 over 1433 characters
- *  on the calibration fixture): the conversion used only
+/** Ordinary English prose costs ~0.45 a character (see the calibration): the conversion used only
  *  to tell a person roughly how much is left. The ems are what is enforced. */
 const PROSE_EMS_PER_CHAR = 0.45;
 
@@ -98,10 +74,12 @@ export function normaliseEditedText(text: string): string {
   return text.replace(/\r\n?/g, '\n').trim();
 }
 
-/** Characters that print as nothing but are not whitespace or `Cf`: the Hangul
- *  fillers, the blank braille cell, the Khmer inherent vowels, the combining
- *  grapheme joiner and the variation selectors. */
-const BLANK_GLYPHS = '\u115f\u1160\u3164\uffa0\u2800\u17b4\u17b5\u034f\ufe00-\ufe0f';
+/** Characters that print as nothing and are not whitespace, `Cf` or a combining
+ *  mark: the Hangul fillers and the blank braille cell. Combining marks (`\p{M}`:
+ *  the Khmer inherent vowels U+17B4/17B5, the grapheme joiner U+034F, variation
+ *  selectors U+FE00-FE0F and U+E0100-E01EF, Mongolian U+180B-180D) are stripped
+ *  as a class below, so a text of marks alone is blank too. */
+const BLANK_GLYPHS = '\u115f\u1160\u3164\uffa0\u2800';
 
 /**
  * Why a text is not an approvable sentence, or null. Applied to what a person
@@ -110,8 +88,8 @@ const BLANK_GLYPHS = '\u115f\u1160\u3164\uffa0\u2800\u17b4\u17b5\u034f\ufe00-\uf
  * format characters is blank on the page while passing a trim.
  */
 export function editedTextProblem(text: string): 'empty' | 'invalid' | null {
-  if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) return 'invalid';
+  if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(text)) return 'invalid';
   if (/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(text)) return 'invalid';
-  if (text.replace(new RegExp(`[\\s\\p{Cf}${BLANK_GLYPHS}]`, 'gu'), '').length === 0) return 'empty';
+  if (text.replace(new RegExp(`[\\s\\p{Cf}\\p{M}${BLANK_GLYPHS}]`, 'gu'), '').length === 0) return 'empty';
   return null;
 }

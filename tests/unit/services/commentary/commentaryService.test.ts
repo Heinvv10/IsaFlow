@@ -37,7 +37,7 @@ import {
   approveCommentary, rejectCommentary, listCommentary, generateDrafts,
 } from '@/modules/accounting/services/commentary/commentaryService';
 import {
-  MAX_APPROVED_PACK_EMS, MAX_UNBUDGETED_CHARS, approxCharsLeft, commentaryEms,
+  MAX_APPROVED_PACK_EMS, MAX_UNBUDGETED_CHARS, approxCharsLeft, commentaryCost,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
@@ -316,7 +316,8 @@ describe('approveCommentary against the pack budget', () => {
   const MANAGEMENT = {
     ...BOARD, params_hash: canonicalParamsHash({ ...PARAMS, type: 'management' }),
   };
-  const sum = (others: string[]) => others.map((t) => ({ approved_text: t }));
+  /** The pack read: the other approved rows in page order, and this row (no approved text yet) last. */
+  const sum = (others: string[]) => [...others.map((t, i) => ({ id: `other-${i}`, approved_text: t })), { id: ID, approved_text: null }];
   const queue = (others: string[], read: Record<string, unknown> = BOARD, draft?: string) => sqlMock
     .mockResolvedValueOnce([draft === undefined ? read : { ...read, draft_text: draft }])
     .mockResolvedValueOnce([])
@@ -324,9 +325,8 @@ describe('approveCommentary against the pack budget', () => {
     .mockResolvedValueOnce([dbRow({ status: 'approved' })]);
   /** The longest run of `ch` that fits beside `others`, by the shared ruler. */
   const roomFor = (ch: string, others: string[]): number => {
-    const used = others.reduce((n, t) => n + commentaryEms(t), 0);
     let n = 0;
-    while (used + commentaryEms(ch.repeat(n + 1)) <= MAX_APPROVED_PACK_EMS) n += 1;
+    while (commentaryCost([...others, ch.repeat(n + 1)]) <= MAX_APPROVED_PACK_EMS) n += 1;
     return n;
   };
 
@@ -337,10 +337,10 @@ describe('approveCommentary against the pack budget', () => {
     // One key for the whole pack: company, kind and params hash.
     expect(String(values(1)[0])).toContain(COMPANY);
     expect(String(values(1)[0])).toContain(BOARD.params_hash);
-    expect(text(2)).toContain('SELECT approved_text');
+    expect(text(2)).toContain('SELECT id, approved_text');
   });
 
-  it('reads only approved rows of THIS pack and company, excluding the row, and costs them in TS', async () => {
+  it('reads only approved rows of THIS pack and company, plus the row itself, in page order, and costs them in TS', async () => {
     queue([]);
     await approveCommentary(COMPANY, ID, 'approver-9', 'x');
     const read = text(2);
@@ -348,7 +348,9 @@ describe('approveCommentary against the pack budget', () => {
     expect(read).toContain('company_id');
     expect(read).toContain('params_hash');
     expect(read).toContain('report_kind');
-    expect(read).toMatch(/id\s*<>/);
+    // The row being approved is read too, so it is costed at its place in the page's order.
+    expect(read).toMatch(/OR id =/);
+    expect(read).toMatch(/ORDER BY section_ref, row_ref/);
     expect(read).not.toMatch(/char_length|SUM\(|btrim/); // the ruler is the page's, not SQL's
     expect(values(2)).toEqual(expect.arrayContaining([COMPANY, 'pack', BOARD.params_hash, ID]));
   });
@@ -374,10 +376,25 @@ describe('approveCommentary against the pack budget', () => {
     const result = await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(roomFor('x', others) + 10));
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      const left = approxCharsLeft(MAX_APPROVED_PACK_EMS - commentaryEms(others[0]!) - commentaryEms(''));
+      const left = approxCharsLeft(MAX_APPROVED_PACK_EMS - commentaryCost(others));
       expect(result.reason).toContain(`About ${left} characters`);
       expect(left).toBeLessThan(approxCharsLeft(MAX_APPROVED_PACK_EMS)); // not the empty-pack figure
     }
+  });
+
+  it('costs the row at ITS place in the page order: the pack read decides where it sits', async () => {
+    const a = 'Revenue grew on the Gauteng rollout and held through the second half of the year.';
+    const b = 'Costs were held flat against the prior period.';
+    const fitsAfter = (x: string) => commentaryCost([a, b, x]) <= MAX_APPROVED_PACK_EMS;
+    let n = 1;
+    while (fitsAfter('x'.repeat(n + 1))) n += 1;
+    const x = 'x'.repeat(n);
+    // This row sits BETWEEN a and b in the read.
+    const between = [{ id: 'o1', approved_text: a }, { id: ID, approved_text: null }, { id: 'o2', approved_text: b }];
+    sqlMock.mockResolvedValueOnce([BOARD]).mockResolvedValueOnce([]).mockResolvedValueOnce(between)
+      .mockResolvedValueOnce([dbRow({ status: 'approved' })]);
+    const ok = await approveCommentary(COMPANY, ID, 'approver-9', x);
+    expect(ok.ok).toBe(commentaryCost([a, x, b]) <= MAX_APPROVED_PACK_EMS);
   });
 
   it('costs by width: the same number of capitals does not fit where lowercase does', async () => {

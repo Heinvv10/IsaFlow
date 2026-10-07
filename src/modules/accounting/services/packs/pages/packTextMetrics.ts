@@ -219,12 +219,9 @@ export function wrappedLines(text: string, pt: number, widthMm: number): number 
  */
 const BREAKABLE = /[^\S\u00a0\u202f]+/;
 
-/** The words `wrapEms` sets: what a browser will not break, split off by what it will. */
-export function breakableWords(text: string): string[] {
-  return text.split(BREAKABLE).filter((word) => word.length > 0);
-}
-
-function wrapEms(text: string, perLine: number): number {
+/** Lines `text` takes on a line of `perLine` ems — `wrappedLines` without the
+ *  millimetre conversion, for a caller that already holds the measure in ems. */
+export function wrapEms(text: string, perLine: number): number {
   let count = 1;
   let used = 0;
   for (const word of text.split(BREAKABLE)) {

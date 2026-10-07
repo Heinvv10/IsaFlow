@@ -12,21 +12,23 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import {
-  MAX_UNBUDGETED_CHARS, approxCharsLeft, commentaryEms,
+  MAX_APPROVED_PACK_EMS, MAX_UNBUDGETED_CHARS, approxCharsLeft,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface CommentaryEditorProps {
   initialText: string;
-  packRemainingEms: number | null;
+  /** What the pack's approved paragraph costs with this text in this row's
+   *  place (`commentaryCost`), or null for a pack with no fixed page. */
+  costWith: ((text: string) => number) | null;
   /** Resolves true once the approval was accepted (the parent then closes the
    *  editor); false leaves it open with the typed text. */
   onApprove: (text: string) => Promise<boolean>;
   onCancel: () => void;
 }
 
-export function CommentaryEditor({ initialText, packRemainingEms, onApprove, onCancel }: CommentaryEditorProps) {
+export function CommentaryEditor({ initialText, costWith, onApprove, onCancel }: CommentaryEditorProps) {
   const [value, setValue] = useState(initialText);
   const [busy, setBusy] = useState(false);
   // A state flag is stale inside one tick, so two fast clicks would both pass
@@ -36,9 +38,9 @@ export function CommentaryEditor({ initialText, packRemainingEms, onApprove, onC
   useEffect(() => { box.current?.focus(); }, []);
 
   const trimmed = value.trim();
-  const left = packRemainingEms === null ? null : packRemainingEms - commentaryEms(trimmed);
+  const left = costWith === null ? null : MAX_APPROVED_PACK_EMS - costWith(trimmed);
   // A pack with no fixed page has no room figure, only a generous ceiling.
-  const tooLong = packRemainingEms === null && trimmed.length > MAX_UNBUDGETED_CHARS;
+  const tooLong = costWith === null && trimmed.length > MAX_UNBUDGETED_CHARS;
   const over = (left !== null && left < 0) || tooLong;
   const invalid = trimmed.length === 0 || over;
 
