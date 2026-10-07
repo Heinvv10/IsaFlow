@@ -94,6 +94,12 @@ const ALLOWED: Record<string, AllowedEntry> = {
     reason: 'Report code: it derives the VAT201 boxes (the 15% base check) including late claims. '
     + 'It posts nothing and decides no claim.',
   },
+  'src/modules/accounting/services/bank/bankVatInclusive.ts': {
+    kinds: ['rate_constant'],
+    reason: 'No claim decided: the VAT-inclusive split moved verbatim out of bankAllocationService '
+    + '(R-035 PR6 round 4, its line cap). Pure arithmetic on a code its attended caller already chose; '
+    + 'it picks no account and posts nothing.',
+  },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
     kinds: ['rate_constant', 'vat_field_on_a_posting_path', 'allocate_call'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
