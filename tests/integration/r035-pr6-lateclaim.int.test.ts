@@ -5,10 +5,11 @@
  * The route marks the draft and posts it in one savepoint; the split rewrites
  * the original's VAT lines (onto the clearing account, codes off). Migration
  * 869's backstop judges a marked journal's digest as it ENTERS 'posted', so
- * the split posts the original with the lines the approver approved, and only
- * then rewrites them (gl/vatLateClaimSplit.ts). Rewriting first — the old
- * order — made the backstop see content nobody approved and refuse every late
- * claim of an approved journal.
+ * for a MARKED journal under enforcement the split posts the original with the
+ * lines the approver approved, and only then rewrites them
+ * (gl/vatLateClaimSplit.ts). Rewriting first — master's order, kept for every
+ * other journal — made the backstop see content nobody approved and refuse
+ * every late claim of an approved journal.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';

@@ -31,11 +31,12 @@ import { resolveReversalDateDetailed, type VatLockRoll } from './journalEntryRev
 import { assertJournalVatPeriodOpen, loadJournalVatLines } from './journalVatLockGuard';
 import type { JournalEntryMeta } from './journalEntryMeta';
 import { planLockedVatPosting, type LateClaimInfo, type LateClaimPlan } from './vatLateClaimPlan';
+import { isMarkedUnderEnforcement } from './manualJournalApproval';
 
 type Row = Record<string, unknown>;
 
 export interface SplitHooks {
-  /** Flip the original to posted, its lines as drafted (the split rewrites them next); the posting service's own UPDATE. */
+  /** Flip the (now VAT-free) original to posted; the posting service's own UPDATE. */
   postOriginal: () => Promise<JournalEntry>;
   /** Post a draft through the ordinary, non-opted-in path. */
   post: (id: string) => Promise<JournalEntry>;
@@ -80,26 +81,29 @@ async function applyLateClaimSplit(
     const taxLineIds = plan.taxLines.map((t) => t.id).filter((v): v is string => Boolean(v));
     if (taxLineIds.length !== plan.taxLines.length) throw new Error('Late claim: the draft\'s tax lines have no ids');
 
-    // 1. The original posts FIRST, with its lines as drafted — what a
-    //    manual-journal approval vouched for: migration 869's backstop judges a
-    //    marked journal's digest as it enters 'posted' (R-035 PR6). Everything
-    //    below runs in this savepoint, so a refusal from 4 still unwinds it.
-    const posted = await hooks.postOriginal();
-    // 2. The original's input VAT onto the clearing account.
+    // R-035 PR6: a MARKED manual journal under manual-journal enforcement posts
+    // FIRST, with its lines as drafted — what its approval vouched for, and
+    // what migration 869's backstop judges as it enters 'posted'; steps 1-3
+    // then rewrite the posted lines (the balance trigger re-files them), all
+    // in this savepoint. Every other journal keeps the order below exactly.
+    const approvedFirst = (await isMarkedUnderEnforcement(companyId, entry.id)) ? await hooks.postOriginal() : null;
+
+    // 1. The original's input VAT onto the clearing account.
     await sql`
       UPDATE gl_journal_lines SET gl_account_id = ${clearingId}::UUID, vat_type = NULL
       WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${entry.id}::UUID
         AND id = ANY(${taxLineIds}::UUID[])`;
-    // 3. Every VAT code off the original: a coded base line still moves a box.
+    // 2. Every VAT code off the original: a coded base line still moves a box.
     await sql`
       UPDATE gl_journal_lines SET vat_type = NULL
       WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${entry.id}::UUID
         AND vat_type IS NOT NULL AND vat_type <> 'no_vat'`;
-    // 4. The lock guard, on the lines as they now stand: the original must be
+    // 3. The lock guard, on the lines as they now stand: the original must be
     //    in no box of the filed return, or it may not post.
     await assertJournalVatPeriodOpen(companyId, entry.entryDate, await loadJournalVatLines(companyId, entry.id));
+    const posted = approvedFirst ?? await hooks.postOriginal();
 
-    // 5. The companion, on the claim date.
+    // 4. The companion, on the claim date.
     const total = r2(plan.taxLines.reduce((s, t) => s + t.amount, 0));
     const companion = await createJournalEntry(companyId, {
       entryDate: plan.claimDate,
