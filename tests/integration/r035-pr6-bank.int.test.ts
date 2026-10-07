@@ -36,6 +36,8 @@ let a = '';
 
 beforeAll(async () => { a = await createUser(pool, tokens); });
 afterAll(async () => {
+  await pool.query('DELETE FROM bank_allocation_batch_lines WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM bank_allocation_batches WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM bank_reconciliations WHERE company_id = ANY($1)', [companies]);
   await cleanupPr6(pool, companies, [a]);
 });
