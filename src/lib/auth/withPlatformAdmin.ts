@@ -10,6 +10,7 @@ import type { RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { deferEnd, answerThrow, replayEnd, answerCommitFailed, answerInstead, type DeferredEnd } from './deferredEnd';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
@@ -117,6 +118,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     // ── Handler tx: platform_admin pool (BYPASSRLS) ──────────────────────────
     const adminClient = await getPlatformAdminPool().connect();
     let unusable = false;
+    let deferred: DeferredEnd | null = null;
     // The connection authenticates as the platform_admin Postgres role
     // (BYPASSRLS). DO NOT add SET LOCAL ROLE app_user here — that would
     // drop BYPASSRLS and re-apply RLS policies, defeating the purpose of
@@ -127,6 +129,11 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       await adminClient.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
         JSON.stringify(claims),
       ]);
+
+      // The flush waits for COMMIT or ROLLBACK, as in withAuth: a request that must not commit
+      // (criticalAuditFailed, rollbackOnly) must not send the route's 2xx first.
+      const flush = deferEnd(res);
+      deferred = flush;
 
       (req as PlatformAdminRequest).user = {
         id: claims.sub,
@@ -168,23 +175,30 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
           { url: req.url, userId: claims!.sub, connectionDestroyed: unusable },
           'Auth'
         );
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            error: { code: 'AUDIT_WRITE_FAILED', message: 'Action aborted: audit log could not be written.' },
-          });
-        }
+        answerInstead(res, flush, 500, {
+          success: false,
+          error: { code: 'AUDIT_WRITE_FAILED', message: 'Action aborted: audit log could not be written.' },
+        });
         return;
       }
 
-      // als.rollbackOnly (lib/apiJournalDate): this request must not commit, whatever it answered.
-      if (ctx.rollbackOnly) { unusable = await rollbackFailed(adminClient, 'withPlatformAdmin'); return; }
+      const finalizeCtx = { source: 'withPlatformAdmin', userId: claims!.sub };
+      // als.rollbackOnly (lib/apiJournalDate): this request must not commit, whatever it answered. A <5xx answer
+      // would claim a write that did not land, so it becomes the commit-failed 500, as in withAuth.
+      if (ctx.rollbackOnly) {
+        unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
+        if (res.statusCode < 500) answerCommitFailed(res, flush); else replayEnd(res, flush, finalizeCtx);
+        return;
+      }
       await adminClient.query('COMMIT');
+      replayEnd(res, flush, finalizeCtx); // never throws: past COMMIT, the catch below must not answer
       drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {
       // `||`: the forced ROLLBACK above may already have failed, and that still condemns the connection.
-      unusable = (await rollbackFailed(adminClient, 'withPlatformAdmin')) || unusable;
-      throw err;
+      const failed = await rollbackFailed(adminClient, 'withPlatformAdmin');
+      unusable = failed || unusable;
+      // R-159: answered here, not rethrown — a rethrow would leave res.end deferred and the client hanging.
+      answerThrow(req, res, deferred, err, { source: 'withPlatformAdmin', userId: claims!.sub, rolledBack: !failed });
     } finally {
       adminClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
       const ms = Date.now() - startedAt;
