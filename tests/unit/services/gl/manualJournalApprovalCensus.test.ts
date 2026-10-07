@@ -49,11 +49,14 @@ const GATED: Record<string, string> = {
   [`${A}gl/recurringJournalService.ts`]: 'recurring journal run: held as draft + request, schedule advances',
   [`${A}core/recurringTransactionService.ts`]: 'recurring-transaction journal autoPost: held as draft + request',
   [`${A}gl/closeRun/closeRunService.ts`]: 'close-run post_draft_journal approval: posts any draft by id, gated like the UI post (Hein, decision (b))',
+  [`${A}bank/bankReconciliationService.ts`]: 'recon adjustment: a person names the contra and amount — refused up front (Hein H1)',
+  [`${A}bank/bankAllocationService.ts`]: 'bank line to an account: evidenced lines exempt (D2); a hand-keyed one refused up front (Hein H2)',
+  [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
 };
 const EXEMPT: Record<string, string> = {
   [`${A}gl/journalEntryPostService.ts`]: 'the primitive itself: re-enters for the s16(3) companion of a journal already gated',
   [`${A}gl/journalEntryPostingService.ts`]: 'reversal of a posted journal: not in decision 2 (follow-up for Hein)',
-  'src/lib/mcp/tools/writeOpeningBalance.ts': 'opening balances: an import (Q1), decision 2',
+  'src/lib/mcp/tools/writeOpeningBalance.ts': 'opening balance, bank vs Opening Balance Equity (decision 2); under enforcement any other contra refused (Hein)',
   [`${A}gl/openingBalancePostingService.ts`]: 'opening balances (writes source manual): decision 2',
   [`${A}core/migrationOpeningBalanceService.ts`]: 'migration opening balances: import (Q1)',
   [`${A}core/migrationWizardOpeningBalanceService.ts`]: 'migration wizard opening balances: import (Q1)',
@@ -67,22 +70,19 @@ const EXEMPT: Record<string, string> = {
   [`${A}ar/creditNoteApproveService.ts`]: 'credit note posting: a gated document (PR3)',
   [`${A}ar/customerInvoiceGlPosting.ts`]: 'customer invoice posting: a gated document (PR4)',
   [`${A}ar/customerPaymentAllocationService.ts`]: 'customer receipt: money in (PR5 out of scope)',
-  [`${A}ar/gatewayFeeService.ts`]: 'Paystack gateway fee: system journal of a receipt',
-  [`${A}ar/writeOffService.ts`]: 'write-off: system journal of an invoice',
-  [`${A}bank/bankAllocationService.ts`]: 'bank allocation: system journal of a bank line',
-  [`${A}bank/bankReconciliationService.ts`]: 'bank reconciliation adjustment: system journal',
+  [`${A}ar/gatewayFeeService.ts`]: 'Paystack gateway fee: decision 2 (Paystack receipts)',
+  [`${A}ar/writeOffService.ts`]: 'write-off: the posting of a write-off document',
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank auto-post sweep: decision 2',
-  [`${A}capture/pettyCashJournalService.ts`]: 'petty cash capture: document posting',
   [`${A}capture/provisionalPostingService.ts`]: 'provisional capture posting: document posting',
   [`${A}expense/expenseClaimService.ts`]: 'expense claim posting: document posting',
   [`${A}gl/glCrossModuleHooks.ts`]: 'cross-module document hooks: system journals',
   [`${A}items/adjustmentService.ts`]: 'stock adjustment: document posting',
-  [`${A}loans/loanGlPostingService.ts`]: 'loan posting: system journal',
-  [`${A}loans/loanPaymentService.ts`]: 'loan payment: system journal',
-  [`${A}loans/loanPeriodCloseService.ts`]: 'loan period close: system journal',
+  [`${A}loans/loanGlPostingService.ts`]: 'loan posting: the posting of a loan document',
+  [`${A}loans/loanPaymentService.ts`]: 'loan payment: the posting of a loan document',
+  [`${A}loans/loanPeriodCloseService.ts`]: 'loan period close: interest on a loan document',
   [`${A}payroll/payrollJournalPostingService.ts`]: 'payroll: decision 2',
-  [`${A}payroll/taxDirectivePaymentService.ts`]: 'payroll tax directive: system journal',
-  [`${A}payroll/uifPaymentService.ts`]: 'payroll UIF: system journal',
+  [`${A}payroll/taxDirectivePaymentService.ts`]: 'payroll tax directive: payroll (decision 2)',
+  [`${A}payroll/uifPaymentService.ts`]: 'payroll UIF: payroll (decision 2)',
   [`${A}reports/drcVatService.ts`]: 'DRC VAT: decision 2 (VAT)',
   [`${A}reports/vatAdjustmentService.ts`]: 'VAT adjustment: decision 2 (VAT)',
   [`${A}reports/vatSubmissionService.ts`]: 'VAT submission: decision 2 (VAT)',
@@ -112,6 +112,12 @@ describe('the callers of postJournalEntry', () => {
     }
     before(`${A}gl/reclassification/post.ts`, 'markManualJournal(', 'postJournalEntry(');
     before(`${A}gl/closeRun/closeRunService.ts`, 'gateManualJournalPost(', 'updateProposalOutcome(companyId, proposal.id');
+    before(`${A}bank/bankReconciliationService.ts`, 'newManualJournalRefusal(', 'createJournalEntry(');
+    before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
+    before(`${A}capture/pettyCashJournalService.ts`, 'newManualJournalGate(', 'claimCapturedDocumentForPosting(');
+    before(`${A}capture/pettyCashJournalService.ts`, 'settleUnattendedJournal(', 'postJournalEntry(');
+    before('src/lib/mcp/tools/writeOpeningBalance.ts', 'OPENING_BALANCE_EQUITY_SUBTYPE', 'postJournalEntry(');
+    before('pages/api/accounting/bank-transactions-manual.ts', 'handKeyedLineJournalRefusal(', 'INSERT INTO bank_transactions');
     before('src/lib/mcp/tools/writeReclassification.ts', 'agentNewManualJournalsRefusal(', 'postReclassBatch(');
   });
 });
