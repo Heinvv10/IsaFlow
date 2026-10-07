@@ -15,8 +15,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import journalEntries from '../../pages/api/accounting/journal-entries';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantRule, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import {
   cleanupPr6, enforceJournals, journalCompany, journalRoutes, journalRule, journalState, plantJournal, type JournalCompany,
@@ -172,6 +173,26 @@ describe('the approval checks', () => {
     expect(reasonOf(stale)).toBe('APPROVAL_STALE');
     await pool.query("UPDATE gl_journal_entries SET description = 'R035 journal' WHERE id = $1", [id]);
     expect((await r.post(u.a, f.c, id)).state.statusCode).toBe(200);
+  });
+});
+
+describe('the UI create (round 3, blind LOW)', () => {
+  const create = (c: string, f: JournalCompany) => callRoute(journalEntries, tokens[u.a]!, c, 'POST', {
+    entryDate: '2026-09-01', description: 'created', lines: [
+      { glAccountId: f.expA, debit: 1500, credit: 0 }, { glAccountId: f.bank, debit: 0, credit: 1500 }],
+  }, '/api/accounting/journal-entries');
+
+  it('marks a person-created draft under enforcement, so the backstop covers it; off, nothing is written', async () => {
+    const f = await gated();
+    const on = await create(f.c, f);
+    expect(on.state.statusCode, JSON.stringify(on.state.body)).toBe(200);
+    const id = dataOf<{ id: string }>(on).id;
+    expect(await journalState(pool, id)).toMatchObject({ status: 'draft', marker: 'manual_journal' });
+    await expect(pool.query("UPDATE gl_journal_entries SET status = 'posted' WHERE id = $1", [id])).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
+
+    const off = await gated({ enforced: false });
+    const draft = dataOf<{ id: string }>(await create(off.c, off)).id;
+    expect(await journalState(pool, draft)).toMatchObject({ status: 'draft', marker: null });
   });
 });
 

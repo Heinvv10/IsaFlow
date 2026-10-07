@@ -110,6 +110,16 @@ export async function markManualJournal(companyId: string, id: string): Promise<
 }
 
 /**
+ * A person (UI) or an agent (MCP create_draft_journal) composed this draft:
+ * under enforcement it is marked at once, so the backstop guards it against a
+ * raw status flip from creation — not only from the moment it is posted
+ * (R-035 PR6 round 3). Off, it reads approval_enforcement and writes nothing.
+ */
+export async function markCreatedManualJournal(companyId: string, id: string): Promise<void> {
+  if (await isEnforced(companyId, TYPE)) await markManualJournal(companyId, id);
+}
+
+/**
  * A journal migration 869's backstop will judge as it enters 'posted': marked,
  * while manual-journal enforcement is on. Reads the marker only then, so with
  * enforcement off no statement names the 869 column (the s16(3) split asks).
