@@ -19,6 +19,7 @@ import { als } from '../../src/lib/als';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { createDraftJournalTool, postJournalTool } from '../../src/lib/mcp/tools/writeJournals';
 import { postReclassificationBatchTool } from '../../src/lib/mcp/tools/writeReclassification';
+import { setOpeningBalanceTool } from '../../src/lib/mcp/tools/writeOpeningBalance';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule } from './r035-approval.helpers';
 import {
@@ -53,7 +54,7 @@ async function asUser<T>(userId: string, companyId: string, fn: () => Promise<T>
 }
 
 const registry = new McpRegistry();
-for (const tool of [postJournalTool, createDraftJournalTool, postReclassificationBatchTool]) registry.register(tool);
+for (const tool of [postJournalTool, createDraftJournalTool, postReclassificationBatchTool, setOpeningBalanceTool]) registry.register(tool);
 const mcp = (c: string, name: string, args: Record<string, unknown>) => asUser(u.a, c, () => registry.call(name, args,
   { userId: u.a, companyId: c, scopes: ['write:journals', 'write:post'], tokenJti: 'r035-pr6', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
@@ -152,5 +153,34 @@ describe('post_reclassification_batch', () => {
     const { journal_entry_ids: ids } = JSON.parse(text(res)) as { journal_entry_ids: string[] };
     expect(ids).toHaveLength(1);
     expect(await journalState(pool, ids[0]!)).toMatchObject({ status: 'posted', marker: 'manual_journal' });
+  });
+});
+
+// Round 3 (Hein, blind MEDIUM): an opening balance is exempt (decision 2), but
+// an agent naming its contra could post any account against the bank. Under
+// enforcement the contra must be the company's Opening Balance Equity account.
+describe('set_opening_balance', () => {
+  const ob = (f: JournalCompany, contra?: string) => mcp(f.c, 'set_opening_balance', {
+    bank_account_id: f.bank, as_at: '2026-01-01', amount: 2500, idempotency_key: `r035-pr6-ob-${f.c}-${contra ?? 'obe'}`,
+    ...(contra ? { contra_account_id: contra } : {}),
+  });
+  const journals = async (c: string) => Number((await pool.query(
+    'SELECT count(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1', [c])).rows[0].n);
+
+  it('under enforcement refuses any contra but Opening Balance Equity, from a read; the default contra posts', async () => {
+    const f = await fixture();
+    const refused = await ob(f, f.expA);
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toMatch(/Opening Balance Equity/);
+    expect(await journals(f.c)).toBe(0);
+    const posted = await ob(f);
+    expect(posted.isError, text(posted)).toBeFalsy();
+    expect(JSON.parse(text(posted))).toMatchObject({ posted: true, contra_defaulted: true });
+  });
+
+  it('enforcement off: any contra posts as before', async () => {
+    const f = await fixture({ enforced: false });
+    const res = await ob(f, f.expA);
+    expect(res.isError, text(res)).toBeFalsy();
   });
 });

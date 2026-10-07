@@ -28,7 +28,10 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
-import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import {
+  OPENING_BALANCE_EQUITY_NAME, OPENING_BALANCE_EQUITY_SUBTYPE, ensureOpeningBalanceEquityAccount,
+} from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -117,6 +120,19 @@ export const setOpeningBalanceTool: McpTool = {
         `${bankAccount.accountCode} is not a bank account (account_subtype is ` +
           `${bankAccount.accountSubtype ?? 'not set'}). Set it with update_gl_account first.`,
       );
+    }
+
+    // R-035 PR6 (Hein, round 3): an opening balance is exempt from manual-journal
+    // approval (decision 2) only as what it is — the bank against Opening Balance
+    // Equity. Under enforcement an agent naming any other contra would post an
+    // arbitrary account through the exemption, so it is refused here, from reads,
+    // before any write (the key stays free). The admin UI route is unaffected.
+    if (explicitContra && await isEnforced(ctx.companyId, 'manual_journal')) {
+      const contraAccount = await getAccountById(ctx.companyId, explicitContra);
+      if (contraAccount?.accountSubtype !== OPENING_BALANCE_EQUITY_SUBTYPE) {
+        return toolError(`Manual journals are enforced, so an opening balance posts only against the company's ${OPENING_BALANCE_EQUITY_NAME} `
+          + 'account: omit contra_account_id. Any other contra is a manual journal — a person must enter it in IsaFlow and have it approved.');
+      }
     }
 
     // Refuse a second opening balance rather than stacking one. Two of these
