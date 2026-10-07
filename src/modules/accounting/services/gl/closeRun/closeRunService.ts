@@ -21,6 +21,7 @@ import { withSavepoint } from '@/lib/neon';
 import { getCloseReadiness } from '../periodCloseReadinessService';
 import { postJournalEntry, ClosedFiscalPeriodError } from '../journalEntryPostingService';
 import { VatPeriodLockedError } from '../journalVatLockGuard';
+import { gateManualJournalPost, markManualJournal } from '../manualJournalApproval';
 import { logAuditOrThrow } from '../../core/auditTrailService';
 import { buildProposals, validateDecision, computeAccuracy } from './closeRunProposalBuilder';
 import * as repo from './closeRunRepo';
@@ -169,6 +170,14 @@ async function approveAutoPost(
     throw new ProposalDecisionError(`Unsupported auto_post proposal: ${proposal.kind}`);
   }
   const targetId = proposal.targetEntityId;
+  // R-035 PR6 (Hein, 2026-10-07, decision (b)): this posts ANY balanced draft
+  // by id when a person approves it — the journal page's Post by another door
+  // — so it is gated the same way: under manual-journal enforcement the draft
+  // is locked and a draft the gate does not clear throws ApprovalRequiredError
+  // (the route's 409) here, BEFORE the claim below, so nothing is written and
+  // the proposal stays retryable. Cleared, it is marked in the savepoint with
+  // its post. Close-run creates no journals of its own to exempt.
+  const enforced = await gateManualJournalPost(companyId, targetId);
 
   // The claim + post + audit + finalize run inside a SAVEPOINT. On ANY failure
   // (incl. a translated 409), the savepoint rolls back the claim so the proposal
@@ -186,6 +195,7 @@ async function approveAutoPost(
 
     // 2. Post through the existing service (validates draft/period-open/balance).
     //    Expected posting failures become a 409 (savepoint rolls the claim back).
+    if (enforced) await markManualJournal(companyId, targetId);
     const entry = await postJournalEntry(companyId, targetId, userId)
       .catch(err => asDecisionError(err, proposal.title));
 
