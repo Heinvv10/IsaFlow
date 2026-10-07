@@ -142,11 +142,14 @@ function dropRouteAnswerHeaders(res: NextApiResponse): void {
  * Sends the buffered end once the transaction is final. It never throws: the transaction may
  * already have COMMITted, so a failure here (Node refuses `end({ id })`, for one) must not
  * reach the wrapper's catch, which would ROLLBACK a committed write and tell the client it
- * failed. It is logged and the response aborted.
+ * failed. It is logged and the response aborted. `rolledBack`: the handler's own 5xx is replayed
+ * over a ROLLBACK, so it goes out without the route's Set-Cookie and Location — a rolled-back
+ * request must not hand out a session.
  */
-export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: ThrowContext): void {
+export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: ThrowContext, rolledBack = false): void {
   if (!deferred.ended) return;
   try {
+    if (rolledBack && !res.headersSent) dropRouteAnswerHeaders(res);
     deferred.realEnd(...(deferred.args ?? []));
   } catch (err) {
     log.error(`${ctx.source}: response replay failed after the transaction was finalised`, {

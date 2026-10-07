@@ -234,7 +234,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
       // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
-      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub });
+      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub }, handlerFailed);
       // Only now may background work start: its rows are visible, and it gets its
       // own connection instead of this one (R-075). Never after a ROLLBACK.
       if (!handlerFailed) drainAfterCommit(ctx);

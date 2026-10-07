@@ -187,7 +187,7 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       // would claim a write that did not land, so it becomes the commit-failed 500, as in withAuth.
       if (ctx.rollbackOnly) {
         unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
-        if (res.statusCode < 500) answerCommitFailed(res, flush); else replayEnd(res, flush, finalizeCtx);
+        if (res.statusCode < 500) answerCommitFailed(res, flush); else replayEnd(res, flush, finalizeCtx, true);
         return;
       }
       await adminClient.query('COMMIT');
