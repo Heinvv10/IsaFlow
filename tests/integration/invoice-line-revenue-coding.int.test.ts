@@ -38,7 +38,7 @@ const create = (items: Record<string, unknown>[], projectId?: unknown) =>
 async function storedLines(invoiceId: string) {
   return (await sql`
     SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items
-    WHERE invoice_id = ${invoiceId}::UUID ORDER BY created_at, id`) as Record<string, string | null>[];
+    WHERE invoice_id = ${invoiceId}::UUID ORDER BY unit_price DESC, id`) as Record<string, string | null>[];
 }
 
 describeIfDisposable('invoice line coding on write (migration 870)', () => {

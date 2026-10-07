@@ -52,7 +52,7 @@ const DESCRIPTION = [
   'debit and no credit, only which account carries it, so the company trial balance is identical',
   'afterwards. Per-account balances, comparatives and any report grouped by account DO change, for',
   'every period the moved lines touch.',
-  'DOCUMENT LINES MOVE WITH IT: bill lines (supplier_invoice_items), expense-claim lines, purchase-order',
+  'DOCUMENT LINES MOVE WITH IT: bill lines (supplier_invoice_items), customer invoice lines (customer_invoice_items), expense-claim lines, purchase-order',
   'lines (po_items) and capture events coded to the source are repointed to the target in the same',
   'transaction, only this company\'s rows. The dry run reports how many per table',
   '(documentRowsToRepoint), the live result reports the same counts (documentRowsRepointed), and the',

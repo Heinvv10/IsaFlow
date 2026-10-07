@@ -1,5 +1,6 @@
 /**
  * The DOCUMENT lines a GL account merge carries with it: bill lines,
+ * customer invoice lines (migration 870: posting credits their account),
  * expense-claim lines, purchase-order lines and capture events coded to the
  * source account.
  *
@@ -10,7 +11,7 @@
  * in the same transaction and under the same account locks, and the record
  * names every row that moved (`gl_account_merges.moved_document_rows`).
  *
- * Every statement is tenant-scoped. Two of the tables carry no `company_id`
+ * Every statement is tenant-scoped. Three of the tables carry no `company_id`
  * and are scoped through their parent document's. The FK on `gl_account_id`
  * checks only that the account exists, not whose it is, so an unscoped UPDATE
  * would move another company's row that (corruptly) names the source.
@@ -21,7 +22,7 @@
 import { sql } from '@/lib/neon';
 
 export const DOCUMENT_ROW_TABLES = [
-  'supplier_invoice_items', 'expense_claim_lines', 'po_items', 'capture_events',
+  'supplier_invoice_items', 'customer_invoice_items', 'expense_claim_lines', 'po_items', 'capture_events',
 ] as const;
 
 export type DocumentRowTable = typeof DOCUMENT_ROW_TABLES[number];
@@ -38,6 +39,10 @@ export async function countDocumentRows(
          JOIN supplier_invoices si ON si.id = i.supplier_invoice_id
         WHERE si.company_id = ${companyId}::UUID AND i.gl_account_id = ${sourceId}::UUID)
         AS supplier_invoice_items,
+      (SELECT COUNT(*)::INT FROM customer_invoice_items i
+         JOIN customer_invoices ci ON ci.id = i.invoice_id
+        WHERE ci.company_id = ${companyId}::UUID AND i.gl_account_id = ${sourceId}::UUID)
+        AS customer_invoice_items,
       (SELECT COUNT(*)::INT FROM expense_claim_lines
         WHERE company_id = ${companyId}::UUID AND gl_account_id = ${sourceId}::UUID)
         AS expense_claim_lines,
@@ -52,6 +57,7 @@ export async function countDocumentRows(
   const r = rows[0] ?? {};
   return {
     supplier_invoice_items: Number(r.supplier_invoice_items ?? 0),
+    customer_invoice_items: Number(r.customer_invoice_items ?? 0),
     expense_claim_lines: Number(r.expense_claim_lines ?? 0),
     po_items: Number(r.po_items ?? 0),
     capture_events: Number(r.capture_events ?? 0),
@@ -68,7 +74,9 @@ function ids(rows: unknown): string[] {
  * A bill line's account is part of the content an approval covers (R-035), so
  * every bill whose lines moved adds the merging user to its content authors
  * (`content_authors`), whom the decide path refuses as approvers (decision
- * Q10: the merge also stales any approval on those bills).
+ * Q10: the merge also stales any approval on those bills). A customer invoice
+ * line's account is in its digest too (migration 865), so its invoice gets the
+ * same stamp.
  */
 export async function repointDocumentRows(
   companyId: string, sourceId: string, targetId: string, editedBy?: string,
@@ -87,6 +95,23 @@ export async function repointDocumentRows(
          SET content_authors = approval_add_author(si.content_authors, ${editedBy ?? null}::UUID), content_edited_at = NOW()
        WHERE si.company_id = ${companyId}::UUID AND si.id IN (SELECT supplier_invoice_id FROM moved)
       RETURNING si.id
+    )
+    SELECT id FROM moved
+  `);
+  const customerInvoiceItems = ids(await sql`
+    WITH moved AS (
+      UPDATE customer_invoice_items i
+         SET gl_account_id = ${targetId}::UUID, updated_at = NOW()
+        FROM customer_invoices ci
+       WHERE ci.id = i.invoice_id
+         AND ci.company_id = ${companyId}::UUID
+         AND i.gl_account_id = ${sourceId}::UUID
+      RETURNING i.id, i.invoice_id
+    ), authored AS (
+      UPDATE customer_invoices ci
+         SET content_authors = approval_add_author(ci.content_authors, ${editedBy ?? null}::UUID), content_edited_at = NOW()
+       WHERE ci.company_id = ${companyId}::UUID AND ci.id IN (SELECT invoice_id FROM moved)
+      RETURNING ci.id
     )
     SELECT id FROM moved
   `);
@@ -115,6 +140,7 @@ export async function repointDocumentRows(
   `);
   return {
     supplier_invoice_items: supplierInvoiceItems,
+    customer_invoice_items: customerInvoiceItems,
     expense_claim_lines: expenseClaimLines,
     po_items: poItems,
     capture_events: captureEvents,
@@ -125,6 +151,7 @@ export async function repointDocumentRows(
 export function countsOf(moved: MovedDocumentRows): DocumentRowCounts {
   return {
     supplier_invoice_items: moved.supplier_invoice_items.length,
+    customer_invoice_items: moved.customer_invoice_items.length,
     expense_claim_lines: moved.expense_claim_lines.length,
     po_items: moved.po_items.length,
     capture_events: moved.capture_events.length,
