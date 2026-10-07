@@ -119,7 +119,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
   // Include leaf accounts at any level (level >= 3 for standard CoA hierarchy,
   // plus level = 1 accounts that have no children, as used by Sage-imported accounts).
   const rows = (await sql`
-    SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+    SELECT ga.account_code, ga.account_name, ga.account_type,
       COALESCE(SUM(jl.debit), 0) AS total_debit,
       COALESCE(SUM(jl.credit), 0) AS total_credit
     FROM gl_journal_lines jl
@@ -141,7 +141,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
       AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
         OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
       AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
-    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
+    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
     ORDER BY ga.account_code
   `) as Row[];
 
@@ -151,16 +151,18 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
 
   for (const r of rows) {
     const type = String(r.account_type);
-    const normalBal = String(r.normal_balance);
     const debit = Number(r.total_debit);
     const credit = Number(r.total_credit);
-    const balance = normalBal === 'debit' ? debit - credit : credit - debit;
+    // Signed by the SECTION, never by the account's normal_balance: an asset is
+    // debit less credit, a liability or equity account credit less debit. A
+    // contra account — Accumulated Depreciation (credit-normal asset), Dividends
+    // Declared or Drawings (debit-normal equity) — then reduces its own section.
+    // Signing by normal_balance added debit-normal equity to equity at
+    // +|balance|, overstating it by twice the dividends declared.
+    const balance = type === 'asset' ? debit - credit : credit - debit;
     if (Math.abs(balance) < 0.01) continue;
 
-    // Contra-assets (asset type, credit normal balance e.g. Accumulated Depreciation) must
-    // reduce total assets. Negate the balance so they subtract from totalAssets correctly.
-    const reportBalance = (type === 'asset' && normalBal === 'credit') ? -balance : balance;
-    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance: reportBalance };
+    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance };
     if (type === 'asset') assets.push(item);
     else if (type === 'liability') liabilities.push(item);
     else if (type === 'equity') equity.push(item);

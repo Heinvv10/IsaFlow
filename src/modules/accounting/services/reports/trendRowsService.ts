@@ -14,10 +14,11 @@
  * - Movement uses `incomeStatementService`'s per-line arithmetic: revenue is
  *   credit less debit, expense is debit less credit, so "more is more" on both
  *   sides and the sparkline rises when the line item rises.
- * - Balance uses `balanceSheetService`'s: sign by `normal_balance`, then NEGATE
- *   contra-assets (asset type, credit normal balance — Accumulated
- *   Depreciation). A plain debit-less-credit series would draw those accounts
- *   upside down against the number printed next to them. The same leaf filter
+ * - Balance uses `balanceSheetService`'s: sign by ACCOUNT TYPE — assets debit
+ *   less credit, liabilities and equity credit less debit — so a contra account
+ *   (Accumulated Depreciation, Dividends Declared) draws below zero, as its
+ *   statement line prints. A plain debit-less-credit series would draw every
+ *   liability and equity account upside down. The same leaf filter
  *   applies, so a parent roll-up account does not get a series the balance
  *   sheet never prints.
  *
@@ -154,12 +155,8 @@ export async function getMonthlyBalances(companyId: string, asOf: string): Promi
                 ELSE to_char(date_trunc('month', je.entry_date), 'YYYY-MM')
            END AS month_key,
            COALESCE(SUM(
-             -- balanceSheetService: sign by normal_balance, then negate the
-             -- contra-asset. Both branches collapse to debit less credit for
-             -- assets, which is why the two clauses look alike.
-             CASE WHEN ga.account_type = 'asset' AND ga.normal_balance = 'credit'
-                    THEN jl.debit - jl.credit
-                  WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit
+             -- balanceSheetService: sign by account type, never normal_balance.
+             CASE WHEN ga.account_type = 'asset' THEN jl.debit - jl.credit
                   ELSE jl.credit - jl.debit END), 0)::float8 AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

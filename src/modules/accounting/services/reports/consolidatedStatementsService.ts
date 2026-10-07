@@ -50,6 +50,11 @@ function buildISTotals(items: ConsolidatedLineItem[]): ConsolidatedISTotals {
   return t;
 }
 
+/** A balance-sheet amount in its section's direction: assets debit less credit, the rest credit less debit. */
+function signedForSection(category: string, debit: number, credit: number): number {
+  return category === 'asset' ? debit - credit : credit - debit;
+}
+
 function buildBSTotals(items: ConsolidatedBSLineItem[]): ConsolidatedBSTotals {
   const t: ConsolidatedBSTotals = { entities: {}, eliminationAmount: 0, consolidatedAmount: 0 };
   for (const item of items) {
@@ -120,7 +125,7 @@ export async function getConsolidatedIncomeStatement(
       // expenses went UP by the eliminated amount instead of down. A standard
       // elimination journal (debit revenue, credit expense) therefore moved
       // group profit by twice the amount eliminated, in the wrong direction.
-      // getConsolidatedBalanceSheet already keys this off normal_balance.
+      // getConsolidatedBalanceSheet keys it off the section in the same way.
       if (entry) {
         entry.eliminationAmount += entry.category === 'revenue'
           ? elim.credit - elim.debit
@@ -175,7 +180,7 @@ export async function getConsolidatedBalanceSheet(
 ): Promise<ConsolidatedBalanceSheet> {
   try {
     const members = await getGroupMembers(groupId);
-    const lineMap = new Map<string, ConsolidatedBSLineItem & { category: string; normalBalance: string }>();
+    const lineMap = new Map<string, ConsolidatedBSLineItem & { category: string }>();
 
     // Preload all CoA mappings in a single query to avoid N+1 round-trips
     const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
@@ -183,7 +188,7 @@ export async function getConsolidatedBalanceSheet(
     for (const member of members) {
       const mappings: Map<string, MappingEntry> = allMappings.get(member.companyId) ?? new Map();
       const rows = (await sql`
-        SELECT ga.id AS account_id, ga.account_type, ga.normal_balance,
+        SELECT ga.id AS account_id, ga.account_type,
                COALESCE(SUM(jl.debit), 0) AS total_debit,
                COALESCE(SUM(jl.credit), 0) AS total_credit
         FROM gl_journal_lines jl
@@ -195,18 +200,20 @@ export async function getConsolidatedBalanceSheet(
           AND ga.company_id = ${member.companyId}::UUID
           AND je.entry_date <= ${asAtDate}
           AND ga.account_type IN ('asset', 'liability', 'equity')
-        GROUP BY ga.id, ga.account_type, ga.normal_balance
+        GROUP BY ga.id, ga.account_type
       `) as Row[];
 
       for (const r of rows) {
         const mapping = mappings.get(String(r.account_id));
         if (!mapping) continue;
-        const normalBal = String(r.normal_balance);
-        const balance = normalBal === 'debit' ? Number(r.total_debit) - Number(r.total_credit) : Number(r.total_credit) - Number(r.total_debit);
+        // Signed by the group SECTION the line lands in (balanceSheetService's
+        // rule), never by normal_balance: a contra account — Accumulated
+        // Depreciation, Dividends Declared — must reduce its section, not add.
+        const balance = signedForSection(mapping.groupAccountType, Number(r.total_debit), Number(r.total_credit));
         if (Math.abs(balance) < 0.01) continue;
         let entry = lineMap.get(mapping.groupAccountId);
         if (!entry) {
-          entry = { groupAccountId: mapping.groupAccountId, accountCode: mapping.groupAccountCode, accountName: mapping.groupAccountName, entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: mapping.groupAccountType, normalBalance: mapping.groupNormalBalance };
+          entry = { groupAccountId: mapping.groupAccountId, accountCode: mapping.groupAccountCode, accountName: mapping.groupAccountName, entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: mapping.groupAccountType };
           lineMap.set(mapping.groupAccountId, entry);
         }
         entry.entities[member.companyId] = (entry.entities[member.companyId] || 0) + balance;
@@ -230,7 +237,7 @@ export async function getConsolidatedBalanceSheet(
       const retainedEarnings = Number(reRows[0]?.revenue ?? 0) - Number(reRows[0]?.expenses ?? 0);
       if (Math.abs(retainedEarnings) > 0.01) {
         const reMapping = (await sql`
-          SELECT gcm.group_account_id, ga.account_code, ga.account_name, ga.normal_balance
+          SELECT gcm.group_account_id, ga.account_code, ga.account_name
           FROM group_coa_mappings gcm
           JOIN group_accounts ga ON ga.id = gcm.group_account_id
           WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${member.companyId}::UUID
@@ -241,7 +248,7 @@ export async function getConsolidatedBalanceSheet(
           const gaId = String(reMapping[0]!.group_account_id);
           let entry = lineMap.get(gaId);
           if (!entry) {
-            entry = { groupAccountId: gaId, accountCode: String(reMapping[0]!.account_code), accountName: String(reMapping[0]!.account_name), entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: 'equity', normalBalance: String(reMapping[0]!.normal_balance) };
+            entry = { groupAccountId: gaId, accountCode: String(reMapping[0]!.account_code), accountName: String(reMapping[0]!.account_name), entities: {}, eliminationAmount: 0, consolidatedAmount: 0, category: 'equity' };
             lineMap.set(gaId, entry);
           }
           entry.entities[member.companyId] = (entry.entities[member.companyId] || 0) + retainedEarnings;
@@ -252,7 +259,7 @@ export async function getConsolidatedBalanceSheet(
     for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate)) {
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;
-      entry.eliminationAmount += entry.normalBalance === 'debit' ? elim.debit - elim.credit : elim.credit - elim.debit;
+      entry.eliminationAmount += signedForSection(entry.category, elim.debit, elim.credit);
     }
 
     const assets: ConsolidatedBSLineItem[] = [];
