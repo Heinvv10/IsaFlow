@@ -31,9 +31,8 @@ vi.mock('@/modules/accounting/services/bank/bankOpeningBalanceService', () => ({
 }));
 vi.mock('@/modules/accounting/services/gl/openingBalanceEquityService', () => ({
   ensureOpeningBalanceEquityAccount: vi.fn(),
-  OPENING_BALANCE_EQUITY_SUBTYPE: 'opening_balance_equity', OPENING_BALANCE_EQUITY_NAME: 'Opening Balance Equity',
 }));
-// R-035 PR6: manual-journal enforcement off here; the enforced contra refusal is proven in r035-pr6-mcp.int.test.ts.
+// R-035 PR6: manual-journal enforcement off here; the enforced refusal is proven in r035-pr6-mcp.int.test.ts.
 vi.mock('@/modules/accounting/services/gl/approvalEnforcement', () => ({ isEnforced: vi.fn(async () => false) }));
 // The role-write lock and the bounded wait issue real SQL. Stubbed, or this "unit" file opens a database
 // connection: it passed only where one was reachable (a developer's .env.local) and failed in CI, which
