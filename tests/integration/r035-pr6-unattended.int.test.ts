@@ -139,6 +139,26 @@ describe('GL import with post-immediately', () => {
     expect(await journalState(pool, small)).toMatchObject({ status: 'posted', marker: 'manual_journal' });
   });
 
+  // Round 3 (blind MEDIUM): the hold is decided on the amount the backstop
+  // will see — each line at its stored cents, summed exactly. A float sum read
+  // 0.1 + 0.7 as 0.7999…, missed a rule of exactly 0.80, posted, and the
+  // backstop then failed the whole import.
+  it('decides on the stored cents: a journal at exactly the rule value is held; one a cent under posts', async () => {
+    const f = await journalCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+    await plantRule(pool, f.c, 'owner', { documentType: 'manual_journal', operator: 'greater_equal', value: 0.8 });
+    await enforceJournals(pool, f.c, u.b);
+    const tag = f.c.slice(0, 6);
+    const line = (reference: string, code: string, debit: number, credit: number) =>
+      ({ date: '2026-09-01', reference, description: reference, accountCode: `${code}${tag}`, debit, credit });
+    const res = await callRoute(glImport, tokens[u.a]!, f.c, 'POST', { postImmediately: true, rows: [
+      line('EXACT', 'EA', 0.1, 0), line('EXACT', 'EB', 0.7, 0), line('EXACT', 'BK', 0, 0.1), line('EXACT', 'BK', 0, 0.7),
+      line('UNDER', 'EA', 0.794, 0), line('UNDER', 'BK', 0, 0.794),
+    ] }, '/api/accounting/gl-import');
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(dataOf(res)).toMatchObject({ entriesCreated: 2, heldForApproval: [await byRef(f.c, 'EXACT')] });
+    expect((await journalState(pool, await byRef(f.c, 'UNDER'))).status).toBe('posted');
+  });
+
   it('enforcement off: everything posts as before, unmarked, nothing held', async () => {
     const f = await fixture({ enforced: false });
     const res = await run(f);
