@@ -25,7 +25,7 @@ export interface CommentaryPanelProps {
 }
 
 export function CommentaryPanel({ sectionRef, mode, canApprove, params }: CommentaryPanelProps) {
-  const { rows, error, generate, approve, reject } = useCommentary({ params });
+  const { rows, error, generate, approve, reject, refresh } = useCommentary({ params });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [replaceConfirmed, setReplaceConfirmed] = useState(false);
 
@@ -54,6 +54,7 @@ export function CommentaryPanel({ sectionRef, mode, canApprove, params }: Commen
         rows={rows}
         mode={mode}
         onApprove={canApprove ? approve : undefined}
+        onRefresh={canApprove ? refresh : undefined}
         budgeted={params.type === 'board'}
         onReject={canApprove ? reject : undefined}
       />

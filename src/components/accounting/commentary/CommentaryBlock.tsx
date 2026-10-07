@@ -46,6 +46,8 @@ export type CommentaryBlockProps =
       /** Whether this pack's approved text is held to the board pack's page-4
        *  budget (only the board pack prints it on a fixed sheet). Default true. */
       budgeted?: boolean;
+      /** Re-fetch the rows; the editor offers it when it reports the pack over budget. */
+      onRefresh?: () => void | Promise<void>;
       onReject?: (id: string) => void;
     };
 
@@ -82,7 +84,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
   }, [editingId]);
   const closeEditor = (id: string) => { closedId.current = id; setEditingId(null); };
   if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef} />;
-  const { onApprove, onReject, budgeted = true } = props;
+  const { onApprove, onReject, onRefresh, budgeted = true } = props;
 
   const mine = rows.filter(r => r.sectionRef === sectionRef && r.status !== 'rejected');
   if (mine.length === 0) return null;
@@ -96,6 +98,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
             <div key={r.id} className="flex items-start gap-2">
               <CommentaryEditor
                 initialText={r.draftText}
+                onRefresh={onRefresh}
                 costWith={budgeted ? (text) => commentaryCost(
                   rows.filter(x => x.id === r.id || (x.status === 'approved' && x.approvedText !== null))
                     .map(x => (x.id === r.id ? text : x.approvedText ?? ''))) : null}

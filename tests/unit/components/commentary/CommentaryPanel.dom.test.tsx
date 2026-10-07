@@ -335,6 +335,27 @@ describe('CommentaryPanel approve with edits', () => {
     expect(button.getAttribute('aria-label')).toBe('Edit: Revenue grew by 25%. Costs held.');
   });
 
+  it('a stale over-budget screen recovers: Refresh re-fetches, re-costs, and Approve is enabled again', async () => {
+    const big: CommentaryRow = { ...ROW, id: 'row-big', rowRef: 'cogs', status: 'approved', approvedText: 'word '.repeat(250).trim() };
+    const box = await openEditor([ROW, big]);
+    typeInto(box, 'A sentence of reasonable length that no longer fits beside the big one.');
+    const approve = () => screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
+    expect(approve().disabled).toBe(true);
+    expect(screen.getByRole('status').textContent).toMatch(/^over the page limit/);
+    // A peer withdrew the big approval: the server now returns it as a draft.
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW, { ...big, status: 'draft', approvedText: null }] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(approve().disabled).toBe(false));
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+    // The typed text survived the refresh.
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('A sentence of reasonable length');
+  });
+
+  it('offers no Refresh while the pack is not over budget', async () => {
+    await openEditor();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  });
+
   it('shortens a long sentence in the Edit button name', async () => {
     const long: CommentaryRow = { ...ROW, draftText: `${'Long sentence '.repeat(10)}end` };
     fetchMock.mockResolvedValueOnce(envelope({ commentary: [long] }));

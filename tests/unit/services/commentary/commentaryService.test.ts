@@ -100,7 +100,7 @@ describe('approveCommentary', () => {
     sqlMock
       .mockResolvedValueOnce([ROW_READ])
       .mockResolvedValueOnce([]) // pack lock
-      .mockResolvedValueOnce([]) // no other approved rows
+      .mockResolvedValueOnce([{ id: ID, approved_text: null }]) // no other approved rows
       .mockResolvedValueOnce([dbRow({ status: 'approved', approved_text: 'Revenue increased by 25.0%.', approved_by: 'approver-9', approved_at: new Date('2026-04-01T10:00:00Z') })]);
 
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
@@ -163,7 +163,7 @@ describe('approveCommentary', () => {
     sqlMock
       .mockResolvedValueOnce([ROW_READ])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]) // no other approved rows
+      .mockResolvedValueOnce([{ id: ID, approved_text: null }]) // no other approved rows
       .mockResolvedValueOnce([]);
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
 
@@ -182,7 +182,7 @@ describe('approveCommentary with edited text', () => {
   const queue = (draft = 'Revenue increased by 25.0%.', write: unknown[] = [approvedRow()]) => sqlMock
     .mockResolvedValueOnce([{ ...ROW_READ, draft_text: draft }])
     .mockResolvedValueOnce([])
-    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ id: ID, approved_text: null }])
     .mockResolvedValueOnce(write);
 
   it('writes the supplied text, trimmed, as approved_text in the one guarded UPDATE', async () => {
@@ -290,7 +290,7 @@ describe('approveCommentary plain path: the draft it costed is the draft it publ
   const approved = dbRow({ status: 'approved', approved_text: 'Costed draft.' });
 
   it('copies draft_text, and only while draft_text is still the text it read', async () => {
-    sqlMock.mockResolvedValueOnce([read]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([approved]);
+    sqlMock.mockResolvedValueOnce([read]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: ID, approved_text: null }]).mockResolvedValueOnce([approved]);
     expect((await approveCommentary(COMPANY, ID, 'approver-9')).ok).toBe(true);
     expect(text(3)).toContain('approved_text = draft_text');
     expect(text(3)).toMatch(/draft_text =\s+\?/);
@@ -298,7 +298,7 @@ describe('approveCommentary plain path: the draft it costed is the draft it publ
   });
 
   it('answers invalid_state, saying the draft changed, when a regenerate committed in between', async () => {
-    sqlMock.mockResolvedValueOnce([read]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([read]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: ID, approved_text: null }]).mockResolvedValueOnce([]);
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -380,6 +380,14 @@ describe('approveCommentary against the pack budget', () => {
       expect(result.reason).toContain(`About ${left} characters`);
       expect(left).toBeLessThan(approxCharsLeft(MAX_APPROVED_PACK_EMS)); // not the empty-pack figure
     }
+  });
+
+  it('answers not_found, writing nothing, if the row is missing from the pack read (it vanished mid-request)', async () => {
+    sqlMock.mockResolvedValueOnce([BOARD]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'o1', approved_text: 'Other.' }]);
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', 'Some text.');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('not_found');
+    expect(sqlMock).toHaveBeenCalledTimes(3);
   });
 
   it('costs the row at ITS place in the page order: the same text fits between two rows and not after them', async () => {

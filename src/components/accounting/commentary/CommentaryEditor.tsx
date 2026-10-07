@@ -4,11 +4,13 @@
  * draft row is exactly as it was.
  *
  * The count is the pack's room on the board pack's page 4, in the page's own
- * ruler: `commentaryEms`, the SAME function the service costs the row with, on
- * the trimmed text because that is what is sent and stored. The server stays
- * the authority; this only saves a round trip. `packRemainingEms` is the room
- * the OTHER approved rows leave, or null for a pack with no fixed page (no
- * limit is shown or applied).
+ * wrapper: `commentaryCost`, the SAME function the service costs the pack with,
+ * on the trimmed text because that is what is sent and stored. `costWith(text)`
+ * is the pack's cost with that text in this row's place, or null for a pack
+ * with no fixed page (only a generous character ceiling applies). The server
+ * stays the authority; this only saves a round trip. When the screen says over
+ * budget, `onRefresh` re-fetches the rows so a peer's withdrawal is picked up
+ * without losing the typed text.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -22,13 +24,15 @@ export interface CommentaryEditorProps {
   /** What the pack's approved paragraph costs with this text in this row's
    *  place (`commentaryCost`), or null for a pack with no fixed page. */
   costWith: ((text: string) => number) | null;
+  /** Re-fetch the pack's rows (and so re-cost). Offered only while over budget. */
+  onRefresh?: () => void | Promise<void>;
   /** Resolves true once the approval was accepted (the parent then closes the
    *  editor); false leaves it open with the typed text. */
   onApprove: (text: string) => Promise<boolean>;
   onCancel: () => void;
 }
 
-export function CommentaryEditor({ initialText, costWith, onApprove, onCancel }: CommentaryEditorProps) {
+export function CommentaryEditor({ initialText, costWith, onApprove, onCancel, onRefresh }: CommentaryEditorProps) {
   const [value, setValue] = useState(initialText);
   const [busy, setBusy] = useState(false);
   // A state flag is stale inside one tick, so two fast clicks would both pass
@@ -80,6 +84,9 @@ export function CommentaryEditor({ initialText, costWith, onApprove, onCancel }:
         <button type="button" disabled={invalid || busy} onClick={() => void submit()} className={BTN}>
           Approve edited text
         </button>
+        {over && onRefresh && (
+          <button type="button" disabled={busy} onClick={() => void onRefresh()} className={BTN}>Refresh</button>
+        )}
         <button type="button" disabled={busy} onClick={onCancel} className={BTN}>Cancel</button>
       </div>
     </div>

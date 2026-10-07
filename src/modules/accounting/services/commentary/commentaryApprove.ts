@@ -61,9 +61,10 @@ export async function approveCommentary(
     // its own position, costed as one text.
     const pack = await lockAndReadPack(companyId, id, row.reportKind, row.paramsHash);
     const others = commentaryCost(pack.filter((r) => r.id !== id).map((r) => r.text));
-    const page = pack.some((r) => r.id === id)
-      ? pack.map((r) => (r.id === id ? text : r.text))
-      : [...pack.map((r) => r.text), text];
+    // `lockAndReadPack` always returns this row (it reads `OR id = …` under the lock);
+    // a missing one means it vanished mid-request, which is not a budget question.
+    if (!pack.some((r) => r.id === id)) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+    const page = pack.map((r) => (r.id === id ? text : r.text));
     if (commentaryCost(page) > MAX_APPROVED_PACK_EMS) {
       return { ok: false, code: 'commentary_budget_exceeded', reason: budgetReason(MAX_APPROVED_PACK_EMS - others) };
     }

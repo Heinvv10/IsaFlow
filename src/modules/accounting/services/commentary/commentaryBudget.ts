@@ -1,7 +1,8 @@
 /**
  * The pack-wide budget on approved commentary, as the service applies it: which
- * packs it protects, the per-pack lock, and the sum under that lock. The unit
- * is `commentaryEms` (commentaryLimits.ts), the same function the editor uses.
+ * packs it protects, the per-pack lock, and the pack read under that lock. The
+ * cost is `commentaryCost` (commentaryLimits.ts), the same function the editor
+ * uses.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { als } from '@/lib/als';
@@ -28,7 +29,9 @@ export function budgetReason(remainingEms: number): string {
  * Serialises approvals PER PACK, then reads the paragraph page 4 will print:
  * every approved row of the pack in the page's own order (`section_ref,
  * row_ref`, as `listCommentary` reads them) plus the row being approved at its
- * own position, whose `text` here is a placeholder the caller substitutes. The
+ * own position (always returned: the query takes it by id). Its `text` is the
+ * row's WITHDRAWN approved text if a regeneration withdrew an approval, else
+ * '' — never the text being approved; the caller substitutes that. The
  * lock is a transaction advisory lock, so it only holds inside the request
  * transaction `withAuth` opens (released at COMMIT, after the UPDATE): on a
  * pooled connection it would be released the instant it was taken and two
