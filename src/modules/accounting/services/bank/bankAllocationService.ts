@@ -36,6 +36,7 @@ import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
+import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 
 
 type Row = DbRow;
@@ -135,10 +136,10 @@ export async function allocateTransaction(
   // the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
-  // R-035 PR5 (Hein, D2): money OUT to a supplier from a HAND-KEYED line is a
-  // payment instruction, not bank evidence — refused (409) under an enforced
-  // supplier_payment rule, from the locked row, before the first write.
+  // R-035 (D2; PR6 H2): a HAND-KEYED line is no bank evidence — paid OUT to a supplier it is a payment instruction,
+  // posted to a GL account a manual journal: each refused (409) under its enforced rule, from the locked row, pre-write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
+  if (allocType === 'account') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount);
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -648,8 +649,7 @@ export async function splitAllocateTransaction(
   // Errors here they would have to be told apart by message text — which is
   // exactly what `BankAllocationRefusal` exists to stop.
   if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
-  // Same reasoning as allocateTransaction: refused from the locked row, before
-  // any write, because status alone would let a pending/removed row through.
+  // As allocateTransaction: refused from the locked row, pre-write — status alone would let a pending/removed row through.
   assertPostedForAllocation(tx, bankTxId, 'split allocate');
   await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
   if (tx.status !== 'imported') {
@@ -662,12 +662,12 @@ export async function splitAllocateTransaction(
   if (Math.abs(linesTotal - totalAmount) > 0.01) {
     throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
+  await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
 
   const bankAccountId = String(tx.bank_account_id);
-  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
-  // midnight, and toISOString() re-reads it in UTC — on the UTC+2 box that
-  // rolls 2026-03-01T00:30+02:00 back to "2026-02-28", dating the journal into
-  // the previous month (and, at a boundary, into a closed period).
+  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL midnight, and toISOString()
+  // re-reads it in UTC — on the UTC+2 box that rolls 2026-03-01T00:30+02:00 back to "2026-02-28",
+  // dating the journal into the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
   const entryDesc = String(tx.description || 'Split bank allocation');

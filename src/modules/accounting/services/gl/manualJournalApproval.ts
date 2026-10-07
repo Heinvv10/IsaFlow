@@ -32,7 +32,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isEnforced } from './approvalEnforcement';
-import { assertApprovalCleared } from './approvalGate';
+import { ApprovalRequiredError, assertApprovalCleared } from './approvalGate';
 import { strictestMatchingRule } from './approvalMatching';
 import { agentApprovalRefusal, raiseUnattendedApproval } from './approvalUnattended';
 
@@ -172,6 +172,29 @@ export async function settleUnattendedJournal(companyId: string, entryId: string
   if (!gate.enforced) return;
   await markManualJournal(companyId, entryId);
   if (gate.held) await raiseUnattendedApproval(companyId, TYPE, entryId, runBy);
+}
+
+/**
+ * A person about to CREATE and post a journal in one act (a bank-reconciliation
+ * adjustment, a hand-keyed bank line to an account — R-035 PR6 round 3, Hein's
+ * scope decisions H1 / H2): there is no draft to raise a request for, so under
+ * enforcement a journal of `amount` an active rule matches is refused up front
+ * — an ApprovalRequiredError (routes answer it 409; MCP shows its code's
+ * message) whose text `explain` writes, naming the way out. Null otherwise.
+ * Built, not subclassed, as bankLinePaymentGate builds PR5's.
+ */
+export async function newManualJournalRefusal(companyId: string, amount: number,
+  explain: (requiredRole: string, ruleName: string, amountText: string) => string): Promise<ApprovalRequiredError | null> {
+  if (!(await isEnforced(companyId, TYPE))) return null;
+  const rounded = journalGateAmount([{ debit: amount }]);
+  const rule = await strictestMatchingRule(companyId, TYPE, rounded);
+  if (!rule) return null;
+  const err = new ApprovalRequiredError({
+    reason: 'APPROVAL_REQUIRED', requiredRole: rule.approverRole, ruleName: rule.name, requestId: null,
+    documentType: TYPE, documentReference: null,
+  });
+  err.message = explain(rule.approverRole, rule.name, `R${rounded.toFixed(2)}`);
+  return err;
 }
 
 /** An agent posting an existing draft (MCP post_journal): the refusal text, or null when the gate clears it. */
