@@ -118,6 +118,19 @@ describe('the window\'s day count reaches the engine', () => {
 });
 
 describe('the ratio trends\' current month', () => {
+  it('is drawn, but the direction is read between whole months', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 2, 12, 0, 0));
+    const { data } = await call(trendsRoute, { months: '3' });
+    const debtor = (data.trends as Array<{ ratioName: string; values: Array<{ value: number | null }>; changePercent: number | null }>)
+      .find((t) => t.ratioName === 'debtorDays')!;
+    // Two days of October are still a point on the line ...
+    expect(debtor.values.map((v) => v.value)).toEqual([6.2, 6, 0.4]);
+    // ... but August to September is the movement: -3.23%, not the -93.55%
+    // that two days of revenue against a whole month would report.
+    expect(debtor.changePercent).toBe(-3.23);
+  });
+
   it('ends today, and its day counts are on the days so far', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 9, 7, 12, 0, 0));
@@ -132,16 +145,35 @@ describe('the ratio trends\' current month', () => {
 });
 
 describe('a window the day counts cannot be taken over is refused', () => {
-  for (const [name, route] of [['extended ratios', extendedRoute], ['KPI scorecard', scorecardRoute]] as const) {
+  const ROUTES = [['extended ratios', extendedRoute], ['KPI scorecard', scorecardRoute], ['basic ratio report', ratiosRoute]] as const;
+  for (const [name, route] of ROUTES) {
     it(`on the ${name}: a malformed date`, async () => {
-      expect((await call(route, { from: '2026-3-1', to: '2026-08-31' })).status).toBe(400);
+      // Sorts before `to`, so only the format check can refuse it.
+      expect((await call(route, { from: '2026-03-1x', to: '2026-08-31' })).status).toBe(400);
       expect((await call(route, { from: '2026-03-01', to: 'yesterday' })).status).toBe(400);
+      expect(getFinancialFiguresMock).not.toHaveBeenCalled();
+    });
+
+    it(`on the ${name}: a date the calendar does not have — the shared check`, async () => {
+      expect((await call(route, { from: '2026-02-31', to: '2026-08-31' })).status).toBe(400);
       expect(getFinancialFiguresMock).not.toHaveBeenCalled();
     });
 
     it(`on the ${name}: a window that runs backwards`, async () => {
       expect((await call(route, { from: '2026-09-01', to: '2026-08-31' })).status).toBe(400);
       expect(getFinancialFiguresMock).not.toHaveBeenCalled();
+    });
+  }
+});
+
+describe('the default window', () => {
+  for (const [name, route] of [['extended ratios', extendedRoute], ['KPI scorecard', scorecardRoute]] as const) {
+    it(`on the ${name} runs from the start of this calendar year to today, on the local calendar`, async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      // 01:00 SAST on 15 March 2027 is still 14 March in UTC.
+      vi.setSystemTime(new Date(2027, 2, 15, 1, 0, 0));
+      await call(route, {});
+      expect(getFinancialFiguresMock).toHaveBeenCalledWith('c1', '2027-01-01', '2027-03-15');
     });
   }
 });

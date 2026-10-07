@@ -34,9 +34,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const from = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
     const monthEnd = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
-    const to = monthEnd > today ? today : monthEnd;
+    const partial = monthEnd > today;
+    const to = partial ? today : monthEnd;
     const label = date.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
-    return { from, to, label };
+    return { from, to, label, partial };
   });
 
   // One month after another: each is three queries on the request's one
@@ -60,7 +61,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     periodLabels.push(monthSlots[i]!.label);
   }
 
-  const trends = calculateRatioTrends(periodsData, periodLabels);
+  const trends = calculateRatioTrends(periodsData, periodLabels, monthSlots.map((m) => m.partial));
 
   return apiResponse.success(res, {
     months,

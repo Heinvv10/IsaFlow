@@ -55,8 +55,8 @@ function operatingProfitOf(data: FinancialData): number {
 
 /**
  * Collects the reasons as the ratios are computed, so a null and its reason
- * cannot be written apart: `on` and `given` are the only two ways a ratio
- * becomes null here, and each records why under the ratio's own key.
+ * cannot be written apart: `on`, `given` and `none` are the only ways a
+ * ratio becomes null here, and each records why under the ratio's own key.
  */
 function ledger(seed: Record<string, string>) {
   const why: Record<string, string> = { ...seed };
@@ -74,6 +74,11 @@ function ledger(seed: Record<string, string>) {
       why[key] = problem;
       return null;
     },
+    /** Null, and why — for a ratio whose arithmetic needs a value narrowed first. */
+    none(key: string, problem: string): null {
+      why[key] = problem;
+      return null;
+    },
   };
 }
 
@@ -81,12 +86,14 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const grossProfit = data.revenue - data.costOfSales;
   const equityFailure = equityBasisFailure(data.totalEquity);
   const operatingProfit = operatingProfitOf(data);
-  const { why, on, given } = ledger(equityNotMeaningful(data.totalEquity));
+  const { why, on, given, none } = ledger(equityNotMeaningful(data.totalEquity));
   const days = windowDays(data);
-  // Each day count is computed only where its base is positive AND `days`
-  // is stated, so the `?? 0` is never multiplied.
-  const noDays = days === null ? PERIOD_LENGTH_NOT_MEASURED : null;
-  const dayCount = (balance: number, flow: number): number => daysOver(balance, flow, days ?? 0);
+  // A day count needs a positive base first, then a window with a length.
+  const dayCount = (key: string, balance: number, base: number, baseName: string): number | null => {
+    if (base <= 0) return none(key, notPositive(baseName));
+    if (days === null) return none(key, PERIOD_LENGTH_NOT_MEASURED);
+    return daysOver(balance, base, days);
+  };
   // Cost of sales is the numerator, so a non-positive one is no turnover —
   // the same rule as creditor and inventory days. Where none is held the
   // turnover has no value and inventory days are nil; see NO_STOCK_HELD.
@@ -109,10 +116,8 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
     debtToEquity: equityFailure ? null : r2(safeDiv(data.totalLiabilities, data.totalEquity)),
     returnOnAssets: on('returnOnAssets', data.totalAssets, 'Total assets', () => pct(data.netProfit, data.totalAssets)),
     returnOnEquity: equityFailure ? null : pct(data.netProfit, data.totalEquity),
-    debtorDays: given('debtorDays', data.revenue > 0 ? noDays : notPositive('Revenue'),
-      () => dayCount(data.accountsReceivable, data.revenue)),
-    creditorDays: given('creditorDays', data.costOfSales > 0 ? noDays : notPositive('Cost of sales'),
-      () => dayCount(data.accountsPayable, data.costOfSales)),
+    debtorDays: dayCount('debtorDays', data.accountsReceivable, data.revenue, 'Revenue'),
+    creditorDays: dayCount('creditorDays', data.accountsPayable, data.costOfSales, 'Cost of sales'),
     inventoryTurnover: given('inventoryTurnover', noInventoryTurnover,
       () => r2(safeDiv(data.costOfSales, data.inventory))),
     notMeaningful: why,
@@ -134,7 +139,7 @@ function unusable(
 export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResult {
   const base = calculateFinancialRatios(data);
   const equityFailure = equityBasisFailure(data.totalEquity);
-  const { why, on, given } = ledger(base.notMeaningful);
+  const { why, on, given, none } = ledger(base.notMeaningful);
   // EBIT is the operating line: earnings before interest and tax, so other
   // income is in and finance cost and tax are out.
   const notRead = data.ledgerInputsNotRead;
@@ -170,11 +175,12 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // No inventory classification: nil stock is not established, so neither
   // the days nor the cycle stand on it — the board pack's rule, one rule.
   const unclassified = data.inventoryClassified === false;
-  const inventoryDays = given('inventoryDays', unclassified ? NO_INVENTORY_CLASSIFIED
-    : data.costOfSales <= 0 ? notPositive('Cost of sales')
-    : data.inventory < 0 ? notPositive('Inventory')
-    : data.inventory === 0 || days !== null ? null : PERIOD_LENGTH_NOT_MEASURED,
-    () => (data.inventory > 0 && days !== null ? daysOver(data.inventory, data.costOfSales, days) : 0));
+  const inventoryDays = unclassified ? none('inventoryDays', NO_INVENTORY_CLASSIFIED)
+    : data.costOfSales <= 0 ? none('inventoryDays', notPositive('Cost of sales'))
+    : data.inventory < 0 ? none('inventoryDays', notPositive('Inventory'))
+    : data.inventory === 0 ? 0
+    : days === null ? none('inventoryDays', PERIOD_LENGTH_NOT_MEASURED)
+    : daysOver(data.inventory, data.costOfSales, days);
   const { debtorDays, creditorDays } = base;
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 

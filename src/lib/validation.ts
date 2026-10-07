@@ -49,6 +49,19 @@ export function isRealCalendarDate(value: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
 }
 
+/**
+ * Why a report window cannot be read, or null where it can — the one check
+ * the ratio routes share. Both ends must be real calendar dates (2026-02-31
+ * passes `DATE_RE` and rolls forward in `Date.UTC`, so its day count would be
+ * wrong before Postgres refused it), and the window must not run backwards:
+ * the day ratios multiply by its length.
+ */
+export function reportWindowProblem(from: string, to: string): string | null {
+  if (!isRealCalendarDate(from) || !isRealCalendarDate(to)) return 'from and to must be YYYY-MM-DD dates';
+  if (from > to) return 'from must not be after to';
+  return null;
+}
+
 const TIMESTAMPTZ_RE =
   /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)$/;
 
