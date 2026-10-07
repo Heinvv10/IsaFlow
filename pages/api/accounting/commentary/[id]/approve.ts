@@ -33,7 +33,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A row belonging to another company answers the same 404 as one that does
     // not exist: no probe distinguishes them.
     if (result.code === 'not_found') return apiResponse.notFound(res, 'Commentary');
-    if (result.code === 'empty_draft' || result.code === 'text_too_long') return apiResponse.badRequest(res, result.reason);
+    if (result.code === 'empty_draft' || result.code === 'commentary_budget_exceeded') return apiResponse.badRequest(res, result.reason);
     return apiResponse.conflict(res, result.reason);
   }
   return apiResponse.success(res, { commentary: result.row });

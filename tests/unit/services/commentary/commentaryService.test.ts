@@ -23,6 +23,10 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
 }));
+// The pack lock is a transaction advisory lock, which only means something
+// inside a request transaction; the real race is proved in
+// tests/integration/commentary-budget-race.int.test.ts.
+vi.mock('@/lib/als', () => ({ als: { getStore: () => ({ client: {} }) } }));
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: (...a: unknown[]) => infoMock(...a), warn: vi.fn(), error: vi.fn() },
@@ -31,7 +35,7 @@ vi.mock('@/lib/logger', () => ({
 import {
   approveCommentary, rejectCommentary, listCommentary, generateDrafts,
 } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_TEXT_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { MAX_APPROVED_PACK_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 
@@ -48,6 +52,9 @@ const DATA: ManagementPackData = {
   priorPeriod: { revenue: 800_000, costOfSales: 500_000, grossProfit: 300_000, operatingExpenses: 220_000, netProfit: 80_000 },
   ratios: { grossMargin: 40, netMargin: 15, currentRatio: 0.9, quickRatio: 0.7 },
 };
+
+/** What `currentRow` reads: the row plus the pack key the budget is scoped by. */
+const ROW_READ = { status: 'draft', draft_text: 'Revenue increased by 25.0%.', report_kind: 'pack', params_hash: 'hash-1' };
 
 const dbRow = (over: Record<string, unknown> = {}) => ({
   id: ID,
@@ -88,22 +95,24 @@ describe('listCommentary', () => {
 describe('approveCommentary', () => {
   it('writes approved_text, approved_by and approved_at in one statement, under the caller-supplied user', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
+      .mockResolvedValueOnce([ROW_READ])
+      .mockResolvedValueOnce([]) // pack lock
+      .mockResolvedValueOnce([{ used: 0 }])
       .mockResolvedValueOnce([dbRow({ status: 'approved', approved_text: 'Revenue increased by 25.0%.', approved_by: 'approver-9', approved_at: new Date('2026-04-01T10:00:00Z') })]);
 
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
     expect(result.ok).toBe(true);
 
-    // Exactly two statements: the read, then ONE write.
-    expect(sqlMock).toHaveBeenCalledTimes(2);
-    const update = text(1);
+    // The read, the pack lock, the budget read, then ONE write.
+    expect(sqlMock).toHaveBeenCalledTimes(4);
+    const update = text(3);
     expect(update).toContain('approved_text');
     expect(update).toContain('approved_by');
     expect(update).toContain('approved_at');
     expect(update).toContain('NOW()');
-    expect(values(1)).toContain('approver-9');
-    expect(values(1)).toContain(COMPANY);
-    expect(values(1)).toContain(ID);
+    expect(values(3)).toContain('approver-9');
+    expect(values(3)).toContain(COMPANY);
+    expect(values(3)).toContain(ID);
     // Guarded at the write, not only in the branch above: two racing approvals
     // must not both write.
     expect(update).toContain("status = 'draft'");
@@ -149,7 +158,9 @@ describe('approveCommentary', () => {
 
   it('reports invalid_state when the guarded UPDATE loses the race and matches no row', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
+      .mockResolvedValueOnce([ROW_READ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ used: 0 }])
       .mockResolvedValueOnce([]);
     const result = await approveCommentary(COMPANY, ID, 'approver-9');
 
@@ -164,20 +175,23 @@ describe('approveCommentary with edited text', () => {
     status: 'approved', approved_text: EDITED, approved_by: 'approver-9',
     approved_at: new Date('2026-04-01T10:00:00Z'), ...over,
   });
+  /** read, lock, budget read, write. */
+  const queue = (used: number, draft = 'Revenue increased by 25.0%.', write: unknown[] = [approvedRow()]) => sqlMock
+    .mockResolvedValueOnce([{ ...ROW_READ, draft_text: draft }])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ used }])
+    .mockResolvedValueOnce(write);
 
   it('writes the supplied text, trimmed, as approved_text in the one guarded UPDATE', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
-      .mockResolvedValueOnce([approvedRow()]);
-
+    queue(0);
     const result = await approveCommentary(COMPANY, ID, 'approver-9', `  ${EDITED}\n`);
     expect(result.ok).toBe(true);
-    expect(sqlMock).toHaveBeenCalledTimes(2); // the read, then ONE write
-    const update = text(1);
-    expect(values(1)).toContain(EDITED);
-    expect(values(1)).toContain('approver-9');
-    expect(values(1)).toContain(COMPANY);
-    expect(values(1)).toContain(ID);
+    expect(sqlMock).toHaveBeenCalledTimes(4);
+    const update = text(3);
+    expect(values(3)).toContain(EDITED);
+    expect(values(3)).toContain('approver-9');
+    expect(values(3)).toContain(COMPANY);
+    expect(values(3)).toContain(ID);
     expect(update).toContain("status = 'draft'");
     expect(update).toContain('approved_by');
     expect(update).toContain('approved_at');
@@ -187,22 +201,16 @@ describe('approveCommentary with edited text', () => {
   });
 
   it('leaves draft_text untouched: the edited UPDATE never assigns it', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
-      .mockResolvedValueOnce([approvedRow()]);
+    queue(0);
     await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
-    const setClause = text(1).split('WHERE')[0]!;
+    const setClause = text(3).split('WHERE')[0]!;
     expect(setClause).not.toMatch(/draft_text\s*=/);
-    // ...and does not copy the draft over the edit.
     expect(setClause).not.toContain('approved_text = draft_text');
   });
 
   it('approves an edit over a blank machine draft: the person wrote the sentence', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: '   ' }])
-      .mockResolvedValueOnce([approvedRow()]);
-    const result = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
-    expect(result.ok).toBe(true);
+    queue(0, '   ');
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', EDITED)).ok).toBe(true);
   });
 
   it('refuses whitespace-only supplied text as empty_draft, before any statement', async () => {
@@ -215,27 +223,6 @@ describe('approveCommentary with edited text', () => {
     }
   });
 
-  it('refuses text over the cap as text_too_long, and accepts exactly the cap', async () => {
-    const over = await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(MAX_APPROVED_TEXT_CHARS + 1));
-    expect(over.ok).toBe(false);
-    if (!over.ok) expect(over.code).toBe('text_too_long');
-    expect(sqlMock).not.toHaveBeenCalled();
-
-    const atCap = 'x'.repeat(MAX_APPROVED_TEXT_CHARS);
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }])
-      .mockResolvedValueOnce([approvedRow({ approved_text: atCap })]);
-    expect((await approveCommentary(COMPANY, ID, 'approver-9', atCap)).ok).toBe(true);
-  });
-
-  it('measures the cap on the TRIMMED text, not the padded input', async () => {
-    const padded = ` ${'x'.repeat(MAX_APPROVED_TEXT_CHARS)} `;
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }])
-      .mockResolvedValueOnce([approvedRow()]);
-    expect((await approveCommentary(COMPANY, ID, 'approver-9', padded)).ok).toBe(true);
-  });
-
   it('keeps not_found and invalid_state distinct on the edited path', async () => {
     sqlMock.mockResolvedValueOnce([]);
     const missing = await approveCommentary(OTHER_COMPANY, ID, 'approver-9', EDITED);
@@ -243,23 +230,89 @@ describe('approveCommentary with edited text', () => {
     expect(sqlMock).toHaveBeenCalledTimes(1);
 
     sqlMock.mockReset();
-    sqlMock.mockResolvedValueOnce([{ status: 'approved', draft_text: 'd' }]);
+    sqlMock.mockResolvedValueOnce([{ ...ROW_READ, status: 'approved' }]);
     const done = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
     if (!done.ok) expect(done.code).toBe('invalid_state');
     expect(sqlMock).toHaveBeenCalledTimes(1);
 
     sqlMock.mockReset();
-    sqlMock.mockResolvedValueOnce([{ status: 'draft', draft_text: 'd' }]).mockResolvedValueOnce([]);
+    queue(0, 'd', []);
     const raced = await approveCommentary(COMPANY, ID, 'approver-9', EDITED);
     if (!raced.ok) expect(raced.code).toBe('invalid_state');
   });
 
   it('without supplied text still copies draft_text exactly as before', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ status: 'draft', draft_text: 'Revenue increased by 25.0%.' }])
-      .mockResolvedValueOnce([dbRow({ status: 'approved', approved_text: 'Revenue increased by 25.0%.' })]);
+    queue(0, 'Revenue increased by 25.0%.', [dbRow({ status: 'approved', approved_text: 'Revenue increased by 25.0%.' })]);
     await approveCommentary(COMPANY, ID, 'approver-9');
-    expect(text(1)).toContain('approved_text = draft_text');
+    expect(text(3)).toContain('approved_text = draft_text');
+  });
+});
+
+describe('approveCommentary against the pack budget', () => {
+  const readRow = (draft = 'Revenue increased by 25.0%.') => ({ ...ROW_READ, draft_text: draft });
+  const queue = (used: number, draft?: string) => sqlMock
+    .mockResolvedValueOnce([readRow(draft)])
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ used }])
+    .mockResolvedValueOnce([dbRow({ status: 'approved' })]);
+
+  it('takes the lock on the pack key BEFORE it reads the sum, in that order', async () => {
+    queue(0);
+    await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(10));
+    const lock = text(1);
+    expect(lock).toContain('pg_advisory_xact_lock');
+    // One key for the whole pack: company, kind and params hash.
+    expect(String(values(1)[0])).toContain(COMPANY);
+    expect(String(values(1)[0])).toContain('hash-1');
+    expect(text(2)).toContain('SUM(');
+  });
+
+  it('sums only approved rows of THIS pack and company, excluding the row itself', async () => {
+    queue(0);
+    await approveCommentary(COMPANY, ID, 'approver-9', 'x');
+    const sum = text(2);
+    expect(sum).toContain("status = 'approved'");
+    expect(sum).toContain('company_id');
+    expect(sum).toContain('params_hash');
+    expect(sum).toContain('report_kind');
+    expect(sum).toMatch(/id\s*<>/);
+    expect(values(2)).toEqual(expect.arrayContaining([COMPANY, 'pack', 'hash-1', ID]));
+  });
+
+  it('refuses an edit that would take the pack past the budget, stating what remains, and does not write', async () => {
+    const used = MAX_APPROVED_PACK_CHARS - 50;
+    queue(used);
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(50)); // costs 51
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe('commentary_budget_exceeded');
+      expect(result.reason).toContain('49 characters remain'); // 1300 - 1250 - 1 joining space
+    }
+    expect(sqlMock).toHaveBeenCalledTimes(3); // read, lock, sum — no UPDATE
+  });
+
+  it('accepts a row that lands exactly on the budget', async () => {
+    queue(MAX_APPROVED_PACK_CHARS - 51);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(50))).ok).toBe(true);
+  });
+
+  it('counts the row being approved: a plain approval of a long draft is held to the same budget', async () => {
+    queue(MAX_APPROVED_PACK_CHARS - 10, 'y'.repeat(100));
+    const result = await approveCommentary(COMPANY, ID, 'approver-9');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('commentary_budget_exceeded');
+  });
+
+  it('refuses a single text longer than the whole budget before touching the database', async () => {
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', 'x'.repeat(MAX_APPROVED_PACK_CHARS + 1));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('commentary_budget_exceeded');
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+
+  it('measures the supplied text trimmed, as it is stored', async () => {
+    queue(0);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', `  ${'x'.repeat(MAX_APPROVED_PACK_CHARS - 1)}  `)).ok).toBe(true);
   });
 });
 

@@ -26,6 +26,7 @@
 import { useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import { CommentaryEditor } from './CommentaryEditor';
+import { MAX_APPROVED_PACK_CHARS, packCharsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 /** Everything the published render needs and nothing it must not have. A full
  *  `CommentaryRow` satisfies it structurally, so the app can hand its own rows
@@ -74,6 +75,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
             <div key={r.id} className="flex items-start gap-2">
               <CommentaryEditor
                 initialText={r.draftText}
+                packRemaining={MAX_APPROVED_PACK_CHARS - packCharsUsed(rows)}
                 onCancel={() => setEditingId(null)}
                 onApprove={async text => {
                   const ok = await onApprove(r.id, text);

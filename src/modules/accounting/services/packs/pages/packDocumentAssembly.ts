@@ -13,7 +13,7 @@ import type { MoneyScale } from '@/lib/format/money';
 import type { PackBasis } from './packBasis';
 import { partialMonthClauseFor } from './packPartialMonth';
 import { fitPageToBox } from './packPageFit';
-import { relaidNarrative } from './packNarrativeLayout';
+import { fitBodyPage } from './packNarrativeFit';
 import { definitionsPrintedBy } from './packDefinitions';
 import {
   buildBasisPage,
@@ -99,7 +99,7 @@ export function assembleBoardPackDocument(
     // that it drops nothing. It runs BEFORE `fitPageToBox` because that
     // function may take disclosure notes and page footnotes and nothing else,
     // and that list is the guarantee no figure is ever trimmed off a sheet.
-    ...body.map((p2) => fitPageToBox(relaidNarrative(p2))),
+    ...body.map(fitBodyPage),
     fitPageToBox(basisPage),
   ]);
 

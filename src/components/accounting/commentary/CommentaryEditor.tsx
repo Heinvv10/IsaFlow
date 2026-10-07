@@ -2,27 +2,30 @@
  * Inline editor for approving a draft with the approver's own wording. The
  * textarea starts from the machine draft; Cancel simply unmounts it, so the
  * draft row is exactly as it was. The count and the disabled button use the
- * same cap the service enforces (`commentaryLimits.ts`), measured on the
- * trimmed text because that is what is stored.
+ * same pack budget the service enforces (`commentaryLimits.ts`), measured on
+ * the trimmed text because that is what is stored. The server is the authority:
+ * this only saves a round trip.
  */
 import { useState } from 'react';
-import { MAX_APPROVED_TEXT_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { approvedCharCost } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface CommentaryEditorProps {
   initialText: string;
+  /** Characters of the pack's budget not yet spent by OTHER approved rows. */
+  packRemaining: number;
   /** Resolves true once the approval was accepted; false leaves the editor open. */
   onApprove: (text: string) => Promise<boolean>;
   onCancel: () => void;
 }
 
-export function CommentaryEditor({ initialText, onApprove, onCancel }: CommentaryEditorProps) {
+export function CommentaryEditor({ initialText, packRemaining, onApprove, onCancel }: CommentaryEditorProps) {
   const [value, setValue] = useState(initialText);
   const [busy, setBusy] = useState(false);
-  const length = value.trim().length;
-  const over = length > MAX_APPROVED_TEXT_CHARS;
-  const invalid = length === 0 || over;
+  const left = packRemaining - approvedCharCost(value);
+  const over = left < 0;
+  const invalid = value.trim().length === 0 || over;
 
   async function submit() {
     if (invalid || busy) return;
@@ -45,7 +48,7 @@ export function CommentaryEditor({ initialText, onApprove, onCancel }: Commentar
       />
       <div className="flex items-center gap-2">
         <span className={`text-xs ${over ? 'text-[var(--ff-unfav)]' : 'text-[var(--ff-text-tertiary)]'}`}>
-          {`${length} / ${MAX_APPROVED_TEXT_CHARS}`}
+          {over ? `${-left} characters over the pack limit` : `${left} characters remaining`}
         </span>
         <button type="button" disabled={invalid || busy} onClick={() => void submit()} className={BTN}>
           Approve edited text

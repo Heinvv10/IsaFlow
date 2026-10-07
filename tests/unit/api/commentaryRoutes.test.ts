@@ -275,8 +275,8 @@ describe('POST /api/accounting/commentary/[id]/approve', () => {
     }
   });
 
-  it('answers 400 for text_too_long as it does for an empty text', async () => {
-    approveMock.mockResolvedValue({ ok: false, code: 'text_too_long', reason: 'Too long.' });
+  it('answers 400 for commentary_budget_exceeded as it does for an empty text', async () => {
+    approveMock.mockResolvedValue({ ok: false, code: 'commentary_budget_exceeded', reason: 'Too long.' });
     const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text: 'x' } });
     await approveHandler(req, res);
     expect(res.statusCode).toBe(400);

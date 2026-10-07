@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_TEXT_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { MAX_APPROVED_PACK_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 function envelope(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -224,7 +224,17 @@ describe('CommentaryPanel approve with edits', () => {
   it('opens a textarea prefilled with the machine draft and a count against the cap', async () => {
     const box = await openEditor();
     expect(box.value).toBe('DRAFT REVENUE SENTENCE');
-    expect(screen.getByText(`${'DRAFT REVENUE SENTENCE'.length} / ${MAX_APPROVED_TEXT_CHARS}`)).toBeTruthy();
+    expect(screen.getByText(`${MAX_APPROVED_PACK_CHARS - 'DRAFT REVENUE SENTENCE'.length - 1} characters remaining`)).toBeTruthy();
+  });
+
+  it('counts what OTHER approved rows already spent, so the figure is the pack\u2019s, not the row\u2019s', async () => {
+    const other: CommentaryRow = { ...ROW, id: 'row-2', rowRef: 'cogs', status: 'approved', approvedText: 'z'.repeat(499) };
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW, other] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    // 1300 - (499 + 1) - ('DRAFT REVENUE SENTENCE' + 1)
+    expect(screen.getByText(`${MAX_APPROVED_PACK_CHARS - 500 - 'DRAFT REVENUE SENTENCE'.length - 1} characters remaining`)).toBeTruthy();
   });
 
   it('approves the edited text: POSTs { text } and refreshes', async () => {
@@ -256,10 +266,10 @@ describe('CommentaryPanel approve with edits', () => {
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('DRAFT REVENUE SENTENCE');
   });
 
-  it('will not submit text over the cap, and says so', async () => {
+  it('will not submit text over the pack budget, and says by how much', async () => {
     const box = await openEditor();
-    typeInto(box, 'x'.repeat(MAX_APPROVED_TEXT_CHARS + 1));
-    expect(screen.getByText(`${MAX_APPROVED_TEXT_CHARS + 1} / ${MAX_APPROVED_TEXT_CHARS}`)).toBeTruthy();
+    typeInto(box, 'x'.repeat(MAX_APPROVED_PACK_CHARS));
+    expect(screen.getByText('1 characters over the pack limit')).toBeTruthy();
     const approve = screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
     expect(approve.disabled).toBe(true);
     fireEvent.click(approve);
@@ -272,9 +282,9 @@ describe('CommentaryPanel approve with edits', () => {
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('accepts exactly the cap', async () => {
+  it('accepts exactly the budget', async () => {
     const box = await openEditor();
-    typeInto(box, 'x'.repeat(MAX_APPROVED_TEXT_CHARS));
+    typeInto(box, 'x'.repeat(MAX_APPROVED_PACK_CHARS - 1));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
