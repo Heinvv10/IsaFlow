@@ -19,17 +19,13 @@
  */
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
-import type { PutBodySchema, PutItemSchema } from '@/lib/schemas/customerInvoiceDetail';
+import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
+import { resolveEditCodings } from './customerInvoiceDraftCoding';
 
 type Row = Record<string, unknown>;
-
-const codingOf = (it: z.infer<typeof PutItemSchema>): InvoiceLineCoding => ({
-  glAccountId: it.glAccountId ? it.glAccountId.toLowerCase() : null,
-  projectId: it.projectId ? it.projectId.toLowerCase() : null,
-  costCenterId: it.costCenterId ? it.costCenterId.toLowerCase() : null,
-});
+const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
 
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
@@ -43,7 +39,7 @@ export async function editDraftCustomerInvoice(
   const {
     id, notes, internalNotes, dueDate,
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, currencyCode, exchangeRate, items,
+    taxRate, currencyCode, exchangeRate, items, projectId,
   } = edit;
   const fxCode = currencyCode ? currencyCode.trim().toUpperCase() : null;
   const fxRateOverride = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : null;
@@ -92,12 +88,23 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    // Migration 870: the lines' revenue account / project / cost centre, under
-    // the row lock and before the first write below. PutItemSchema has
-    // already made each a uuid string or nothing; codingOf lower-cases it.
-    const codings = (items ?? []).map(codingOf);
+    // Migration 870: the lines' revenue account / project / cost centre (an
+    // absent key keeps the stored coding — customerInvoiceDraftCoding) and the
+    // header's display project, under the row lock and before the first write.
+    let codings: InvoiceLineCoding[] = [];
     if (items) {
-      const refusal = await invoiceLineCodingRefusal(companyId, codings);
+      const stored = (await tx`
+        SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
+      `) as Row[];
+      const resolved = resolveEditCodings(items, stored.map((r) => ({
+        glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id), costCenterId: idOrNull(r.cost_center_id),
+      })));
+      if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
+      codings = resolved;
+    }
+    if (items || projectId) {
+      const header = projectId ? [{ glAccountId: null, projectId: projectId.toLowerCase(), costCenterId: null }] : [];
+      const refusal = await invoiceLineCodingRefusal(companyId, [...codings, ...header]);
       if (refusal) return { kind: 'bad_line' as const, message: refusal };
     }
 
@@ -137,6 +144,7 @@ export async function editDraftCustomerInvoice(
              functional_total = COALESCE(${computed?.functionalTotal ?? null}, functional_total),
              currency_code = COALESCE(${fxCode}, currency_code),
              exchange_rate = COALESCE(${fxRateOverride}, exchange_rate),
+             project_id = CASE WHEN ${projectId === undefined}::BOOLEAN THEN project_id ELSE ${projectId ?? null}::UUID END,
              updated_at = NOW()
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;

@@ -35,6 +35,8 @@ export const PutBodySchema = z.object({
   currencyCode: z.string().min(1).max(8).optional(),
   exchangeRate: z.number().positive().optional(),
   items: z.array(PutItemSchema).min(1).optional(),
+  // The invoice's own project: display only (only line dimensions post). Absent keeps it, null clears it.
+  projectId: UUID.nullable().optional(),
 });
 
 export const PostBodySchema = z.object({

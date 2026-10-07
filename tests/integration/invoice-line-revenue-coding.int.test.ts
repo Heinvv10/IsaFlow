@@ -104,6 +104,42 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     expect(Number(subtotal)).toBe(200);
   });
 
+  it('draft edit: a PUT without coding keys keeps the coding; null clears it; differing lines need it explicitly', async () => {
+    const { id } = await create([
+      { description: 'a', unitPrice: 10, glAccountId: f.acct.commercials, projectId: f.project.p1 },
+      { description: 'b', unitPrice: 20, glAccountId: f.acct.commercials, projectId: f.project.p1 },
+    ]);
+    const put = (items: Record<string, unknown>[]) => inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+      id, items: items.map((i) => ({ description: 'x', quantity: 1, unitPrice: 15, ...i })) as never,
+    }));
+    expect(await put([{}, {}])).toEqual({ kind: 'ok' });
+    expect(await storedLines(id)).toEqual([
+      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: null },
+      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: null },
+    ]);
+    expect(await put([{ projectId: f.project.p2 }, { projectId: null }])).toEqual({ kind: 'ok' });
+    expect(await put([{}, {}])).toEqual({ kind: 'bad_line', message: expect.stringMatching(/items\[0\]\.projectId was left out/) });
+    expect(await put([{ glAccountId: null, projectId: null }, { glAccountId: null, projectId: null }])).toEqual({ kind: 'ok' });
+    expect(await storedLines(id)).toEqual([
+      { gl_account_id: null, project_id: null, cost_center_id: null },
+      { gl_account_id: null, project_id: null, cost_center_id: null },
+    ]);
+  });
+
+  it('draft edit: the header project is set, kept when absent, cleared on null, and refused when not this company\'s', async () => {
+    const { id } = await create([{ description: 'x', unitPrice: 10 }]);
+    const header = async () => ((await sql`SELECT project_id FROM customer_invoices WHERE id = ${id}::UUID`) as { project_id: string | null }[])[0]!.project_id;
+    const put = (body: Record<string, unknown>) => inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, ...body } as never));
+    expect(await put({ projectId: f.project.p1 })).toEqual({ kind: 'ok' });
+    expect(await header()).toBe(f.project.p1);
+    expect(await put({ notes: 'still p1' })).toEqual({ kind: 'ok' });
+    expect(await header()).toBe(f.project.p1);
+    expect(await put({ projectId: f.project.foreign })).toEqual({ kind: 'bad_line', message: expect.stringMatching(/not in your company/) });
+    expect(await header()).toBe(f.project.p1);
+    expect(await put({ projectId: null })).toEqual({ kind: 'ok' });
+    expect(await header()).toBeNull();
+  });
+
   it('a recurring template naming a non-revenue or foreign account is refused before the number is reserved', async () => {
     const template = (glAccountId: string): RecurringTemplate => ({
       id: '11111111-1111-4111-8111-111111111111', companyId: f.fx.companyId, name: 'Monthly retainer',
