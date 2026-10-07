@@ -67,4 +67,15 @@ describe('the content-author refusal names its document', () => {
       + "eligible approver — one who did not set the payee's bank details — can approve it, or have someone with the owner "
       + 'role or above who did not author it approve it.');
   });
+
+  // R-035 PR6: a manual journal's refusal names the journal and its way out —
+  // it has no edit route, so the recurring template's author runs it themselves.
+  it('manual_journal: names the journal and gives its way out', async () => {
+    expect(await deadEnd('manual_journal')).toBe(
+      'You cannot approve this request: you authored the content it covers (you created the journal, merged an account '
+      + 'its lines name, or created or edited the recurring template it was generated from). No eligible approver '
+      + 'remains: every member with the owner role or above either authored the content or raised the request. Have the '
+      + 'author of the recurring template it came from generate it themselves, so another eligible approver can approve '
+      + 'the journal, or have someone with the owner role or above who did not author it approve it.');
+  });
 });
