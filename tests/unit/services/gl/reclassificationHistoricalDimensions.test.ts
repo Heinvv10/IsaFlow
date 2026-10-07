@@ -23,6 +23,9 @@ vi.mock('@/modules/accounting/services/gl/reclassification/batchService', () => 
   recordReclassBatchLines: mocks.recordReclassBatchLines,
 }));
 
+// R-035 PR6: manual-journal enforcement is read with real SQL; off here (proven in r035-pr6-mcp.int.test.ts).
+vi.mock('@/modules/accounting/services/gl/approvalEnforcement', () => ({ isEnforced: vi.fn(async () => false) }));
+
 import { postReclassBatch } from '@/modules/accounting/services/gl/reclassification/post';
 
 describe('reclassification historical dimensions', () => {
