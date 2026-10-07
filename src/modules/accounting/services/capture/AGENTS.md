@@ -79,6 +79,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 - `docs/prd/PRD-05-autonomous-capture-evidence-ledger.md` — spec.
 
 ## Recent changes
+- 2026-10-07 (R-035 PR6 round 3, Hein): `pettyCashJournalService` decides before the claim whether a manual-journal rule holds the auto-post; a held slip stays a marked draft with a request raised by the uploader (`heldForApproval` in the result), like receipt-to-journal — never a 4xx after the claim.
 - 2026-10-02 (D8 round 10): the automatic evidence attach's savepoint body runs under `core/rowLockBudget.underFlowLockBudget` — its bank-line and journal UPDATEs take row locks it does not pre-lock.
 - 2026-10-02 (D8 round 10): this module's row-lock helpers restore the `lock_timeout` they found (not DEFAULT) from a `finally` — see `core/.claude.md`. Test: `tests/integration/d8-r10-nested-lock-budget.int.test.ts`.
 - 2026-10-02 (D8 round 11, rev-d8-c553cc0f8 F6): the automatic evidence attach and the settlement after it (`provisionalAttachSettle`) re-throw a lock timeout instead of answering "nothing attached" / withdrawing the auto-approval; the capture routes answer 503 through `withErrorHandler` and the whole post is retried. Tests: `tests/unit/services/capture/attachLockTimeout.test.ts`, `tests/integration/d8-r11-soft-delete-attach-budget.int.test.ts` (F6).
