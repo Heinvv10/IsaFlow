@@ -98,9 +98,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const refusal = await manualLinePaymentRefusal(companyId, numericAmount);
     if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
-  // R-035 PR6 (Hein, H2): posted to a GL account — in or out — it is a manual
-  // journal a person composed; refused the same way, before the line is inserted.
-  if (allocationType === 'account') {
+  // R-035 PR6 (Hein, H2): posted to a GL account — in or out, and a transfer to
+  // another bank-subtype account is one (any account can be relabelled bank) —
+  // it is a manual journal a person composed; refused the same way, before the
+  // line is inserted.
+  if (allocationType === 'account' || allocationType === 'transfer') {
     const refusal = await handKeyedLineJournalRefusal(companyId, numericAmount);
     if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
