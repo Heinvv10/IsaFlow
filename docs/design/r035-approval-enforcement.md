@@ -322,3 +322,7 @@ Mutation checks. Each one must turn a test red:
 - **Hand-keyed transfers** to another bank-subtype account are manual journals too (any account can be relabelled bank): Spend/Receive Money and allocate refuse them 409 before any write. The MCP tools expose no transfer; the sweep has no transfer rule (an account rule to a bank account is the account arm).
 - **MCP `set_opening_balance`** is refused outright under enforcement (above).
 - **Authorship recorded regardless of enforcement** means the recurring runs and the account merge write 869 columns on any company: dev needs the migration (Hein's call).
+
+### Round 5 (PR #660), 2026-10-07
+- **Provisional posting** (`postProvisional`, from the provisional/outstanding route and the auto-post gate's import branch) posts DR <predicted account> / CR bank for an unallocated outflow: a HAND-KEYED one is a manual journal, so under a matching rule it is skipped as `approval_required` before any write, and both callers report it (adversarial REPRO 4).
+- **VAT guard:** calling the moved `vatInclusiveSplit` is its own guard kind, allowlisted only for `bankVatInclusive.ts` and `bankAllocationService.ts`; the latter no longer excuses a rate constant it no longer has.
