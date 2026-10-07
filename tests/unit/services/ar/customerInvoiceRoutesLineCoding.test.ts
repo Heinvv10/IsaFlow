@@ -17,7 +17,10 @@ vi.mock('@/lib/api-error-handler', async (orig) => ({
   withErrorHandler: (fn: unknown) => fn,
 }));
 vi.mock('@/lib/billing/withFlowMeter', () => ({ withFlowMeter: () => (fn: unknown) => fn }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(async () => []),
+  withSavepoint: vi.fn(async (_n: string, fn: () => unknown) => fn()),
+}));
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn((_r: unknown, data: unknown) => ({ kind: 'success', data })),
