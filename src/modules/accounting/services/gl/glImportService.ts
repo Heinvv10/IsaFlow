@@ -43,6 +43,8 @@ export interface ImportResult {
   entriesCreated: number;
   linesCreated: number;
   totalValue: number;
+  /** R-035 PR6: posted-immediately journals a manual-journal rule held as drafts, each with a pending request. */
+  heldForApproval: string[];
 }
 
 const VALID_VAT_CODES: VatType[] = [
