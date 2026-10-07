@@ -55,7 +55,7 @@ function makeRes() {
   const res = {
     statusCode: 200, headersSent: false,
     status(c: number) { res.statusCode = c; return res; },
-    setHeader() { return res; }, getHeader() { return undefined; },
+    setHeader() { return res; }, getHeader() { return undefined; }, removeHeader() { /* a replaced answer drops headers */ },
     json() { return res.end(); },
     end() { h.events.push('FLUSH'); return res; },
   };

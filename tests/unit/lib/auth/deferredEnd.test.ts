@@ -10,16 +10,17 @@ const h = vi.hoisted(() => ({ captureException: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureException: h.captureException }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { answerThrow, deferEnd, reportFinalizeFailure } from '@/lib/auth/deferredEnd';
+import { answerInstead, answerThrow, deferEnd, reportFinalizeFailure } from '@/lib/auth/deferredEnd';
 import { log } from '@/lib/logger';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
 function res() {
   const ends: unknown[][] = [];
   const r = {
-    statusCode: 200, headersSent: false,
+    statusCode: 200, headersSent: false, headers: {} as Record<string, unknown>,
     status(c: number) { this.statusCode = c; return this; },
-    setHeader() { return this; },
+    setHeader(k: string, v: unknown) { this.headers[k.toLowerCase()] = v; return this; },
+    removeHeader(k: string) { delete this.headers[k.toLowerCase()]; },
     json(b: unknown) { return this.end(JSON.stringify(b)); },
     end(...a: unknown[]) { ends.push(a); return this; },
   };
@@ -114,6 +115,39 @@ describe('answerThrow', () => {
     answerThrow(req, r as never, null, new Error('boom'), { source: 'withAuth' });
     expect(r.statusCode).toBe(500);
     expect(ends).toHaveLength(1);
+  });
+});
+
+describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location the route set', () => {
+  /** What a route such as impersonate sets before answering 200, plus a header the wrapper set. */
+  const routeAnswered = () => {
+    const { r, ends } = res();
+    const deferred = deferEnd(r as never);
+    r.setHeader('Cache-Control', 'private, no-store');
+    r.setHeader('Set-Cookie', ['sb-access-token=TARGET; HttpOnly', 'impersonation_proof=PROOF']);
+    r.setHeader('Location', '/accounting');
+    r.status(200).json({ ok: true });
+    return { r, ends, deferred };
+  };
+
+  it('answerInstead (the commit-failed and audit-failed 500s)', () => {
+    const { r, ends, deferred } = routeAnswered();
+    answerInstead(r as never, deferred, 500, { success: false, code: 'COMMIT_FAILED' });
+    expect(r.statusCode).toBe(500);
+    expect(ends).toHaveLength(1);
+    expect(r.headers).not.toHaveProperty('set-cookie');
+    expect(r.headers).not.toHaveProperty('location');
+    expect(r.headers['cache-control']).toBe('private, no-store');
+  });
+
+  it('answerThrow (a throw inside the transaction)', () => {
+    const { r, ends, deferred } = routeAnswered();
+    answerThrow(req, r as never, deferred, new Error('boom'), { source: 'withPlatformAdmin' });
+    expect(r.statusCode).toBe(500);
+    expect(ends).toHaveLength(1);
+    expect(r.headers).not.toHaveProperty('set-cookie');
+    expect(r.headers).not.toHaveProperty('location');
+    expect(r.headers['cache-control']).toBe('private, no-store');
   });
 });
 
