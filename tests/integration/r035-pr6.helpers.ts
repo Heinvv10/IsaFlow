@@ -118,6 +118,8 @@ export function journalRoutes(tokens: Tokens) {
 
 /** Everything a journal test drags in, then PR5's teardown (payments … journals, periods, accounts, companies, users). */
 export async function cleanupPr6(pool: Pool, companies: string[], users: string[]): Promise<void> {
+  await pool.query('DELETE FROM close_run_proposals WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM close_runs WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM recurring_journals WHERE company_id = ANY($1)', [companies]);
   await pool.query(
     'DELETE FROM reclassification_batch_lines WHERE batch_id IN (SELECT id FROM reclassification_batches WHERE company_id = ANY($1))',

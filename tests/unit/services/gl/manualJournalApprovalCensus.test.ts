@@ -48,11 +48,11 @@ const GATED: Record<string, string> = {
   [`${A}gl/reclassification/post.ts`]: 'reclassification: MCP refuses up front; every journal marked under enforcement',
   [`${A}gl/recurringJournalService.ts`]: 'recurring journal run: held as draft + request, schedule advances',
   [`${A}core/recurringTransactionService.ts`]: 'recurring-transaction journal autoPost: held as draft + request',
+  [`${A}gl/closeRun/closeRunService.ts`]: 'close-run post_draft_journal approval: posts any draft by id, gated like the UI post (Hein, decision (b))',
 };
 const EXEMPT: Record<string, string> = {
   [`${A}gl/journalEntryPostService.ts`]: 'the primitive itself: re-enters for the s16(3) companion of a journal already gated',
   [`${A}gl/journalEntryPostingService.ts`]: 'reversal of a posted journal: not in decision 2 (follow-up for Hein)',
-  [`${A}gl/closeRun/closeRunService.ts`]: 'close-run: "Not gated" per the PR6 spec — PENDING Hein: it posts any draft a person approves',
   'src/lib/mcp/tools/writeOpeningBalance.ts': 'opening balances: an import (Q1), decision 2',
   [`${A}gl/openingBalancePostingService.ts`]: 'opening balances (writes source manual): decision 2',
   [`${A}core/migrationOpeningBalanceService.ts`]: 'migration opening balances: import (Q1)',
@@ -111,6 +111,7 @@ describe('the callers of postJournalEntry', () => {
       before(file, 'settleUnattendedJournal(', 'postJournalEntry(');
     }
     before(`${A}gl/reclassification/post.ts`, 'markManualJournal(', 'postJournalEntry(');
+    before(`${A}gl/closeRun/closeRunService.ts`, 'gateManualJournalPost(', 'updateProposalOutcome(companyId, proposal.id');
     before('src/lib/mcp/tools/writeReclassification.ts', 'agentNewManualJournalsRefusal(', 'postReclassBatch(');
   });
 });

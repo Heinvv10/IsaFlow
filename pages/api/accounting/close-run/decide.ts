@@ -19,6 +19,7 @@ import {
   ProposalDecisionError,
 } from '@/modules/accounting/services/gl/closeRun/closeRunService';
 import type { Decision } from '@/modules/accounting/services/gl/closeRun/closeRunTypes';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECISIONS: Decision[] = ['approve', 'reject', 'dismiss'];
@@ -45,6 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     if (err instanceof CloseRunNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof ProposalDecisionError) return apiResponse.conflict(res, err.message);
+    // R-035 PR6: a draft manual-journal approval holds — raised before any write.
+    if (respondIfApprovalRequired(res, err)) return;
     throw err;
   }
 }
