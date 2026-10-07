@@ -351,6 +351,13 @@ describe('CommentaryPanel approve with edits', () => {
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('A sentence of reasonable length');
   });
 
+  it('offers no Refresh for the character ceiling on a pack with no fixed page: a re-fetch cannot change it', async () => {
+    const box = await openEditor([ROW], PARAMS);
+    typeInto(box, 'x'.repeat(4001));
+    expect(screen.getByRole('status').textContent).toBe('over the 4000-character limit');
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+  });
+
   it('offers no Refresh while the pack is not over budget', async () => {
     await openEditor();
     expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();

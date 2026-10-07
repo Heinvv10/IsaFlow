@@ -84,7 +84,7 @@ export function CommentaryEditor({ initialText, costWith, onApprove, onCancel, o
         <button type="button" disabled={invalid || busy} onClick={() => void submit()} className={BTN}>
           Approve edited text
         </button>
-        {over && onRefresh && (
+        {left !== null && over && onRefresh && (
           <button type="button" disabled={busy} onClick={() => void onRefresh()} className={BTN}>Refresh</button>
         )}
         <button type="button" disabled={busy} onClick={onCancel} className={BTN}>Cancel</button>
