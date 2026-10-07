@@ -18,6 +18,7 @@ import {
   getCreditNotes,
   getCreditNoteById,
   createCreditNote,
+  CreditNoteLinkError,
   approveCreditNote,
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
@@ -146,6 +147,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfImpersonationForbidden(res, err)) return;
       // Numbering the note (and, on 'post', its journal) waits on the company+year number lock (migration 858).
       if (respondIfLockTimeout(res, err)) return;
+      // Before any write: a supplier or bill the note may not name (FX PR0 adds a foreign bill).
+      if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
       log.error('supplier-credit-notes POST failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create supplier credit note');
     }

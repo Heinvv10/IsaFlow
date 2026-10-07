@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { billForeignCurrencySql, invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 import type { MatchCandidate } from '@/modules/accounting/types/bank-match.types';
 import type { DbRow } from '@/types/db';
 import {
@@ -56,6 +57,7 @@ export async function fetchSupplierInvoiceCandidates(
     WHERE si.status IN ('approved', 'partially_paid')
       AND si.deleted_at IS NULL
       AND si.company_id = ${companyId}
+      AND NOT ${billForeignCurrencySql()}
     ORDER BY ABS(si.total_amount - COALESCE(si.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];
@@ -115,6 +117,7 @@ export async function fetchCustomerInvoiceCandidates(
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND ci.deleted_at IS NULL
       AND ci.company_id = ${companyId}
+      AND NOT ${invoiceForeignCurrencySql()}
     ORDER BY ABS(ci.total_amount - COALESCE(ci.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as DbRow[];

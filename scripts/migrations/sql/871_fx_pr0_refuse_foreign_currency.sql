@@ -54,8 +54,9 @@ BEGIN
   IF v_rows IS NOT NULL THEN
     RAISE EXCEPTION 'migration 871: companies with a functional_currency other than ZAR (first 20): %. Correct them before the CHECK.', v_rows;
   END IF;
-  SELECT string_agg(id::TEXT || '=' || COALESCE(currency, 'NULL'), ', ') INTO v_rows
-  FROM (SELECT id, currency FROM bank_accounts WHERE currency IS DISTINCT FROM 'ZAR' ORDER BY id LIMIT 20) b;
+  SELECT string_agg(id::TEXT || '=' || currency, ', ') INTO v_rows
+  -- currency <> 'ZAR', not IS DISTINCT FROM: the CHECK lets a NULL through, so the pre-check must too.
+  FROM (SELECT id, currency FROM bank_accounts WHERE currency <> 'ZAR' ORDER BY id LIMIT 20) b;
   IF v_rows IS NOT NULL THEN
     RAISE EXCEPTION 'migration 871: bank_accounts not in ZAR (first 20): %. Correct them before the CHECK.', v_rows;
   END IF;

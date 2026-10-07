@@ -67,6 +67,14 @@ describe('a legacy foreign document cannot be posted once the switch is off', ()
     await expect(pool.query("UPDATE credit_notes SET status = 'approved' WHERE id = $1", [cn])).rejects.toThrow(DISABLED);
   });
 
+  it('pending_approval → approved is entering the population too; draft → pending_approval is not', async () => {
+    const { inv, bill } = await legacy();
+    await pool.query("UPDATE customer_invoices SET status = 'pending_approval' WHERE id = $1", [inv]);
+    await expect(pool.query("UPDATE customer_invoices SET status = 'approved' WHERE id = $1", [inv])).rejects.toThrow(DISABLED);
+    await pool.query("UPDATE supplier_invoices SET status = 'pending_approval' WHERE id = $1", [bill]);
+    await expect(pool.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [bill])).rejects.toThrow(DISABLED);
+  });
+
   it('taking a journal link is refused, even with the status unchanged', async () => {
     const { c, inv, bill, cn } = await legacy();
     const je = await journal(c);
@@ -102,6 +110,15 @@ describe('the switch itself', () => {
     await enableFxDocuments(pool, c);
     expect((await pool.query('SELECT fx_documents_enabled FROM companies WHERE id = $1', [c])).rows[0].fx_documents_enabled).toBe(true);
   });
+
+  it('app_user cannot create a company with the switch already on (the INSERT arm)', async () => {
+    const c = await newCompany(pool, [[user, 'owner']], companies);
+    const id = crypto.randomUUID();
+    await expect(asAppUser(pool, user, c, (db) => db.query(
+      "INSERT INTO companies(id, name, fx_documents_enabled) VALUES($1, 'fx on at birth', true)", [id])))
+      .rejects.toThrow(/FX_SWITCH_REFUSED/);
+    expect((await pool.query('SELECT count(*)::INT AS n FROM companies WHERE id = $1', [id])).rows[0].n).toBe(0);
+  });
 });
 
 describe('blank is the functional currency in the database too', () => {
@@ -136,34 +153,53 @@ describe('the supplier settlement arms', () => {
   });
 });
 
-describe('the migration itself', () => {
-  async function inRollback(fn: (db: PoolClient) => Promise<void>): Promise<void> {
+describe('the migration itself, without touching the shared tables', () => {
+  // Re-running the whole file here took ACCESS EXCLUSIVE on companies and the
+  // three document tables and deadlocked the other fx files under parallel
+  // integration. Section 1 (the pre-checks and the lock bound) runs instead,
+  // against TEMP tables that shadow companies/bank_accounts (pg_temp first on
+  // the search path), so no shared table is locked. Re-runnability of the
+  // whole file is checked by applying it twice when the fixture is built.
+  const SECTION_1 = MIGRATION.slice(MIGRATION.indexOf('-- ── 1.'), MIGRATION.indexOf('-- ── 2.'));
+  async function shadowed(fn: (db: PoolClient) => Promise<void>): Promise<void> {
     const db = await pool.connect();
-    try { await db.query('BEGIN'); await fn(db); } finally { await db.query('ROLLBACK'); db.release(); }
+    try {
+      await db.query('BEGIN');
+      await db.query('SET LOCAL search_path = pg_temp, public');
+      await db.query('CREATE TEMP TABLE companies (id UUID, functional_currency TEXT) ON COMMIT DROP');
+      await db.query('CREATE TEMP TABLE bank_accounts (id UUID, currency TEXT) ON COMMIT DROP');
+      await fn(db);
+    } finally { await db.query('ROLLBACK'); db.release(); }
   }
 
-  it('names a company its CHECK would reject, before the CHECK', async () => {
-    await inRollback(async (db) => {
-      await db.query('ALTER TABLE companies DROP CONSTRAINT companies_functional_currency_zar');
+  it('the section under test is the pre-check block, and it locks nothing it does not read', () => {
+    expect(SECTION_1).toMatch(/SET LOCAL lock_timeout = '5s'/);
+    expect(SECTION_1).not.toMatch(/ALTER TABLE|CREATE TRIGGER|UPDATE /);
+  });
+
+  it('names a company its CHECK would reject; NULL (backfilled) and ZAR pass', async () => {
+    await shadowed(async (db) => {
+      await db.query("INSERT INTO companies VALUES (gen_random_uuid(), 'ZAR'), (gen_random_uuid(), NULL)");
+      await db.query(SECTION_1);
       const c = crypto.randomUUID();
-      await db.query("INSERT INTO companies(id, name, functional_currency) VALUES($1, 'fx usd co', 'USD')", [c]);
-      await expect(db.query(MIGRATION)).rejects.toThrow(new RegExp(`functional_currency other than ZAR .*${c}=USD`));
+      await db.query("INSERT INTO companies VALUES ($1, 'USD')", [c]);
+      await expect(db.query(SECTION_1)).rejects.toThrow(new RegExp(`functional_currency other than ZAR .*${c}=USD`));
     });
   });
 
-  it('names a bank account its CHECK would reject', async () => {
-    await inRollback(async (db) => {
-      await db.query('ALTER TABLE bank_accounts DROP CONSTRAINT bank_accounts_currency_zar');
-      const c = await newCompany(db, []);
-      const { rows } = await db.query(
-        "INSERT INTO bank_accounts(company_id, account_name, account_number, bank_name, account_type, currency) VALUES($1,'FX','1','FNB','cheque','USD') RETURNING id", [c]);
-      await expect(db.query(MIGRATION)).rejects.toThrow(new RegExp(`bank_accounts not in ZAR .*${String(rows[0].id)}=USD`));
+  it('names a bank account its CHECK would reject; NULL passes, as the CHECK lets it', async () => {
+    await shadowed(async (db) => {
+      await db.query("INSERT INTO bank_accounts VALUES (gen_random_uuid(), 'ZAR'), (gen_random_uuid(), NULL)");
+      await db.query(SECTION_1);
+      const b = crypto.randomUUID();
+      await db.query("INSERT INTO bank_accounts VALUES ($1, 'USD')", [b]);
+      await expect(db.query(SECTION_1)).rejects.toThrow(new RegExp(`bank_accounts not in ZAR .*${b}=USD`));
     });
   });
 
-  it('re-runs cleanly, bounding its locks at 5s', async () => {
-    await inRollback(async (db) => {
-      await db.query(MIGRATION);
+  it('bounds its locks at 5s', async () => {
+    await shadowed(async (db) => {
+      await db.query(SECTION_1);
       expect((await db.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe('5s');
     });
   });

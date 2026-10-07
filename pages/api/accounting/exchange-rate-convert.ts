@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { convertAmount as convertAmountPure } from '@/modules/accounting/services/core/multiCurrencyService';
+import { NotADecimalError } from '@/modules/accounting/services/shared/functionalAmounts';
 import { getLatestRate, getExchangeRates } from '@/modules/accounting/services/core/currencyService';
 import { log } from '@/lib/logger';
 
@@ -80,7 +81,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const effectiveDate = rateRows[0]?.effectiveDate ?? resolvedDate;
 
   // Delegate computation to the pure service function
-  const result = convertAmountPure(numAmount, from, to, rate);
+  let result: number;
+  try {
+    result = convertAmountPure(numAmount, from, to, rate);
+  } catch (err) {
+    // toFunctional (FX PR0) refuses Infinity and exponent-sized input: the caller's fault, not a 500.
+    if (err instanceof NotADecimalError) return apiResponse.badRequest(res, `amount ${err.message}`);
+    throw err;
+  }
 
   log.info('Currency conversion', {
     companyId, from, to, amount: numAmount, rate, result,

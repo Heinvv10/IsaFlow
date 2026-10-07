@@ -17,6 +17,14 @@
  * Pure: no imports, safe in a client bundle.
  */
 
+/** An input that is not a plain finite decimal (NaN, Infinity, 1e21, 'abc'): callers answer it 400. */
+export class NotADecimalError extends Error {
+  constructor(value: unknown) {
+    super(`${typeof value === 'string' ? JSON.stringify(value) : String(value)} is not a finite decimal`);
+    this.name = 'NotADecimalError';
+  }
+}
+
 interface Decimal {
   digits: bigint;
   scale: number;
@@ -24,10 +32,10 @@ interface Decimal {
 
 function parseDecimal(value: number | string): Decimal {
   let text = typeof value === 'number' ? String(value) : value.trim();
-  if (typeof value === 'number' && !Number.isFinite(value)) throw new Error(`${value} is not a finite decimal`);
+  if (typeof value === 'number' && !Number.isFinite(value)) throw new NotADecimalError(value);
   if (/e/i.test(text) && typeof value === 'number') text = value.toFixed(20);
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);
-  if (!match) throw new Error(`${JSON.stringify(value)} is not a finite decimal`);
+  if (!match) throw new NotADecimalError(value);
   const fraction = match[3] ?? '';
   const digits = BigInt(`${match[2]}${fraction}`);
   return { digits: match[1] === '-' ? -digits : digits, scale: fraction.length };

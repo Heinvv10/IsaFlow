@@ -58,7 +58,9 @@ export class DocumentExchangeRateError extends DocumentCurrencyError {
 export class ForeignCurrencyDisabledError extends DocumentCurrencyError {
   readonly code = 'FOREIGN_CURRENCY_DISABLED';
   constructor(currencyCode: string, functionalCurrency: string, noun: string) {
-    super(`${currencyCode} ${noun}s are not enabled for this company yet. Issue the ${noun} in ${functionalCurrency}.`);
+    // Not "issue it in ZAR": relabelling a USD draft as ZAR keeps its USD figures, now read as rands.
+    super(`${currencyCode} ${noun}s are not enabled for this company yet. To issue it in ${functionalCurrency}, `
+      + `re-enter its amounts in ${functionalCurrency} — changing only the currency would book the ${currencyCode} figures as ${functionalCurrency}.`);
     this.name = 'ForeignCurrencyDisabledError';
   }
 }
@@ -148,6 +150,32 @@ export async function assertStoredDocumentPostable(
   if (!row) return;
   const noun = kind === 'supplier_invoice' ? 'bill' : kind === 'customer_invoice' ? 'invoice' : 'credit note';
   await assertDocumentPostable(companyId, Object.values(row), noun);
+}
+
+/**
+ * The journal half of {@link assertStoredDocumentPostable}: posting a DRAFT
+ * document journal (auto_invoice, auto_supplier_invoice, auto_credit_note)
+ * that is already linked to a foreign document while the company has not
+ * enabled them — through `post_journal` or the journal screen rather than the
+ * document's own approve — books that document's foreign figures as rands.
+ * A journal no document links to yet (the approve paths link after posting)
+ * passes; those paths check the document themselves.
+ */
+export async function assertJournalDocumentsPostable(companyId: string, journalId: string, source: string | null | undefined): Promise<void> {
+  if (!source || !['auto_invoice', 'auto_supplier_invoice', 'auto_credit_note'].includes(source)) return;
+  const rows = (await sql`
+    SELECT 'invoice' AS noun, currency_code AS a, NULL::TEXT AS b FROM customer_invoices
+     WHERE gl_journal_entry_id = ${journalId}::UUID AND company_id = ${companyId}::UUID
+    UNION ALL
+    SELECT 'bill', currency_code, currency FROM supplier_invoices
+     WHERE gl_journal_entry_id = ${journalId}::UUID AND company_id = ${companyId}::UUID
+    UNION ALL
+    SELECT 'credit note', currency, NULL FROM credit_notes
+     WHERE gl_journal_entry_id = ${journalId}::UUID AND company_id = ${companyId}::UUID
+  `) as { noun: string; a: unknown; b: unknown }[];
+  if (rows.length === 0) return;
+  const company = await loadCompanyCurrency(companyId);
+  for (const row of rows) assertPostableCurrency(company, [row.a, row.b], row.noun);
 }
 
 /** What every rand-charging payment route answers for a foreign-currency invoice. */

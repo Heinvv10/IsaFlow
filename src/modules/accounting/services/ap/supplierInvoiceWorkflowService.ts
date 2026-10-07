@@ -17,7 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
-import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
+import { assertBillPostable } from './billPostingGuard';
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
@@ -74,7 +74,6 @@ async function approveInner(
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
     await assertApprovalCleared(companyId, 'supplier_invoice', id); // R-035: under the lock, before any write
-    await assertStoredDocumentPostable(companyId, 'supplier_invoice', id); // FX PR0: likewise
 
     // A DRAFT can already carry a journal, and posting a second one is the
     // worst outcome this function has.
@@ -118,7 +117,7 @@ async function approveInner(
     const vatAccount = await getSystemAccount('vat_input', companyId);
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
-    await assertSupplierInvoiceLinesPostable(companyId, invoice);
+    await assertBillPostable(companyId, invoice);
     const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
     if (invoice.taxAmount > 0) {
@@ -233,13 +232,12 @@ async function postToGLInner(
     );
   }
 
-  await assertStoredDocumentPostable(companyId, 'supplier_invoice', id); // FX PR0, before any write
   const provisional = await claimEvidencedProvisional(companyId, id); // R-127, as in approve
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
-  await assertSupplierInvoiceLinesPostable(companyId, invoice);
+  await assertBillPostable(companyId, invoice);
   const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
   if (invoice.taxAmount > 0) {
@@ -490,6 +488,5 @@ export async function performThreeWayMatch(
 
 import type { VatType } from '../../types/gl.types';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
-import { assertStoredDocumentPostable } from '../shared/documentCurrency';
 
 export type { SupplierInvoiceItem, VatType };

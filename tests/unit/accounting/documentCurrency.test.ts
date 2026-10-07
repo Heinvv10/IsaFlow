@@ -38,6 +38,8 @@ describe('checkDocumentCurrency', () => {
     const attempt = () => checkDocumentCurrency(off, 'usd', 18.5, 'bill');
     expect(attempt).toThrow(ForeignCurrencyDisabledError);
     expect(attempt).toThrow(/USD bills are not enabled for this company/);
+    // Not "issue it in ZAR": relabelling would keep the USD figures as rands.
+    expect(attempt).toThrow(/re-enter its amounts in ZAR — changing only the currency would book the USD figures as ZAR/);
   });
 
   it('accepts a foreign currency once enabled, at its own rate', () => {
