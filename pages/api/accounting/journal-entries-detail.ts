@@ -1,6 +1,7 @@
 /**
  * Journal Entry Detail API
- * GET /api/accounting/journal-entries-detail?id=... - Get entry with lines
+ * GET /api/accounting/journal-entries-detail?id=... - Get entry with lines, and
+ * `approval` (R-035 PR6): a draft's derived manual-journal approval state.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryService';
+import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -22,7 +24,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) return apiResponse.notFound(res, 'Journal Entry', id);
-    return apiResponse.success(res, entry);
+    // R-035 PR6: the derived approval state of a draft (the post route gates
+    // every draft); null once it is no longer one.
+    const approval = entry.status === 'draft' ? await describeApprovalGate(companyId, 'manual_journal', id) : null;
+    return apiResponse.success(res, { ...entry, approval });
   } catch (err) {
     log.error('Failed to get journal entry', { id, error: err }, 'accounting-api');
     return apiResponse.badRequest(res, 'Failed to get journal entry');

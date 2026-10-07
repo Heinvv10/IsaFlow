@@ -15,6 +15,9 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // fmtDate is a pure date formatter (no DB) — keep the real one so the
 // allocation date under test is the one production renders.
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };

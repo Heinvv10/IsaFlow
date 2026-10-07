@@ -1,0 +1,224 @@
+/**
+ * The manual-journal approval gate (R-035 PR6; Hein, 2026-10-06, decision 2:
+ * journals gate the HUMAN-COMPOSED paths only).
+ *
+ * gl_journal_entries carries every system posting as well, and
+ * postJournalEntry — the primitive behind them all, which also re-enters
+ * itself for a late VAT claim — stays ungated: a rule like "every journal needs
+ * an accountant" there would stop invoice, payment, payroll and depreciation
+ * postings. Instead each human-composed entry point calls this module, and
+ * manualJournalApprovalCensus.test.ts pins every caller of postJournalEntry as
+ * gated or exempt (with the reason):
+ *
+ *   - a person posting a draft (UI journal-entries-action, MCP post_journal):
+ *     gated under the journal's row lock, before any write. ANY draft — a person
+ *     choosing to post is the controlled act, whatever created the draft;
+ *   - the creators nobody watches at the moment they run (receipt-to-journal
+ *     autoPost, GL import with post-immediately, the recurring journal and
+ *     recurring-transaction runs): they decide from the amount BEFORE writing
+ *     whether the journal will be held, then leave it a draft and raise the
+ *     request as the person who ran them — never refusing after a write;
+ *   - an agent creating and posting in one call (MCP reclassification): refused
+ *     up front, from reads, since it may neither raise nor decide (Q6).
+ *
+ * The marker (gl_journal_entries.approval_document_type, migration 869) is
+ * written on the journals these paths create or post — ONLY while
+ * manual_journal enforcement is on, so with it off no statement here names an
+ * 869 column (golden path g runs on a database without 869). Once written,
+ * migration 869's backstop refuses a raw status flip of the journal without a
+ * cleared approval, and refuses removing the marker.
+ */
+
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { isEnforced } from './approvalEnforcement';
+import { ApprovalRequiredError, assertApprovalCleared } from './approvalGate';
+import { strictestMatchingRule } from './approvalMatching';
+import { agentApprovalRefusal, raiseUnattendedApproval } from './approvalUnattended';
+
+const TYPE = 'manual_journal' as const;
+
+/**
+ * A figure in whole cents as gl_journal_lines' numeric(15,2) stores it: the
+ * decimal the pg driver sends (String(n)) rounded half away from zero — read
+ * from its digits, since n * 100 is binary (1.005 * 100 = 100.49999…).
+ */
+function storedCents(value: number | null | undefined): number {
+  const n = Math.abs(Number(value ?? 0));
+  const text = String(n);
+  if (!Number.isFinite(n) || /e/i.test(text)) return Math.round(n * 100);
+  const [whole, fraction = ''] = text.split('.');
+  const digits = `${fraction}000`;
+  return Number(whole) * 100 + Number(digits.slice(0, 2)) + (Number(digits[2]) >= 5 ? 1 : 0);
+}
+
+/**
+ * What a rule sees for a journal not yet written: its larger side
+ * (approval_manual_journal_gate_amount's twin). Each line at its stored cents,
+ * summed in integers — a float sum read 0.1 + 0.7 as 0.7999…, missed a rule of
+ * exactly 0.80 the backstop then applied (R-035 PR6 round 3).
+ */
+export function journalGateAmount(lines: readonly { debit?: number | null; credit?: number | null }[]): number {
+  let debit = 0;
+  let credit = 0;
+  for (const l of lines) {
+    debit += storedCents(l.debit);
+    credit += storedCents(l.credit);
+  }
+  return Math.max(debit, credit) / 100;
+}
+
+/**
+ * Lock the journal's row when manual_journal enforcement is on, so the gate
+ * and the post that follows read one state; answers whether it is on. Off, it
+ * reads approval_enforcement once and locks nothing (postJournalEntry takes
+ * its own lock, as it always has).
+ */
+export async function lockManualJournalIfEnforced(companyId: string, id: string): Promise<boolean> {
+  if (!(await isEnforced(companyId, TYPE))) return false;
+  await sql`SELECT id FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID FOR UPDATE`;
+  return true;
+}
+
+/**
+ * A person posting a journal. Under enforcement, a DRAFT the gate does not
+ * clear throws ApprovalRequiredError (the route's 409) — under the row lock and
+ * before any write, so the COMMIT withAuth issues on a 4xx commits nothing. A
+ * journal that is not a draft is left to postJournalEntry's own refusal.
+ * Answers whether enforcement is on: the caller then marks the journal in the
+ * same savepoint as its post.
+ */
+export async function gateManualJournalPost(companyId: string, id: string): Promise<boolean> {
+  if (!(await lockManualJournalIfEnforced(companyId, id))) return false;
+  const [row] = (await sql`
+    SELECT status FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (row?.status === 'draft') await assertApprovalCleared(companyId, TYPE, id);
+  return true;
+}
+
+/**
+ * Write the marker. Only for a caller that established enforcement is on —
+ * this statement names the 869 column. An already-marked journal is left as
+ * it is (the backstop refuses changing a marker).
+ */
+export async function markManualJournal(companyId: string, id: string): Promise<void> {
+  await sql`
+    UPDATE gl_journal_entries SET approval_document_type = 'manual_journal'
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND approval_document_type IS NULL
+  `;
+}
+
+/**
+ * A person (UI) or an agent (MCP create_draft_journal) composed this draft:
+ * under enforcement it is marked at once, so the backstop guards it against a
+ * raw status flip from creation — not only from the moment it is posted
+ * (R-035 PR6 round 3). Off, it reads approval_enforcement and writes nothing.
+ */
+export async function markCreatedManualJournal(companyId: string, id: string): Promise<void> {
+  if (await isEnforced(companyId, TYPE)) await markManualJournal(companyId, id);
+}
+
+/**
+ * A journal migration 869's backstop will judge as it enters 'posted': marked,
+ * while manual-journal enforcement is on. Reads the marker only then, so with
+ * enforcement off no statement names the 869 column (the s16(3) split asks).
+ */
+export async function isMarkedUnderEnforcement(companyId: string, id: string): Promise<boolean> {
+  if (!(await isEnforced(companyId, TYPE))) return false;
+  const [row] = (await sql`
+    SELECT approval_document_type FROM gl_journal_entries WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return row?.approval_document_type === TYPE;
+}
+
+/** Whether an unattended creator's new journal will be held, decided before it writes anything. */
+export interface NewJournalGate {
+  enforced: boolean;
+  held: boolean;
+}
+
+/**
+ * Decide, from reads, whether a journal of these lines will be held: enforcement
+ * is on and an active rule matches its amount. A journal not yet written has no
+ * approval, so a matching rule always holds it.
+ */
+export async function newManualJournalGate(companyId: string,
+  lines: readonly { debit?: number | null; credit?: number | null }[]): Promise<NewJournalGate> {
+  if (!(await isEnforced(companyId, TYPE))) return { enforced: false, held: false };
+  return { enforced: true, held: (await strictestMatchingRule(companyId, TYPE, journalGateAmount(lines))) !== null };
+}
+
+/**
+ * After an unattended creator has written its draft: union in its upstream
+ * authors (a recurring template's) WHATEVER the switch says — a draft minted
+ * while enforcement is off is gated like any other once it is switched on
+ * (round 3, adversarial REPRO 1a) — then, under enforcement, mark it and —
+ * when held — raise the request as `runBy`, the person who ran it (nothing is
+ * raised under Login-as: the draft keeps showing Submit). The caller posts
+ * only when `gate.held` is false. Never refuses: the draft and its request are
+ * the consistent state a hold leaves.
+ */
+export async function settleUnattendedJournal(companyId: string, entryId: string, runBy: string,
+  gate: NewJournalGate, upstreamAuthors: readonly string[] = []): Promise<void> {
+  if (upstreamAuthors.length > 0) {
+    await sql`
+      UPDATE gl_journal_entries
+      SET content_authors = content_authors || ARRAY(
+        SELECT DISTINCT a FROM unnest(${[...upstreamAuthors]}::UUID[]) a WHERE a <> ALL(content_authors) ORDER BY a)
+      WHERE id = ${entryId}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+  if (!gate.enforced) return;
+  await markManualJournal(companyId, entryId);
+  if (gate.held) await raiseUnattendedApproval(companyId, TYPE, entryId, runBy);
+}
+
+/**
+ * A person about to CREATE and post a journal in one act (a bank-reconciliation
+ * adjustment, a hand-keyed bank line to an account — R-035 PR6 round 3, Hein's
+ * scope decisions H1 / H2): there is no draft to raise a request for, so under
+ * enforcement a journal of `amount` an active rule matches is refused up front
+ * — an ApprovalRequiredError (routes answer it 409; MCP shows its code's
+ * message) whose text `explain` writes, naming the way out. Null otherwise.
+ * Built, not subclassed, as bankLinePaymentGate builds PR5's.
+ */
+export async function newManualJournalRefusal(companyId: string, amount: number,
+  explain: (requiredRole: string, ruleName: string, amountText: string) => string): Promise<ApprovalRequiredError | null> {
+  if (!(await isEnforced(companyId, TYPE))) return null;
+  const rounded = journalGateAmount([{ debit: amount }]);
+  const rule = await strictestMatchingRule(companyId, TYPE, rounded);
+  if (!rule) return null;
+  const err = new ApprovalRequiredError({
+    reason: 'APPROVAL_REQUIRED', requiredRole: rule.approverRole, ruleName: rule.name, requestId: null,
+    documentType: TYPE, documentReference: null,
+  });
+  err.message = explain(rule.approverRole, rule.name, `R${rounded.toFixed(2)}`);
+  return err;
+}
+
+/** An agent posting an existing draft (MCP post_journal): the refusal text, or null when the gate clears it. */
+export async function agentManualJournalRefusal(companyId: string, id: string): Promise<string | null> {
+  return agentApprovalRefusal(companyId, TYPE, id);
+}
+
+/**
+ * An agent about to CREATE and POST journals in one call (MCP
+ * post_reclassification_batch). No draft survives it, and the agent may
+ * neither raise nor decide (Q6), so the whole call is refused up front, from
+ * reads, when manual journals are enforced and an active rule matches any
+ * journal it would post.
+ */
+export async function agentNewManualJournalsRefusal(companyId: string,
+  journals: readonly (readonly { debit?: number | null; credit?: number | null }[])[]): Promise<string | null> {
+  if (!(await isEnforced(companyId, TYPE))) return null;
+  for (const lines of journals) {
+    const amount = journalGateAmount(lines);
+    const rule = await strictestMatchingRule(companyId, TYPE, amount);
+    if (!rule) continue;
+    return `Manual journals are enforced: a journal of R${amount.toFixed(2)} needs ${rule.approverRole} approval before it `
+      + `can be posted (rule: ${rule.name}). This connector cannot raise or decide approvals: a person must enter the `
+      + 'journals in IsaFlow, submit them for approval, and an eligible approver must approve them before posting.';
+  }
+  return null;
+}

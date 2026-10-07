@@ -24,6 +24,8 @@ import {
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -64,16 +66,28 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     let result;
     switch (action) {
-      case 'post':
+      case 'post': {
         // R-032 L5: postJournalEntry is the posting primitive every workflow shares,
         // so the explicit "post this journal" act is guarded here, not inside it.
         await assertNotImpersonating();
+        // R-035 PR6, for the same reason: a person posting a draft — ANY draft,
+        // whatever created it — is the act manual-journal approval governs.
+        // Under enforcement the draft is locked and gated first (409 before
+        // any write, and before the ledger-date window — the order #659 set for
+        // payments); the marker and the post then share the window's savepoint,
+        // so a post that fails, or is refused 400 for its date, leaves the
+        // draft unmarked.
+        const enforced = await gateManualJournalPost(companyId, id);
         // A person posting: s16(3) late input-VAT claim where allowed; the
         // result's `lateClaim` names the claim date and the locked period.
-        const postedJe = await withJournalDateRefusal(res, () => postJournalEntry(companyId, id, userId, { allowLateInputClaim: true }));
+        const postedJe = await withJournalDateRefusal(res, async () => {
+          if (enforced) await markManualJournal(companyId, id);
+          return postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
+        });
         if (postedJe === JOURNAL_DATE_REFUSED) return;
         result = postedJe;
         break;
+      }
       case 'reverse':
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
@@ -91,6 +105,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     // A pay run's journal (`PayrollRunBusyError`: the guard's wait ran out before anything was written) and the
     // reversal's chain-head claim (D8) are held rows: 503 + Retry-After, not the 400 below.
     if (respondIfLockTimeout(res, err)) return;

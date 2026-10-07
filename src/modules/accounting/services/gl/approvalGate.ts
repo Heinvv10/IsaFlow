@@ -7,8 +7,9 @@
  * since PR3 (approveCreditNote, the MCP approve pre-reads) and for customer
  * invoices since PR4 (approveCustomerInvoice, the MCP finalize pre-reads, the
  * recurring runs), for supplier payments and payment batches since PR5
- * (approve and process of each, the bank-file routes); other types follow one PR each,
- * as they join ENFORCEABLE_DOCUMENT_TYPES (approvalEnforcement.ts).
+ * (approve and process of each, the bank-file routes), and for manual journals
+ * since PR6 (the human-composed entry points, manualJournalApproval.ts) — each
+ * as it joined ENFORCEABLE_DOCUMENT_TYPES (approvalEnforcement.ts).
  *
  * A document is CLEARED when any of these holds:
  *   - enforcement is off for (company, type);
@@ -57,6 +58,7 @@ const LABELS: Record<DocumentType, string> = {
   journal_entry: 'Journal entry',
   supplier_payment: 'Supplier payment',
   payment_batch: 'Payment batch',
+  manual_journal: 'Manual journal',
 };
 
 /** What the gate holds back: money leaving the business is PAID, every other document is posted (R-035 PR5). */

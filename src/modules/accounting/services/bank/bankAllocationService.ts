@@ -36,11 +36,12 @@ import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
+import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { vatInclusiveSplit } from './bankVatInclusive';
 
 
 type Row = DbRow;
 
-const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
@@ -139,6 +140,7 @@ export async function allocateTransaction(
   // payment instruction, not bank evidence — refused (409) under an enforced
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
+  if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -188,9 +190,7 @@ export async function allocateTransaction(
   }
 
   const hasVat = effectiveVatCode === 'standard' && !isSettlement;
-  const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
-  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
-  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
+  const { vatRate, netAmount, vatAmount } = vatInclusiveSplit(totalAmount, hasVat);
   // Only the `account` branch can reach a VAT line now (K-016), and it has no
   // entity, so the direction IS the only signal: money out is a purchase (input
   // tax), money in is a supply (output tax).
@@ -662,6 +662,7 @@ export async function splitAllocateTransaction(
   if (Math.abs(linesTotal - totalAmount) > 0.01) {
     throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
+  await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
 
   const bankAccountId = String(tx.bank_account_id);
   // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
@@ -679,8 +680,7 @@ export async function splitAllocateTransaction(
     // user chose. Not coerced here.
     const lineVatCode = line.vatCode;
     const hasVat = lineVatCode === 'standard';
-    const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
-    const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
+    const { netAmount, vatAmount } = vatInclusiveSplit(lineAmount, hasVat);
     // A split line is always a GL account — the split path has no entity — so
     // here the direction genuinely IS the only signal available.
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;

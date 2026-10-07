@@ -5,7 +5,8 @@
  *
  * ENFORCEABLE_DOCUMENT_TYPES grows by one type per PR, as each type's posting
  * paths are wired to `approvalGate` — supplier invoices since PR2, both credit-note types since PR3, customer
- * invoices since PR4, supplier payments and payment batches since PR5. Per-type rather than one company flag so a
+ * invoices since PR4, supplier payments and payment batches since PR5, manual journals since PR6. Per-type rather
+ * than one company flag so a
  * company that opted into supplier invoices is not silently enrolled in
  * journals when that PR lands.
  *
@@ -25,7 +26,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 
 export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
   'supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
-  'supplier_payment', 'payment_batch',
+  'supplier_payment', 'payment_batch', 'manual_journal',
 ];
 
 export interface ApprovalEnforcement {
@@ -89,6 +90,19 @@ export async function countLegacyPaymentRules(companyId: string): Promise<number
   const rows = (await sql`
     SELECT count(*)::INT AS n FROM approval_rules
     WHERE company_id = ${companyId} AND document_type = 'payment' AND is_active = true
+  `) as Row[];
+  return Number(rows[0]?.n ?? 0);
+}
+
+/**
+ * Active rules of the legacy `journal_entry` type: they govern no journal —
+ * manual journals have their own type (R-035 PR6) — so the manual-journal
+ * switch warns about them.
+ */
+export async function countLegacyJournalRules(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n FROM approval_rules
+    WHERE company_id = ${companyId} AND document_type = 'journal_entry' AND is_active = true
   `) as Row[];
   return Number(rows[0]?.n ?? 0);
 }

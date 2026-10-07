@@ -21,6 +21,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from './bankFeedStateGuard';
 import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePaymentGate';
+import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -117,6 +118,14 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // lines are bank evidence; refunds are money in.
   if (allocType === 'supplier' && supplierId && !isDeposit && !isBankEvidenced(locked)
       && await manualLinePaymentRefusal(companyId, totalAmount)) {
+    return { kind: 'approval_required' };
+  }
+  // R-035 PR6 (Hein, H2; round 4): the twin for an ACCOUNT rule — posting a
+  // HAND-KEYED line to a GL account is a manual journal nobody decides, so it
+  // is skipped (counted) the same way under an enforced manual_journal rule,
+  // whatever ran the sweep (rules applied, a statement import, a reversed
+  // allocation back in 'imported').
+  if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(companyId, totalAmount)) {
     return { kind: 'approval_required' };
   }
   const entryDesc = rule.description_template

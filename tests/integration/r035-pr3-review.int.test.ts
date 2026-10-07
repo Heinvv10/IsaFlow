@@ -226,7 +226,8 @@ describe.each(['customer', 'supplier'] as const)('A4 — the %s credit-note back
 });
 
 describe('B3 — approval_enforcement admits only the types wired so far', () => {
-  it.each(['manual_journal'])('refuses %s', async (documentType) => {
+  // manual_journal was wired by PR6 (869); every type R-035 wires is now admitted, an unknown one still is not.
+  it.each(['expense_claim', 'bank_transfer'])('refuses %s', async (documentType) => {
     const c = await company();
     await expect(pool.query('INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,$2,$3)',
       [c, documentType, u.b])).rejects.toThrow(/approval_enforcement_document_type_check/);

@@ -15,6 +15,9 @@ process.env.TZ = 'Africa/Johannesburg';
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   // withSavepoint passes through: R-067's tenant fence runs its ownership read

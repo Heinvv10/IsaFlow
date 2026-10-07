@@ -20,6 +20,7 @@
  */
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
   applyRouteFor,
@@ -152,6 +153,16 @@ export async function partitionAllocationLines(
     candidates.push({ line, amount: Math.abs(state.amount), signed: state.amount });
   }
 
+  // R-035 PR6 (Hein, H2): a HAND-KEYED line posted to an account past an enforced manual-journal rule is
+  // refused by allocateTransaction before it writes — skipped here instead, so one cannot unwind the batch
+  // and the dry run reports it the same way.
+  const held = await handKeyedAccountLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
+    .map(({ line, amount }) => ({ txId: line.txId, amount })));
+  for (const { line } of candidates) {
+    const reason = held.get(line.txId);
+    if (reason) skipped.push({ index: line.index, transaction_id: line.txId, reason });
+  }
+
   // Second pass: the invoice a line names may itself be settled, cancelled or
   // too small for the amount. Those are DATA facts, like every other skip here
   // — `receiptAllocationLines` would raise them mid-write, which in a batch
@@ -184,7 +195,7 @@ export async function partitionAllocationLines(
   const committed = new Map<string, number>();
   const claimedBy = new Map<string, number>();
 
-  for (const { line, amount, signed } of candidates) {
+  for (const { line, amount, signed } of candidates.filter(({ line: l }) => !held.has(l.txId))) {
     const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
     const invoiceId = line.line.invoiceId;
     if (kind === null || !invoiceId) {

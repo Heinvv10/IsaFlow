@@ -9,6 +9,9 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+vi.mock('@/modules/accounting/services/gl/manualJournalApproval', async (orig) => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  ...(await orig<object>()), newManualJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

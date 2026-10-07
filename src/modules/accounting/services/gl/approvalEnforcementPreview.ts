@@ -24,6 +24,10 @@
  * not yet paid (draft or approved — process re-checks the approval) an
  * active rule matches on the gate amount the 867 backstop reads; a batch
  * also when a member's supplier_payment rule matches it (D1, coupled).
+ *
+ * Manual journals (PR6): DRAFT journals an active rule matches on
+ * approval_manual_journal_gate_amount — the post route gates any draft a
+ * person posts, whatever created it, so every draft counts.
  */
 import { sql } from '@/lib/neon';
 import type { DocumentType } from './approvalService';
@@ -100,6 +104,22 @@ async function batchesHeld(companyId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
+async function journalsHeld(companyId: string): Promise<number> {
+  const rows = (await sql`
+    SELECT count(*)::INT AS n
+    FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID AND je.status = 'draft'
+      AND approval_rule_matches(je.company_id, 'manual_journal', approval_manual_journal_gate_amount(je.company_id, je.id))
+      AND NOT EXISTS (
+        SELECT 1 FROM approval_requests ar
+        JOIN approval_enforcement ae ON ae.company_id = ar.company_id AND ae.document_type = ar.document_type
+        WHERE ar.company_id = je.company_id AND ar.document_type = 'manual_journal'
+          AND ar.document_id = je.id AND ar.status = 'approved' AND ar.decided_at >= ae.enabled_at
+          AND ar.document_digest = approval_document_digest(je.company_id, 'manual_journal', je.id))
+  `) as Count;
+  return Number(rows[0]?.n ?? 0);
+}
+
 export async function previewEnforcement(companyId: string): Promise<Partial<Record<DocumentType, number>>> {
   const rows = (await sql`
     SELECT count(*)::INT AS n
@@ -122,5 +142,6 @@ export async function previewEnforcement(companyId: string): Promise<Partial<Rec
     customer_invoice: await customerInvoicesHeld(companyId),
     supplier_payment: await paymentsHeld(companyId),
     payment_batch: await batchesHeld(companyId),
+    manual_journal: await journalsHeld(companyId),
   };
 }
