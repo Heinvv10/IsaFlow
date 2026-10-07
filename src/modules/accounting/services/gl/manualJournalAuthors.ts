@@ -5,8 +5,10 @@
  * A journal's authors are approval_document_authors (migration 869): its
  * created_by — the person who composed it, the importer, the uploader, the
  * runner — plus gl_journal_entries.content_authors, which only two things
- * write, and only while manual_journal enforcement is on (so with it off no
- * statement here names an 869 column of the journal):
+ * write, whether or not manual_journal enforcement is on (round 3, adversarial
+ * REPRO 1: a draft that exists when the switch goes on is gated like any
+ * other, so who authored it must already be on record). Neither runs on a
+ * golden path, which run on a database without 869:
  *
  *   - a recurring run unions in its TEMPLATE's authors at mint (the journal
  *     keeps no link to its template, as PR4 found for invoices): the
@@ -19,7 +21,6 @@
  *     merging user on every draft whose lines it moved.
  */
 import { sql } from '@/lib/neon';
-import { isEnforced } from './approvalEnforcement';
 
 export type JournalTemplate =
   | { kind: 'recurring_journal'; id: string }
@@ -30,8 +31,7 @@ type Row = Record<string, unknown>;
 /**
  * The template's authors, company-scoped and de-duplicated: its creator and
  * its stamped editors. recurring_transaction_templates.created_by is VARCHAR,
- * cast only when it is a canonical uuid. Reads an 869 column for a recurring
- * journal: call it only under enforcement.
+ * cast only when it is a canonical uuid.
  */
 export async function templateAuthors(companyId: string, template: JournalTemplate): Promise<string[]> {
   let rows: Row[];
@@ -56,16 +56,15 @@ export async function templateAuthors(companyId: string, template: JournalTempla
 }
 
 /**
- * The account merge moved `movedLineIds`: under manual_journal enforcement,
- * every DRAFT journal owning one gains `editedBy` as an author — the merge
- * changed what it would post, so whoever ran it may not approve it. Posted
- * journals are not documents awaiting approval. No editor (a system merge)
- * stamps nobody.
+ * The account merge moved `movedLineIds`: every DRAFT journal owning one
+ * gains `editedBy` as an author — the merge changed what it would post, so
+ * whoever ran it may not approve it, now or once enforcement is switched on.
+ * Posted journals are not documents awaiting approval. No editor (a system
+ * merge) stamps nobody.
  */
 export async function stampMergedDraftJournals(companyId: string, movedLineIds: readonly string[],
   editedBy: string | undefined): Promise<void> {
   if (!editedBy || movedLineIds.length === 0) return;
-  if (!(await isEnforced(companyId, 'manual_journal'))) return;
   await sql`
     UPDATE gl_journal_entries je
     SET content_authors = approval_add_author(je.content_authors, ${editedBy}::UUID)

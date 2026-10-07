@@ -121,17 +121,17 @@ export async function newManualJournalGate(companyId: string,
 }
 
 /**
- * After an unattended creator has written its draft: under enforcement, mark
- * it and union in its upstream authors (a recurring template's), then — when
- * held — raise the request as `runBy`, the person who ran it (nothing is raised
- * under Login-as: the draft keeps showing Submit). The caller posts only when
- * `gate.held` is false. Never refuses: the draft and its request are the
- * consistent state a hold leaves.
+ * After an unattended creator has written its draft: union in its upstream
+ * authors (a recurring template's) WHATEVER the switch says — a draft minted
+ * while enforcement is off is gated like any other once it is switched on
+ * (round 3, adversarial REPRO 1a) — then, under enforcement, mark it and —
+ * when held — raise the request as `runBy`, the person who ran it (nothing is
+ * raised under Login-as: the draft keeps showing Submit). The caller posts
+ * only when `gate.held` is false. Never refuses: the draft and its request are
+ * the consistent state a hold leaves.
  */
 export async function settleUnattendedJournal(companyId: string, entryId: string, runBy: string,
   gate: NewJournalGate, upstreamAuthors: readonly string[] = []): Promise<void> {
-  if (!gate.enforced) return;
-  await markManualJournal(companyId, entryId);
   if (upstreamAuthors.length > 0) {
     await sql`
       UPDATE gl_journal_entries
@@ -140,6 +140,8 @@ export async function settleUnattendedJournal(companyId: string, entryId: string
       WHERE id = ${entryId}::UUID AND company_id = ${companyId}::UUID
     `;
   }
+  if (!gate.enforced) return;
+  await markManualJournal(companyId, entryId);
   if (gate.held) await raiseUnattendedApproval(companyId, TYPE, entryId, runBy);
 }
 

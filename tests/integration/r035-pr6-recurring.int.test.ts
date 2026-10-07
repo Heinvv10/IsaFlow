@@ -20,6 +20,7 @@ import { Pool } from 'pg';
 import recurringJournalsAction from '../../pages/api/accounting/recurring-journals-action';
 import recurringJournals from '../../pages/api/accounting/recurring-journals';
 import recurringExecute from '../../pages/api/accounting/recurring-transactions-execute';
+import recurringTransactions from '../../pages/api/accounting/recurring-transactions';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
@@ -111,12 +112,14 @@ describe("recurring journals ('generate')", () => {
     expect((await r.post(u.a, f.c, journalId)).state.statusCode).toBe(200);
   });
 
-  it('enforcement off: posts as before, unmarked, no authors stamped, nothing held', async () => {
+  // Round 3 (adversarial REPRO 1): authorship is recorded whether or not
+  // enforcement is on — a draft that predates the switch is gated like any other.
+  it('enforcement off: posts as before, unmarked, nothing held — but the template author is still recorded', async () => {
     const f = await fixture({ enforced: false });
     const id = await template(f, true, u.c);
     const { journalId, heldForApproval } = dataOf<{ journalId: string; heldForApproval: string[] }>(await generate(f.c, id));
     expect(heldForApproval).toEqual([]);
-    expect(await journalState(pool, journalId)).toMatchObject({ status: 'posted', marker: null, authors: [] });
+    expect(await journalState(pool, journalId)).toMatchObject({ status: 'posted', marker: null, authors: [u.c] });
   });
 });
 
@@ -147,6 +150,36 @@ describe('recurring-transaction autoPost of a journal', () => {
     expect(req.requested_by).toBe(u.a);
     expect((await decide(u.c, f.c, req)).state.statusCode).toBe(403);
     expect(await advanced(id)).toBe(true);
+  });
+
+  it('a draft minted while enforcement was off keeps its template authors: switched on, they are refused', async () => {
+    const f = await fixture({ enforced: false });
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,next_run_date,auto_post,created_by,content_authors)
+       VALUES($1,$2,'R035 JE draft','journal_entry',$3,'monthly',CURRENT_DATE,false,$4::TEXT,ARRAY[$4::UUID])`,
+      [id, f.c, JSON.stringify({ description: 'R035 accrual', lines: lines(f, 1500) }), u.c]);
+    const { entityId } = dataOf<{ entityId: string }>(await execute(f.c, id));
+    await enforceJournals(pool, f.c, u.b);
+    const raised = await r.raise(u.a, f.c, entityId);
+    const [req] = await pendingOf(entityId);
+    expect(raised.state.statusCode).toBe(200);
+    expect((await decide(u.c, f.c, req)).state.statusCode).toBe(403);
+  });
+
+  it("renaming a journal template (the minted journal's description) makes the editor an author", async () => {
+    const f = await fixture();
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO recurring_transaction_templates(id,company_id,name,entity_type,template_data,frequency,next_run_date,auto_post,created_by,content_authors)
+       VALUES($1,$2,'R035 JE name','journal_entry',$3,'monthly',CURRENT_DATE,true,$4::TEXT,ARRAY[$4::UUID])`,
+      [id, f.c, JSON.stringify({ lines: lines(f, 1500) }), u.a]);
+    const put = await callRoute(recurringTransactions, tokens[u.c]!, f.c, 'PUT', { id, name: 'R035 JE name - C wording' },
+      '/api/accounting/recurring-transactions');
+    expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200);
+    const { entityId } = dataOf<{ entityId: string }>(await execute(f.c, id));
+    const [req] = await pendingOf(entityId);
+    expect((await decide(u.c, f.c, req)).state.statusCode).toBe(403);
   });
 
   it('posts an ungated journal, marked, holding nothing', async () => {

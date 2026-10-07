@@ -177,7 +177,7 @@ export async function runRecurringJournal(companyId: string,
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
   const approval = await newManualJournalGate(companyId, lines);
-  const authors = approval.enforced ? await templateAuthors(companyId, { kind: 'recurring_journal', id }) : [];
+  const authors = await templateAuthors(companyId, { kind: 'recurring_journal', id });
 
   return withTransaction(async (tx) => {
     const claimed = (await tx`
