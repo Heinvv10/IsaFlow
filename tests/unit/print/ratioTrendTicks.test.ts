@@ -60,6 +60,19 @@ async function draw(): Promise<Drawn[]> {
       : route.fulfill({ contentType: 'text/html; charset=utf-8', body: html })));
     await page.goto(HOST, { waitUntil: 'load' });
     await page.evaluate(async () => { await document.fonts.ready; });
+    // A FACE THAT IS NOT THERE IS A FALSE PASS. Chromium substitutes a missing
+    // family silently, and the two widths this test turns on are the two
+    // faces' own. Each is measured against monospace: if it fell back to
+    // monospace the widths are equal.
+    const missing = await page.evaluate((families: string[]) => {
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      const width = (font: string): number => { ctx.font = font; return ctx.measureText('Sept 2026* Oct').width; };
+      return families.filter((f) => width(`10px ${f}, monospace`) === width('10px monospace'));
+    }, ["'Liberation Serif'", face ? "'Probe'" : "'DejaVu Sans'"]);
+    if (missing.length > 0) {
+      throw new Error(`ratioTrendTicks needs ${missing.join(' and ')} in this browser and it is not installed `
+        + '(fonts-liberation / fonts-dejavu-core): without it the check measures a substitute and proves nothing.');
+    }
     await page.waitForFunction(() => document.querySelectorAll('[data-case] .recharts-xAxis-tick-labels text').length > 0)
       .catch((e: unknown) => { throw new Error(`the chart never drew: ${errors.join(' | ') || String(e)}`); });
     // ResponsiveContainer measures after mount; let every chart settle.

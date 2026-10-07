@@ -19,7 +19,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { ratioLabel, ratioLine } from '@/modules/accounting/services/reports/ratioPresentation';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 // The note only: the chart itself loads through `dynamic` below.
-import { RATIO_TREND_STUB_NOTE } from '@/components/accounting/charts/ratioTrendStub';
+import { RATIO_TREND_STUB_NOTE, RATIO_TREND_STUB_NOTE_ID } from '@/components/accounting/charts/ratioTrendStub';
 
 const RatioTrendChart = dynamic(
   () => import('@/components/accounting/charts/RatioTrendChart').then(m => m.RatioTrendChart), { ssr: false },
@@ -256,8 +256,11 @@ export default function FinancialAnalysisPage() {
                   {['grossProfitMargin', 'currentRatio', 'debtorDays', 'returnOnEquity'].map(key => {
                     const trend = trends.find(t => t.ratioName === key);
                     if (!trend || trend.values.length === 0) return null;
+                    // The "*" on a stub's axis label is explained by the note
+                    // under the charts; a screen reader is pointed at it.
+                    const hasStub = trend.values.some(v => v.partial);
                     return (
-                      <div key={key}>
+                      <div key={key} data-trend={key} aria-describedby={hasStub ? RATIO_TREND_STUB_NOTE_ID : undefined}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-medium text-[var(--ff-text-secondary)]">{ratioLabel(key)}</span>
                           <span className={`text-xs font-medium ${trendColors[trend.trend]}`}>
@@ -272,7 +275,8 @@ export default function FinancialAnalysisPage() {
                   })}
                 </div>
                 {trends.some(t => t.values.some(v => v.partial)) && (
-                  <p className="mt-3 text-xs text-[var(--ff-text-secondary)]">{RATIO_TREND_STUB_NOTE}</p>
+                  // --ff-text-secondary on --ff-bg-secondary: 4.6:1 light, 11.9:1 dark.
+                  <p id={RATIO_TREND_STUB_NOTE_ID} role="note" className="mt-3 text-xs text-[var(--ff-text-secondary)]">{RATIO_TREND_STUB_NOTE}</p>
                 )}
               </div>
             </>
