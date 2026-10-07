@@ -11,6 +11,13 @@ export interface CustomerInvoiceItem {
   unit_price: number;
   amount: number;
   tax_rate: number;
+  /** Migration 870: what the line posts to, named for the approver. Null when uncoded. */
+  gl_account_code?: string | null;
+  gl_account_name?: string | null;
+  project_number?: string | null;
+  line_project_name?: string | null;
+  cost_center_code?: string | null;
+  cost_center_name?: string | null;
 }
 
 export interface CustomerInvoiceDetail {

@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
+import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { mintRecurringCustomerInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
 import { RecurringTemplateLineAccountError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
@@ -138,6 +139,16 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     expect(await header()).toBe(f.project.p1);
     expect(await put({ projectId: null })).toEqual({ kind: 'ok' });
     expect(await header()).toBeNull();
+  });
+
+  it('the invoice detail names each line\'s account, project and cost centre — never another company\'s', async () => {
+    const { id } = await create([{ description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials, projectId: f.project.p1,
+      costCenterId: f.centre.active }]);
+    const named = async () => ((await inTx(f.fx, () => getCustomerInvoiceDetail(f.fx.companyId, id))) as { items: Record<string, unknown>[] }).items[0]!;
+    expect(await named()).toMatchObject({ gl_account_code: '4100', project_number: expect.stringMatching(/^P1-/),
+      line_project_name: 'Production P1', cost_center_code: 'CC1' });
+    await sql`UPDATE customer_invoice_items SET project_id = ${f.project.foreign}::UUID WHERE invoice_id = ${id}::UUID`;
+    expect(await named()).toMatchObject({ project_number: null, line_project_name: null });
   });
 
   it('a recurring template naming a non-revenue or foreign account is refused before the number is reserved', async () => {

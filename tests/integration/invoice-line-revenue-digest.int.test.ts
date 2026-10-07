@@ -28,7 +28,7 @@ const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
 const APPROVER = '99999999-0000-4000-8000-0000000000a1';
 
-type Coding = { projectId?: string; costCenterId?: string };
+type Coding = { glAccountId?: string; projectId?: string | null; costCenterId?: string | null };
 const line = (c: Coding) => ({ description: 'Spot', quantity: 1, unitPrice: 1000, glAccountId: f.acct.commercials, ...c });
 
 async function draft(c: Coding): Promise<string> {
@@ -58,7 +58,8 @@ async function request(id: string, status: 'pending' | 'approved'): Promise<{ id
 let ruleId = '';
 const RETAGS: [string, () => Coding, () => Coding][] = [
   ['project', () => ({ projectId: f.project.p1 }), () => ({ projectId: f.project.p2 })],
-  ['cost centre', () => ({ costCenterId: f.centre.active }), () => ({ costCenterId: undefined })],
+  ['cost centre', () => ({ costCenterId: f.centre.active }), () => ({ costCenterId: null })],
+  ['revenue account', () => ({ glAccountId: f.acct.commercials }), () => ({ glAccountId: f.acct.postProduction })],
 ];
 
 describeIfDisposable('invoice line project / cost centre are approval content (migration 870)', () => {
@@ -99,7 +100,7 @@ describeIfDisposable('invoice line project / cost centre are approval content (m
       items: pair({ projectId: f.project.p1 }, { projectId: f.project.p2 }),
     }))).id;
     for (const [a, b] of [[{ projectId: f.project.p1 }, { projectId: f.project.p2 }],
-      [{ costCenterId: f.centre.active }, {}]] as [Coding, Coding][]) {
+      [{ projectId: null, costCenterId: f.centre.active }, { projectId: null, costCenterId: null }]] as [Coding, Coding][]) {
       expect(await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, items: pair(a, b) })))
         .toEqual({ kind: 'ok' });
       const first = await digest(id);

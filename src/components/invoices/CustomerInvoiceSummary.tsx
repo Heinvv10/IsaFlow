@@ -21,6 +21,16 @@ interface Props {
   items: CustomerInvoiceItem[];
 }
 
+/** What the line posts to, for whoever approves it (migration 870). */
+export function lineCoding(item: CustomerInvoiceItem): string {
+  const named = (code?: string | null, name?: string | null) => [code, name].filter(Boolean).join(' ');
+  const parts = [`Revenue: ${named(item.gl_account_code, item.gl_account_name) || 'default sales account'}`];
+  const project = named(item.project_number, item.line_project_name);
+  if (project) parts.push(`Project: ${project}`);
+  const centre = named(item.cost_center_code, item.cost_center_name);
+  if (centre) parts.push(`Cost centre: ${centre}`);
+  return parts.join(' · ');
+}
 export function CustomerInvoiceSummary({
   invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
   taxRate, subtotal, taxAmount, totalAmount, balance, notes, items,
@@ -67,7 +77,10 @@ export function CustomerInvoiceSummary({
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {(items || []).map(item => (
               <tr key={item.id} className="hover:bg-[var(--ff-bg-tertiary)]">
-                <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">{item.description || '—'}</td>
+                <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">
+                  {item.description || '—'}
+                  <span className="block text-xs text-[var(--ff-text-secondary)]">{lineCoding(item)}</span>
+                </td>
                 <td className="px-4 py-3 text-sm text-right font-mono">{item.quantity}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono">{fmt(Number(item.unit_price))}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{Number(item.tax_rate)}%</td>

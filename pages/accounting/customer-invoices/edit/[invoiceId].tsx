@@ -10,7 +10,8 @@ import { ArrowLeft, FileText, Loader2, AlertCircle, Receipt } from 'lucide-react
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
-import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
@@ -27,7 +28,7 @@ type InvoiceDetail = {
   invoice_date: string; due_date?: string | null;
   billing_period_start?: string | null; billing_period_end?: string | null;
   tax_rate: number | string; notes?: string | null;
-  currency_code?: string | null; exchange_rate?: number | string | null;
+  currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
   items?: InvoiceItemRow[];
 };
 
@@ -45,7 +46,7 @@ export default function EditCustomerInvoicePage() {
   const [error, setError] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
+  const [form, setForm] = useState({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
 
   useEffect(() => {
@@ -76,6 +77,7 @@ export default function EditCustomerInvoicePage() {
         notes: invoice.notes || '',
         currencyCode: invoice.currency_code || 'ZAR',
         exchangeRate: Number(invoice.exchange_rate ?? 1),
+        projectId: invoice.project_id ?? '',
       });
       const items = invoice.items || [];
       // The schema has no `discount` column — it is folded into `amount`.
@@ -109,7 +111,9 @@ export default function EditCustomerInvoicePage() {
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED }]);
+  // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: form.projectId }]);
+  const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
   const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
@@ -138,6 +142,7 @@ export default function EditCustomerInvoicePage() {
           notes: form.notes || undefined,
           currencyCode: form.currencyCode,
           exchangeRate: form.exchangeRate,
+          projectId: form.projectId || null,
           items: validLines.map(l => ({
             description: l.description, quantity: l.quantity,
             unitPrice: l.unitPrice, taxRate: form.taxRate,
@@ -217,6 +222,10 @@ export default function EditCustomerInvoicePage() {
                       {currencies.filter(c => c.code !== 'ZAR').map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className={lbl}>Project <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <CodingPicker label="Invoice project" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No project" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
+                  </div>
                   {isFx && (
                     <div>
                       <label className={lbl}>Exchange Rate ({form.currencyCode} → ZAR)</label>
@@ -238,7 +247,7 @@ export default function EditCustomerInvoicePage() {
 
               <div className={`${card} overflow-hidden`}>
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
               </div>
 
               <div className={`${card} p-5`}>

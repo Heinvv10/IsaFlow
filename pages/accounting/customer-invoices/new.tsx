@@ -13,7 +13,8 @@ import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
-import { InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
@@ -34,7 +35,7 @@ export default function NewCustomerInvoicePage() {
   const [scanBanner, setScanBanner] = useState<string | null>(null);
   const today = localISODate();
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
+  const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
 
   useEffect(() => {
@@ -48,7 +49,9 @@ export default function NewCustomerInvoicePage() {
 
   const updateLine = (key: string, field: string, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
+  // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId }]);
+  const codingOptions = useInvoiceLineCodingOptions();
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
   const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
@@ -88,7 +91,7 @@ export default function NewCustomerInvoicePage() {
       const d = json.data || json;
       if (andNew) {
         const today = localISODate();
-        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
+        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
         setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
@@ -158,6 +161,10 @@ export default function NewCustomerInvoicePage() {
                       {currencies.filter(c => c.code !== 'ZAR').map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className={lbl}>Project <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <CodingPicker label="Invoice project" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No project" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
+                  </div>
                   {isFx && (
                     <div>
                       <label className={lbl}>Exchange Rate <span className="normal-case font-normal opacity-60">({form.currencyCode} → ZAR)</span></label>
@@ -181,7 +188,7 @@ export default function NewCustomerInvoicePage() {
               {/* Line Items */}
               <div className={`${card} overflow-hidden`}>
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} showIncomeType />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType />
               </div>
 
               {/* Notes */}

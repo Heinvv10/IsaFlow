@@ -209,7 +209,16 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
   if (rows.length === 0) return null;
 
   const items = (await sql`
-    SELECT cii.* FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
+    SELECT cii.*,
+           a.account_code AS gl_account_code, a.account_name AS gl_account_name,
+           p.project_number, p.name AS line_project_name, cc.code AS cost_center_code, cc.name AS cost_center_name
+    FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
+    -- Each scoped to the invoice's company: a line naming another company's id
+    -- (refused on write, but forgeable) shows no name rather than theirs.
+    LEFT JOIN gl_accounts a ON a.id = cii.gl_account_id AND a.company_id = ci.company_id
+    LEFT JOIN projects p ON p.id = cii.project_id AND p.company_id = ci.company_id
+    LEFT JOIN cost_centres cc ON cc.id = cii.cost_center_id AND cc.company_id = ci.company_id
+    WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
   `) as Row[];
 
   return { ...rows[0], items };
