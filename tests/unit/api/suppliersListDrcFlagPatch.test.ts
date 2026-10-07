@@ -44,7 +44,7 @@ describe('suppliers-list PATCH — the DRC flag only', () => {
     mocks.updateSupplier.mockResolvedValueOnce({ id: SUPPLIER, subject_to_drc_vat: true });
     const res = response();
     await handler(patch({ id: SUPPLIER, subject_to_drc_vat: true, bank_account_number: '999', name: 'x' }), res);
-    expect(mocks.updateSupplier).toHaveBeenCalledWith(COMPANY, SUPPLIER, { subjectToDrcVat: true });
+    expect(mocks.updateSupplier).toHaveBeenCalledWith(COMPANY, SUPPLIER, { subjectToDrcVat: true }, 'u');
     expect(status(res)).toBe(200);
   });
 

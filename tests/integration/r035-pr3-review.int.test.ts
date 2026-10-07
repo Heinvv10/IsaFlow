@@ -226,7 +226,7 @@ describe.each(['customer', 'supplier'] as const)('A4 — the %s credit-note back
 });
 
 describe('B3 — approval_enforcement admits only the types wired so far', () => {
-  it.each(['supplier_payment', 'payment_batch', 'manual_journal'])('refuses %s', async (documentType) => {
+  it.each(['manual_journal'])('refuses %s', async (documentType) => {
     const c = await company();
     await expect(pool.query('INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,$2,$3)',
       [c, documentType, u.b])).rejects.toThrow(/approval_enforcement_document_type_check/);

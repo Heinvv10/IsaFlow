@@ -13,12 +13,14 @@ export interface BatchMember {
   supplierName: string;
   amount: number;
   status: string;
+  /** The payee's bank name and account number, read live (null when the supplier has none). */
+  payeeBank: string | null;
 }
 
 export async function getBatchMembers(companyId: string, batchId: string): Promise<BatchMember[]> {
   const rows = (await sql`
     SELECT sp.id, sp.payment_number, sp.total_amount, sp.status,
-           COALESCE(NULLIF(s.company_name, ''), s.name) AS supplier_name
+           COALESCE(NULLIF(s.company_name, ''), s.name) AS supplier_name, s.bank_name, s.bank_account_number
     FROM supplier_payments sp
     LEFT JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
     WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID
@@ -30,6 +32,8 @@ export async function getBatchMembers(companyId: string, batchId: string): Promi
     supplierName: String(r.supplier_name ?? ''),
     amount: Number(r.total_amount),
     status: String(r.status),
+    // R-035 PR5: where each line's money goes, read live — what the batch's approval vouches for.
+    payeeBank: [r.bank_name, r.bank_account_number].filter((v) => v != null && v !== '').join(' ') || null,
   }));
 }
 

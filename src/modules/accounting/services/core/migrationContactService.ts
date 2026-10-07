@@ -8,6 +8,9 @@ import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
+import {
+  bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
+} from '../ap/supplierPaymentAuthors';
 
 
 export interface CustomerImportRow {
@@ -117,7 +120,9 @@ export async function importSuppliers(
   companyId: string,
   sessionId: string,
   suppliers: SupplierImportRow[],
-  duplicateStrategy: DuplicateStrategy = 'skip',
+  duplicateStrategy: DuplicateStrategy,
+  /** R-035 PR5: an overwrite that changes bank details makes them an author of the supplier's unpaid payments. */
+  importedBy: string,
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -143,7 +148,9 @@ export async function importSuppliers(
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
       if (duplicate && duplicateStrategy === 'overwrite') {
-        await sql`
+        // Judged against the row as locked, not the statement snapshot (R-035 PR5).
+        const before = await lockSupplierBankDetails(companyId, duplicate.id);
+        const [after] = (await sql`
           UPDATE suppliers SET
             email               = COALESCE(${sup.email ?? null}, email),
             phone               = COALESCE(${sup.phone ?? null}, phone),
@@ -153,12 +160,16 @@ export async function importSuppliers(
             bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
             bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
           WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
-        `;
+          RETURNING bank_name, bank_account_number, bank_branch_code, bank_account_type
+        `) as DbRow[];
+        // Re-routes every unpaid payment to this supplier (R-035 PR5).
+        const change = before && after ? bankDetailsChange(before, after) : 'none';
+        if (change !== 'none') await recordBankDetailsSetter(companyId, duplicate.id, importedBy, change);
         imported++;
         continue;
       }
 
-      await sql`
+      const [created] = (await sql`
         INSERT INTO suppliers (
           company_id, name, email, phone, vat_number, registration_number,
           billing_address, contact_person, payment_terms,
@@ -171,7 +182,10 @@ export async function importSuppliers(
           ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
           ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
         )
-      `;
+        RETURNING id, bank_name, bank_account_number, bank_branch_code, bank_account_type
+      `) as DbRow[];
+      // A new supplier imported WITH bank details: the importer set where its money goes (decision (b)).
+      if (created && hasBankDetails(created)) await recordBankDetailsSetter(companyId, String(created.id), importedBy, 'repointed');
       imported++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

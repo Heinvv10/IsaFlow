@@ -23,6 +23,10 @@
  *                  input REDUCTION, which the late-claim rules refuse ('input_reduction')
  *                  and no open date can carry. When only the invoice's period is filed,
  *                  the reclass is dated with the provisional and nets its claim there.
+ *
+ * And one `ApprovalRequiredError` (routes answer 409): the line was keyed by
+ * hand and supplier_payment enforcement has a rule matching its amount (R-035
+ * PR5 round 2, `bankLinePaymentGate`).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -37,6 +41,7 @@ import { lockStandingChainHead } from '../shared/journalChainHead';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { withRowLockBudget } from '../core/rowLockBudget';
+import { assertBankLineMayPaySupplier } from './bankLinePaymentGate';
 
 const CENT = 0.005;
 
@@ -66,7 +71,8 @@ async function lockCandidates(companyId: string, documentId: string): Promise<Db
   );
   try {
     const rows = await withRowLockBudget(async () => (await sql`
-      SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount
+      SELECT je.id AS je_id, je.entry_number, bt.id AS bt_id, bt.bank_account_id, bt.amount,
+             bt.bank_feed_connection_id, bt.import_batch_id
       FROM gl_journal_entries je
       JOIN bank_transactions bt ON bt.provisional_je_id = je.id AND bt.company_id = je.company_id
         -- D10 O9: its line still on the statement as the provisional's cash. One already reset ('imported' /
@@ -184,6 +190,11 @@ export async function claimEvidencedProvisional(
       }
       reclassDate = provisionalDate;
     }
+    // R-035 PR5 round 2: settling writes a processed supplier payment from this
+    // line. A hand-keyed one is no evidence the money left (D2), so a matching
+    // enforced rule refuses it HERE, from reads — not at the 867 backstop after
+    // the bill's journal.
+    await assertBankLineMayPaySupplier(companyId, c, bankAmount);
     return {
       journalEntryId: jeId, entryNumber, bankTxId: String(c.bt_id), bankAccountId, bankAmount, settleLines, reclassDate,
     };
