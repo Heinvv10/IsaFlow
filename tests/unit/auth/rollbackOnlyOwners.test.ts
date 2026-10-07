@@ -118,5 +118,8 @@ describe.each(owners)('%s honours rollbackOnly', (_name, run) => {
     await run(503);
     expect(finalised()).toEqual(['ROLLBACK']);
     expect(h.sent.map(({ status, body }) => ({ status, body }))).toEqual([{ status: 503, body: JSON.stringify({ success: false }) }]);
+    // Replayed over a ROLLBACK: the route's own answer, without the session cookie and redirect it set.
+    expect(h.sent[0]!.headers).not.toHaveProperty('set-cookie');
+    expect(h.sent[0]!.headers).not.toHaveProperty('location');
   });
 });

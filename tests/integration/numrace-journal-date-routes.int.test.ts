@@ -127,6 +127,28 @@ describeIfDb('ledger-date window: stored-date posting routes answer 400 with not
     expect(rows).toEqual([]);
   }, 60000);
 
+  // A rolled-back request must not hand out a session: the handler's own 500 (withErrorHandler, after the route set a
+  // cookie and a redirect) is replayed over withAuth's ROLLBACK without them.
+  it("a handler's own 500 after setting a cookie: rolled back, and the 500 carries no Set-Cookie or Location", async () => {
+    const tag = `NRJR-OWN500 ${c.fx.tag}`;
+    const route = withAuth(withErrorHandler((async (_req: CompanyAuthedRequest, res: NextApiResponse) => {
+      await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
+        VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2025-03-01', 1, ${tag}, 'imported')`;
+      res.setHeader('Set-Cookie', ['sb-access-token=TARGET-SESSION; HttpOnly']);
+      res.setHeader('Location', '/accounting');
+      throw new Error('after the cookie');
+    }) as never));
+    const req = request({ 'sb-access-token': token, active_company_id: c.fx.companyId }, 'POST');
+    const out = response();
+    await (route as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+    const rows = await tagged(tag);
+    process.stdout.write(`JR-OWN500 ${JSON.stringify({ status: out.state.statusCode, headers: [...out.headers.entries()], rows })}\n`);
+    expect(out.state.statusCode).toBe(500);
+    expect(rows).toEqual([]);
+    expect(out.headers.has('set-cookie')).toBe(false);
+    expect(out.headers.has('location')).toBe(false);
+  }, 60000);
+
   // brk-numrace R1: withPlatformAdmin (sage-commit's owner) rolled back, but the route's 200 had already gone out.
   it('R1: the same under withPlatformAdmin: the client gets 500 COMMIT_FAILED, nothing commits', async () => {
     const tag = `NRJR-R1 ${c.fx.tag}`;

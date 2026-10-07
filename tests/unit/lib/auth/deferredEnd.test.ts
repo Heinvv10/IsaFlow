@@ -10,7 +10,7 @@ const h = vi.hoisted(() => ({ captureException: vi.fn() }));
 vi.mock('@sentry/nextjs', () => ({ captureException: h.captureException }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { answerInstead, answerThrow, deferEnd, reportFinalizeFailure } from '@/lib/auth/deferredEnd';
+import { answerInstead, answerThrow, deferEnd, replayEnd, reportFinalizeFailure } from '@/lib/auth/deferredEnd';
 import { log } from '@/lib/logger';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 
@@ -138,6 +138,18 @@ describe('sec-numrace F1: a replaced answer drops the Set-Cookie and Location th
     expect(r.headers).not.toHaveProperty('set-cookie');
     expect(r.headers).not.toHaveProperty('location');
     expect(r.headers['cache-control']).toBe('private, no-store');
+  });
+
+  it("replayEnd over a ROLLBACK (the handler's own 5xx) drops them; over a COMMIT it keeps them", () => {
+    const rolled = routeAnswered();
+    replayEnd(rolled.r as never, rolled.deferred, { source: 'withAuth' }, true);
+    expect(rolled.ends).toHaveLength(1);
+    expect(rolled.r.headers).not.toHaveProperty('set-cookie');
+    expect(rolled.r.headers).not.toHaveProperty('location');
+    const committed = routeAnswered();
+    replayEnd(committed.r as never, committed.deferred, { source: 'withAuth' });
+    expect(committed.r.headers['set-cookie']).toEqual(['sb-access-token=TARGET; HttpOnly', 'impersonation_proof=PROOF']);
+    expect(committed.r.headers.location).toBe('/accounting');
   });
 
   it('answerThrow (a throw inside the transaction)', () => {

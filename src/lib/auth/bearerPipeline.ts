@@ -267,7 +267,7 @@ export async function runBearerRequest(
 
     // Transaction durable — replay the buffered flush, then start after-commit work (R-075).
     // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
-    replayEnd(res, flush, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId });
+    replayEnd(res, flush, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId }, handlerFailed);
     if (!handlerFailed) drainAfterCommit(txCtx);
   } catch (err) {
     // R-159: answer the throw here; see withAuth.
