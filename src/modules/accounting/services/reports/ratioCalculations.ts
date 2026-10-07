@@ -24,20 +24,24 @@ function pct(numerator: number, denominator: number): number {
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
 
-/** The year a caller that gives no window is taken to have supplied. */
-const DAYS_IN_YEAR = 365;
-
 /**
- * THE DAYS THE FLOW FIGURES COVER, which every day count multiplies by: the
- * caller's window, or a year where it gave none. It was 365 whatever the
- * window, so a six-month pack read six months of revenue as a year's and
- * printed debtor days twice the book's. Null where the window could not be
- * measured: a day count on a guessed length is not stated.
+ * THE DAYS THE FLOW FIGURES COVER, which every day count multiplies by — the
+ * caller's window. It was 365 whatever the window, so a six-month pack read
+ * six months of revenue as a year's and printed debtor days twice the book's.
+ * Null where the window could not be measured: a day count on a guessed
+ * length is not stated.
  */
-export function daysCovered(data: Pick<FinancialData, 'periodDays'>): number | null {
-  if (data.periodDays === undefined) return DAYS_IN_YEAR;
+export function windowDays(data: Pick<FinancialData, 'periodDays'>): number | null {
   return data.periodDays !== null && data.periodDays > 0 ? data.periodDays : null;
 }
+
+/**
+ * A balance over the flow that fed it, times the days the flow covers —
+ * unrounded until the end, so a reader's own division gives the printed
+ * figure. Dividing the days by a turnover rounded to two places printed
+ * 1 033.33 inventory days for 930 on a month, and nil where it rounded to 0.
+ */
+const daysOver = (balance: number, flow: number, days: number): number => r2((balance / flow) * days);
 
 /**
  * The operating line, from the classifier when the caller carried it. Other
@@ -78,12 +82,11 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const equityFailure = equityBasisFailure(data.totalEquity);
   const operatingProfit = operatingProfitOf(data);
   const { why, on, given } = ledger(equityNotMeaningful(data.totalEquity));
-  const days = daysCovered(data);
+  const days = windowDays(data);
+  // Each day count is computed only where its base is positive AND `days`
+  // is stated, so the `?? 0` is never multiplied.
   const noDays = days === null ? PERIOD_LENGTH_NOT_MEASURED : null;
-  // A balance over the flow that fed it, times the days the flow covers —
-  // unrounded until the end, so a reader's own division gives the printed
-  // figure. Only computed where `noDays` is null, so `days` is stated.
-  const dayCount = (balance: number, flow: number): number => r2((balance / flow) * (days ?? 0));
+  const dayCount = (balance: number, flow: number): number => daysOver(balance, flow, days ?? 0);
   // Cost of sales is the numerator, so a non-positive one is no turnover —
   // the same rule as creditor and inventory days. Where none is held the
   // turnover has no value and inventory days are nil; see NO_STOCK_HELD.
@@ -161,16 +164,17 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // sales — not inventory. A company that holds no stock has a turnover with
   // no meaning and an inventory-days figure of exactly nil, and its cash
   // conversion cycle is its debtor days less its creditor days. Where stock
-  // is held the figure is the window's days over the turnover.
-  const turnover = base.inventoryTurnover;
-  const days = daysCovered(data);
+  // is held the figure is inventory over cost of sales times the window's
+  // days. Nil stock is nil days whatever the window: no day count is taken.
+  const days = windowDays(data);
   // No inventory classification: nil stock is not established, so neither
   // the days nor the cycle stand on it — the board pack's rule, one rule.
   const unclassified = data.inventoryClassified === false;
-  const inventoryDays = given('inventoryDays', unclassified ? NO_INVENTORY_CLASSIFIED :
-    data.costOfSales > 0 ? (data.inventory < 0 ? notPositive('Inventory') : days === null ? PERIOD_LENGTH_NOT_MEASURED : null)
-      : notPositive('Cost of sales'),
-    () => (turnover !== null && turnover > 0 && days !== null ? r2(days / turnover) : 0));
+  const inventoryDays = given('inventoryDays', unclassified ? NO_INVENTORY_CLASSIFIED
+    : data.costOfSales <= 0 ? notPositive('Cost of sales')
+    : data.inventory < 0 ? notPositive('Inventory')
+    : data.inventory === 0 || days !== null ? null : PERIOD_LENGTH_NOT_MEASURED,
+    () => (data.inventory > 0 && days !== null ? daysOver(data.inventory, data.costOfSales, days) : 0));
   const { debtorDays, creditorDays } = base;
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 

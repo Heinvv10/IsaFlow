@@ -7,6 +7,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
+import { fmtDate } from '@/lib/fmtDate';
 import { getFinancialFigures, unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 import { readExtendedRatioInputs, readHeadCounts } from '@/modules/accounting/services/reports/extendedRatioInputs';
 import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
@@ -20,6 +21,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // Build financial data for each of the last N months
   const now = new Date();
+  // THE CURRENT MONTH ENDS TODAY. Its flows cover only the days so far, and
+  // its day counts multiply by the window's length — so a window run to the
+  // month end divided a part month's revenue into the whole month's days.
+  // `packTrendService` clamps its part month the same way.
+  const today = fmtDate(now);
   const periodsData: FinancialData[] = [];
   const periodLabels: string[] = [];
 
@@ -27,7 +33,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const date = new Date(now.getFullYear(), now.getMonth() - (months - 1 - i), 1);
     const from = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
     const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    const to = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
+    const monthEnd = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
+    const to = monthEnd > today ? today : monthEnd;
     const label = date.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
     return { from, to, label };
   });

@@ -28,12 +28,23 @@ const DEFAULT_TARGETS: KPITargetConfig[] = [
   { ratioKey: 'assetTurnover', target: 0.5, warningThreshold: 0.3, criticalThreshold: 0.1, lowerIsBetter: false },
 ];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
   const { companyId } = req as CompanyAuthedRequest;
   const from: string = (req.query.from as string) || '2026-01-01';
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!
+
+  // As `reports-ratios` does: the day counts multiply by this window's length,
+  // so a date it cannot read or a window that runs backwards is refused.
+  if (!DATE_RE.test(from) || !DATE_RE.test(to)) {
+    return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
+  }
+  if (from > to) {
+    return apiResponse.badRequest(res, 'from must not be after to');
+  }
 
   // The same read the ratio list beside this scorecard uses, so the two
   // cannot state different things about one ratio.

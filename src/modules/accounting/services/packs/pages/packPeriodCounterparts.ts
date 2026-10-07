@@ -62,10 +62,8 @@ export interface PeriodCounterpart {
    * The clause is spent out of the sentence it replaces, not added to it:
    * page 9 composes at 253.29mm in a 255mm box, so a second line of footnote
    * costs 3.88mm the sheet does not have and `fitPageToBox` answers by
-   * dropping the whole note. "annualised on 365 days whatever the period's
-   * own length" is shorter than "measured on the period totals" plus the
-   * 30 characters of slack the wrapped pair had left, and the page does not
-   * move.
+   * dropping the whole note. "over the period's own days" is shorter than
+   * the 365 clause it replaced, so the page does not move.
    */
   wholePeriodBasis: string;
 }

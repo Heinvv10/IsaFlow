@@ -16,7 +16,7 @@
  */
 
 import type { ExtendedRatioResult } from '@/modules/accounting/services/reports/reportingEngineService';
-import { daysCovered } from '@/modules/accounting/services/reports/ratioCalculations';
+import { windowDays } from '@/modules/accounting/services/reports/ratioCalculations';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 
 /** A value, or the reason there isn't one, plus the basis of a percentage. */
@@ -40,16 +40,19 @@ export interface PackMetricRead {
  * prints `<0.01×` where Financial Analysis prints the engine's 0.00, which is
  * the point. Everywhere else the engine's own figure stands and the two agree.
  */
-function measured<T extends number | null>(engine: T, numerator: number, denominator: number, times = 1): T | number {
-  return engine === 0 && numerator !== 0 && denominator !== 0 ? (numerator / denominator) * times : engine;
+function measured<T extends number | null>(
+  engine: T, numerator: number, denominator: number, times: number | null = 1,
+): T | number {
+  return engine === 0 && times !== null && numerator !== 0 && denominator !== 0
+    ? (numerator / denominator) * times : engine;
 }
 
 /**
  * The days the engine multiplied by — the window's, see page 12's
- * definitions. Where it has none the engine stated no figure, so `measured`
- * restates nothing and the nil here is never multiplied.
+ * definitions. Null where it has none: the engine stated no figure, and
+ * `measured` restates nothing.
  */
-const daysOf = (raw: ReportPackFigures): number => daysCovered(raw) ?? 0;
+const daysOf = (raw: ReportPackFigures): number | null => windowDays(raw);
 
 /**
  * `debtorDays` is receivables over revenue. On non-positive revenue the

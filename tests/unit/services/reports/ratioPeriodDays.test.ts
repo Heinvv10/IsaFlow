@@ -9,8 +9,8 @@
  * the same multiplier.
  *
  * Every producer that builds the engine's input from a reporting window now
- * says how many days the window holds (`FinancialData.periodDays`); a caller
- * that says nothing is taken to have supplied a year's figures.
+ * says how many days the window holds (`FinancialData.periodDays`, required:
+ * a caller holding a year's figures passes 365 itself).
  */
 import { describe, expect, it } from 'vitest';
 import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
@@ -43,9 +43,8 @@ describe('the engine\'s day counts', () => {
     expect(r.cashConversionCycle).toBe(36.2);
   });
 
-  it('take a year where the caller gives no window — annual figures are unchanged', () => {
-    const { periodDays: _omitted, ...annual } = SIX_MONTHS;
-    const r = calculateExtendedRatios(annual);
+  it('take 365 where the caller says its figures are a year\'s', () => {
+    const r = calculateExtendedRatios({ ...SIX_MONTHS, periodDays: 365 });
     expect(r.debtorDays).toBe(99.18);
     expect(r.creditorDays).toBe(73);
     expect(r.inventoryDays).toBe(45.63);
@@ -69,9 +68,41 @@ describe('the engine\'s day counts', () => {
     }
   });
 
+  it('state nil inventory days where no stock is held, measurable window or not', () => {
+    for (const periodDays of [184, null]) {
+      const r = calculateExtendedRatios({ ...SIX_MONTHS, inventory: 0, periodDays });
+      expect(r.inventoryDays).toBe(0);
+      expect(r.notMeaningful.inventoryDays).toBeUndefined();
+    }
+  });
+
   it('keep the revenue reason first where the base is not positive either', () => {
     const r = calculateExtendedRatios({ ...SIX_MONTHS, revenue: 0, periodDays: null });
     expect(r.notMeaningful.debtorDays).toBe(notPositive('Revenue'));
+  });
+});
+
+/**
+ * INVENTORY DAYS ON THE UNROUNDED QUOTIENT. It was the window's days over a
+ * turnover already rounded to two places, which is a different number.
+ */
+describe('inventory days', () => {
+  const stock = (inventory: number, costOfSales: number, periodDays: number) =>
+    calculateExtendedRatios({ ...SIX_MONTHS, inventory, costOfSales, periodDays }).inventoryDays;
+
+  it('are inventory over cost of sales times the days, not the days over a rounded turnover', () => {
+    // A month: 3 000 000 / 100 000 × 31. Over a turnover of 0.03 it was 1 033.33.
+    expect(stock(3_000_000, 100_000, 31)).toBe(930);
+    // 184 days: 300 000 / 70 000 × 184. Over a turnover of 0.23 it was 800.
+    expect(stock(300_000, 70_000, 184)).toBe(788.57);
+    // A turnover that rounded to 0.00 printed nil days.
+    expect(stock(25_000_000, 100_000, 31)).toBe(7750);
+  });
+
+  it('carry into the cash conversion cycle', () => {
+    const r = calculateExtendedRatios({ ...SIX_MONTHS, inventory: 300_000, costOfSales: 70_000, periodDays: 184 });
+    expect(r.cashConversionCycle).toBe(
+      Math.round(((r.debtorDays ?? 0) + 788.57 - (r.creditorDays ?? 0)) * 100) / 100);
   });
 });
 

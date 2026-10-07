@@ -26,9 +26,9 @@
  * The rest are ratios and formulas rather than adjusted measures, so none
  * carries a `reconciliation`: there is nothing to bridge from an IFRS figure
  * to an adjusted one. What they need is a definition, because "debtor days"
- * is not a term with one meaning — receivables over revenue times 365 and
- * receivables over revenue times the days in the month are both called that,
- * and this pack prints both, on two different pages.
+ * is not a term with one meaning — receivables over revenue times the
+ * period's days and times the month's days are both called that, and this
+ * pack prints both, on two different pages.
  *
  * WHICH IS WHY THE DAY COUNT IS STATED. The definitions said "times the days
  * in the period" while `calculateExtendedRatios` multiplied by 365, so the

@@ -39,6 +39,7 @@ import { buildReportPack } from '@/modules/accounting/services/reports/reportPac
 import ratiosRoute from '../../../pages/api/accounting/reports-extended-ratios';
 
 const COMPANY: FinancialData = {
+  periodDays: 365,
   revenue: 101_400, costOfSales: 1_430_581.6, operatingExpenses: 215_059.3, netProfit: -1_544_240.9,
   totalAssets: 900_000, totalLiabilities: 1_300_000, totalEquity: -400_000, currentAssets: 140_000,
   currentLiabilities: 1_000_000, inventory: 0, accountsReceivable: 59_237, accountsPayable: 3_092_000, cash: 20_000,
@@ -101,6 +102,8 @@ const zero = {
 };
 const figures = (inventoryClassified: boolean) => ({
   inventoryClassified, retainedEarningsBroughtForward: 0,
+  // 1 January to 7 September 2026, as `getFinancialFigures` counts it.
+  periodDays: 250,
   period: { ...zero, revenue: 101_400, costOfSales: 1_430_581.6, grossProfit: -1_329_181.6, operatingExpenses: 215_059.3,
     operatingProfit: -1_544_240.9, netProfit: -1_544_240.9 },
   cumulative: { ...zero, totalAssets: 900_000, totalLiabilities: 1_300_000, totalEquity: -400_000, currentAssets: 140_000,

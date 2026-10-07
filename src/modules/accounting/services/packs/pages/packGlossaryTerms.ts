@@ -214,11 +214,11 @@ export const TERMS: PackDefinition[] = [
     // page would have printed. A glossary entry describing a drawing the
     // document does not contain is the same defect as a footnote pointing at
     // a page that carries nothing.
-    definition: `Trade receivables over revenue, times the days in the period that revenue covers.${DEBTOR_DAYS_TRENDS_CLAUSE}`,
+    definition: `Trade receivables over revenue, times the days in the period that revenue covers. Not reported where the period's length cannot be measured.${DEBTOR_DAYS_TRENDS_CLAUSE}`,
   },
   {
     term: 'Creditor days',
-    definition: 'Trade payables over cost of sales, times the days in the period that cost covers. Not reported where there is no cost of sales.',
+    definition: 'Trade payables over cost of sales, times the days in the period that cost covers. Not reported where there is no cost of sales or the period\'s length cannot be measured.',
   },
   {
     term: 'Cash conversion cycle',

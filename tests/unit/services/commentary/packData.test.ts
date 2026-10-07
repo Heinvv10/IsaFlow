@@ -24,7 +24,23 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', async () => 
   getFinancialFigures: (...a: unknown[]) => figuresMock(...a),
 }));
 
+/** What the engine was handed and what it answered: the pack data carries no
+ *  day count, so the window's days are observed at the engine's input. */
+const engineCalls: Array<{ input: FinancialData; output: ExtendedRatioResult }> = [];
+vi.mock('@/modules/accounting/services/reports/reportingEngineService', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/reports/reportingEngineService')>();
+  return {
+    ...actual,
+    calculateExtendedRatios: (input: FinancialData) => {
+      const output = actual.calculateExtendedRatios(input);
+      engineCalls.push({ input, output });
+      return output;
+    },
+  };
+});
+
 import { buildManagementPackData } from '@/modules/accounting/services/commentary/packData';
+import type { ExtendedRatioResult, FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -51,6 +67,8 @@ const figures = (
 ): PeriodFigures => ({
   inventoryClassified: true,
   retainedEarningsBroughtForward: broughtForward,
+  // 1 April to 30 June 2026, as `getFinancialFigures` counts PARAMS' window.
+  periodDays: 91,
   period: { ...zero, ...period },
   cumulative: { ...zero, ...cumulative },
 });
@@ -68,6 +86,7 @@ const INSOLVENT = figures(
 beforeEach(() => {
   sqlMock.mockReset().mockResolvedValue([{ name: 'Britech' }]);
   figuresMock.mockReset();
+  engineCalls.length = 0;
 });
 
 describe('buildManagementPackData', () => {
@@ -87,6 +106,20 @@ describe('buildManagementPackData', () => {
 
     expect(data.balanceSheet.debtEquityRatio).toBeGreaterThan(0);
     expect(data.balanceSheet.debtEquityUnavailableReason).toBeUndefined();
+  });
+
+  it('hands the engine the window\'s 91 days, not a year', async () => {
+    figuresMock.mockResolvedValue(figures(
+      { revenue: 1_000_000, costOfSales: 600_000, grossProfit: 400_000, operatingExpenses: 250_000, netProfit: 150_000 },
+      { totalAssets: 2_000_000, totalLiabilities: 800_000, totalEquity: 1_050_000, currentAssets: 900_000,
+        currentLiabilities: 500_000, accountsReceivable: 250_000 },
+    ));
+    await buildManagementPackData(COMPANY, PARAMS);
+
+    expect(engineCalls).toHaveLength(1);
+    expect(engineCalls[0]!.input.periodDays).toBe(91);
+    // 250 000 / 1 000 000 × 91 — 91.25 on 365.
+    expect(engineCalls[0]!.output.debtorDays).toBe(22.75);
   });
 
   it('reads the comparative window from priorPeriod, company-scoped', async () => {

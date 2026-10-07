@@ -117,8 +117,8 @@ export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_C
  *
  * AND ITS LENGTH, BESIDE THE COLUMN IT QUALIFIES. 1 January to 7 September
  * 2026 is 250 days and 26 April to 31 December 2025 is also 250 — which is
- * what makes the prior column, every change percentage taken across it and
- * every annualised day count comparable at all, and the pack stated it
+ * what makes the prior column and every change percentage taken across it
+ * comparable at all, and the pack stated it
  * nowhere. `comparativeLengthClause` MEASURES the two windows rather than
  * asserting a match, so a pack whose comparative is a different length prints
  * the mismatch in the same place.
