@@ -68,9 +68,8 @@ describe('the functional currency', () => {
   it('the definer functions are owned by a role that bypasses RLS', async () => {
     const { rows } = await pool.query(
       `SELECT p.proname, (r.rolbypassrls OR r.rolsuper) AS bypasses FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
-       WHERE p.proname IN ('fx_row_is_foreign','fx_document_currency_gate','fx_settlement_refusal') ORDER BY 1`);
-    expect(rows.map((r) => [r.proname, r.bypasses])).toEqual(
-      [['fx_document_currency_gate', true], ['fx_row_is_foreign', true], ['fx_settlement_refusal', true]]);
+       WHERE p.proname IN ('fx_document_currency_gate','fx_settlement_refusal') AND p.prosecdef ORDER BY 1`);
+    expect(rows.map((r) => [r.proname, r.bypasses])).toEqual([['fx_document_currency_gate', true], ['fx_settlement_refusal', true]]);
   });
 });
 

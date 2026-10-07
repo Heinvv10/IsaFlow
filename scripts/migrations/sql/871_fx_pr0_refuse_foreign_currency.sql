@@ -65,10 +65,12 @@ AS $$ SELECT pg_catalog.round(p_amount OPERATOR(pg_catalog.*) p_rate, 2) $$;
 -- either one foreign makes the bill foreign. NULL is the functional currency
 -- (299's default; every reader treats it so). A company the function cannot
 -- read answers NULL, which both callers treat as foreign: refuse, not pass.
+-- Not itself a definer: only the two definer triggers below call it, so it
+-- runs as their owner; PUBLIC may not call it.
 CREATE OR REPLACE FUNCTION public.fx_row_is_foreign(
   p_company_id pg_catalog.uuid, p_codes pg_catalog.text[]
 ) RETURNS pg_catalog.bool
-LANGUAGE sql STABLE SECURITY DEFINER
+LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT EXISTS (
@@ -173,8 +175,7 @@ REVOKE ALL ON FUNCTION public.fx_settlement_refusal() FROM PUBLIC;
 DO $$ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
-    WHERE p.oid IN ('public.fx_row_is_foreign(uuid, text[])'::pg_catalog.regprocedure,
-                    'public.fx_document_currency_gate()'::pg_catalog.regprocedure,
+    WHERE p.oid IN ('public.fx_document_currency_gate()'::pg_catalog.regprocedure,
                     'public.fx_settlement_refusal()'::pg_catalog.regprocedure)
       AND NOT (r.rolbypassrls OR r.rolsuper)
   ) THEN
