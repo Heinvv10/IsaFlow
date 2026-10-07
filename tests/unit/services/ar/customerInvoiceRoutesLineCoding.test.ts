@@ -26,10 +26,10 @@ vi.mock('@/lib/apiResponse', () => ({
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
 }));
-const m = vi.hoisted(() => ({ create: vi.fn(), edit: vi.fn(), approve: vi.fn(), quote: vi.fn(), convert: vi.fn() }));
+const m = vi.hoisted(() => ({ create: vi.fn(), edit: vi.fn(), approve: vi.fn(), quote: vi.fn(), updateQuote: vi.fn(), convert: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/quoteService', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/quoteService')>()),
-  createQuote: m.quote, convertToInvoice: m.convert,
+  createQuote: m.quote, updateQuote: m.updateQuote, convertToInvoice: m.convert,
 }));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/customerInvoiceCreateService')>()),
@@ -98,6 +98,12 @@ describe('quotes: a line account the invoice could never post to', () => {
   it('POST customer-quotes answers it 400 with INVOICE_LINE_CODING_REFUSED', async () => {
     m.quote.mockRejectedValueOnce(new InvoiceLineCodingRefusal(REFUSED));
     expect(await run(quotesHandler, 'POST', { customerName: 'x', lines: [] }))
+      .toEqual({ kind: 'badRequest', error: REFUSED, details: { code: 'INVOICE_LINE_CODING_REFUSED' } });
+  });
+
+  it('PUT customer-quotes answers it 400 with INVOICE_LINE_CODING_REFUSED', async () => {
+    m.updateQuote.mockRejectedValueOnce(new InvoiceLineCodingRefusal(REFUSED));
+    expect(await run(quotesHandler, 'PUT', { id: INV, customerName: 'x', lines: [] }))
       .toEqual({ kind: 'badRequest', error: REFUSED, details: { code: 'INVOICE_LINE_CODING_REFUSED' } });
   });
 
