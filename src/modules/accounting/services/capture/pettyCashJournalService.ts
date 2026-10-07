@@ -41,6 +41,7 @@ import {
   ClosedFiscalPeriodError,
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -80,6 +81,8 @@ export class ReceiptDoesNotBalanceError extends Error {
 
 export interface PettyCashJournalResult {
   journalEntry: { id: string; status: string };
+  /** R-035 PR6: a manual-journal rule held the auto-post — the journal is a draft awaiting approval. */
+  heldForApproval: boolean;
   merchant: string | null;
   amount: number | null;
   inputVatDenied: boolean;
@@ -161,6 +164,16 @@ export async function postReceiptAsPettyCashJournal(
   // route's 4xx for it commits nothing and the document stays claimable.
   await assertJournalVatPeriodOpen(companyId, entryDate, postableLines);
 
+  // Auto-post only an unambiguous receipt, under R5 000, at high confidence.
+  // K-072 r35–r36: a meals merchant whose VAT is still claimed is HELD for a person.
+  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 }) && !heldForPerson;
+  // R-035 PR6 (Hein, round 3): as receipt-to-journal — whether a manual-journal
+  // rule holds the auto-post is decided HERE, from reads, before the claim (the
+  // first write). A held slip is not refused: its journal stays a draft and the
+  // request is raised as the uploader, and the claim stands.
+  const approval = await newManualJournalGate(companyId, postableLines);
+  const held = autoPost && approval.held;
+
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, 'expense', { spend: 'expense', ...fingerprint });
   if (refusal) {
     throw new CapturedDocumentAlreadyPostedError(refusal);
@@ -177,13 +190,10 @@ export async function postReceiptAsPettyCashJournal(
     },
     userId,
   );
-
-  // Auto-post only an unambiguous receipt, under R5 000, at high confidence.
-  // K-072 r35–r36: a meals merchant whose VAT is still claimed is HELD for a person.
-  const autoPost = shouldAutoPostReceipt(extracted, { maxAmount: 5000, minConfidence: 0.80 }) && !heldForPerson;
+  await settleUnattendedJournal(companyId, jeEntry.id, userId, { enforced: approval.enforced, held });
 
   let jeStatus = jeEntry.status;
-  if (autoPost) {
+  if (autoPost && !held) {
     try {
       // Signature is (companyId, id, userId). This read
       // (jeEntry.id, userId, companyId) — every argument in the wrong slot, so
@@ -233,11 +243,12 @@ export async function postReceiptAsPettyCashJournal(
   `;
 
   log.info('Capture event posted as direct GL expense', {
-    eventId, documentId, jeId: jeEntry.id, autoPost, jeStatus,
+    eventId, documentId, jeId: jeEntry.id, autoPost, jeStatus, heldForApproval: held,
   }, 'capture-post-expense');
 
   return {
     journalEntry: { id: jeEntry.id, status: jeStatus },
+    heldForApproval: held,
     merchant: extracted.vendorName,
     amount: extracted.totalAmount,
     inputVatDenied: journalInput.inputVatDenied,
