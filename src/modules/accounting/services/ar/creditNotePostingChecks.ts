@@ -18,6 +18,19 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '../gl/journalEntryPostingGuards';
 import { ArPostingAfterWriteError } from './arErrors';
 
+/**
+ * Serialise credit-note APPROVALS per linked invoice. Two notes on one invoice
+ * approved concurrently each replayed the invoice's legs without the other and
+ * took the same revenue twice (a production driven to −1000). Transaction-
+ * scoped, so it is released with the request; namespaced, so no other advisory
+ * lock key collides with it. Only approveCreditNote takes it, as the first
+ * statement after the note row is read — the lock-order census is in
+ * ar/.claude.md ("Credit-note approval lock order").
+ */
+export async function lockInvoiceCreditNotes(invoiceId: string): Promise<void> {
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`isaflow.credit_note_approve.invoice:${invoiceId.toLowerCase()}`}, 0))`;
+}
+
 export async function assertCreditNoteCanPost(
   companyId: string, entryDate: string, lines: readonly JournalLineInput[],
 ): Promise<void> {

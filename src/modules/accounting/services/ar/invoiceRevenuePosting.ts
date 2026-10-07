@@ -46,12 +46,14 @@ export async function invoiceRevenueJournalLines(
  *
  * Linked to an invoice that carries a journal: pro rata over that journal's
  * revenue legs (lines on revenue-type accounts, netted per account, project and
- * cost centre), each capped at what earlier posted notes on the same invoice
- * left on it — the excess, and every unlinked note, posts untagged to
- * default_revenue as before. Read and decided BEFORE the journal is created:
- * a leg whose account has since been deactivated (a year-end clean-up) is
- * debited on default_revenue instead, keeping its project and cost centre, so
- * posting never refuses it after the draft journal exists.
+ * cost centre), each capped at what the earlier notes on the same invoice left
+ * on it — REPLAYED from their amounts in approval order (prorateRevenueLegs),
+ * never read back from the accounts they posted to. The excess, and every
+ * unlinked note, posts untagged to default_revenue as before. A leg whose
+ * account has since been deactivated is debited on default_revenue, keeping its
+ * project and cost centre. Called with the invoice's credit-note lock held
+ * (creditNotePostingChecks.lockInvoiceCreditNotes), so no other approval of a
+ * note on this invoice can run between the replay and this note's write.
  */
 export async function creditNoteRevenueJournalLines(
   companyId: string,
@@ -71,37 +73,21 @@ export async function creditNoteRevenueJournalLines(
     GROUP BY jl.gl_account_id, a.is_active, jl.project_id, jl.cost_center_id
     ORDER BY MIN(jl.created_at), jl.gl_account_id, jl.project_id NULLS FIRST, jl.cost_center_id NULLS FIRST
   `) as Record<string, unknown>[];
-  // What earlier notes on this invoice already took back, from their POSTED journals.
-  const consumedRows = (await sql`
-    SELECT jl.gl_account_id, jl.project_id, jl.cost_center_id, SUM(jl.debit - jl.credit) AS consumed
-    FROM credit_notes cn
-    JOIN gl_journal_entries je
-      ON je.id = cn.gl_journal_entry_id AND je.company_id = cn.company_id AND je.status = 'posted'
-    JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id AND jl.company_id = je.company_id
-    JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
-    WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${note.customerInvoiceId}::UUID
-      AND cn.type = 'customer' AND cn.status <> 'cancelled' AND cn.id <> ${note.id}::UUID
-      AND a.account_type = 'revenue'
-    GROUP BY jl.gl_account_id, jl.project_id, jl.cost_center_id
-  `) as Record<string, unknown>[];
+  // Every earlier note that counts against the invoice: approved, not cancelled.
+  const earlier = (await sql`
+    SELECT subtotal FROM credit_notes
+    WHERE company_id = ${companyId}::UUID AND customer_invoice_id = ${note.customerInvoiceId}::UUID
+      AND type = 'customer' AND status NOT IN ('draft', 'cancelled') AND id <> ${note.id}::UUID
+    ORDER BY approved_at NULLS FIRST, id
+  `) as { subtotal: string }[];
 
   const id = (v: unknown): string | null => (v == null ? null : String(v));
-  const keyOf = (account: string, project: string | null, centre: string | null) => `${account}|${project ?? ''}|${centre ?? ''}`;
-  const consumed = new Map(consumedRows.map((r) => [
-    keyOf(String(r.gl_account_id), id(r.project_id), id(r.cost_center_id)), Number(r.consumed)]));
-  // Folded onto the account the leg posts to NOW, so an earlier note that took
-  // the same fallback is matched against it.
-  const legs = new Map<string, RevenueLeg>();
-  for (const r of invoiceLegs) {
-    const glAccountId = r.is_active === true ? String(r.gl_account_id) : defaultRevenueAccountId;
-    const key = keyOf(glAccountId, id(r.project_id), id(r.cost_center_id));
-    const leg = legs.get(key) ?? { glAccountId, projectId: id(r.project_id), costCenterId: id(r.cost_center_id), net: 0 };
-    leg.net += Number(r.net);
-    legs.set(key, leg);
-  }
-  const remaining = [...legs.entries()].map(([key, leg]) => {
-    const left = leg.net - (consumed.get(key) ?? 0);
-    return { ...leg, net: leg.net >= 0 ? Math.max(0, left) : Math.min(0, left) };
-  });
-  return prorateRevenueLegs(remaining, note.amount, note.number, defaultRevenueAccountId);
+  const legs: RevenueLeg[] = invoiceLegs.map((r) => ({
+    glAccountId: String(r.gl_account_id),
+    postAccountId: r.is_active === true ? String(r.gl_account_id) : defaultRevenueAccountId,
+    projectId: id(r.project_id),
+    costCenterId: id(r.cost_center_id),
+    net: Number(r.net),
+  }));
+  return prorateRevenueLegs(legs, note.amount, note.number, defaultRevenueAccountId, earlier.map((e) => Number(e.subtotal)));
 }

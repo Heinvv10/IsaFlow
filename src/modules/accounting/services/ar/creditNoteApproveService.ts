@@ -28,7 +28,7 @@ import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
 import { creditNoteRevenueJournalLines } from './invoiceRevenuePosting';
 import { ArPostingAfterWriteError } from './arErrors';
-import { afterJournalWritten, assertCreditNoteCanPost } from './creditNotePostingChecks';
+import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -60,6 +60,8 @@ export async function approveCreditNote(
     // refuses here instead.
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
+    // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
+    if (cn.customer_invoice_id) await lockInvoiceCreditNotes(String(cn.customer_invoice_id));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.

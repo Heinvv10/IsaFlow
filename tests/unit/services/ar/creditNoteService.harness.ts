@@ -18,6 +18,7 @@ vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({ assertApproval
 // (invoice-line-revenue-credit-notes.int.test.ts); the after-write wrap is pass-through here.
 vi.mock('@/modules/accounting/services/ar/creditNotePostingChecks', () => ({
   assertCreditNoteCanPost: async () => undefined,
+  lockInvoiceCreditNotes: async () => undefined,
   afterJournalWritten: async (_n: string, step: () => Promise<unknown>) => step(),
 }));
 vi.mock('@/lib/neon', async () => {

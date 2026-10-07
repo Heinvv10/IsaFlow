@@ -31,10 +31,13 @@ export interface StoredRevenueLine extends InvoiceLineCoding {
 }
 
 export interface RevenueLeg {
+  /** The leg's identity: the account the invoice journal credited. */
   glAccountId: string;
+  /** Where a note debits the leg now — default_revenue once that account is deactivated. Defaults to glAccountId. */
+  postAccountId?: string;
   projectId: string | null;
   costCenterId: string | null;
-  /** Net revenue the leg still carries: credit minus debit the invoice posted there, less earlier notes. */
+  /** Credit minus debit the invoice journal posted to this leg. */
   net: number;
 }
 
@@ -130,35 +133,57 @@ export function buildInvoiceRevenueLines(input: {
 }
 
 /**
- * The note's revenue debit, split over the invoice journal's revenue legs pro
- * rata to the net revenue each still carries (`net`: what the invoice credited
- * there, less what earlier credit notes on it debited). No leg is debited past
- * what it still carries — a second full note, or a note larger than the
- * invoice, would otherwise drive a production's revenue below zero — and
- * whatever the legs cannot take goes to `default_revenue`, untagged, as every
- * note posted before. Legs netting to nothing leave the whole note there.
+ * One note's share of each leg (cents): pro rata to what each leg still
+ * carries, then clamped to it — that caps a note larger than what is left, and
+ * the rounding cent that can push a leg past it (it takes ten legs:
+ * allocateByWeight hands the residual to the largest weight).
+ */
+export function noteShares(carries: readonly number[], total: number): number[] {
+  const carried = carries.reduce((a, b) => a + b, 0);
+  return (carried <= 0 ? carries.map(() => 0) : allocateByWeight(total, carries)).map((share, i) => {
+    const cap = carries[i]!;
+    return cap >= 0 ? Math.min(share, cap) : Math.max(share, cap);
+  });
+}
+
+/**
+ * The note's revenue debit, split over the invoice journal's revenue legs.
+ *
+ * What each leg still carries is REPLAYED, not read back from earlier notes'
+ * journals: every earlier note on the invoice (`earlierNotes`, in approval
+ * order) is allocated with this same rule, and its shares are taken off the
+ * legs by the legs' own identity — whatever account that note actually posted
+ * to (a leg deactivated, then reactivated, posts under different accounts).
+ * No leg is debited past what it carries; whatever the legs cannot take goes
+ * to `default_revenue`, untagged, merged with an untagged default leg the
+ * invoice itself has, so an uncoded invoice posts exactly the one line it did
+ * before. Lines landing on the same (account, project, cost centre) merge.
  */
 export function prorateRevenueLegs(
   legs: readonly RevenueLeg[],
   amount: number,
   creditNoteNumber: string,
   defaultRevenueAccountId: string,
+  earlierNotes: readonly number[] = [],
 ): JournalLineInput[] {
-  const description = `Credit note ${creditNoteNumber}`;
+  let carries = legs.map((l) => cents(l.net));
+  for (const earlier of earlierNotes) {
+    const took = noteShares(carries, cents(earlier));
+    carries = carries.map((c, i) => c - took[i]!);
+  }
   const total = cents(amount);
-  const remaining = legs.map((l) => cents(l.net));
-  const carried = remaining.reduce((a, b) => a + b, 0);
-  // Pro rata, then each share clamped to what its leg carries: that caps a note
-  // larger than what is left, and the rounding cent that can push a leg past it
-  // (it takes ten legs: allocateByWeight hands the residual to the largest).
-  const shares = (carried <= 0 ? remaining.map(() => 0) : allocateByWeight(total, remaining)).map((share, i) => {
-    const cap = remaining[i]!;
-    return cap >= 0 ? Math.min(share, cap) : Math.max(share, cap);
-  });
-  const excess = total - shares.reduce((a, b) => a + b, 0);
-  const lines = legs
-    .map((l, i) => leg(l.glAccountId, shares[i]!, 'debit', description, l.projectId, l.costCenterId))
+  const shares = noteShares(carries, total);
+  const merged = new Map<string, { account: string; projectId: string | null; costCenterId: string | null; amount: number }>();
+  const add = (account: string, projectId: string | null, costCenterId: string | null, amountCents: number) => {
+    const key = `${account}|${projectId ?? ''}|${costCenterId ?? ''}`;
+    const m = merged.get(key) ?? { account, projectId, costCenterId, amount: 0 };
+    m.amount += amountCents;
+    merged.set(key, m);
+  };
+  legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, l.projectId, l.costCenterId, shares[i]!));
+  add(defaultRevenueAccountId, null, null, total - shares.reduce((a, b) => a + b, 0));
+  const description = `Credit note ${creditNoteNumber}`;
+  return [...merged.values()]
+    .map((m) => leg(m.account, m.amount, 'debit', description, m.projectId, m.costCenterId))
     .filter((l): l is JournalLineInput => l !== null);
-  const untagged = leg(defaultRevenueAccountId, excess, 'debit', description, null, null);
-  return untagged ? [...lines, untagged] : lines;
 }

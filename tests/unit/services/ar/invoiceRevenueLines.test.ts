@@ -187,20 +187,40 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
   });
 
   it('two notes of 50 on legs of 0.01 and 99.99 never leave a leg below zero', () => {
-    const first = prorate([
+    const legs2 = [
       { glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, net: 0.01 },
       { glAccountId: POST, projectId: P2, costCenterId: null, net: 99.99 },
-    ], 50);
-    const took = new Map(first.map((l) => [l.glAccountId, l.debit]));
-    const second = prorate([
-      { glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, net: Math.round((0.01 - (took.get(COMMERCIALS) ?? 0)) * 100) / 100 },
-      { glAccountId: POST, projectId: P2, costCenterId: null, net: Math.round((99.99 - (took.get(POST) ?? 0)) * 100) / 100 },
-    ], 50);
+    ];
+    const first = prorateRevenueLegs(legs2, 50, 'CN-1', DEFAULT);
+    const second = prorateRevenueLegs(legs2, 50, 'CN-2', DEFAULT, [50]);
     for (const account of [COMMERCIALS, POST]) {
       const all = [...first, ...second].filter((l) => l.glAccountId === account).reduce((s, l) => s + l.debit - l.credit, 0);
       expect(Math.round(all * 100)).toBeLessThanOrEqual(account === COMMERCIALS ? 1 : 9999);
     }
     expect([...first, ...second].reduce((s, l) => s + l.debit, 0)).toBeCloseTo(100, 10);
+  });
+
+  it('replays earlier notes with the same rule, by leg identity, in the order given', () => {
+    // 600/400; earlier notes of 500 and 300 took 300/200 then 180/120: 120/80 is left.
+    const legs2 = [
+      { glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, net: 600 },
+      { glAccountId: POST, projectId: P2, costCenterId: null, net: 400 },
+    ];
+    expect(debits(prorateRevenueLegs(legs2, 1000, 'CN-3', DEFAULT, [500, 300])))
+      .toEqual([[COMMERCIALS, P1, 120], [POST, P2, 80], [DEFAULT, null, 800]]);
+  });
+
+  it('debits a leg where it posts NOW (postAccountId) while counting it by identity', () => {
+    const out = prorateRevenueLegs([
+      { glAccountId: COMMERCIALS, postAccountId: DEFAULT, projectId: P1, costCenterId: null, net: 600 },
+      { glAccountId: POST, projectId: null, costCenterId: null, net: 400 },
+    ], 1000, 'CN-1', DEFAULT, [500]);
+    expect(debits(out)).toEqual([[DEFAULT, P1, 300], [POST, null, 200], [DEFAULT, null, 500]]);
+  });
+
+  it('an over-credit on an UNCODED invoice posts the one default_revenue line master did', () => {
+    expect(prorateRevenueLegs([{ glAccountId: DEFAULT, projectId: null, costCenterId: null, net: 1000 }], 1500, 'CN-1', DEFAULT))
+      .toEqual([{ glAccountId: DEFAULT, debit: 1500, credit: 0, description: 'Credit note CN-1', projectId: undefined, costCenterId: undefined }]);
   });
 
   it('clamps the rounding cent that would push a leg past what it carries, and posts it untagged', () => {
