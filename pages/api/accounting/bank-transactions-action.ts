@@ -63,7 +63,11 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('split_allocate'),
     bankTransactionId: UUID,
-    lines: z.array(z.object({ contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional() })).min(1),
+    lines: z.array(z.object({
+      contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional(),
+      // Per-line dimensions, stamped on that line's cost/revenue leg only (bankSplitDimensions.ts).
+      cc1Id: UUID.optional(), cc2Id: UUID.optional(), buId: UUID.optional(),
+    })).min(1),
   }),
   z.object({ action: z.literal('delete'), bankTransactionId: UUID.optional(), bankTransactionIds: z.array(UUID).optional() }),
   z.object({ action: z.literal('bulk_accept'), bankTransactionIds: z.array(UUID).min(1) }),
