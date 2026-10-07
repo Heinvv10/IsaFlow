@@ -141,12 +141,10 @@ export function prorateRevenueLegs(
   const total = cents(amount);
   const remaining = legs.map((l) => cents(l.net));
   const carried = remaining.reduce((a, b) => a + b, 0);
-  let shares: number[];
-  if (carried <= 0) shares = remaining.map(() => 0);
-  else if (total >= carried) shares = [...remaining];
-  else shares = allocateByWeight(total, remaining);
-  // Rounding can push a share a cent past what its leg carries: clamp it, the cent goes untagged.
-  shares = shares.map((share, i) => {
+  // Pro rata, then each share clamped to what its leg carries: that caps a note
+  // larger than what is left, and the rounding cent that can push a leg past it
+  // (it takes ten legs: allocateByWeight hands the residual to the largest).
+  const shares = (carried <= 0 ? remaining.map(() => 0) : allocateByWeight(total, remaining)).map((share, i) => {
     const cap = remaining[i]!;
     return cap >= 0 ? Math.min(share, cap) : Math.max(share, cap);
   });
