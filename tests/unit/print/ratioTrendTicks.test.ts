@@ -17,7 +17,8 @@
  * under a wrapper in DejaVu Sans, which is wider than DM Sans, so a label
  * that fits here fits there. `RATIO_TREND_FONT` (a .woff2 path) swaps the
  * wrapper's face for a real one for a one-off check. At the widths Financial
- * Analysis gives the chart, over 3, 6 and 12 months ending in a stub, each
+ * Analysis gives the chart (579px at 1440), over 3, 6 and 12 months ending
+ * in a stub — October, and September, whose "Sept 2026*" is the widest — each
  * tick's painted box must lie inside its SVG's.
  */
 import { readFileSync } from 'node:fs';
@@ -41,7 +42,7 @@ afterAll(async () => {
 });
 
 interface Tick { text: string; left: number; right: number }
-interface Drawn { label: string; svgLeft: number; svgRight: number; ticks: Tick[] }
+interface Drawn { label: string; stub: string; svgLeft: number; svgRight: number; ticks: Tick[] }
 
 async function draw(): Promise<Drawn[]> {
   const page = await browser.newPage({ viewport: { width: 1440, height: 2400 } });
@@ -70,7 +71,7 @@ async function draw(): Promise<Drawn[]> {
         const r = t.getBoundingClientRect();
         return { text: t.textContent ?? '', left: r.left, right: r.right };
       });
-      return { label: holder.dataset['case'] ?? '', svgLeft: s.left, svgRight: s.right, ticks };
+      return { label: holder.dataset['case'] ?? '', stub: holder.dataset['stub'] ?? '', svgLeft: s.left, svgRight: s.right, ticks };
     }));
   } finally {
     await page.close();
@@ -80,7 +81,9 @@ async function draw(): Promise<Drawn[]> {
 describe('the ratio-trend chart\'s x-axis labels', () => {
   it('lie inside the chart at every width the page gives it', async () => {
     const charts = await draw();
-    expect(charts).toHaveLength(15);
+    expect(charts).toHaveLength(36);
+    // Not vacuous: the widest label the route prints is among them.
+    expect(charts.some((c) => c.ticks.at(-1)?.text === 'Sept 2026*')).toBe(true);
     const clipped = charts.flatMap((c) => c.ticks
       .filter((t) => t.left < c.svgLeft - 0.5 || t.right > c.svgRight + 0.5)
       .map((t) => `${c.label}: "${t.text}" spans ${t.left.toFixed(1)}–${t.right.toFixed(1)} in ${c.svgLeft.toFixed(1)}–${c.svgRight.toFixed(1)}`));
@@ -89,7 +92,7 @@ describe('the ratio-trend chart\'s x-axis labels', () => {
 
   it('label the stub, and draw it as the last tick', async () => {
     for (const chart of await draw()) {
-      expect(chart.ticks.at(-1)?.text, chart.label).toBe('Oct 2026*');
+      expect(chart.ticks.at(-1)?.text, chart.label).toBe(`${chart.stub}*`);
       expect(chart.ticks.filter((t) => t.text.endsWith('*')), chart.label).toHaveLength(1);
     }
   });

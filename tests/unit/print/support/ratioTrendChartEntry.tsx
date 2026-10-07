@@ -6,20 +6,29 @@
 import { createRoot } from 'react-dom/client';
 import { RatioTrendChart, type RatioTrendChartPoint } from '@/components/accounting/charts/RatioTrendChart';
 
-const MONTHS = ['Nov 2025', 'Dec 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026',
-  'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026'];
-const series = (count: number): RatioTrendChartPoint[] => MONTHS.slice(-count).map((period, i, all) => ({
-  period, value: 40 + ((i * 7) % 13), partial: i === all.length - 1,
-}));
+/** The months the route labels, as it labels them — en-ZA, so September is
+ *  "Sept", the widest. `count` months ending with month `end` (0-based) of
+ *  2026, the last a stub. */
+const series = (count: number, end: number): RatioTrendChartPoint[] => Array.from({ length: count }, (_, i) => {
+  const date = new Date(2026, end - (count - 1 - i), 1);
+  return {
+    period: date.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' }),
+    value: 40 + ((i * 7) % 13),
+    partial: i === count - 1,
+  };
+});
 
-const WIDTHS = [260, 340, 420, 520, 640];
-const cases = WIDTHS.flatMap((width) => [3, 6, 12].map((count) => ({ width, count })));
+const WIDTHS = [260, 340, 420, 520, 579, 640];
+// October (the case the browser check found) and September, whose label is
+// the longest the route prints.
+const cases = WIDTHS.flatMap((width) => [9, 8].flatMap((end) => [3, 6, 12].map((count) => ({ width, count, end }))));
 
 createRoot(document.getElementById('root')!).render(
   <>
-    {cases.map(({ width, count }) => (
-      <div key={`${width}-${count}`} data-case={`${width}px, ${count} months`} style={{ width, marginBottom: 16 }}>
-        <RatioTrendChart values={series(count)} />
+    {cases.map(({ width, count, end }) => (
+      <div key={`${width}-${count}-${end}`} data-case={`${width}px, ${count} months to month ${end + 1}`} data-stub={series(count, end).at(-1)!.period}
+        style={{ width, marginBottom: 16 }}>
+        <RatioTrendChart values={series(count, end)} />
       </div>
     ))}
   </>,

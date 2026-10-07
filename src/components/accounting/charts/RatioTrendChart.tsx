@@ -9,8 +9,9 @@
  * the tick — while the label is painted in the app's (DM Sans, wider), so a
  * long last label ran past the SVG. So the room is not left to recharts: the
  * last point sits `RIGHT_MARGIN` inside the SVG, more than half the widest
- * label ("Oct 2026*", 51px in DejaVu Sans, 48 in DM Sans). A short mark, and
- * the words in the tooltip and under the charts.
+ * label the route prints (en-ZA's "Sept 2026*"), in DM Sans and in the wider
+ * DejaVu Sans. A short mark, and the words in the tooltip and under the
+ * charts.
  */
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { STUB_MARK } from './ratioTrendStub';
