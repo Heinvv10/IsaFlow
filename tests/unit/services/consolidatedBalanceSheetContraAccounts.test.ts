@@ -63,4 +63,33 @@ describe('consolidated balance sheet: contra accounts subtract from their sectio
     expect(bs.totalEquity.entities[CO]).toBeCloseTo(90000, 2);
     expect(bs.totalAssets.entities[CO]).toBeCloseTo((bs.totalLiabilities.entities[CO] ?? 0) + bs.totalEquity.entities[CO]!, 2);
   });
+  it("a member line is signed by the GROUP line's section, and an elimination on accumulated depreciation by the asset section", async () => {
+    vi.mocked(getCoaMappingsForCompanies).mockResolvedValue(new Map([[CO, new Map([
+      map('bank', '1000', 'asset', 'debit'),
+      map('accdep', '1510', 'asset', 'credit'),
+      map('ppe', '1500', 'asset', 'debit'),
+      // A member ASSET (a clearing account) mapped onto a group LIABILITY line: its debit balance must REDUCE liabilities.
+      ['clearing', { groupAccountId: 'g2100', groupAccountCode: '2100', groupAccountName: '2100', groupAccountType: 'liability', groupNormalBalance: 'credit', companyAccountId: 'clearing' }],
+      map('cap', '3000', 'equity', 'credit'),
+    ])]]));
+    // Bank 5,000 + PPE 2,000 - AccDep 1,000 = 6,000 = (Clearing -1,000) + Capital 7,000
+    mockSql.mockResolvedValueOnce([
+      row('bank', 'asset', 'debit', 5000, 0),
+      row('ppe', 'asset', 'debit', 2000, 0),
+      row('accdep', 'asset', 'credit', 0, 1000),
+      row('clearing', 'asset', 'debit', 1000, 0),
+      row('cap', 'equity', 'credit', 0, 7000),
+    ]).mockResolvedValueOnce([{ revenue: 0, expenses: 0 }]);
+    // An elimination DEBITING accumulated depreciation by 500 shrinks it: +500 on the asset section.
+    vi.mocked(getPostedEliminations).mockResolvedValue([
+      { groupAccountId: 'g1510', groupAccountCode: '1510', groupAccountName: '1510', groupAccountType: 'asset', debit: 500, credit: 0 },
+    ] as Awaited<ReturnType<typeof getPostedEliminations>>);
+
+    const bs = await getConsolidatedBalanceSheet('grp', '2026-12-31');
+
+    expect(bs.liabilities.find((l) => l.accountCode === '2100')!.entities[CO]).toBeCloseTo(-1000, 2);
+    expect(bs.totalLiabilities.entities[CO]).toBeCloseTo(-1000, 2);
+    expect(bs.assets.find((a) => a.accountCode === '1510')!.eliminationAmount).toBeCloseTo(500, 2);
+    expect(bs.totalAssets.entities[CO]).toBeCloseTo((bs.totalLiabilities.entities[CO] ?? 0) + bs.totalEquity.entities[CO]!, 2);
+  });
 });
