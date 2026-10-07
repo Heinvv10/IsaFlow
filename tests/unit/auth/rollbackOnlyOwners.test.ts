@@ -11,7 +11,9 @@ import type { NextApiResponse } from 'next';
 import { SignJWT } from 'jose';
 import { pgTypesMock } from '../helpers/pgTypesMock';
 
-const h = vi.hoisted(() => ({ events: [] as string[], sent: [] as Array<{ status: number; body: string }> }));
+const h = vi.hoisted(() => ({
+  events: [] as string[], sent: [] as Array<{ status: number; body: string; headers: Record<string, unknown> }>,
+}));
 const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
@@ -43,11 +45,15 @@ const token = () => new SignJWT({ sub: 'user-1', aud: 'authenticated', role: 'au
 
 function makeRes() {
   const res = {
-    statusCode: 200, headersSent: false,
+    statusCode: 200, headersSent: false, headers: {} as Record<string, unknown>,
     status(c: number) { res.statusCode = c; return res; },
-    setHeader() { return res; }, getHeader() { return undefined; },
+    setHeader(k: string, v: unknown) { res.headers[k.toLowerCase()] = v; return res; },
+    getHeader(k: string) { return res.headers[k.toLowerCase()]; },
+    removeHeader(k: string) { delete res.headers[k.toLowerCase()]; },
     json(v: unknown) { return res.end(JSON.stringify(v)); },
-    end(body?: unknown) { h.sent.push({ status: res.statusCode, body: String(body ?? '') }); return res; },
+    end(body?: unknown) {
+      h.sent.push({ status: res.statusCode, body: String(body ?? ''), headers: { ...res.headers } }); return res;
+    },
   };
   return res as unknown as NextApiResponse;
 }
@@ -58,6 +64,8 @@ function handBackThenAnswer(status: number) {
     const { als } = await import('@/lib/als'); // after vi.resetModules: the owner's own AsyncLocalStorage
     als.getStore()!.rollbackOnly = 'test hand-back';
     h.events.push('HANDLER');
+    res.setHeader('Set-Cookie', ['sb-access-token=TARGET; HttpOnly']); // what impersonate sets before answering
+    res.setHeader('Location', '/accounting');
     res.status(status).json({ success: status < 400 });
   };
 }
@@ -101,11 +109,14 @@ describe.each(owners)('%s honours rollbackOnly', (_name, run) => {
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]!.status).toBe(500);
     expect(JSON.parse(h.sent[0]!.body)).toMatchObject({ success: false, code: 'COMMIT_FAILED' });
+    // sec-numrace F1: the replaced answer does not carry the route's session cookie or redirect.
+    expect(h.sent[0]!.headers).not.toHaveProperty('set-cookie');
+    expect(h.sent[0]!.headers).not.toHaveProperty('location');
   });
 
   it("a 503 answer (k071's contended outcome): ROLLBACK, and the 503 stands", async () => {
     await run(503);
     expect(finalised()).toEqual(['ROLLBACK']);
-    expect(h.sent).toEqual([{ status: 503, body: JSON.stringify({ success: false }) }]);
+    expect(h.sent.map(({ status, body }) => ({ status, body }))).toEqual([{ status: 503, body: JSON.stringify({ success: false }) }]);
   });
 });

@@ -120,11 +120,22 @@ export function answerInstead(res: NextApiResponse, deferred: DeferredEnd, statu
     abortResponse(res);
     return;
   }
+  dropRouteAnswerHeaders(res);
   const body = JSON.stringify(payload);
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Length', Buffer.byteLength(body));
   deferred.realEnd(body);
+}
+
+/**
+ * sec-numrace F1: a replaced answer must not carry what the route set for the answer it meant to give. Its
+ * Set-Cookie (impersonate: the target's session) would land in the browser while the transaction, audit row
+ * included, rolled back; its Location would redirect into work that did not happen.
+ */
+function dropRouteAnswerHeaders(res: NextApiResponse): void {
+  res.removeHeader('Set-Cookie');
+  res.removeHeader('Location');
 }
 
 /**
@@ -185,6 +196,7 @@ export function answerThrow(
     if (!res.writableEnded) abortResponse(res);
     return;
   }
+  dropRouteAnswerHeaders(res);
   try {
     respondToUnhandledError(res, err);
   } catch (respondErr) {
