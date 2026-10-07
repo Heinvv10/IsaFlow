@@ -52,11 +52,12 @@ const GATED: Record<string, string> = {
   [`${A}bank/bankReconciliationService.ts`]: 'recon adjustment: a person names the contra and amount — refused up front (Hein H1)',
   [`${A}bank/bankAllocationService.ts`]: 'bank line to an account: evidenced lines exempt (D2); a hand-keyed one refused up front (Hein H2)',
   [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
+  [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
+  'src/lib/mcp/tools/writeOpeningBalance.ts': 'MCP opening balance: refused outright under enforcement — a person enters them (Hein, round 4)',
 };
 const EXEMPT: Record<string, string> = {
   [`${A}gl/journalEntryPostService.ts`]: 'the primitive itself: re-enters for the s16(3) companion of a journal already gated',
   [`${A}gl/journalEntryPostingService.ts`]: 'reversal of a posted journal: not in decision 2 (follow-up for Hein)',
-  'src/lib/mcp/tools/writeOpeningBalance.ts': 'opening balance, bank vs Opening Balance Equity (decision 2); under enforcement any other contra refused (Hein)',
   [`${A}gl/openingBalancePostingService.ts`]: 'opening balances (writes source manual): decision 2',
   [`${A}core/migrationOpeningBalanceService.ts`]: 'migration opening balances: import (Q1)',
   [`${A}core/migrationWizardOpeningBalanceService.ts`]: 'migration wizard opening balances: import (Q1)',
@@ -72,7 +73,6 @@ const EXEMPT: Record<string, string> = {
   [`${A}ar/customerPaymentAllocationService.ts`]: 'customer receipt: money in (PR5 out of scope)',
   [`${A}ar/gatewayFeeService.ts`]: 'Paystack gateway fee: decision 2 (Paystack receipts)',
   [`${A}ar/writeOffService.ts`]: 'write-off: the posting of a write-off document',
-  [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank auto-post sweep: decision 2',
   [`${A}capture/provisionalPostingService.ts`]: 'provisional capture posting: document posting',
   [`${A}expense/expenseClaimService.ts`]: 'expense claim posting: document posting',
   [`${A}gl/glCrossModuleHooks.ts`]: 'cross-module document hooks: system journals',
@@ -113,10 +113,11 @@ describe('the callers of postJournalEntry', () => {
     before(`${A}gl/reclassification/post.ts`, 'markManualJournal(', 'postJournalEntry(');
     before(`${A}gl/closeRun/closeRunService.ts`, 'gateManualJournalPost(', 'updateProposalOutcome(companyId, proposal.id');
     before(`${A}bank/bankReconciliationService.ts`, 'newManualJournalRefusal(', 'createJournalEntry(');
-    before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
+    before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
+    before(`${A}bank/bankRuleAutoPostLine.ts`, "if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}capture/pettyCashJournalService.ts`, 'newManualJournalGate(', 'claimCapturedDocumentForPosting(');
     before(`${A}capture/pettyCashJournalService.ts`, 'settleUnattendedJournal(', 'postJournalEntry(');
-    before('src/lib/mcp/tools/writeOpeningBalance.ts', 'OPENING_BALANCE_EQUITY_SUBTYPE', 'postJournalEntry(');
+    before('src/lib/mcp/tools/writeOpeningBalance.ts', "if (await isEnforced(ctx.companyId, 'manual_journal'))", 'createJournalEntry(');
     before('pages/api/accounting/bank-transactions-manual.ts', 'handKeyedLineJournalRefusal(', 'INSERT INTO bank_transactions');
     before('src/lib/mcp/tools/writeReclassification.ts', 'agentNewManualJournalsRefusal(', 'postReclassBatch(');
   });
