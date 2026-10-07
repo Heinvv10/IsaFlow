@@ -108,6 +108,12 @@ describeIfDisposable('approving invoices with and without coded lines (migration
     expect([...(await storedInvoiceLinesRefusals(f.fx.companyId, [theirs[0]!.id])).keys()]).toEqual([]);
   });
 
+  it('the read-only (lock: false) account read is company-scoped: another company\'s account is foreign to it', async () => {
+    expect(await invoiceLineCodingRefusal(f.fx.companyId,
+      [{ glAccountId: f.acct.foreign, projectId: null, costCenterId: null }], { lock: false }))
+      .toMatch(/not in your company/);
+  });
+
   it('the FOR SHARE read holds the accounts: a concurrent deactivation waits, and times out', async () => {
     const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
     const holder = await pool.connect();

@@ -11,7 +11,15 @@ const router = vi.hoisted(() => ({ query: {} as Record<string, string>, pathname
 vi.mock('next/router', () => ({ useRouter: () => router }));
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('@/components/accounting/ScanAndFillButton', () => ({ ScanAndFillButton: () => null }));
+// Stands in for a scan: one click hands the page an extraction with two lines.
+vi.mock('@/components/accounting/ScanAndFillButton', () => ({
+  ScanAndFillButton: ({ onExtracted }: { onExtracted: (d: unknown) => void }) => (
+    <button type="button" onClick={() => onExtracted({ date: null, dueDate: null, vatRate: null, customerName: null, confidence: 0.9,
+      lineItems: [{ description: 'Scanned A', quantity: 1, unitPrice: 10 }, { description: 'Scanned B', quantity: 1, unitPrice: 20 }] })}>
+      Scan
+    </button>
+  ),
+}));
 
 import NewCustomerInvoicePage from '../../../pages/accounting/customer-invoices/new';
 import EditCustomerInvoicePage from '../../../pages/accounting/customer-invoices/edit/[invoiceId]';
@@ -31,7 +39,8 @@ const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data 
 let sent: { url: string; body: Record<string, unknown> }[] = [];
 let gets: string[] = [];
 
-function serve(invoice?: Record<string, unknown>, opts: { failLists?: boolean } = {}) {
+function serve(invoice?: Record<string, unknown>, opts: { failLists?: boolean; failIdsOnce?: boolean } = {}) {
+  let idsFailures = opts.failIdsOnce ? 1 : 0;
   sent = []; gets = [];
   vi.stubGlobal('fetch', vi.fn(async (url: unknown, init?: RequestInit) => {
     const u = String(url);
@@ -48,6 +57,7 @@ function serve(invoice?: Record<string, unknown>, opts: { failLists?: boolean } 
         account(ACC.retired, '4400', 'Retired', { isActive: false }), account(ACC.crew, '6100', 'Crew', { accountType: 'expense' }),
       ]);
     }
+    if (u.includes('/projects?ids=') && idsFailures > 0) { idsFailures -= 1; return new Response('{}', { status: 500 }); }
     if (u.includes('/projects?ids=')) return ok([{ id: FAR, project_number: 'P250', name: 'Long-running series', status: 'active' }]);
     if (u.includes('/projects')) {
       return ok([{ id: P1, project_number: 'P1', name: 'Shoot', status: 'active' },
@@ -109,6 +119,27 @@ describe('customer invoice line coding — new invoice', () => {
     ]);
   });
 
+  it('an untouched line follows the header project; a line someone has typed into keeps its own', async () => {
+    serve();
+    render(<NewCustomerInvoicePage />);
+    await fillNewInvoice(); // the first line is now worked
+    fireEvent.click(screen.getByRole('button', { name: /Add Line/ })); // a pristine second line
+    fireEvent.click(dimensions());
+    fireEvent.change(screen.getByLabelText('Invoice project'), { target: { value: P1 } });
+    const projects = screen.getAllByLabelText('Project') as HTMLSelectElement[];
+    expect(projects.map((p) => p.value)).toEqual(['', P1]);
+  });
+
+  it('scan-filled lines start on the header project', async () => {
+    serve();
+    render(<NewCustomerInvoicePage />);
+    await waitFor(() => expect(optionTexts(screen.getByLabelText('Invoice project'))).toContain('P1 Shoot'));
+    fireEvent.change(screen.getByLabelText('Invoice project'), { target: { value: P1 } });
+    fireEvent.click(screen.getByRole('button', { name: 'Scan' }));
+    // Dimensions opens itself: the lines now carry a project.
+    expect((screen.getAllByLabelText('Project') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+  });
+
   it('says the options failed to load, rather than "unavailable"', async () => {
     serve(undefined, { failLists: true });
     render(<NewCustomerInvoicePage />);
@@ -146,13 +177,47 @@ describe('customer invoice line coding — edit', () => {
   });
 });
 
+describe('customer invoice line coding — edit, more', () => {
+  const item = (extra: Record<string, unknown>) =>
+    ({ description: 'Spot', quantity: 1, unit_price: 100, amount: 100, gl_account_id: null, project_id: null, cost_center_id: null, ...extra });
+  const invoice = (items: Record<string, unknown>[], projectId: string | null) => ({
+    id: 'inv-1', status: 'draft', invoice_number: 'INV-1', client_id: 'cust-1', invoice_date: '2026-07-15',
+    tax_rate: 15, currency_code: 'ZAR', project_id: projectId, items,
+  });
+
+  it('a line added on the edit page starts on the header project; so does an invoice\'s first line when it has none', async () => {
+    router.query = { invoiceId: 'inv-1' };
+    serve(invoice([], P1));
+    render(<EditCustomerInvoicePage />);
+    await waitFor(() => expect((screen.getAllByLabelText('Project')[0] as HTMLSelectElement).value).toBe(P1));
+    fireEvent.click(screen.getByRole('button', { name: /Add Line/ }));
+    expect((screen.getAllByLabelText('Project') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+  });
+
+  it('a failed by-id lookup reads "could not load", and Retry fetches again and names it', async () => {
+    router.query = { invoiceId: 'inv-1' };
+    serve(invoice([item({ project_id: FAR })], null), { failIdsOnce: true });
+    render(<EditCustomerInvoicePage />);
+    const lineProject = await screen.findByLabelText('Project') as HTMLSelectElement;
+    await waitFor(() => expect(lineProject.selectedOptions[0]!.textContent).toBe('Could not load the list — kept as saved'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect((screen.getByLabelText('Project') as HTMLSelectElement).selectedOptions[0]!.textContent)
+      .toBe('P250 Long-running series'));
+  });
+});
+
 describe('the approver sees what each line posts to', () => {
   it('names the account, project and cost centre, or the default sales account', () => {
     const base = { id: 'i', description: 'x', quantity: 1, unit_price: 1, amount: 1, tax_rate: 15 };
-    expect(lineCoding({ ...base, gl_account_code: '4100', gl_account_name: 'Commercials', project_number: 'P1',
+    expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', project_number: 'P1',
       line_project_name: 'Shoot', cost_center_code: 'CC1', cost_center_name: 'Studio' }))
       .toBe('Revenue: 4100 Commercials · Project: P1 Shoot · Cost centre: CC1 Studio');
     expect(lineCoding(base)).toBe('Revenue: default sales account');
+    expect(lineCoding({ ...base, gl_account_id: 'gone' })).toBe('Revenue: unknown account');
+    expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: false }))
+      .toBe('Revenue: as posted — see the journal');
+    expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: true }))
+      .toBe('Revenue: 4100 Commercials');
   });
 });
 

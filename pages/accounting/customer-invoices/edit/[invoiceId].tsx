@@ -101,7 +101,7 @@ export default function EditCustomerInvoicePage() {
           projectId: it.project_id ?? '',
           costCenterId: it.cost_center_id ?? '',
         };
-      }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED }]);
+      }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
       setLoading(false);
     }).catch((err: unknown) => {
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));

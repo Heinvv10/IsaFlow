@@ -58,7 +58,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label }: {
   // cap, or written by another path) stays selected and says what it is, so
   // saving does not silently recode it.
   const offered = options.some((o) => o.id === value);
-  const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.status]) : null;
+  const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.lookupFailed ? 'failed' : all.status]) : null;
   return (
     <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={inp}>
       <option value="">{empty}</option>
@@ -88,7 +88,12 @@ export function InvoiceLineItemsTable({ lines, currencyCode, lineTotal, onUpdate
           <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
-      {options.error && <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">{options.error}</p>}
+      {options.error && (
+        <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
+          {options.error}{' '}
+          <button type="button" onClick={options.retry} className="underline font-medium">Retry</button>
+        </p>
+      )}
       <table className="w-full text-sm">
         <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
           <tr>

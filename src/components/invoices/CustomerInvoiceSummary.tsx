@@ -21,10 +21,18 @@ interface Props {
   items: CustomerInvoiceItem[];
 }
 
-/** What the line posts to, for whoever approves it (migration 870). */
+/**
+ * What the line posts to, for whoever approves it (migration 870). A posted
+ * invoice whose journal did NOT credit the line's account (posted before line
+ * accounts existed) says so instead of naming an account it never touched; a
+ * line account this company cannot resolve is "unknown", never the default.
+ */
 export function lineCoding(item: CustomerInvoiceItem): string {
   const named = (code?: string | null, name?: string | null) => [code, name].filter(Boolean).join(' ');
-  const parts = [`Revenue: ${named(item.gl_account_code, item.gl_account_name) || 'default sales account'}`];
+  const account = !item.gl_account_id ? 'default sales account'
+    : item.account_posted === false ? 'as posted — see the journal'
+      : named(item.gl_account_code, item.gl_account_name) || 'unknown account';
+  const parts = [`Revenue: ${account}`];
   const project = named(item.project_number, item.line_project_name);
   if (project) parts.push(`Project: ${project}`);
   const centre = named(item.cost_center_code, item.cost_center_name);

@@ -209,9 +209,10 @@ export function parseSupplierInvoiceInput(
 
 /** The keys CUSTOMER_INVOICE_LINE_SCHEMA declares — and the only ones a line may carry. */
 const CUSTOMER_LINE_KEYS: ReadonlySet<string> = new Set(Object.keys(CUSTOMER_INVOICE_LINE_SCHEMA.properties));
-const SNAKE_CASE_OF: Readonly<Record<string, string>> = {
-  glAccountId: 'gl_account_id', projectId: 'project_id', costCenterId: 'cost_center_id', unitPrice: 'unit_price',
-};
+// A Map, not an object literal: a caller's key of "constructor" or "__proto__" must find nothing.
+const SNAKE_CASE_OF: ReadonlyMap<string, string> = new Map([
+  ['glAccountId', 'gl_account_id'], ['projectId', 'project_id'], ['costCenterId', 'cost_center_id'], ['unitPrice', 'unit_price'],
+]);
 
 /** Parse one customer-invoice payload. Returns the refusal MESSAGE on failure. */
 export function parseCustomerInvoiceInput(
@@ -246,8 +247,10 @@ export function parseCustomerInvoiceInput(
     // silence and the line posted to the default account.
     const unknownKey = Object.keys(o).find((k) => !CUSTOMER_LINE_KEYS.has(k));
     if (unknownKey !== undefined) {
-      const hint = SNAKE_CASE_OF[unknownKey];
-      return `items[${i}].${unknownKey} is not a line field${hint ? ` — did you mean ${hint}?` : ''}; `
+      // Echoed bounded and quoted: the key is the caller's text, of any length or content.
+      const shown = JSON.stringify(unknownKey.length > 64 ? `${unknownKey.slice(0, 64)}…` : unknownKey);
+      const hint = SNAKE_CASE_OF.get(unknownKey);
+      return `items[${i}] has ${shown}, which is not a line field${hint ? ` — did you mean ${hint}?` : ''}; `
         + `a line takes ${[...CUSTOMER_LINE_KEYS].join(', ')}`;
     }
     const description = typeof o.description === 'string' ? o.description.trim() : '';

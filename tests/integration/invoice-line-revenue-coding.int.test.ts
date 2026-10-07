@@ -8,12 +8,13 @@
  *
  * Disposable databases only (migration 870 is not on isaflow_dev).
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/customerInvoiceReadService';
+import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { mintRecurringCustomerInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
 import { RecurringTemplateLineAccountError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
@@ -21,6 +22,10 @@ import type { RecurringTemplate } from '@/modules/accounting/services/core/recur
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+
+vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
+  snapshotInvoicePdf: vi.fn(async () => ({ documentId: null, wasExisting: false })),
+}));
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
@@ -146,9 +151,33 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
       costCenterId: f.centre.active }]);
     const named = async () => ((await inTx(f.fx, () => getCustomerInvoiceDetail(f.fx.companyId, id))) as { items: Record<string, unknown>[] }).items[0]!;
     expect(await named()).toMatchObject({ gl_account_code: '4100', project_number: expect.stringMatching(/^P1-/),
-      line_project_name: 'Production P1', cost_center_code: 'CC1' });
-    await sql`UPDATE customer_invoice_items SET project_id = ${f.project.foreign}::UUID WHERE invoice_id = ${id}::UUID`;
-    expect(await named()).toMatchObject({ project_number: null, line_project_name: null });
+      line_project_name: 'Production P1', cost_center_code: 'CC1', account_posted: null });
+    await sql`UPDATE customer_invoice_items SET project_id = ${f.project.foreign}::UUID, gl_account_id = ${f.acct.foreign}::UUID,
+              cost_center_id = ${f.centre.foreign}::UUID WHERE invoice_id = ${id}::UUID`;
+    expect(await named()).toMatchObject({ gl_account_code: null, gl_account_name: null, project_number: null,
+      line_project_name: null, cost_center_code: null, cost_center_name: null });
+  });
+
+  it('account_posted says whether a posted invoice\'s journal credited the line\'s account', async () => {
+    const { id } = await create([{ description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials }]);
+    await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+    const posted = async () => ((await inTx(f.fx, () => getCustomerInvoiceDetail(f.fx.companyId, id))) as { items: Record<string, unknown>[] }).items[0]!.account_posted;
+    expect(await posted()).toBe(true);
+    // As a pre-870 invoice reads: the line names an account its journal never credited.
+    await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.postProduction}::UUID WHERE invoice_id = ${id}::UUID`;
+    expect(await posted()).toBe(false);
+  });
+
+  it('draft edit re-sending a header project cancelled since it was set is not refused; switching to a cancelled one is', async () => {
+    const { id } = await create([{ description: 'x', unitPrice: 10 }], f.project.p2);
+    await sql`UPDATE projects SET status = 'cancelled' WHERE id = ${f.project.p2}::UUID`;
+    try {
+      const put = (projectId: string) => inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, projectId, notes: 'n' } as never));
+      expect(await put(f.project.p2)).toEqual({ kind: 'ok' });
+      expect(await put(f.project.cancelled)).toEqual({ kind: 'bad_line', message: expect.stringMatching(/cancelled/) });
+    } finally {
+      await sql`UPDATE projects SET status = 'active' WHERE id = ${f.project.p2}::UUID`;
+    }
   });
 
   it('a recurring template naming a non-revenue or foreign account is refused before the number is reserved', async () => {

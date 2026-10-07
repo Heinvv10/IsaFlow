@@ -211,7 +211,13 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
   const items = (await sql`
     SELECT cii.*,
            a.account_code AS gl_account_code, a.account_name AS gl_account_name,
-           p.project_number, p.name AS line_project_name, cc.code AS cost_center_code, cc.name AS cost_center_name
+           p.project_number, p.name AS line_project_name, cc.code AS cost_center_code, cc.name AS cost_center_name,
+           -- Posted invoices only: did its journal actually credit this line's account? An invoice posted
+           -- before migration 870 credited default_revenue whatever account its line names.
+           CASE WHEN ci.gl_journal_entry_id IS NULL OR cii.gl_account_id IS NULL THEN NULL
+                ELSE EXISTS (SELECT 1 FROM gl_journal_lines jl
+                             WHERE jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
+                               AND jl.gl_account_id = cii.gl_account_id) END AS account_posted
     FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
     -- Each scoped to the invoice's company: a line naming another company's id
     -- (refused on write, but forgeable) shows no name rather than theirs.

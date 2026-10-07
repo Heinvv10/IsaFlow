@@ -54,7 +54,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate,
+      SELECT status, currency_code, exchange_rate, tax_rate, project_id,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -103,7 +103,10 @@ export async function editDraftCustomerInvoice(
       codings = resolved;
     }
     if (items || projectId) {
-      const header = projectId ? [{ glAccountId: null, projectId: projectId.toLowerCase(), costCenterId: null }] : [];
+      // The header project is display only: re-sending the one it already has
+      // (cancelled since it was set) must not refuse every save of the draft.
+      const changed = projectId && projectId.toLowerCase() !== idOrNull(ownedRows[0]!.project_id);
+      const header = changed ? [{ glAccountId: null, projectId: projectId.toLowerCase(), costCenterId: null }] : [];
       const refusal = await invoiceLineCodingRefusal(companyId, [...codings, ...header]);
       if (refusal) return { kind: 'bad_line' as const, message: refusal };
     }

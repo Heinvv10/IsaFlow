@@ -21,6 +21,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const { status, ids } = req.query;
     let rows: Row[];
+    // ?ids=a&ids=b arrives as an array: refused, never a silent fall-through to the full list.
+    if (ids !== undefined && typeof ids !== 'string') return apiResponse.badRequest(res, 'ids must be ONE comma-separated list');
     if (typeof ids === 'string') {
       // The projects a document already names, whatever the 200-row list below
       // returns — so an invoice line's project never reads "unavailable".

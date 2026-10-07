@@ -21,7 +21,11 @@ export interface InvoiceLineCodingOptions {
   centres: CodingOption[];
   known: Readonly<Record<string, string>>;
   status: 'loading' | 'ready' | 'failed';
+  /** The by-id lookup of the projects the document names failed: those read "could not load", not "unavailable". */
+  lookupFailed: boolean;
   error: string;
+  /** Load everything again, after a failure. */
+  retry: () => void;
 }
 
 type Rec = Record<string, unknown>;
@@ -51,13 +55,16 @@ export function centreOptions(body: unknown): CodingOption[] {
   return records(items).map((c) => ({ id: str(c.id), label: `${str(c.code)} ${str(c.name)}` }));
 }
 
-const EMPTY: InvoiceLineCodingOptions = { accounts: [], projects: [], centres: [], known: {}, status: 'loading', error: '' };
+type Loaded = Omit<InvoiceLineCodingOptions, 'retry'>;
+const EMPTY: Loaded = { accounts: [], projects: [], centres: [], known: {}, status: 'loading', lookupFailed: false, error: '' };
 
 /** @param referencedProjectIds projects the document already names — labelled even when not offered. */
 export function useInvoiceLineCodingOptions(referencedProjectIds: readonly string[] = []): InvoiceLineCodingOptions {
-  const [options, setOptions] = useState<InvoiceLineCodingOptions>(EMPTY);
+  const [options, setOptions] = useState<Loaded>(EMPTY);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
+    setOptions(EMPTY);
     Promise.all([
       apiJson('/api/accounting/chart-of-accounts', undefined, 'Could not load the revenue accounts - try again'),
       apiJson('/api/accounting/projects', undefined, 'Could not load the projects - try again'),
@@ -68,13 +75,13 @@ export function useInvoiceLineCodingOptions(referencedProjectIds: readonly strin
         ...centreOptions(centres)];
       setOptions({
         accounts: revenueAccountOptions(accounts), projects: projectOptions(projects), centres: centreOptions(centres),
-        known: Object.fromEntries(all.map((o) => [o.id, o.label])), status: 'ready', error: '',
+        known: Object.fromEntries(all.map((o) => [o.id, o.label])), status: 'ready', lookupFailed: false, error: '',
       });
     }).catch((err: unknown) => {
       if (live) setOptions({ ...EMPTY, status: 'failed', error: apiErrorMessage(err, 'Could not load the line account options - try again') });
     });
     return () => { live = false; };
-  }, []);
+  }, [attempt]);
 
   const missing = options.status === 'ready'
     ? [...new Set(referencedProjectIds.filter((id) => id !== '' && !(id in options.known)))].sort().join(',')
@@ -85,12 +92,13 @@ export function useInvoiceLineCodingOptions(referencedProjectIds: readonly strin
     apiJson(`/api/accounting/projects?ids=${missing}`, undefined, 'Could not load the invoice\'s projects - try again')
       .then((rows) => {
         if (live) setOptions((o) => ({ ...o, known: { ...o.known, ...Object.fromEntries(records(rows).map((p) => [str(p.id), projectLabel(p)])) } }));
+        // An id still unlabelled after a good lookup is really not this company's any more: "unavailable" is right.
       })
       .catch((err: unknown) => {
-        if (live) setOptions((o) => ({ ...o, error: apiErrorMessage(err, 'Could not load the invoice\'s projects - try again') }));
+        if (live) setOptions((o) => ({ ...o, lookupFailed: true, error: apiErrorMessage(err, 'Could not load the invoice\'s projects - try again') }));
       });
     return () => { live = false; };
-  }, [missing]);
+  }, [missing, attempt]);
 
-  return options;
+  return { ...options, retry: () => setAttempt((n) => n + 1) };
 }

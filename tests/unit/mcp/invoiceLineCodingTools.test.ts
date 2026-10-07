@@ -57,8 +57,24 @@ describe('create_draft_invoice', () => {
   ])('refuses the unknown line key %s, naming %s, before anything is written', async (camel, snake) => {
     const res = await createDraftInvoiceTool.handler({ ...one({}, { [camel]: ACCOUNT }), idempotency_key: 'k' }, ctx) as Res;
     expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain(`items[0].${camel} is not a line field — did you mean ${snake}?`);
+    expect(res.content[0]!.text).toContain(`items[0] has "${camel}", which is not a line field — did you mean ${snake}?`);
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('an unknown line key is echoed safely', () => {
+  it('bounded to 64 characters and JSON-quoted, whatever the caller sent', async () => {
+    const key = `x"${'y'.repeat(200)}`;
+    const res = await createDraftInvoiceTool.handler({ ...one({}, { [key]: 1 }), idempotency_key: 'k' }, ctx) as Res;
+    expect(res.content[0]!.text).toContain(`items[0] has ${JSON.stringify(`${key.slice(0, 64)}…`)}, which is not a line field;`);
+    expect(res.content[0]!.text).not.toContain('y'.repeat(70));
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])('%s gets no "did you mean" from the prototype', async (key) => {
+    const res = await createDraftInvoiceTool.handler(
+      { ...one(), items: [JSON.parse(`{"description":"x","unit_price":1,${JSON.stringify(key)}:1}`)], idempotency_key: 'k' }, ctx) as Res;
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain(`items[0] has ${JSON.stringify(key)}, which is not a line field;`);
   });
 });
 
@@ -80,7 +96,7 @@ describe('bulk_create_customer_invoices', () => {
   it('refuses an unknown line key in any element, before anything is written', async () => {
     const res = await bulkCreateCustomerInvoicesTool.handler({ invoices: [one(), one({}, { glAccountId: ACCOUNT })], idempotency_key: 'k' }, ctx) as Res;
     expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toContain('invoices[1].items[0].glAccountId is not a line field');
+    expect(res.content[0]!.text).toContain('invoices[1].items[0] has "glAccountId", which is not a line field');
     expect(create).not.toHaveBeenCalled();
   });
 });

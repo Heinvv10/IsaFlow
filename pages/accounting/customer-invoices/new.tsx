@@ -52,6 +52,11 @@ export default function NewCustomerInvoicePage() {
   // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
   const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId }]);
   const codingOptions = useInvoiceLineCodingOptions();
+  // A line nobody has typed into yet (the initial one) follows the header project; a worked line keeps its own.
+  const pickProject = (v: string) => {
+    setLines(prev => prev.map(l => (!l.description && !l.unitPrice && l.projectId === form.projectId ? { ...l, projectId: v } : l)));
+    setForm(p => ({ ...p, projectId: v }));
+  };
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
   const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
@@ -72,7 +77,7 @@ export default function NewCustomerInvoicePage() {
       if (match) setForm(f => ({ ...f, clientId: String(match.id) }));
     }
     if (data.lineItems.length > 0) {
-      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED })));
+      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId })));
     }
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
@@ -163,7 +168,7 @@ export default function NewCustomerInvoicePage() {
                   </div>
                   <div>
                     <label className={lbl}>Project <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
-                    <CodingPicker label="Invoice project" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No project" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
+                    <CodingPicker label="Invoice project" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No project" onChange={pickProject} />
                   </div>
                   {isFx && (
                     <div>
