@@ -116,7 +116,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
       try {
-        const { reversedJournalEntryId } = await cancelCustomerInvoice(companyId, id, userId);
+        const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId));
+        if (posted === JOURNAL_DATE_REFUSED) return;
+        const { reversedJournalEntryId } = posted;
         log.info('Customer invoice action', { id, action, newStatus: 'cancelled', reversedJournalEntryId });
         return apiResponse.success(res, {
           id, status: 'cancelled', glJournalEntryId: null,

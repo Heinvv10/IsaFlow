@@ -172,10 +172,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // contradict the match they confirmed. The cash stays unapplied and
       // `list_unapplied_payments` reports it against the bill it eventually
       // belongs to.
-      await allocateTransaction(
+      if (await withJournalDateRefusal(res, () => allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
         undefined, undefined, undefined, undefined, undefined, { autoApply: 'none' },
-      );
+      )) === JOURNAL_DATE_REFUSED) return;
 
       await sql`
         UPDATE purchase_orders SET status = 'paid', updated_at = NOW()

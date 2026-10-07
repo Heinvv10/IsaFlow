@@ -74,7 +74,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         });
       }
       case 'cancel': {
-        const cancelled = await cancelCreditNote(companyId, parsed.data.creditNoteId, userId, parsed.data.reason);
+        const { creditNoteId, reason } = parsed.data;
+        const cancelled = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, creditNoteId, userId, reason));
+        if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);
       }
       case 'apply': {

@@ -120,6 +120,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (submitAction === 'post') {
         let posted: CreditNote;
         try {
+          // Not wrapped: the note was created above, so a window refusal stays the 500 that rolls both back.
           posted = await approveCreditNote(companyId, note.id, userId, { autoApply: 'fifo' });
         } catch (err) {
           // R-035: the draft above STAYS — a 409 is committed by withAuth, and
@@ -180,7 +181,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       }
 
       if (action === 'reverse') {
-        const reversed = await cancelCreditNote(companyId, id, userId);
+        const reversed = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, id, userId));
+        if (reversed === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, reversed);
       }
 

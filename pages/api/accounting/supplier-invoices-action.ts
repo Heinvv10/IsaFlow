@@ -61,7 +61,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, invoice);
       }
       case 'cancel': {
-        const invoice = await cancelSupplierInvoice(companyId, invoiceId, userId);
+        const invoice = await withJournalDateRefusal(res, () => cancelSupplierInvoice(companyId, invoiceId, userId));
+        if (invoice === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, invoice);
       }
       case 'match': {

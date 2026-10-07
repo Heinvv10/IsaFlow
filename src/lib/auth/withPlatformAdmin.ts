@@ -177,6 +177,8 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         return;
       }
 
+      // als.rollbackOnly (lib/apiJournalDate): this request must not commit, whatever it answered.
+      if (ctx.rollbackOnly) { unusable = await rollbackFailed(adminClient, 'withPlatformAdmin'); return; }
       await adminClient.query('COMMIT');
       drainAfterCommit(ctx); // R-075: background work starts only after COMMIT, off this client
     } catch (err) {

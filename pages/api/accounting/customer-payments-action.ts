@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
@@ -33,11 +34,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'confirm': {
-        const payment = await confirmCustomerPayment(companyId, paymentId, userId);
+        const payment = await withJournalDateRefusal(res, () => confirmCustomerPayment(companyId, paymentId, userId));
+        if (payment === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, payment);
       }
       case 'cancel': {
-        const cancelled = await cancelCustomerPayment(companyId, paymentId, userId, reason);
+        const cancelled = await withJournalDateRefusal(res, () => cancelCustomerPayment(companyId, paymentId, userId, reason));
+        if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);
       }
       default:
