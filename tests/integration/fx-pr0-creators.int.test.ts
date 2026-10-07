@@ -17,6 +17,11 @@ import supplierInvoices from '../../pages/api/accounting/supplier-invoices';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantBill } from './r035-approval.helpers';
 import { cleanupPr2, messageOf, postableCompany } from './r035-pr2.helpers';
+import { als } from '@/lib/als';
+import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import {
+  applySupplierInvoiceDraftUpdate, lockAndPlanSupplierInvoiceDraftUpdate,
+} from '@/modules/accounting/services/ap/supplierInvoiceDraftUpdate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -152,5 +157,42 @@ describe('supplier invoice create', () => {
     const { rows } = await pool.query(
       `SELECT currency_code, functional_total::text AS f FROM supplier_invoices WHERE company_id = $1 AND currency_code = 'USD'`, [c]);
     expect(rows).toEqual([{ currency_code: 'USD', f: '21082.95' }]);
+  });
+});
+
+/** A service call in its own committed transaction, as the MCP tools make it (no route in front). */
+async function inTx<T>(c: string, fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const out = await als.run({ client, userId: owner, companyId: c, claims: {} } as never, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (err) { await client.query('ROLLBACK'); throw err; } finally { client.release(); }
+}
+
+describe('the supplier invoice services (the MCP tools call these with no route in front)', () => {
+  const line = (account: string, unitPrice: number) => [{ description: 'Fibre build', quantity: 1, unitPrice, taxRate: 15, glAccountId: account }];
+
+  it('createSupplierInvoice refuses USD while disabled, itself', async () => {
+    const { c, supplierId, account } = await fixture();
+    await expect(inTx(c, () => createSupplierInvoice(c, {
+      invoiceNumber: `FX-${crypto.randomUUID().slice(0, 8)}`, supplierId, invoiceDate: '2026-09-01',
+      currencyCode: 'USD', exchangeRate: 18.5, items: line(account, 1000),
+    }, owner))).rejects.toThrow(/USD bills are not enabled for this company/);
+  });
+
+  it('the draft update recomputes functional_total in SQL at the bill\'s own rate', async () => {
+    const { c, supplierId, account } = await fixture(true);
+    const bill = await inTx(c, () => createSupplierInvoice(c, {
+      invoiceNumber: `FX-${crypto.randomUUID().slice(0, 8)}`, supplierId, invoiceDate: '2026-09-01',
+      currencyCode: 'USD', exchangeRate: 18.333, items: line(account, 1000),
+    }, owner));
+    await inTx(c, async () => {
+      const plan = await lockAndPlanSupplierInvoiceDraftUpdate(c, bill.id, { items: line(account, 2000) });
+      await applySupplierInvoiceDraftUpdate(c, plan, owner);
+    });
+    const { rows } = await pool.query('SELECT total_amount::text AS t, functional_total::text AS f FROM supplier_invoices WHERE id = $1', [bill.id]);
+    expect(rows).toEqual([{ t: '2300.00', f: '42165.90' }]);
   });
 });
