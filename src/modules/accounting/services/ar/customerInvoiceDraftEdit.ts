@@ -19,6 +19,7 @@
  */
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
+import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 
 type Row = Record<string, unknown>;
@@ -26,7 +27,8 @@ type Row = Record<string, unknown>;
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
-  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' };
+  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
+  | { kind: 'currency_refused'; message: string };
 
 export async function editDraftCustomerInvoice(
   companyId: string, editedBy: string, edit: CustomerInvoiceDraftEdit,
@@ -68,6 +70,17 @@ export async function editDraftCustomerInvoice(
     if (fxCode && fxCode !== String(ownedRows[0]!.currency_code ?? 'ZAR').toUpperCase() && fxRateOverride === null) {
       return { kind: 'rate_required' as const };
     }
+    // FX PR0: the currency and rate the edit leaves the invoice with — the
+    // functional currency at exactly 1, or a foreign one only once enabled.
+    if (fxCode !== null || fxRateOverride !== null) {
+      try {
+        checkDocumentCurrency(await loadCompanyCurrency(companyId, tx),
+          fxCode ?? String(ownedRows[0]!.currency_code ?? ''), fxRateOverride ?? existingRate, 'invoice');
+      } catch (err) {
+        if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
+        throw err;
+      }
+    }
 
     // Defence-in-depth: clientId must belong to the same tenant. The FK
     // alone does not check company_id, so without this guard a caller could
@@ -83,7 +96,7 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    let computed: { subtotal: number; tax: number; total: number; functionalTotal: number; rate: number } | null = null;
+    let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
       // recomputed totals stay correct when the caller doesn't re-send taxRate.
@@ -97,9 +110,7 @@ export async function editDraftCustomerInvoice(
       subtotal = Math.round(subtotal * 100) / 100;
       const tax = Math.round(subtotal * (rate / 100) * 100) / 100;
       const total = Math.round((subtotal + tax) * 100) / 100;
-      const fxRate = fxRateOverride ?? existingRate;
-      const functionalTotal = Math.round(total * fxRate * 100) / 100;
-      computed = { subtotal, tax, total, functionalTotal, rate };
+      computed = { subtotal, tax, total, rate };
     }
 
     await tx`
@@ -116,7 +127,9 @@ export async function editDraftCustomerInvoice(
              subtotal = COALESCE(${computed?.subtotal ?? null}, subtotal),
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),
-             functional_total = COALESCE(${computed?.functionalTotal ?? null}, functional_total),
+             functional_total = CASE WHEN ${computed !== null}::BOOLEAN
+               THEN public.fx_functional(${computed?.total ?? null}::NUMERIC(15,2), COALESCE(${fxRateOverride}::NUMERIC, exchange_rate))
+               ELSE functional_total END,
              currency_code = COALESCE(${fxCode}, currency_code),
              exchange_rate = COALESCE(${fxRateOverride}, exchange_rate),
              updated_at = NOW()

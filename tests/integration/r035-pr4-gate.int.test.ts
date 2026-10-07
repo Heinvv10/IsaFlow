@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, enableFxDocuments, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import {
   cleanupPr4, enforceInvoices, invoiceCompany, invoiceRoutes, invoiceState, plantInvoice,
@@ -144,6 +144,7 @@ describe('the approve route', () => {
 
   it('a USD invoice is matched on its rand value, a tiny rate on its total (both directions)', async () => {
     const c = await company();
+    await enableFxDocuments(pool, c); // FX PR0
     await plantRule(pool, c, 'owner', { documentType: 'customer_invoice', operator: 'greater_than', value: 50000 });
     await enforceInvoices(pool, c, u.b);
     const usd = await plantInvoice(pool, c, u.a, {

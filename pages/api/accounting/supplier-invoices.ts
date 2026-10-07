@@ -22,6 +22,7 @@ import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/su
 import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.types';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 import { assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { resolveDocumentCurrency } from '@/modules/accounting/services/shared/documentCurrency';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -56,6 +57,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // R-068: ahead of the number reservation below, which is itself a write
     // (withAuth COMMITs the 400 this route answers). The service checks again.
     await assertSupplierInCompany(companyId, String(supplierId));
+    // FX PR0: the currency too, ahead of the reservation (the catch below answers 400); the service checks again.
+    await resolveDocumentCurrency(companyId, typeof currencyCode === 'string' ? currencyCode : undefined,
+      exchangeRate ? Number(exchangeRate) : undefined, 'bill');
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

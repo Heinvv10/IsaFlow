@@ -97,6 +97,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'not_draft') return apiResponse.badRequest(res, 'Only draft invoices can be edited');
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
+    if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     return apiResponse.success(res, { updated: true });

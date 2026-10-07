@@ -56,7 +56,6 @@ export interface SupplierInvoiceDraftUpdatePlan {
   paymentTerms: string | null;
   reference: string | null;
   notes: string | null;
-  exchangeRate: number;
   totalBefore: number;
   /** The recomputed lines and totals, or null when the lines are untouched or resent unchanged. */
   lines: (SupplierInvoiceTotals & { taxRate: number }) | null;
@@ -168,7 +167,6 @@ export async function lockAndPlanSupplierInvoiceDraftUpdate(
     paymentTerms: patch.paymentTerms ?? (row.payment_terms ?? null),
     reference: patch.reference ?? (row.reference ?? null),
     notes: patch.notes ?? (row.notes ?? null),
-    exchangeRate: Number(row.exchange_rate ?? 1) || 1,
     totalBefore,
     lines,
     changed,
@@ -212,7 +210,7 @@ export async function applySupplierInvoiceDraftUpdate(
         tax_rate = COALESCE(${totals?.taxRate ?? null}::NUMERIC, tax_rate),
         tax_amount = COALESCE(${totals?.totalTax ?? null}::NUMERIC, tax_amount),
         total_amount = ${totalAmount},
-        functional_total = ${Math.round(totalAmount * plan.exchangeRate * 100) / 100},
+        functional_total = public.fx_functional(${totalAmount}::NUMERIC(15,2), COALESCE(exchange_rate, 1)),
         duplicate_fingerprint = COALESCE(${fingerprint}, duplicate_fingerprint),
         updated_at = NOW()
       WHERE id = ${plan.invoiceId}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'`;
