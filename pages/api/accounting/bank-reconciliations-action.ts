@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -64,10 +65,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     }
     // adjustment
-    const jeId = await createAdjustmentEntry(
+    const jeId = await withJournalDateRefusal(res, () => createAdjustmentEntry(
       companyId, body.reconciliationId, body.bankAccountId, body.contraAccountId,
       body.amount, body.description, userId,
-    );
+    ));
+    if (jeId === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { journalEntryId: jeId });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;

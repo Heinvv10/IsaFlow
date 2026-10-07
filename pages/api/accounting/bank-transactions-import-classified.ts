@@ -8,6 +8,8 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
+import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
+import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -95,6 +97,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const desc = String(tx.description || '').trim();
       if (!txDate || !desc) continue;
       normTxs.push({ tx, amount, txDate, desc });
+    }
+    // The day Postgres stores for each date (gl/journalDateGuard); one outside the ledger window refuses the file (422).
+    const days = await ledgerDaysOf(normTxs.map((n) => n.txDate));
+    for (const n of normTxs) {
+      const day = days.get(n.txDate) ?? null;
+      const windowError = day === null ? null : journalDayWindowError(day);
+      if (windowError) return apiResponse.validationError(res, { transactionDate: [windowError] });
+      if (day !== null) n.txDate = day;
     }
 
     // Fetch all existing fingerprints for this bank account in one query

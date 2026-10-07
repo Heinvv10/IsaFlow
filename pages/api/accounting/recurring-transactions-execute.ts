@@ -6,6 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -24,7 +25,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const userId = req.user.id;
   try {
-    const result = await executeRecurring(companyId, templateId, userId);
+    const result = await withJournalDateRefusal(res, () => executeRecurring(companyId, templateId, userId));
+    if (result === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, result);
   } catch (err) {
     log.error('Recurring execute failed', { templateId, error: err }, 'recurring-execute-api');

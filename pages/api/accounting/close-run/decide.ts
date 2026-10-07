@@ -11,6 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
@@ -41,7 +42,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const proposal = await decideProposal(companyId, runId, proposalId, decision as Decision, userId);
+    const proposal = await withJournalDateRefusal(res, () => decideProposal(companyId, runId, proposalId, decision as Decision, userId));
+    if (proposal === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { proposal });
   } catch (err) {
     if (err instanceof CloseRunNotFoundError) return apiResponse.notFound(res, err.message);
