@@ -22,7 +22,9 @@
  * their ownership (`journalLineOwnership`) in the same transaction anyway.
  */
 import { sql } from '@/lib/neon';
-import { InvoiceLineAccountLockError, isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
+import {
+  InvoiceLineAccountLockError, InvoiceLineCodingRefusal, isCoded, readCodingId, type InvoiceLineCoding,
+} from './invoiceLineCoding';
 import { revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
 
 export const FOREIGN_LINE_CODING = 'One or more invoice lines name an account, project or cost centre that is not in your company.';
@@ -124,6 +126,22 @@ export async function invoiceLineCodingRefusal(
     if (inactive) return `An invoice line cannot be tagged to cost centre ${inactive.code} ${inactive.name}: it is inactive.`;
   }
   return null;
+}
+
+/**
+ * The account ids a quote's lines name — a quote line carries an account and
+ * nothing else — held to the invoice-line rules, because converting the quote
+ * copies them onto the invoice it raises. Throws the one line-coding refusal.
+ */
+export async function assertLineAccountIds(companyId: string, ids: readonly unknown[]): Promise<void> {
+  const codings: InvoiceLineCoding[] = [];
+  for (const [i, raw] of ids.entries()) {
+    const glAccountId = readCodingId(raw);
+    if (glAccountId === undefined) throw new InvoiceLineCodingRefusal(`lines[${i}].accountId must be a UUID`);
+    codings.push({ glAccountId, projectId: null, costCenterId: null });
+  }
+  const refusal = await invoiceLineCodingRefusal(companyId, codings);
+  if (refusal) throw new InvoiceLineCodingRefusal(refusal);
 }
 
 /** An invoice's stored lines, oldest first; `null` when the invoice is not this company's. */

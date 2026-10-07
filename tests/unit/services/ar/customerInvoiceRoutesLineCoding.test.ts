@@ -20,12 +20,17 @@ vi.mock('@/lib/apiResponse', () => ({
     success: vi.fn((_r: unknown, data: unknown) => ({ kind: 'success', data })),
     created: vi.fn((_r: unknown, data: unknown) => ({ kind: 'created', data })),
     badRequest: vi.fn((_r: unknown, error: string, details?: unknown) => ({ kind: 'badRequest', error, details })),
+    conflict: vi.fn(() => ({ kind: 'conflict' })),
     notFound: vi.fn(() => ({ kind: 'notFound' })),
     validationError: vi.fn((_r: unknown, errors: unknown) => ({ kind: 'validationError', errors })),
     methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
   },
 }));
-const m = vi.hoisted(() => ({ create: vi.fn(), edit: vi.fn(), approve: vi.fn() }));
+const m = vi.hoisted(() => ({ create: vi.fn(), edit: vi.fn(), approve: vi.fn(), quote: vi.fn(), convert: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/quoteService', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/quoteService')>()),
+  createQuote: m.quote, convertToInvoice: m.convert,
+}));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/customerInvoiceCreateService')>()),
   createDraftCustomerInvoice: m.create,
@@ -37,6 +42,8 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', async
 }));
 
 import createHandler from '../../../../pages/api/accounting/customer-invoices-create';
+import quotesHandler from '../../../../pages/api/accounting/customer-quotes';
+import quoteActionHandler from '../../../../pages/api/accounting/customer-quotes-action';
 import detailHandler from '../../../../pages/api/accounting/customer-invoices-detail';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
@@ -84,5 +91,19 @@ describe('customer-invoices-detail', () => {
   it('approve RETHROWS a refusal raised after its status UPDATE, so withAuth rolls back', async () => {
     m.approve.mockRejectedValueOnce(new ArPostingAfterWriteError(REFUSED));
     await expect(run(detailHandler, 'POST', { id: INV, action: 'approve' })).rejects.toBeInstanceOf(ArPostingAfterWriteError);
+  });
+});
+
+describe('quotes: a line account the invoice could never post to', () => {
+  it('POST customer-quotes answers it 400 with INVOICE_LINE_CODING_REFUSED', async () => {
+    m.quote.mockRejectedValueOnce(new InvoiceLineCodingRefusal(REFUSED));
+    expect(await run(quotesHandler, 'POST', { customerName: 'x', lines: [] }))
+      .toEqual({ kind: 'badRequest', error: REFUSED, details: { code: 'INVOICE_LINE_CODING_REFUSED' } });
+  });
+
+  it('convert answers it 400 with INVOICE_LINE_CODING_REFUSED', async () => {
+    m.convert.mockRejectedValueOnce(new InvoiceLineCodingRefusal(REFUSED));
+    expect(await run(quoteActionHandler, 'POST', { id: INV, action: 'convert' }))
+      .toEqual({ kind: 'badRequest', error: REFUSED, details: { code: 'INVOICE_LINE_CODING_REFUSED' } });
   });
 });

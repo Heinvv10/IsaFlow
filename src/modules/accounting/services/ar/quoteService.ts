@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { withSourceEditorStamp } from './sourceContentEditor';
+import { assertLineAccountIds } from './invoiceLineCodingGuard';
 
 type Row = DbRow;
 
@@ -117,7 +118,7 @@ export class LineValidationError extends Error {
  * (the July-4 audit created a -R115 invoice live). Zero-quantity lines are
  * also meaningless on a quote. Throws before any SQL runs.
  */
-export function assertValidLines(lines: QuoteInput['lines']): void {
+export async function assertValidLines(companyId: string, lines: QuoteInput['lines']): Promise<void> {
   for (const l of lines || []) {
     if (!(Number(l.quantity) > 0)) {
       throw new LineValidationError(`Line "${l.description}": quantity must be positive`);
@@ -126,6 +127,7 @@ export function assertValidLines(lines: QuoteInput['lines']): void {
       throw new LineValidationError(`Line "${l.description}": unit price cannot be negative`);
     }
   }
+  await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 870)
 }
 
 function calcTotals(lines: QuoteInput['lines']) {
@@ -193,7 +195,7 @@ export async function createQuote(companyId: string, input: QuoteInput, userId?:
   // R-067: before insertWithReservedNumber, which writes the company's counter.
   // convertToInvoice copies this client_id onto the invoice verbatim.
   await assertCustomerInCompany(companyId, input.clientId);
-  assertValidLines(input.lines);
+  await assertValidLines(companyId, input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
   const qd = input.quoteDate || fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
 
@@ -232,7 +234,7 @@ export async function updateQuote(companyId: string, id: string, input: QuoteInp
   const existing = await getQuote(companyId, id);
   if (!existing || existing.status !== 'draft') return null;
   await assertCustomerInCompany(companyId, input.clientId);
-  assertValidLines(input.lines);
+  await assertValidLines(companyId, input.lines);
   const { subtotal, taxAmount, total } = calcTotals(input.lines);
 
   await withSourceEditorStamp(companyId, { kind: 'quote', id }, editedBy, async () => {

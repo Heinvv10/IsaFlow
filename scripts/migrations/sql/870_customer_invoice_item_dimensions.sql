@@ -5,8 +5,21 @@
 -- customer_invoice_items already had gl_account_id (written by quote conversion and recurring
 -- transactions, never read by posting, no FK). This adds project_id and cost_center_id beside it,
 -- nullable, each under a foreign key. The posting rules live in
--- src/modules/accounting/services/ar/invoiceRevenueLines.ts; a line naming none of the three posts
--- to default_revenue untagged, exactly as before, so no existing invoice changes.
+-- src/modules/accounting/services/ar/invoiceRevenueLines.ts; an invoice none of whose lines names
+-- any of the three posts the single default_revenue leg it always did.
+--
+-- EXISTING DRAFTS THAT CHANGE: lines that already carry gl_account_id — written, unchecked, by quote
+-- conversion (the quote line's account) and by recurring-transaction templates (the template
+-- line's glAccountId). From this deploy such a draft, when approved, credits that account; or, if
+-- it is not an active leaf revenue account of the invoice's company, approve refuses it
+-- (INVOICE_LINE_CODING_REFUSED, nothing written) until the line is recoded. Census, read-only, on
+-- prod before deploy — the drafts whose approval changes:
+--
+--   SELECT ci.company_id, COUNT(DISTINCT ci.id) AS drafts
+--   FROM customer_invoices ci JOIN customer_invoice_items cii ON cii.invoice_id = ci.id
+--   WHERE ci.status IN ('draft', 'pending_approval') AND ci.gl_journal_entry_id IS NULL
+--     AND cii.gl_account_id IS NOT NULL
+--   GROUP BY ci.company_id;
 --
 -- The FKs are single-column: they prove the row exists, NOT that it is the invoice's company (the
 -- line has no company_id). Tenancy is the application's check (ar/invoiceLineCodingGuard.ts), at
