@@ -69,7 +69,7 @@ export const createDraftInvoiceTool: McpTool = {
     properties: {
       customer_id: { type: 'string' },
       items: { type: 'array', minItems: 1, items: CUSTOMER_INVOICE_LINE_SCHEMA },
-      project_id: { type: 'string' },
+      project_id: { type: 'string', description: 'The invoice\'s project, display only; tag lines to post by project (items[].project_id).' },
       invoice_date: { type: 'string', format: 'date' },
       due_date: { type: 'string', format: 'date' },
       tax_rate: { type: 'number', minimum: 0 },

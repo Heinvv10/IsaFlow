@@ -27,6 +27,8 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
 import { creditNoteRevenueJournalLines } from './invoiceRevenuePosting';
+import { ArPostingAfterWriteError } from './arErrors';
+import { isHeldRowError } from '@/lib/lockTimeout';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -72,10 +74,8 @@ export async function approveCreditNote(
       const vatAccount = await getSystemAccount('vat_output', companyId);
 
       lines = await creditNoteRevenueJournalLines(companyId, {
-        number: String(cn.credit_note_number), amount: Number(cn.subtotal),
+        id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
         customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null,
-        projectId: cn.project_id ? String(cn.project_id) : null,
-        costCenterId: cn.cost_center_id ? String(cn.cost_center_id) : null,
       }, revenueAccount.id);
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
@@ -124,63 +124,75 @@ export async function approveCreditNote(
       source: 'auto_credit_note',
       lines,
     }, userId, actorMeta(opts));
-    await postJournalEntry(companyId, je.id, userId);
+    // Everything below runs with the draft journal written. The REST route
+    // answers its errors 400 and withAuth COMMITs a 4xx, so any refusal here
+    // (posting into a closed period, a concurrent approve) would leave an
+    // orphan auto_credit_note draft: it is raised as a 5xx class instead and
+    // the request rolls back. A held row keeps its own retryable class.
+    try {
+      await postJournalEntry(companyId, je.id, userId);
 
-    // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
-    // document it names first, capped at that document's outstanding balance,
-    // and the REMAINDER then walks the same entity's other open documents
-    // oldest first. The arithmetic, the allocation rows and the status
-    // recompute all live in shared/creditNoteFifo — read its header before
-    // changing any of this.
-    //
-    // Capping rather than refusing when a document is already settled is
-    // deliberate: a credit note against a paid invoice is an ordinary event (a
-    // return after payment). What CHANGED with the FIFO walk is where the
-    // excess goes — it used to be stranded on a note at 'applied' that could
-    // never be applied again; it now settles the next open document, and
-    // whatever is still left is on-account credit the aged reports net.
-    const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application = await applyCreditNote({
-      companyId,
-      creditNoteId: id,
-      side,
-      entityId: side === 'customer'
-        ? (cn.client_id ? String(cn.client_id) : null)
-        : (cn.supplier_id ? String(cn.supplier_id) : null),
-      totalAmount: Number(cn.total_amount),
-      linkedInvoiceId: side === 'customer'
-        ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
-        : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
-      autoApply: opts?.autoApply ?? 'fifo',
-    });
-    const appliedAmount = application.appliedAmount;
+      // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
+      // document it names first, capped at that document's outstanding balance,
+      // and the REMAINDER then walks the same entity's other open documents
+      // oldest first. The arithmetic, the allocation rows and the status
+      // recompute all live in shared/creditNoteFifo — read its header before
+      // changing any of this.
+      //
+      // Capping rather than refusing when a document is already settled is
+      // deliberate: a credit note against a paid invoice is an ordinary event (a
+      // return after payment). What CHANGED with the FIFO walk is where the
+      // excess goes — it used to be stranded on a note at 'applied' that could
+      // never be applied again; it now settles the next open document, and
+      // whatever is still left is on-account credit the aged reports net.
+      const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
+      const application = await applyCreditNote({
+        companyId,
+        creditNoteId: id,
+        side,
+        entityId: side === 'customer'
+          ? (cn.client_id ? String(cn.client_id) : null)
+          : (cn.supplier_id ? String(cn.supplier_id) : null),
+        totalAmount: Number(cn.total_amount),
+        linkedInvoiceId: side === 'customer'
+          ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
+          : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
+        autoApply: opts?.autoApply ?? 'fifo',
+      });
+      const appliedAmount = application.appliedAmount;
 
-    // DERIVED from what was consumed, never chosen: 'partially_applied' is the
-    // state a note spread across some but not all of its face value is in, and
-    // it is the state every statement and ledger reader now distinguishes.
-    const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount));
-    const updatedRows = (await sql`
-      UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
-        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
-        applied_amount = ${appliedAmount}
-      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
-      RETURNING *
-    `) as Record<string, unknown>[];
-    // The `status = 'draft'` predicate is a second fence behind the row lock
-    // above, not a substitute for it: the lock is what stops two approvals
-    // building a journal in parallel, but if a future caller ever reaches this
-    // UPDATE without holding it, refusing here beats stamping a second journal
-    // onto an already-approved note.
-    if (updatedRows.length === 0) {
-      throw new Error(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
+      // DERIVED from what was consumed, never chosen: 'partially_applied' is the
+      // state a note spread across some but not all of its face value is in, and
+      // it is the state every statement and ledger reader now distinguishes.
+      const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount));
+      const updatedRows = (await sql`
+        UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
+          approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
+          applied_amount = ${appliedAmount}
+        WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
+        RETURNING *
+      `) as Record<string, unknown>[];
+      // The `status = 'draft'` predicate is a second fence behind the row lock
+      // above, not a substitute for it: the lock is what stops two approvals
+      // building a journal in parallel, but if a future caller ever reaches this
+      // UPDATE without holding it, refusing here beats stamping a second journal
+      // onto an already-approved note.
+      if (updatedRows.length === 0) {
+        throw new Error(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
+      }
+      const updated = updatedRows[0] as Record<string, unknown>;
+
+      log.info('Approved credit note', {
+        id, journalEntryId: je.id, status: finalStatus,
+        appliedAmount, lines: application.lines.length, remainder: application.remainder,
+      }, 'accounting');
+      return mapRow(updated);
+    } catch (err) {
+      if (isHeldRowError(err)) throw err;
+      throw new ArPostingAfterWriteError(
+        `Credit note ${cn.credit_note_number} was not approved: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err });
     }
-    const updated = updatedRows[0] as Record<string, unknown>;
-
-    log.info('Approved credit note', {
-      id, journalEntryId: je.id, status: finalStatus,
-      appliedAmount, lines: application.lines.length, remainder: application.remainder,
-    }, 'accounting');
-    return mapRow(updated);
   } catch (err) {
     log.error('Failed to approve credit note', { id, error: err }, 'accounting');
     throw err;

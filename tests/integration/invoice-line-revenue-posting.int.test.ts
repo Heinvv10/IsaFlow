@@ -123,15 +123,14 @@ describeIfDisposable('invoice line revenue posting (migration 870)', () => {
     expect(report.find((r) => r.projectId === p2)?.revenue ?? 0).toBe(0);
   });
 
-  it('an unlinked credit note debits default_revenue tagged with its own project — dropped when not this company\'s', async () => {
-    const make = async (projectId: string) => {
-      const cn = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {
-        type: 'customer', clientId: f.fx.customerId, creditDate: '2026-07-21', subtotal: 100, taxRate: 0, projectId,
-      }, f.fx.userId));
-      return (await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cn.id, f.fx.userId))).glJournalEntryId!;
-    };
-    expect((await legs(await make(f.project.p1))).find((l) => l.code === '4000')?.project).toBe(f.project.p1);
-    expect((await legs(await make(f.project.foreign))).find((l) => l.code === '4000')?.project).toBeNull();
+  it('an unlinked credit note posts untagged to default_revenue: its own project is display only (D1)', async () => {
+    const cn = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {
+      type: 'customer', clientId: f.fx.customerId, creditDate: '2026-07-21', subtotal: 100, taxRate: 0, projectId: f.project.p1,
+    }, f.fx.userId));
+    const je = (await inTx(f.fx, () => approveCreditNote(f.fx.companyId, cn.id, f.fx.userId))).glJournalEntryId!;
+    expect((await legs(je)).filter((l) => l.code === '4000')).toEqual([
+      { code: '4000', debit: 100, credit: 0, project: null, centre: null, vat: null },
+    ]);
   });
 
   it('cancel reverses every leg, so each project nets to zero', async () => {

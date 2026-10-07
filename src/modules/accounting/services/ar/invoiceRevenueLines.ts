@@ -34,7 +34,7 @@ export interface RevenueLeg {
   glAccountId: string;
   projectId: string | null;
   costCenterId: string | null;
-  /** Credit minus debit the invoice journal posted to this leg. */
+  /** Net revenue the leg still carries: credit minus debit the invoice posted there, less earlier notes. */
   net: number;
 }
 
@@ -124,19 +124,36 @@ export function buildInvoiceRevenueLines(input: {
 
 /**
  * The note's revenue debit, split over the invoice journal's revenue legs pro
- * rata to their net credit. null when those legs net to zero or less — the
- * caller then posts the note as it did before (default_revenue).
+ * rata to the net revenue each still carries (`net`: what the invoice credited
+ * there, less what earlier credit notes on it debited). No leg is debited past
+ * what it still carries — a second full note, or a note larger than the
+ * invoice, would otherwise drive a production's revenue below zero — and
+ * whatever the legs cannot take goes to `default_revenue`, untagged, as every
+ * note posted before. Legs netting to nothing leave the whole note there.
  */
 export function prorateRevenueLegs(
   legs: readonly RevenueLeg[],
   amount: number,
   creditNoteNumber: string,
-): JournalLineInput[] | null {
-  const weights = legs.map((l) => cents(l.net));
-  if (weights.reduce((a, b) => a + b, 0) <= 0) return null;
+  defaultRevenueAccountId: string,
+): JournalLineInput[] {
   const description = `Credit note ${creditNoteNumber}`;
-  const shares = allocateByWeight(cents(amount), weights);
-  return legs
+  const total = cents(amount);
+  const remaining = legs.map((l) => cents(l.net));
+  const carried = remaining.reduce((a, b) => a + b, 0);
+  let shares: number[];
+  if (carried <= 0) shares = remaining.map(() => 0);
+  else if (total >= carried) shares = [...remaining];
+  else shares = allocateByWeight(total, remaining);
+  // Rounding can push a share a cent past what its leg carries: clamp it, the cent goes untagged.
+  shares = shares.map((share, i) => {
+    const cap = remaining[i]!;
+    return cap >= 0 ? Math.min(share, cap) : Math.max(share, cap);
+  });
+  const excess = total - shares.reduce((a, b) => a + b, 0);
+  const lines = legs
     .map((l, i) => leg(l.glAccountId, shares[i]!, 'debit', description, l.projectId, l.costCenterId))
     .filter((l): l is JournalLineInput => l !== null);
+  const untagged = leg(defaultRevenueAccountId, excess, 'debit', description, null, null);
+  return untagged ? [...lines, untagged] : lines;
 }
