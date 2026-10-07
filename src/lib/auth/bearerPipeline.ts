@@ -242,7 +242,7 @@ export async function runBearerRequest(
 
     // A 5xx means the request failed (withErrorHandler sits inside and may have
     // caught+responded 500) — never COMMIT its partial writes.
-    const handlerFailed = res.statusCode >= 500;
+    const handlerFailed = res.statusCode >= 500 || Boolean(txCtx.rollbackOnly); // als.rollbackOnly
     const finalizeCtx = { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId };
     if (handlerFailed) {
       // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
@@ -250,6 +250,8 @@ export async function runBearerRequest(
       const rollbackErr = await rollbackError(client, 'bearerPipeline');
       unusable = rollbackErr !== null;
       if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true });
+      // Rolled back for rollbackOnly under a <5xx answer: that answer would claim a write that did not land.
+      if (txCtx.rollbackOnly && res.statusCode < 500) { answerCommitFailed(res, flush); return; }
     } else {
       try {
         await client.query('COMMIT');
