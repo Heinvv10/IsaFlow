@@ -20,6 +20,7 @@ import bankRulesAction from '../../pages/api/accounting/bank-rules-action';
 import bankTransactionsManual from '../../pages/api/accounting/bank-transactions-manual';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 import provisionalOutstanding from '../../pages/api/accounting/provisional/outstanding';
+import { sweep as gateSweep } from '../../src/modules/accounting/services/bank/autoPostGateService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
@@ -35,6 +36,7 @@ beforeAll(async () => { a = await createUser(pool, tokens); });
 afterAll(async () => {
   await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM supplier_coding_history WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM bank_auto_post_settings WHERE company_id = ANY($1)', [companies]);
   await cleanupPr6(pool, companies, [a]);
 });
 
@@ -134,6 +136,18 @@ describe('provisional posting (round 5, adversarial REPRO 4)', () => {
     expect(Number((await pool.query('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1', [f.c])).rows[0].n)).toBe(0);
     const imported = await outflow(f, 'import');
     expect(resultOf(await provisional(f, imported)).journalEntryId).not.toBeNull();
+  });
+
+  it('the auto-post gate (import branch) reports the same approval_required skip, nothing written', async () => {
+    const f = await fixture();
+    await predictable(f);
+    await pool.query(`INSERT INTO bank_auto_post_settings(company_id, enabled, min_confidence, amount_cap, llm_enabled,
+      llm_min_confidence, llm_amount_cap, updated_at) VALUES ($1, true, 0.50, 0, false, 0.95, 2000, NOW())`, [f.c]);
+    const manual = await outflow(f, 'manual');
+    const res = await gateSweep(f.c, [manual], 'import', a);
+    expect(res).toMatchObject({ runId: null, posted: 0, skipped: [{ txId: manual, reason: 'approval_required' }] });
+    expect(await statusOf(manual)).toBe('imported');
+    expect(Number((await pool.query('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1', [f.c])).rows[0].n)).toBe(0);
   });
 
   it('enforcement off: a hand-keyed outflow posts provisionally as before', async () => {
