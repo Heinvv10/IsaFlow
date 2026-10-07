@@ -156,9 +156,9 @@ describe('the enforcement switch', () => {
   const call = (user: string, c: string, documentType: string, enabled: boolean) => callRoute(
     approvalEnforcement, tokens[user]!, c, 'POST', { documentType, enabled }, '/api/accounting/approval-enforcement');
 
-  it('still refuses an R-035 type no PR has wired (supplier_payment)', async () => {
+  it('still refuses an R-035 type no PR has wired (journal_entry)', async () => {
     const c = await company();
-    const res = await call(u.b, c, 'supplier_payment', true);
+    const res = await call(u.b, c, 'journal_entry', true);
     expect(res.state.statusCode).toBe(400);
     expect((await pool.query('SELECT 1 FROM approval_enforcement WHERE company_id = $1', [c])).rows).toEqual([]);
   });
@@ -200,7 +200,7 @@ describe('the enforcement GET previews what switching on would hold', () => {
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement', { preview: '1' });
     expect(res.state.statusCode).toBe(200);
     expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({
-      supplier_invoice: 0, customer_credit_note: 2, supplier_credit_note: 1, customer_invoice: 0,
+      supplier_invoice: 0, customer_credit_note: 2, supplier_credit_note: 1, customer_invoice: 0, supplier_payment: 0, payment_batch: 0,
     });
   });
 });

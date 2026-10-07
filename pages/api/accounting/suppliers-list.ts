@@ -101,7 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocatePayments: bool('auto_allocate_payments'),
         subjectToDrcVat: bool('subject_to_drc_vat'),
-      })];
+      }, (req as CompanyAuthedRequest).user.id)];
 
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
@@ -125,7 +125,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (typeof b.subject_to_drc_vat !== 'boolean') {
       return apiResponse.badRequest(res, 'subject_to_drc_vat must be true or false');
     }
-    const row = await updateSupplier(companyId, id, { subjectToDrcVat: b.subject_to_drc_vat });
+    const row = await updateSupplier(companyId, id, { subjectToDrcVat: b.subject_to_drc_vat },
+      (req as CompanyAuthedRequest).user.id);
     if (!row) return apiResponse.notFound(res, 'Supplier');
     log.info('Supplier DRC flag set', { id, subjectToDrcVat: b.subject_to_drc_vat, module: 'accounting' });
     return apiResponse.success(res, { id, subject_to_drc_vat: row.subject_to_drc_vat });

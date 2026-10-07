@@ -47,7 +47,7 @@ const first = (rows: Row[]): Row | undefined => rows[0];
 
 /**
  * One statement per document type — the table name cannot come from a parameter,
- * and `payment` covers both sides of the ledger, so it looks in each in turn.
+ * and the legacy `payment` covers both sides of the ledger, so it looks in each in turn.
  * A journal entry carries no amount column; its size is the sum of its debits.
  *
  * `digest` is approval_document_digest() — the one SQL definition — read in
@@ -108,6 +108,21 @@ async function findDocument(
                credit_note_number AS reference,
                approval_document_digest(company_id, 'supplier_credit_note', id) AS digest
         FROM credit_notes WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND type = 'supplier'
+      `) as Row[]);
+    // R-035 PR5 (migration 867): a SINGLE payment only — a batch member is not
+    // found under supplier_payment (its approval is its batch's); a batch on the
+    // larger of its stored total and its members' sum (the journal posts the first).
+    case 'supplier_payment':
+      return first((await sql`
+        SELECT approval_supplier_payment_gate_amount(total_amount) AS amount, payment_number AS reference,
+               approval_document_digest(company_id, 'supplier_payment', id) AS digest
+        FROM supplier_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId} AND batch_id IS NULL
+      `) as Row[]);
+    case 'payment_batch':
+      return first((await sql`
+        SELECT approval_payment_batch_gate_amount(company_id, id) AS amount, batch_number AS reference,
+               approval_document_digest(company_id, 'payment_batch', id) AS digest
+        FROM supplier_payment_batches WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     case 'payment': {
       const customer = first((await sql`

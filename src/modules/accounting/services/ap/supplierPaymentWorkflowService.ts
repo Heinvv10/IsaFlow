@@ -1,10 +1,10 @@
 /**
  * Supplier Payment Workflow Service
- * Approve and process payment operations — split from supplierPaymentService.ts.
+ * Process and void payment operations — split from supplierPaymentService.ts
+ * (approve: supplierPaymentApproval.ts).
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
@@ -13,7 +13,9 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { getSupplierPaymentById } from './supplierPaymentService';
+import { mapPaymentRow } from './supplierPaymentRow';
 import { assertPaymentStillProcessable, voidIfUnprocessed } from './supplierPaymentGates';
+import { assertPaymentApprovalCleared } from './supplierPaymentApproval';
 import { SupplierPaymentNotFoundError } from './supplierPaymentNotFound';
 import {
   assertSameJournal, lockJournalAndUnmatch, lockPaymentBankLeg, voidViaBankAllocation,
@@ -34,31 +36,8 @@ function byInvoiceId<T extends { invoiceId: string }>(allocs: readonly T[]): T[]
   return [...allocs].sort((a, b) => (a.invoiceId < b.invoiceId ? -1 : a.invoiceId > b.invoiceId ? 1 : 0));
 }
 
-export async function approveSupplierPayment(
-  companyId: string,
-  id: string,
-  userId: string,
-): Promise<SupplierPayment> {
-  await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  try {
-    const payment = await getSupplierPaymentById(companyId, id);
-    if (!payment) throw new SupplierPaymentNotFoundError(id);
-    if (payment.status !== 'draft') throw new Error(`Cannot approve payment with status: ${payment.status}`);
-
-    const rows = (await sql`
-      UPDATE supplier_payments
-      SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}::UUID
-      RETURNING *
-    `) as Row[];
-
-    return mapPaymentRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to approve supplier payment', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
+// Approve (and the gate both steps consult) lives beside it, under the file-size cap.
+export { approveSupplierPayment } from './supplierPaymentApproval';
 export { SupplierPaymentNotFoundError };
 
 /**
@@ -106,6 +85,9 @@ export async function processSupplierPayment(
     if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
     // Not a batch member, and every bill still payable (K-063/K-066) — before the claim.
     await assertPaymentStillProcessable(companyId, payment);
+    // R-035 PR5: the money moves here, so the approval is re-checked under the
+    // lock — before the claim, so the route's 409 commits nothing.
+    await assertPaymentApprovalCleared(companyId, payment);
 
     // CLAIM the payment before anything is posted — the singular twin of
     // batchPaymentService.processBatch, which carried the identical defect.
@@ -300,28 +282,4 @@ async function voidSupplierPaymentInner(
     log.error('Failed to void supplier payment', { id, error: err }, 'accounting');
     throw err;
   }
-}
-
-function mapPaymentRow(row: Row): SupplierPayment {
-  return {
-    id: String(row.id),
-    paymentNumber: row.payment_number ? String(row.payment_number) : '',
-    supplierId: String(row.supplier_id),
-    paymentDate: fmtDate(row.payment_date),
-    totalAmount: Number(row.total_amount),
-    paymentMethod: String(row.payment_method) as SupplierPayment['paymentMethod'],
-    bankAccountId: row.bank_account_id ? String(row.bank_account_id) : undefined,
-    reference: row.reference ? String(row.reference) : undefined,
-    description: row.description ? String(row.description) : undefined,
-    status: String(row.status) as SupplierPayment['status'],
-    glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
-    batchId: row.batch_id ? String(row.batch_id) : undefined,
-    createdBy: String(row.created_by),
-    approvedBy: row.approved_by ? String(row.approved_by) : undefined,
-    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-    processedAt: row.processed_at ? String(row.processed_at) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
-  };
 }

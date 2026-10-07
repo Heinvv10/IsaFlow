@@ -47,7 +47,10 @@ export async function checkApproval(
   // against, so a request raised under a laxer rule stayed governed by it.
   const existingRequest = existing.length > 0 ? mapRequest(existing[0]!) : null;
 
-  const matched = await strictestMatchingRule(companyId, documentType, amount);
+  // A batch is also judged by every member's own supplier_payment rule (D1).
+  const matched = documentType === 'payment_batch'
+    ? await strictestBatchRule(companyId, documentId, amount)
+    : await strictestMatchingRule(companyId, documentType, amount);
 
   return {
     requiresApproval: matched !== null || existingRequest !== null,
@@ -66,16 +69,50 @@ export async function strictestMatchingRule(
   documentType: DocumentType,
   amount: number
 ): Promise<ApprovalRule | null> {
-  // Find matching active rules. The ORDER BY is the tiebreak, not the decision:
-  // `priority` is INTEGER DEFAULT 100 and no write path sets it, so every rule a
-  // company can create ties, and without created_at/id the winner was heap order.
-  const rules = (await sql`
+  return pickStrictest(await activeRules(companyId, documentType), amount, companyId);
+}
+
+/**
+ * A payment batch's governing rule (Hein, 2026-10-06, D1): the strictest of its
+ * own payment_batch rules on the batch amount AND every member's
+ * supplier_payment rules on that member's amount — a one-line batch must not
+ * be a laxer way to pay a bill than the payment itself. On a tie in rank the
+ * batch's own rule is kept. The SQL twin is approval_payment_batch_strictest_rank
+ * (migration 867); r035-pr5-coupling holds them to each other.
+ */
+export async function strictestBatchRule(
+  companyId: string,
+  batchId: string,
+  batchAmount: number
+): Promise<ApprovalRule | null> {
+  let matched = await strictestMatchingRule(companyId, 'payment_batch', batchAmount);
+  const members = (await sql`
+    SELECT DISTINCT approval_supplier_payment_gate_amount(total_amount) AS amount
+    FROM supplier_payments WHERE batch_id = ${batchId}::UUID AND company_id = ${companyId}
+  `) as Record<string, unknown>[];
+  if (members.length === 0) return matched;
+  const rules = await activeRules(companyId, 'supplier_payment');
+  for (const m of members) {
+    const r = pickStrictest(rules, Number(m.amount), companyId);
+    if (r && (matched === null || requiredRank(r.approverRole) > requiredRank(matched.approverRole))) matched = r;
+  }
+  return matched;
+}
+
+async function activeRules(companyId: string, documentType: DocumentType): Promise<Record<string, unknown>[]> {
+  // The ORDER BY is the tiebreak, not the decision: `priority` is INTEGER
+  // DEFAULT 100 and no write path sets it, so every rule a company can create
+  // ties, and without created_at/id the winner was heap order.
+  return (await sql`
     SELECT * FROM approval_rules
     WHERE company_id = ${companyId}
       AND document_type = ${documentType}
       AND is_active = true
     ORDER BY priority ASC, created_at ASC, id ASC
   `) as Record<string, unknown>[];
+}
+
+function pickStrictest(rules: Record<string, unknown>[], amount: number, companyId: string): ApprovalRule | null {
 
   // The STRICTEST matching rule governs, not the first one found. Ordering alone
   // is not enough for a separation-of-duties control: whichever rule wins decides

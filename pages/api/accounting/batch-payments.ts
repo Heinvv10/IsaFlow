@@ -16,6 +16,7 @@ import { getBatches, getBatchById, createBatch } from '@/modules/accounting/serv
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { countBatchBills, getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
 import { pendingReservations } from '@/modules/accounting/services/ap/supplierBatchAllocationPlan';
+import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -50,6 +51,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         ...batch,
         payments: await getBatchMembers(companyId, batch.id),
         billCount: await countBatchBills(companyId, batch.id),
+        // R-035 PR5: the derived approval state while approve or process is still ahead.
+        approval: batch.status === 'draft' || batch.status === 'approved'
+          ? await describeApprovalGate(companyId, 'payment_batch', batch.id) : null,
       });
     }
 

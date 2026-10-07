@@ -1,7 +1,7 @@
 /**
  * R-035: where the document an approval request was raised for lives in the
  * app, so the approvals list can link to it. Only types with a detail page
- * are mapped; anything else (the legacy `credit_note` type included, which
+ * are mapped; anything else (the legacy `credit_note` and `payment` types included, which
  * cannot say which page its note is on) gets no link.
  */
 const PAGES: Record<string, string> = {
@@ -9,6 +9,8 @@ const PAGES: Record<string, string> = {
   customer_credit_note: '/accounting/credit-notes',
   supplier_credit_note: '/accounting/supplier-credit-notes',
   customer_invoice: '/accounting/customer-invoices',
+  supplier_payment: '/accounting/supplier-payments',
+  payment_batch: '/accounting/batch-payments',
 };
 
 export function approvalDocumentHref(documentType: string, documentId: string): string | null {
