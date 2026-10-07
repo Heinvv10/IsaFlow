@@ -8,6 +8,7 @@
  */
 import type { NextApiResponse } from 'next';
 import { withSavepoint } from '@/lib/neon';
+import { als } from '@/lib/als';
 import { apiResponse } from '@/lib/apiResponse';
 import { isJournalDateRefused } from '@/modules/accounting/utils/journalDateWindow';
 
@@ -27,9 +28,15 @@ export async function withJournalDateRefusal<T>(
     });
   } catch (err) {
     // The call RETURNED an answer on a transaction it had itself aborted (a held-row outcome its route answers 503,
-    // k071): only the RELEASE failed (25P02), and withSavepoint has rolled back to the savepoint. Hand the answer back,
-    // exactly as without this savepoint.
-    if (returned && (err as { code?: unknown }).code === '25P02') return value as T;
+    // k071): only the RELEASE failed (25P02), and withSavepoint has rolled back to the savepoint, so the request is
+    // usable again. Without this savepoint the abort would have kept anything in the request from committing; keep it
+    // so — the request is marked rollback-only (withAuth / bearerPipeline roll back whatever the route answers), and
+    // the answer is handed back for the route to give.
+    if (returned && (err as { code?: unknown }).code === '25P02') {
+      const store = als.getStore();
+      if (store) store.rollbackOnly = 'a posting call returned on a transaction it had aborted (apiJournalDate)';
+      return value as T;
+    }
     if (!isJournalDateRefused(err)) throw err;
     apiResponse.badRequest(res, err.message, { code: err.code });
     return JOURNAL_DATE_REFUSED;

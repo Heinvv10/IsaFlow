@@ -15,6 +15,10 @@ import { dropFixture, seedInvoice } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 import { settle, waitBlockedBy } from './helpers/numraceGate';
+import type { NextApiResponse } from 'next';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withErrorHandler } from '@/lib/api-error-handler';
+import { withJournalDateRefusal } from '@/lib/apiJournalDate';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL && process.env.JWT_SECRET ? describe : describe.skip;
@@ -86,5 +90,30 @@ describeIfDb('ledger-date window: stored-date posting routes answer 400 with not
       await p.query('ROLLBACK').catch(() => undefined);
       p.release();
     }
+  }, 60000);
+
+  // brk-numrace H1: a call that RETURNS on a transaction it aborted itself is handed back by the savepoint helper
+  // (k071's 'contended' → 503), but the request is marked rollback-only: nothing in it commits, whatever it answers.
+  it('H1: a call that swallows an abort and returns ok: nothing commits (the earlier write included), 500', async () => {
+    const tag = `NRJR-H1 ${c.fx.tag}`;
+    const insert = (what: string) => sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date,
+        amount, description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2025-03-01', 1,
+        ${`${tag} ${what}`}, 'imported')`;
+    const route = withAuth(withErrorHandler((async (_req: CompanyAuthedRequest, res: NextApiResponse) => {
+      await insert('before');
+      const v = await withJournalDateRefusal(res, async () => {
+        await insert('inside');
+        try { await sql`SELECT 1 / 0`; } catch (err) { void err; } // swallowed: the transaction is now aborted
+        return { ok: true as const };
+      });
+      await insert('after');
+      res.status(200).json(v);
+    }) as never));
+    const out = await callRoute(c.fx, token, route as never, {});
+    const rows = (await sql`SELECT description FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID
+      AND description LIKE ${`${tag}%`}`) as { description: string }[];
+    process.stdout.write(`JR-H1 ${JSON.stringify({ status: out.statusCode, body: out.body, rows })}\n`);
+    expect(out.statusCode).toBe(500);
+    expect(rows).toEqual([]);
   }, 60000);
 });
