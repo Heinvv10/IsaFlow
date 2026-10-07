@@ -36,8 +36,7 @@ import {
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
 import { boundedRowWait } from './systemRoleWriteLock';
-import { openBillLinesRefusal } from './accountMergeBillLines';
-import { hasChildAccounts } from './isReportVisibleLeaf';
+import { assertOpenDocumentLinesMayMove } from './accountMergeOpenLines';
 import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
@@ -210,14 +209,12 @@ async function mergeAccountsInner(
       'document_rows_moved_during_merge',
     );
   }
-  // The same bill-line refusal assertMergeable made, re-asked of exactly the
+  // The same open-line refusals assertMergeable made, re-asked of exactly the
   // lines that moved: a line recoded onto the source after that check would
-  // otherwise land on a target no unposted bill may use. Throwing rolls it back.
-  const strandedBills = await openBillLinesRefusal(companyId, sourceId, source.accountCode, {
-    ...target,
-    willHaveChildren: (await hasChildAccounts(companyId, targetId)) || (await hasChildAccounts(companyId, sourceId)),
-  }, movedDocumentRows.supplier_invoice_items);
-  if (strandedBills) throw new AccountMergeError(strandedBills, 'target_refused_for_open_bill_lines');
+  // otherwise land on a target no unposted bill or invoice may use.
+  await assertOpenDocumentLinesMayMove(companyId, source, target, {
+    billLines: movedDocumentRows.supplier_invoice_items, invoiceLines: movedDocumentRows.customer_invoice_items,
+  });
 
   // Children move onto the target, and the whole subtree takes the level shift —
   // without it, descendants keep the depth they had under the old parent and

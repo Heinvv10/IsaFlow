@@ -81,9 +81,14 @@ async function seedDocuments(
      VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [invoice, accountId]);
   const customer = await one(c,
     `INSERT INTO customers (company_id, name) VALUES ($1, $2) RETURNING id`, [companyId, `ZZ cust ${tag}`]);
+  // Follows the bill: a posted invoice (its journal posted) or a draft. A draft's
+  // line may not move onto a header target (account-merge-invoice-lines.int.test.ts).
   const customerInvoice = await one(c,
-    `INSERT INTO customer_invoices (company_id, invoice_number, customer_id, client_id, subtotal, total_amount, created_by, status)
-     VALUES ($1, $2, $3, $3, 100, 115, $4, 'draft') RETURNING id`, [companyId, `ZZ-CI-${tag}`, customer, USER]);
+    `INSERT INTO customer_invoices (company_id, invoice_number, customer_id, client_id, subtotal, total_amount, created_by, status,
+       gl_journal_entry_id)
+     VALUES ($1, $2, $3, $3, 100, 115, $4, $5::text, CASE WHEN $5::text = 'approved' THEN (
+       SELECT id FROM gl_journal_entries WHERE company_id = $1 AND status = 'posted' ORDER BY id LIMIT 1) END)
+     RETURNING id`, [companyId, `ZZ-CI-${tag}`, customer, USER, billStatus === 'posted' ? 'approved' : 'draft']);
   const customerInvoiceItem = await one(c,
     `INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount, gl_account_id)
      VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [customerInvoice, accountId]);

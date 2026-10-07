@@ -61,6 +61,8 @@ const DESCRIPTION = [
   'a control, bank, VAT, system or header account, header including one that takes the source\'s',
   'children — and a bill not yet approved or posted has lines on the source: it could never be',
   'approved after the move. The refusal names the bills; recode their lines first.',
+  'REFUSES (target_refused_for_open_invoice_lines) likewise when the target is or would become a header',
+  'account and a customer invoice not yet approved or posted has lines on the source; it names the invoices.',
   'Bill lines coded while the merge runs are serialised: the bill-line guard takes FOR SHARE on the',
   'account row the merge holds FOR UPDATE, so that request waits, then sees the source inactive and',
   'is refused (or it finished first, and its line is moved). Expense-claim lines and PO lines are now',
