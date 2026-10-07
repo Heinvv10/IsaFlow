@@ -7,8 +7,9 @@
  *
  * Both GETs carry `legacyCreditNoteRules`: the company's ACTIVE rules of the
  * legacy `credit_note` type, which govern neither credit-note type (R-035 PR3),
- * and `legacyPaymentRules`: those of the legacy `payment` type, which govern
- * neither payment type (R-035 PR5).
+ * `legacyPaymentRules`: those of the legacy `payment` type, which govern
+ * neither payment type (R-035 PR5), and `legacyJournalRules`: those of the
+ * legacy `journal_entry` type, which govern no journal (R-035 PR6).
  *
  * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
  * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
@@ -27,13 +28,14 @@ import type { DocumentType } from '@/modules/accounting/services/gl/approvalServ
 import type { RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import {
   ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
-  countLegacyCreditNoteRules, countLegacyPaymentRules, disableEnforcement, enableEnforcement, listEnforcement,
+  countLegacyCreditNoteRules, countLegacyJournalRules, countLegacyPaymentRules, disableEnforcement, enableEnforcement,
+  listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
-  'supplier_payment', 'payment_batch',
+  'supplier_payment', 'payment_batch', 'manual_journal',
 ]);
 const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
 
@@ -48,7 +50,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const legacyCreditNoteRules = await countLegacyCreditNoteRules(companyId);
     // …and active legacy `payment` rules govern neither payment type (R-035 PR5).
     const legacyPaymentRules = await countLegacyPaymentRules(companyId);
-    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules, legacyPaymentRules };
+    // …and active legacy `journal_entry` rules govern no journal (R-035 PR6).
+    const legacyJournalRules = await countLegacyJournalRules(companyId);
+    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules, legacyPaymentRules, legacyJournalRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
     if (req.query.preview !== '1') return apiResponse.success(res, base);
     const preview = await previewEnforcement(companyId);
