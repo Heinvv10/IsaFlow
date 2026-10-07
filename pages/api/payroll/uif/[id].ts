@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
@@ -41,7 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const body = (req.body ?? {}) as PatchBody;
 
     if (body.markPaid === true) {
-      const result = await markUifDeclarationPaid(
+      const result = await withJournalDateRefusal(res, () => markUifDeclarationPaid(
         companyId,
         id,
         {
@@ -49,7 +50,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
           bankAccountId: body.bankAccountId,
         },
         user.id,
-      );
+      ));
+      if (result === JOURNAL_DATE_REFUSED) return;
       return apiResponse.success(res, result);
     }
 

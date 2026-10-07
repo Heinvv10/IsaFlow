@@ -8,6 +8,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -125,7 +126,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           }
           const result = await bulkCategorize(companyId, transactionIds);
           const categorizedIds = result.results.filter((r) => r.result).map((r) => r.transactionId);
-          const autoPost = await sweep(companyId, categorizedIds, 'categorization', userId);
+          const autoPost = await withJournalDateRefusal(res, () => sweep(companyId, categorizedIds, 'categorization', userId));
+          if (autoPost === JOURNAL_DATE_REFUSED) return;
 
           // Derive residual pass over the request's transaction ids
           const candidateRows = (await sql`

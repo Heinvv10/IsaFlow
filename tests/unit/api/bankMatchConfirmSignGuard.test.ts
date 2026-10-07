@@ -59,7 +59,7 @@ vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
   return { ...actual, als: { ...actual.als, getStore: () => ({ client: mockTx.client }) } };
 });
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
   matchTransaction: vi.fn(),

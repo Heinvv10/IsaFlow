@@ -16,6 +16,8 @@ import { lockGlAccountsForUpdate } from '../glAccountLock';
 import { getPeriodStatusForDate } from '../periodStatusService';
 import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
 import type { AccountType } from '../accountClassification';
+import { journalDayWindowError } from '../../../utils/journalDateWindow';
+import { ledgerDaysOf } from '../journalDateGuard';
 
 export interface ReclassAccount {
   id: string;
@@ -147,6 +149,9 @@ export async function admitReclassification(
   // states get their own message because the remedies differ: create the fiscal
   // year, versus re-open the period.
   if (input.postingDate !== null) {
+    const day = (await ledgerDaysOf([input.postingDate])).get(input.postingDate) ?? null; // the day Postgres stores
+    const badDate = day === null ? null : journalDayWindowError(day); // a ledger date only (utils/journalDateWindow)
+    if (badDate) return { refused: `posting_date: ${badDate}` };
     const status = await getPeriodStatusForDate(companyId, input.postingDate);
     if (status === 'no_period') {
       return {

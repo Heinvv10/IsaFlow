@@ -41,7 +41,9 @@ const m = vi.hoisted(() => ({
   cancel: vi.fn(),
   getCn: vi.fn(),
 }));
-vi.mock('@/lib/neon', () => ({ sql: m.sql, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) }));
+vi.mock('@/lib/neon', () => ({
+  sql: m.sql, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d), withSavepoint: (_n: string, fn: () => unknown) => fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry: m.create, postJournalEntry: m.post }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccountId: vi.fn(async (k: string) => `acct-${k}`) }));
 // R-088's duplicate check has its own real-PG coverage (r088-receipt-content-dedupe); here it is clear.

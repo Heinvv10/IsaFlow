@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -38,7 +39,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, { balances: 'Non-empty balances array is required' });
   }
 
-  const result = await importOpeningBalances(companyId, sessionId, effectiveDate, balances, userId);
+  const result = await withJournalDateRefusal(res, () => importOpeningBalances(companyId, sessionId, effectiveDate, balances, userId));
+  if (result === JOURNAL_DATE_REFUSED) return;
 
   log.info('Opening balances imported', {
     companyId,

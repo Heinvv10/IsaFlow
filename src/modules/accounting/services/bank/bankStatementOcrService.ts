@@ -12,6 +12,7 @@ import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractBankStatementWithVlm } from './vlmBankService';
 import { runDedupPass } from './bankStatementDedupHelpers';
 import type { ExtractedBankStatement } from '@/modules/accounting/types/documentCapture.types';
+import { parsedDayWindowError } from '../../utils/journalDateWindow';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -120,8 +121,15 @@ export async function createImportFromDocument(
 
   const dedup = await runDedupPass(companyId, bankAccountId, extraction.transactions);
 
+  // sec-numrace S4: a line dated outside the ledger window keeps no date (commit skips it) and says why, as the CSV
+  // import's row error does (utils/journalDateWindow).
+  const outside = (d: string | null | undefined) => (d ? parsedDayWindowError(d) : null);
+  const warnings = [...extraction.warnings, ...extraction.transactions.flatMap((tx) => {
+    const why = outside(tx.date);
+    return why ? [`${why} (${tx.description.slice(0, 60)})`] : [];
+  })];
   const rows: BankStatementRow[] = extraction.transactions.map((tx, i) => ({
-    date: tx.date ?? '',
+    date: outside(tx.date) ? '' : tx.date ?? '',
     description: tx.description,
     reference: tx.reference ?? null,
     amount: tx.amount,
@@ -134,7 +142,7 @@ export async function createImportFromDocument(
   const duplicateCount = rows.filter((r) => r.isDuplicate).length;
   const periodStart = extraction.statementPeriod?.from ?? null;
   const periodEnd = extraction.statementPeriod?.to ?? null;
-  const extractionSummary = JSON.stringify({ rows, warnings: extraction.warnings });
+  const extractionSummary = JSON.stringify({ rows, warnings });
 
   const inserted = (await sql`
     INSERT INTO bank_statement_imports (
@@ -178,7 +186,7 @@ export async function commitImport(
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
 
-  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date);
+  const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
   let insertedCount = 0;

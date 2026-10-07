@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -80,7 +81,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       case 'apply': {
-        const result = await applyRules(companyId, body.bankAccountId, userId);
+        const result = await withJournalDateRefusal(res, () => applyRules(companyId, body.bankAccountId, userId));
+        if (result === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, result);
       }
     }

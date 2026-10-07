@@ -319,6 +319,7 @@ by the depreciation workstream, which is deleting the constant; this module
 picks the fix up when it lands rather than forking the shared service.
 
 ## Recent changes
+- 2026-10-06 (ledger-date window, sec-numrace S2): `admitReclassification` refuses a `posting_date` outside 1900-01-01..2199-12-31 (planGuards, utils/journalDateWindow) before anything is written.
 
 - 2026-09-10: CC1 and CC2 now travel through candidate mapping, ownership sanitisation and both reclassification journal legs, alongside the business unit. Lines carrying analysis coding are no longer skipped as `unreproducible_analysis_coding`; the shared writer's explicit `historical-copy` mode preserves owned inactive references while continuing to reject a foreign or wrong-slot reference.
 

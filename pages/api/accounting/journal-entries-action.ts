@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -23,7 +24,6 @@ import {
   reverseJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { withSavepoint } from '@/lib/neon';
 import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
@@ -73,23 +73,30 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // R-035 PR6, for the same reason: a person posting a draft — ANY draft,
         // whatever created it — is the act manual-journal approval governs.
         // Under enforcement the draft is locked and gated first (409 before
-        // any write); the marker and the post then share one savepoint, so a
-        // post that fails leaves the draft unmarked behind the 400 below.
+        // any write, and before the ledger-date window — the order #659 set for
+        // payments); the marker and the post then share the window's savepoint,
+        // so a post that fails, or is refused 400 for its date, leaves the
+        // draft unmarked.
         const enforced = await gateManualJournalPost(companyId, id);
         // A person posting: s16(3) late input-VAT claim where allowed; the
         // result's `lateClaim` names the claim date and the locked period.
-        const post = () => postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
-        result = enforced
-          ? await withSavepoint('manual_journal_post', async () => { await markManualJournal(companyId, id); return post(); })
-          : await post();
+        const postedJe = await withJournalDateRefusal(res, async () => {
+          if (enforced) await markManualJournal(companyId, id);
+          return postJournalEntry(companyId, id, userId, { allowLateInputClaim: true });
+        });
+        if (postedJe === JOURNAL_DATE_REFUSED) return;
+        result = postedJe;
         break;
       }
       case 'reverse':
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
-        result = await reverseJournalEntry(companyId, id, userId, {
-          reversalDate, cashLinesLocked: await refuseJournalCashOfCompletedReconciliation(companyId, id) });
+        const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(companyId, id);
+        const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
+          reversalDate, cashLinesLocked }));
+        if (reversed === JOURNAL_DATE_REFUSED) return;
+        result = reversed;
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);

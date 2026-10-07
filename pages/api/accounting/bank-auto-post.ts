@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -127,7 +128,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, "POST requires { action: 'undo', runId }");
     }
     try {
-      const result = await undoRun(companyId, body.runId, userId);
+      const runId = body.runId;
+      const result = await withJournalDateRefusal(res, () => undoRun(companyId, runId, userId));
+      if (result === JOURNAL_DATE_REFUSED) return;
       log.info(
         'Auto-post run undo requested',
         { companyId, runId: body.runId, ...result },

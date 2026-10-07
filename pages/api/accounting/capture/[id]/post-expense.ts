@@ -12,6 +12,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -260,12 +261,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // doc-comment for why that ordering is what makes this safe.
   let result;
   try {
-    result = await postReceiptAsPettyCashJournal({
+    result = await withJournalDateRefusal(res, () => postReceiptAsPettyCashJournal({
       companyId, userId, eventId, documentId, extracted,
       confirmedVendorName: event.documentVendorName,
       resolvedGlAccountId, vatInputAccountId, costCentreId,
       fingerprint: duplicate.fingerprint,
-    });
+    }));
   } catch (err) {
     if (err instanceof ReceiptDoesNotBalanceError) {
       return apiResponse.badRequest(res, err.message);
@@ -293,7 +294,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     throw err;
   }
 
-  return apiResponse.success(res, result);
+  if (result !== JOURNAL_DATE_REFUSED) return apiResponse.success(res, result); // else answered 400 (apiJournalDate)
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));

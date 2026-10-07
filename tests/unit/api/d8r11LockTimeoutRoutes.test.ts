@@ -25,7 +25,7 @@ vi.mock('@/lib/api-error-handler', async () => {
     },
   };
 });
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
   getCreditNotes: vi.fn(), getCreditNoteById: vi.fn(), createCreditNote: vi.fn(), approveCreditNote: vi.fn(),
   cancelCreditNote: vi.fn(),

@@ -14,6 +14,10 @@ export function response() {
       this.headers[n.toLowerCase()] = v; return this;
     },
     getHeader(n: string) { return this.headers[n.toLowerCase()]; },
+    removeHeader(n: string) {
+      if (this.headersSent) throw new Error('ERR_HTTP_HEADERS_SENT');
+      delete this.headers[n.toLowerCase()];
+    },
     writeHead(code: number) { this.statusCode = code; this.headersSent = true; return this; },
     write() { this.headersSent = true; return true; },
     json(b: unknown) { this.setHeader('Content-Type', 'application/json'); return this.end(JSON.stringify(b)); },

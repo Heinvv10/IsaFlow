@@ -15,6 +15,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { itemFailureMessage, respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import {
   withAuth,
   withWriteAccess,
@@ -57,7 +58,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (recurring_invoice_id) {
     // Run a single recurring invoice
     try {
-      const { invoiceId, heldForApproval } = await runRecurringInvoice(companyId, recurring_invoice_id, userId);
+      const posted = await withJournalDateRefusal(res, () => runRecurringInvoice(companyId, recurring_invoice_id, userId));
+      if (posted === JOURNAL_DATE_REFUSED) return;
+      const { invoiceId, heldForApproval } = posted;
       result.generated = 1;
       result.invoice_ids = [invoiceId];
       if (heldForApproval) result.held_for_approval = [invoiceId];

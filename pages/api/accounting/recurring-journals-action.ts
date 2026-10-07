@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -47,8 +48,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
         // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
-        const { journalId, heldForApproval } = await runRecurringJournal(companyId, id, userId);
-        return apiResponse.success(res, { journalId, heldForApproval });
+        const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
+        if (run === JOURNAL_DATE_REFUSED) return;
+        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);

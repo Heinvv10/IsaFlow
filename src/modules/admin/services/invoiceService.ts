@@ -8,6 +8,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { InvoiceListItem, PaginatedResult } from '../types/admin.types';
+import { ADMIN_INVOICE_NUMBER_SEED } from '@/modules/accounting/services/core/numberLock';
 type Row = DbRow;
 
 
@@ -147,7 +148,11 @@ export async function createInvoice(data: {
     // after a single invoice in the month was deleted every later create
     // re-issued a number that already existed and 23505'd, permanently, since
     // the count never caught up. The scope is deliberately platform-wide and
-    // not per company: this is the platform's own billing sequence.
+    // not per company: this is the platform's own billing sequence. The month's
+    // number lock (migration 864), taken on this transaction before the MAX,
+    // makes a concurrent create wait for this one to commit and mint the next
+    // number instead of failing 23505; held past 5 s -> 55P03 -> the route's 503.
+    await tx`SELECT public.take_number_lock(${prefix}, ${ADMIN_INVOICE_NUMBER_SEED}::bigint)`;
     const seqRows = (await tx`
       SELECT COALESCE(MAX(CAST(SUBSTRING(invoice_number FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
       FROM admin_invoices

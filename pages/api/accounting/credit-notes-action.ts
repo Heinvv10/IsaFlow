@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
@@ -57,9 +58,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (parsed.data.action) {
       case 'approve': {
-        const creditNote = await approveCreditNote(companyId, parsed.data.creditNoteId, userId, {
-          autoApply: parsed.data.autoApply ?? 'fifo',
-        });
+        const { creditNoteId, autoApply } = parsed.data;
+        const creditNote = await withJournalDateRefusal(res, () => approveCreditNote(companyId, creditNoteId, userId, {
+          autoApply: autoApply ?? 'fifo',
+        }));
+        if (creditNote === JOURNAL_DATE_REFUSED) return;
         // WHICH documents the money went to, not just how much moved. A note
         // linked to one invoice can settle entirely different ones — the link is
         // skipped when that document has posted nothing, and the FIFO walk
@@ -71,7 +74,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         });
       }
       case 'cancel': {
-        const cancelled = await cancelCreditNote(companyId, parsed.data.creditNoteId, userId, parsed.data.reason);
+        const { creditNoteId, reason } = parsed.data;
+        const cancelled = await withJournalDateRefusal(res, () => cancelCreditNote(companyId, creditNoteId, userId, reason));
+        if (cancelled === JOURNAL_DATE_REFUSED) return;
         return apiResponse.success(res, cancelled);
       }
       case 'apply': {

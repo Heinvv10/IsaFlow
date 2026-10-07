@@ -75,11 +75,11 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
 
   // Pentest H11: impersonation_start is a CRITICAL_ACTION. The handler runs in
   // withPlatformAdmin's transaction, which COMMITs after the handler returns
-  // (a 500 answered by withErrorHandler included) and does not hold the
-  // response — so ordering is the guarantee: the audit INSERT is awaited
-  // BEFORE cookies are set, and if it throws, impersonation never starts. On
-  // failure we also remove the freshly-stashed admin tokens so no orphan row
-  // remains.
+  // (a 500 answered by withErrorHandler included). The response is held until
+  // COMMIT (deferredEnd), and an answer replaced after a rollback drops these
+  // cookies. The audit INSERT is still awaited BEFORE cookies are set, so a
+  // failed audit never sets them and impersonation never starts. On failure we
+  // also remove the freshly-stashed admin tokens so no orphan row remains.
   try {
     await sql`
       INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)

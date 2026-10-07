@@ -8,6 +8,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -246,25 +247,27 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // stays a draft for a person to post (and the post route gates it).
   const approval = await newManualJournalGate(companyId, postableLines);
   const held = autoPost && approval.held;
-
-  const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
-  if (refusal) {
-    return respondCapturedDocumentRefusal(res, refusal);
-  }
-
-  const entry = await createJournalEntry(companyId, {
-    entryDate: journalInput.entryDate,
-    description: journalInput.description,
-    source: 'auto_expense_receipt',
-    sourceDocumentId: documentId,
-    lines: postableLines,
-  }, userId);
-  await settleUnattendedJournal(companyId, entry.id, userId, { enforced: approval.enforced, held });
-
   const posted = autoPost && !held;
-  if (posted) {
-    await postJournalEntry(companyId, entry.id, userId);
-  }
+
+  // The claim, its journal, its approval request and the post in one savepoint: a ledger-date refusal rolls all of
+  // them back.
+  const claimed = await withJournalDateRefusal(res, async () => {
+    const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
+    if (refusal) return { kind: 'refused' as const, refusal };
+    const created = await createJournalEntry(companyId, {
+      entryDate: journalInput.entryDate,
+      description: journalInput.description,
+      source: 'auto_expense_receipt',
+      sourceDocumentId: documentId,
+      lines: postableLines,
+    }, userId);
+    await settleUnattendedJournal(companyId, created.id, userId, { enforced: approval.enforced, held });
+    if (posted) await postJournalEntry(companyId, created.id, userId);
+    return { kind: 'posted' as const, entry: created };
+  });
+  if (claimed === JOURNAL_DATE_REFUSED) return;
+  if (claimed.kind === 'refused') return respondCapturedDocumentRefusal(res, claimed.refusal);
+  const entry = claimed.entry;
 
   const je = { id: entry.id, status: posted ? 'posted' : 'draft' };
 
