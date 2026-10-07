@@ -11,7 +11,9 @@
  * limit is shown or applied).
  */
 import { useEffect, useRef, useState } from 'react';
-import { approxCharsLeft, commentaryEms } from '@/modules/accounting/services/commentary/commentaryLimits';
+import {
+  MAX_UNBUDGETED_CHARS, approxCharsLeft, commentaryEms,
+} from '@/modules/accounting/services/commentary/commentaryLimits';
 
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] disabled:cursor-not-allowed disabled:opacity-50';
 
@@ -35,7 +37,9 @@ export function CommentaryEditor({ initialText, packRemainingEms, onApprove, onC
 
   const trimmed = value.trim();
   const left = packRemainingEms === null ? null : packRemainingEms - commentaryEms(trimmed);
-  const over = left !== null && left < 0;
+  // A pack with no fixed page has no room figure, only a generous ceiling.
+  const tooLong = packRemainingEms === null && trimmed.length > MAX_UNBUDGETED_CHARS;
+  const over = (left !== null && left < 0) || tooLong;
   const invalid = trimmed.length === 0 || over;
 
   async function submit() {
@@ -62,11 +66,13 @@ export function CommentaryEditor({ initialText, packRemainingEms, onApprove, onC
         className="w-full rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)]"
       />
       <div className="flex items-center gap-2">
-        {left !== null && (
+        {(left !== null || tooLong) && (
           <span role="status" className={`text-xs ${over ? 'text-[var(--ff-unfav)]' : 'text-[var(--ff-text-tertiary)]'}`}>
-            {over
-              ? `over the page limit by about ${Math.max(1, approxCharsLeft(-left))} characters`
-              : `about ${approxCharsLeft(left)} characters left`}
+            {left === null
+              ? `over the ${MAX_UNBUDGETED_CHARS}-character limit`
+              : over
+                ? `over the page limit by about ${Math.max(1, approxCharsLeft(-left))} characters`
+                : `about ${approxCharsLeft(left)} characters left`}
           </span>
         )}
         <button type="button" disabled={invalid || busy} onClick={() => void submit()} className={BTN}>

@@ -265,6 +265,20 @@ describe('POST /api/accounting/commentary/[id]/approve', () => {
     }
   });
 
+  it('forwards a CRLF text to the service, which stores it as LF: the route does not refuse it', async () => {
+    const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text: 'Line one.\r\nLine two.' } });
+    await approveHandler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(approveMock).toHaveBeenCalledWith(COMPANY, ID, 'user-1', 'Line one.\r\nLine two.');
+  });
+
+  it('answers 400 for text_too_long as it does for the other 400 codes', async () => {
+    approveMock.mockResolvedValue({ ok: false, code: 'text_too_long', reason: 'Too long.' });
+    const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text: 'x' } });
+    await approveHandler(req, res);
+    expect(res.statusCode).toBe(400);
+  });
+
   it('fails closed on a body that is not absent and not a plain object — it must not approve the machine draft', async () => {
     for (const body of ['approve this text', '{"text":"x"}', ['CFO wording.'], 42, true]) {
       approveMock.mockClear();

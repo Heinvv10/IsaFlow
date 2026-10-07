@@ -191,7 +191,7 @@ function textEms(text: string): number {
 export const WIDTH_SAFETY = 1.12;
 
 /** The ems of `pt`-sized text one `widthMm` line holds. */
-function emsPerLine(pt: number, widthMm: number): number {
+export function emsPerLine(pt: number, widthMm: number): number {
   return (widthMm / (pt * PT_MM)) / WIDTH_SAFETY;
 }
 
@@ -218,6 +218,11 @@ export function wrappedLines(text: string, pt: number, widthMm: number): number 
  * page's fit is decided on.
  */
 const BREAKABLE = /[^\S\u00a0\u202f]+/;
+
+/** The words `wrapEms` sets: what a browser will not break, split off by what it will. */
+export function breakableWords(text: string): string[] {
+  return text.split(BREAKABLE).filter((word) => word.length > 0);
+}
 
 function wrapEms(text: string, perLine: number): number {
   let count = 1;

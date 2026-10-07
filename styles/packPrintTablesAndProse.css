@@ -105,10 +105,10 @@
  * the commentary pastes URLs: a 134-character one kept its min-content width,
  * widened the grid to 920px in a 658px sheet and pushed the action panel off
  * the page. `anywhere`, not `break-word`: it also lowers min-content, so the
- * grid track itself stops growing. */
+ * grid track itself stops growing. The approver's own action list sits inside
+ * `.pack-narrative-body` and inherits it. */
 .pack-narrative-body,
-.pack-narrative-actions,
-.pack-narrative-approved-actions { overflow-wrap: anywhere; }
+.pack-narrative-actions { overflow-wrap: anywhere; }
 /* Spec §4.A page 4's narrow column. A left rule rather than a box: it is the
  * only block on the page whose words nobody signed, and the same cue the
  * derived-commentary blocks already carry. */

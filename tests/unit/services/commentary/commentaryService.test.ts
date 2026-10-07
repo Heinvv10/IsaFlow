@@ -36,7 +36,9 @@ vi.mock('@/lib/logger', () => ({
 import {
   approveCommentary, rejectCommentary, listCommentary, generateDrafts,
 } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryEms } from '@/modules/accounting/services/commentary/commentaryLimits';
+import {
+  MAX_APPROVED_PACK_EMS, MAX_UNBUDGETED_CHARS, approxCharsLeft, commentaryEms,
+} from '@/modules/accounting/services/commentary/commentaryLimits';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 
@@ -225,8 +227,25 @@ describe('approveCommentary with edited text', () => {
     }
   });
 
+  it('refuses blank-printing characters (Hangul filler, braille blank) as empty_draft', async () => {
+    for (const blank of ['\u3164', '\u2800', ' \u115f\u1160 ', '\uffa0']) {
+      sqlMock.mockReset();
+      const result = await approveCommentary(COMPANY, ID, 'approver-9', blank);
+      expect(result.ok, JSON.stringify(blank)).toBe(false);
+      if (!result.ok) expect(result.code).toBe('empty_draft');
+      expect(sqlMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it('stores CRLF and lone CR as LF rather than refusing them', async () => {
+    queue();
+    const result = await approveCommentary(COMPANY, ID, 'approver-9', 'Line one.\r\nLine two.\rLine three.');
+    expect(result.ok).toBe(true);
+    expect(values(3)).toContain('Line one.\nLine two.\nLine three.');
+  });
+
   it('refuses NUL, C0 controls and lone surrogates as invalid_text, before any statement', async () => {
-    for (const bad of ['a\u0000b', 'a\u0001b', 'a\u0008b', 'a\u000bb', 'a\u000cb', 'a\rb', 'a\u001bb', 'a\u007fb',
+    for (const bad of ['a\u0000b', 'a\u0001b', 'a\u0008b', 'a\u000bb', 'a\u000cb', 'a\u001bb', 'a\u007fb',
       'a\ud800b', 'a\udc00b', 'ab\ud83d', '\ude00ab']) {
       sqlMock.mockReset();
       const result = await approveCommentary(COMPANY, ID, 'approver-9', bad);
@@ -397,6 +416,34 @@ describe('approveCommentary against the pack budget', () => {
     const long = 'x'.repeat(roomFor('x', []) * 2);
     expect((await approveCommentary(COMPANY, ID, 'approver-9', long)).ok).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(2); // the read and the write: no lock, no sum
+  });
+
+  it('reads the period as an ISO date in SQL, so DateStyle cannot change which pack type it matches', async () => {
+    queue([]);
+    await approveCommentary(COMPANY, ID, 'approver-9', 'x');
+    const read = text(0);
+    expect(read).toContain("to_char(period_start, 'YYYY-MM-DD')");
+    expect(read).toContain("to_char(period_end, 'YYYY-MM-DD')");
+    expect(read).not.toMatch(/period_(start|end)::text/);
+  });
+
+  it('caps an edited row on a pack with no fixed page, with its own code', async () => {
+    const atCap = 'x'.repeat(MAX_UNBUDGETED_CHARS);
+    sqlMock.mockResolvedValueOnce([MANAGEMENT]).mockResolvedValueOnce([dbRow({ status: 'approved' })]);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', atCap)).ok).toBe(true);
+
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([MANAGEMENT]);
+    const over = await approveCommentary(COMPANY, ID, 'approver-9', `${atCap}x`);
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.code).toBe('text_too_long');
+    expect(sqlMock).toHaveBeenCalledTimes(1); // the read only
+  });
+
+  it('does not cap a plain approval of a management draft by the edited-text ceiling', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...MANAGEMENT, draft_text: 'd'.repeat(MAX_UNBUDGETED_CHARS + 10) }])
+      .mockResolvedValueOnce([dbRow({ status: 'approved' })]);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9')).ok).toBe(true);
   });
 
   it('budgets a row whose pack type cannot be recovered: it fails closed', async () => {

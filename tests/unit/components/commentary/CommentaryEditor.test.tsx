@@ -58,10 +58,10 @@ describe('CommentaryEditor', () => {
     expect(onApprove).toHaveBeenCalledTimes(1);
   });
 
-  it('with no room figure (a pack with no fixed page) shows no count and imposes no limit', () => {
+  it('with no room figure (a pack with no fixed page) shows no count and imposes only the ceiling', () => {
     render(<CommentaryEditor initialText="A sentence." packRemainingEms={null} onApprove={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.queryByRole('status')).toBeNull();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x'.repeat(5000) } });
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x'.repeat(4000) } });
     expect(approveBtn().disabled).toBe(false);
   });
 });

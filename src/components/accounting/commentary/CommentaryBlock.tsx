@@ -49,6 +49,12 @@ export type CommentaryBlockProps =
       onReject?: (id: string) => void;
     };
 
+/** The sentence as the row shows it, shortened: what the Edit button is for. */
+function editLabel(sentence: string): string {
+  const text = sentence.trim().replace(/\s+/g, ' ');
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
 function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; sectionRef: string }) {
   const mine = rows.filter(r => r.sectionRef === sectionRef && r.status === 'approved' && r.approvedText !== null);
   if (mine.length === 0) return null;
@@ -119,7 +125,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
               </button>
             )}
             {!approved && onApprove && (
-              <button type="button" data-edit aria-label={`Edit ${r.rowRef}`} onClick={() => setEditingId(r.id)}
+              <button type="button" data-edit aria-label={`Edit: ${editLabel(r.draftText)}`} onClick={() => setEditingId(r.id)}
                 className="shrink-0 rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)]">
                 Edit
               </button>

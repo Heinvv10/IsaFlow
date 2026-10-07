@@ -23,7 +23,9 @@ import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { MAX_APPROVED_PACK_EMS, commentaryEms, editedTextProblem } from './commentaryLimits';
+import {
+  MAX_APPROVED_PACK_EMS, MAX_UNBUDGETED_CHARS, commentaryEms, editedTextProblem, normaliseEditedText,
+} from './commentaryLimits';
 import { budgetReason, lockPackAndSumApproved, printsOnFixedPage } from './commentaryBudget';
 
 export interface CommentaryRow {
@@ -42,10 +44,12 @@ export interface CommentaryRow {
   withdrawnAt: string | null;
 }
 
-/** `not_found` is a 404, `empty_draft`, `invalid_text` and
- *  `commentary_budget_exceeded` a 400, `invalid_state` a 409. The route must not collapse them: an id that is not this company's is
- *  not the same answer as a draft that has already been approved. */
-export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'invalid_text' | 'commentary_budget_exceeded' | 'invalid_state';
+/** `not_found` is a 404; `empty_draft`, `invalid_text`, `text_too_long` and
+ *  `commentary_budget_exceeded` are 400s; `invalid_state` is a 409. The route
+ *  must not collapse them: an id that is not this company's is not the same
+ *  answer as a draft that has already been approved. */
+export type CommentaryFailureCode =
+  | 'not_found' | 'empty_draft' | 'invalid_text' | 'text_too_long' | 'commentary_budget_exceeded' | 'invalid_state';
 export type CommentaryResult =
   | { ok: true; row: CommentaryRow }
   | { ok: false; code: CommentaryFailureCode; reason: string };
@@ -162,7 +166,7 @@ interface CurrentRow {
 async function currentRow(companyId: string, id: string): Promise<CurrentRow | null> {
   const rows = (await sql`
     SELECT status, draft_text, report_kind, params_hash,
-           period_start::text AS period_start, period_end::text AS period_end
+           to_char(period_start, 'YYYY-MM-DD') AS period_start, to_char(period_end, 'YYYY-MM-DD') AS period_end
     FROM report_commentary
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid LIMIT 1
   `) as DbRow[];
@@ -186,7 +190,7 @@ export async function approveCommentary(
   companyId: string, id: string, userId: string, editedText?: string,
 ): Promise<CommentaryResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  const edited = editedText === undefined ? undefined : editedText.trim();
+  const edited = editedText === undefined ? undefined : normaliseEditedText(editedText);
   if (edited !== undefined) {
     const problem = editedTextProblem(edited);
     if (problem === 'empty') return { ok: false, code: 'empty_draft', reason: 'There is no visible text to approve.' };
@@ -206,7 +210,15 @@ export async function approveCommentary(
   const t = nextStatus(row.status, 'approve');
   if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
 
-  if (printsOnFixedPage(row)) {
+  if (!printsOnFixedPage(row)) {
+    // No layout bounds this pack's text, only the request size: a generous ceiling.
+    if (edited !== undefined && edited.length > MAX_UNBUDGETED_CHARS) {
+      return {
+        ok: false, code: 'text_too_long',
+        reason: `Commentary is limited to ${MAX_UNBUDGETED_CHARS} characters.`,
+      };
+    }
+  } else {
     const cost = commentaryEms(edited ?? row.draftText);
     // No pack can hold this much, so it needs no lock to be refused.
     if (cost > MAX_APPROVED_PACK_EMS) return { ok: false, code: 'commentary_budget_exceeded', reason: budgetReason(0) };

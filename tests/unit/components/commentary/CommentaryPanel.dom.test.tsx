@@ -222,8 +222,8 @@ describe('CommentaryPanel approve with edits', () => {
   async function openEditor(rows: CommentaryRow[] = [ROW], params = BOARD) {
     fetchMock.mockResolvedValueOnce(envelope({ commentary: rows }));
     render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={params} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit revenue' })).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: 'Edit revenue' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit: DRAFT REVENUE SENTENCE' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit: DRAFT REVENUE SENTENCE' }));
     return screen.getByRole('textbox', { name: /commentary text/i }) as HTMLTextAreaElement;
   }
   const typeInto = (box: HTMLTextAreaElement, value: string) => fireEvent.change(box, { target: { value } });
@@ -252,12 +252,12 @@ describe('CommentaryPanel approve with edits', () => {
     expect(screen.getByRole('status').textContent).toBe(left(commentaryEms('z'.repeat(499)), DRAFT));
   });
 
-  it('gives every Edit button a row-specific accessible name', async () => {
+  it('names every Edit button by the sentence the row shows, not by an internal key', async () => {
     const second: CommentaryRow = { ...ROW, id: 'row-2', rowRef: 'cogs', draftText: 'DRAFT COGS' };
     fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW, second] }));
     render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={BOARD} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit revenue' })).toBeTruthy());
-    expect(screen.getByRole('button', { name: 'Edit cogs' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit: DRAFT REVENUE SENTENCE' })).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Edit: DRAFT COGS' })).toBeTruthy();
   });
 
   it('approves the edited text: POSTs exactly { text } with the padding trimmed, then refreshes', async () => {
@@ -286,9 +286,9 @@ describe('CommentaryPanel approve with edits', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByText(DRAFT)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1); // the initial load only
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit revenue' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit: DRAFT REVENUE SENTENCE' }));
     // Re-opening starts from the draft again, not from the abandoned edit.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit revenue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit: DRAFT REVENUE SENTENCE' }));
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(DRAFT);
   });
 
@@ -323,6 +323,25 @@ describe('CommentaryPanel approve with edits', () => {
     expect(screen.queryByRole('status')).toBeNull();
     typeInto(box, 'x'.repeat(1200));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('shortens a long sentence in the Edit button name', async () => {
+    const long: CommentaryRow = { ...ROW, draftText: `${'Long sentence '.repeat(10)}end` };
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [long] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={BOARD} />);
+    const button = await screen.findByRole('button', { name: /^Edit: Long sentence/ });
+    expect(button.getAttribute('aria-label')!.length).toBeLessThan(70);
+    expect(button.getAttribute('aria-label')).not.toContain('revenue'); // the internal rowRef
+  });
+
+  it('applies the ceiling to a pack with no fixed page, and says so', async () => {
+    const box = await openEditor([ROW], PARAMS);
+    typeInto(box, 'x'.repeat(4000));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
+    typeInto(box, 'x'.repeat(4001));
+    expect(screen.getByRole('status').textContent).toBe('over the 4000-character limit');
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('keeps the editor and the typed text when the server refuses, and shows why', async () => {
