@@ -14,6 +14,8 @@
  * defect. The balance sheet signs by account type (assets debit less credit,
  * liabilities and equity credit less debit); a series signed any other way
  * would draw a contra account upside down against the figure printed next to it.
+ * Every contra equity/liability line in the database is footed in
+ * accountTrendsContraAccounts.int.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';

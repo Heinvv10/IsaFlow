@@ -8,6 +8,8 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from '../bank/bankFeedStateGuard';
+import { isBankEvidenced } from '../ap/bankLinePaymentGate';
+import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 
 type Row = DbRow;
 
@@ -151,6 +153,10 @@ export async function predictFromHistory(
 
 // ── Post Provisional ─────────────────────────────────────────────────────────
 
+const NO_PREDICTION: CodingPrediction = { // what a row skipped before any prediction reports
+  supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none',
+};
+
 export async function postProvisional(
   companyId: string,
   bankTxId: string,
@@ -161,7 +167,7 @@ export async function postProvisional(
 
   // Load bank transaction
   const txRows = (await sql`
-    SELECT id, bank_account_id, transaction_date, amount, description, status, feed_state
+    SELECT id, bank_account_id, transaction_date, amount, description, status, feed_state, bank_feed_connection_id, import_batch_id
     FROM bank_transactions
     WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
@@ -170,30 +176,24 @@ export async function postProvisional(
   const tx = txRows[0]!;
 
   if (tx.status !== 'imported') {
-    return {
-      journalEntryId: null,
-      prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
-      skipped: `already ${String(tx.status)}`,
-    };
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: `already ${String(tx.status)}` };
   }
 
   if (feedStateOf(tx) !== 'posted') {
-    return {
-      journalEntryId: null,
-      prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
-      skipped: `feed_state ${feedStateOf(tx)}`,
-    };
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: `feed_state ${feedStateOf(tx)}` };
   }
 
   const amount = Number(tx.amount);
 
   // Phase 5 only handles supplier payment outflows
   if (amount >= 0) {
-    return {
-      journalEntryId: null,
-      prediction: { supplierId: null, supplierName: null, glAccountId: null, vatCode: null, costCentreId: null, projectId: null, confidence: 0, basis: 'none' },
-      skipped: 'incoming not supported in Phase 5',
-    };
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'incoming not supported in Phase 5' };
+  }
+
+  // R-035 PR6 (H2, round 5): DR <predicted account> / CR bank from a HAND-KEYED outflow is a manual journal nobody
+  // decides — skipped before any write under an enforced rule; the route and the auto-post gate report the reason.
+  if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(companyId, Math.abs(amount))) {
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'approval_required' };
   }
 
   const prediction = await predictFromHistory(companyId, {

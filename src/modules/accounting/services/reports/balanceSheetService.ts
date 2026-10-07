@@ -153,7 +153,9 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
   for (const r of rows) {
     const type = String(r.account_type);
     // By account type, never normal_balance: a contra account (Accumulated
-    // Depreciation, Dividends Declared) reduces its own section.
+    // Depreciation, Dividends Declared, Drawings) reduces its own section.
+    // Signed by normal_balance, Sample Trading's equity was overstated by twice
+    // its dividends declared (isaflow_dev 2026-10-07: R5,069,731.70).
     const balance = balanceByAccountType(type, Number(r.total_debit) - Number(r.total_credit));
     if (Math.abs(balance) < 0.01) continue;
 

@@ -80,6 +80,7 @@ periods — the script's header lists them).
 
 ## Recent changes
 - 2026-10-07 (balance-sheet sign): a balance-sheet line is signed by its ACCOUNT TYPE — assets debit less credit, liabilities and equity credit less debit — never by `normal_balance`, through ONE function, `gl/balanceByAccountType`. `balanceSheetService`, `trendRowsService.getMonthlyBalances` (its SQL returns debit less credit plus `account_type`; the sign is applied in JS) and `consolidatedStatementsService.getConsolidatedBalanceSheet` (members AND eliminations, by the GROUP account's type — a member overdraft mapped to group Cash nets it) all sign through it, so a contra account (Accumulated Depreciation, Dividends Declared, a debit-normal liability) prints negative under its own section. Signing by `normal_balance` added debit-normal equity at +|balance|: Sample Trading's equity at 31 Aug 2026 was overstated by 2 × R2,534,865.85. `MappingEntry.groupNormalBalance` is gone (no reader). The cash sums — `afs/afsKpiCash`, `afs/cashFlowReconciliationService` and the opening cash of `pages/api/accounting/reports-cash-flow.ts` and `cash-flow-export.ts` — had their own copies of the cash query, signed by `normal_balance`; they now read `bank/cashBalanceService.getCashBalance` (K-091g), which signs in TypeScript and rounds to cents; `reports-cash-flow`'s `closing_cash` is rounded with `toMoney` too. Tests: `gl/balanceByAccountType.test.ts`, `balanceSheetContraSign.test.ts`, `consolidatedBalanceSheetContraSign.test.ts`, `reports/trendRowsService.test.ts` (sign block), `cashSitesReadCashBalance.test.ts`, `accountTrends.int.test.ts` (Sample Trading tenant), `k091g-credit-normal-cash-account.int.test.ts` (disposable DB).
+- 2026-10-07 (PR #662): **the balance sheet signs by SECTION** — assets debit − credit, liabilities and equity credit − debit — in `balanceSheetService`, `consolidatedStatementsService` (member balances AND eliminations, by the GROUP account's type; its `sectionSigned` was folded into `gl/balanceByAccountType` when PR #661 merged, same arithmetic) and `trendRowsService.getMonthlyBalances`. It signed by each account's own normal side and flipped only credit-normal assets, so a debit-normal equity account (Dividends Declared, Drawings) was ADDED to equity — overstated by twice its balance, A ≠ L + E (isaflow_dev Sample Trading: R5,069,731.70). Tests: `tests/unit/services/{balanceSheet,consolidatedBalanceSheet}ContraAccounts.test.ts`, `tests/integration/accountTrendsContraAccounts.int.test.ts`.
 - 2026-10-06 (DOCNUM, migrations 858/863): VAT adjustment numbers (VA-) are minted under the journal-number lock (company+year) and consolidation adjustment numbers (ELIM-) under `hashtextextended('<group>:<year>', 858)`, each wait at most 5 s: concurrent creates get consecutive numbers (VA- used to fail 23505, ELIM- duplicated silently; new `uq_consol_adj_group_number`, 863, skipped with a NOTICE where a duplicate exists); past 99999 they keep all their digits. **VA- now takes its year from `adjustment_date`**, not CURRENT_DATE. Tests: `tests/integration/docnum-*.int.test.ts`.
 - 2026-10-05 (PR #646): `findVatNonSupplyLines` drops a reversed pair only when it is ISOLATED in the window — exactly two posted journals, neither reversed nor reversing anything else in the window. A chain O <- R <- R2 stays fully listed (R2 re-instates O's claim); a draft reversal, a straddling pair's in-window side and a reversal pointing at another company's journal are listed. The 34 Velocity rows were measured over Jan–Aug, not per bi-monthly period.
 - 2026-10-02 (D8 item 3): `vat201Service` (both supplier queries) and `vatExceptionsService` (bill↔GL mismatch) date a late-claimed bill by its companion only while the companion STANDS as at the period end — `shared/journalInForceAsAt.journalInForceAsAtFragment`, an even number of posted reversals in its chain dated on or before `periodEnd` — instead of `lc.reversed_at IS NULL`, which read a re-reversed companion as reversed for ever (the bill fell back into the FILED period) and a companion reversed in a LATER period as reversed in the claim period too. Unit mocks of `@/lib/neon` for these services must carry `unsafe`. Test: `tests/integration/vat-late-claim-rereversed-companion.int.test.ts`.
@@ -221,15 +222,20 @@ belongs with the convergence PR.
 ## `trendRowsService` duplicates the balance sheet's shape rules
 
 `getMonthlyBalances` re-implements two rules `balanceSheetService` already
-owns: the signing convention (by `normal_balance`, then negate the
-contra-asset) and the leaf filter (`level >= 3 OR no children`). They are
-copies, not a shared helper, so a change to one is silently a divergence.
+owns: the signing convention (by SECTION: assets debit − credit, liabilities
+and equity credit − debit, so every contra account subtracts) and the leaf
+filter (`level >= 3 OR no children`). They are copies, not a shared helper, so
+a change to one is silently a divergence.
 
 What keeps them honest today is `tests/integration/accountTrends.int.test.ts`,
 which foots the series against `getBalanceSheet` itself rather than against a
 SUM written in the test: the last month must equal the printed balance at
 as-of, and month 6 the printed balance at that month end, for every line on
-both tenants. Mutating either rule in the service turns both red.
+both tenants. Mutating either rule in the service turns both red — EXCEPT for
+contra equity/liability accounts, which neither tenant holds: those are footed
+by `accountTrendsContraAccounts.int.test.ts` against any company in the
+database that has one (2026-10-07, PR #662: the balance sheet had added
+Dividends Declared to equity, and the trend copied the same sign).
 
 Know how that test reaches you. The FILE refuses to skip: with no real
 `DATABASE_URL` its `beforeAll` throws and the suite fails rather than

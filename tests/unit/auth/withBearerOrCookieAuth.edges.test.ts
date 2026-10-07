@@ -99,6 +99,7 @@ function makeRes(): FakeRes {
     headers: {} as Record<string, unknown>,
     headersSent: false,
     setHeader(k: string, v: unknown) { res.headers[k] = v; return res; },
+    removeHeader(k: string) { delete res.headers[k]; },
     status(c: number) { res.statusCode = c; return res; },
     json(b: unknown) { (res as { body?: unknown }).body = b; return res; },
     end(...args: unknown[]) {

@@ -137,6 +137,15 @@ async function findDocument(
         FROM supplier_payments WHERE id = ${documentId}::UUID AND company_id = ${companyId}
       `) as Row[]);
     }
+    // R-035 PR6 (migration 869): any journal of the company — the UI post
+    // route gates whatever draft a person posts, whatever created it. Matched
+    // on approval_manual_journal_gate_amount: the larger side of its lines.
+    case 'manual_journal':
+      return first((await sql`
+        SELECT approval_manual_journal_gate_amount(company_id, id) AS amount, entry_number AS reference,
+               approval_document_digest(company_id, 'manual_journal', id) AS digest
+        FROM gl_journal_entries WHERE id = ${documentId}::UUID AND company_id = ${companyId}
+      `) as Row[]);
     case 'journal_entry':
       return first((await sql`
         SELECT COALESCE((

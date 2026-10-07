@@ -35,6 +35,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
   },
 }));
 vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({ logAuditOrThrow: vi.fn() }));
+// R-035 PR6: the manual-journal gate reads Postgres; off here (proven in r035-pr6-closerun.int.test.ts).
+vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({
+  gateManualJournalPost: vi.fn(async () => false), markManualJournal: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/closeRun/closeRunRepo', () => ({
   fetchDraftJournals: vi.fn(),
   countUnpostedInPeriod: vi.fn(),

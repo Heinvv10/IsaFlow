@@ -32,7 +32,7 @@ const sqlFn = vi.fn();
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlFn(...a),
   withTransaction: vi.fn(),
-  withSavepoint: vi.fn(),
+  withSavepoint: (_n: string, fn: () => unknown) => fn(),
 }));
 
 vi.mock('@/modules/accounting/services/bank/confirmSupplierMatch', () => ({

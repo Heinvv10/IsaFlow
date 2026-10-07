@@ -26,6 +26,7 @@ function mkRes() {
   const res = {
     status(c: number) { status = c; return this; },
     json(v: unknown) { body.value = v; return this; },
+    end() { return this; }, // withPlatformAdmin defers res.end until the transaction is final
     setHeader(k: string, v: unknown) { headers[k.toLowerCase()] = v; },
     getHeader(k: string) { return headers[k.toLowerCase()]; },
   } as unknown as NextApiResponse;
