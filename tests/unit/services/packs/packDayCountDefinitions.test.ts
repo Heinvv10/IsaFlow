@@ -85,6 +85,12 @@ describe('the day counts page 12 defines', () => {
   it('use one convention across debtor days, creditor days and the cycle', () => {
     expect(statedDays(demoSet, 'Debtor days')).toBe(184);
     expect(statedDays(demoSet, 'Creditor days')).toBe(184);
+    // And where the window has no measurable length the engine states none,
+    // which the definition says rather than leaving a reader to guess.
+    for (const term of ['Debtor days', 'Creditor days']) {
+      expect(buildDefinitions(demoSet, new PackFigureProvenance()).find((d) => d.term === term)!.definition)
+        .toContain('the period\'s length cannot be measured');
+    }
 
     const cycle = buildDefinitions(demoSet, new PackFigureProvenance())
       .find((d) => d.term === 'Cash conversion cycle');
