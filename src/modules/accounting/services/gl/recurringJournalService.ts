@@ -16,10 +16,18 @@ import {
   assertPostablePeriod,
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
+import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
+import { templateAuthors } from './manualJournalAuthors';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 
 export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, RecurringJournalNotFoundError } from './recurringJournalGuards';
+
+/** One run: the journal it minted, and — R-035 PR6 — the journals approval holds as drafts (it or nothing). */
+export interface RecurringJournalRun {
+  journalId: string;
+  heldForApproval: string[];
+}
 
 export async function getRecurringJournals(companyId: string, filters?: {
   status?: string;
@@ -128,11 +136,18 @@ export async function updateRecurringJournalStatus(companyId: string,
  *
  * The journal is dated at `next_run_date`, not today: a run caught up a week
  * late belongs in the period it was scheduled for.
+ *
+ * R-035 PR6: a run is unattended — nobody decides at the moment it fires — so
+ * a journal an enforced manual-journal rule governs is not refused (that would
+ * roll the claim back and stall the template on every later run). It is left
+ * the DRAFT the run minted, marked, carrying the template's authors, with the
+ * request raised as the runner; the schedule still advances, and the result
+ * lists it in `heldForApproval`. Decided from reads before the claim.
  */
-export async function generateJournalFromRecurring(companyId: string, 
+export async function generateJournalFromRecurring(companyId: string,
   id: string,
   userId: string
-): Promise<string> {
+): Promise<RecurringJournalRun> {
   if (!als.getStore()?.client) {
     throw new Error(
       'generateJournalFromRecurring must run inside a request transaction (withAuth). Outside one '
@@ -161,6 +176,8 @@ export async function generateJournalFromRecurring(companyId: string,
   const nextDate = advanceDate(dueDate, String(rj.frequency));
   const endDate = rj.end_date ? String(rj.end_date) : null;
   const newStatus = endDate && nextDate > endDate ? 'completed' : 'active';
+  const approval = await newManualJournalGate(companyId, lines);
+  const authors = approval.enforced ? await templateAuthors(companyId, { kind: 'recurring_journal', id }) : [];
 
   return withTransaction(async (tx) => {
     const claimed = (await tx`
@@ -185,10 +202,12 @@ export async function generateJournalFromRecurring(companyId: string,
       source: 'auto_recurring',
       lines,
     }, userId);
-    await postJournalEntry(companyId, je.id, userId);
+    await settleUnattendedJournal(companyId, je.id, userId, approval, authors);
+    if (!approval.held) await postJournalEntry(companyId, je.id, userId);
 
-    log.info('Generated journal from recurring', { recurringId: id, journalId: je.id, runDate: dueDate }, 'accounting');
-    return je.id;
+    log.info('Generated journal from recurring',
+      { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: approval.held }, 'accounting');
+    return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [] };
   });
 }
 
