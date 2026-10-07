@@ -134,6 +134,9 @@ describe('the month-versus-period note', () => {
       expect(note!.body.includes('gross margin')).toBe(drawn.has('trend-gross-margin'));
       expect(note!.body.includes('debtor days')).toBe(drawn.has('trend-debtor-days'));
       expect(note!.body.includes('cash')).toBe(drawn.has('trend-cash'));
+      // ONE DIFFERENCE, THE WINDOW: both pages multiply debtor days by the
+      // days their revenue covers, so a second difference is not claimed.
+      expect(note!.body).not.toMatch(/annualis/i);
       // The exception is stated exactly where a drawn panel lacks one.
       // THE EXCEPTION SET IS TWO HALVES NOW. `printsAgainstComparative` is
       // the structural one — page 6 carries no comparative COLUMN for gross
