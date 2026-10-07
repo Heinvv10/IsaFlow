@@ -8,6 +8,7 @@
  */
 import { ALLOC_TYPES, VAT_CODES } from './allocationLine';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
+import { DIMENSION_LINE_PROPERTIES } from './dimensionArgs';
 
 /** Schema fragment shared by every tool that names a transaction. */
 export const SELECTOR_PROPERTIES = {
@@ -41,6 +42,8 @@ export const ALLOCATION_PROPERTIES = {
   entity_id: { type: 'string' },
   invoice_id: { type: 'string' },
   vat_code: { type: 'string', enum: [...VAT_CODES] },
+  // Dimensions ride on the cost line of an "account" allocation only; refused on a supplier/customer line.
+  ...DIMENSION_LINE_PROPERTIES,
   auto_apply: {
     type: 'string',
     enum: [...AUTO_APPLY_MODES],

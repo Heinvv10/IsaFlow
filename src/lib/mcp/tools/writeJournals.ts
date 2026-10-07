@@ -17,6 +17,8 @@ import { mcpPostingOpts } from '../mcpActor';
 import { ALLOW_LATE_INPUT_CLAIM_PROP, allowLateInputClaim } from './lateClaimArg';
 import { resolveLineVatCode } from './allocationVatGuard';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions, parseDimensionRefs } from './dimensionArgs';
+import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /**
  * The VAT treatments a manual line may carry — the same set an allocation
@@ -30,9 +32,10 @@ export const JOURNAL_LINE_VAT_TYPES: readonly VatType[] = [
   'standard', 'zero_rated', 'exempt', 'capital_goods', 'export', 'imported', 'reverse_charge', 'bad_debt',
 ];
 
-function parseLines(raw: unknown): JournalLineInput[] | string | null {
+function parseLines(raw: unknown): { lines: JournalLineInput[]; dims: (DimensionRefs | undefined)[] } | string | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const lines: JournalLineInput[] = [];
+  const dims: (DimensionRefs | undefined)[] = [];
   for (const [i, item] of raw.entries()) {
     if (!item || typeof item !== 'object') return null;
     const o = item as Record<string, unknown>;
@@ -47,6 +50,9 @@ function parseLines(raw: unknown): JournalLineInput[] | string | null {
       }
       vatType = o.vat_type as VatType;
     }
+    const lineDims = parseDimensionRefs(o, `lines[${i}]`);
+    if (typeof lineDims === 'string') return lineDims;
+    dims.push(lineDims);
     lines.push({
       glAccountId,
       debit,
@@ -55,7 +61,7 @@ function parseLines(raw: unknown): JournalLineInput[] | string | null {
       ...(vatType ? { vatType } : {}),
     });
   }
-  return lines;
+  return { lines, dims };
 }
 
 export const createDraftJournalTool: McpTool = {
@@ -87,6 +93,7 @@ export const createDraftJournalTool: McpTool = {
                 + 'Output line AND on the base line it belongs to; a VAT-account line without it is '
                 + 'reported by vat_exceptions as uncoded and blocks the VAT201. Omit for non-VAT lines.',
             },
+            ...DIMENSION_LINE_PROPERTIES,
           },
           required: ['account_id'],
           additionalProperties: false,
@@ -103,9 +110,11 @@ export const createDraftJournalTool: McpTool = {
     if (!entryDate) return toolError('date is required (YYYY-MM-DD)');
     const badDate = guardCastableArgs(args, { date: ['date'] });
     if (badDate) return badDate;
-    const lines = parseLines(args.lines);
-    if (typeof lines === 'string') return toolError(lines);
-    if (!lines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
+    const parsedLines = parseLines(args.lines);
+    if (typeof parsedLines === 'string') return toolError(parsedLines);
+    if (!parsedLines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
+    const { dims } = parsedLines;
+    let { lines } = parsedLines;
     // accountsBelongToCompany casts every one of these to ::UUID, so a typo
     // there fails the ownership check itself rather than the posting.
     const badLine = guardUuidList(lines.map((l) => l.glAccountId), (i) => `lines[${i}].account_id`);
@@ -116,6 +125,12 @@ export const createDraftJournalTool: McpTool = {
     if (!(await accountsBelongToCompany(ctx.companyId, lines.map((l) => l.glAccountId)))) {
       return toolError('One or more account_id values are not GL accounts in your company.');
     }
+    // cc1/cc2/bu per line: resolved, CC1 derived from CC2, conflicts refused — pre-write.
+    const withDims = await itemsWithDimensions(ctx.companyId, lines, dims, (i) => `lines[${i}]`);
+    if (typeof withDims === 'string') return toolError(withDims);
+    lines = withDims;
+    const cos = await dimensionWarningsOrRefusal(ctx.companyId, lines, (i) => `lines[${i}]`);
+    if (typeof cos === 'string') return toolError(cos);
     // A coded line is a VAT claim the agent is asserting, unattended: run it
     // through the same s17(2)(a) / non-supply / bank-transfer funnel every MCP
     // allocation goes through. REFUSE rather than coerce — the journal carries
@@ -158,7 +173,7 @@ export const createDraftJournalTool: McpTool = {
     // (still only a draft). Outside the catch: a failure here must reach the
     // registry's savepoint, not commit an unmarked draft behind a tool error.
     await markCreatedManualJournal(ctx.companyId, entry.id);
-    return ok(entry);
+    return ok(cos.warnings.length > 0 ? { ...entry, dimension_warnings: cos.warnings } : entry);
   },
 };
 

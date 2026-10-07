@@ -32,6 +32,8 @@ import { mcpPostingOpts } from '../mcpActor';
 import { applyRouteFor, postAndApplyLine } from './allocationApplyRoute';
 import type { McpToolContext } from '../types';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
+import { parseDimensionRefs } from './dimensionArgs';
+import type { DimensionIds, DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /**
  * What one posted line reports back. `vatCoerced` is present only when a guard
@@ -95,6 +97,9 @@ export interface AllocationLine {
   description?: string;
   /** Whether this line's cash is applied to the contact's open documents. */
   autoApply: AutoApplyMode;
+  /** cc1 / cc2 / bu as typed (code, UUID or alias); resolved to `dimIds` before any write. */
+  dims?: DimensionRefs;
+  dimIds?: DimensionIds;
 }
 
 function str(args: Record<string, unknown>, key: string): string {
@@ -195,6 +200,14 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
     autoApply = parsed;
   }
 
+  // Brief §5.3: a payment or receipt carries no dimensions — the document it settles does.
+  const dims = parseDimensionRefs(args, 'allocation');
+  if (typeof dims === 'string') return dims;
+  if (dims && ENTITY_REQUIRED.includes(allocType)) {
+    return 'A supplier payment or customer receipt carries no cc1/cc2/bu — the bill or invoice it settles carries '
+      + 'them. Remove them, or allocate to the cost account (alloc_type "account").';
+  }
+
   const description = typeof args.description === 'string' ? args.description : undefined;
   return {
     selector,
@@ -205,6 +218,7 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
     invoiceId: invoiceId || undefined,
     description,
     autoApply,
+    ...(dims ? { dims } : {}),
   };
 }
 
@@ -301,9 +315,9 @@ export async function postAllocationLine(
     line.allocType,
     line.entityId || undefined,
     effectiveVatCode,
-    undefined,
-    undefined,
-    undefined,
+    line.dimIds?.cc1Id,
+    line.dimIds?.cc2Id,
+    line.dimIds?.buId,
     line.invoiceId,
     { ...mcpPostingOpts(ctx, toolName), autoApply: line.autoApply },
   );
