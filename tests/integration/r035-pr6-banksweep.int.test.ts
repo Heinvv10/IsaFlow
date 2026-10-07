@@ -6,6 +6,10 @@
  *    matching rule skips it (counted as approval_required), before any write,
  *    whatever triggered the sweep — the twin of PR5's supplier arm. An imported
  *    line still auto-posts; so does everything with enforcement off.
+ *  - Round 5 (adversarial REPRO 4): provisional posting (postProvisional, from
+ *    the provisional/outstanding route and the auto-post gate) of a HAND-KEYED
+ *    outflow to its predicted account is skipped as approval_required, nothing
+ *    written; an imported line still posts provisionally.
  *  - A hand-keyed TRANSFER to another bank-subtype account is a manual journal
  *    to a GL account too (any account can be relabelled bank): refused 409
  *    before any write on Spend/Receive Money and on allocate.
@@ -15,6 +19,7 @@ import { Pool } from 'pg';
 import bankRulesAction from '../../pages/api/accounting/bank-rules-action';
 import bankTransactionsManual from '../../pages/api/accounting/bank-transactions-manual';
 import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
+import provisionalOutstanding from '../../pages/api/accounting/provisional/outstanding';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
@@ -29,6 +34,7 @@ let a = '';
 beforeAll(async () => { a = await createUser(pool, tokens); });
 afterAll(async () => {
   await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM supplier_coding_history WHERE company_id = ANY($1)', [companies]);
   await cleanupPr6(pool, companies, [a]);
 });
 
@@ -98,5 +104,41 @@ describe('a hand-keyed transfer to another bank account', () => {
     expect(await statusOf(manual)).toBe('imported');
     const imported = await line(f, 'import');
     expect((await allocate(imported)).state.statusCode).toBe(200);
+  });
+});
+
+describe('provisional posting (round 5, adversarial REPRO 4)', () => {
+  /** A supplier whose past bill was coded to expA, so provisional posting predicts expA for a line naming it. */
+  async function predictable(f: JournalCompany): Promise<void> {
+    const { rows: [sup] } = await pool.query("INSERT INTO suppliers(company_id,name) VALUES($1,'Acmeprov Holdings') RETURNING id", [f.c]);
+    await pool.query('INSERT INTO supplier_coding_history(company_id,supplier_id,gl_account_id,posted_by) VALUES($1,$2,$3,$4)',
+      [f.c, sup.id, f.expA, a]);
+  }
+  const outflow = async (f: JournalCompany, provenance: 'manual' | 'import') => (await pool.query(
+    `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+     VALUES($1,$2,DATE '2026-09-01',-50000,'Acmeprov Holdings','imported',$3) RETURNING id`,
+    [f.c, f.bank, provenance === 'import' ? crypto.randomUUID() : null])).rows[0].id as string;
+  const provisional = (f: JournalCompany, id: string) =>
+    call(provisionalOutstanding, f.c, { bankTxIds: [id] }, '/api/accounting/provisional/outstanding');
+  const resultOf = (res: { state: { body: unknown } }) =>
+    dataOf<{ results: { journalEntryId: string | null; skipped?: string }[] }>(res).results[0]!;
+
+  it('skips a hand-keyed outflow as approval_required with nothing written; an imported one posts', async () => {
+    const f = await fixture();
+    await predictable(f);
+    const manual = await outflow(f, 'manual');
+    const res = await provisional(f, manual);
+    expect(res.state.statusCode).toBe(200);
+    expect(resultOf(res)).toMatchObject({ journalEntryId: null, skipped: 'approval_required' });
+    expect(await statusOf(manual)).toBe('imported');
+    expect(Number((await pool.query('SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = $1', [f.c])).rows[0].n)).toBe(0);
+    const imported = await outflow(f, 'import');
+    expect(resultOf(await provisional(f, imported)).journalEntryId).not.toBeNull();
+  });
+
+  it('enforcement off: a hand-keyed outflow posts provisionally as before', async () => {
+    const f = await fixture({ enforced: false });
+    await predictable(f);
+    expect(resultOf(await provisional(f, await outflow(f, 'manual'))).journalEntryId).not.toBeNull();
   });
 });

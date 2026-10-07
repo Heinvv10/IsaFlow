@@ -54,6 +54,7 @@ const GATED: Record<string, string> = {
   [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
   'src/lib/mcp/tools/writeOpeningBalance.ts': 'MCP opening balance: refused outright under enforcement — a person enters them (Hein, round 4)',
+  [`${A}capture/provisionalPostingService.ts`]: 'provisional posting of a bank outflow: evidenced lines exempt (D2); a hand-keyed one skipped (Hein H2, round 5)',
 };
 const EXEMPT: Record<string, string> = {
   [`${A}gl/journalEntryPostService.ts`]: 'the primitive itself: re-enters for the s16(3) companion of a journal already gated',
@@ -73,7 +74,6 @@ const EXEMPT: Record<string, string> = {
   [`${A}ar/customerPaymentAllocationService.ts`]: 'customer receipt: money in (PR5 out of scope)',
   [`${A}ar/gatewayFeeService.ts`]: 'Paystack gateway fee: decision 2 (Paystack receipts)',
   [`${A}ar/writeOffService.ts`]: 'write-off: the posting of a write-off document',
-  [`${A}capture/provisionalPostingService.ts`]: 'provisional capture posting: document posting',
   [`${A}expense/expenseClaimService.ts`]: 'expense claim posting: document posting',
   [`${A}gl/glCrossModuleHooks.ts`]: 'cross-module document hooks: system journals',
   [`${A}items/adjustmentService.ts`]: 'stock adjustment: document posting',
@@ -114,6 +114,7 @@ describe('the callers of postJournalEntry', () => {
     before(`${A}gl/closeRun/closeRunService.ts`, 'gateManualJournalPost(', 'updateProposalOutcome(companyId, proposal.id');
     before(`${A}bank/bankReconciliationService.ts`, 'newManualJournalRefusal(', 'createJournalEntry(');
     before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
+    before(`${A}capture/provisionalPostingService.ts`, "if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}bank/bankRuleAutoPostLine.ts`, "if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}capture/pettyCashJournalService.ts`, 'newManualJournalGate(', 'claimCapturedDocumentForPosting(');
     before(`${A}capture/pettyCashJournalService.ts`, 'settleUnattendedJournal(', 'postJournalEntry(');

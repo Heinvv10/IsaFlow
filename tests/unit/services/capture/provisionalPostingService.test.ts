@@ -6,7 +6,6 @@
  * history-mode confidence tiers) and postProvisional (skip guards, JE creation,
  * bank_transactions UPDATE).
  */
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
@@ -18,6 +17,7 @@ const { sqlMock } = vi.hoisted(() => {
   return { sqlMock };
 });
 
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ handKeyedLineJournalRefusal: vi.fn(async () => null) })); // R-035 PR6: proven in r035-pr6-banksweep.int
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, fmtDate: (x: unknown) => String(x) }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
