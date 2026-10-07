@@ -144,7 +144,7 @@ export async function updateRecurringJournalStatus(companyId: string,
  * request raised as the runner; the schedule still advances, and the result
  * lists it in `heldForApproval`. Decided from reads before the claim.
  */
-export async function generateJournalFromRecurring(companyId: string,
+export async function runRecurringJournal(companyId: string,
   id: string,
   userId: string
 ): Promise<RecurringJournalRun> {
@@ -209,6 +209,11 @@ export async function generateJournalFromRecurring(companyId: string,
       { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: approval.held }, 'accounting');
     return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [] };
   });
+}
+
+/** The journal a run minted; callers that report a held journal use runRecurringJournal. */
+export async function generateJournalFromRecurring(companyId: string, id: string, userId: string): Promise<string> {
+  return (await runRecurringJournal(companyId, id, userId)).journalId;
 }
 
 function mapRow(row: DbRow): RecurringJournal {
