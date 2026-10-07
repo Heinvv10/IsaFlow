@@ -125,6 +125,8 @@ describe('the approval checks', () => {
   it("tenant isolation: another company's approval or enforcement does not count", async () => {
     const f = await gated();
     const g = await journalCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+    // B enforces too, so its forged approval is not filtered out by the enforcement join alone.
+    await enforceJournals(pool, g.c, u.b);
     const id = await plantJournal(pool, f, u.a);
     const rule = (await pool.query("SELECT id FROM approval_rules WHERE company_id = $1 AND document_type = 'manual_journal'", [f.c])).rows[0].id;
     await pool.query(
@@ -136,7 +138,6 @@ describe('the approval checks', () => {
     // B's enforcement does not enforce on A's company.
     const open = await journalCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
     await journalRule(plantRule, pool, open.c);
-    await enforceJournals(pool, g.c, u.b);
     const free = await plantJournal(pool, open, u.a);
     expect((await r.post(u.a, open.c, free)).state.statusCode).toBe(200);
   });
