@@ -7,7 +7,7 @@ import { build } from 'vite';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 
-export async function bundlePrintPages(): Promise<string> {
+export async function bundlePrintPages(entry = path.join(__dirname, 'printPageEntry.tsx')): Promise<string> {
   const result = await build({
     root: ROOT,
     configFile: false,
@@ -27,7 +27,7 @@ export async function bundlePrintPages(): Promise<string> {
     build: {
       write: false,
       minify: false,
-      lib: { entry: path.join(__dirname, 'printPageEntry.tsx'), formats: ['iife'], name: 'PrintPages', fileName: 'print-pages' },
+      lib: { entry, formats: ['iife'], name: 'PrintPages', fileName: 'print-pages' },
       rollupOptions: { output: { inlineDynamicImports: true } },
     },
   });

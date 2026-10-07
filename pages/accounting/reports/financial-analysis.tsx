@@ -18,14 +18,12 @@ import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ratioLabel, ratioLine } from '@/modules/accounting/services/reports/ratioPresentation';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+// The note only: the chart itself loads through `dynamic` below.
+import { RATIO_TREND_STUB_NOTE } from '@/components/accounting/charts/ratioTrendStub';
 
-const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
-const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
+const RatioTrendChart = dynamic(
+  () => import('@/components/accounting/charts/RatioTrendChart').then(m => m.RatioTrendChart), { ssr: false },
+);
 
 interface ScorecardItem {
   ratioKey: string;
@@ -268,22 +266,14 @@ export default function FinancialAnalysisPage() {
                               : `${trend.changePercent > 0 ? '+' : ''}${trend.changePercent.toFixed(1)}%`}
                           </span>
                         </div>
-                        <ResponsiveContainer width="100%" height={120}>
-                          {/* The current month is drawn TO DATE — a stub the header's
-                              change leaves out — so its label says so on the axis
-                              and in the tooltip. */}
-                          <LineChart data={trend.values.map((v) => (v.partial ? { ...v, period: `${v.period} (to date)` } : v))}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                            <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#888' }} />
-                            <YAxis tick={{ fontSize: 10, fill: '#888' }} width={45} />
-                            <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
-                            <Line type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
+                        <RatioTrendChart values={trend.values} />
                       </div>
                     );
                   })}
                 </div>
+                {trends.some(t => t.values.some(v => v.partial)) && (
+                  <p className="mt-3 text-xs text-[var(--ff-text-secondary)]">{RATIO_TREND_STUB_NOTE}</p>
+                )}
               </div>
             </>
           )}
