@@ -1,7 +1,7 @@
 /**
  * R-035 PR2: the per-document-type "Enforce" switch on the approval-rules tab
  * (supplier invoices; both credit-note types since PR3; customer invoices since PR4;
- * supplier payments and payment batches since PR5).
+ * supplier payments and payment batches since PR5; manual journals since PR6).
  *
  * Off by default (Hein: opt-in per company and type). On, the type's posting
  * paths refuse a document an active rule governs until it is approved. The
@@ -22,6 +22,8 @@ interface EnforcementData {
   legacyCreditNoteRules?: number;
   /** Active rules of the legacy `payment` type, which govern neither payment type (PR5). */
   legacyPaymentRules?: number;
+  /** Active rules of the legacy `journal_entry` type, which govern no journal (PR6). */
+  legacyJournalRules?: number;
 }
 
 const CREDIT_NOTE_TYPES = new Set(['customer_credit_note', 'supplier_credit_note']);
@@ -41,6 +43,7 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   customer_invoice: { name: 'customer invoice', noun: 'invoice' },
   supplier_payment: { name: 'supplier payment', noun: 'payment', pending: 'unpaid' },
   payment_batch: { name: 'payment batch', noun: 'batch', pending: 'unpaid' },
+  manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
 export function ApprovalEnforcementPanel() {
@@ -101,7 +104,9 @@ export function ApprovalEnforcementPanel() {
         const warning = CREDIT_NOTE_TYPES.has(type) && (data.legacyCreditNoteRules ?? 0) > 0
           ? legacyWarning(data.legacyCreditNoteRules!, 'credit-note', 'customer/supplier credit-note')
           : PAYMENT_TYPES.has(type) && (data.legacyPaymentRules ?? 0) > 0
-            ? legacyWarning(data.legacyPaymentRules!, 'payment', 'supplier payment or payment batch') : null;
+            ? legacyWarning(data.legacyPaymentRules!, 'payment', 'supplier payment or payment batch')
+            : type === 'manual_journal' && (data.legacyJournalRules ?? 0) > 0
+              ? legacyWarning(data.legacyJournalRules!, 'journal-entry', 'manual journal') : null;
         return (
           <div key={type} className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
