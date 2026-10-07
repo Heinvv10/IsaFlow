@@ -42,6 +42,7 @@ function mkRes() {
   const res = {
     status(c: number) { status = c; return this; },
     json(v: unknown) { body = v; return this; },
+    end() { return this; }, // withPlatformAdmin defers res.end until the transaction is final
     setHeader(k: string, v: string | string[]) {
       if (k.toLowerCase() === 'set-cookie') setCookies.push(...(Array.isArray(v) ? v : [v]));
     },
