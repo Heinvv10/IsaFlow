@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { balanceByAccountType } from '../gl/balanceByAccountType';
 import type { BalanceSheetReport } from '../../types/gl.types';
 
 type Row = DbRow;
@@ -151,15 +152,9 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
 
   for (const r of rows) {
     const type = String(r.account_type);
-    const debit = Number(r.total_debit);
-    const credit = Number(r.total_credit);
-    // Signed by the SECTION, never by the account's normal_balance: an asset is
-    // debit less credit, a liability or equity account credit less debit. A
-    // contra account — Accumulated Depreciation (credit-normal asset), Dividends
-    // Declared or Drawings (debit-normal equity) — then reduces its own section.
-    // Signing by normal_balance added debit-normal equity to equity at
-    // +|balance|, overstating it by twice the dividends declared.
-    const balance = type === 'asset' ? debit - credit : credit - debit;
+    // By account type, never normal_balance: a contra account (Accumulated
+    // Depreciation, Dividends Declared) reduces its own section.
+    const balance = balanceByAccountType(type, Number(r.total_debit) - Number(r.total_credit));
     if (Math.abs(balance) < 0.01) continue;
 
     const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance };

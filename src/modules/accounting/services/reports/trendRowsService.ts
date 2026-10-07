@@ -14,13 +14,11 @@
  * - Movement uses `incomeStatementService`'s per-line arithmetic: revenue is
  *   credit less debit, expense is debit less credit, so "more is more" on both
  *   sides and the sparkline rises when the line item rises.
- * - Balance uses `balanceSheetService`'s: sign by ACCOUNT TYPE — assets debit
- *   less credit, liabilities and equity credit less debit — so a contra account
+ * - Balance uses `balanceSheetService`'s: the SQL returns debit less credit and
+ *   `balanceByAccountType` signs it by account type, so a contra account
  *   (Accumulated Depreciation, Dividends Declared) draws below zero, as its
- *   statement line prints. A plain debit-less-credit series would draw every
- *   liability and equity account upside down. The same leaf filter
- *   applies, so a parent roll-up account does not get a series the balance
- *   sheet never prints.
+ *   statement line prints. The same leaf filter applies, so a parent roll-up
+ *   account does not get a series the balance sheet never prints.
  *
  * The balance series is a running sum seeded with the balance at the window's
  * open, so a month with no posting repeats the month before it rather than
@@ -50,6 +48,7 @@
 import { sql } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
+import { balanceByAccountType } from '../gl/balanceByAccountType';
 
 export interface AccountTrends {
   /** Twelve `YYYY-MM` keys, oldest first. */
@@ -76,6 +75,11 @@ interface TrendRow {
   account_code: string;
   month_key: string;
   amount: number | string;
+}
+
+/** A balance row: `amount` is debit less credit, signed by `account_type` here. */
+interface BalanceRow extends TrendRow {
+  account_type: string;
 }
 
 /** The twelve `YYYY-MM` keys ending at `asOf`'s month, oldest first. */
@@ -150,14 +154,11 @@ export async function getMonthlyBalances(companyId: string, asOf: string): Promi
   // month is its own movement. The running sum below turns those into
   // balances.
   const rows = (await sql`
-    SELECT ga.account_code,
+    SELECT ga.account_code, ga.account_type,
            CASE WHEN je.entry_date < ${windowStart}::date THEN ${OPENING_KEY}
                 ELSE to_char(date_trunc('month', je.entry_date), 'YYYY-MM')
            END AS month_key,
-           COALESCE(SUM(
-             -- balanceSheetService: sign by account type, never normal_balance.
-             CASE WHEN ga.account_type = 'asset' THEN jl.debit - jl.credit
-                  ELSE jl.credit - jl.debit END), 0)::float8 AS amount
+           COALESCE(SUM(jl.debit - jl.credit), 0)::float8 AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -178,22 +179,23 @@ export async function getMonthlyBalances(companyId: string, asOf: string): Promi
     -- Grouped by ordinal: the bucketing CASE carries bound parameters, and a
     -- repeat of it in GROUP BY binds NEW placeholders, which Postgres reads as
     -- a different expression ("je.entry_date must appear in the GROUP BY").
-    GROUP BY 1, 2
-  `) as TrendRow[];
+    GROUP BY 1, 2, 3
+  `) as BalanceRow[];
 
   const index = new Map(months.map((m, i) => [m, i]));
   const opening: Record<string, number> = {};
   const movements: Record<string, number[]> = {};
   for (const row of rows) {
+    const amount = balanceByAccountType(row.account_type, Number(row.amount));
     if (row.month_key === OPENING_KEY) {
-      opening[row.account_code] = (opening[row.account_code] ?? 0) + Number(row.amount);
+      opening[row.account_code] = (opening[row.account_code] ?? 0) + amount;
       movements[row.account_code] ??= new Array<number>(12).fill(0);
       continue;
     }
     const slot = index.get(row.month_key);
     if (slot === undefined) continue;
     const series = (movements[row.account_code] ??= new Array<number>(12).fill(0));
-    series[slot] = Number(row.amount);
+    series[slot] = amount;
   }
 
   const byAccountCode: Record<string, number[]> = {};

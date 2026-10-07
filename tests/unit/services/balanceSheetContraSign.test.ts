@@ -39,14 +39,16 @@ const AS_AT = '2026-08-31';
 
 /**
  * A trial balance that balances: debits 10 000 + 1 500 + 500 + expenses 2 000
- * = credits 2 000 + 5 000 + 4 000 + revenue 3 000 = 14 000.
+ * = credits 2 000 + 5 000 + 4 000 + revenue 3 000 = 14 000. The service selects
+ * no `normal_balance`; the three contra rows carry one ONLY to prove it is
+ * ignored if present — signed by it, each would add to its section.
  */
 const GL_ROWS = [
-  { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit', total_debit: 10000, total_credit: 0 },
+  { account_code: '1000', account_name: 'Bank', account_type: 'asset', total_debit: 10000, total_credit: 0 },
   { account_code: '1230', account_name: 'Accumulated Depreciation', account_type: 'asset', normal_balance: 'credit', total_debit: 0, total_credit: 2000 },
-  { account_code: '2100', account_name: 'Loan', account_type: 'liability', normal_balance: 'credit', total_debit: 0, total_credit: 5000 },
+  { account_code: '2100', account_name: 'Loan', account_type: 'liability', total_debit: 0, total_credit: 5000 },
   { account_code: '2900', account_name: 'Loan Discount', account_type: 'liability', normal_balance: 'debit', total_debit: 500, total_credit: 0 },
-  { account_code: '3000', account_name: 'Share Capital', account_type: 'equity', normal_balance: 'credit', total_debit: 0, total_credit: 4000 },
+  { account_code: '3000', account_name: 'Share Capital', account_type: 'equity', total_debit: 0, total_credit: 4000 },
   { account_code: '3400', account_name: 'Dividends Declared', account_type: 'equity', normal_balance: 'debit', total_debit: 1500, total_credit: 0 },
 ];
 const RE_ROW = [{ revenue: 3000, expenses: 2000 }];

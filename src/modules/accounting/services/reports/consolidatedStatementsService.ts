@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { canonicalSubtype } from '../gl/accountSubtypes';
+import { balanceByAccountType } from '../gl/balanceByAccountType';
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
@@ -48,11 +49,6 @@ function buildISTotals(items: ConsolidatedLineItem[]): ConsolidatedISTotals {
     t.consolidatedAmount += item.consolidatedAmount;
   }
   return t;
-}
-
-/** A balance-sheet amount in its section's direction: assets debit less credit, the rest credit less debit. */
-function signedForSection(category: string, debit: number, credit: number): number {
-  return category === 'asset' ? debit - credit : credit - debit;
 }
 
 function buildBSTotals(items: ConsolidatedBSLineItem[]): ConsolidatedBSTotals {
@@ -206,10 +202,10 @@ export async function getConsolidatedBalanceSheet(
       for (const r of rows) {
         const mapping = mappings.get(String(r.account_id));
         if (!mapping) continue;
-        // Signed by the group SECTION the line lands in (balanceSheetService's
-        // rule), never by normal_balance: a contra account — Accumulated
-        // Depreciation, Dividends Declared — must reduce its section, not add.
-        const balance = signedForSection(mapping.groupAccountType, Number(r.total_debit), Number(r.total_credit));
+        // Signed by the GROUP account's type — the section the line lands in —
+        // never by normal_balance or the member's own type: a contra account
+        // reduces its section, and a member overdraft mapped to group Cash nets it.
+        const balance = balanceByAccountType(mapping.groupAccountType, Number(r.total_debit) - Number(r.total_credit));
         if (Math.abs(balance) < 0.01) continue;
         let entry = lineMap.get(mapping.groupAccountId);
         if (!entry) {
@@ -259,7 +255,7 @@ export async function getConsolidatedBalanceSheet(
     for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate)) {
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;
-      entry.eliminationAmount += signedForSection(entry.category, elim.debit, elim.credit);
+      entry.eliminationAmount += balanceByAccountType(entry.category, elim.debit - elim.credit);
     }
 
     const assets: ConsolidatedBSLineItem[] = [];

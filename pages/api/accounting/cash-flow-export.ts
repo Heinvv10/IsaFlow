@@ -13,7 +13,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import {
-  CASH_SUBTYPES,
   RECEIVABLE_SUBTYPES,
   PAYABLE_SUBTYPES,
   INVESTING_ASSET_SUBTYPES,
@@ -22,6 +21,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { csvVal } from '@/lib/csv';
+import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -34,22 +34,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
 
-  // Opening cash balance (bank accounts before period start)
-  const [openingRow] = await sql`
-    SELECT COALESCE(SUM(
-      jl.debit - jl.credit
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID
-    AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
-      AND ga.account_type = 'asset'
-      AND je.company_id = ${companyId}
-      AND je.status = 'posted'
-      AND je.entry_date < ${periodStart}
-  `;
-  const openingBalance = Number(openingRow?.balance || 0);
+  // Opening cash: cash.balance.v1, the day before the period starts. This
+  // route's own copy signed each account by its user-set normal_balance, so a
+  // credit-normal cash account was summed as negative cash (K-091g).
+  const openingBalance = (await getCashBalance(companyId, periodStart, { exclusive: true })).total;
 
   // Net income from P&L accounts in period
   const [incomeRow] = await sql`

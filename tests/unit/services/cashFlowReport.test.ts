@@ -22,7 +22,7 @@
  * The task spec "-100" describes economic direction, not the raw DB value.
  * This preserves sign convention from the original code.
  *
- * Opening balance (before period, bank account, normal_balance='debit'):
+ * Opening balance (before period, bank account; cash.balance.v1, stood in):
  *   debit=2000, credit=500 → balance = debit-credit = 1500
  */
 
@@ -49,6 +49,12 @@ vi.mock('@/lib/neon', () => {
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+
+// Opening cash is cash.balance.v1 (K-091g), stood in per test.
+let openingCash = 0;
+vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
+  getCashBalance: vi.fn(async () => ({ asAt: '', total: openingCash, accounts: [], deactivatedWithBalance: [], postedThrough: null })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -135,18 +141,13 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
 
   it('returns correct section totals for a deterministic scenario (collapsed 1-query path)', async () => {
     /**
-     * Query call order after BL-12 fix (2 parallel queries):
-     *   Promise.all[0] = opening balance query → { balance }
-     *   Promise.all[1] = collapsed aggregate   → { net_income, ar_delta, ap_delta, investing, financing }
-     *
-     * Mock call order matches Promise resolution order (Promise.all resolves in index order):
-     *   [0] opening balance
-     *   [1] collapsed totals
+     * Opening cash comes from getCashBalance (stood in above); the one SQL
+     * call is the collapsed aggregate:
+     *   [0] collapsed totals → { net_income, ar_delta, ap_delta, investing, financing }
      */
+    openingCash = 1500; // cash.balance.v1: debit=2000, credit=500 → 1500
     mockSqlResults.push(
-      // [0] opening balance: normal_balance='debit', debit=2000, credit=500 → 1500
-      [{ balance: '1500' }],
-      // [1] collapsed aggregate
+      // [0] collapsed aggregate
       [{
         net_income: '700',  // revenue(1000 credit-debit) - expense(300 debit-credit)
         ar_delta: '200',    // credit(200) - debit(0) = 200
@@ -209,9 +210,9 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
   });
 
   it('returns all-zero report when no journal lines exist', async () => {
+    openingCash = 0;
     mockSqlResults.push(
-      [{ balance: '0' }],            // [0] opening balance
-      [{ net_income: '0', ar_delta: '0', ap_delta: '0', investing: '0', financing: '0' }], // [1] collapsed
+      [{ net_income: '0', ar_delta: '0', ap_delta: '0', investing: '0', financing: '0' }], // [0] collapsed
     );
 
     const mod = await import('../../../pages/api/accounting/reports-cash-flow');

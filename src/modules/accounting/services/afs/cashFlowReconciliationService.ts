@@ -1,10 +1,6 @@
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getCashFlowDirect } from './cashFlowDirectService';
-import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
-
-type Row = DbRow;
+import { getCashBalance } from '../bank/cashBalanceService';
 
 export interface CashFlowReconciliation {
   periodStart: string;
@@ -27,41 +23,14 @@ const TOLERANCE = 0.01;
 // method differs only in *presentation* (net-income + non-cash adjustments), not in the
 // closing number.  Using the authoritative GL bank balance here removes the variance.
 async function fetchIndirectClosingCash(companyId: string, _periodStart: string, periodEnd: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      jl.debit - jl.credit
-    ), 0)::numeric AS closing_cash
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
-      AND ga.account_type = 'asset'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status     = 'posted'
-      AND je.entry_date <= ${periodEnd}
-  `) as Row[];
-  return Number(rows[0]?.closing_cash ?? 0);
+  return (await getCashBalance(companyId, periodEnd)).total;
 }
 
+// `cash.balance.v1`. Its own copy of this query signed each account by its
+// user-set `normal_balance`, summing a credit-normal cash account as negative
+// cash and reporting a variance on correct books (K-091g).
 async function fetchBankBalance(companyId: string, asAtDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      jl.debit - jl.credit
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
-      AND ga.account_type = 'asset'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status     = 'posted'
-      AND je.entry_date <= ${asAtDate}
-  `) as Row[];
-  return Number(rows[0]?.balance ?? 0);
+  return (await getCashBalance(companyId, asAtDate)).total;
 }
 
 export async function getCashFlowReconciliation(

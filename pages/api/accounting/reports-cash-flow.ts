@@ -1,11 +1,11 @@
 import { sql } from '@/lib/neon';
 import {
-  CASH_SUBTYPES,
   RECEIVABLE_SUBTYPES,
   PAYABLE_SUBTYPES,
   INVESTING_ASSET_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountClassification';
 import { fmtDate } from '@/lib/fmtDate';
+import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 /**
  * Cash Flow Statement API
  * GET /api/accounting/reports-cash-flow?start_date=&end_date=
@@ -27,10 +27,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { log } from '@/lib/logger';
 
-// account_subtype column has been present since migration 260+.
-// No runtime schema probe needed.
-const HAS_SUBTYPE = true as const;
-
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -48,37 +44,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     // Run opening-balance and the collapsed period aggregate in parallel.
     // P-009: no schema probe. P-002: 6 queries → 1 conditional-aggregation query.
-    const [openingCashRows, totalsRow] = await Promise.all([
-      // Opening cash balance: bank accounts posted before the period start
-      HAS_SUBTYPE
-        ? sql`
-            SELECT COALESCE(SUM(
-              jl.debit - jl.credit
-            ), 0)::numeric as balance
-            FROM gl_journal_lines jl
-            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE ga.account_type = 'asset'
-              AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
-              AND je.company_id = ${companyId}
-              AND jl.company_id = ${companyId}::UUID
-              AND je.status = 'posted'
-              AND je.entry_date < ${startDate}
-          `
-        : sql`
-            SELECT COALESCE(SUM(
-              jl.debit - jl.credit
-            ), 0)::numeric as balance
-            FROM gl_journal_lines jl
-            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-            JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE ga.account_type = 'asset'
-              AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
-              AND je.company_id = ${companyId}
-              AND jl.company_id = ${companyId}::UUID
-              AND je.status = 'posted'
-              AND je.entry_date < ${startDate}
-          `,
+    const [openingBalance, totalsRow] = await Promise.all([
+      // Opening cash: cash.balance.v1, the day before the period starts. This
+      // route's own copy signed each account by its user-set normal_balance, so
+      // a credit-normal cash account was summed as negative cash (K-091g).
+      getCashBalance(companyId, startDate, { exclusive: true }).then((b) => b.total),
 
       // Single conditional-aggregation query replaces the previous 6 queries.
       // Signs preserve the exact semantics of the original code:
@@ -113,7 +83,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       `,
     ]);
 
-    const openingBalance = Number((openingCashRows as Record<string, unknown>[])[0]?.balance ?? 0);
     const totals = (totalsRow as Record<string, unknown>[])[0] ?? {};
 
     const netIncome = Number(totals.net_income ?? 0);
