@@ -82,8 +82,10 @@ describe('withPlatformAdmin: a critical audit write failed', () => {
     const s = seen(), name = `r176-${randomUUID()}`;
     const { res } = response();
     let threw = 0;
-    const realJson = res.json.bind(res);
-    res.json = (b: unknown) => { if (threw === 0) { threw += 1; throw new Error('R-176 socket write failed'); } return realJson(b); };
+    // The AUDIT_WRITE_FAILED answer goes out through the response's own end (withPlatformAdmin defers res.end
+    // until the transaction is final), so that first write is where the socket fails.
+    const realEnd = res.end.bind(res);
+    res.end = (...a: unknown[]) => { if (threw === 0) { threw += 1; throw new Error('R-176 socket write failed'); } return realEnd(...a); };
     let rethrown: unknown = null;
     try { await (audited(name, ['ROLLBACK'], s, 1) as (req: unknown, res: unknown) => Promise<void>)(adminReq(), res); } catch (err) { rethrown = err; }
     s.disarm();
@@ -91,7 +93,8 @@ describe('withPlatformAdmin: a critical audit write failed', () => {
     const next = await nextAdminWrite(`${name}-next`);
     expect(s.refused.ROLLBACK).toBe(1); // the forced one; the catch's ROLLBACK reached the server
     expect(threw).toBe(1);
-    expect(String(rethrown)).toContain('R-176 socket write failed');
+    expect(rethrown).toBeNull(); // R-159: the catch answers the throw (a 500), it does not rethrow it
+    expect(res.statusCode).toBe(500);
     expect(await customers(name)).toBe(0);
     expect(next.pid).not.toBe(s.pid); // not pooled: a ROLLBACK did fail on it, and a cancel is in flight
     expect(state).toBeNull();
