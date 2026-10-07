@@ -11,9 +11,9 @@
  * sparkline printed next to a statement line has one job: to describe THAT
  * number over time. A second aggregation written in the test would agree with
  * the service and still disagree with the statement — which is the whole
- * defect. The balance sheet signs by `normal_balance` and negates
- * contra-assets; a plain debit-less-credit series would draw Accumulated
- * Depreciation upside down against the figure printed next to it.
+ * defect. The balance sheet signs by SECTION (assets debit − credit,
+ * liabilities and equity credit − debit), so contra accounts subtract; contra
+ * equity/liability lines are footed in accountTrendsContraAccounts.int.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
