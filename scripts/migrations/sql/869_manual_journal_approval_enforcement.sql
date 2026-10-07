@@ -369,10 +369,11 @@ END $$;
 --
 -- It fires only for a MARKED journal (the triggers' WHEN clauses), so the
 -- system postings that make up most of the ledger never call it:
---   * entering 'posted' — an INSERT so, or an UPDATE from any other status —
---     is refused without a cleared approval while enforcement is on. A marked
---     draft moving to 'reversed' (no ledger effect) passes; leaving 'posted'
---     is never checked.
+--   * entering 'posted' by an UPDATE from any other status is refused without
+--     a cleared approval while enforcement is on, and an INSERT of a marked
+--     journal already posted is refused outright (below). A marked draft
+--     moving to 'reversed' (no ledger effect) passes; leaving 'posted' is
+--     never checked.
 --   * the marker never changes once set: a raw UPDATE clearing it and then
 --     flipping the status would otherwise walk round the check.
 -- Per journal header, never per line: a GL import posts journal by journal,
@@ -405,6 +406,16 @@ BEGIN
   FROM public.approval_enforcement ae
   WHERE ae.company_id = NEW.company_id AND ae.document_type = 'manual_journal';
   IF NOT FOUND THEN RETURN NULL; END IF;
+
+  -- No gated path INSERTs a journal posted: a manual journal is drafted, then
+  -- posted. One inserted posted AND marked has no lines yet — the amount and
+  -- the digest read them — and no approval can predate it, so under
+  -- enforcement it is refused outright rather than judged on an empty journal
+  -- its lines arrive in after the check.
+  IF TG_OP = 'INSERT' THEN
+    RAISE EXCEPTION 'R035_APPROVAL_REQUIRED: manual journal % cannot be inserted already posted', NEW.id
+      USING HINT = 'Insert the journal as a draft, have it approved, then post it.';
+  END IF;
 
   v_demanded := public.approval_rule_strictest_rank(
     NEW.company_id, 'manual_journal', public.approval_manual_journal_gate_amount(NEW.company_id, NEW.id));
