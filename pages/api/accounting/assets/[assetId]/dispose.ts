@@ -6,6 +6,8 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
+import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -34,6 +36,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   };
 
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
+  // The ledger-date window on the day Postgres reads (gl/journalDateGuard), BEFORE the disposal's first write: a 400
+  // later would commit the ledger row and the disposal type without the journal (see the GL note below).
+  const disposalDay = (await ledgerDaysOf([disposalDate])).get(disposalDate) ?? null;
+  const outsideWindow = disposalDay === null ? null : journalDayWindowError(disposalDay);
+  if (outsideWindow) return apiResponse.badRequest(res, outsideWindow);
 
   // Load asset with accumulated depreciation and category data
   // FOR NO KEY UPDATE: the already-disposed check below is only meaningful while

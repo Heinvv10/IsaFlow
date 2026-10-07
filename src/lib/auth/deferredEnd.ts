@@ -1,7 +1,7 @@
 // src/lib/auth/deferredEnd.ts
 /**
- * The deferred response flush shared by the three wrappers that own a request transaction:
- * withAuth, the Bearer pipeline and withExtensionToken.
+ * The deferred response flush shared by the four wrappers that own a request transaction:
+ * withAuth, the Bearer pipeline, withExtensionToken and withPlatformAdmin.
  *
  * The handler calls res.json/res.end INSIDE the open transaction. Next's res.json and res.send
  * both funnel through res.end, so swapping res.end for a buffer holds back the one final end()
@@ -111,26 +111,45 @@ export function reportFinalizeFailure(
  * the wire is aborted, because a clean close would read as success.
  */
 export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd): void {
+  answerInstead(res, deferred, 500, { success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+}
+
+/** Sends `payload` as `status` in place of the buffered end; a response already on the wire is aborted. */
+export function answerInstead(res: NextApiResponse, deferred: DeferredEnd, status: number, payload: unknown): void {
   if (res.headersSent) {
     abortResponse(res);
     return;
   }
-  const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
-  res.statusCode = 500;
+  dropRouteAnswerHeaders(res);
+  const body = JSON.stringify(payload);
+  res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Length', Buffer.byteLength(body));
   deferred.realEnd(body);
 }
 
 /**
+ * sec-numrace F1: a replaced answer must not carry what the route set for the answer it meant to give. Its
+ * Set-Cookie (impersonate: the target's session) would land in the browser while the transaction, audit row
+ * included, rolled back; its Location would redirect into work that did not happen.
+ */
+function dropRouteAnswerHeaders(res: NextApiResponse): void {
+  res.removeHeader('Set-Cookie');
+  res.removeHeader('Location');
+}
+
+/**
  * Sends the buffered end once the transaction is final. It never throws: the transaction may
  * already have COMMITted, so a failure here (Node refuses `end({ id })`, for one) must not
  * reach the wrapper's catch, which would ROLLBACK a committed write and tell the client it
- * failed. It is logged and the response aborted.
+ * failed. It is logged and the response aborted. `rolledBack`: the handler's own 5xx is replayed
+ * over a ROLLBACK, so it goes out without the route's Set-Cookie and Location — a rolled-back
+ * request must not hand out a session.
  */
-export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: ThrowContext): void {
+export function replayEnd(res: NextApiResponse, deferred: DeferredEnd, ctx: ThrowContext, rolledBack = false): void {
   if (!deferred.ended) return;
   try {
+    if (rolledBack && !res.headersSent) dropRouteAnswerHeaders(res);
     deferred.realEnd(...(deferred.args ?? []));
   } catch (err) {
     log.error(`${ctx.source}: response replay failed after the transaction was finalised`, {
@@ -180,6 +199,7 @@ export function answerThrow(
     if (!res.writableEnded) abortResponse(res);
     return;
   }
+  dropRouteAnswerHeaders(res);
   try {
     respondToUnhandledError(res, err);
   } catch (respondErr) {

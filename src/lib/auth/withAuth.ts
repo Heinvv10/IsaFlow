@@ -207,7 +207,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // responded 500, and returned normally; we must NOT COMMIT its partial
       // writes. <5xx commits (4xx keeps today's behaviour — handlers that
       // validate-then-4xx almost always return before any write).
-      const handlerFailed = res.statusCode >= 500;
+      const handlerFailed = res.statusCode >= 500 || Boolean(ctx.rollbackOnly); // als.rollbackOnly
       const finalizeCtx = { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub };
       if (handlerFailed) {
         // Nothing is meant to commit, so the handler's own answer stands even if this ROLLBACK
@@ -215,6 +215,8 @@ export function withAuth(handler: Handler): NextApiHandler {
         const rollbackErr = await rollbackError(client, 'withAuth');
         unusable = rollbackErr !== null;
         if (rollbackErr) reportFinalizeFailure(req, res, rollbackErr, { ...finalizeCtx, handlerFailed, connectionDestroyed: true });
+        // Rolled back for rollbackOnly under a <5xx answer: that answer would claim a write that did not land.
+        if (ctx.rollbackOnly && res.statusCode < 500) { answerCommitFailed(res, flush); return; }
       } else {
         try {
           await client.query('COMMIT');
@@ -232,7 +234,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // never responded there is nothing to replay (Next surfaces its own
       // "resolved without sending a response" path, unchanged from before).
       // replayEnd never throws: past COMMIT, the catch below must not ROLLBACK or answer 500.
-      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub });
+      replayEnd(res, flush, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub }, handlerFailed);
       // Only now may background work start: its rows are visible, and it gets its
       // own connection instead of this one (R-075). Never after a ROLLBACK.
       if (!handlerFailed) drainAfterCommit(ctx);

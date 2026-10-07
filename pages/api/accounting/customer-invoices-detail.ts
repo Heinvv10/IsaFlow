@@ -8,6 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -117,7 +118,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // so a plain status flip can never orphan a posted journal.
     if (action === 'cancel') {
       try {
-        const { reversedJournalEntryId } = await cancelCustomerInvoice(companyId, id, userId);
+        const posted = await withJournalDateRefusal(res, () => cancelCustomerInvoice(companyId, id, userId));
+        if (posted === JOURNAL_DATE_REFUSED) return;
+        const { reversedJournalEntryId } = posted;
         log.info('Customer invoice action', { id, action, newStatus: 'cancelled', reversedJournalEntryId });
         return apiResponse.success(res, {
           id, status: 'cancelled', glJournalEntryId: null,
@@ -144,7 +147,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (action === 'approve') {
       try {
-        const result = await approveCustomerInvoice(companyId, id, userId);
+        const result = await withJournalDateRefusal(res, () => approveCustomerInvoice(companyId, id, userId));
+        if (result === JOURNAL_DATE_REFUSED) return;
         log.info('Customer invoice action', { id, action, newStatus: result.status });
         return apiResponse.success(res, {
           id, status: result.status, glJournalEntryId: result.glJournalEntryId,

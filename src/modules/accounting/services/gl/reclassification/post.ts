@@ -23,6 +23,8 @@ import type { PostingActorOpts } from '../journalEntryMeta';
 import { actorMeta } from '../journalEntryMeta';
 import type { ReclassJournalDraft } from './journals';
 import { createReclassBatch, recordReclassBatchLines } from './batchService';
+import { isEnforced } from '../approvalEnforcement';
+import { markManualJournal } from '../manualJournalApproval';
 
 export interface PostedReclassJournal {
   journalEntryId: string;
@@ -74,6 +76,11 @@ export async function postReclassBatch(
 ): Promise<PostedReclassBatch> {
   const posted: PostedReclassJournal[] = [];
   const batchLines: { sourceLineId: string; journalEntryId: string }[] = [];
+  // R-035 PR6: the MCP tool refused this batch up front if any journal matched
+  // a manual-journal rule. Under enforcement each journal is still marked, so
+  // migration 869's backstop judges it as it posts: a rule created since that
+  // read throws, and the throw unwinds the whole batch (nothing here catches).
+  const enforced = await isEnforced(companyId, 'manual_journal');
 
   for (const draft of input.drafts) {
     // Sequential, not Promise.all: these share the one pg client the request
@@ -113,6 +120,7 @@ export async function postReclassBatch(
       );
     }
 
+    if (enforced) await markManualJournal(companyId, entry.id);
     // No catch. A closed period, a deactivated account or an unbalanced entry
     // must reach the registry's savepoint; flattening it here would leave the
     // journals already posted behind a reply that says the call failed.

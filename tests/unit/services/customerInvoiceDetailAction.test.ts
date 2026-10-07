@@ -49,7 +49,7 @@ const { sqlMock, cancelMock, postGlMock, snapshotMock } = vi.hoisted(() => ({
   snapshotMock: vi.fn(),
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), withSavepoint: (_n: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceCancelService', () => ({
   cancelCustomerInvoice: cancelMock,
   InvoiceNotFoundError: class InvoiceNotFoundError extends Error {},

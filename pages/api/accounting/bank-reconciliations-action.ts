@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
@@ -20,6 +21,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 import { reopenReconciliation } from '@/modules/accounting/services/bank/bankReconciliationReopenService';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('complete'), reconciliationId: UUID }),
@@ -63,15 +65,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, result);
     }
     // adjustment
-    const jeId = await createAdjustmentEntry(
+    const jeId = await withJournalDateRefusal(res, () => createAdjustmentEntry(
       companyId, body.reconciliationId, body.bankAccountId, body.contraAccountId,
       body.amount, body.description, userId,
-    );
+    ));
+    if (jeId === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { journalEntryId: jeId });
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     // D12: complete / cancel / adjustment on a COMPLETED reconciliation — 409, decided under its header lock, pre-write.
     if (respondIfReconciliationCompleted(res, err)) return;
+    if (respondIfApprovalRequired(res, err)) return; // R-035 PR6 H1: an adjustment a manual-journal rule holds, pre-write
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Bank reconciliation action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

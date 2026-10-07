@@ -10,6 +10,7 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { log } from '@/lib/logger';
 import { listInvoices, createInvoice } from '@/modules/admin/services/invoiceService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
@@ -80,6 +81,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { id: invoiceId });
     } catch (err) {
+      // The invoice-number lock held past its 5 s bound: 503 + Retry-After, never the 400 below.
+      if (respondIfLockTimeout(res, err)) return;
       log.error('Failed to create invoice', { error: err }, 'admin-api');
       return apiResponse.badRequest(res, 'Failed to create invoice');
     }
