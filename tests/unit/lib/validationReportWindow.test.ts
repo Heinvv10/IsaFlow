@@ -25,6 +25,12 @@ describe('reportWindowProblem', () => {
     expect(reportWindowProblem('2026-03-01', 'yesterday')).toBe('from and to must be YYYY-MM-DD dates');
   });
 
+  it('refuses a year before 1900, which Date.UTC would read as 19xx', () => {
+    expect(reportWindowProblem('0099-01-01', '2026-08-31')).toBe('from and to must be dates from 1900 on');
+    expect(reportWindowProblem('0001-01-01', '0001-12-31')).toBe('from and to must be dates from 1900 on');
+    expect(reportWindowProblem('1900-01-01', '1900-12-31')).toBeNull();
+  });
+
   it('refuses a window that runs backwards', () => {
     expect(reportWindowProblem('2026-09-01', '2026-08-31')).toBe('from must not be after to');
   });

@@ -40,7 +40,7 @@ interface ScorecardItem {
 interface TrendItem {
   ratioName: string;
   /** A point is null where the ratio could not be stated in that period. */
-  values: Array<{ period: string; value: number | null }>;
+  values: Array<{ period: string; value: number | null; partial: boolean }>;
   trend: 'improving' | 'declining' | 'stable' | 'not_meaningful';
   changePercent: number | null;
 }
@@ -269,7 +269,10 @@ export default function FinancialAnalysisPage() {
                           </span>
                         </div>
                         <ResponsiveContainer width="100%" height={120}>
-                          <LineChart data={trend.values}>
+                          {/* The current month is drawn TO DATE — a stub the header's
+                              change leaves out — so its label says so on the axis
+                              and in the tooltip. */}
+                          <LineChart data={trend.values.map((v) => (v.partial ? { ...v, period: `${v.period} (to date)` } : v))}>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                             <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#888' }} />
                             <YAxis tick={{ fontSize: 10, fill: '#888' }} width={45} />

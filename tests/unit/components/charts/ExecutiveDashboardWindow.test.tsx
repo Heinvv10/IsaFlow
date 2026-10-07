@@ -51,6 +51,19 @@ describe('the executive dashboard\'s date window', () => {
     expect(screen.queryByText(/No financial data available/i)).not.toBeInTheDocument();
   });
 
+  it('sends neither request for a window with an end cleared, and asks for one', async () => {
+    mockedApiFetch.mockImplementation(async () => new Response(JSON.stringify({ data: null }), { status: 200 }));
+    const { container } = render(<ExecutiveDashboardPage />);
+    await waitFor(() => expect(reportCalls()).toHaveLength(2));
+
+    const [, to] = Array.from(container.querySelectorAll('input[type="date"]')) as HTMLInputElement[];
+    fireEvent.change(to!, { target: { value: '' } });
+
+    expect(await screen.findByText('Choose a start and an end date.')).toBeInTheDocument();
+    expect(reportCalls()).toHaveLength(2);
+    expect(screen.queryByText(/No financial data available/i)).not.toBeInTheDocument();
+  });
+
   it('fetches again once the window is put right', async () => {
     mockedApiFetch.mockImplementation(async () => new Response(JSON.stringify({ data: null }), { status: 200 }));
     const { container } = render(<ExecutiveDashboardPage />);

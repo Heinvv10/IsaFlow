@@ -17,6 +17,7 @@ import { calculateExtendedRatios, type FinancialData } from '@/modules/accountin
 import { notPositive, PERIOD_LENGTH_NOT_MEASURED } from '@/modules/accounting/services/reports/ratioBasis';
 import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
 import { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
 import { readCreditorDays, readDebtorDays } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildScorecardGroups, packFiguresToFinancialData } from '@/modules/accounting/services/packs/pages/packScorecard';
@@ -103,6 +104,19 @@ describe('inventory days', () => {
     const r = calculateExtendedRatios({ ...SIX_MONTHS, inventory: 300_000, costOfSales: 70_000, periodDays: 184 });
     expect(r.cashConversionCycle).toBe(
       Math.round(((r.debtorDays ?? 0) + 788.57 - (r.creditorDays ?? 0)) * 100) / 100);
+  });
+});
+
+describe('the ratio trends\' direction', () => {
+  const month = (accountsReceivable: number): FinancialData => ({ ...SIX_MONTHS, accountsReceivable, periodDays: 30 });
+
+  it('is read across every point where none is a whole period', () => {
+    // 1 000 000 and then 500 000 owed: 8.15 days to 4.08, -49.94%.
+    const [debtor] = calculateRatioTrends([month(1_000_000), month(500_000)], ['Sep', 'Oct'], [true, true])
+      .filter((t) => t.ratioName === 'debtorDays');
+    expect(debtor!.values.map((v) => v.partial)).toEqual([true, true]);
+    expect(debtor!.changePercent).toBe(-49.94);
+    expect(debtor!.trend).toBe('improving');
   });
 });
 

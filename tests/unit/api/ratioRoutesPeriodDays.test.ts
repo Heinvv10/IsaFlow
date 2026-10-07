@@ -131,6 +131,30 @@ describe('the ratio trends\' current month', () => {
     expect(debtor.changePercent).toBe(-3.23);
   });
 
+  it('marks the stub, and only the stub, so the chart can say "to date"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 2, 12, 0, 0));
+    const { data } = await call(trendsRoute, { months: '3' });
+    const debtor = (data.trends as Array<{ ratioName: string; values: Array<{ period: string; partial: boolean }> }>)
+      .find((t) => t.ratioName === 'debtorDays')!;
+    expect(debtor.values.map((v) => v.partial)).toEqual([false, false, true]);
+  });
+
+  it('counts a month as whole on its last day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 8, 30, 12, 0, 0));
+    const { data } = await call(trendsRoute, { months: '3' });
+    const debtor = (data.trends as Array<{ ratioName: string; values: Array<{ value: number | null; partial: boolean }>; changePercent: number | null }>)
+      .find((t) => t.ratioName === 'debtorDays')!;
+    // July's 31 days, August's 31, and all of September's 30.
+    expect(debtor.values.map((v) => v.value)).toEqual([6.2, 6.2, 6]);
+    expect(debtor.values.map((v) => v.partial)).toEqual([false, false, false]);
+    // July to September, September counted: -3.23%. Read as a stub it would
+    // be July to August, 0%.
+    expect(debtor.changePercent).toBe(-3.23);
+    expect(getFinancialFiguresMock).toHaveBeenCalledWith('c1', '2026-09-01', '2026-09-30');
+  });
+
   it('ends today, and its day counts are on the days so far', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(2026, 9, 7, 12, 0, 0));
@@ -167,6 +191,12 @@ describe('a window the day counts cannot be taken over is refused', () => {
 });
 
 describe('the default window', () => {
+  // ON SAST, WHATEVER THE HOST. GitHub runs on UTC, where `toISOString()` and
+  // the local calendar agree at 01:00 and the test below would pass for the
+  // defect it is here to catch.
+  beforeEach(() => { vi.stubEnv('TZ', 'Africa/Johannesburg'); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   for (const [name, route] of [['extended ratios', extendedRoute], ['KPI scorecard', scorecardRoute]] as const) {
     it(`on the ${name} runs from the start of this calendar year to today, on the local calendar`, async () => {
       vi.useFakeTimers({ toFake: ['Date'] });

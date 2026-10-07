@@ -58,6 +58,9 @@ export function isRealCalendarDate(value: string): boolean {
  */
 export function reportWindowProblem(from: string, to: string): string | null {
   if (!isRealCalendarDate(from) || !isRealCalendarDate(to)) return 'from and to must be YYYY-MM-DD dates';
+  // `Date.UTC` reads a two-digit year as 1900-something, so a window in the
+  // years 1–99 would be counted over the wrong century.
+  if (from < '1900-01-01') return 'from and to must be dates from 1900 on';
   if (from > to) return 'from must not be after to';
   return null;
 }
