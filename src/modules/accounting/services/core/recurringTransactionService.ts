@@ -113,13 +113,19 @@ export async function updateRecurringTemplate(
   companyId: string,
   id: string,
   updates: Partial<TemplateInput>,
-  /** R-035 PR4 review F1: an author of what the template bills when the edit changes it. */
+  /**
+   * R-035 PR4 review F1: an author of what the template bills when the edit
+   * changes it. R-035 PR6 round 3: for a journal template a NAME change counts
+   * too — the name is its journals' description when its data carries none.
+   */
   editedBy: string,
 ): Promise<RecurringTemplate> {
   const data = updates.templateData ? JSON.stringify(updates.templateData) : null;
   const rows = (await sql`
     UPDATE recurring_transaction_templates SET
-      content_authors = CASE WHEN ${data}::JSONB IS NOT NULL AND template_data IS DISTINCT FROM ${data}::JSONB
+      content_authors = CASE WHEN (${data}::JSONB IS NOT NULL AND template_data IS DISTINCT FROM ${data}::JSONB)
+          OR (entity_type = 'journal_entry' AND ${updates.name ?? null}::TEXT IS NOT NULL
+              AND name IS DISTINCT FROM ${updates.name ?? null}::TEXT)
         THEN approval_add_author(content_authors, ${editedBy}::UUID) ELSE content_authors END,
       name          = COALESCE(${updates.name ?? null}, name),
       frequency     = COALESCE(${updates.frequency ?? null}, frequency),
@@ -186,8 +192,8 @@ export async function executeRecurring(
       lines,
     }, userId);
     entityId = je.id;
-    await settleUnattendedJournal(companyId, je.id, userId, { enforced: approval.enforced, held }, approval.enforced
-      ? await templateAuthors(companyId, { kind: 'recurring_transaction_template', id: template.id }) : []);
+    await settleUnattendedJournal(companyId, je.id, userId, { enforced: approval.enforced, held },
+      await templateAuthors(companyId, { kind: 'recurring_transaction_template', id: template.id }));
     if (held) heldForApproval.push(je.id);
     else if (template.autoPost) {
       await postJournalEntry(companyId, je.id, userId);

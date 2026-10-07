@@ -79,7 +79,7 @@ describe('the approvers', () => {
     expect((await r.post(u.a, f.c, id)).state.statusCode).toBe(200);
   });
 
-  it('the account merge stales the approval and makes the merging user an author (enforced only)', async () => {
+  it('the account merge stales the approval and makes the merging user an author, enforced or not', async () => {
     const f = await gated([[u.a, 'admin'], [u.b, 'owner'], [u.m, 'owner']]);
     const id = await plantJournal(pool, f, u.a);
     await r.approvedBy(pool, u.a, u.b, f.c, id);
@@ -92,10 +92,15 @@ describe('the approvers', () => {
     expect((await r.decide(pool, u.b, f.c, requestId)).state.statusCode).toBe(200);
     expect((await r.post(u.a, f.c, id)).state.statusCode).toBe(200);
 
-    const off = await gated([[u.a, 'admin'], [u.b, 'owner']], { enforced: false });
+    // Round 3 (adversarial REPRO 1b): recorded with enforcement off too — the
+    // draft is gated like any other once the switch goes on.
+    const off = await gated([[u.a, 'admin'], [u.b, 'owner'], [u.m, 'owner']], { enforced: false });
     const draft = await plantJournal(pool, off, u.a);
     await merge(off, u.b);
-    expect((await journalState(pool, draft)).authors).toEqual([]);
+    expect((await journalState(pool, draft)).authors).toEqual([u.b]);
+    await enforceJournals(pool, off.c, u.m);
+    const late = dataOf<{ id: string }>(await r.raise(u.a, off.c, draft)).id;
+    expect((await r.decide(pool, u.b, off.c, late)).state.statusCode).toBe(403);
   });
 
   it('the insert guard: app_user cannot insert an approved request, or one raised for someone else', async () => {
