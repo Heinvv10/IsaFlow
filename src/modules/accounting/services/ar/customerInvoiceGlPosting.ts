@@ -18,6 +18,7 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
+import { assertDocumentPostable } from '../shared/documentCurrency';
 
 type Row = DbRow;
 
@@ -67,6 +68,10 @@ export async function postCustomerInvoiceToGL(
         + 'which posts the journal and moves the status together.',
       );
     }
+
+    // FX PR0: until functional posting lands, a foreign invoice would post its
+    // document figures as rands. Refused before any write; the DB gate agrees.
+    await assertDocumentPostable(companyId, [inv.currency_code], 'invoice');
 
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);

@@ -16,6 +16,7 @@ import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfS
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
+import { assertDocumentPostable } from '../shared/documentCurrency';
 
 type Row = DbRow;
 
@@ -144,7 +145,7 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status FROM customer_invoices
+      SELECT status, currency_code FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])
       FOR NO KEY UPDATE
@@ -153,7 +154,11 @@ export async function approveCustomerInvoice(
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
-  if (locked[0]) await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
+  if (locked[0]) {
+    await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
+    // FX PR0: under the lock and before the status write, like the approval check.
+    await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');
+  }
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR

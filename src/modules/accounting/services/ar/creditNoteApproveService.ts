@@ -26,6 +26,7 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { assertStoredDocumentPostable } from '../shared/documentCurrency';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -61,6 +62,11 @@ export async function approveCreditNote(
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
+    // FX PR0, before any write: the note itself, and the invoice approving it
+    // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
+    await assertStoredDocumentPostable(companyId, 'credit_note', id);
+    const linked = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
+    if (linked) await assertStoredDocumentPostable(companyId, String(cn.type) === 'customer' ? 'customer_invoice' : 'supplier_invoice', String(linked));
 
     let lines: JournalLineInput[];
 

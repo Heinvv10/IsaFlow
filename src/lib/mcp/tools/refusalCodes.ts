@@ -60,6 +60,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
   'CREDIT_NOTE_LOCK_TIMEOUT',
+  // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
+  'CURRENCY_CODE_INVALID',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
   // R-035: approve on a request whose document changed since it was raised.

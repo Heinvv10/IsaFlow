@@ -38,7 +38,8 @@ export async function editDraftCustomerInvoice(
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
     taxRate, currencyCode, exchangeRate, items,
   } = edit;
-  const fxCode = currencyCode ? currencyCode.trim().toUpperCase() : null;
+  // Blank is "no change", as it is "the functional currency" on create.
+  const fxCode = currencyCode?.trim().toUpperCase() || null;
   const fxRateOverride = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : null;
 
   // Wrap header UPDATE + items DELETE/INSERT in one transaction so partial
@@ -70,16 +71,18 @@ export async function editDraftCustomerInvoice(
     if (fxCode && fxCode !== String(ownedRows[0]!.currency_code ?? 'ZAR').toUpperCase() && fxRateOverride === null) {
       return { kind: 'rate_required' as const };
     }
-    // FX PR0: the currency and rate the edit leaves the invoice with — the
-    // functional currency at exactly 1, or a foreign one only once enabled.
-    if (fxCode !== null || fxRateOverride !== null) {
-      try {
-        checkDocumentCurrency(await loadCompanyCurrency(companyId, tx),
-          fxCode ?? String(ownedRows[0]!.currency_code ?? ''), fxRateOverride ?? existingRate, 'invoice');
-      } catch (err) {
-        if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
-        throw err;
-      }
+    // FX PR0: the currency and rate EVERY edit leaves the invoice with — the
+    // functional currency at exactly 1, or a foreign one only once enabled. A
+    // legacy foreign draft is refused here (400) whatever the edit, rather than
+    // by the database gate on the way out.
+    let nextCode: string | null = null;
+    try {
+      const checked = checkDocumentCurrency(await loadCompanyCurrency(companyId, tx),
+        fxCode ?? ownedRows[0]!.currency_code, fxRateOverride ?? existingRate, 'invoice');
+      if (fxCode !== null) nextCode = checked.currencyCode;
+    } catch (err) {
+      if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
+      throw err;
     }
 
     // Defence-in-depth: clientId must belong to the same tenant. The FK
@@ -128,9 +131,10 @@ export async function editDraftCustomerInvoice(
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),
              functional_total = CASE WHEN ${computed !== null}::BOOLEAN
-               THEN public.fx_functional(${computed?.total ?? null}::NUMERIC(15,2), COALESCE(${fxRateOverride}::NUMERIC, exchange_rate))
+               THEN public.fx_functional(${computed?.total ?? null}::NUMERIC(15,2),
+                                         COALESCE(${fxRateOverride}::NUMERIC(18,6), NULLIF(exchange_rate, 0), 1))
                ELSE functional_total END,
-             currency_code = COALESCE(${fxCode}, currency_code),
+             currency_code = COALESCE(${nextCode}, currency_code),
              exchange_rate = COALESCE(${fxRateOverride}, exchange_rate),
              updated_at = NOW()
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
@@ -144,7 +148,7 @@ export async function editDraftCustomerInvoice(
       // re-send `currencyCode`. Falling back to ZAR would silently corrupt
       // line-item currency on FX invoices.
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
-      const lineCurrency = fxCode || existingCurrency;
+      const lineCurrency = nextCode ?? existingCurrency;
       for (const it of items) {
         const qty = it.quantity;
         const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;

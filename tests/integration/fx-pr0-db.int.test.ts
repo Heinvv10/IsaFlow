@@ -167,18 +167,31 @@ describe('amount_paid never moves on a foreign-currency invoice or bill', () => 
 });
 
 describe('public.fx_functional and toFunctional agree', () => {
-  it('on every half-cent edge and 10,000 random pairs', async () => {
+  /** mulberry32: a seeded run, so a failure reproduces. */
+  const seeded = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  it('as the callers use them — amount::NUMERIC(15,2), rate::NUMERIC(18,6) — on every edge and 10,000 seeded pairs', async () => {
     const pairs: [string, string][] = [
       ['1.005', '1'], ['1.25', '0.5'], ['-1.25', '0.5'], ['0.125', '1'], ['-0.125', '1'], ['4.35', '100'],
       ['100.00', '18.333'], ['5.00', '18.333'], ['9999999999999.99', '1'], ['0.01', '0.000001'], ['0.00', '18.5'],
+      ['10.005', '2'], ['-10.005', '2'], ['20000', '1.00000025'], ['20000', '1.0000005'], ['1150', '18.3333335'],
     ];
+    const random = seeded(871);
     for (let i = 0; i < 10_000; i++) {
-      const cents = Math.floor(Math.random() * 2e9) - 1e9;
-      const micro = Math.floor(Math.random() * 250e6) + 1;
-      pairs.push([(cents / 100).toFixed(2), (micro / 1e6).toFixed(6)]);
+      const amountScale = i % 3 === 0 ? 3 : 2;
+      const rateScale = 6 + (i % 3);
+      const amount = (Math.floor(random() * 2e9) - 1e9) / 10 ** amountScale;
+      const rate = (Math.floor(random() * 250 * 10 ** rateScale) + 1) / 10 ** rateScale;
+      pairs.push([amount.toFixed(amountScale), rate.toFixed(rateScale)]);
     }
     const { rows } = await pool.query<{ f: string }>(
-      'SELECT public.fx_functional(a::numeric, r::numeric)::text AS f FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS t(a, r, n) ORDER BY n',
+      `SELECT public.fx_functional(a::NUMERIC(15,2), r::NUMERIC(18,6))::text AS f
+       FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS t(a, r, n) ORDER BY n`,
       [pairs.map((p) => p[0]), pairs.map((p) => p[1])]);
     const mismatches = pairs.filter(([a, r], i) => toFunctional(a, r) !== Number(rows[i]!.f)).slice(0, 5);
     expect(mismatches).toEqual([]);

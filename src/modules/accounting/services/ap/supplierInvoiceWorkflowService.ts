@@ -74,6 +74,7 @@ async function approveInner(
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
     await assertApprovalCleared(companyId, 'supplier_invoice', id); // R-035: under the lock, before any write
+    await assertStoredDocumentPostable(companyId, 'supplier_invoice', id); // FX PR0: likewise
 
     // A DRAFT can already carry a journal, and posting a second one is the
     // worst outcome this function has.
@@ -232,6 +233,7 @@ async function postToGLInner(
     );
   }
 
+  await assertStoredDocumentPostable(companyId, 'supplier_invoice', id); // FX PR0, before any write
   const provisional = await claimEvidencedProvisional(companyId, id); // R-127, as in approve
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
@@ -488,5 +490,6 @@ export async function performThreeWayMatch(
 
 import type { VatType } from '../../types/gl.types';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
+import { assertStoredDocumentPostable } from '../shared/documentCurrency';
 
 export type { SupplierInvoiceItem, VatType };

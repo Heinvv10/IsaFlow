@@ -1,7 +1,10 @@
 /**
  * The one TypeScript conversion of a document amount to the functional
  * currency (FX programme PR0): `ROUND(amount * rate, 2)`, half away from zero
- * — exactly what `public.fx_functional` (migration 871) computes in SQL.
+ * — exactly what the SQL callers compute with
+ * `public.fx_functional(amount::NUMERIC(15,2), rate::NUMERIC(18,6))`
+ * (migration 871). The inputs are rounded as those casts round them first:
+ * the amount to cents, the rate to six places, both half away from zero.
  *
  * Exact decimal, never float: `Math.round(x * r * 100) / 100` rounds 1.005 to
  * 1.00 and 4.35 * 100 to 434.99, and the FX plan only foots if the GL and the
@@ -30,20 +33,19 @@ function parseDecimal(value: number | string): Decimal {
   return { digits: match[1] === '-' ? -digits : digits, scale: fraction.length };
 }
 
-/** `ROUND(amount * rate, 2)`, half away from zero, as a number of rands. */
+/** `ROUND(d, places)`, half away from zero, as numeric round() does. */
+function roundTo(d: Decimal, places: number): Decimal {
+  if (d.scale <= places) return d;
+  const divisor = 10n ** BigInt(d.scale - places);
+  const magnitude = d.digits < 0n ? -d.digits : d.digits;
+  const rounded = (magnitude + divisor / 2n) / divisor;
+  return { digits: d.digits < 0n ? -rounded : rounded, scale: places };
+}
+
+/** `fx_functional(amount::NUMERIC(15,2), rate::NUMERIC(18,6))`, as a number of rands. */
 export function toFunctional(amount: number | string, rate: number | string): number {
-  const a = parseDecimal(amount);
-  const r = parseDecimal(rate);
-  const product = a.digits * r.digits;
-  const scale = a.scale + r.scale;
-  let cents: bigint;
-  if (scale <= 2) {
-    cents = product * 10n ** BigInt(2 - scale);
-  } else {
-    const divisor = 10n ** BigInt(scale - 2);
-    const magnitude = product < 0n ? -product : product;
-    const rounded = (magnitude + divisor / 2n) / divisor;
-    cents = product < 0n ? -rounded : rounded;
-  }
-  return Number(cents) / 100;
+  const a = roundTo(parseDecimal(amount), 2);
+  const r = roundTo(parseDecimal(rate), 6);
+  const cents = roundTo({ digits: a.digits * r.digits, scale: a.scale + r.scale }, 2);
+  return Number(cents.digits * 10n ** BigInt(2 - cents.scale)) / 100;
 }

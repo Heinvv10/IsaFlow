@@ -1,20 +1,29 @@
 /**
- * The currency and exchange rate a document may be written with (FX programme
- * PR0), for customer invoices, supplier invoices and credit notes alike.
+ * The currency and exchange rate a document may be written and POSTED with
+ * (FX programme PR0), for customer invoices, supplier invoices and credit
+ * notes alike.
  *
  * `companies.functional_currency` is the one authority for "own currency"
  * (migration 871 makes it NOT NULL and 'ZAR'); `default_currency` is only a
- * form default. Two refusals, both before any write:
+ * form default. The refusals, all before any write:
  *
+ * - A currency code that is not three letters, or not a string at all, is
+ *   refused (`CURRENCY_CODE_INVALID`). Blank means the functional currency,
+ *   here and in the database (fx_row_is_foreign's NULLIF).
  * - A document in the functional currency converts at exactly 1. Any other
  *   rate let a caller shrink `functional_total`, the figure approval rules
  *   match on: a R500 000 bill at 0.0001 read as R50 (R-035 PR2 HIGH-1, which
  *   guarded bills only; invoices now too).
  * - A document in any other currency is refused unless the company has
- *   `fx_documents_enabled`. Until the FX programme lands functional posting
- *   and settlement, such a document posts its document figures as rands and
- *   cannot be settled. The database refuses the same thing
- *   (fx_document_currency_gate); this answers first, with a 400.
+ *   `fx_documents_enabled` — when it is written, and again when it is posted
+ *   (`assertPostableCurrency`), because a foreign draft written while the
+ *   switch was on would otherwise post its document figures as rands once it
+ *   is off. The database refuses the same (fx_document_currency_gate); this
+ *   answers first, with a 400.
+ *
+ * Credit notes are created with no currency input at all (the column takes
+ * its 'ZAR' default), so creation has nothing to check here; a note linked
+ * to a foreign invoice is refused by creditNoteLinkService instead.
  */
 import { sql } from '@/lib/neon';
 
@@ -28,6 +37,14 @@ export interface CompanyCurrency {
 /** Caught as one class by the routes (a 400); each subclass carries its registered refusal code. */
 export abstract class DocumentCurrencyError extends Error {
   abstract readonly code: string;
+}
+
+export class CurrencyCodeInvalidError extends DocumentCurrencyError {
+  readonly code = 'CURRENCY_CODE_INVALID';
+  constructor() {
+    super('currencyCode must be a three-letter ISO currency code, such as ZAR or USD.');
+    this.name = 'CurrencyCodeInvalidError';
+  }
 }
 
 export class DocumentExchangeRateError extends DocumentCurrencyError {
@@ -46,14 +63,30 @@ export class ForeignCurrencyDisabledError extends DocumentCurrencyError {
   }
 }
 
-/** The pure rule. Throws a DocumentCurrencyError; returns the normalised pair. */
+/** A caller's code: null when absent or blank; refused when not a three-letter string. */
+function requestedCode(currencyCode: unknown): string | null {
+  if (currencyCode === undefined || currencyCode === null) return null;
+  if (typeof currencyCode !== 'string') throw new CurrencyCodeInvalidError();
+  const code = currencyCode.trim().toUpperCase();
+  if (code === '') return null;
+  if (!/^[A-Z]{3}$/.test(code)) throw new CurrencyCodeInvalidError();
+  return code;
+}
+
+/** A stored code, as fx_row_is_foreign reads it: trimmed, upper-cased, blank is NULL. */
+const storedCode = (code: unknown): string | null => {
+  const text = typeof code === 'string' ? code.trim().toUpperCase() : '';
+  return text === '' ? null : text;
+};
+
+/** The pure rule for a WRITE. Throws a DocumentCurrencyError; returns the normalised pair. */
 export function checkDocumentCurrency(
   company: CompanyCurrency,
-  currencyCode: string | null | undefined,
-  exchangeRate: number | null | undefined,
+  currencyCode: unknown,
+  exchangeRate: unknown,
   noun: string,
 ): { currencyCode: string; exchangeRate: number } {
-  const code = currencyCode?.trim().toUpperCase() || company.functionalCurrency;
+  const code = requestedCode(currencyCode) ?? company.functionalCurrency;
   const rate = typeof exchangeRate === 'number' && exchangeRate > 0 ? exchangeRate : 1;
   if (code === company.functionalCurrency) {
     if (rate !== 1) throw new DocumentExchangeRateError(code, rate, noun);
@@ -61,6 +94,16 @@ export function checkDocumentCurrency(
     throw new ForeignCurrencyDisabledError(code, company.functionalCurrency, noun);
   }
   return { currencyCode: code, exchangeRate: rate };
+}
+
+/**
+ * The pure rule for POSTING a stored document (or editing one): refused while
+ * any of its currency columns is foreign and the company has not enabled them.
+ */
+export function assertPostableCurrency(company: CompanyCurrency, storedCodes: readonly unknown[], noun: string): void {
+  if (company.fxDocumentsEnabled) return;
+  const foreign = storedCodes.map(storedCode).find((c) => c !== null && c !== company.functionalCurrency);
+  if (foreign) throw new ForeignCurrencyDisabledError(foreign, company.functionalCurrency, noun);
 }
 
 /** The company's functional currency and switch. `q` is the caller's transaction when it has one. */
@@ -75,11 +118,36 @@ export async function loadCompanyCurrency(companyId: string, q: Query = sql): Pr
 
 export async function resolveDocumentCurrency(
   companyId: string,
-  currencyCode: string | null | undefined,
-  exchangeRate: number | null | undefined,
+  currencyCode: unknown,
+  exchangeRate: unknown,
   noun: string,
 ): Promise<{ currencyCode: string; exchangeRate: number }> {
   return checkDocumentCurrency(await loadCompanyCurrency(companyId), currencyCode, exchangeRate, noun);
+}
+
+/** Loads the company and applies {@link assertPostableCurrency}; for the approve/post services. */
+export async function assertDocumentPostable(companyId: string, storedCodes: readonly unknown[], noun: string): Promise<void> {
+  assertPostableCurrency(await loadCompanyCurrency(companyId), storedCodes, noun);
+}
+
+/**
+ * {@link assertDocumentPostable} for a document read by id: a supplier bill's
+ * TWO currency columns (the mapped SupplierInvoice carries only the legacy
+ * one), an invoice's or a credit note's one. Absent rows pass — the caller's
+ * own read answers "not found".
+ */
+export async function assertStoredDocumentPostable(
+  companyId: string, kind: 'customer_invoice' | 'supplier_invoice' | 'credit_note', id: string,
+): Promise<void> {
+  const rows = (kind === 'supplier_invoice'
+    ? await sql`SELECT currency_code, currency FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
+    : kind === 'customer_invoice'
+      ? await sql`SELECT currency_code FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
+      : await sql`SELECT currency FROM credit_notes WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as Record<string, unknown>[];
+  const row = rows[0];
+  if (!row) return;
+  const noun = kind === 'supplier_invoice' ? 'bill' : kind === 'customer_invoice' ? 'invoice' : 'credit note';
+  await assertDocumentPostable(companyId, Object.values(row), noun);
 }
 
 /** What every rand-charging payment route answers for a foreign-currency invoice. */
@@ -88,11 +156,17 @@ export const FOREIGN_INVOICE_ONLINE_PAYMENT =
 
 /**
  * True when the customer invoice aliased `ci` is in a currency other than its
- * company's functional one. NULL `currency_code` is the functional currency
- * (migration 299's default). A company row the caller cannot read answers
- * true: refuse, not pass. The payment rails (Paystack, portal links) charge
- * rands, so they refuse a foreign invoice outright.
+ * company's functional one; the twin of fx_row_is_foreign. NULL or blank is
+ * the functional currency. A company row the caller cannot read answers true:
+ * refuse, not pass. The payment rails refuse a foreign invoice outright; the
+ * open-document readers leave it out of every automatic settlement.
  */
 export const invoiceForeignCurrencySql = () => sql`((
-  SELECT COALESCE(upper(btrim(ci.currency_code)), co.functional_currency) IS DISTINCT FROM co.functional_currency
+  SELECT COALESCE(NULLIF(upper(btrim(ci.currency_code)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
   FROM companies co WHERE co.id = ci.company_id) IS NOT FALSE)`;
+
+/** {@link invoiceForeignCurrencySql} for the supplier invoice aliased `si`, on either currency column. */
+export const billForeignCurrencySql = () => sql`((
+  SELECT COALESCE(NULLIF(upper(btrim(si.currency_code)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
+      OR COALESCE(NULLIF(upper(btrim(si.currency)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
+  FROM companies co WHERE co.id = si.company_id) IS NOT FALSE)`;

@@ -144,7 +144,7 @@ export async function createDraftCustomerInvoice(
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
           ${dueDate || null}, ${notes || null}, 'draft', ${userId},
-          ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC),
+          ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING id
       `) as Row[];

@@ -35,6 +35,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
+import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 type Row = Record<string, unknown>;
 
 /**
@@ -155,6 +156,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
         // R-035 PR4: raised under the row lock before any write — a 409 that commits nothing.
         if (respondIfApprovalRequired(res, err)) return;
+        // FX PR0: a foreign invoice while the company has not enabled them; also before any write.
+        if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }

@@ -9,6 +9,9 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(), getPoolForTests: vi.fn() }));
 // The locking open-document read bounds its wait with SET LOCAL lock_timeout,
 // which needs the request's own client — the same shape fetchBillCandidates

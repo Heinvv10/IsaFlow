@@ -10,7 +10,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  DocumentCurrencyError, DocumentExchangeRateError, ForeignCurrencyDisabledError, checkDocumentCurrency,
+  CurrencyCodeInvalidError, DocumentCurrencyError, DocumentExchangeRateError, ForeignCurrencyDisabledError,
+  assertPostableCurrency, checkDocumentCurrency,
 } from '@/modules/accounting/services/shared/documentCurrency';
 
 const off = { functionalCurrency: 'ZAR', fxDocumentsEnabled: false };
@@ -52,5 +53,32 @@ describe('checkDocumentCurrency', () => {
     expect(fx).toBeInstanceOf(DocumentCurrencyError);
     expect((rate as DocumentExchangeRateError).code).toBe('EXCHANGE_RATE_INVALID');
     expect((fx as ForeignCurrencyDisabledError).code).toBe('FOREIGN_CURRENCY_DISABLED');
+  });
+});
+
+describe('checkDocumentCurrency: the code itself', () => {
+  it('blank is the functional currency; padding and case are ignored', () => {
+    for (const code of ['', ' ', '   ']) expect(checkDocumentCurrency(off, code, 1, 'invoice').currencyCode).toBe('ZAR');
+    expect(checkDocumentCurrency(off, ' ZAR ', 1, 'invoice').currencyCode).toBe('ZAR');
+    expect(checkDocumentCurrency(on, ' usd ', 18.5, 'invoice').currencyCode).toBe('USD');
+  });
+
+  it('a non-string or a code that is not three letters is refused, with its own code', () => {
+    for (const code of [42, true, {}, ['USD'], 'US', 'USDX', 'U$D', 'ZAR1']) {
+      expect(() => checkDocumentCurrency(on, code, 1, 'invoice'), JSON.stringify(code)).toThrow(CurrencyCodeInvalidError);
+    }
+    expect(new CurrencyCodeInvalidError().code).toBe('CURRENCY_CODE_INVALID');
+  });
+});
+
+describe('assertPostableCurrency (approve / post / edit of a stored document)', () => {
+  it('refuses a stored foreign currency in ANY column while disabled, naming it', () => {
+    expect(() => assertPostableCurrency(off, ['USD'], 'invoice')).toThrow(/USD invoices are not enabled/);
+    expect(() => assertPostableCurrency(off, ['ZAR', 'eur'], 'bill')).toThrow(/EUR bills are not enabled/);
+  });
+
+  it('passes the functional currency, NULL and blank, and anything once enabled', () => {
+    assertPostableCurrency(off, ['ZAR', null, undefined, '', ' ', 'zar'], 'bill');
+    assertPostableCurrency(on, ['USD', 'EUR'], 'bill');
   });
 });

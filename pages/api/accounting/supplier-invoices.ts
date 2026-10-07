@@ -58,8 +58,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // (withAuth COMMITs the 400 this route answers). The service checks again.
     await assertSupplierInCompany(companyId, String(supplierId));
     // FX PR0: the currency too, ahead of the reservation (the catch below answers 400); the service checks again.
-    await resolveDocumentCurrency(companyId, typeof currencyCode === 'string' ? currencyCode : undefined,
-      exchangeRate ? Number(exchangeRate) : undefined, 'bill');
+    // The raw body value: a non-string code is refused here, not silently defaulted below.
+    await resolveDocumentCurrency(companyId, currencyCode, exchangeRate ? Number(exchangeRate) : undefined, 'bill');
 
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from

@@ -129,7 +129,7 @@ export async function createSupplierInvoice(
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
           ${input.notes || null}, ${userId}::UUID,
-          ${currencyCode}, ${exchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${exchangeRate}::NUMERIC),
+          ${currencyCode}, ${exchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${exchangeRate}::NUMERIC(18,6)),
           ${fingerprint},
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING *

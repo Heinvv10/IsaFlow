@@ -1,9 +1,11 @@
 /**
- * toFunctional — the TypeScript twin of public.fx_functional (migration 871):
- * ROUND(amount * rate, 2), half away from zero, in exact decimal. Float
- * arithmetic (`Math.round(x * r * 100) / 100`) is what it replaces, and the
- * cases below are the ones float gets wrong. Parity with Postgres itself is
- * proved on a real database in tests/integration/fx-pr0-refusals.int.test.ts.
+ * toFunctional — the TypeScript twin of the SQL callers'
+ * public.fx_functional(amount::NUMERIC(15,2), rate::NUMERIC(18,6)) (migration
+ * 871): the inputs rounded as those casts round them, then ROUND(amount *
+ * rate, 2), all half away from zero, in exact decimal. Float arithmetic
+ * (`Math.round(x * r * 100) / 100`) is what it replaces, and the cases below
+ * are the ones float gets wrong. Parity with Postgres itself is proved on a
+ * real database in tests/integration/fx-pr0-db.int.test.ts.
  */
 import { describe, expect, it } from 'vitest';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
@@ -47,7 +49,19 @@ describe('toFunctional', () => {
   });
 
   it('reads exponent notation exactly', () => {
-    expect(toFunctional(1e-7, 1e7)).toBe(1);
     expect(toFunctional(2e3, 0.5)).toBe(1000);
+    expect(toFunctional(1e3, 1.5e-1)).toBe(150);
+  });
+
+  it('rounds the amount to cents and the rate to six places first, as the NUMERIC casts do', () => {
+    // 10.005 → 10.01 (NUMERIC(15,2)), then * 2: 20.02, where the unrounded product is 20.01.
+    expect(toFunctional('10.005', '2')).toBe(20.02);
+    expect(toFunctional('-10.005', '2')).toBe(-20.02);
+    // 1.00000025 → 1.000000 (NUMERIC(18,6)): 20 000.00, where the unrounded product is 20 000.005 → 20 000.01.
+    expect(toFunctional('20000', '1.00000025')).toBe(20000);
+    // 1.0000005 → 1.000001: 20 000.02, where the unrounded product is 20 000.01.
+    expect(toFunctional('20000', '1.0000005')).toBe(20000.02);
+    // A sub-cent amount is nothing, as NUMERIC(15,2) makes it.
+    expect(toFunctional(1e-7, 1e7)).toBe(0);
   });
 });

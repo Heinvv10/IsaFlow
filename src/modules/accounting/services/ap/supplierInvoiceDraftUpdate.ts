@@ -210,7 +210,7 @@ export async function applySupplierInvoiceDraftUpdate(
         tax_rate = COALESCE(${totals?.taxRate ?? null}::NUMERIC, tax_rate),
         tax_amount = COALESCE(${totals?.totalTax ?? null}::NUMERIC, tax_amount),
         total_amount = ${totalAmount},
-        functional_total = public.fx_functional(${totalAmount}::NUMERIC(15,2), COALESCE(exchange_rate, 1)),
+        functional_total = public.fx_functional(${totalAmount}::NUMERIC(15,2), COALESCE(NULLIF(exchange_rate, 0), 1)),
         duplicate_fingerprint = COALESCE(${fingerprint}, duplicate_fingerprint),
         updated_at = NOW()
       WHERE id = ${plan.invoiceId}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'`;
