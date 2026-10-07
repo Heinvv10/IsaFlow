@@ -7,17 +7,21 @@
  * moved (PR5's D2, ap/bankLinePaymentGate.isBankEvidenced): its allocation is a
  * system journal, exempt. A HAND-KEYED line — "Spend / Receive Money"
  * (bank-transactions-manual) inserts its own — is a person's say-so: posted to
- * an account it is a manual journal, so under manual_journal enforcement a rule
- * matching its amount refuses it, from reads, before the first write (409).
- * Callers: bank-transactions-manual (before it inserts the line),
- * allocateTransaction and splitAllocateTransaction (the screens and the MCP
- * allocate tools), and the MCP bulk classifier (a skip, so its dry run agrees).
+ * an account it is a manual journal — and so is a TRANSFER to another
+ * bank-subtype account, since any account can be relabelled bank (round 4) —
+ * so under manual_journal enforcement a rule matching its amount refuses it,
+ * from reads, before the first write (409). Callers: bank-transactions-manual
+ * (before it inserts the line), allocateTransaction (account and transfer) and
+ * splitAllocateTransaction (the screens and the MCP allocate tools), the MCP
+ * bulk classifier (a skip, so its dry run agrees), and the bank-rule sweep
+ * (bankRuleAutoPostLine: a counted approval_required skip).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { ApprovalRequiredError } from '../gl/approvalGate';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
+import { isEnforced } from '../gl/approvalEnforcement';
 
 /** The refusal for posting `amount` from a HAND-KEYED line to GL accounts, or null (not enforced, or no rule matches). */
 export function handKeyedLineJournalRefusal(companyId: string, amount: number): Promise<ApprovalRequiredError | null> {
@@ -37,12 +41,13 @@ export async function assertBankLineMayPostToAccounts(companyId: string, line: D
 /**
  * The MCP bulk classifier's twin: txId → `approval_required: <why>` for each
  * HAND-KEYED line the batch would post to an account past an enforced rule.
- * Empty (one read) while manual journals are not enforced.
+ * Empty, after one read of approval_enforcement, while manual journals are
+ * not enforced.
  */
 export async function handKeyedAccountLineSkips(companyId: string,
   lines: readonly { txId: string; amount: number }[]): Promise<Map<string, string>> {
   const skips = new Map<string, string>();
-  if (lines.length === 0) return skips;
+  if (lines.length === 0 || !(await isEnforced(companyId, 'manual_journal'))) return skips;
   const rows = (await sql`
     SELECT id, bank_feed_connection_id, import_batch_id FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${lines.map((l) => l.txId)}::UUID[])

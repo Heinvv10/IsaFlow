@@ -37,11 +37,11 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { vatInclusiveSplit } from './bankVatInclusive';
 
 
 type Row = DbRow;
 
-const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
@@ -136,10 +136,11 @@ export async function allocateTransaction(
   // the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
-  // R-035 (D2; PR6 H2): a HAND-KEYED line is no bank evidence — paid OUT to a supplier it is a payment instruction,
-  // posted to a GL account a manual journal: each refused (409) under its enforced rule, from the locked row, pre-write.
+  // R-035 PR5 (Hein, D2): money OUT to a supplier from a HAND-KEYED line is a
+  // payment instruction, not bank evidence — refused (409) under an enforced
+  // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
-  if (allocType === 'account') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount);
+  if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -189,9 +190,7 @@ export async function allocateTransaction(
   }
 
   const hasVat = effectiveVatCode === 'standard' && !isSettlement;
-  const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
-  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
-  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
+  const { vatRate, netAmount, vatAmount } = vatInclusiveSplit(totalAmount, hasVat);
   // Only the `account` branch can reach a VAT line now (K-016), and it has no
   // entity, so the direction IS the only signal: money out is a purchase (input
   // tax), money in is a supply (output tax).
@@ -649,7 +648,8 @@ export async function splitAllocateTransaction(
   // Errors here they would have to be told apart by message text — which is
   // exactly what `BankAllocationRefusal` exists to stop.
   if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
-  // As allocateTransaction: refused from the locked row, pre-write — status alone would let a pending/removed row through.
+  // Same reasoning as allocateTransaction: refused from the locked row, before
+  // any write, because status alone would let a pending/removed row through.
   assertPostedForAllocation(tx, bankTxId, 'split allocate');
   await refuseLineOfCompletedReconciliation(companyId, tx); // D12: the shared 409, before the status refusal
   if (tx.status !== 'imported') {
@@ -665,9 +665,10 @@ export async function splitAllocateTransaction(
   await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
 
   const bankAccountId = String(tx.bank_account_id);
-  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL midnight, and toISOString()
-  // re-reads it in UTC — on the UTC+2 box that rolls 2026-03-01T00:30+02:00 back to "2026-02-28",
-  // dating the journal into the previous month (and, at a boundary, into a closed period).
+  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
+  // midnight, and toISOString() re-reads it in UTC — on the UTC+2 box that
+  // rolls 2026-03-01T00:30+02:00 back to "2026-02-28", dating the journal into
+  // the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
   const entryDesc = String(tx.description || 'Split bank allocation');
@@ -679,8 +680,7 @@ export async function splitAllocateTransaction(
     // user chose. Not coerced here.
     const lineVatCode = line.vatCode;
     const hasVat = lineVatCode === 'standard';
-    const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
-    const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
+    const { netAmount, vatAmount } = vatInclusiveSplit(lineAmount, hasVat);
     // A split line is always a GL account — the split path has no entity — so
     // here the direction genuinely IS the only signal available.
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
