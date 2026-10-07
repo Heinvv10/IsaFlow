@@ -33,6 +33,8 @@ export default function RecurringJournalsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  /** R-035 PR6: a generate whose journal an approval rule holds as a draft. */
+  const [held, setHeld] = useState('');
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState({ templateName: '', description: '', frequency: 'monthly', nextRunDate: '' });
   const [statusFilter, setStatusFilter] = useState('');
@@ -71,6 +73,7 @@ export default function RecurringJournalsPage() {
   const doAction = async (action: string, id: string) => {
     setBusy(id);
     setError('');
+    setHeld('');
     // apiFetch RESOLVES on 4xx — it only intercepts 401 — so awaiting it and
     // reloading discarded every refusal the route sends: not due until <date>,
     // no fiscal period, closed period, a deactivated account named by its code,
@@ -83,6 +86,9 @@ export default function RecurringJournalsPage() {
         credentials: 'include', body: JSON.stringify({ action, id }),
       });
       await assertOk(res, fallback);
+      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[] } } : null;
+      const n = body?.data?.heldForApproval?.length ?? 0;
+      if (n > 0) setHeld(`${n} journal held for approval — left as a draft until approved.`);
       await load();
     } catch (err) {
       setError(apiErrorMessage(err, fallback));
@@ -166,6 +172,7 @@ export default function RecurringJournalsPage() {
 
         <div className="p-6 space-y-4">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
+          {held && <div className="p-3 rounded-lg bg-amber-500/10 text-amber-500 text-sm">{held}</div>}
 
           <div className="flex items-center gap-3">
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="ff-select text-sm">
