@@ -382,19 +382,25 @@ describe('approveCommentary against the pack budget', () => {
     }
   });
 
-  it('costs the row at ITS place in the page order: the pack read decides where it sits', async () => {
-    const a = 'Revenue grew on the Gauteng rollout and held through the second half of the year.';
-    const b = 'Costs were held flat against the prior period.';
-    const fitsAfter = (x: string) => commentaryCost([a, b, x]) <= MAX_APPROVED_PACK_EMS;
-    let n = 1;
-    while (fitsAfter('x'.repeat(n + 1))) n += 1;
-    const x = 'x'.repeat(n);
-    // This row sits BETWEEN a and b in the read.
-    const between = [{ id: 'o1', approved_text: a }, { id: ID, approved_text: null }, { id: 'o2', approved_text: b }];
-    sqlMock.mockResolvedValueOnce([BOARD]).mockResolvedValueOnce([]).mockResolvedValueOnce(between)
+  it('costs the row at ITS place in the page order: the same text fits between two rows and not after them', async () => {
+    // Pinned numbers: cost([a, x, b]) = 588 <= 600 < cost([a, b, x]) = 616, because where the
+    // 20-char words fall against the line ends decides how many lines the paragraph takes.
+    const a = 'a'.repeat(10);
+    const b = 'b'.repeat(10);
+    const x = Array.from({ length: 42 }, () => 'x'.repeat(20)).join(' ');
+    expect(commentaryCost([a, x, b])).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+    expect(commentaryCost([a, b, x])).toBeGreaterThan(MAX_APPROVED_PACK_EMS);
+    const read = (pack: Array<{ id: string; approved_text: string | null }>) => sqlMock
+      .mockResolvedValueOnce([BOARD]).mockResolvedValueOnce([]).mockResolvedValueOnce(pack)
       .mockResolvedValueOnce([dbRow({ status: 'approved' })]);
-    const ok = await approveCommentary(COMPANY, ID, 'approver-9', x);
-    expect(ok.ok).toBe(commentaryCost([a, x, b]) <= MAX_APPROVED_PACK_EMS);
+    read([{ id: 'o1', approved_text: a }, { id: ID, approved_text: null }, { id: 'o2', approved_text: b }]);
+    expect((await approveCommentary(COMPANY, ID, 'approver-9', x)).ok).toBe(true);
+
+    sqlMock.mockReset();
+    read([{ id: 'o1', approved_text: a }, { id: 'o2', approved_text: b }, { id: ID, approved_text: null }]);
+    const after = await approveCommentary(COMPANY, ID, 'approver-9', x);
+    expect(after.ok).toBe(false);
+    if (!after.ok) expect(after.code).toBe('commentary_budget_exceeded');
   });
 
   it('costs by width: the same number of capitals does not fit where lowercase does', async () => {
