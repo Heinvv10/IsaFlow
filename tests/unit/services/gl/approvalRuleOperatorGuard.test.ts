@@ -42,27 +42,27 @@ beforeEach(() => {
 describe('createRule operator allowlist', () => {
   it('refuses an operator checkApproval cannot evaluate, without touching the database', async () => {
     await expect(createRule(COMPANY, {
-      name: 'r', documentType: 'payment', conditionOperator: 'gt',
+      name: 'r', documentType: 'supplier_payment', conditionOperator: 'gt',
     }, actor)).rejects.toBeInstanceOf(ApprovalOperatorInvalidError);
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('names the accepted operators in the message', async () => {
     await expect(createRule(COMPANY, {
-      name: 'r', documentType: 'payment', conditionOperator: 'less_than',
+      name: 'r', documentType: 'supplier_payment', conditionOperator: 'less_than',
     }, actor)).rejects.toThrow(/any, greater_than, greater_equal/);
   });
 
   it('accepts an omitted operator — the column has a default', async () => {
     sqlMock.mockResolvedValueOnce([{ id: RULE, name: 'r', approver_role: 'admin' }]);
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment' }, actor))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment' }, actor))
       .resolves.toMatchObject({ id: RULE });
   });
 
   // Order matters only in that both guards must run before the INSERT.
   it('still refuses a bad role, so the new guard did not displace the old one', async () => {
     await expect(createRule(COMPANY, {
-      name: 'r', documentType: 'payment', approverRole: 'sysadmin',
+      name: 'r', documentType: 'supplier_payment', approverRole: 'sysadmin',
     }, actor)).rejects.toBeInstanceOf(ApprovalRoleInvalidError);
     expect(sqlMock).not.toHaveBeenCalled();
   });
@@ -95,7 +95,7 @@ describe('updateRule operator allowlist', () => {
 describe('conditionField allowlist', () => {
   it('refuses a create naming a field nothing evaluates, without touching the database', async () => {
     await expect(createRule(COMPANY, {
-      name: 'r', documentType: 'payment', conditionField: 'vat',
+      name: 'r', documentType: 'supplier_payment', conditionField: 'vat',
     }, actor)).rejects.toBeInstanceOf(ApprovalFieldInvalidError);
     expect(sqlMock).not.toHaveBeenCalled();
   });
@@ -108,7 +108,7 @@ describe('conditionField allowlist', () => {
 
   it('names the accepted fields in the message', async () => {
     await expect(createRule(COMPANY, {
-      name: 'r', documentType: 'payment', conditionField: 'vat',
+      name: 'r', documentType: 'supplier_payment', conditionField: 'vat',
     }, actor)).rejects.toThrow(/conditionField must be one of: total, amount/);
   });
 
@@ -116,7 +116,7 @@ describe('conditionField allowlist', () => {
     for (const conditionField of ['total', 'amount', undefined]) {
       sqlMock.mockReset();
       sqlMock.mockResolvedValueOnce([{ id: RULE, name: 'r', approver_role: 'admin' }]);
-      await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', conditionField }, actor))
+      await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment', conditionField }, actor))
         .resolves.toMatchObject({ id: RULE });
     }
   });

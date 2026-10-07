@@ -47,7 +47,7 @@ describe('bank page modal create bodies are accepted by the real routes', () => 
     mocks.createSupplier.mockResolvedValueOnce({ id: 's1', name: 'Acme' });
     const res = response();
     await suppliersList(post(supplierCreateBody({ name: ' Acme ', email: 'a@acme.co.za', phone: '012' })), res);
-    expect(mocks.createSupplier).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ name: 'Acme', email: 'a@acme.co.za', phone: '012' }));
+    expect(mocks.createSupplier).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ name: 'Acme', email: 'a@acme.co.za', phone: '012' }), 'u');
     expect(vi.mocked(res.status).mock.calls[0]?.[0]).toBe(200);
   });
 

@@ -32,6 +32,7 @@ import {
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
+import { agentNewSupplierPaymentRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'settle_by_contra';
@@ -135,6 +136,13 @@ export const settleByContraTool: McpTool = {
       ]);
     } catch (err) {
       return toolError(safeErrorText(err, 'Could not settle this document by contra.'));
+    }
+    // R-035 PR5 (Q6): a payable settles through a supplier payment created,
+    // approved and processed in this one call. Refused here, before the first
+    // write, when an enforced rule would govern that payment.
+    if (subledger === 'ap') {
+      const refusal = await agentNewSupplierPaymentRefusal(ctx.companyId, amount);
+      if (refusal) return toolError(refusal);
     }
 
     // DR contra / CR AR for a receivable; DR AP / CR contra for a payable.

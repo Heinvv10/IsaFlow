@@ -56,7 +56,8 @@ const CASES: [string, Rule[]][] = [
   ]],
 ];
 const AMOUNTS = [0, 999.99, 1000, 1000.01, 5000, 5000.01];
-const TYPES: DocumentType[] = ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice'];
+const TYPES: DocumentType[] = ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
+  'supplier_payment', 'payment_batch'];
 
 /**
  * Runs inside one transaction that is rolled back. Only the case that needs an

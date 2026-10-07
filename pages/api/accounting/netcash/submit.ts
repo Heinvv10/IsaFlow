@@ -6,12 +6,15 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
+import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
 
 type Row = Record<string, unknown>;
 
@@ -49,15 +52,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (batchPaymentId) {
     // Load from existing batch — validate company ownership
     const batch = await sql`
-      SELECT id, batch_number FROM supplier_payment_batches
+      SELECT id, batch_number, status FROM supplier_payment_batches
       WHERE id = ${batchPaymentId} AND company_id = ${companyId}::UUID
       LIMIT 1
     ` as Row[];
     if (!batch[0]) return apiResponse.notFound(res, 'Batch', batchPaymentId);
+    // R-035 PR5: under payment_batch enforcement only an approved batch the
+    // approval gate clears is transmitted — its payees share-locked first
+    // (ap/batchBankFileGate). 409 otherwise. Off: unchanged.
+    try {
+      await assertBatchMayBeSent(companyId, String(batch[0].id), String(batch[0].status));
+    } catch (err) {
+      if (respondIfApprovalRequired(res, err)) return;
+      if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
+      throw err;
+    }
     batchReference = String(batch[0].batch_number ?? batchPaymentId);
 
+    // total_amount: `amount` is no column, so this mode failed (500) for every batch (R-035 PR5 round 1 LOW e).
     const rows = await sql`
-      SELECT sp.amount, sp.reference,
+      SELECT sp.total_amount AS amount, sp.reference,
              s.name as account_holder, s.bank_branch_code as bank_code,
              s.bank_account_number as account_number
       FROM supplier_payments sp
@@ -76,6 +90,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       reference: String(r.reference ?? ''),
     }));
   } else if (Array.isArray(rawPayments) && rawPayments.length > 0) {
+    // R-035 PR5: a raw list names payees, accounts and amounts no document
+    // carries, so nothing can approve it. Under either payment type's
+    // enforcement it is refused before anything is sent.
+    if (await isEnforced(companyId, 'supplier_payment') || await isEnforced(companyId, 'payment_batch')) {
+      return apiResponse.error(res, ErrorCode.FORBIDDEN,
+        'Supplier payment approvals are enforced, and a raw payment list cannot be approved — submit an approved batch.',
+        { reason: 'APPROVAL_REQUIRED' });
+    }
     payments = rawPayments;
   } else {
     return apiResponse.badRequest(res, 'Provide batchPaymentId or payments array');
@@ -120,4 +142,5 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));
+// withWriteAccess (R-035 PR5 round 1 LOW f): transmitting payments is a write — a read-only member may not send them.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withAuth>[0]))));

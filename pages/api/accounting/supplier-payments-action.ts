@@ -25,6 +25,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { cancelSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentCancel';
 import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -77,6 +78,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // A held row — the payment, a bank line, a document — is a lock timeout: 503 + Retry-After (D8 round 16).
     // Checked before the 409 below, which now answers only the retryable state conflicts.
     if (respondIfLockTimeout(res, err)) return;
+    // R-035 PR5: approve and process refuse an ungated payment under the row
+    // lock, before any write — 409 with the reason, ahead of the prefix match
+    // below, which would otherwise answer it 400 (or a 500 for process).
+    if (respondIfApprovalRequired(res, err)) return;
     // 409 for contention: `process` and `void` both take the payment row lock
     // as their first act, so a `PAYMENT_LOCK_TIMEOUT` here wrote nothing and
     // retrying is the remedy. It is the same event `supplier-allocations`

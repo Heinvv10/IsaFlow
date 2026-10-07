@@ -43,6 +43,12 @@ vi.mock('@/modules/accounting/services/ap/supplierBatchAllocationPlan', () => ({
   assertBatchMembersStillAllocatable: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The R-035 approval gate is proved against real PostgreSQL in the
+// r035-pr5-* integration files; here it only has to let the ordering under test run.
+vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({
+  assertApprovalCleared: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));

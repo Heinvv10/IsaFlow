@@ -53,7 +53,7 @@ function call(handler: typeof approvalRules, method: string, body: unknown, quer
 describe('K-108 — condition_operator allowlist', () => {
   it('refuses a rule created with an operator checkApproval cannot evaluate', async () => {
     const created = await call(approvalRules, 'POST', {
-      name: 'Payments over 1000', documentType: 'payment',
+      name: 'Payments over 1000', documentType: 'supplier_payment',
       conditionField: 'amount', conditionOperator: 'gt', conditionValue: 1000, approverRole: 'admin',
     });
     expect(created.state.statusCode).toBe(400);
@@ -65,7 +65,7 @@ describe('K-108 — condition_operator allowlist', () => {
 
   it('refuses an update that swaps a good operator for an unreadable one', async () => {
     const created = await call(approvalRules, 'POST', {
-      name: 'Payments over 1000 (valid operator)', documentType: 'payment',
+      name: 'Payments over 1000 (valid operator)', documentType: 'supplier_payment',
       conditionField: 'amount', conditionOperator: 'greater_than', conditionValue: 1000, approverRole: 'admin',
     });
     expect(created.state.statusCode).toBe(200);
@@ -107,7 +107,7 @@ describe('K-108 — condition_operator allowlist', () => {
 describe('K-108 — approver_role allowlist (review L4)', () => {
   it('refuses a rule created with a role the rank ladder does not know', async () => {
     const created = await call(approvalRules, 'POST', {
-      name: 'Typed role', documentType: 'payment',
+      name: 'Typed role', documentType: 'supplier_payment',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'Owner',
     });
     expect(created.state.statusCode).toBe(400);
@@ -119,7 +119,7 @@ describe('K-108 — approver_role allowlist (review L4)', () => {
     const created = await call(approvalRules, 'POST', {
       // 'manager', not 'owner': the caller is an admin and may not create a rule
       // demanding a rank above their own (round-4 HIGH-1).
-      name: 'Role update', documentType: 'payment',
+      name: 'Role update', documentType: 'supplier_payment',
       conditionField: 'amount', conditionOperator: 'any', conditionValue: 0, approverRole: 'manager',
     });
     expect(created.state.statusCode).toBe(200);

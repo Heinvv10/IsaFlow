@@ -14,6 +14,8 @@ import {
   generateNedbankEFT, generateCapitecEFT, validateEFTBatch,
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
+import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 type Row = Record<string, unknown>;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
@@ -41,6 +43,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Get batch details — scoped to company
   const batches = await sql`SELECT * FROM supplier_payment_batches WHERE id = ${batchId} AND company_id = ${companyId}::UUID` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
+  // R-035 PR5: a bank file is money leaving, so under payment_batch
+  // enforcement only an approved batch the approval gate clears gets one —
+  // its payees share-locked first (ap/batchBankFileGate). 409 otherwise.
+  // Enforcement off: unchanged.
+  try {
+    await assertBatchMayBeSent(companyId, String(batches[0].id), String(batches[0].status));
+  } catch (err) {
+    if (respondIfApprovalRequired(res, err)) return;
+    if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 
   // Get payments in batch — scoped to company via batch ownership already validated above
   const payments = await sql`
@@ -68,7 +81,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     beneficiaryAccountNumber: String(p.bank_account_number || ''),
     beneficiaryBranchCode: String(p.bank_branch_code || ''),
     beneficiaryAccountType: toEFTAccountType(p.bank_account_type),
-    amount: Number(p.amount || 0),
+    // total_amount: `amount` is no column, so every line went out as R0.00 (R-035 PR5 round 1 LOW e).
+    amount: Number(p.total_amount || 0),
     reference: String(p.reference || p.id || ''),
     beneficiaryBank: String(p.bank_name || bank),
   }));

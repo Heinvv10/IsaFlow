@@ -16,6 +16,7 @@ import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertApprovalCleared } from '../gl/approvalGate';
 
 type Row = DbRow;
 
@@ -124,15 +125,8 @@ export async function createBatch(companyId: string,
   return result!;
 }
 
-export async function approveBatch(companyId: string, id: string, _userId: string): Promise<void> {
-  await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  await withTransaction(async (tx) => {
-    await tx`UPDATE supplier_payment_batches SET status = 'approved' WHERE id = ${id} AND company_id = ${companyId} AND status = 'draft'`;
-    await tx`UPDATE supplier_payments SET status = 'approved' WHERE batch_id = ${id}::UUID AND status = 'draft'
-      AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = ${companyId}::UUID)`;
-  });
-  log.info('Approved batch', { id }, 'accounting');
-}
+// Approve (R-035 PR5: locked, draft-only, gated) lives beside it, under the file-size cap.
+export { approveBatch, BatchNotApprovableError } from './batchPaymentApproval';
 
 /**
  * Raised when the batch is not in 'approved' when the claim runs — because it
@@ -166,6 +160,10 @@ export async function processBatch(companyId: string, id: string, userId: string
   if (String(locked[0]?.status) !== 'approved') {
     throw new BatchNotProcessableError(String(locked[0]?.status ?? 'missing'));
   }
+  // R-035 PR5: the money moves here, so the batch's approval is re-checked
+  // under the lock — an approval taken before enforcement, or a line (or a
+  // payee's bank details) changed since, is not paid. Nothing written yet.
+  await assertApprovalCleared(companyId, 'payment_batch', id);
   await assertBatchMembersStillAllocatable(companyId, id);
 
   // CLAIM the batch before anything is posted. What this replaced read

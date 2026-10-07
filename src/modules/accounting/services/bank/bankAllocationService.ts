@@ -12,6 +12,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import type { LateClaimInfo } from '../gl/vatLateClaimPlan';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
+import { resolveVatAccountId } from './bankVatAccountResolver';
 import { isControlAccountSettlement } from '../gl/settlementVat';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { mapTxRow } from './bankTransactionQueryService';
@@ -34,53 +35,12 @@ import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
+import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
 
 
 type Row = DbRow;
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
-
-// ── VAT account fallback resolver ──────────────────────────────────────────
-//
-// Migration 327 normalises account_subtype to 'vat_input' / 'vat_output'.
-// If a company's COA pre-dates that migration, we fall back to the standard
-// SA account codes (1140 / 2120).  If still not found, we throw a clear error.
-
-const VAT_FALLBACK_CODES: Record<'vat_input' | 'vat_output', string> = {
-  vat_input: '1140',
-  vat_output: '2120',
-};
-
-async function resolveVatAccountId(
-  key: 'vat_input' | 'vat_output',
-  companyId: string,
-): Promise<string> {
-  try {
-    return await getSystemAccountId(key, companyId);
-  } catch {
-    // Subtype lookup failed — try the well-known SA account code as fallback.
-    const code = VAT_FALLBACK_CODES[key];
-    const rows = (await sql`
-      SELECT id FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID
-        AND is_system_account = true
-        AND account_code = ${code}
-      LIMIT 1
-    `) as Row[];
-    if (rows.length > 0 && rows[0]!.id) {
-      log.warn(
-        `VAT account '${key}' found via account_code fallback (code=${code}); run migration 327 to normalise subtypes.`,
-        { companyId },
-        'accounting',
-      );
-      return String(rows[0]!.id);
-    }
-    throw new Error(
-      `VAT Input system account not found for company ${companyId}. ` +
-      `Create a system account with account_subtype='${key}' or account_code='${code}' (migration 327).`,
-    );
-  }
-}
 
 export type AllocationType = 'account' | 'supplier' | 'customer' | 'transfer';
 
@@ -175,6 +135,10 @@ export async function allocateTransaction(
   // the previous month (and, at a boundary, into a closed period).
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
+  // R-035 PR5 (Hein, D2): money OUT to a supplier from a HAND-KEYED line is a
+  // payment instruction, not bank evidence — refused (409) under an enforced
+  // supplier_payment rule, from the locked row, before the first write.
+  if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies

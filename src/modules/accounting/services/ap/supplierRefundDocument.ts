@@ -250,6 +250,7 @@ export async function recordSupplierRefund(args: {
   const createdBy = await resolveUserUuid(userId);
   const total = round2(-plan.amount);
 
+  // R-035 PR5: a refund is money IN, never an instruction to pay — the 867 backstop passes it by content.
   const rows = (await sql`
     INSERT INTO supplier_payments (
       company_id, supplier_id, payment_date, total_amount, payment_method,

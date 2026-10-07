@@ -6,7 +6,8 @@
  * approve pre-reads, the unattended creators), for both credit-note types
  * since PR3 (approveCreditNote, the MCP approve pre-reads) and for customer
  * invoices since PR4 (approveCustomerInvoice, the MCP finalize pre-reads, the
- * recurring runs); other types follow one PR each,
+ * recurring runs), for supplier payments and payment batches since PR5
+ * (approve and process of each, the bank-file routes); other types follow one PR each,
  * as they join ENFORCEABLE_DOCUMENT_TYPES (approvalEnforcement.ts).
  *
  * A document is CLEARED when any of these holds:
@@ -54,17 +55,23 @@ const LABELS: Record<DocumentType, string> = {
   supplier_credit_note: 'Supplier credit note',
   payment: 'Payment',
   journal_entry: 'Journal entry',
+  supplier_payment: 'Supplier payment',
+  payment_batch: 'Payment batch',
 };
+
+/** What the gate holds back: money leaving the business is PAID, every other document is posted (R-035 PR5). */
+const held = (documentType: DocumentType): string =>
+  (documentType === 'supplier_payment' || documentType === 'payment_batch' ? 'paid' : 'posted');
 
 function refusalMessage(r: ApprovalGateRefusal): string {
   const subject = `${LABELS[r.documentType]}${r.documentReference ? ` ${r.documentReference}` : ''}`;
   switch (r.reason) {
     case 'APPROVAL_PENDING':
-      return `${subject} is awaiting approval by a ${r.requiredRole} before it can be posted (rule: ${r.ruleName}).`;
+      return `${subject} is awaiting approval by a ${r.requiredRole} before it can be ${held(r.documentType)} (rule: ${r.ruleName}).`;
     case 'APPROVAL_STALE':
       return `${subject} changed after it was approved; submit it for approval again (rule: ${r.ruleName}).`;
     case 'APPROVAL_REQUIRED':
-      return `${subject} needs ${r.requiredRole} approval before it can be posted (rule: ${r.ruleName}).`;
+      return `${subject} needs ${r.requiredRole} approval before it can be ${held(r.documentType)} (rule: ${r.ruleName}).`;
   }
 }
 

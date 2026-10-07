@@ -49,7 +49,7 @@ beforeEach(() => { sqlMock.mockReset(); });
 
 describe('createRule — the rank the new rule will demand', () => {
   it('refuses an admin minting an owner-only rule, before any statement runs', async () => {
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', approverRole: 'owner' }, actor('admin')))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment', approverRole: 'owner' }, actor('admin')))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
     expect(sqlMock).not.toHaveBeenCalled();
   });
@@ -57,25 +57,25 @@ describe('createRule — the rank the new rule will demand', () => {
   it('ranks the INSERT default when the caller names no role at all', async () => {
     // The INSERT defaults to 'admin'; ranking only what the caller typed would
     // let a manager create an admin-level rule by omitting the field.
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment' }, actor('manager')))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment' }, actor('manager')))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
     expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('lets an owner mint the owner-only rule', async () => {
     sqlMock.mockResolvedValueOnce([ruleRow({ approver_role: 'owner' })]);
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', approverRole: 'owner' }, actor('owner')))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment', approverRole: 'owner' }, actor('owner')))
       .resolves.toMatchObject({ approverRole: 'owner' });
   });
 
   it('lets an admin mint a rule at or below their own rank', async () => {
     sqlMock.mockResolvedValueOnce([ruleRow({ approver_role: 'manager' })]);
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', approverRole: 'manager' }, actor('admin')))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment', approverRole: 'manager' }, actor('admin')))
       .resolves.toMatchObject({ approverRole: 'manager' });
   });
 
   it('carries no authority for a company role the ladder does not know', async () => {
-    await expect(createRule(COMPANY, { name: 'r', documentType: 'payment', approverRole: 'manager' }, actor('Admin')))
+    await expect(createRule(COMPANY, { name: 'r', documentType: 'supplier_payment', approverRole: 'manager' }, actor('Admin')))
       .rejects.toBeInstanceOf(ApprovalRuleAuthorityError);
   });
 });

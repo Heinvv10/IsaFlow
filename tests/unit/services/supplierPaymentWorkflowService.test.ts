@@ -75,9 +75,16 @@ vi.mock('@/modules/accounting/services/ap/supplierBatchAllocationPlan', () => ({
   assertBatchAllocatable: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The R-035 approval gate is proved against real PostgreSQL in the
+// r035-pr5-* integration files; here it only has to let the ordering under test run.
+vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({
+  assertApprovalCleared: vi.fn().mockResolvedValue(undefined),
+}));
+
 const getSupplierPaymentById = vi.fn();
-vi.mock('@/modules/accounting/services/ap/supplierPaymentService', () => ({
+vi.mock('@/modules/accounting/services/ap/supplierPaymentService', async (importOriginal) => ({
   getSupplierPaymentById: (...args: unknown[]) => getSupplierPaymentById(...args),
+  mapPaymentRow: (await importOriginal<typeof import('@/modules/accounting/services/ap/supplierPaymentService')>()).mapPaymentRow,
 }));
 
 import { als } from '@/lib/als';
