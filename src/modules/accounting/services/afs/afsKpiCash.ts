@@ -20,11 +20,15 @@ type Row = DbRow;
  * exactly those balances. `CASH_SUBTYPES` plus `account_type = 'asset'` is the
  * definition `cashBalanceService`, `cashFlowDirectService` and
  * `cashFlowReconciliationService` all carry.
+ *
+ * Every cash account is an asset, so its balance is debit less credit whatever
+ * its user-set `normal_balance` says; signing by that column summed a
+ * credit-normal petty cash float as negative cash (K-091g).
  */
 export async function fetchOpeningCash(companyId: string, beforeDate: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+      jl.debit - jl.credit
     ), 0)::numeric AS balance
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -44,7 +48,7 @@ export async function fetchOpeningCash(companyId: string, beforeDate: string): P
 export async function fetchClosingCash(companyId: string, upToDate: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+      jl.debit - jl.credit
     ), 0)::numeric AS balance
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

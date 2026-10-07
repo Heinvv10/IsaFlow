@@ -29,9 +29,7 @@ const TOLERANCE = 0.01;
 async function fetchIndirectClosingCash(companyId: string, _periodStart: string, periodEnd: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit'
-        THEN jl.debit - jl.credit
-        ELSE jl.credit - jl.debit END
+      jl.debit - jl.credit
     ), 0)::numeric AS closing_cash
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -50,9 +48,7 @@ async function fetchIndirectClosingCash(companyId: string, _periodStart: string,
 async function fetchBankBalance(companyId: string, asAtDate: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit'
-        THEN jl.debit - jl.credit
-        ELSE jl.credit - jl.debit END
+      jl.debit - jl.credit
     ), 0)::numeric AS balance
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

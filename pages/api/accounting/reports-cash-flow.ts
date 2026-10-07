@@ -53,7 +53,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       HAS_SUBTYPE
         ? sql`
             SELECT COALESCE(SUM(
-              CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+              jl.debit - jl.credit
             ), 0)::numeric as balance
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -67,7 +67,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           `
         : sql`
             SELECT COALESCE(SUM(
-              CASE WHEN ga.normal_balance = 'debit' THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+              jl.debit - jl.credit
             ), 0)::numeric as balance
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
