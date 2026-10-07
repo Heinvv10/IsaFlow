@@ -41,6 +41,8 @@ import { readPackDraftState } from '@/modules/accounting/services/packs/pages/pa
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { fitBodyPage } from '@/modules/accounting/services/packs/pages/packNarrativeFit';
+import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import {
   MAX_APPROVED_PACK_EMS, commentaryEms, packEmsUsed,
 } from '@/modules/accounting/services/commentary/commentaryLimits';
@@ -140,5 +142,36 @@ describe('the pack past its budget', () => {
     expect(refusal!.userMessage).not.toContain('contact support');
     // The engineer's diagnostic is kept as it was.
     expect(refusal!.message).toContain('fitPageToBox');
+  });
+});
+
+describe('fitBodyPage names the sheet the narrative actually sits on', () => {
+  const overflowing = (status: 'approved' | 'pending'): PackPage => ({
+    number: 9, title: 'A page', navLabel: 'Some narrative page', section: 'Commentary', orientation: 'portrait',
+    density: 'high', footnotes: [],
+    blocks: [{ kind: 'narrative', narrative: { status, body: 'word '.repeat(3000), actions: [] } }],
+  });
+
+  it('says page N for the N it is given, not a page it believes in', () => {
+    for (const n of [4, 9]) {
+      let refusal: PackRefusal | null = null;
+      try { fitBodyPage(overflowing('approved'), n); } catch (e) { refusal = e instanceof PackRefusal ? e : null; }
+      expect(refusal, 'the overflowing page composed').not.toBeNull();
+      expect(refusal!.userMessage).toContain(`approved commentary is too long for page ${n} ("Some narrative page")`);
+    }
+  });
+
+  it('leaves any other overflow with the generic refusal: the commentary is not to blame', () => {
+    const page: PackPage = {
+      ...overflowing('pending'),
+      blocks: [{
+        kind: 'narrative', narrative: { status: 'pending', body: null, actions: [] },
+        boardActions: Array.from({ length: 200 }, () => 'The board should decide this matter and record who is accountable for it.'),
+      }],
+    };
+    let refusal: PackRefusal | null = null;
+    try { fitBodyPage(page, 4); } catch (e) { refusal = e instanceof PackRefusal ? e : null; }
+    expect(refusal, 'the overflowing page composed').not.toBeNull();
+    expect(refusal!.userMessage).not.toContain('approved commentary is too long');
   });
 });
