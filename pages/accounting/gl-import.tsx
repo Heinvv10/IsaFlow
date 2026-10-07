@@ -99,7 +99,7 @@ export default function GlImportPage() {
   // Step 4 — import
   const [postImmediately, setPostImmediately] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ entriesCreated: number; linesCreated: number; totalValue: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ entriesCreated: number; linesCreated: number; totalValue: number; heldForApproval?: string[] } | null>(null);
   const [importError, setImportError] = useState('');
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -218,7 +218,7 @@ export default function GlImportPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows: validRows, postImmediately }),
       });
       await assertOk(res, 'Could not import the journal entries - try again');
-      const json = await res.json() as { data: { entriesCreated: number; linesCreated: number; totalValue: number } };
+      const json = await res.json() as { data: { entriesCreated: number; linesCreated: number; totalValue: number; heldForApproval?: string[] } };
       setImportResult(json.data);
     } catch (err) {
       log.error('Import API error', { error: err }, 'gl-import-page');

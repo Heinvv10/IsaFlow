@@ -111,6 +111,8 @@ interface ImportResult {
   entriesCreated: number;
   linesCreated: number;
   totalValue: number;
+  /** R-035 PR6: posted-immediately journals a manual-journal rule left as drafts awaiting approval. */
+  heldForApproval?: string[];
 }
 
 interface Step4Props {
@@ -147,6 +149,11 @@ export function ImportStep({
             with {importResult.linesCreated} lines
             totalling R{importResult.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}.
           </p>
+          {(importResult.heldForApproval?.length ?? 0) > 0 && (
+            <p className="mt-2 text-amber-500">
+              {importResult.heldForApproval!.length} held for approval — left as drafts until approved.
+            </p>
+          )}
         </div>
         <div className="flex items-center justify-center gap-4">
           <button

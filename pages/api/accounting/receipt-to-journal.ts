@@ -43,6 +43,7 @@ import {
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -237,6 +238,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const duplicate = await checkReceiptDuplicate(companyId, documentId, extracted, { confirmDuplicate: confirmDuplicate === true, userId });
   if (duplicate.kind !== 'clear') return respondReceiptDuplicate(res, duplicate);
 
+  // R-035 PR6: whether a manual-journal rule holds the auto-post, decided
+  // here from reads — after the claim below a refusal could only be a 4xx
+  // after a write. A held receipt is not refused: its journal stays a draft
+  // and the request is raised as the uploader, and the claim stands, so the
+  // document still cannot be posted twice. A receipt that would not auto-post
+  // stays a draft for a person to post (and the post route gates it).
+  const approval = await newManualJournalGate(companyId, postableLines);
+  const held = autoPost && approval.held;
+
   const refusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'expense', ...duplicate.fingerprint });
   if (refusal) {
     return respondCapturedDocumentRefusal(res, refusal);
@@ -249,15 +259,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     sourceDocumentId: documentId,
     lines: postableLines,
   }, userId);
+  await settleUnattendedJournal(companyId, entry.id, userId, { enforced: approval.enforced, held });
 
-  if (autoPost) {
+  const posted = autoPost && !held;
+  if (posted) {
     await postJournalEntry(companyId, entry.id, userId);
   }
 
-  const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
+  const je = { id: entry.id, status: posted ? 'posted' : 'draft' };
 
   log.info('Receipt-to-Journal completed', {
-    documentId, journalId: je.id, receiptType, autoPost,
+    documentId, journalId: je.id, receiptType, autoPost: posted, heldForApproval: held,
     amount: extracted.totalAmount, merchant: extracted.vendorName,
   }, 'receipt-journal');
 
@@ -265,7 +277,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     journalEntry: { id: je.id, status: je.status },
     receiptType,
     accountSuggestion: accountSuggestion ? { code: accountSuggestion.code, name: accountSuggestion.name } : null,
-    autoPosted: autoPost,
+    autoPosted: posted,
+    heldForApproval: held,
     amount: extracted.totalAmount,
     inputVatDenied: journalInput.inputVatDenied,
     warnings: journalInput.inputVatDenied
