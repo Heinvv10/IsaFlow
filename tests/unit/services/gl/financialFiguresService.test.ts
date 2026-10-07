@@ -150,6 +150,15 @@ describe('toFinancialData', () => {
     // Current-year profit is not closed into retained earnings yet.
     expect(data.totalEquity).toBe(150_000);
   });
+
+  // Debtor and creditor days multiply by the days the period's revenue and
+  // cost of sales cover. Without this the engine took every window for a year.
+  it('carries the window\'s inclusive day count to the ratio engine', async () => {
+    mockSql.mockResolvedValue([]);
+    const figures = await getFinancialFigures(COMPANY, '2026-03-01', '2026-08-31');
+    expect(figures.periodDays).toBe(184);
+    expect(toFinancialData(figures).periodDays).toBe(184);
+  });
 });
 
 describe('unclassifiedWarning', () => {

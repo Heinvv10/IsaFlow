@@ -174,7 +174,7 @@ describe('assertPackIntegrity', () => {
   it('does not demand a basis of a figure that is not a quotient', () => {
     // The negative pin, and the reason the rule is scoped to two formats. A
     // day count is a rate times a period length — receivables over revenue
-    // times 365 — so there is no numerator-over-denominator to reproduce
+    // times the period's days — so there is no numerator-over-denominator to reproduce
     // without inventing a third term, and money is not a quotient at all.
     for (const format of ['money', 'days'] as const) {
       const p = new PackFigureProvenance();

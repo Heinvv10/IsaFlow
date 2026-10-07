@@ -262,6 +262,8 @@ export function buildReportPack(
     taxExpense: data.taxExpense,
     directMaterialCosts: data.directMaterialCosts,
     ledgerInputsNotRead: data.ratioInputsUnavailable,
+    // The window's days, which debtor, creditor and inventory days multiply by.
+    periodDays: data.periodDays,
   };
 
   const sections: PackSection[] = template.map(config => ({

@@ -121,3 +121,11 @@ export const NO_FREE_CASH_FLOW =
 /** Why no operating cash flow ratio is stated where no cash flow was read. */
 export const NO_OPERATING_CASH_FLOW_RATIO =
   'Not stated: no operating cash flow figure was read for this period.';
+
+/**
+ * Why no day count is stated where the window's length is not known: a day
+ * count is a quotient times the days the flow figure covers, and taking a
+ * year instead is what doubled a six-month pack's debtor days.
+ */
+export const PERIOD_LENGTH_NOT_MEASURED =
+  'Not stated: the length of the reporting period could not be measured from its dates.';

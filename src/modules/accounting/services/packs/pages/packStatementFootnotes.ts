@@ -147,9 +147,9 @@ export function statementFootnotes(
  *
  * Pages 6, 7 and 8 each marked their PRIOR heading and pointed here. Page 9
  * prints PRIOR five times and marked none — on the sheet where the
- * comparative is most treacherous: creditor days prior of 1 035 is a 365-day
- * annualisation taken over a 250-day comparative, and the prior current and
- * cash ratios both read (0.05). The rule was applied to three sheets of four.
+ * comparative is most treacherous: its day counts are measured over the
+ * comparative's own days, and the prior current and cash ratios both read
+ * (0.05). The rule was applied to three sheets of four.
  *
  * It takes its NUMBER from the caller because page 9's footnote numbering is
  * its own — the debtor-days note is 1 there when the trends page draws that

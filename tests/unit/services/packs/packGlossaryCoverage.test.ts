@@ -137,7 +137,7 @@ describe('page 12 defines what the pack prints, and only that', () => {
       .flatMap((b) => (b.kind === 'definitions' ? b.entries : []))
       .find((e) => e.term === 'Cash conversion cycle');
     expect(cycle, 'the pack no longer defines the cash conversion cycle').toBeDefined();
-    expect(cycle!.definition).toContain('inventory days (inventory over cost of sales, times 365)');
+    expect(cycle!.definition).toContain('inventory days (inventory over cost of sales, times the same days)');
   });
 });
 

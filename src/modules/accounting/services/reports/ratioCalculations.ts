@@ -11,7 +11,7 @@
 import type { ExtendedRatioResult, FinancialData, RatioResult } from './ratioTypes';
 import {
   dependsOnUnstated, equityBasisFailure, equityNotMeaningful, NET_INTEREST_IS_INCOME, INTEREST_IS_NET_CREDIT, NO_FREE_CASH_FLOW, NO_STOCK_HELD, NO_INVENTORY_CLASSIFIED, NO_INVENTORY_CLASSIFIED_CYCLE,
-  NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive,
+  NO_OPERATING_CASH_FLOW_RATIO, noneRecorded, notCaptured, notPositive, PERIOD_LENGTH_NOT_MEASURED,
 } from './ratioBasis';
 
 function safeDiv(numerator: number, denominator: number): number {
@@ -23,6 +23,21 @@ function pct(numerator: number, denominator: number): number {
 }
 
 const r2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** The year a caller that gives no window is taken to have supplied. */
+const DAYS_IN_YEAR = 365;
+
+/**
+ * THE DAYS THE FLOW FIGURES COVER, which every day count multiplies by: the
+ * caller's window, or a year where it gave none. It was 365 whatever the
+ * window, so a six-month pack read six months of revenue as a year's and
+ * printed debtor days twice the book's. Null where the window could not be
+ * measured: a day count on a guessed length is not stated.
+ */
+export function daysCovered(data: Pick<FinancialData, 'periodDays'>): number | null {
+  if (data.periodDays === undefined) return DAYS_IN_YEAR;
+  return data.periodDays !== null && data.periodDays > 0 ? data.periodDays : null;
+}
 
 /**
  * The operating line, from the classifier when the caller carried it. Other
@@ -63,6 +78,12 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const equityFailure = equityBasisFailure(data.totalEquity);
   const operatingProfit = operatingProfitOf(data);
   const { why, on, given } = ledger(equityNotMeaningful(data.totalEquity));
+  const days = daysCovered(data);
+  const noDays = days === null ? PERIOD_LENGTH_NOT_MEASURED : null;
+  // A balance over the flow that fed it, times the days the flow covers —
+  // unrounded until the end, so a reader's own division gives the printed
+  // figure. Only computed where `noDays` is null, so `days` is stated.
+  const dayCount = (balance: number, flow: number): number => r2((balance / flow) * (days ?? 0));
   // Cost of sales is the numerator, so a non-positive one is no turnover —
   // the same rule as creditor and inventory days. Where none is held the
   // turnover has no value and inventory days are nil; see NO_STOCK_HELD.
@@ -85,10 +106,10 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
     debtToEquity: equityFailure ? null : r2(safeDiv(data.totalLiabilities, data.totalEquity)),
     returnOnAssets: on('returnOnAssets', data.totalAssets, 'Total assets', () => pct(data.netProfit, data.totalAssets)),
     returnOnEquity: equityFailure ? null : pct(data.netProfit, data.totalEquity),
-    debtorDays: on('debtorDays', data.revenue, 'Revenue',
-      () => r2(safeDiv(data.accountsReceivable, data.revenue) * 365)),
-    creditorDays: on('creditorDays', data.costOfSales, 'Cost of sales',
-      () => r2(safeDiv(data.accountsPayable, data.costOfSales) * 365)),
+    debtorDays: given('debtorDays', data.revenue > 0 ? noDays : notPositive('Revenue'),
+      () => dayCount(data.accountsReceivable, data.revenue)),
+    creditorDays: given('creditorDays', data.costOfSales > 0 ? noDays : notPositive('Cost of sales'),
+      () => dayCount(data.accountsPayable, data.costOfSales)),
     inventoryTurnover: given('inventoryTurnover', noInventoryTurnover,
       () => r2(safeDiv(data.costOfSales, data.inventory))),
     notMeaningful: why,
@@ -140,14 +161,16 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   // sales — not inventory. A company that holds no stock has a turnover with
   // no meaning and an inventory-days figure of exactly nil, and its cash
   // conversion cycle is its debtor days less its creditor days. Where stock
-  // is held the figure is 365 over the turnover, as it always was.
+  // is held the figure is the window's days over the turnover.
   const turnover = base.inventoryTurnover;
+  const days = daysCovered(data);
   // No inventory classification: nil stock is not established, so neither
   // the days nor the cycle stand on it — the board pack's rule, one rule.
   const unclassified = data.inventoryClassified === false;
   const inventoryDays = given('inventoryDays', unclassified ? NO_INVENTORY_CLASSIFIED :
-    data.costOfSales > 0 ? (data.inventory < 0 ? notPositive('Inventory') : null) : notPositive('Cost of sales'),
-    () => (turnover !== null && turnover > 0 ? r2(365 / turnover) : 0));
+    data.costOfSales > 0 ? (data.inventory < 0 ? notPositive('Inventory') : days === null ? PERIOD_LENGTH_NOT_MEASURED : null)
+      : notPositive('Cost of sales'),
+    () => (turnover !== null && turnover > 0 && days !== null ? r2(days / turnover) : 0));
   const { debtorDays, creditorDays } = base;
   const cycleParts = debtorDays === null || creditorDays === null || inventoryDays === null;
 

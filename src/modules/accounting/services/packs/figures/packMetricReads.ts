@@ -16,6 +16,7 @@
  */
 
 import type { ExtendedRatioResult } from '@/modules/accounting/services/reports/reportingEngineService';
+import { daysCovered } from '@/modules/accounting/services/reports/ratioCalculations';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 
 /** A value, or the reason there isn't one, plus the basis of a percentage. */
@@ -43,8 +44,12 @@ function measured<T extends number | null>(engine: T, numerator: number, denomin
   return engine === 0 && numerator !== 0 && denominator !== 0 ? (numerator / denominator) * times : engine;
 }
 
-/** The day count the engine annualises on — see page 12's definitions. */
-const DAYS_IN_YEAR = 365;
+/**
+ * The days the engine multiplied by — the window's, see page 12's
+ * definitions. Where it has none the engine stated no figure, so `measured`
+ * restates nothing and the nil here is never multiplied.
+ */
+const daysOf = (raw: ReportPackFigures): number => daysCovered(raw) ?? 0;
 
 /**
  * `debtorDays` is receivables over revenue. On non-positive revenue the
@@ -70,7 +75,7 @@ export function readDebtorDays(ratios: ExtendedRatioResult, raw: ReportPackFigur
   if (raw.accountsReceivable < 0) {
     return { value: null, unavailable: 'Trade receivables are a net credit, so days of sales outstanding cannot be measured.' };
   }
-  return { value: measured(ratios.debtorDays, raw.accountsReceivable, raw.revenue, DAYS_IN_YEAR) };
+  return { value: measured(ratios.debtorDays, raw.accountsReceivable, raw.revenue, daysOf(raw)) };
 }
 
 /**
@@ -96,7 +101,7 @@ export function readCreditorDays(ratios: ExtendedRatioResult, raw: ReportPackFig
   if (raw.accountsPayable < 0) {
     return { value: null, unavailable: 'Trade payables are a net debit, so days of purchases outstanding cannot be measured.' };
   }
-  return { value: measured(ratios.creditorDays, raw.accountsPayable, raw.costOfSales, DAYS_IN_YEAR) };
+  return { value: measured(ratios.creditorDays, raw.accountsPayable, raw.costOfSales, daysOf(raw)) };
 }
 
 export const DEBT_TO_EQUITY_SOURCE = 'calculateExtendedRatios.debtToEquity';
