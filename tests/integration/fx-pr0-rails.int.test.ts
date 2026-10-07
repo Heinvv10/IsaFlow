@@ -16,6 +16,8 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, SECRET, USER, addLink, cleanupCompany, create, deliver, getLink, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { enableOnlinePayment, enableRoute, links, mintExplicit, payNow, signIn } from './r177-portal-followups.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { sql } from '@/lib/neon';
+import { invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 
 assertDisposable();
 
@@ -80,6 +82,22 @@ describe('no route mints a payment link for a foreign-currency invoice', () => {
     expect(res.statusCode).toBe(400);
     expect(messageOf(res)).toMatch(FOREIGN);
     expect(await links(id)).toEqual([]);
+  });
+
+  it('the currency is compared case-folded: a lower-case `usd` invoice is refused too', async () => {
+    const id = await invoice('usd');
+    expect((await payNow(id)).statusCode).toBe(400);
+    expect(await links(id)).toEqual([]);
+  });
+
+  it('the test fails closed: a company it cannot read makes the invoice foreign; NULL is the functional currency', async () => {
+    const foreign = async (companyId: string, code: string | null) => ((await sql`
+      SELECT ${invoiceForeignCurrencySql()} AS f
+      FROM (SELECT ${companyId}::UUID AS company_id, ${code}::TEXT AS currency_code) ci`) as { f: boolean }[])[0]!.f;
+    expect(await foreign(randomUUID(), 'ZAR')).toBe(true);
+    expect(await foreign(CO, 'ZAR')).toBe(false);
+    expect(await foreign(CO, null)).toBe(false);
+    expect(await foreign(CO, 'EUR')).toBe(true);
   });
 
   it('a ZAR invoice still gets its link', async () => {
