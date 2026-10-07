@@ -156,29 +156,31 @@ describe('post_reclassification_batch', () => {
   });
 });
 
-// Round 3 (Hein, blind MEDIUM): an opening balance is exempt (decision 2), but
-// an agent naming its contra could post any account against the bank. Under
-// enforcement the contra must be the company's Opening Balance Equity account.
+// Round 4 (Hein, 2026-10-07, adversarial REPRO 3; supersedes round 3's
+// contra-only rule): an agent could relabel any asset 'bank' and post it
+// against Opening Balance Equity. Under enforcement the tool is refused
+// ENTIRELY, from a read, nothing written: a person enters opening balances.
 describe('set_opening_balance', () => {
   const ob = (f: JournalCompany, contra?: string) => mcp(f.c, 'set_opening_balance', {
     bank_account_id: f.bank, as_at: '2026-01-01', amount: 2500, idempotency_key: `r035-pr6-ob-${f.c}-${contra ?? 'obe'}`,
     ...(contra ? { contra_account_id: contra } : {}),
   });
-  const journals = async (c: string) => Number((await pool.query(
-    'SELECT count(*)::INT AS n FROM gl_journal_entries WHERE company_id = $1', [c])).rows[0].n);
+  const written = async (c: string) => (await pool.query(
+    `SELECT (SELECT count(*)::INT FROM gl_journal_entries WHERE company_id = $1) AS journals,
+            (SELECT count(*)::INT FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'opening_balance_equity') AS obe`,
+    [c])).rows[0];
 
-  it('under enforcement refuses any contra but Opening Balance Equity, from a read; the default contra posts', async () => {
+  it('under enforcement is refused entirely — default contra or not — from a read, nothing written', async () => {
     const f = await fixture();
-    const refused = await ob(f, f.expA);
-    expect(refused.isError).toBe(true);
-    expect(text(refused)).toMatch(/Opening Balance Equity/);
-    expect(await journals(f.c)).toBe(0);
-    const posted = await ob(f);
-    expect(posted.isError, text(posted)).toBeFalsy();
-    expect(JSON.parse(text(posted))).toMatchObject({ posted: true, contra_defaulted: true });
+    for (const contra of [undefined, f.expA]) {
+      const refused = await ob(f, contra);
+      expect(refused.isError).toBe(true);
+      expect(text(refused)).toMatch(/a person enters opening balances in IsaFlow/);
+    }
+    expect(await written(f.c)).toEqual({ journals: 0, obe: 0 });
   });
 
-  it('enforcement off: any contra posts as before', async () => {
+  it('enforcement off: posts as before, any contra', async () => {
     const f = await fixture({ enforced: false });
     const res = await ob(f, f.expA);
     expect(res.isError, text(res)).toBeFalsy();

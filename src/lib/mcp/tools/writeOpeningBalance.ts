@@ -28,9 +28,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
-import {
-  OPENING_BALANCE_EQUITY_NAME, OPENING_BALANCE_EQUITY_SUBTYPE, ensureOpeningBalanceEquityAccount,
-} from '@/modules/accounting/services/gl/openingBalanceEquityService';
+import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/services/gl/systemRoleWriteLock';
@@ -86,6 +84,16 @@ export const setOpeningBalanceTool: McpTool = {
     });
     if (bad) return bad;
 
+    // R-035 PR6 (Hein, 2026-10-07, round 4): an opening balance is exempt from
+    // manual-journal approval (decision 2) only because a PERSON enters it. An
+    // agent can relabel any asset 'bank' (update_gl_account) and post it
+    // against Opening Balance Equity, so under manual_journal enforcement the
+    // tool is refused outright — from a read, before any write, the key free.
+    if (await isEnforced(ctx.companyId, 'manual_journal')) {
+      return toolError('Manual journals are enforced for this company, so a person enters opening balances in IsaFlow '
+        + '(Accounting > Opening Balances); this connector cannot post them.');
+    }
+
     const amount = Number(args.amount);
     if (!Number.isFinite(amount)) return toolError('amount must be a number');
     // A zero opening balance posts a journal with two zero lines: it balances,
@@ -120,19 +128,6 @@ export const setOpeningBalanceTool: McpTool = {
         `${bankAccount.accountCode} is not a bank account (account_subtype is ` +
           `${bankAccount.accountSubtype ?? 'not set'}). Set it with update_gl_account first.`,
       );
-    }
-
-    // R-035 PR6 (Hein, round 3): an opening balance is exempt from manual-journal
-    // approval (decision 2) only as what it is — the bank against Opening Balance
-    // Equity. Under enforcement an agent naming any other contra would post an
-    // arbitrary account through the exemption, so it is refused here, from reads,
-    // before any write (the key stays free). The admin UI route is unaffected.
-    if (explicitContra && await isEnforced(ctx.companyId, 'manual_journal')) {
-      const contraAccount = await getAccountById(ctx.companyId, explicitContra);
-      if (contraAccount?.accountSubtype !== OPENING_BALANCE_EQUITY_SUBTYPE) {
-        return toolError(`Manual journals are enforced, so an opening balance posts only against the company's ${OPENING_BALANCE_EQUITY_NAME} `
-          + 'account: omit contra_account_id. Any other contra is a manual journal — a person must enter it in IsaFlow and have it approved.');
-      }
     }
 
     // Refuse a second opening balance rather than stacking one. Two of these
