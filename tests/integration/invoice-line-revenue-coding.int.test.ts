@@ -10,10 +10,8 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
-import {
-  createDraftCustomerInvoice,
-  InvoiceLineValidationError,
-} from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { mintRecurringCustomerInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
 import { RecurringTemplateLineAccountError } from '@/modules/accounting/services/core/recurringTransactionErrors';
@@ -80,7 +78,8 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
   ])('create refuses %s before writing anything', async (_label, coding, message) => {
     const before = await invoiceCount();
     const err = await create([{ description: 'x', unitPrice: 10, ...coding() }]).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+    expect((err as InvoiceLineCodingRefusal).code).toBe('INVOICE_LINE_CODING_REFUSED');
     expect((err as Error).message).toMatch(message);
     expect(await invoiceCount()).toBe(before);
   });

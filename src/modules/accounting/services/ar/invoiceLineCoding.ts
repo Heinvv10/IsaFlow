@@ -44,6 +44,23 @@ export class InvoiceLineCodingRefusal extends Error {
   }
 }
 
+/**
+ * Raised when the FOR SHARE read of the lines' GL accounts lost a lock race:
+ * 55P03 (its wait outlived lock_timeout) or 40P01 (deadlock victim — approve and
+ * draft edit lock the invoice, then the accounts; an account merge locks the
+ * accounts, then the invoices). Retryable; nothing about the request is wrong.
+ * The `_LOCK_TIMEOUT` code is what makes a route answer 503 + Retry-After
+ * (respondIfLockTimeout: a 4xx would COMMIT the aborted transaction), the MCP
+ * registry show its message, and bulk finalize skip the element as retryable.
+ */
+export class InvoiceLineAccountLockError extends Error {
+  readonly code = 'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT';
+  constructor(options?: { cause?: unknown }) {
+    super('Another request is changing the GL accounts these invoice lines use — retry in a moment.', options);
+    this.name = 'InvoiceLineAccountLockError';
+  }
+}
+
 /** null when absent, the lower-cased id when a uuid string, undefined when anything else. */
 export function readCodingId(value: unknown): string | null | undefined {
   if (value === undefined || value === null || value === '') return null;

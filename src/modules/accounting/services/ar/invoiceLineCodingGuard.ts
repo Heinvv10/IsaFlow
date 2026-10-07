@@ -22,8 +22,8 @@
  * their ownership (`journalLineOwnership`) in the same transaction anyway.
  */
 import { sql } from '@/lib/neon';
-import { isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
-import { revenueLinesInconsistency, type StoredRevenueLine } from './invoiceRevenueLines';
+import { InvoiceLineAccountLockError, isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
+import { revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
 
 export const FOREIGN_LINE_CODING = 'One or more invoice lines name an account, project or cost centre that is not in your company.';
 
@@ -49,23 +49,37 @@ export function revenueLineAccountProblem(a: RevenueLineAccountRow): string | nu
 const present = (ids: readonly (string | null)[]): string[] =>
   [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== '').map((id) => id.toLowerCase()))];
 
+const isLockRace = (err: unknown): boolean => {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
+  return code === '40P01' || code === '55P03';
+};
+
 async function accountRows(companyId: string, ids: string[], lock: boolean): Promise<RevenueLineAccountRow[]> {
-  return (lock
-    ? await sql`
+  if (lock) {
+    try {
+      return await lockedAccountRows(companyId, ids);
+    } catch (err) {
+      if (isLockRace(err)) throw new InvoiceLineAccountLockError({ cause: err });
+      throw err;
+    }
+  }
+  return (await sql`
+        SELECT a.account_code, a.account_name, a.account_type, a.is_active,
+               EXISTS (SELECT 1 FROM gl_accounts c
+                       WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
+        FROM gl_accounts a
+        WHERE a.company_id = ${companyId}::UUID AND a.id = ANY(${ids}::UUID[])`) as RevenueLineAccountRow[];
+}
+
+async function lockedAccountRows(companyId: string, ids: string[]): Promise<RevenueLineAccountRow[]> {
+  return (await sql`
         SELECT a.account_code, a.account_name, a.account_type, a.is_active,
                EXISTS (SELECT 1 FROM gl_accounts c
                        WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
         FROM gl_accounts a
         WHERE a.company_id = ${companyId}::UUID AND a.id = ANY(${ids}::UUID[])
         ORDER BY a.id
-        FOR SHARE OF a`
-    : await sql`
-        SELECT a.account_code, a.account_name, a.account_type, a.is_active,
-               EXISTS (SELECT 1 FROM gl_accounts c
-                       WHERE c.parent_account_id = a.id AND c.company_id = a.company_id) AS has_children
-        FROM gl_accounts a
-        WHERE a.company_id = ${companyId}::UUID AND a.id = ANY(${ids}::UUID[])`
-  ) as RevenueLineAccountRow[];
+        FOR SHARE OF a`) as RevenueLineAccountRow[];
 }
 
 /**
@@ -162,10 +176,8 @@ export async function storedLinesRefusal(
   if (!stored || !stored.lines.some(isCoded)) return null;
   const coding = await invoiceLineCodingRefusal(companyId, stored.lines, opts);
   if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
-  const inconsistency = revenueLinesInconsistency(stored.lines, stored.subtotal);
-  return inconsistency
-    ? `Invoice ${stored.invoiceNumber}: ${inconsistency}. Re-save the draft so its totals are recalculated.`
-    : null;
+  const problem = revenueLinesProblem(stored.lines, stored.subtotal);
+  return problem ? `Invoice ${stored.invoiceNumber}: ${problem}` : null;
 }
 
 /** The same, read-only, per invoice — for a batch that skips what approve would refuse. */

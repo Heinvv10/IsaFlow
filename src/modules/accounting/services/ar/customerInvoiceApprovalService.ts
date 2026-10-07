@@ -17,6 +17,8 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { storedInvoiceLinesRefusal } from './invoiceLineCodingGuard';
+import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
+import { ArPostingAfterWriteError } from './arErrors';
 
 type Row = DbRow;
 
@@ -159,10 +161,10 @@ export async function approveCustomerInvoice(
   // or lines that no longer add up since the draft was saved. Refused HERE,
   // under the row lock and before the guarded UPDATE, so the 400 this answers
   // has written nothing — the same check inside postCustomerInvoiceToGL runs
-  // after the UPDATE and can only fail the request.
+  // after the UPDATE and is re-raised below as a 5xx class.
   if (locked[0]) {
     const lineRefusal = await storedInvoiceLinesRefusal(companyId, invoiceId);
-    if (lineRefusal) throw new InvoiceNotApprovableError(lineRefusal);
+    if (lineRefusal) throw new InvoiceLineCodingRefusal(lineRefusal);
   }
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
@@ -199,7 +201,13 @@ export async function approveCustomerInvoice(
   // nothing surfacing the divergence. Letting it propagate matches the AP side
   // (supplierInvoiceWorkflowService.approveSupplierInvoice) and lets withAuth
   // roll the request transaction back, taking the status UPDATE above with it.
-  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
+  // Past the status UPDATE: a line refusal now (a cost centre retired since the
+  // check above — projects and cost centres are not locked) must not reach a
+  // route as the pre-write 400 it maps InvoiceLineCodingRefusal to.
+  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts).catch((err: unknown) => {
+    if (err instanceof InvoiceLineCodingRefusal) throw new ArPostingAfterWriteError(err.message, { cause: err });
+    throw err;
+  });
   log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
 
   // PRD-06 Phase 1: seal the rendered PDF as evidence on approve.

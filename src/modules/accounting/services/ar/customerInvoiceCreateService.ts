@@ -16,7 +16,7 @@ import { assertCustomerInCompany } from '@/modules/accounting/services/core/cont
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import {
-  HTTP_CODING_KEYS, parseLineCoding, readCodingId, type InvoiceLineCoding,
+  HTTP_CODING_KEYS, InvoiceLineCodingRefusal, parseLineCoding, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 
@@ -86,15 +86,15 @@ export async function createDraftCustomerInvoice(
   const codings: InvoiceLineCoding[] = [];
   for (const [i, item] of items.entries()) {
     const coding = parseLineCoding(item as unknown as Record<string, unknown>, HTTP_CODING_KEYS, `items[${i}]`);
-    if (typeof coding === 'string') throw new InvoiceLineValidationError(coding);
+    if (typeof coding === 'string') throw new InvoiceLineCodingRefusal(coding);
     codings.push(coding);
   }
   const projectId = readCodingId(input.projectId);
-  if (projectId === undefined) throw new InvoiceLineValidationError('projectId must be a UUID');
+  if (projectId === undefined) throw new InvoiceLineCodingRefusal('projectId must be a UUID');
   const codingRefusal = await invoiceLineCodingRefusal(
     companyId, [...codings, { glAccountId: null, projectId, costCenterId: null }],
   );
-  if (codingRefusal) throw new InvoiceLineValidationError(codingRefusal);
+  if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
   // R-119: the same audit, one field over. `taxRate` comes off the request
   // body and is used below for `tax_amount` and the output-VAT journal leg. A

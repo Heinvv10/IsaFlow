@@ -47,6 +47,7 @@ import {
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
 import { storedInvoiceLinesRefusals } from '@/modules/accounting/services/ar/invoiceLineCodingGuard';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
 import {
@@ -90,6 +91,9 @@ interface FinalizedRow {
  */
 export function racedReason(err: unknown): string | null {
   if (err instanceof ApprovalRequiredError) return `approval_required: ${err.message}`;
+  // Raised by approve before its status UPDATE (a line recoded or an account
+  // deactivated since the pre-read): written nothing, so a skip with its reason.
+  if (err instanceof InvoiceLineCodingRefusal) return err.message;
   if (!(err instanceof InvoiceNotApprovableError)) return null;
   // The service's own message names the settled status, which is the fact that
   // distinguishes "someone else approved it" from "it was cancelled". Passed

@@ -12,10 +12,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
-import {
-  approveCustomerInvoice,
-  InvoiceNotApprovableError,
-} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerInvoiceGlPosting';
 import { cancelCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceCancelService';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
@@ -152,7 +149,7 @@ describeIfDisposable('invoice line revenue posting (migration 870)', () => {
     try {
       const before = await journalCount();
       const err = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(InvoiceNotApprovableError);
+      expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
       expect((err as Error).message).toMatch(/4100 Commercials.*inactive.*Recode the line/);
       expect(await journalCount()).toBe(before);
       expect(((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status).toBe('draft');
@@ -165,7 +162,7 @@ describeIfDisposable('invoice line revenue posting (migration 870)', () => {
     const id = await draft([{ description: 'Split', unitPrice: 100, glAccountId: f.acct.commercials }]);
     await sql`UPDATE customer_invoices SET subtotal = 150, total_amount = 172.5, tax_amount = 22.5 WHERE id = ${id}::UUID`;
     const err = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvoiceNotApprovableError);
+    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
     expect((err as Error).message).toMatch(/100\.00.*150\.00.*Re-save the draft/);
     expect(((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status).toBe('draft');
   });

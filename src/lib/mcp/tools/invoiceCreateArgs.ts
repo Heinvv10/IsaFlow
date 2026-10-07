@@ -207,6 +207,12 @@ export function parseSupplierInvoiceInput(
   };
 }
 
+/** The keys CUSTOMER_INVOICE_LINE_SCHEMA declares — and the only ones a line may carry. */
+const CUSTOMER_LINE_KEYS: ReadonlySet<string> = new Set(Object.keys(CUSTOMER_INVOICE_LINE_SCHEMA.properties));
+const SNAKE_CASE_OF: Readonly<Record<string, string>> = {
+  glAccountId: 'gl_account_id', projectId: 'project_id', costCenterId: 'cost_center_id', unitPrice: 'unit_price',
+};
+
 /** Parse one customer-invoice payload. Returns the refusal MESSAGE on failure. */
 export function parseCustomerInvoiceInput(
   args: Record<string, unknown>,
@@ -235,6 +241,15 @@ export function parseCustomerInvoiceInput(
       return `items[${i}] must be an object`;
     }
     const o = line as Record<string, unknown>;
+    // The transport does not enforce additionalProperties: an unknown key — a
+    // camelCase glAccountId most of all — would otherwise be dropped in
+    // silence and the line posted to the default account.
+    const unknownKey = Object.keys(o).find((k) => !CUSTOMER_LINE_KEYS.has(k));
+    if (unknownKey !== undefined) {
+      const hint = SNAKE_CASE_OF[unknownKey];
+      return `items[${i}].${unknownKey} is not a line field${hint ? ` — did you mean ${hint}?` : ''}; `
+        + `a line takes ${[...CUSTOMER_LINE_KEYS].join(', ')}`;
+    }
     const description = typeof o.description === 'string' ? o.description.trim() : '';
     if (!description) return `items[${i}].description is required`;
     // Bounds, not just finiteness — the supplier arm above checks them and so

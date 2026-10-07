@@ -81,6 +81,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'HAND_CORRECTION_REFUSED',
   // A customer invoice line's revenue account, project or cost centre refused
   // (ar/invoiceLineCoding): names only the caller's own account, project or centre.
+  // The FOR SHARE read of an invoice's line accounts lost a lock race (55P03 / 40P01): says "retry".
+  'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT',
   'INVOICE_LINE_CODING_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.

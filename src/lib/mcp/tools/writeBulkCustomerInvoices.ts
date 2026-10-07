@@ -18,6 +18,7 @@ import {
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   CUSTOMER_INVOICE_LINE_SCHEMA,
@@ -103,6 +104,8 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
         if (err instanceof InvoiceLineValidationError) {
           throw new Error(`invoices[${i}]: ${err.message}`, { cause: err });
         }
+        // The registered refusal, named by element, so the agent sees which line to recode.
+        if (err instanceof InvoiceLineCodingRefusal) throw new InvoiceLineCodingRefusal(`invoices[${i}]: ${err.message}`);
         throw elementError(i, err, 'Failed to create customer invoice.');
       }
     }

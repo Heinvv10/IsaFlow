@@ -35,6 +35,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 type Row = Record<string, unknown>;
 
 /**
@@ -97,7 +98,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'not_draft') return apiResponse.badRequest(res, 'Only draft invoices can be edited');
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
-    if (result.kind === 'bad_line') return apiResponse.badRequest(res, result.message);
+    if (result.kind === 'bad_line') return apiResponse.badRequest(res, result.message, { code: 'INVOICE_LINE_CODING_REFUSED' });
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     return apiResponse.success(res, { updated: true });
@@ -153,6 +154,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (err instanceof InvoiceNotApprovableError) {
           return err.notFound ? apiResponse.notFound(res, 'Invoice', id) : apiResponse.badRequest(res, err.message);
         }
+        // Raised under the row lock before the status UPDATE: the 400 commits nothing.
+        if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
         // R-035 PR4: raised under the row lock before any write — a 409 that commits nothing.
         if (respondIfApprovalRequired(res, err)) return;
         throw err;

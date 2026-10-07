@@ -86,6 +86,18 @@ function leg(
   };
 }
 
+/**
+ * Why coded lines cannot post behind this subtotal, or null: they do not add up
+ * to it, or they total zero or less (nothing to split). The ONE wording both
+ * the pre-write approve check and the builder refuse with.
+ */
+export function revenueLinesProblem(lines: readonly StoredRevenueLine[], documentSubtotal: number): string | null {
+  const inconsistency = revenueLinesInconsistency(lines, documentSubtotal);
+  if (inconsistency) return `${inconsistency}. Re-save the draft so its totals are recalculated.`;
+  if (lines.reduce((s, l) => s + cents(l.amount), 0) <= 0) return 'its coded lines total zero or less, so there is no revenue to split.';
+  return null;
+}
+
 export function buildInvoiceRevenueLines(input: {
   invoiceNumber: string;
   documentSubtotal: number;
@@ -99,10 +111,8 @@ export function buildInvoiceRevenueLines(input: {
     return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description }];
   }
 
-  const inconsistency = revenueLinesInconsistency(lines, documentSubtotal);
-  if (inconsistency) {
-    throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${inconsistency}. Re-save the draft so its totals are recalculated.`);
-  }
+  const problem = revenueLinesProblem(lines, documentSubtotal);
+  if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
 
   const groups = new Map<string, { glAccountId: string; projectId: string | null; costCenterId: string | null; weight: number }>();
   for (const l of lines) {
@@ -113,9 +123,6 @@ export function buildInvoiceRevenueLines(input: {
     groups.set(key, g);
   }
   const list = [...groups.values()];
-  if (list.reduce((s, g) => s + g.weight, 0) <= 0) {
-    throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: its coded lines total zero or less, so there is no revenue to split.`);
-  }
   const shares = allocateByWeight(cents(credit), list.map((g) => g.weight));
   return list
     .map((g, i) => leg(g.glAccountId, shares[i]!, 'credit', description, g.projectId, g.costCenterId))

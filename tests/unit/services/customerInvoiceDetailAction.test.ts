@@ -71,6 +71,8 @@ import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journa
 import handler from '../../../pages/api/accounting/customer-invoices-detail';
 import { assertApprovalCleared, ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { apiResponse } from '@/lib/apiResponse';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -170,6 +172,13 @@ describe('customer-invoices-detail POST action guards', () => {
     const glCall = postGlMock.mock.calls[0]!;
     expect(glCall.slice(0, 3)).toEqual([COMPANY_ID, INV_ID, USER_ID]);
     expect((glCall[3] as { postingAgent?: string } | undefined)?.postingAgent).toBeUndefined();
+  });
+
+  it('migration 870: a line refusal raised by posting AFTER the status UPDATE is a 5xx class, never the pre-write 400', async () => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    postGlMock.mockRejectedValueOnce(new InvoiceLineCodingRefusal('Invoice INV-1: cost centre CC2 is inactive.'));
+    await expect(call({ id: INV_ID, action: 'approve' })).rejects.toBeInstanceOf(ArPostingAfterWriteError);
+    expect(apiResponse.badRequest).not.toHaveBeenCalled();
   });
 
   it('R-035: consults the approval gate for a draft under the row lock, BEFORE the guarded UPDATE', async () => {
