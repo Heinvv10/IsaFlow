@@ -19,6 +19,7 @@ import { lockSessionForHeaderChange, refuseCompletedSession, shareLockSession } 
 import { bankGlBalanceAsAt, refreshReconciledBalanceIfFree, updateReconciledBalance } from './bankReconciliationBalance';
 import { RowLockTimeoutError } from '../core/rowLockBudget';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
+import { ApprovalRequiredError } from '../gl/approvalGate';
 
 
 // ── Reconciliation CRUD ───────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ export async function createAdjustmentEntry(
     log.info('Created adjustment entry', { reconciliationId, journalEntryId: je.id }, 'accounting');
     return je.id;
   } catch (err) {
+    if (err instanceof ApprovalRequiredError) throw err; // R-035 PR6: an expected refusal (the route's 409), not a fault
     log.error('Failed to create adjustment entry', { error: err }, 'accounting');
     throw err;
   }

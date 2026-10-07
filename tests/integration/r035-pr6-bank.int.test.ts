@@ -14,9 +14,10 @@
  *    imported statement is bank evidence (PR5's D2) and allocates as before; so
  *    does everything below the rule or with enforcement off.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '../../src/lib/als';
+import { log } from '../../src/lib/logger';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import { allocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankAllocate';
 import { bulkAllocateBankTransactionsTool } from '../../src/lib/mcp/tools/writeBankBulkAllocate';
@@ -76,7 +77,11 @@ describe('H1: the bank-reconciliation adjustment', () => {
 
   it('is refused 409 with the reason before the journal is created, and says to post it as a journal', async () => {
     const f = await fixture();
+    // An expected refusal, not a fault (round 4, blind LOW): never logged at error level.
+    const errors = vi.spyOn(log, 'error');
     expectRefused(await adjust(f, 1500), /needs owner approval .*\(rule: Journals sign\)\. Post it as a journal/);
+    expect(errors.mock.calls.map((c) => c[0])).not.toContain('Failed to create adjustment entry');
+    errors.mockRestore();
     expect((await counts(f.c)).journals).toBe(0);
   });
 
