@@ -163,6 +163,9 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
     const posted = async () => ((await inTx(f.fx, () => getCustomerInvoiceDetail(f.fx.companyId, id))) as { items: Record<string, unknown>[] }).items[0]!.account_posted;
     expect(await posted()).toBe(true);
+    // Another invoice's journal DOES credit 4200: the check is this invoice's journal, not any.
+    const other = (await create([{ description: 'Grade', unitPrice: 50, glAccountId: f.acct.postProduction }])).id;
+    await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, other, f.fx.userId));
     // As a pre-870 invoice reads: the line names an account its journal never credited.
     await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.postProduction}::UUID WHERE invoice_id = ${id}::UUID`;
     expect(await posted()).toBe(false);
