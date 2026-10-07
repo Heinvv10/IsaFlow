@@ -21,6 +21,7 @@ import { MUTATION_ARG_SCHEMA } from '@/lib/mcp/contracts';
 import { postReclassBatch } from '@/modules/accounting/services/gl/reclassification/post';
 import { MAX_RECLASS_LINES } from '@/modules/accounting/services/gl/reclassification/plan';
 import { boundedRowWait } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { agentNewManualJournalsRefusal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { mcpPostingOpts } from '../mcpActor';
 import {
   RECLASS_ARG_SCHEMA,
@@ -89,6 +90,14 @@ export const postReclassificationBatchTool: McpTool = {
         + '. Widen from/to, or pass posting_date to move lines out of closed periods.',
       );
     }
+
+    // R-035 PR6, decision Q6: every journal below is created AND posted in this
+    // call, with no draft surviving it, and an agent may neither raise nor
+    // decide an approval — so under manual-journal enforcement the call is
+    // refused up front when any of them matches a rule. Before the dry-run
+    // branch, so the preview gives the same refusal as the call it previews.
+    const approvalRefusal = await agentNewManualJournalsRefusal(ctx.companyId, planned.drafts.map((d) => d.lines));
+    if (approvalRefusal) return toolError(approvalRefusal);
 
     if (isDryRun) {
       const preview = ok({

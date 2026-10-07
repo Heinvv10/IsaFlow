@@ -150,8 +150,8 @@ export async function agentNewManualJournalsRefusal(companyId: string,
     const rule = await strictestMatchingRule(companyId, TYPE, amount);
     if (!rule) continue;
     return `Manual journals are enforced: a journal of R${amount.toFixed(2)} needs ${rule.approverRole} approval before it `
-      + `can be posted (rule: ${rule.name}). This connector cannot raise or decide approvals: a person must post the `
-      + 'journals in IsaFlow, submit them for approval, and an eligible approver must approve them.';
+      + `can be posted (rule: ${rule.name}). This connector cannot raise or decide approvals: a person must enter the `
+      + 'journals in IsaFlow, submit them for approval, and an eligible approver must approve them before posting.';
   }
   return null;
 }
