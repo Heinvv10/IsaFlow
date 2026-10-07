@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseSupplierInvoiceInput } from '@/lib/mcp/tools/invoiceCreateArgs';
+import { parseCustomerInvoiceInput, parseSupplierInvoiceInput } from '@/lib/mcp/tools/invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from '@/lib/mcp/tools/bulkInvoiceDuplicateSkip';
 
 const SUPPLIER = '11111111-1111-4111-8111-111111111111';
@@ -61,5 +61,33 @@ describe('bulk_create_supplier_invoices — the path the 50-char limit killed', 
     ];
     expect(partitionSupplierInvoiceBatch(batch))
       .toBe('invoices[2].invoice_number is 64 characters; the maximum is 50');
+  });
+});
+
+describe('parseCustomerInvoiceInput — line coding (migration 870)', () => {
+  const ACCOUNT = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
+  const PROJECT = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
+  const customer = (item: Record<string, unknown>, extra: Record<string, unknown> = {}) => parseCustomerInvoiceInput({
+    customer_id: SUPPLIER, items: [{ description: 'Spot', unit_price: 100, ...item }], ...extra,
+  });
+
+  it('reads each line\'s account, project and cost centre, and the header project', () => {
+    const parsed = customer({ gl_account_id: ACCOUNT.toUpperCase(), project_id: PROJECT }, { project_id: PROJECT });
+    expect(parsed).toMatchObject({
+      items: [{ description: 'Spot', unitPrice: 100, quantity: 1, glAccountId: ACCOUNT, projectId: PROJECT, costCenterId: null }],
+      projectId: PROJECT,
+    });
+  });
+
+  it('an uncoded line and no header project parse as nulls', () => {
+    expect(customer({})).toMatchObject({
+      items: [{ glAccountId: null, projectId: null, costCenterId: null }], projectId: null,
+    });
+  });
+
+  it('refuses a coding id that is not a uuid string, naming the line and field, before any write', () => {
+    expect(customer({ gl_account_id: [ACCOUNT] })).toBe('items[0].gl_account_id must be a UUID');
+    expect(customer({ cost_center_id: 7 })).toBe('items[0].cost_center_id must be a UUID');
+    expect(customer({}, { project_id: { id: PROJECT } })).toBe('project_id must be a UUID');
   });
 });

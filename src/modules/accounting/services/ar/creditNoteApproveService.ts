@@ -26,6 +26,7 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { creditNoteRevenueJournalLines } from './invoiceRevenuePosting';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -70,10 +71,12 @@ export async function approveCreditNote(
       const arAccount = await getSystemAccount('receivable', companyId);
       const vatAccount = await getSystemAccount('vat_output', companyId);
 
-      lines = [
-        { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
-          description: `Credit note ${cn.credit_note_number}` },
-      ];
+      lines = await creditNoteRevenueJournalLines(companyId, {
+        number: String(cn.credit_note_number), amount: Number(cn.subtotal),
+        customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null,
+        projectId: cn.project_id ? String(cn.project_id) : null,
+        costCenterId: cn.cost_center_id ? String(cn.cost_center_id) : null,
+      }, revenueAccount.id);
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
         // exception, and 'standard' is what the VAT201 already read it as.

@@ -13,6 +13,8 @@ import { assertCustomerInCompany, assertSupplierInCompany } from './contactDirec
 import { insertWithReservedNumber } from './documentNumberRetry';
 import { billLineAccountRefusal } from '../ap/billLineAccountGuard';
 import { RecurringTemplateLineAccountError } from './recurringTransactionErrors';
+import { readCodingId } from '../ar/invoiceLineCoding';
+import { invoiceLineCodingRefusal } from '../ar/invoiceLineCodingGuard';
 import { headerTotals, normaliseLines } from './recurringTemplateLines';
 import type { RecurringTemplate } from './recurringTransactionService';
 import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
@@ -45,6 +47,17 @@ export async function mintRecurringCustomerInvoice(
   // R-119: templateData is opaque JSON, and the create-time qty/price guard
   // does not re-run here. Refused before the number is reserved.
   assertNonNegativeDocumentTotal(totals.totalAmount, `Recurring template ${template.id}`, 'customer');
+  // The template's JSON names revenue accounts nothing re-checked, tenant
+  // included — and since migration 870 posting credits them. The AP arm's
+  // check, with the invoice line's rules; before the number is reserved.
+  const accountIds = lines.map((l) => readCodingId(l.glAccountId));
+  const accountRefusal = accountIds.includes(undefined)
+    ? 'a line names an account id that is not a UUID.'
+    : await invoiceLineCodingRefusal(companyId, accountIds.map((glAccountId) => (
+      { glAccountId: glAccountId ?? null, projectId: null, costCenterId: null })));
+  if (accountRefusal) {
+    throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${accountRefusal}`);
+  }
   const entityId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`

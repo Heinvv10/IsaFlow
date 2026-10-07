@@ -72,6 +72,9 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
       + (SELECT COUNT(*) FROM supplier_invoice_items sii
           JOIN supplier_invoices sip ON sip.id = sii.supplier_invoice_id
           WHERE sii.cost_center_id = ${id}::UUID AND sip.company_id = ${companyId}::UUID)
+      + (SELECT COUNT(*) FROM customer_invoice_items cii
+          JOIN customer_invoices cip ON cip.id = cii.invoice_id
+          WHERE cii.cost_center_id = ${id}::UUID AND cip.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM credit_notes cn
           WHERE cn.cost_center_id = ${id}::UUID AND cn.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM customer_payments cp

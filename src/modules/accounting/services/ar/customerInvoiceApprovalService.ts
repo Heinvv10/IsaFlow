@@ -16,6 +16,7 @@ import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfS
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
+import { storedInvoiceLinesRefusal } from './invoiceLineCodingGuard';
 
 type Row = DbRow;
 
@@ -154,6 +155,15 @@ export async function approveCustomerInvoice(
     throw err;
   }
   if (locked[0]) await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
+  // Line coding (migration 870): an account deactivated, a cost centre retired
+  // or lines that no longer add up since the draft was saved. Refused HERE,
+  // under the row lock and before the guarded UPDATE, so the 400 this answers
+  // has written nothing — the same check inside postCustomerInvoiceToGL runs
+  // after the UPDATE and can only fail the request.
+  if (locked[0]) {
+    const lineRefusal = await storedInvoiceLinesRefusal(companyId, invoiceId);
+    if (lineRefusal) throw new InvoiceNotApprovableError(lineRefusal);
+  }
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR

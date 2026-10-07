@@ -19,7 +19,7 @@ import { createQuote, LineValidationError } from '@/modules/accounting/services/
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { parseCustomerInvoiceInput } from './invoiceCreateArgs';
+import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './invoiceCreateArgs';
 
 interface LineIn {
   description: string;
@@ -68,7 +68,8 @@ export const createDraftInvoiceTool: McpTool = {
     type: 'object',
     properties: {
       customer_id: { type: 'string' },
-      items: LINE_ITEMS_SCHEMA,
+      items: { type: 'array', minItems: 1, items: CUSTOMER_INVOICE_LINE_SCHEMA },
+      project_id: { type: 'string' },
       invoice_date: { type: 'string', format: 'date' },
       due_date: { type: 'string', format: 'date' },
       tax_rate: { type: 'number', minimum: 0 },
@@ -93,6 +94,7 @@ export const createDraftInvoiceTool: McpTool = {
         dueDate: parsed.dueDate,
         taxRate: parsed.taxRate,
         notes: parsed.notes,
+        projectId: parsed.projectId,
       }, mcpPostingOpts(ctx, 'create_draft_invoice'));
       return ok(result);
     } catch (err) {

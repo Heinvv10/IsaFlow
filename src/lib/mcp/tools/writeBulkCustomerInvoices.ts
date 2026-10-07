@@ -20,6 +20,7 @@ import {
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import {
+  CUSTOMER_INVOICE_LINE_SCHEMA,
   MAX_LINES,
   parseCustomerInvoiceInput,
   type ParsedCustomerInvoice,
@@ -27,17 +28,6 @@ import {
 import { MAX_INVOICES, elementError, parseBatch } from './writeBulkInvoices';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
 
-
-const CUSTOMER_LINE_SCHEMA = {
-  type: 'object',
-  properties: {
-    description: { type: 'string' },
-    quantity: { type: 'number', exclusiveMinimum: 0 },
-    unit_price: { type: 'number', minimum: 0 },
-  },
-  required: ['description', 'unit_price'],
-  additionalProperties: false,
-} as const;
 
 export const bulkCreateCustomerInvoicesTool: McpTool = {
   name: 'bulk_create_customer_invoices',
@@ -59,8 +49,9 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
           properties: {
             customer_id: { type: 'string' },
             items: {
-              type: 'array', minItems: 1, maxItems: MAX_LINES, items: CUSTOMER_LINE_SCHEMA,
+              type: 'array', minItems: 1, maxItems: MAX_LINES, items: CUSTOMER_INVOICE_LINE_SCHEMA,
             },
+            project_id: { type: 'string' },
             invoice_date: { type: 'string', format: 'date' },
             due_date: { type: 'string', format: 'date' },
             tax_rate: { type: 'number', minimum: 0 },
@@ -103,6 +94,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
           dueDate: p.dueDate,
           taxRate: p.taxRate,
           notes: p.notes,
+          projectId: p.projectId,
         }, mcpPostingOpts(ctx, 'bulk_create_customer_invoices'));
         created.push({ index: i, ...(result as unknown as Record<string, unknown>) });
       } catch (err) {

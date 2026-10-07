@@ -25,7 +25,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const {
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, notes, items, currencyCode, exchangeRate,
+    taxRate, notes, items, currencyCode, exchangeRate, projectId,
   } = req.body;
   if (!clientId) return apiResponse.badRequest(res, 'clientId is required');
   if (!items || !Array.isArray(items) || items.length === 0) return apiResponse.badRequest(res, 'items required');
@@ -34,7 +34,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const userId = String(req.user?.id || 'system');
     const { id: invoiceId, invoiceNumber } = await createDraftCustomerInvoice(companyId, userId, {
       clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-      taxRate, notes, items, currencyCode, exchangeRate,
+      taxRate, notes, items, currencyCode, exchangeRate, projectId,
     });
     return apiResponse.created(res, { id: invoiceId, invoiceNumber });
   } catch (err) {

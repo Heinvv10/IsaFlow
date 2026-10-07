@@ -59,6 +59,12 @@ vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
   assertApprovalCleared: vi.fn(async () => undefined),
 }));
+// Migration 870: the line-coding pre-check has its own real-PG suite
+// (invoice-line-revenue-coding.int.test.ts); here no line is coded.
+vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/ar/invoiceLineCodingGuard')>()),
+  storedInvoiceLinesRefusal: vi.fn(async () => null),
+}));
 
 // Real ClosedFiscalPeriodError so the route's instanceof check matches.
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';

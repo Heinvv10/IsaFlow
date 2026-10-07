@@ -19,14 +19,23 @@
  */
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
-import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
+import type { PutBodySchema, PutItemSchema } from '@/lib/schemas/customerInvoiceDetail';
+import type { InvoiceLineCoding } from './invoiceLineCoding';
+import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 
 type Row = Record<string, unknown>;
+
+const codingOf = (it: z.infer<typeof PutItemSchema>): InvoiceLineCoding => ({
+  glAccountId: it.glAccountId ? it.glAccountId.toLowerCase() : null,
+  projectId: it.projectId ? it.projectId.toLowerCase() : null,
+  costCenterId: it.costCenterId ? it.costCenterId.toLowerCase() : null,
+});
 
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
-  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' };
+  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
+  | { kind: 'bad_line'; message: string };
 
 export async function editDraftCustomerInvoice(
   companyId: string, editedBy: string, edit: CustomerInvoiceDraftEdit,
@@ -83,6 +92,15 @@ export async function editDraftCustomerInvoice(
       }
     }
 
+    // Migration 870: the lines' revenue account / project / cost centre, under
+    // the row lock and before the first write below. PutItemSchema has
+    // already made each a uuid string or nothing; codingOf lower-cases it.
+    const codings = (items ?? []).map(codingOf);
+    if (items) {
+      const refusal = await invoiceLineCodingRefusal(companyId, codings);
+      if (refusal) return { kind: 'bad_line' as const, message: refusal };
+    }
+
     let computed: { subtotal: number; tax: number; total: number; functionalTotal: number; rate: number } | null = null;
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
@@ -132,15 +150,18 @@ export async function editDraftCustomerInvoice(
       // line-item currency on FX invoices.
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
       const lineCurrency = fxCode || existingCurrency;
-      for (const it of items) {
+      for (const [i, it] of items.entries()) {
         const qty = it.quantity;
         const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
+        const coding = codings[i]!;
         await tx`
           INSERT INTO customer_invoice_items (
-            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
+            gl_account_id, project_id, cost_center_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
-            ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency}
+            ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
+            ${coding.glAccountId}::UUID, ${coding.projectId}::UUID, ${coding.costCenterId}::UUID
           )
         `;
       }

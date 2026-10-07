@@ -1,0 +1,137 @@
+/**
+ * Migration 870, the write half: every path that codes a customer invoice line
+ * — create (HTTP and MCP share it), draft edit, a recurring template — refuses
+ * an account, project or cost centre the line may not name, BEFORE its first
+ * write, and stores what it accepts. The invoice header's project is what the
+ * caller sent or nothing: never a guess from the client's projects. A cost
+ * centre a line names cannot be deleted out from under it.
+ *
+ * Disposable databases only (migration 870 is not on isaflow_dev).
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from '@/lib/neon';
+import {
+  createDraftCustomerInvoice,
+  InvoiceLineValidationError,
+} from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
+import { mintRecurringCustomerInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
+import { RecurringTemplateLineAccountError } from '@/modules/accounting/services/core/recurringTransactionErrors';
+import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
+import type { RecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
+import { isDisposableDb } from '../helpers/assertDisposableDb';
+import { inTx } from './helpers/l1FifoFixture';
+import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
+
+const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
+let f: LineRevenueFixture;
+
+const invoiceCount = async () => Number(((await sql`
+  SELECT COUNT(*) AS n FROM customer_invoices WHERE company_id = ${f.fx.companyId}::UUID`) as { n: string }[])[0]!.n);
+
+const create = (items: Record<string, unknown>[], projectId?: unknown) =>
+  inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+    clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 15,
+    items: items as never, projectId: projectId as never,
+  }));
+
+async function storedLines(invoiceId: string) {
+  return (await sql`
+    SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items
+    WHERE invoice_id = ${invoiceId}::UUID ORDER BY created_at, id`) as Record<string, string | null>[];
+}
+
+describeIfDisposable('invoice line coding on write (migration 870)', () => {
+  beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
+  afterAll(async () => { if (f) await dropLineRevenue(f); });
+
+  it('stores what each line names, lower-cased, and leaves an uncoded line uncoded', async () => {
+    const { id } = await create([
+      { description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials.toUpperCase(), projectId: f.project.p1, costCenterId: f.centre.active },
+      { description: 'Fee', unitPrice: 50 },
+    ]);
+    expect(await storedLines(id)).toEqual([
+      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: f.centre.active },
+      { gl_account_id: null, project_id: null, cost_center_id: null },
+    ]);
+  });
+
+  it('the header project is the one sent, or none — not one of the client\'s projects picked at random', async () => {
+    const header = async (projectId?: string) => {
+      const { id } = await create([{ description: 'x', unitPrice: 1 }], projectId);
+      return ((await sql`SELECT project_id FROM customer_invoices WHERE id = ${id}::UUID`) as { project_id: string | null }[])[0]!.project_id;
+    };
+    expect(await header()).toBeNull(); // the client has P1, P2 and P3
+    expect(await header(f.project.p2)).toBe(f.project.p2);
+  });
+
+  it.each([
+    ['another company\'s account', () => ({ glAccountId: f.acct.foreign }), /not in your company/],
+    ['another company\'s project', () => ({ projectId: f.project.foreign }), /not in your company/],
+    ['another company\'s cost centre', () => ({ costCenterId: f.centre.foreign }), /not in your company/],
+    ['an id that exists nowhere', () => ({ glAccountId: '00000000-0000-4000-8000-000000000000' }), /not in your company/],
+    ['an expense account', () => ({ glAccountId: f.acct.expense }), /6100 Crew.*not a revenue account \(it is expense\)/],
+    ['a header account', () => ({ glAccountId: f.acct.header }), /4300 Studio header.*header account/],
+    ['an inactive account', () => ({ glAccountId: f.acct.inactive }), /4400 Retired line.*inactive/],
+    ['a cancelled project', () => ({ projectId: f.project.cancelled }), /project P3-.*cancelled/],
+    ['an inactive cost centre', () => ({ costCenterId: f.centre.inactive }), /cost centre CC2.*inactive/],
+    ['an array holding a valid id', () => ({ glAccountId: [f.acct.commercials] }), /items\[0\]\.glAccountId must be a UUID/],
+    ['a number', () => ({ projectId: 42 }), /items\[0\]\.projectId must be a UUID/],
+  ])('create refuses %s before writing anything', async (_label, coding, message) => {
+    const before = await invoiceCount();
+    const err = await create([{ description: 'x', unitPrice: 10, ...coding() }]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect((err as Error).message).toMatch(message);
+    expect(await invoiceCount()).toBe(before);
+  });
+
+  it('create refuses a header project of another company, and a non-uuid one', async () => {
+    await expect(create([{ description: 'x', unitPrice: 1 }], f.project.foreign)).rejects.toThrow(/not in your company/);
+    await expect(create([{ description: 'x', unitPrice: 1 }], [f.project.p1])).rejects.toThrow(/projectId must be a UUID/);
+  });
+
+  it('draft edit stores the new coding, and refuses a foreign one leaving the draft untouched', async () => {
+    const { id } = await create([{ description: 'x', unitPrice: 100, glAccountId: f.acct.commercials }]);
+    const edit = (coding: Record<string, string>) => inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+      id, items: [{ description: 'y', quantity: 1, unitPrice: 200, ...coding }],
+    }));
+    expect(await edit({ glAccountId: f.acct.postProduction, projectId: f.project.p2 })).toEqual({ kind: 'ok' });
+    expect(await storedLines(id)).toEqual([{ gl_account_id: f.acct.postProduction, project_id: f.project.p2, cost_center_id: null }]);
+
+    const refused = await edit({ costCenterId: f.centre.foreign });
+    expect(refused).toEqual({ kind: 'bad_line', message: expect.stringMatching(/not in your company/) });
+    expect(await storedLines(id)).toEqual([{ gl_account_id: f.acct.postProduction, project_id: f.project.p2, cost_center_id: null }]);
+    const subtotal = ((await sql`SELECT subtotal FROM customer_invoices WHERE id = ${id}::UUID`) as { subtotal: string }[])[0]!.subtotal;
+    expect(Number(subtotal)).toBe(200);
+  });
+
+  it('a recurring template naming a non-revenue or foreign account is refused before the number is reserved', async () => {
+    const template = (glAccountId: string): RecurringTemplate => ({
+      id: '11111111-1111-4111-8111-111111111111', companyId: f.fx.companyId, name: 'Monthly retainer',
+      entityType: 'customer_invoice', frequency: 'monthly', nextRunDate: '2026-07-01', lastRunDate: null,
+      isActive: true, autoPost: false, createdBy: f.fx.userId, createdAt: '2026-07-01',
+      templateData: {
+        clientId: f.fx.customerId, subtotal: 100, vatAmount: 15, totalAmount: 115,
+        lines: [{ description: 'Retainer', quantity: 1, unitPrice: 100, taxRate: 15, glAccountId }],
+      },
+    });
+    for (const [account, message] of [[f.acct.expense, /not a revenue account/], [f.acct.foreign, /not in your company/]] as const) {
+      const before = await invoiceCount();
+      const err = await inTx(f.fx, () => mintRecurringCustomerInvoice(f.fx.companyId, template(account), f.fx.userId))
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RecurringTemplateLineAccountError);
+      expect((err as Error).message).toMatch(message);
+      expect(await invoiceCount()).toBe(before);
+    }
+    const ok = await inTx(f.fx, () => mintRecurringCustomerInvoice(f.fx.companyId, template(f.acct.commercials), f.fx.userId));
+    expect((await storedLines(ok.entityId))[0]!.gl_account_id).toBe(f.acct.commercials);
+  });
+
+  it('a cost centre an invoice line names cannot be deleted; the refusal counts it', async () => {
+    const centre = ((await sql`
+      INSERT INTO cost_centres (company_id, code, name) VALUES (${f.fx.companyId}::UUID, 'CC9', 'Centre CC9')
+      RETURNING id`) as { id: string }[])[0]!.id;
+    await create([{ description: 'x', unitPrice: 10, costCenterId: centre }]);
+    await expect(inTx(f.fx, () => deleteCostCentre(f.fx.companyId, centre))).rejects.toThrow(/used by 1 document/);
+  });
+});

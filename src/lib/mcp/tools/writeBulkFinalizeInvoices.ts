@@ -46,6 +46,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
 import { agentApprovalRefusals } from '@/modules/accounting/services/gl/approvalUnattended';
+import { storedInvoiceLinesRefusals } from '@/modules/accounting/services/ar/invoiceLineCodingGuard';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
 import {
@@ -191,6 +192,11 @@ export const bulkFinalizeInvoicesTool: McpTool = {
     // Read, not written, so the dry run and the live call decide it alike.
     const refusals = await agentApprovalRefusals(ctx.companyId, 'customer_invoice',
       await approvableCustomerInvoiceIds(ctx.companyId, partitioned.postable.map((p) => p.id)));
+    // Line coding approve would refuse (migration 870) — skipped with approve's
+    // own reason, so the dry run and the live call decide it alike.
+    const lineRefusals = await storedInvoiceLinesRefusals(ctx.companyId,
+      partitioned.postable.filter((p) => !refusals.has(p.id)).map((p) => p.id));
+    for (const [id, reason] of lineRefusals) refusals.set(id, reason);
     const postable = partitioned.postable.filter((p) => !refusals.has(p.id));
     const skipped = [...partitioned.skipped, ...partitioned.postable.filter((p) => refusals.has(p.id))
       .map((p) => ({ index: p.index, document_id: p.id, reason: refusals.get(p.id)! }))]

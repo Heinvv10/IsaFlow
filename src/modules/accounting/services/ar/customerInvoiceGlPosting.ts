@@ -18,6 +18,7 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
+import { invoiceRevenueJournalLines } from './invoiceRevenuePosting';
 
 type Row = DbRow;
 
@@ -75,8 +76,9 @@ export async function postCustomerInvoiceToGL(
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,
         description: `AR: ${inv.invoice_number}` },
-      { glAccountId: revenueAccount.id, debit: 0, credit: Number(inv.subtotal),
-        description: `Revenue: ${inv.invoice_number}` },
+      ...(await invoiceRevenueJournalLines(companyId, invoiceId, {
+        number: String(inv.invoice_number), documentSubtotal: Number(inv.subtotal), credit: Number(inv.subtotal),
+      }, revenueAccount.id)),
     ];
 
     if (Number(inv.tax_amount) > 0) {

@@ -13,6 +13,9 @@
  */
 import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
 import { castableArgError, strArg } from './toolHelpers';
+import {
+  MCP_CODING_KEYS, parseLineCoding, readCodingId, type InvoiceLineCoding,
+} from '@/modules/accounting/services/ar/invoiceLineCoding';
 
 /** More lines than this on one invoice is a mistake, not a bill. */
 export const MAX_LINES = 200;
@@ -58,7 +61,7 @@ export interface ParsedSupplierInvoice {
   accountIds: string[];
 }
 
-export interface ParsedCustomerInvoiceLine {
+export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
   description: string;
   quantity?: number;
   unitPrice: number;
@@ -71,7 +74,27 @@ export interface ParsedCustomerInvoice {
   dueDate: string | undefined;
   taxRate: number | undefined;
   notes: string | undefined;
+  projectId: string | null;
 }
+
+/**
+ * One customer-invoice line as an agent sends it. Shared by create_draft_invoice
+ * and bulk_create_customer_invoices; the transport does not validate it
+ * (parseCustomerInvoiceInput does), it tells the agent what it may send.
+ */
+export const CUSTOMER_INVOICE_LINE_SCHEMA = {
+  type: 'object',
+  properties: {
+    description: { type: 'string' },
+    quantity: { type: 'number', exclusiveMinimum: 0 },
+    unit_price: { type: 'number', minimum: 0 },
+    gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the default sales account.' },
+    project_id: { type: 'string', description: 'Project (job / production) the line\'s revenue belongs to.' },
+    cost_center_id: { type: 'string', description: 'Active cost centre the line\'s revenue belongs to.' },
+  },
+  required: ['description', 'unit_price'],
+  additionalProperties: false,
+} as const;
 
 /**
  * Parse and validate every supplier-invoice line BEFORE any ownership query or
@@ -229,8 +252,12 @@ export function parseCustomerInvoiceInput(
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return `items[${i}].quantity must be a positive number`;
     }
-    items.push({ description, unitPrice, quantity });
+    const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
+    if (typeof coding === 'string') return coding;
+    items.push({ description, unitPrice, quantity, ...coding });
   }
+  const projectId = readCodingId(args.project_id);
+  if (projectId === undefined) return 'project_id must be a UUID';
 
   let taxRate: number | undefined;
   if (args.tax_rate !== undefined && args.tax_rate !== null) {
@@ -245,5 +272,6 @@ export function parseCustomerInvoiceInput(
     dueDate: strArg(args, 'due_date'),
     taxRate,
     notes: strArg(args, 'notes'),
+    projectId,
   };
 }
