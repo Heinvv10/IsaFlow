@@ -136,7 +136,7 @@ describeIfDb('ledger-date window: stored-date posting routes answer 400 with not
     const res = {
       statusCode: 200, headersSent: false,
       status(code: number) { this.statusCode = code; return this; },
-      setHeader() { return this; }, getHeader() { return undefined; },
+      setHeader() { return this; }, getHeader() { return undefined; }, removeHeader() { /* replaced answers drop headers */ },
       json(body: unknown) { return this.end(JSON.stringify(body)); },
       end(body?: unknown) { wire.push({ status: this.statusCode, body: body === undefined ? null : JSON.parse(String(body)) }); return this; },
     };
