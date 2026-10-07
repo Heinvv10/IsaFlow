@@ -147,6 +147,26 @@ describe('the gate amount and the authors', () => {
     expect(journalGateAmount(rows)).toBe(await amount(id));
   });
 
+  // Round 3 (blind MEDIUM): the twin rounds each line to cents as numeric(15,2)
+  // stores it, half away from zero, and sums exactly — never float drift.
+  it.each([
+    [[0.1, 0.7], [0.8]],
+    [[333.335, 333.335, 333.335], [1000.01]],
+    [[999.995], [999.994]],
+    [[0.105, 0.205], [0.31]],
+  ])('the twin agrees with the SQL on the stored lines for the INPUT figures %j / %j', async (debits, credits) => {
+    const id = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by)
+       VALUES($1,$2,DATE '2026-09-01','twin','manual','draft',$3)`, [id, f.c, u.a]);
+    const input = [...debits.map((d) => ({ debit: d, credit: 0 })), ...credits.map((c) => ({ debit: 0, credit: c }))];
+    for (const l of input) {
+      await pool.query('INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$4,$5)',
+        [f.c, id, f.expA, l.debit, l.credit]);
+    }
+    expect(journalGateAmount(input)).toBe(await amount(id));
+  });
+
   it('the authors are the creator plus content_authors, de-duplicated, company-scoped', async () => {
     const id = await plantJournal(pool, f, u.a);
     const authors = async (company = f.c) => (await pool.query(

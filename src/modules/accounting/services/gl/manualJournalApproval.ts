@@ -38,15 +38,34 @@ import { agentApprovalRefusal, raiseUnattendedApproval } from './approvalUnatten
 
 const TYPE = 'manual_journal' as const;
 
-/** What a rule sees for a journal not yet written: its larger side (approval_manual_journal_gate_amount's twin). */
+/**
+ * A figure in whole cents as gl_journal_lines' numeric(15,2) stores it: the
+ * decimal the pg driver sends (String(n)) rounded half away from zero — read
+ * from its digits, since n * 100 is binary (1.005 * 100 = 100.49999…).
+ */
+function storedCents(value: number | null | undefined): number {
+  const n = Math.abs(Number(value ?? 0));
+  const text = String(n);
+  if (!Number.isFinite(n) || /e/i.test(text)) return Math.round(n * 100);
+  const [whole, fraction = ''] = text.split('.');
+  const digits = `${fraction}000`;
+  return Number(whole) * 100 + Number(digits.slice(0, 2)) + (Number(digits[2]) >= 5 ? 1 : 0);
+}
+
+/**
+ * What a rule sees for a journal not yet written: its larger side
+ * (approval_manual_journal_gate_amount's twin). Each line at its stored cents,
+ * summed in integers — a float sum read 0.1 + 0.7 as 0.7999…, missed a rule of
+ * exactly 0.80 the backstop then applied (R-035 PR6 round 3).
+ */
 export function journalGateAmount(lines: readonly { debit?: number | null; credit?: number | null }[]): number {
   let debit = 0;
   let credit = 0;
   for (const l of lines) {
-    debit += Math.abs(Number(l.debit ?? 0));
-    credit += Math.abs(Number(l.credit ?? 0));
+    debit += storedCents(l.debit);
+    credit += storedCents(l.credit);
   }
-  return Math.max(debit, credit);
+  return Math.max(debit, credit) / 100;
 }
 
 /**
