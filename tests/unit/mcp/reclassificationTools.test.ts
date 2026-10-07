@@ -40,6 +40,12 @@ vi.mock('@/modules/accounting/services/gl/systemRoleWriteLock', async (orig) => 
   boundedRowWait: vi.fn(<T,>(take: () => PromiseLike<T>) => take()),
 }));
 
+// R-035 PR6: the manual-journal approval read issues real SQL too; enforcement
+// off here (its refusal is proven against Postgres in r035-pr6-mcp.int.test.ts).
+vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({
+  agentNewManualJournalsRefusal: vi.fn(async () => null),
+}));
+
 import { proposeReclassificationTool } from '@/lib/mcp/tools/reclassificationPropose';
 import { postReclassificationBatchTool } from '@/lib/mcp/tools/writeReclassification';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
