@@ -201,12 +201,12 @@ describe('getCashBalance — sign and cents', () => {
         account_type: 'asset', gl_debit: '0.3', gl_credit: '0.1', posted_through: null },
       { id: 'b', account_code: '1120', account_name: 'Bank 2', is_active: true,
         account_type: 'asset', gl_debit: '0.1', gl_credit: '0', posted_through: null },
-      { id: 'c', account_code: '1130', account_name: 'Bank 3', is_active: true,
-        account_type: 'asset', gl_debit: '0.2', gl_credit: '0', posted_through: null },
     ]);
     const result = await getCashBalance(COMPANY, '2026-12-31');
+    // Each balance in cents (0.2, not 0.19999999999999998), and their sum too:
+    // 0.2 + 0.1 is itself 0.30000000000000004.
     expect(result.accounts[0]!.glBalance).toBe(0.2);
-    expect(result.total).toBe(0.5);
+    expect(result.total).toBe(0.3);
   });
 });
 
