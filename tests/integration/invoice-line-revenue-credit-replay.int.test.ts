@@ -61,6 +61,8 @@ describeIfDisposable('credit notes replay earlier notes by leg identity, one app
   afterAll(async () => {
     if (!f) return;
     await setActive(f.acct.commercials, true);
+    // The forged note belongs to the OTHER company but names this one's invoice.
+    await sql`DELETE FROM credit_notes WHERE company_id = ${f.other.companyId}::UUID`;
     await dropLineRevenue(f);
   });
 
@@ -135,6 +137,19 @@ describeIfDisposable('credit notes replay earlier notes by leg identity, one app
     const left = await revenueLeft(inv);
     expect(projectLeft(left, 'P1')).toBe(0);
     expect(left['4000/-']).toBe(-1000); // the second note found nothing left on the leg
+  });
+
+  it('another company\'s note naming this invoice (forged) takes nothing off its legs', async () => {
+    const inv = await invoice([{ unitPrice: 1000, glAccountId: f.acct.commercials, projectId: f.project.p1 }]);
+    await sql`INSERT INTO credit_notes (company_id, type, client_id, customer_invoice_id, credit_date, subtotal, tax_rate,
+                                        tax_amount, total_amount, status, created_by, approved_at)
+              VALUES (${f.other.companyId}::UUID, 'customer', ${f.other.customerId}::UUID, ${inv}::UUID, '2026-07-19', 1000, 0, 0,
+                      1000, 'approved', ${f.other.userId}::UUID, NOW())`;
+    const je = (await approve(await draftNote(inv, 400))).glJournalEntryId!;
+    expect(await sql`
+      SELECT a.account_code AS code, jl.debit::float AS debit FROM gl_journal_lines jl
+      JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
+      WHERE jl.journal_entry_id = ${je}::UUID AND a.account_type = 'revenue'`).toEqual([{ code: '4100', debit: 400 }]);
   });
 
   it('an over-credit on an uncoded invoice posts one default_revenue line, as master did', async () => {
