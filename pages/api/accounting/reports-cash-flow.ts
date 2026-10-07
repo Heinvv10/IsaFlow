@@ -6,6 +6,7 @@ import {
 } from '@/modules/accounting/services/gl/accountClassification';
 import { fmtDate } from '@/lib/fmtDate';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { toMoney } from '@/lib/money/decimalSum';
 /**
  * Cash Flow Statement API
  * GET /api/accounting/reports-cash-flow?start_date=&end_date=
@@ -126,7 +127,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         },
       ],
       net_change: netChange,
-      closing_cash: openingBalance + netChange,
+      // In whole cents: opening + net change in floats carries sub-cent residue.
+      closing_cash: toMoney(openingBalance + netChange),
     };
 
     return apiResponse.success(res, { report });

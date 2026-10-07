@@ -33,15 +33,15 @@ function sqlText(i = 0): string {
 const ROWS = [
   {
     id: 'acc-1', account_code: '1110', account_name: 'Bank - Primary',
-    is_active: true, gl_balance: '3353164.26', posted_through: '2026-08-24T10:00:00.000Z',
+    is_active: true, account_type: 'asset', gl_debit: '3353164.26', gl_credit: 0, posted_through: '2026-08-24T10:00:00.000Z',
   },
   {
     id: 'acc-2', account_code: '1140', account_name: 'Old Paycard',
-    is_active: false, gl_balance: '6550.00', posted_through: '2026-02-01T08:00:00.000Z',
+    is_active: false, account_type: 'asset', gl_debit: '6550.00', gl_credit: 0, posted_through: '2026-02-01T08:00:00.000Z',
   },
   {
     id: 'acc-3', account_code: '1120', account_name: 'Dormant',
-    is_active: true, gl_balance: '0', posted_through: null,
+    is_active: true, account_type: 'asset', gl_debit: '0', gl_credit: 0, posted_through: null,
   },
 ];
 
@@ -70,7 +70,7 @@ describe('getCashBalance', () => {
 
   it('does not report a deactivated account whose balance is nil', async () => {
     mockSql.mockResolvedValue([
-      { id: 'x', account_code: '1199', account_name: 'Closed', is_active: false, gl_balance: '0', posted_through: null },
+      { id: 'x', account_code: '1199', account_name: 'Closed', is_active: false, account_type: 'asset', gl_debit: '0', gl_credit: 0, posted_through: null },
     ]);
     const result = await getCashBalance(COMPANY, '2026-08-31');
     expect(result.deactivatedWithBalance).toEqual([]);
@@ -137,7 +137,7 @@ describe('getCashBalance', () => {
 
   it('returns a null posted_through, not a timestamp, when nothing is posted', async () => {
     mockSql.mockResolvedValue([
-      { id: 'x', account_code: '1110', account_name: 'Bank', is_active: true, gl_balance: '0', posted_through: null },
+      { id: 'x', account_code: '1110', account_name: 'Bank', is_active: true, account_type: 'asset', gl_debit: '0', gl_credit: 0, posted_through: null },
     ]);
     const result = await getCashBalance(COMPANY, '2026-08-31');
     expect(result.postedThrough).toBeNull();
@@ -157,10 +157,56 @@ describe('getCashBalance', () => {
   it('handles a Date posted_through — pg returns Date for timestamp columns', async () => {
     mockSql.mockResolvedValue([
       { id: 'x', account_code: '1110', account_name: 'Bank', is_active: true,
-        gl_balance: '1', posted_through: new Date('2026-05-05T06:00:00Z') },
+        account_type: 'asset', gl_debit: '1', gl_credit: 0, posted_through: new Date('2026-05-05T06:00:00Z') },
     ]);
     const result = await getCashBalance(COMPANY, '2026-08-31');
     expect(result.postedThrough).toBe('2026-05-05T06:00:00.000Z');
+  });
+});
+
+/**
+ * The sign lives HERE, in TypeScript, where a mocked row can pin it. The query
+ * returns each account's posted debits and credits apart; the balance is
+ * `balanceByAccountType('asset', debit − credit)` — debit less credit, whatever
+ * the account's user-set `normal_balance` says. A sign inside the SQL could be
+ * flipped and pass every unit test (round 2, mutant N15).
+ */
+describe('getCashBalance — sign and cents', () => {
+  it('reads each cash account debit less credit', async () => {
+    mockSql.mockResolvedValue([
+      { id: 'a', account_code: '1110', account_name: 'Bank', is_active: true,
+        account_type: 'asset', gl_debit: '5000', gl_credit: '0', posted_through: null },
+      // A credit-normal petty cash float (K-091g): R300 in, R100 out.
+      { id: 'b', account_code: '1010', account_name: 'Petty Cash', is_active: true, normal_balance: 'credit',
+        account_type: 'asset', gl_debit: '300', gl_credit: '100', posted_through: null },
+    ]);
+    const result = await getCashBalance(COMPANY, '2026-12-31');
+    expect(result.accounts.map((a) => a.glBalance)).toEqual([5000, 200]);
+    expect(result.total).toBe(5200);
+  });
+
+  it('reads an overdrawn cash account as negative cash', async () => {
+    mockSql.mockResolvedValue([
+      { id: 'a', account_code: '1110', account_name: 'Bank', is_active: true,
+        account_type: 'asset', gl_debit: '100', gl_credit: '250', posted_through: null },
+    ]);
+    expect((await getCashBalance(COMPANY, '2026-12-31')).total).toBe(-150);
+  });
+
+  it('states each balance and the total in whole cents, with no float residue', async () => {
+    // 0.3 − 0.1 is 0.19999999999999998 and 0.1 + 0.2 is 0.30000000000000004 in
+    // floating point; a cash-flow report printed that residue as opening cash.
+    mockSql.mockResolvedValue([
+      { id: 'a', account_code: '1110', account_name: 'Bank', is_active: true,
+        account_type: 'asset', gl_debit: '0.3', gl_credit: '0.1', posted_through: null },
+      { id: 'b', account_code: '1120', account_name: 'Bank 2', is_active: true,
+        account_type: 'asset', gl_debit: '0.1', gl_credit: '0', posted_through: null },
+      { id: 'c', account_code: '1130', account_name: 'Bank 3', is_active: true,
+        account_type: 'asset', gl_debit: '0.2', gl_credit: '0', posted_through: null },
+    ]);
+    const result = await getCashBalance(COMPANY, '2026-12-31');
+    expect(result.accounts[0]!.glBalance).toBe(0.2);
+    expect(result.total).toBe(0.5);
   });
 });
 

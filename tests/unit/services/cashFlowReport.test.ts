@@ -209,6 +209,23 @@ describe('reports-cash-flow handler (BL-12 snapshot)', () => {
     expect(report.closing_cash).toBe(3400);
   });
 
+  it('states closing cash in whole cents, with no float residue', async () => {
+    // Opening 0.1 plus a net change of 0.2 is 0.30000000000000004 in floating
+    // point; the report printed that residue as closing cash.
+    openingCash = 0.1;
+    mockSqlResults.push(
+      [{ net_income: '0.2', ar_delta: '0', ap_delta: '0', investing: '0', financing: '0' }],
+    );
+
+    const mod = await import('../../../pages/api/accounting/reports-cash-flow');
+    const handler = mod.default as (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
+    await handler(makeReq({ start_date: PERIOD_START, end_date: PERIOD_END }), makeRes());
+
+    const report = (jsonCapture as { data: { report: { opening_cash: number; closing_cash: number } } }).data.report;
+    expect(report.opening_cash).toBe(0.1);
+    expect(report.closing_cash).toBe(0.3);
+  });
+
   it('returns all-zero report when no journal lines exist', async () => {
     openingCash = 0;
     mockSqlResults.push(
