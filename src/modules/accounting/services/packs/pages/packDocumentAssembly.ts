@@ -28,6 +28,9 @@ import type { BoardPackInput } from './packBoardPackInput';
 import { printedStrings } from './packPrintedStrings';
 import type { PackComparativePeriod, PackPagesDocument } from './packPageModel';
 
+/** The cover and the contents are sheets 1 and 2. */
+const BODY_FIRST_SHEET = 3;
+
 export function assembleBoardPackDocument(
   body: UnnumberedPage[],
   input: BoardPackInput,
@@ -94,12 +97,15 @@ export function assembleBoardPackDocument(
     // its budget under, applied to the prose on the other eleven. A page that
     // already fits comes back untouched.
     //
-    // LAYOUT FIRST, THEN THE FIT. `relaidNarrative` decides which of page 4's
-    // two shapes the narrative block is drawn in — see the module, and note
-    // that it drops nothing. It runs BEFORE `fitPageToBox` because that
-    // function may take disclosure notes and page footnotes and nothing else,
-    // and that list is the guarantee no figure is ever trimmed off a sheet.
-    ...body.map(fitBodyPage),
+    // LAYOUT FIRST, THEN THE FIT, both inside `fitBodyPage`. `relaidNarrative`
+    // decides which of the narrative page's two shapes its block is drawn in —
+    // see the module, and note that it drops nothing. It runs BEFORE
+    // `fitPageToBox` because that function may take disclosure notes and page
+    // footnotes and nothing else, and that list is the guarantee no figure is
+    // ever trimmed off a sheet. `fitBodyPage` also words the refusal when it
+    // is the approved commentary that does not fit.
+    // `body[i]` is sheet i + 3: the cover and the contents come first.
+    ...body.map((p2, i) => fitBodyPage(p2, i + BODY_FIRST_SHEET)),
     fitPageToBox(basisPage),
   ]);
 

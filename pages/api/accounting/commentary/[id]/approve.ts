@@ -21,8 +21,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = req.query.id;
   if (!isUuidParam(id)) return apiResponse.notFound(res, 'Commentary');
 
+  // FAIL CLOSED on the body's shape. Absent (undefined, null, or the empty
+  // string Next hands a body-less POST) is a plain approval; a plain object may
+  // carry `text`; anything else — a string, an array, a number — is refused
+  // rather than read as "no text" and approving the MACHINE draft.
   const body: unknown = req.body;
-  const supplied = typeof body === 'object' && body !== null && 'text' in body;
+  const absent = body === undefined || body === null || body === '';
+  if (!absent && (typeof body !== 'object' || Array.isArray(body))) {
+    return apiResponse.badRequest(res, 'The request body must be a JSON object.');
+  }
+  const supplied = !absent && 'text' in (body as object);
   const text: unknown = supplied ? (body as { text: unknown }).text : undefined;
   if (supplied && typeof text !== 'string') return apiResponse.badRequest(res, 'text must be a string.');
 
@@ -33,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A row belonging to another company answers the same 404 as one that does
     // not exist: no probe distinguishes them.
     if (result.code === 'not_found') return apiResponse.notFound(res, 'Commentary');
-    if (result.code === 'empty_draft' || result.code === 'commentary_budget_exceeded') return apiResponse.badRequest(res, result.reason);
+    if (result.code !== 'invalid_state') return apiResponse.badRequest(res, result.reason);
     return apiResponse.conflict(res, result.reason);
   }
   return apiResponse.success(res, { commentary: result.row });

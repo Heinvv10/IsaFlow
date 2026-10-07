@@ -1,8 +1,8 @@
 /**
  * Two approvals of DIFFERENT rows of one pack, racing.
  *
- * Each is within the pack budget on its own (700 of 1300) and together they are
- * not (1400). Both read the sum "before" the other writes, so without a per-pack
+ * Each is within the pack budget on its own (~330 of 420 ems) and together they
+ * are not (~660). Both read the sum "before" the other writes, so without a per-pack
  * lock both pass and page 4 — which joins every approved row — overflows and
  * refuses the whole board pack. The proof is by outcome against real Postgres:
  * the second approval must be seen WAITING on the lock while the first is
@@ -18,7 +18,7 @@ import { Pool, type PoolClient } from 'pg';
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { approveCommentary } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_PACK_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { MAX_APPROVED_PACK_EMS, packEmsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 // The Login-as guard reads the sessions table, which this minimal fixture does
@@ -91,8 +91,8 @@ it('serialises two approvals of one pack: the second waits, then is refused by n
   }
 
   const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS n, COALESCE(SUM(char_length(approved_text) + 1),0)::int AS used
-     FROM report_commentary WHERE company_id=$1 AND status='approved'`, [company]);
-  expect(rows[0]).toEqual({ n: 1, used: 701 });
-  expect(rows[0].used).toBeLessThanOrEqual(MAX_APPROVED_PACK_CHARS);
+    "SELECT approved_text FROM report_commentary WHERE company_id=$1 AND status='approved'", [company]);
+  expect(rows).toHaveLength(1);
+  const approved = rows.map((r: { approved_text: string }) => ({ status: 'approved', approvedText: r.approved_text }));
+  expect(packEmsUsed(approved)).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
 }, 30_000);

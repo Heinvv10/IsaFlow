@@ -9,6 +9,13 @@
  * caller and the timestamp is the database's NOW(), and approved_text,
  * approved_by and approved_at are written together in one statement so the 611
  * CHECK constraint can never observe a half-approved row.
+ *
+ * An approval may carry the approver's OWN wording (`editedText`): it becomes
+ * `approved_text` and `draft_text` stays the machine draft. Every approval of
+ * a BOARD pack is held to the pack-wide budget in `commentaryLimits.ts` —
+ * page 4 joins all approved rows into one paragraph and refuses the whole pack
+ * if it overflows — under a per-pack advisory lock so two approvals cannot
+ * both pass the sum.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -16,8 +23,8 @@ import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { als } from '@/lib/als';
-import { MAX_APPROVED_PACK_CHARS, approvedCharCost } from './commentaryLimits';
+import { MAX_APPROVED_PACK_EMS, commentaryEms, editedTextProblem } from './commentaryLimits';
+import { budgetReason, lockPackAndSumApproved, printsOnFixedPage } from './commentaryBudget';
 
 export interface CommentaryRow {
   id: string;
@@ -35,10 +42,10 @@ export interface CommentaryRow {
   withdrawnAt: string | null;
 }
 
-/** `not_found` is a 404, `empty_draft` and `commentary_budget_exceeded` a 400,
- *  `invalid_state` a 409. The route must not collapse them: an id that is not this company's is
+/** `not_found` is a 404, `empty_draft`, `invalid_text` and
+ *  `commentary_budget_exceeded` a 400, `invalid_state` a 409. The route must not collapse them: an id that is not this company's is
  *  not the same answer as a draft that has already been approved. */
-export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'commentary_budget_exceeded' | 'invalid_state';
+export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'invalid_text' | 'commentary_budget_exceeded' | 'invalid_state';
 export type CommentaryResult =
   | { ok: true; row: CommentaryRow }
   | { ok: false; code: CommentaryFailureCode; reason: string };
@@ -147,11 +154,16 @@ export async function generateDrafts(input: {
   return { written, skipped };
 }
 
-async function currentRow(
-  companyId: string, id: string,
-): Promise<{ status: CommentaryStatus; draftText: string; reportKind: string; paramsHash: string } | null> {
+interface CurrentRow {
+  status: CommentaryStatus; draftText: string; reportKind: string; paramsHash: string;
+  periodStart: string; periodEnd: string;
+}
+
+async function currentRow(companyId: string, id: string): Promise<CurrentRow | null> {
   const rows = (await sql`
-    SELECT status, draft_text, report_kind, params_hash FROM report_commentary
+    SELECT status, draft_text, report_kind, params_hash,
+           period_start::text AS period_start, period_end::text AS period_end
+    FROM report_commentary
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid LIMIT 1
   `) as DbRow[];
   const r = rows[0];
@@ -159,50 +171,16 @@ async function currentRow(
     ? {
       status: String(r.status) as CommentaryStatus, draftText: String(r.draft_text ?? ''),
       reportKind: String(r.report_kind), paramsHash: String(r.params_hash),
+      periodStart: String(r.period_start), periodEnd: String(r.period_end),
     }
     : null;
-}
-
-function overBudget(remaining: number): CommentaryResult {
-  return {
-    ok: false, code: 'commentary_budget_exceeded',
-    reason: `The approved commentary for this pack is limited to ${MAX_APPROVED_PACK_CHARS} characters so the `
-      + `board pack page holds it. ${Math.max(0, remaining)} characters remain; shorten this text or withdraw `
-      + 'another approved sentence.',
-  };
-}
-
-/**
- * Serialises approvals PER PACK, then reads what the pack has already spent.
- * The lock is a transaction advisory lock, so it only holds inside the request
- * transaction `withAuth` opens (released at COMMIT, after the UPDATE): on a
- * pooled connection it would be released the instant it was taken and two
- * approvals could both pass the sum — hence the refusal, as in
- * `assertClosesInOrder`. Tag 611 is this table's migration number.
- */
-async function lockPackAndSumApproved(
-  companyId: string, id: string, reportKind: string, paramsHash: string,
-): Promise<number> {
-  if (!als.getStore()?.client) {
-    throw new Error('approveCommentary requires a request transaction (withAuth): the pack lock would release immediately otherwise');
-  }
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${companyId}:${reportKind}:${paramsHash}`}::text, 611))`;
-  const rows = (await sql`
-    SELECT COALESCE(SUM(char_length(btrim(approved_text)) + 1), 0)::int AS used
-    FROM report_commentary
-    WHERE company_id = ${companyId}::uuid AND report_kind = ${reportKind} AND params_hash = ${paramsHash}
-      AND status = 'approved' AND approved_text IS NOT NULL AND id <> ${id}::uuid
-  `) as DbRow[];
-  return Number(rows[0]?.used ?? 0);
 }
 
 /**
  * `editedText` absent: the machine draft is approved unchanged. Present: the
  * approver's own trimmed wording becomes `approved_text` and `draft_text` stays
  * the machine draft, so the row shows what was drafted against what a named
- * person signed. Either way the pack's approved text is held to one measured
- * budget (commentaryLimits.ts): page 4 of the board pack joins every approved
- * row and refuses the whole pack when that paragraph overflows.
+ * person signed.
  */
 export async function approveCommentary(
   companyId: string, id: string, userId: string, editedText?: string,
@@ -210,9 +188,11 @@ export async function approveCommentary(
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   const edited = editedText === undefined ? undefined : editedText.trim();
   if (edited !== undefined) {
-    if (edited.length === 0) return { ok: false, code: 'empty_draft', reason: 'There is no text to approve.' };
-    // No pack can hold this much, so no lock or read is needed to say so.
-    if (approvedCharCost(edited) > MAX_APPROVED_PACK_CHARS) return overBudget(MAX_APPROVED_PACK_CHARS - 1);
+    const problem = editedTextProblem(edited);
+    if (problem === 'empty') return { ok: false, code: 'empty_draft', reason: 'There is no visible text to approve.' };
+    if (problem === 'invalid') {
+      return { ok: false, code: 'invalid_text', reason: 'The text contains characters that cannot be stored.' };
+    }
   }
   const row = await currentRow(companyId, id);
   if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
@@ -226,20 +206,31 @@ export async function approveCommentary(
   const t = nextStatus(row.status, 'approve');
   if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
 
-  const used = await lockPackAndSumApproved(companyId, id, row.reportKind, row.paramsHash);
-  const cost = approvedCharCost(edited ?? row.draftText);
-  if (used + cost > MAX_APPROVED_PACK_CHARS) return overBudget(MAX_APPROVED_PACK_CHARS - used - 1);
+  if (printsOnFixedPage(row)) {
+    const cost = commentaryEms(edited ?? row.draftText);
+    // No pack can hold this much, so it needs no lock to be refused.
+    if (cost > MAX_APPROVED_PACK_EMS) return { ok: false, code: 'commentary_budget_exceeded', reason: budgetReason(0) };
+    const used = await lockPackAndSumApproved(companyId, id, row.reportKind, row.paramsHash);
+    if (used + cost > MAX_APPROVED_PACK_EMS) {
+      return {
+        ok: false, code: 'commentary_budget_exceeded',
+        reason: budgetReason(MAX_APPROVED_PACK_EMS - used - commentaryEms('')),
+      };
+    }
+  }
 
   // One statement: status, text, approver and timestamp together, so the CHECK
   // constraint never sees a partially approved row. `status = 'draft'` and the
   // non-empty test are in the WHERE, not only in the branches above: two
-  // approvals racing must not both write, and the second finds no row.
+  // approvals racing must not both write, and the second finds no row. The
+  // plain path ALSO compares the draft it costed: a regenerate committing
+  // between the read above and this write must not publish text nobody costed.
   const rows = (edited === undefined ? await sql`
     UPDATE report_commentary
     SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
         approved_at = NOW(), updated_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      AND status = 'draft' AND btrim(draft_text) <> ''
+      AND status = 'draft' AND btrim(draft_text) <> '' AND draft_text = ${row.draftText}
     RETURNING *
   ` : await sql`
     UPDATE report_commentary
@@ -249,7 +240,14 @@ export async function approveCommentary(
       AND status = 'draft' AND btrim(${edited}) <> ''
     RETURNING *
   `) as DbRow[];
-  if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
+  if (!rows[0]) {
+    return {
+      ok: false, code: 'invalid_state',
+      reason: edited === undefined
+        ? 'This commentary is no longer a draft, or its draft text changed. Reload and review the new text.'
+        : 'This commentary is no longer a draft.',
+    };
+  }
 
   log.info('Commentary approved', { companyId, userId, commentaryId: id, edited: edited !== undefined }, 'commentary');
   return { ok: true, row: toRow(rows[0]) };

@@ -12,7 +12,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
-import { MAX_APPROVED_PACK_CHARS } from '@/modules/accounting/services/commentary/commentaryLimits';
+import {
+  MAX_APPROVED_PACK_EMS, approxCharsLeft, commentaryEms,
+} from '@/modules/accounting/services/commentary/commentaryLimits';
 
 function envelope(data: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: true, data }), {
@@ -212,34 +214,55 @@ describe('CommentaryPanel', () => {
 });
 
 describe('CommentaryPanel approve with edits', () => {
-  async function openEditor() {
-    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW] }));
-    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const BOARD = { type: 'board' as const, from: '2026-08-01', to: '2026-08-31' };
+  const DRAFT = 'DRAFT REVENUE SENTENCE';
+  const left = (usedByOthers: number, typed: string) =>
+    `about ${approxCharsLeft(MAX_APPROVED_PACK_EMS - usedByOthers - commentaryEms(typed))} characters left`;
+
+  async function openEditor(rows: CommentaryRow[] = [ROW], params = BOARD) {
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: rows }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={params} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit revenue' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Edit revenue' }));
     return screen.getByRole('textbox', { name: /commentary text/i }) as HTMLTextAreaElement;
   }
   const typeInto = (box: HTMLTextAreaElement, value: string) => fireEvent.change(box, { target: { value } });
 
-  it('opens a textarea prefilled with the machine draft and a count against the cap', async () => {
+  it('opens a focused textarea prefilled with the machine draft, and a polite count of what is left', async () => {
     const box = await openEditor();
-    expect(box.value).toBe('DRAFT REVENUE SENTENCE');
-    expect(screen.getByText(`${MAX_APPROVED_PACK_CHARS - 'DRAFT REVENUE SENTENCE'.length - 1} characters remaining`)).toBeTruthy();
+    expect(box.value).toBe(DRAFT);
+    expect(document.activeElement).toBe(box);
+    const status = screen.getByRole('status');
+    expect(status.textContent).toBe(left(0, DRAFT));
+  });
+
+  it('counts the trimmed text: padding with whitespace changes nothing', async () => {
+    const box = await openEditor();
+    const before = screen.getByRole('status').textContent;
+    typeInto(box, `   ${DRAFT}  \n\n `);
+    expect(screen.getByRole('status').textContent).toBe(before);
+    typeInto(box, 'x'.repeat(50));
+    typeInto(box, `  ${'x'.repeat(50)}  `);
+    expect(screen.getByRole('status').textContent).toBe(left(0, 'x'.repeat(50)));
   });
 
   it('counts what OTHER approved rows already spent, so the figure is the pack\u2019s, not the row\u2019s', async () => {
     const other: CommentaryRow = { ...ROW, id: 'row-2', rowRef: 'cogs', status: 'approved', approvedText: 'z'.repeat(499) };
-    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW, other] }));
-    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    // 1300 - (499 + 1) - ('DRAFT REVENUE SENTENCE' + 1)
-    expect(screen.getByText(`${MAX_APPROVED_PACK_CHARS - 500 - 'DRAFT REVENUE SENTENCE'.length - 1} characters remaining`)).toBeTruthy();
+    await openEditor([ROW, other]);
+    expect(screen.getByRole('status').textContent).toBe(left(commentaryEms('z'.repeat(499)), DRAFT));
   });
 
-  it('approves the edited text: POSTs { text } and refreshes', async () => {
+  it('gives every Edit button a row-specific accessible name', async () => {
+    const second: CommentaryRow = { ...ROW, id: 'row-2', rowRef: 'cogs', draftText: 'DRAFT COGS' };
+    fetchMock.mockResolvedValueOnce(envelope({ commentary: [ROW, second] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={BOARD} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit revenue' })).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Edit cogs' })).toBeTruthy();
+  });
+
+  it('approves the edited text: POSTs exactly { text } with the padding trimmed, then refreshes', async () => {
     const box = await openEditor();
-    typeInto(box, 'The CFO\u2019s own sentence.');
+    typeInto(box, '  The CFO\u2019s own sentence.  \n');
     fetchMock
       .mockResolvedValueOnce(envelope({ commentary: { ...ROW, status: 'approved' } }))
       .mockResolvedValueOnce(envelope({ commentary: [{ ...ROW, status: 'approved', approvedText: 'The CFO\u2019s own sentence.' }] }));
@@ -249,42 +272,56 @@ describe('CommentaryPanel approve with edits', () => {
     const [url, init] = fetchMock.mock.calls[1]!;
     expect(String(url)).toBe('/api/accounting/commentary/row-1/approve');
     expect((init as RequestInit).method).toBe('POST');
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ text: 'The CFO\u2019s own sentence.' });
+    expect((init as RequestInit).body).toBe(JSON.stringify({ text: 'The CFO\u2019s own sentence.' }));
     await waitFor(() => expect(screen.getByText('The CFO\u2019s own sentence.')).toBeTruthy());
     expect(screen.queryByRole('textbox')).toBeNull();
+    // Focus does not fall to <body>: it lands on the sentence that replaced the editor.
+    expect(document.activeElement?.textContent).toBe('The CFO\u2019s own sentence.');
   });
 
-  it('Cancel restores the draft row and sends nothing', async () => {
+  it('Cancel restores the draft row, sends nothing and returns focus to the Edit button', async () => {
     const box = await openEditor();
     typeInto(box, 'half-written');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('textbox')).toBeNull();
-    expect(screen.getByText('DRAFT REVENUE SENTENCE')).toBeTruthy();
+    expect(screen.getByText(DRAFT)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1); // the initial load only
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Edit revenue' }));
     // Re-opening starts from the draft again, not from the abandoned edit.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('DRAFT REVENUE SENTENCE');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit revenue' }));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(DRAFT);
   });
 
-  it('will not submit text over the pack budget, and says by how much', async () => {
+  it('will not submit text past the page limit, and says by about how much', async () => {
     const box = await openEditor();
-    typeInto(box, 'x'.repeat(MAX_APPROVED_PACK_CHARS));
-    expect(screen.getByText('1 characters over the pack limit')).toBeTruthy();
+    typeInto(box, 'x'.repeat(1200));
+    expect(screen.getByRole('status').textContent).toMatch(/^over the page limit by about \d+ characters$/);
     const approve = screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement;
     expect(approve.disabled).toBe(true);
     fireEvent.click(approve);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('will not submit whitespace-only text', async () => {
+  it('will not submit text with nothing but whitespace', async () => {
     const box = await openEditor();
     typeInto(box, '   \n ');
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('accepts exactly the budget', async () => {
+  it('accepts text that exactly fills the room', async () => {
     const box = await openEditor();
-    typeInto(box, 'x'.repeat(MAX_APPROVED_PACK_CHARS - 1));
+    let n = 0;
+    while (commentaryEms('x'.repeat(n + 1)) <= MAX_APPROVED_PACK_EMS) n += 1;
+    typeInto(box, 'x'.repeat(n));
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
+    typeInto(box, 'x'.repeat(n + 1));
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows no count and no limit for a pack that prints on no fixed page', async () => {
+    const box = await openEditor([ROW], PARAMS); // PARAMS is a management pack
+    expect(screen.queryByRole('status')).toBeNull();
+    typeInto(box, 'x'.repeat(1200));
     expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -296,6 +333,7 @@ describe('CommentaryPanel approve with edits', () => {
 
     await waitFor(() => expect(screen.getByText('That commentary is too long.')).toBeTruthy());
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('My sentence.');
+    expect((screen.getByRole('button', { name: 'Approve edited text' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('plain Approve still sends no body', async () => {
@@ -313,7 +351,7 @@ describe('CommentaryPanel approve with edits', () => {
   it('shows no Edit button to a non-approver', async () => {
     fetchMock.mockResolvedValue(envelope({ commentary: [ROW] }));
     render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove={false} params={PARAMS} />);
-    await waitFor(() => expect(screen.getByText('DRAFT REVENUE SENTENCE')).toBeTruthy());
-    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    await waitFor(() => expect(screen.getByText(DRAFT)).toBeTruthy());
+    expect(screen.queryByRole('button', { name: /^Edit/ })).toBeNull();
   });
 });

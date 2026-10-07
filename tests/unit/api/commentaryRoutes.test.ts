@@ -256,13 +256,30 @@ describe('POST /api/accounting/commentary/[id]/approve', () => {
   });
 
   it('treats a body with no text key (or no body) as a plain approval', async () => {
-    for (const body of [undefined, {}, { other: 1 }]) {
+    for (const body of [undefined, null, '', {}, { other: 1 }]) {
       approveMock.mockClear();
       const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body });
       await approveHandler(req, res);
       expect(res.statusCode).toBe(200);
       expect(approveMock).toHaveBeenCalledWith(COMPANY, ID, 'user-1');
     }
+  });
+
+  it('fails closed on a body that is not absent and not a plain object — it must not approve the machine draft', async () => {
+    for (const body of ['approve this text', '{"text":"x"}', ['CFO wording.'], 42, true]) {
+      approveMock.mockClear();
+      const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body });
+      await approveHandler(req, res);
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(approveMock).not.toHaveBeenCalled();
+    }
+  });
+
+  it('answers 400 for invalid_text as it does for an empty text', async () => {
+    approveMock.mockResolvedValue({ ok: false, code: 'invalid_text', reason: 'Cannot be stored.' });
+    const { req, res } = mockReqRes({ method: 'POST', query: { id: ID }, body: { text: 'x' } });
+    await approveHandler(req, res);
+    expect(res.statusCode).toBe(400);
   });
 
   it('rejects a non-string text with 400 and never reaches the service (no coercion)', async () => {

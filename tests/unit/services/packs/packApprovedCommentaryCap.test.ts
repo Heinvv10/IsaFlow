@@ -1,29 +1,30 @@
 /**
- * THE PACK-WIDE BUDGET ON APPROVED COMMENTARY IS A MEASURED FIGURE.
+ * THE PACK-WIDE BUDGET ON APPROVED COMMENTARY IS MEASURED IN THE PAGE'S OWN UNITS.
  *
  * A person can now write the sentence they approve. Page 4 joins every
  * approved row's text into one paragraph (`packDraftState.approvedCommentary`)
  * and a page that does not fit its sheet is REFUSED — `buildBoardPackPages`
- * throws `PackRefusal` and the company gets no board pack at all
- * (`packApprovedCommentary.test.ts` pins that for thirty paragraphs). An
- * over-long approval would not truncate; it would take the whole pack down.
- * What can overflow is the SUM of the rows, so the limit is on the sum.
+ * throws `PackRefusal` and the company gets no board pack at all. What can
+ * overflow is the SUM of the rows, so the limit is on the sum, costed with
+ * `commentaryEms` — the em ruler the page is itself fitted with — not with a
+ * character count, which let all-caps or CJK text take twice the room of prose
+ * for the same number.
  *
- * MEASUREMENT (real page builder, bisecting the joined length until page 4
- * stopped fitting; sentence-like prose):
- *   liveDemoShortPanelsInput (tightest, page 4 already 218.2mm): 1435 chars
- *   liveDemoInput 1925 · liveDemoRenderedInput 2177 · long null-quantum
- *   matters 1827.
- * MAX_APPROVED_PACK_CHARS = 1300 leaves ~9% on the tightest. 20% over the
- * budget (1560) refuses there.
+ * MEASUREMENT (real page builder; the joined ems page 4 holds before it
+ * refuses, tightest fixture `liveDemoShortPanelsInput`, by kind of text):
+ *   prose 599 · caps 588 · wide glyphs 588 · digits 582 · long words 561 ·
+ *   CJK 463 (lowest). Other fixtures hold 592 to 949 for every kind.
+ * MAX_APPROVED_PACK_EMS = 420 sits under the lowest (CJK, 9%), so EVERY kind
+ * at the budget fits EVERY fixture; 1.6x the budget refuses on the tightest for
+ * every kind, and 2.5x refuses on every fixture for every kind.
  *
- * KNOWN LIMIT: text of only the widest glyphs (`WWWW MMMM ...`) fits 770 joined
- * chars on the tightest fixture, so a budget of 1300 does not protect against
- * it. No useful character budget does; prose is what a CFO writes, and the
- * failure is a named refusal, not a silent one.
+ * KNOWN LIMIT: the page model wraps a word wider than a line by whole lines,
+ * so a paragraph made ONLY of unbreakable tokens about a line wide costs up to
+ * twice its ems. A URL inside prose (the `url` kind) is covered; a wall of
+ * them is not, and fails as this same named refusal.
  *
- * Mutation check: raise MAX_APPROVED_PACK_CHARS to 1560 and the fit test goes
- * red with a PackRefusal on page 4.
+ * Mutation check: raise MAX_APPROVED_PACK_EMS to 1050 and the at-budget tests
+ * go red with a PackRefusal on page 4.
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
@@ -40,7 +41,9 @@ import { readPackDraftState } from '@/modules/accounting/services/packs/pages/pa
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
-import { MAX_APPROVED_PACK_CHARS, packCharsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
+import {
+  MAX_APPROVED_PACK_EMS, commentaryEms, packEmsUsed,
+} from '@/modules/accounting/services/commentary/commentaryLimits';
 import {
   liveDemoShortPanelsInput, liveDemoInput, liveDemoRenderedInput, manyLongNullQuantumMattersInput,
 } from './fixtures/liveDemoBoardPack';
@@ -48,17 +51,34 @@ import {
 /** The most rows `buildDraftSentences` can emit for one pack. */
 const MAX_ROWS = 7;
 
-const SENTENCE = 'Revenue grew because the two largest contracts renewed and the Gauteng rollout '
-  + 'reached full billing, while overheads were held flat against the prior period. ';
-const prose = (n: number): string => SENTENCE.repeat(Math.ceil(n / SENTENCE.length)).slice(0, n).replace(/\s$/, '.');
+const KINDS: Record<string, string> = {
+  prose: 'Revenue grew because the two largest contracts renewed and the Gauteng rollout reached full billing, while overheads were held flat against the prior period. ',
+  caps: 'REVENUE GREW BECAUSE THE TWO LARGEST CONTRACTS RENEWED AND THE GAUTENG ROLLOUT REACHED FULL BILLING. ',
+  wide: 'WWWWWWWW MMMMMMMM WWWWWWWW MMMMMMMM ',
+  digits: '1234567 8901234 5678901 2345678 ',
+  longwords: 'Internationalisation notwithstanding, counterparties renegotiated unprecedented arrangements ',
+  url: 'Revenue grew; the supplier schedule is at https://x.co/?id=0a1b2c3d4e0a1b2c3d4e0a1b2c3d4e0a1b2c3d4e for detail. ',
+  cjk: '收入增长是因为两个最大的合同续签并且豪登省的推广达到了全面计费。 ',
+};
 
-/** `rows` approved rows whose budget cost (length + 1 each) sums to `total`. */
-function approvedRows(rows: number, total: number): CommentaryRow[] {
-  const lengths = Array.from({ length: rows }, (_, i) => Math.floor((total - rows) / rows) + (i < (total - rows) % rows ? 1 : 0));
-  return lengths.map((n, i) => ({
+/** The longest text of `kind` whose cost is at most `ems`. */
+function textCosting(kind: string, ems: number): string {
+  const pattern = KINDS[kind]!;
+  let out = '';
+  for (let i = 0; ; i++) {
+    const next = out + pattern[i % pattern.length]!;
+    if (commentaryEms(next) > ems) return out.trim();
+    out = next;
+  }
+}
+
+/** `rows` approved rows of `kind` that together cost `factor` x the budget. */
+function approvedRows(kind: string, rows: number, factor: number): CommentaryRow[] {
+  return Array.from({ length: rows }, (_, i) => ({
     id: `row-${i}`, sectionRef: i < 3 ? 'income_statement' : 'balance_sheet', rowRef: `r${i}`,
-    draftText: 'machine draft', approvedText: prose(n), status: 'approved' as const,
-    approvedBy: 'u1', approvedAt: '2026-10-01T00:00:00.000Z', withdrawnBy: null, withdrawnAt: null,
+    draftText: 'machine draft', approvedText: textCosting(kind, (MAX_APPROVED_PACK_EMS * factor) / rows),
+    status: 'approved' as const, approvedBy: 'u1', approvedAt: '2026-10-01T00:00:00.000Z',
+    withdrawnBy: null, withdrawnAt: null,
   }));
 }
 
@@ -72,30 +92,53 @@ async function compose(input: typeof liveDemoInput, rows: CommentaryRow[]) {
   return buildBoardPackPages({ ...input, commentary });
 }
 
-describe('page 4 with the pack at its approved-commentary budget', () => {
+async function refusalOf(input: typeof liveDemoInput, rows: CommentaryRow[]): Promise<PackRefusal | null> {
+  try { await compose(input, rows); } catch (e) {
+    if (e instanceof PackRefusal) return e;
+    throw e;
+  }
+  return null;
+}
+
+describe('the pack at its approved-commentary budget, whatever the text is made of', () => {
   for (const [name, input] of Object.entries(FIXTURES)) {
-    for (const rows of [1, 4, MAX_ROWS]) {
-      it(`composes twelve sheets — ${name}, ${rows} row(s) summing to the budget`, async () => {
-        const approved = approvedRows(rows, MAX_APPROVED_PACK_CHARS);
-        expect(packCharsUsed(approved), 'the rows are not at the budget').toBe(MAX_APPROVED_PACK_CHARS);
-        const doc = await compose(input, approved);
-        expect(doc.pages).toHaveLength(12);
-        const page4 = doc.pages.find((p) => p.navLabel === 'Commentary and actions')!;
-        expect(pageMm(page4)).toBeLessThanOrEqual(pageBoxMm(page4));
+    for (const kind of Object.keys(KINDS)) {
+      for (const rows of [1, MAX_ROWS]) {
+        it(`composes twelve sheets — ${name}, ${kind}, ${rows} row(s)`, async () => {
+          const approved = approvedRows(kind, rows, 1);
+          expect(packEmsUsed(approved)).toBeLessThanOrEqual(MAX_APPROVED_PACK_EMS);
+          expect(packEmsUsed(approved), 'the rows are not near the budget').toBeGreaterThan(MAX_APPROVED_PACK_EMS * 0.85);
+          const doc = await compose(input, approved);
+          expect(doc.pages).toHaveLength(12);
+          const page4 = doc.pages.find((p) => p.navLabel === 'Commentary and actions')!;
+          expect(pageMm(page4)).toBeLessThanOrEqual(pageBoxMm(page4));
+        });
+      }
+    }
+  }
+});
+
+describe('the pack past its budget', () => {
+  for (const [name, input] of Object.entries(FIXTURES)) {
+    for (const kind of Object.keys(KINDS)) {
+      it(`refuses at 2.5x the budget — ${name}, ${kind}`, async () => {
+        expect(await refusalOf(input, approvedRows(kind, MAX_ROWS, 2.5)), 'the budget has no page behind it here').not.toBeNull();
       });
     }
   }
 
-  it('refuses at 20% over the budget on the tightest page, and says the commentary is too long', async () => {
-    const over = approvedRows(MAX_ROWS, Math.round(MAX_APPROVED_PACK_CHARS * 1.2));
-    let refusal: PackRefusal | null = null;
-    try { await compose(liveDemoShortPanelsInput, over); } catch (e) {
-      refusal = e instanceof PackRefusal ? e : null;
-      if (refusal === null) throw e;
-    }
-    expect(refusal, 'budget +20% still composed: the budget has no margin to defend').not.toBeNull();
-    // A person is told WHICH thing is too long and what to do — not "contact support".
-    expect(refusal!.userMessage).toContain('approved commentary is too long for page 4');
+  for (const kind of Object.keys(KINDS)) {
+    it(`refuses at 1.6x the budget on the tightest page — ${kind}`, async () => {
+      expect(await refusalOf(liveDemoShortPanelsInput, approvedRows(kind, MAX_ROWS, 1.6))).not.toBeNull();
+    });
+  }
+
+  it('says the approved commentary is too long, names the page, and does not send the reader to support', async () => {
+    const refusal = await refusalOf(liveDemoShortPanelsInput, approvedRows('prose', MAX_ROWS, 2.5));
+    expect(refusal).not.toBeNull();
+    expect(refusal!.userMessage).toContain('approved commentary is too long for page 4 ("Commentary and actions")');
     expect(refusal!.userMessage).not.toContain('contact support');
+    // The engineer's diagnostic is kept as it was.
+    expect(refusal!.message).toContain('fitPageToBox');
   });
 });

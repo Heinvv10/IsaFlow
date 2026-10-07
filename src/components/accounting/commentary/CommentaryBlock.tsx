@@ -23,10 +23,10 @@
  * The internal arm takes the full row and adds the draft, the badge and the
  * approve/reject controls.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import { CommentaryEditor } from './CommentaryEditor';
-import { MAX_APPROVED_PACK_CHARS, packCharsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
+import { MAX_APPROVED_PACK_EMS, packEmsUsed } from '@/modules/accounting/services/commentary/commentaryLimits';
 
 /** Everything the published render needs and nothing it must not have. A full
  *  `CommentaryRow` satisfies it structurally, so the app can hand its own rows
@@ -40,8 +40,12 @@ export type CommentaryBlockProps =
       sectionRef: string;
       rows: CommentaryRow[];
       /** `text` present = approve with the approver's own wording. Resolves
-       *  true when the approval was accepted. */
-      onApprove?: (id: string, text?: string) => void | Promise<boolean>;
+       *  true when the approval was accepted — a Promise, not void, so the
+       *  editor can never be left open by a handler that forgot to say. */
+      onApprove?: (id: string, text?: string) => Promise<boolean>;
+      /** Whether this pack's approved text is held to the board pack's page-4
+       *  budget (only the board pack prints it on a fixed sheet). Default true. */
+      budgeted?: boolean;
       onReject?: (id: string) => void;
     };
 
@@ -51,7 +55,7 @@ function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; s
   return (
     <div className="mt-3 space-y-1" data-commentary="published">
       {mine.map(r => (
-        <p key={r.id} className="text-sm leading-relaxed text-[var(--ff-text-secondary)]">{r.approvedText}</p>
+        <p key={r.id} className="break-words text-sm leading-relaxed text-[var(--ff-text-secondary)]">{r.approvedText}</p>
       ))}
     </div>
   );
@@ -60,8 +64,19 @@ function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; s
 export function CommentaryBlock(props: CommentaryBlockProps) {
   const { sectionRef, rows, mode } = props;
   const [editingId, setEditingId] = useState<string | null>(null);
+  const rowEls = useRef<Map<string, HTMLDivElement>>(new Map());
+  const closedId = useRef<string | null>(null);
+  // Closing the editor (cancel or success) returns focus to the row: its Edit
+  // button while the row is still a draft, else the sentence itself.
+  useEffect(() => {
+    if (editingId !== null || closedId.current === null) return;
+    const el = rowEls.current.get(closedId.current);
+    closedId.current = null;
+    (el?.querySelector<HTMLElement>('[data-edit]') ?? el?.querySelector<HTMLElement>('p'))?.focus();
+  }, [editingId]);
+  const closeEditor = (id: string) => { closedId.current = id; setEditingId(null); };
   if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef} />;
-  const { onApprove, onReject } = props;
+  const { onApprove, onReject, budgeted = true } = props;
 
   const mine = rows.filter(r => r.sectionRef === sectionRef && r.status !== 'rejected');
   if (mine.length === 0) return null;
@@ -75,20 +90,21 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
             <div key={r.id} className="flex items-start gap-2">
               <CommentaryEditor
                 initialText={r.draftText}
-                packRemaining={MAX_APPROVED_PACK_CHARS - packCharsUsed(rows)}
-                onCancel={() => setEditingId(null)}
+                packRemainingEms={budgeted ? MAX_APPROVED_PACK_EMS - packEmsUsed(rows) : null}
+                onCancel={() => closeEditor(r.id)}
                 onApprove={async text => {
                   const ok = await onApprove(r.id, text);
-                  if (ok === true) setEditingId(null);
-                  return ok === true;
+                  if (ok) closeEditor(r.id);
+                  return ok;
                 }}
               />
             </div>
           );
         }
         return (
-          <div key={r.id} className="flex items-start gap-2">
-            <p className="flex-1 text-sm leading-relaxed text-[var(--ff-text-secondary)]">
+          <div key={r.id} className="flex items-start gap-2"
+            ref={el => { if (el) rowEls.current.set(r.id, el); else rowEls.current.delete(r.id); }}>
+            <p tabIndex={-1} className="flex-1 break-words text-sm leading-relaxed text-[var(--ff-text-secondary)]">
               {approved ? r.approvedText : r.draftText}
             </p>
             {!approved && (
@@ -97,13 +113,13 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
               </span>
             )}
             {!approved && onApprove && (
-              <button type="button" onClick={() => onApprove(r.id)}
+              <button type="button" onClick={() => void onApprove(r.id)}
                 className="shrink-0 rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)]">
                 Approve
               </button>
             )}
             {!approved && onApprove && (
-              <button type="button" onClick={() => setEditingId(r.id)}
+              <button type="button" data-edit aria-label={`Edit ${r.rowRef}`} onClick={() => setEditingId(r.id)}
                 className="shrink-0 rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)]">
                 Edit
               </button>

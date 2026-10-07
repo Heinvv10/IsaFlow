@@ -54,6 +54,7 @@ export function CommentaryPanel({ sectionRef, mode, canApprove, params }: Commen
         rows={rows}
         mode={mode}
         onApprove={canApprove ? approve : undefined}
+        budgeted={params.type === 'board'}
         onReject={canApprove ? reject : undefined}
       />
       {error && <p className="mt-1 text-xs text-[var(--ff-unfav)]">{error}</p>}
