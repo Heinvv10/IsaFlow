@@ -10,6 +10,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { dismissProvisionalEntry } from '@/modules/accounting/services/bank/provisionalDismissService';
@@ -26,7 +27,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!jeId) return apiResponse.badRequest(res, 'jeId is required');
 
   try {
-    const result = await dismissProvisionalEntry(companyId, jeId, userId);
+    const result = await withJournalDateRefusal(res, () => dismissProvisionalEntry(companyId, jeId, userId));
+    if (result === JOURNAL_DATE_REFUSED) return;
     // Nothing was reversed when the journal's reversal chain was already out
     // of the ledger (D8): say that, rather than claim a reversal.
     return apiResponse.success(res, result, result.reversalJournalEntryId

@@ -8,6 +8,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter, markFlowNoOp } from '@/lib/billing/withFlowMeter';
@@ -66,7 +67,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const result = await closeFiscalYear(companyId, String(yearLabel), userId);
+    const result = await withJournalDateRefusal(res, () => closeFiscalYear(companyId, String(yearLabel), userId));
+    if (result === JOURNAL_DATE_REFUSED) return;
 
     if ('error' in result) {
       switch (result.error) {

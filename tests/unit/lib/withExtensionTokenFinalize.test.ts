@@ -47,6 +47,7 @@ function res() {
     status(code: number) { this.statusCode = code; return this; },
     json(b: unknown) { return this.end(JSON.stringify(b)); },
     setHeader() { return this; },
+    removeHeader() { /* a replaced answer drops the route's Set-Cookie / Location */ },
     end(chunk?: string) { h.events.push(`END:${this.statusCode}`); this.body = chunk; return this; },
   };
 }

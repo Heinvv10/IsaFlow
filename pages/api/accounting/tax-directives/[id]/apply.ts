@@ -10,6 +10,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -46,12 +47,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('applyTaxDirective request', { companyId, directiveId, paymentDate }, 'taxDirective');
 
-  const result = await applyTaxDirective(
+  const result = await withJournalDateRefusal(res, () => applyTaxDirective(
     companyId,
     directiveId,
     { paymentDate, bankAccountId },
     user.id,
-  );
+  ));
+  if (result === JOURNAL_DATE_REFUSED) return;
 
   return apiResponse.success(res, result);
 }

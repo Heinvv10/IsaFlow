@@ -22,6 +22,7 @@
 
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import type { PlatformAdminRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -74,7 +75,8 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse) {
     },
   }, 'sage-migration');
 
-  const summary = await commitSageMigration({ companyId, userId, pulled });
+  const summary = await withJournalDateRefusal(res, () => commitSageMigration({ companyId, userId, pulled }));
+  if (summary === JOURNAL_DATE_REFUSED) return;
   return apiResponse.success(res, summary);
 }
 

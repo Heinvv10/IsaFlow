@@ -9,6 +9,8 @@ import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
+import { journalDayWindowError } from '../../utils/journalDateWindow';
+import { ledgerDaysOf } from './journalDateGuard';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
 
@@ -87,8 +89,14 @@ export async function importJournalEntries(
 
     // ── Resolve every group before writing anything ──────────────────────────
     const resolved: ResolvedGroup[] = [];
+    // The day Postgres stores for each group's date (gl/journalDateGuard): a day outside the ledger window is refused
+    // before any write, a 400; a date it cannot read fails at its journal, as before the window.
+    const days = await ledgerDaysOf([...grouped.values()].map((g) => String(g[0]!.date)));
     for (const [, groupRows] of grouped) {
       const firstRow = groupRows[0]!;
+      const day = days.get(String(firstRow.date)) ?? null;
+      const badDate = day === null ? null : journalDayWindowError(day);
+      if (badDate) throw new ImportValidationError(`Import group ${firstRow.reference ? `"${firstRow.reference}" ` : ''}: ${badDate}`);
       const lines: JournalLineInput[] = [];
       let totalDebit = 0;
 
@@ -139,7 +147,7 @@ export async function importJournalEntries(
       }
 
       resolved.push({
-        entryDate: firstRow.date,
+        entryDate: day ?? firstRow.date,
         description: firstRow.reference
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,

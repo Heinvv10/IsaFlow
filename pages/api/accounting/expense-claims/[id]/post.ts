@@ -3,6 +3,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
@@ -49,14 +50,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
   }
 
+  const reimbursementAccountId = body.reimbursementAccountId;
   try {
-    const claim = await postClaimToGl(id, companyId, {
+    const claim = await withJournalDateRefusal(res, () => postClaimToGl(id, companyId, {
       userId,
-      reimbursementAccountId: body.reimbursementAccountId,
+      reimbursementAccountId,
       vatInputAccountId: body.vatInputAccountId ?? null,
       // A person posting: s16(3) late input-VAT claim where allowed (claim.lateClaim).
       allowLateInputClaim: true,
-    });
+    }));
+    if (claim === JOURNAL_DATE_REFUSED) return;
     if (!claim) return apiResponse.notFound(res, 'Expense claim', id);
     return apiResponse.success(res, { claim });
   } catch (err) {

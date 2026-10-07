@@ -30,6 +30,13 @@ export interface RequestContext {
    */
   txUnusable?: string;
   /**
+   * Set (with the reason) when the request must ROLL BACK whatever status it answers — withAuth, bearerPipeline and
+   * withPlatformAdmin check it at finalise, and answer a <5xx as the commit-failed 500. lib/apiJournalDate sets it
+   * when it hands back an answer a call gave on a transaction that call had itself aborted: without that savepoint
+   * nothing in the request could commit, so nothing may now.
+   */
+  rollbackOnly?: string;
+  /**
    * Set by runOwnedContext once the owner's callback has settled. From then on
    * the owner COMMITs or ROLLs BACK and releases `client` to its pool, where the
    * next request is handed the same connection. A query that outlived the
