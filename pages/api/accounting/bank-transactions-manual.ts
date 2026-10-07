@@ -23,6 +23,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
+import { handKeyedLineJournalRefusal } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
@@ -95,6 +96,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // nothing is written. Money in (a refund) is not an instruction to pay.
   if (allocationType === 'supplier' && type === 'spend') {
     const refusal = await manualLinePaymentRefusal(companyId, numericAmount);
+    if (refusal && respondIfApprovalRequired(res, refusal)) return;
+  }
+  // R-035 PR6 (Hein, H2): posted to a GL account — in or out — it is a manual
+  // journal a person composed; refused the same way, before the line is inserted.
+  if (allocationType === 'account') {
+    const refusal = await handKeyedLineJournalRefusal(companyId, numericAmount);
     if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
 
