@@ -1,7 +1,7 @@
 // src/lib/auth/deferredEnd.ts
 /**
- * The deferred response flush shared by the three wrappers that own a request transaction:
- * withAuth, the Bearer pipeline and withExtensionToken.
+ * The deferred response flush shared by the four wrappers that own a request transaction:
+ * withAuth, the Bearer pipeline, withExtensionToken and withPlatformAdmin.
  *
  * The handler calls res.json/res.end INSIDE the open transaction. Next's res.json and res.send
  * both funnel through res.end, so swapping res.end for a buffer holds back the one final end()
@@ -111,12 +111,17 @@ export function reportFinalizeFailure(
  * the wire is aborted, because a clean close would read as success.
  */
 export function answerCommitFailed(res: NextApiResponse, deferred: DeferredEnd): void {
+  answerInstead(res, deferred, 500, { success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
+}
+
+/** Sends `payload` as `status` in place of the buffered end; a response already on the wire is aborted. */
+export function answerInstead(res: NextApiResponse, deferred: DeferredEnd, status: number, payload: unknown): void {
   if (res.headersSent) {
     abortResponse(res);
     return;
   }
-  const body = JSON.stringify({ success: false, data: null, message: 'An unexpected error occurred', code: 'COMMIT_FAILED' });
-  res.statusCode = 500;
+  const body = JSON.stringify(payload);
+  res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Content-Length', Buffer.byteLength(body));
   deferred.realEnd(body);

@@ -4,7 +4,7 @@
  * A wrapper that swaps res.end for a buffer must answer a throw itself: if it rethrows with the
  * buffer still in place, every later answer is swallowed and the client hangs. So:
  *   1. the only file that swaps res.end is src/lib/auth/deferredEnd.ts;
- *   2. the callers of deferEnd are exactly the three request-transaction wrappers;
+ *   2. the callers of deferEnd are exactly the four request-transaction wrappers;
  *   3. in each, the try that calls deferEnd has a catch that calls answerThrow and throws nothing.
  *
  * Reads the tracked tree (git ls-files), so a new wrapper that swaps res.end by hand fails (1),
@@ -15,7 +15,8 @@ import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import ts from 'typescript';
 
-const WRAPPERS = ['src/lib/auth/bearerPipeline.ts', 'src/lib/auth/withAuth.ts', 'src/lib/auth/withExtensionToken.ts'];
+const WRAPPERS = ['src/lib/auth/bearerPipeline.ts', 'src/lib/auth/withAuth.ts', 'src/lib/auth/withExtensionToken.ts',
+  'src/lib/auth/withPlatformAdmin.ts'];
 
 const sources = execFileSync('git', ['ls-files', 'src', 'pages'], { encoding: 'utf8' })
   .trim().split('\n').filter((f) => /\.tsx?$/.test(f));
@@ -99,7 +100,7 @@ describe('R-159: a deferred res.end is always answered on a throw', () => {
       + 'goes in NOT_A_RESPONSE with a reason').toEqual(['src/lib/auth/deferredEnd.ts']);
   });
 
-  it('the callers of deferEnd are exactly the three request-transaction wrappers', () => {
+  it('the callers of deferEnd are exactly the four request-transaction wrappers', () => {
     const callers = sources.filter((f) => f !== 'src/lib/auth/deferredEnd.ts'
       && readFileSync(f, 'utf8').includes('deferEnd') && find(parse(f), callsNamed('deferEnd')).length > 0);
     expect(callers.sort()).toEqual(WRAPPERS);

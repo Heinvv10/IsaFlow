@@ -30,9 +30,10 @@ export interface RequestContext {
    */
   txUnusable?: string;
   /**
-   * Set (with the reason) when the request must ROLL BACK whatever status it answers — withAuth and bearerPipeline
-   * check it at finalise. lib/apiJournalDate sets it when it hands back an answer a call gave on a transaction that call
-   * had itself aborted: without that savepoint nothing in the request could commit, so nothing may now.
+   * Set (with the reason) when the request must ROLL BACK whatever status it answers — withAuth, bearerPipeline and
+   * withPlatformAdmin check it at finalise, and answer a <5xx as the commit-failed 500. lib/apiJournalDate sets it
+   * when it hands back an answer a call gave on a transaction that call had itself aborted: without that savepoint
+   * nothing in the request could commit, so nothing may now.
    */
   rollbackOnly?: string;
   /**
