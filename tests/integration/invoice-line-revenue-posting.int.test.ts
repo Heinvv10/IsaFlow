@@ -162,6 +162,15 @@ describeIfDisposable('invoice line revenue posting (migration 870)', () => {
     }
   });
 
+  it('approve refuses coded lines that no longer add up to the subtotal, before the status moves', async () => {
+    const id = await draft([{ description: 'Split', unitPrice: 100, glAccountId: f.acct.commercials }]);
+    await sql`UPDATE customer_invoices SET subtotal = 150, total_amount = 172.5, tax_amount = 22.5 WHERE id = ${id}::UUID`;
+    const err = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceNotApprovableError);
+    expect((err as Error).message).toMatch(/100\.00.*150\.00.*Re-save the draft/);
+    expect(((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status).toBe('draft');
+  });
+
   it.each([
     ['another company\'s account', 'gl_account_id', () => f.acct.foreign, /not in your company/],
     ['another company\'s project', 'project_id', () => f.project.foreign, /not in your company/],
