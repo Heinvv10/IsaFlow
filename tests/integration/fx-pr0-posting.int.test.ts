@@ -78,6 +78,14 @@ describe('approve and post refuse a legacy foreign document while the switch is 
     expect(res.state.statusCode).toBe(400);
     expect(messageOf(res)).toMatch(DISABLED);
     expect(await billState(pool, id)).toMatchObject({ gl_journal_entry_id: null, journals: 0 });
+
+    // An APPROVED legacy bill with no journal: the bulk "Post to GL" refuses it per item, before any write.
+    await enableFxDocuments(pool, c);
+    await pool.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [id]);
+    await pool.query('UPDATE companies SET fx_documents_enabled = false WHERE id = $1', [c]);
+    const bulk = await ap.bulk(owner, c, 'post_gl', [id]);
+    expect(JSON.stringify(bulk.state.body)).toMatch(/USD bills are not enabled for this company/);
+    expect(await billState(pool, id)).toMatchObject({ gl_journal_entry_id: null, journals: 0 });
   });
 
   it('credit note approve: its own currency, and an invoice it is linked to, both refused', async () => {

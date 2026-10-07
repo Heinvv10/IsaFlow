@@ -99,6 +99,7 @@ describe('no route mints a payment link for a foreign-currency invoice', () => {
     expect(await foreign(randomUUID(), 'ZAR')).toBe(true);
     expect(await foreign(CO, 'ZAR')).toBe(false);
     expect(await foreign(CO, null)).toBe(false);
+    expect(await foreign(CO, ' ')).toBe(false);
     expect(await foreign(CO, 'EUR')).toBe(true);
   });
 
