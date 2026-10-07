@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
+import { journalGateAmount } from '../../src/modules/accounting/services/gl/manualJournalApproval';
 import { cleanupPr6, journalCompany, journalDigest, plantJournal, type JournalCompany } from './r035-pr6.helpers';
 
 assertDisposable();
@@ -135,6 +136,15 @@ describe('the gate amount and the authors', () => {
       `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit)
        VALUES($1,$2,$3,0,1000000)`, [f.c, id, f.expB]);
     expect(await amount(id)).toBe(1000001);
+  });
+
+  it('the TypeScript twin an unattended creator decides on agrees with the SQL for the same lines', async () => {
+    const id = await plantJournal(pool, f, u.a, { amount: 750.5 });
+    await pool.query(
+      `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,0,99.25)`,
+      [f.c, id, f.expB]);
+    const { rows } = await pool.query('SELECT debit::FLOAT AS debit, credit::FLOAT AS credit FROM gl_journal_lines WHERE journal_entry_id = $1', [id]);
+    expect(journalGateAmount(rows)).toBe(await amount(id));
   });
 
   it('the authors are the creator plus content_authors, de-duplicated, company-scoped', async () => {
