@@ -25,7 +25,7 @@ import { PACK_SCALE } from './packScale';
  * the glossary prints.
  */
 export const DEBTOR_DAYS_TRENDS_CLAUSE =
-  ' The trends page instead multiplies each month\'s ratio by the days in that month, so the two need not agree.';
+  ' On the trends page that period is each month, so the two need not agree.';
 
 export const TERMS: PackDefinition[] = [
   {
@@ -200,25 +200,25 @@ export const TERMS: PackDefinition[] = [
   },
   {
     term: 'Debtor days',
-    // 365, NOT THE DAYS IN THE PERIOD. `calculateExtendedRatios` multiplies
-    // by 365 and always has; this page said "the days in the window", and
-    // creditor days then could not be reproduced from its own definition —
-    // 1 035 × 805 ÷ 245 implies payables of 3 401 against total liabilities
-    // of 2 281, which is impossible, while ÷ 365 gives 2 283. The figures
-    // were right and the definition was wrong. The trends page IS a
-    // days-in-the-month figure (`packTrendService.debtorDays`), which is why
-    // the two windows are still distinguished here.
+    // THE DAYS IN THE PERIOD, AND THE ENGINE NOW MULTIPLIES BY THEM. This
+    // entry once said "times 365" because `calculateExtendedRatios` did, and
+    // the definition was made to match the code — which was the wrong half
+    // to move: 365 over a six-month window's revenue reads six months of
+    // sales as a year's, and a book of 50 days printed 99. The engine takes
+    // the window's days (`FinancialData.periodDays`), each column its own
+    // window's, and the trends page has always taken each month's — one
+    // rule, so the trends clause names the window and nothing else.
     // THE SECOND SENTENCE IS ABOUT A PANEL THIS PACK MAY NOT DRAW.
     // Brightsphere's revenue is not a positive base, so its trends page draws
     // no debtor-days panel at all — and its sheet 12 defined the variant that
     // page would have printed. A glossary entry describing a drawing the
     // document does not contain is the same defect as a footnote pointing at
     // a page that carries nothing.
-    definition: `Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period.${DEBTOR_DAYS_TRENDS_CLAUSE}`,
+    definition: `Trade receivables over revenue, times the days in the period that revenue covers. Not reported where the period's length cannot be measured.${DEBTOR_DAYS_TRENDS_CLAUSE}`,
   },
   {
     term: 'Creditor days',
-    definition: 'Trade payables over cost of sales, times 365 — annualised, whatever the length of the reporting period. Not reported where there is no cost of sales.',
+    definition: 'Trade payables over cost of sales, times the days in the period that cost covers. Not reported where there is no cost of sales or the period\'s length cannot be measured.',
   },
   {
     term: 'Cash conversion cycle',
@@ -227,7 +227,7 @@ export const TERMS: PackDefinition[] = [
     // glossary page — and it is not a measure the pack prints anywhere else,
     // so it gets a clause here rather than an entry of its own on the
     // tightest sheet in the pack.
-    definition: 'Debtor days plus inventory days (inventory over cost of sales, times 365), less creditor days — each annualised on 365 days, as above. Not reported where no account is classified as inventory.',
+    definition: 'Debtor days plus inventory days (inventory over cost of sales, times the same days), less creditor days. Not reported where no account is classified as inventory.',
   },
   {
     // PAGE 8'S THREE ROWS, DEFINED ONCE AND ALIKE.

@@ -60,6 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     inventory: cumulative.inventory,
     priorRevenue: priorFigures.period.revenue || undefined,
     priorNetProfit: priorFigures.period.netProfit || undefined,
+    periodDays: figures.periodDays,
   };
 
   const summary = buildExecutiveSummary(input, from, to);

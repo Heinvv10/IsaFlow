@@ -17,6 +17,7 @@ import {
   type ClassifiedFigures,
 } from './accountClassification';
 import { getRetainedEarningsBroughtForward } from './trialBalanceBasis';
+import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
 interface RawRow {
@@ -52,6 +53,9 @@ export interface PeriodFigures {
   retainedEarningsBroughtForward: number;
   /** Movement inside [from, to] — the P&L. */
   period: ClassifiedFigures;
+  /** Days in [from, to], both ends counted: what `period` covers, and what
+   *  the ratio engine's day counts multiply by. Null on an unreadable date. */
+  periodDays: number | null;
   /** Movement up to and including `to` — the balance sheet. */
   cumulative: ClassifiedFigures;
 }
@@ -118,6 +122,7 @@ export async function getFinancialFigures(
     inventoryClassified: inventoryProbe[0]?.has_inventory === true,
     retainedEarningsBroughtForward: broughtForward,
     period: aggregateFigures(asPeriod),
+    periodDays: inclusiveDays(from, to),
     cumulative: aggregateFigures(asCumulative),
   };
 }
@@ -170,6 +175,7 @@ export function toFinancialData(figures: PeriodFigures): FinancialData {
     accountsPayable: cumulative.accountsPayable,
     cash: cumulative.cash,
     depreciation: period.depreciation,
+    periodDays: figures.periodDays,
   };
 }
 

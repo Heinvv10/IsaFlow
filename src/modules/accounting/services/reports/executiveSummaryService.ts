@@ -34,6 +34,9 @@ export interface ExecutiveSummaryInput {
   inventory: number;
   priorRevenue?: number;
   priorNetProfit?: number;
+  /** The window's days (`getFinancialFigures.periodDays`), which the engine
+   *  requires; no day count is printed here. */
+  periodDays: number | null;
 }
 
 export interface ExecutiveKPIs {

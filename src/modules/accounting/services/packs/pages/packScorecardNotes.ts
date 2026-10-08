@@ -53,8 +53,8 @@ const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'S
 //
 // Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
 // 9 prints PRIOR five times and marked none — on the sheet where the
-// comparative is most treacherous, since creditor days prior is a 365-day
-// annualisation taken over a 250-day comparative. Same sentence
+// comparative is most treacherous, since its day counts are measured over
+// the comparative's own days. Same sentence
 // (`priorColumnFootnote`), numbered after the debtor-days note because this
 // page's numbering is its own.
 const scorecardPriorNote = comparativePeriod === null
@@ -96,10 +96,10 @@ const disownedText = disownedBasesFootnoteText(disowned);
 // on a sheet with room. Here the two clauses cost 110 characters the page
 // does not have, page 12's Debtor days entry states the conclusion in those
 // words, and the sentence in front of this one already says the ratio's
-// base is qualified and unadjusted. The ANNUALISATION is what a director
-// reading 213 against a 30-day target needs and it is taken from the same
-// `PERIOD_COUNTERPARTS` datum page 6 prints, so the two sheets cannot come
-// to disagree about it.
+// base is qualified and unadjusted. The DAY BASIS is what a director
+// reading the figure against a 30-day target needs and it is taken from the
+// same `PERIOD_COUNTERPARTS` datum page 6 prints, so the two sheets cannot
+// come to disagree about it.
 const debtorWindow = debtorDaysFootnote.length === 0 ? null
   : 'Debtor days here is the figure for the WHOLE reporting period, '
     + `${PERIOD_COUNTERPARTS['trend-debtor-days']!.wholePeriodBasis}; the trends page plots it `

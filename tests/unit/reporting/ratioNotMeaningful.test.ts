@@ -17,6 +17,7 @@ import {
 
 /** A healthy trading company with every optional input supplied. */
 const SOUND: FinancialData = {
+  periodDays: 365,
   revenue: 1_000_000, costOfSales: 600_000, operatingExpenses: 250_000, netProfit: 100_000,
   totalAssets: 2_000_000, totalLiabilities: 800_000, totalEquity: 1_200_000,
   currentAssets: 900_000, currentLiabilities: 450_000,
@@ -164,6 +165,7 @@ describe('where an input was never supplied', () => {
 
   it('gives a reason for every null and a null for every reason', () => {
     const bare: FinancialData = {
+      periodDays: 365,
       revenue: 0, costOfSales: 0, operatingExpenses: 0, netProfit: 0, totalAssets: 0,
       totalLiabilities: 0, totalEquity: 0, currentAssets: 0, currentLiabilities: 0,
       inventory: 0, accountsReceivable: 0, accountsPayable: 0, cash: 0,

@@ -66,6 +66,12 @@ export interface ReportPackInput {
    * line (`ledgerRatioLines`). Kept so a hand-built input can carry one.
    */
   directMaterialCosts?: number;
+  /**
+   * The window's days, both ends counted — `getFinancialFigures.periodDays`.
+   * The day ratios multiply by it; see `FinancialData.periodDays`. Required,
+   * like that field: a builder with no window must say so with null.
+   */
+  periodDays: number | null;
   /** False where the chart classifies no inventory: see `FinancialData.inventoryClassified`. */
   inventoryClassified?: boolean;
   /** Set only when those five were asked for and could not be read. */

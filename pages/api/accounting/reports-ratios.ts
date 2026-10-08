@@ -23,8 +23,7 @@ import {
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { calculateFinancialRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import { reportWindowProblem } from '@/lib/validation';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -39,12 +38,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // `new Date('2026-01-01').getFullYear()` is timezone-dependent.
   const from = (req.query.from as string) || `${to.slice(0, 4)}-01-01`;
 
-  if (!DATE_RE.test(from) || !DATE_RE.test(to)) {
-    return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
-  }
-  if (from > to) {
-    return apiResponse.badRequest(res, 'from must not be after to');
-  }
+  const windowProblem = reportWindowProblem(from, to);
+  if (windowProblem) return apiResponse.badRequest(res, windowProblem);
 
   const figures = await getFinancialFigures(companyId, from, to);
   const data = toFinancialData(figures);
