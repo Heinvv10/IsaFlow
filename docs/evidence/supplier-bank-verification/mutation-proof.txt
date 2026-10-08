@@ -196,3 +196,13 @@ Blind re-confirmation LOW fix (2026-10-08T17:05:00Z) — same method:
      × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 72ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 14 passed (15)
+
+Final wording LOW (2026-10-08T17:48:59Z) — same method:
+=== MUTANT M39-rule-clause-always (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × when every other admin-or-above member also set the details, the refusal says so (no false "another member must") 86ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M40-rule-clause-never (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 114ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
