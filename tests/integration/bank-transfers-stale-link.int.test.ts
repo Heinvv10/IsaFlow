@@ -217,4 +217,49 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
     const b = await allocTransfer(bLine, bankA);
     expect(b.statusCode, JSON.stringify(b.body)).toBe(200);
   }, 60000);
+
+  // sec-nrfa round 6 M1: a transfer reversed in the GL and the reversal reversed is back on the books — its chain of
+  // posted reversals is even — though the original still reads reversed_at (journalReversalState).
+  const glReverse = async (je: string) => {
+    const r = await callRoute(c.fx, token, journalEntriesAction, { id: je, action: 'reverse' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
+    return String((r.body as { data: { id: string } }).data.id);
+  };
+  it('a re-reversed transfer holds the movement: arm 1, arm 2 and the 428', async () => {
+    const a = await bankLine(bankA, '2027-04-08', -4200, 'RR1 OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    await glReverse(await glReverse(String((await lineState(a))!.ptr)));
+    expect((await allocTransfer(await bankLine(bankB, '2027-04-09', 4200, 'RR1 IN'), bankA)).statusCode).toBe(400);
+
+    const t = await journal('2027-05-06', bankB, bankA, 5300, 'auto_bank_transfer', 'Transfer: A -> B');
+    await glReverse(await glReverse(t));
+    expect((await allocTransfer(await bankLine(bankB, '2027-05-07', 5300, 'RR2 IN'), bankA)).statusCode).toBe(400);
+
+    const a3 = await bankLine(bankA, '2027-06-10', -6400, 'RR3 OUT');
+    expect((await allocTransfer(a3, bankB)).statusCode).toBe(200);
+    await glReverse(await glReverse(String((await lineState(a3))!.ptr)));
+    expect((await callRoute(c.fx, token, bankTransfers,
+      { fromAccountId: bankA, toAccountId: bankB, amount: 6400, transferDate: '2027-06-11' })).statusCode).toBe(428);
+  }, 90000);
+
+  // sec-nrfa round 6 L1: a line that pairs the journal is of the same movement — within five days of it. A May
+  // receipt of the amount matched to an October transfer's leg does not let October's real line post it again.
+  it('a far-dated line matched to the leg does not pair the transfer', async () => {
+    const a = await bankLine(bankA, '2027-10-12', -8800, 'RR5 OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const j1 = String((await lineState(a))!.ptr);
+    const real = await bankLine(bankB, '2027-10-13', 8800, 'RR5 TRANSFER IN');
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    const receipt = await bankLine(bankB, '2027-05-04', 8800, 'RR5 CUSTOMER RECEIPT');
+    expect((await callRoute(c.fx, token, bankMatchConfirm,
+      { bankTransactionId: receipt, candidateType: 'bank_transfer', candidateId: await lineOf(j1, bankB) })).statusCode).toBe(200);
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    expect(await glMovement(bankA, '2027-10-01', '2027-10-31')).toBe(-8800);
+    // Arm 2, the same: a typed November transfer, a May receipt matched to its B leg, then November's real line.
+    const t = await journal('2027-11-15', bankB, bankA, 9100, 'auto_bank_transfer', 'Transfer: A -> B');
+    const may = await bankLine(bankB, '2027-05-06', 9100, 'RR5 MAY RECEIPT');
+    expect((await callRoute(c.fx, token, bankMatchConfirm,
+      { bankTransactionId: may, candidateType: 'bank_transfer', candidateId: await lineOf(t, bankB) })).statusCode).toBe(200);
+    expect((await allocTransfer(await bankLine(bankB, '2027-11-16', 9100, 'RR5 NOV IN'), bankA)).statusCode).toBe(400);
+  }, 90000);
 });
