@@ -270,4 +270,25 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       expect((await transferJournals(date, next)).filter((j) => j.reversal_of_id === null)).toHaveLength(1);
     }
   }, 180000);
+
+  // sec-nrfa round 11 L1: a forged odd-length loop (J1 -> J2 -> J3 -> J1) has no root; J1's pointer anchors at J1
+  // itself, so B lines legitimately matched to J2's and J3's legs do not pair J1 and J1's duplicate is still refused.
+  it('a forged three-journal loop does not lend one transfer another one\'s pairing', async () => {
+    const outs = [await bankLine(bankA, '2029-05-02', -5400, 'V2 OUT 1'), await bankLine(bankA, '2029-05-02', -5500, 'V2 OUT 2'),
+      await bankLine(bankA, '2029-05-02', -5600, 'V2 OUT 3')];
+    for (const a of outs) expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const [j1, j2, j3] = await Promise.all(outs.map(async (a) => String((await lineState(a))!.ptr)));
+    expect((await confirm(await bankLine(bankB, '2029-05-03', 5500, 'V2 IN 2'), await lineOf(j2!, bankB))).statusCode).toBe(200);
+    expect((await confirm(await bankLine(bankB, '2029-05-03', 5600, 'V2 IN 3'), await lineOf(j3!, bankB))).statusCode).toBe(200);
+    const b1 = await bankLine(bankB, '2029-05-03', 5400, 'V2 IN 1');
+    expect((await allocTransfer(b1, bankA)).statusCode).toBe(400);
+    try {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j2!}::UUID WHERE id = ${j1!}::UUID`;
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j3!}::UUID WHERE id = ${j2!}::UUID`;
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j1!}::UUID WHERE id = ${j3!}::UUID`;
+      expect((await allocTransfer(b1, bankA)).statusCode).toBe(400);
+    } finally {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id IN (${j1!}::UUID, ${j2!}::UUID, ${j3!}::UUID)`;
+    }
+  }, 120000);
 });
