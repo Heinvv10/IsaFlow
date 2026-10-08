@@ -96,11 +96,11 @@ CREATE TABLE IF NOT EXISTS supplier_bank_verifications (
   CONSTRAINT supplier_bank_verifications_roster_ck CHECK ((kind = 'self_verified') = (roster_snapshot IS NOT NULL))
 );
 
--- "Latest" is by verified_at (the guard sets it to the transaction time), then
--- seq: app_user can insert with OVERRIDING SYSTEM VALUE, so seq alone could be
--- pinned "latest for ever" by one forged row.
-CREATE INDEX IF NOT EXISTS supplier_bank_verifications_latest_idx
-  ON supplier_bank_verifications (company_id, supplier_id, verified_at DESC, seq DESC);
+-- "Latest" is by seq, which the guard always draws from the sequence itself:
+-- app_user may INSERT ... OVERRIDING SYSTEM VALUE, and a caller-chosen seq
+-- would otherwise pin one row as "latest" for ever.
+CREATE INDEX IF NOT EXISTS supplier_bank_verifications_seq_idx
+  ON supplier_bank_verifications (company_id, supplier_id, seq DESC);
 
 ALTER TABLE supplier_bank_verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_bank_verifications FORCE ROW LEVEL SECURITY;
@@ -134,6 +134,12 @@ BEGIN
 END $$;
 REVOKE ALL ON supplier_bank_verifications FROM PUBLIC;
 GRANT SELECT, INSERT ON supplier_bank_verifications TO app_user;
+-- The guard draws seq with nextval() as the inserting role.
+DO $$
+BEGIN
+  EXECUTE pg_catalog.format('GRANT USAGE ON SEQUENCE %s TO app_user',
+    pg_catalog.pg_get_serial_sequence('public.supplier_bank_verifications', 'seq'));
+END $$;
 
 -- ── 3. What the table refuses ─────────────────────────────────────────────
 -- SECURITY INVOKER: it reads the supplier and the switch as the writer sees
@@ -147,17 +153,19 @@ DECLARE
   roster pg_catalog.jsonb;
 BEGIN
   NEW.verified_at := pg_catalog.now();
+  NEW.seq := pg_catalog.nextval(pg_catalog.pg_get_serial_sequence('public.supplier_bank_verifications', 'seq'));
   -- Whoever verifies (or switches on) holds at least the verifier floor,
   -- admin. The rank ladder lives in TypeScript (APPROVER_RANK); these are
   -- its roles ranking at or above admin, pinned against it by
   -- supplierBankVerificationCensus. A rule can raise the bar above the floor
   -- only in TypeScript, which judges it.
   IF NOT EXISTS (
-    SELECT 1 FROM public.company_users cu
+    SELECT 1 FROM public.company_users cu JOIN public.users u ON u.id = cu.user_id
     WHERE cu.company_id = NEW.company_id AND cu.user_id = NEW.verified_by
       AND cu.role IN ('super_admin', 'owner', 'system', 'admin')
+      AND u.is_active IS TRUE AND u.suspended_at IS NULL AND COALESCE(pg_catalog.lower(u.status), 'active') = 'active'
   ) THEN
-    RAISE EXCEPTION 'supplier_bank_verifications: % does not hold the admin role or above in this company', NEW.verified_by
+    RAISE EXCEPTION 'supplier_bank_verifications: % does not hold the admin role or above, in good standing, in this company', NEW.verified_by
       USING ERRCODE = '23514';
   END IF;
   SELECT public.supplier_bank_fingerprint(x.bank_name, x.bank_account_number, x.bank_branch_code,
@@ -291,7 +299,7 @@ AS $$
     JOIN LATERAL (
       SELECT x.fingerprint FROM public.supplier_bank_verifications x
       WHERE x.company_id = s.company_id AND x.supplier_id = s.id
-      ORDER BY x.verified_at DESC, x.seq DESC LIMIT 1
+      ORDER BY x.seq DESC LIMIT 1
     ) v ON true
     WHERE s.company_id = p_company_id AND s.id = p_supplier_id
   ), false)
