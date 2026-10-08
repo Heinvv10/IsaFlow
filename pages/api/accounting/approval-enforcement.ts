@@ -12,8 +12,8 @@
  * legacy `journal_entry` type, which govern no journal (R-035 PR6).
  *
  * `supplier_bank_details` (forensic-controls step 1) shares the switchboard: its
- * preview is the suppliers with bank details unverified now (or, off, that
- * switching on would accept as the baseline). Switching it on records that
+ * preview is the suppliers with bank details unverified now (or, off, those
+ * switching on would accept as the baseline for this viewer). Switching it on records that
  * baseline and is refused 403 to an impersonated session or a role below the
  * verifier role (SupplierBankVerificationError, nothing written).
  *
@@ -64,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const base = { items, enforceable: ENFORCEABLE_TYPES, legacyCreditNoteRules, legacyPaymentRules, legacyJournalRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
     if (req.query.preview !== '1') return apiResponse.success(res, base);
-    const preview = { ...(await previewEnforcement(companyId)), supplier_bank_details: await bankDetailsPreview(companyId) };
+    const preview = { ...(await previewEnforcement(companyId)), supplier_bank_details: await bankDetailsPreview(companyId, user.id) };
     return apiResponse.success(res, { ...base, preview });
   }
 

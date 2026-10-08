@@ -61,7 +61,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   // Get payments in batch — scoped to company via batch ownership already validated above.
-  // bank_fingerprint: of exactly the bank columns this file is built from (supplier bank verification).
+  // bank_fingerprint: of the five bank columns as read here, normalised as the file uses them (account and branch
+  // digits, account type case-insensitive). The beneficiary NAME is the supplier name, which it does not cover.
   const payments = await sql`
     SELECT sp.*, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name,
            supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
@@ -99,8 +100,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const eftPayments: EFTPayment[] = payments.map((p: Row) => ({
     beneficiaryName: String(p.supplier_name || ''),
-    beneficiaryAccountNumber: String(p.bank_account_number || ''),
-    beneficiaryBranchCode: String(p.bank_branch_code || ''),
+    // Digits only — the account the fingerprint verified ("6-2000000001" is 62000000001, not a padded '-2000000001').
+    beneficiaryAccountNumber: String(p.bank_account_number || '').replace(/\D/g, ''),
+    beneficiaryBranchCode: String(p.bank_branch_code || '').replace(/\D/g, ''),
     beneficiaryAccountType: toEFTAccountType(p.bank_account_type),
     // total_amount: `amount` is no column, so every line went out as R0.00 (R-035 PR5 round 1 LOW e).
     amount: Number(p.total_amount || 0),

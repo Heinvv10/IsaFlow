@@ -96,8 +96,11 @@ CREATE TABLE IF NOT EXISTS supplier_bank_verifications (
   CONSTRAINT supplier_bank_verifications_roster_ck CHECK ((kind = 'self_verified') = (roster_snapshot IS NOT NULL))
 );
 
+-- "Latest" is by verified_at (the guard sets it to the transaction time), then
+-- seq: app_user can insert with OVERRIDING SYSTEM VALUE, so seq alone could be
+-- pinned "latest for ever" by one forged row.
 CREATE INDEX IF NOT EXISTS supplier_bank_verifications_latest_idx
-  ON supplier_bank_verifications (company_id, supplier_id, seq DESC);
+  ON supplier_bank_verifications (company_id, supplier_id, verified_at DESC, seq DESC);
 
 ALTER TABLE supplier_bank_verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE supplier_bank_verifications FORCE ROW LEVEL SECURITY;
@@ -141,8 +144,22 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   s RECORD;
+  roster pg_catalog.jsonb;
 BEGIN
   NEW.verified_at := pg_catalog.now();
+  -- Whoever verifies (or switches on) holds at least the verifier floor,
+  -- admin. The rank ladder lives in TypeScript (APPROVER_RANK); these are
+  -- its roles ranking at or above admin, pinned against it by
+  -- supplierBankVerificationCensus. A rule can raise the bar above the floor
+  -- only in TypeScript, which judges it.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.company_users cu
+    WHERE cu.company_id = NEW.company_id AND cu.user_id = NEW.verified_by
+      AND cu.role IN ('super_admin', 'owner', 'system', 'admin')
+  ) THEN
+    RAISE EXCEPTION 'supplier_bank_verifications: % does not hold the admin role or above in this company', NEW.verified_by
+      USING ERRCODE = '23514';
+  END IF;
   SELECT public.supplier_bank_fingerprint(x.bank_name, x.bank_account_number, x.bank_branch_code,
                                           x.bank_account_type, x.bank_account_holder) AS fingerprint,
          COALESCE(x.bank_details_setters::pg_catalog.text[], '{}') AS setters
@@ -199,9 +216,29 @@ BEGIN
     RAISE EXCEPTION 'supplier_bank_verifications: % set these bank details and cannot verify them', NEW.verified_by
       USING ERRCODE = '23514';
   END IF;
-  IF NEW.kind = 'self_verified' AND NOT (NEW.verified_by = ANY (s.setters)) THEN
-    RAISE EXCEPTION 'supplier_bank_verifications: self_verified is only for a setter of the details'
-      USING ERRCODE = '23514';
+  IF NEW.kind = 'self_verified' THEN
+    IF NOT (NEW.verified_by = ANY (s.setters)) THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: self_verified is only for a setter of the details'
+        USING ERRCODE = '23514';
+    END IF;
+    -- The roster recorded is the roster now (708's snapshot, which answers only
+    -- for the request's own user and company), and in it no OTHER active
+    -- member reaches the admin floor: the sole-approver exception, R-035 Q2.
+    roster := public.approval_roster_snapshot(NEW.company_id, NEW.verified_by);
+    IF NEW.roster_snapshot IS DISTINCT FROM roster THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: roster_snapshot is not the company roster now'
+        USING ERRCODE = '23514';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM pg_catalog.jsonb_array_elements(roster -> 'others') e
+      WHERE e ->> 'role' IN ('super_admin', 'owner', 'system', 'admin')
+        AND (e ->> 'is_active') = 'true'
+        AND COALESCE(e ->> 'suspended', 'false') = 'false'
+        AND COALESCE(pg_catalog.lower(e ->> 'status'), 'active') = 'active'
+    ) THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: another active member could verify, so self_verified is refused'
+        USING ERRCODE = '23514';
+    END IF;
   END IF;
   RETURN NEW;
 END
@@ -254,7 +291,7 @@ AS $$
     JOIN LATERAL (
       SELECT x.fingerprint FROM public.supplier_bank_verifications x
       WHERE x.company_id = s.company_id AND x.supplier_id = s.id
-      ORDER BY x.seq DESC LIMIT 1
+      ORDER BY x.verified_at DESC, x.seq DESC LIMIT 1
     ) v ON true
     WHERE s.company_id = p_company_id AND s.id = p_supplier_id
   ), false)

@@ -73,7 +73,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     batchReference = String(batch[0].batch_number ?? batchPaymentId);
 
     // total_amount: `amount` is no column, so this mode failed (500) for every batch (R-035 PR5 round 1 LOW e).
-    // bank_fingerprint: of exactly the bank columns submitted (supplier bank verification).
+    // bank_fingerprint: of the five bank columns as read here (account and branch sent as digits, as it normalises them).
+    // The account holder sent is the supplier name, which it does not cover.
     const rows = await sql`
       SELECT sp.total_amount AS amount, sp.reference, sp.supplier_id,
              s.name as account_holder, s.bank_branch_code as bank_code,
@@ -101,8 +102,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     payments = rows.map(r => ({
       accountHolder: String(r.account_holder ?? ''),
-      bankCode: String(r.bank_code ?? ''),
-      accountNumber: String(r.account_number ?? ''),
+      // Digits only — the account and branch the fingerprint verified.
+      bankCode: String(r.bank_code ?? '').replace(/\D/g, ''),
+      accountNumber: String(r.account_number ?? '').replace(/\D/g, ''),
       amount: Math.round(Number(r.amount ?? 0) * 100),   // rands → cents
       reference: String(r.reference ?? ''),
     }));

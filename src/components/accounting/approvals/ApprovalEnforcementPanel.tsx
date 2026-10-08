@@ -55,19 +55,19 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
  * Supplier bank verification (forensic-controls step 1) shares this switchboard
  * but is no approval: its row says what switching on does to bank details.
  * `n` is the server's preview — unverified suppliers when on; when off, the
- * suppliers whose current details switching on accepts as the baseline.
+ * suppliers whose current details switching on would accept as the baseline.
  */
 const BANK = 'supplier_bank_details';
 function bankRow(on: boolean, n: number): { label: string; count: string; note: string } {
   const suppliers = `${n} supplier${n === 1 ? '' : 's'}`;
   return {
     label: 'Require independent verification of supplier bank details',
-    count: on ? `${suppliers} unverified` : `${suppliers} with bank details`,
+    count: on ? `${suppliers} unverified` : `${suppliers} would be accepted as verified`,
     note: on
       ? 'A change to a supplier\'s bank details blocks EFT files and Netcash submissions paying it until someone '
         + 'who did not make the change verifies it on the supplier\'s page. Raw Netcash payment lists are refused.'
-      : 'Switching on accepts every supplier\'s current bank details as verified, recorded in your name — '
-        + 'except details you set yourself, which someone else must verify.',
+      : 'Switching on accepts suppliers\' current bank details as verified, recorded in your name — not details you set '
+        + 'yourself, nor a supplier verified before (its later changes stay unverified), which someone else must verify.',
   };
 }
 
