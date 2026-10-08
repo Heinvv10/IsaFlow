@@ -35,7 +35,7 @@ import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
-import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
+import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
@@ -415,8 +415,11 @@ export async function allocateTransaction(
     sourceDocumentId: invoiceSourceDocId,
   };
 
+  // A hand-keyed line's transfer is a typed amount like a Transfers-page one: the reference says so (only a journal
+  // the statement created is reference-less: reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1).
+  const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'Hand-keyed bank line' : undefined;
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source, lines: linesWithDims,
+    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference,
   }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 

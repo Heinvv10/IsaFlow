@@ -180,6 +180,7 @@ export async function getUnusualJournals(
         AND bl.gl_account_id = bt.bank_account_id
         AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
       WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
+        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL) -- statement or feed, not hand-keyed
         AND bt.status IN ('allocated', 'matched', 'reconciled')
       GROUP BY bt.transfer_journal_entry_id
     ) tl ON tl.transfer_journal_entry_id = je.id
