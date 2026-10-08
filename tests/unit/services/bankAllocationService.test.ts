@@ -9,7 +9,7 @@
  * 3. When neither subtype nor account_code resolves, a clear error is thrown.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, type MockedFunction } from 'vitest';
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -52,6 +52,14 @@ import { enterFakeRequestCtx } from '../helpers/requestCtx';
 // outside a request transaction. These tests mock `sql`, so the ALS client is
 // never actually used — it only has to be present.
 beforeEach(() => enterFakeRequestCtx());
+
+// The service's module graph takes ~3 s to load cold, and over 10 s on a loaded
+// CI runner. Load it here, under its own budget, so a test's 10 s timeout is
+// spent on the test: a first test that timed out mid-import left its queued
+// `sql` rows behind for the next test to read (CI, 2026-10-08).
+beforeAll(async () => {
+  await import('@/modules/accounting/services/bank/bankAllocationService');
+}, 60_000);
 
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -113,9 +121,9 @@ function setupHappyPath() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('bankAllocationService — VAT allocation (BL-05)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+  // clearAllMocks keeps queued mockResolvedValueOnce rows; reset `sql` so one
+  // test's unconsumed queue cannot become the next test's bank row.
+  beforeEach(() => { vi.clearAllMocks(); mockSql.mockReset(); });
 
   describe('allocateTransaction — vatCode=standard (money out)', () => {
     it('succeeds when vat_input system account exists (post-migration state)', async () => {
