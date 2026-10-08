@@ -43,17 +43,19 @@ async function rolledBack(fn: (client: PoolClient) => Promise<void>): Promise<vo
   }
 }
 
-/** A company with one of each document; `tagged` puts a dimension on each (only some lines / columns). */
-async function plantAll(client: PoolClient, tagged = true) {
+type Column = 'cc1_id' | 'cc2_id' | 'bu_id';
+/** A company with one of each document; `tagged` puts that ONE dimension on each (one invoice / bill line, the note header). */
+async function plantAll(client: PoolClient, tagged: Column | null) {
   const user = crypto.randomUUID();
   await client.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   const c = await newCompany(client, [[user, 'owner']]);
   const d = await plantDims(client, c);
   const inv = await plantInvoice(client, c, user);
   const bill = await plantBill(client, c, user);
+  const value = tagged && { cc1_id: d.fno1, cc2_id: d.proj1, bu_id: d.bu1 }[tagged];
   if (tagged) {
-    await client.query("UPDATE customer_invoice_items SET bu_id = $2 WHERE invoice_id = $1 AND description = 'Line A'", [inv.id, d.bu1]);
-    await client.query("UPDATE supplier_invoice_items SET cc2_id = $2 WHERE supplier_invoice_id = $1 AND description = 'Line B'", [bill.id, d.proj2]);
+    await client.query(`UPDATE customer_invoice_items SET ${tagged} = $2 WHERE invoice_id = $1 AND description = 'Line A'`, [inv.id, value]);
+    await client.query(`UPDATE supplier_invoice_items SET ${tagged} = $2 WHERE supplier_invoice_id = $1 AND description = 'Line B'`, [bill.id, value]);
   }
   const notes: string[] = [];
   for (const type of ['customer', 'supplier'] as const) {
@@ -64,7 +66,8 @@ async function plantAll(client: PoolClient, tagged = true) {
          tax_amount,total_amount,status,created_by,cc2_id,bu_id)
        VALUES($1,$2,$3,$4,$5,DATE '2026-09-01',100,15,15,115,'draft',$6,$7,$8) RETURNING id`,
       [c, `CN-${party.slice(0, 8)}`, type, type === 'customer' ? party : null, type === 'supplier' ? party : null,
-        user, tagged ? d.proj1 : null, null])).rows[0].id as string);
+        user, null, null])).rows[0].id as string);
+    if (tagged) await client.query(`UPDATE credit_notes SET ${tagged} = $2 WHERE id = $1`, [notes[notes.length - 1], value]);
   }
   const [expense, bank] = await Promise.all(['expense', 'asset'].map(async (t) => (await client.query(
     `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active)
@@ -79,47 +82,63 @@ async function plantAll(client: PoolClient, tagged = true) {
   return { c, user, inv: inv.id, bill: bill.id, customerNote: notes[0]!, supplierNote: notes[1]!, journal };
 }
 
+/** Raised (and, unless pending, decided) at `at`: by default a day before 870 was applied, when no dimension existed;
+ * 'decidedAfter870' raises then and decides now. */
 async function request(client: PoolClient, c: string, user: string, type: string, id: string,
-  status: string, digest: 'current' | 'stale'): Promise<string> {
+  status: string, digest: 'current' | 'stale', at: 'before870' | 'now' | 'decidedAfter870' = 'before870'): Promise<string> {
   return (await client.query(
-    `INSERT INTO approval_requests(company_id,document_type,document_id,status,requested_by,decided_by,decided_at,document_digest)
-     VALUES($1,$2,$3::UUID,$4,$5::UUID,CASE WHEN $4 = 'pending' THEN NULL ELSE $5::UUID END,CASE WHEN $4 = 'pending' THEN NULL ELSE now() END,
-            CASE $6 WHEN 'current' THEN approval_document_digest($1,$2,$3::UUID) ELSE md5('stale') END) RETURNING id`,
-    [c, type, id, status, user, digest])).rows[0].id as string;
+    `WITH t AS (SELECT CASE WHEN $7 = 'now' THEN now() ELSE (
+        SELECT min(applied_at) - INTERVAL '1 day' FROM schema_migrations
+        WHERE name IN ('870_dimensions_cc_bu_capture.sql', '870_dimensions_cc_bu_capture')) END AS at)
+     INSERT INTO approval_requests(company_id,document_type,document_id,status,requested_by,requested_at,decided_by,decided_at,document_digest)
+     SELECT $1,$2,$3::UUID,$4,$5::UUID,t.at,CASE WHEN $4 = 'pending' THEN NULL ELSE $5::UUID END,
+            CASE WHEN $4 = 'pending' THEN NULL WHEN $7 = 'decidedAfter870' THEN now() ELSE t.at END,
+            CASE $6 WHEN 'current' THEN approval_document_digest($1,$2,$3::UUID) ELSE md5('stale') END
+     FROM t RETURNING id`,
+    [c, type, id, status, user, digest, at])).rows[0].id as string;
 }
 
 const storedDigest = async (client: PoolClient, id: string) =>
   (await client.query('SELECT document_digest FROM approval_requests WHERE id = $1', [id])).rows[0].document_digest as string;
 
 describe('migration 873', () => {
-  it('re-binds an untagged document\'s pending and approved requests; a tagged one, stale and rejected ones stay', async () => {
+  it('re-binds only an untagged document approved before 870; a tag on any column, a post-870 approval, stale and rejected ones stay', async () => {
     await rolledBack(async (client) => {
       await client.query(digest869('public.approval_document_digest'));
-      const plain = await plantAll(client, false);
-      const tagged = await plantAll(client, true);
-      const raise = (f: typeof plain) => Promise.all(([
+      const plain = await plantAll(client, null);
+      const tagged = await Promise.all((['cc1_id', 'cc2_id', 'bu_id'] as const).map((col) => plantAll(client, col)));
+      const docs = (f: typeof plain) => ([
         ['customer_invoice', f.inv, 'pending'], ['supplier_invoice', f.bill, 'approved'],
         ['customer_credit_note', f.customerNote, 'approved'], ['supplier_credit_note', f.supplierNote, 'pending'],
-      ] as [GatedType, string, string][]).map(async ([type, id, status]) =>
-        [type, id, await request(client, f.c, f.user, type, id, status, 'current')] as const));
+      ] as [GatedType, string, string][]);
+      // 'decidedAfter870' only means something for a decided (approved) request.
+      const raise = (f: typeof plain, at: 'before870' | 'now' | 'decidedAfter870' = 'before870') => Promise.all(docs(f)
+        .filter(([, , status]) => at !== 'decidedAfter870' || status === 'approved').map(async ([type, id, status]) =>
+        [f.c, type, id, await request(client, f.c, f.user, type, id, status, 'current', at)] as const));
       const kept = await raise(plain);
-      const held = await raise(tagged);
+      const held = (await Promise.all(tagged.map((f) => raise(f)))).flat();
+      // INV-5: approved AFTER 870, when the document may have carried a dimension since removed, then untagged.
+      const untaggedAfter = await plantAll(client, null);
+      const late = [...await raise(untaggedAfter, 'now'),
+        // Raised before 870 but DECIDED after it: the decision may have covered a dimension since removed.
+        ...await raise(await plantAll(client, null), 'decidedAfter870')];
       const stale = await request(client, plain.c, plain.user, 'supplier_credit_note', plain.supplierNote, 'approved', 'stale');
       const rejected = await request(client, plain.c, plain.user, 'customer_invoice', plain.inv, 'rejected', 'current');
-      const before = new Map(await Promise.all([...kept, ...held].map(async ([, , r]) => [r, await storedDigest(client, r)] as const)));
+      const before = new Map(await Promise.all([...kept, ...held, ...late].map(async ([, , , r]) => [r, await storedDigest(client, r)] as const)));
       const rejectedBefore = await storedDigest(client, rejected);
 
       for (let run = 1; run <= 2; run++) {
         await client.query(migration873);
-        for (const [type, id, r] of kept) {
-          const now = await digestOf(client, plain.c, type, id);
+        for (const [c, type, id, r] of kept) {
+          const now = await digestOf(client, c, type, id);
           expect(now, `${type} run ${run}`).not.toBe(before.get(r));
           expect(await storedDigest(client, r), `${type} re-bound, run ${run}`).toBe(now);
         }
-        // A document carrying a dimension may have been tagged after approval: it needs re-approval.
-        for (const [type, id, r] of held) {
-          expect(await storedDigest(client, r), `${type} left, run ${run}`).toBe(before.get(r));
-          expect(await digestOf(client, tagged.c, type, id), `${type} stale, run ${run}`).not.toBe(before.get(r));
+        // A tagged document may have been tagged after approval; a post-870 approval may have covered a
+        // dimension since removed. Neither is re-bound: they need re-approval.
+        for (const [c, type, id, r] of [...held, ...late]) {
+          expect(await storedDigest(client, r), `${type} ${c.slice(0, 6)} left, run ${run}`).toBe(before.get(r));
+          expect(await digestOf(client, c, type, id), `${type} ${c.slice(0, 6)} stale, run ${run}`).not.toBe(before.get(r));
         }
         expect(await storedDigest(client, stale)).toBe(await client.query("SELECT md5('stale') AS m").then((x) => x.rows[0].m));
         expect(await storedDigest(client, rejected)).toBe(rejectedBefore);
@@ -146,7 +165,7 @@ describe('migration 873', () => {
 
   it('leaves the manual journal arm as 869 defined it', async () => {
     await rolledBack(async (client) => {
-      const f = await plantAll(client);
+      const f = await plantAll(client, 'cc1_id');
       await client.query(migration873);
       await client.query(digest869('pg_temp.dims_digest_869'));
       const { rows: [r] } = await client.query(

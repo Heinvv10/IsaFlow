@@ -59,10 +59,19 @@ describe('postCustomerInvoiceToGL — revenue dimensions', () => {
     }
   });
 
-  it('refuses, posting nothing, an item saved without the FNO its customer now has', async () => {
+  it('approving: refuses, posting nothing, an item saved without the FNO its customer now has', async () => {
     sqlMock.mockResolvedValueOnce([{ ...INV, customer_fno_id: 'fno-ft', dim_items: [{ amount: 1000, cc1_id: null }] }]).mockResolvedValue([]);
-    await expect(postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1')).rejects.toThrow(/customer's FNO.*Re-save the draft/);
+    await expect(postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1', { approvingFromStatus: 'draft' }))
+      .rejects.toThrow(/customer's FNO.*Re-save the draft/);
     expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('already approved: posts the line as stored, adding no FNO, and never re-derives (POST_AS_STORED)', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...INV, customer_fno_id: 'fno-ft', dim_items: [{ amount: 1000, cc1_id: null }] }]).mockResolvedValue([]);
+    await postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1');
+    expect(posted().filter((l) => l.glAccountId === 'default_revenue'))
+      .toEqual([{ glAccountId: 'default_revenue', debit: 0, credit: 1000, description: 'Revenue: INV-9' }]);
+    expect(vi.mocked(createJournalEntry).mock.calls[0]![4]).toEqual({ dimensionAssignmentMode: 'historical-copy' });
   });
 
   it('posts the single revenue line exactly as before when nothing names a dimension', async () => {

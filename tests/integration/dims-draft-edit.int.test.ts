@@ -166,6 +166,22 @@ describe('the customer invoice draft PUT re-derives CC1 (#663 review, LOW 4 and 
     expect(await cc1s(inv.id)).toEqual([d.fno1, null]);
   });
 
+  it('an explicit CC1 other than the old customer\'s FNO is refused against the new one, not silently replaced', async () => {
+    for (const sendLines of [false, true]) {
+      // The old customer's FNO is fno2; the line carries fno1, typed (a legacy row), not derived from it.
+      const { c, d, inv } = await taggedInvoice(['fno1', null, null], ['fno1', null, null]);
+      await pool.query('UPDATE customers SET default_cc1_id = $2 WHERE id = $1', [inv.customerId, d.fno2]);
+      const moved = await withCustomer(c, d.fno2);
+      const body = sendLines
+        ? { id: inv.id, clientId: moved, items: RESEND.map((r) => ({ ...r, cc1Id: d.fno1 })) }
+        : { id: inv.id, clientId: moved };
+      const res = await routes.edit(owner, c, body);
+      expect(res.state.statusCode, `lines sent: ${sendLines}`).toBe(400);
+      expect(JSON.stringify(res.state.body)).toMatch(/differs from the customer's FNO/);
+      expect(await cc1s(inv.id), `lines sent: ${sendLines}`).toEqual([d.fno1, d.fno1]);
+    }
+  });
+
   it('clearing the project recomputes CC1: the customer\'s FNO, or none', async () => {
     for (const customerFno of [null, 'fno1'] as const) {
       const { c, d, inv } = await taggedInvoice(['fno1', 'proj1', null], ['fno1', 'proj1', null]);

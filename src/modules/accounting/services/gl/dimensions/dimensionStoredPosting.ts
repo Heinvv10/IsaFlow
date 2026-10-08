@@ -7,32 +7,48 @@
  * derives CC1 from the CC2's CURRENT parent. A customer FNO set, or a project
  * re-parented, after approval then changed what posted while the approval
  * still cleared. Writers now store the effective dimensions
- * (deriveRevenueDimensions); a row saved before that, which posting would add a
- * CC1 to, is refused here so the draft is re-saved — and re-approved — rather
- * than posted with a dimension nobody approved. A stored CC1 that contradicts
- * its project's current FNO is refused by the derivation itself.
+ * (deriveRevenueDimensions), and every document posting passes POST_AS_STORED
+ * so createJournalEntry copies them instead of re-deriving.
+ *
+ * APPROVING a document (from draft or pending_approval) is where a stale row is
+ * caught: a line posting would once have added a CC1 to, a stored CC1 its
+ * project now contradicts, or a dimension no longer this company's active
+ * master is refused, so the draft is re-saved and approved on what it stores.
+ * A document already past draft (Post to GL, the backfill route) is posted
+ * exactly as stored, refusing nothing: its approval stands, and refusing would
+ * leave it in AR or AP with no journal.
  */
 import { DimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveLineDimensions } from './dimensionDerivation';
+import { assertDocumentDimensions } from './dimensionPolicy';
+
+/** createJournalEntry opts for a document posting: its stored dimensions, copied, never re-derived. */
+export const POST_AS_STORED = { dimensionAssignmentMode: 'historical-copy' } as const;
+
+/** The statuses a document is approved FROM — the only ones this refuses in. */
+const APPROVING_FROM: ReadonlySet<string> = new Set(['draft', 'pending_approval']);
 
 export async function assertPostsStoredDimensions(
   companyId: string,
+  status: string,
   lines: readonly DimensionIds[],
   label: (index: number) => string,
   customerFnoId: string | null = null,
 ): Promise<void> {
+  if (!APPROVING_FROM.has(status)) return;
   const refuse = (i: number, source: string): never => {
     throw new DimensionRefusal(
-      `${label(i)} carries no CC1 (FNO), but posting would add ${source}, which its approval does not cover. `
-      + 'Re-save the draft so the FNO it posts is stored with it, then have it approved again.',
+      `${label(i)} carries no CC1 (FNO), but its ${source} would add one that was never saved with it. `
+      + 'Re-save the draft so the FNO is stored with it, then approve it.',
     );
   };
-  const bare = lines.flatMap((l, i) => (l.cc1Id ? [] : [i]));
-  if (bare.length === 0) return;
-  if (customerFnoId) refuse(bare[0]!, "the customer's FNO");
-  const withProject = bare.filter((i) => lines[i]!.cc2Id);
-  if (withProject.length === 0) return;
-  const derived = await deriveLineDimensions<DimensionIds>(companyId, withProject.map((i) => ({ cc2Id: lines[i]!.cc2Id })));
-  const k = derived.findIndex((d) => d.cc1Id);
-  if (k >= 0) refuse(withProject[k]!, "its project's FNO");
+  if (customerFnoId) {
+    const bare = lines.findIndex((l) => !l.cc1Id);
+    if (bare >= 0) refuse(bare, "customer's FNO");
+  }
+  // A stored CC1 its project now contradicts is refused here (DimensionRefusal).
+  const derived = await deriveLineDimensions(companyId, lines, label);
+  const added = derived.findIndex((d, i) => d.cc1Id && !lines[i]!.cc1Id);
+  if (added >= 0) refuse(added, "project's FNO");
+  await assertDocumentDimensions(companyId, lines);
 }

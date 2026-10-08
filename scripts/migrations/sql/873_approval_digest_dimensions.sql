@@ -16,16 +16,22 @@
 --    manual_journal already hashes its lines' cc1/cc2/bu: those arms are
 --    unchanged, and a guard below proves it.
 -- 2. Re-binding: extending an array moves EVERY digest of those four types,
---    dimensions or not. Only a document that carries NO dimension — every
---    cc1_id / cc2_id / bu_id NULL on its header and every line — is known to
---    post what was approved: the columns did not exist before 870, and an
---    approval of such a document covered everything it posts. A pending or
---    approved request of one, whose stored digest is the document's digest as
---    869 computed it, is re-bound to the new digest and keeps clearing. A
+--    dimensions or not. A pending or approved request is re-bound to the new
+--    digest — and keeps clearing — only when all of these hold:
+--      * its stored digest is the document's digest as 869 computed it;
+--      * the document carries NO dimension: every cc1_id / cc2_id / bu_id is
+--        NULL on its header and on every line;
+--      * it was raised and, if decided, decided BEFORE 870 was applied
+--        (COALESCE(decided_at, requested_at) < 870's applied_at in
+--        schema_migrations), when the columns did not exist.
+--    Only then did the approval cover everything the document posts. A
 --    document carrying ANY dimension may have been tagged after it was
 --    approved — the defect this migration closes, which 869's digest cannot
---    tell apart from a tag approved with it — so its requests are left stale
---    and it needs re-approval. A request already stale stays stale.
+--    tell apart from a tag approved with it. An approval given after 870 may
+--    have covered a dimension that was removed since, so an untagged document
+--    is no proof either. Both are left stale and need re-approval, as is a
+--    request already stale. With no 870 row in schema_migrations nothing is
+--    re-bound (fail closed).
 --    The document tables and approval_requests are locked first (SHARE /
 --    SHARE ROW EXCLUSIVE), so no edit or request can commit between the
 --    "before" snapshot and the re-bind: an edit landing in that window would
@@ -70,6 +76,10 @@ CREATE TEMP TABLE r873_bound ON COMMIT DROP AS
   WHERE ar.status IN ('pending', 'approved')
     AND ar.document_type IN ('customer_invoice', 'supplier_invoice', 'customer_credit_note', 'supplier_credit_note')
     AND ar.company_id IS NOT NULL AND ar.document_digest IS NOT NULL
+    -- Raised and decided before 870 existed (see 2. above).
+    AND COALESCE(ar.decided_at, ar.requested_at) < (
+      SELECT min(m.applied_at) FROM public.schema_migrations m
+      WHERE m.name IN ('870_dimensions_cc_bu_capture.sql', '870_dimensions_cc_bu_capture'))
     -- No dimension anywhere on the document (see 2. above).
     AND NOT EXISTS (
       SELECT 1 FROM public.customer_invoice_items cii
@@ -229,7 +239,7 @@ AS $$
   END
 $$;
 
--- ── 2. Re-bind what vouched for an untagged document's identical content ────
+-- ── 2. Re-bind what a pre-870 approval of an untagged document vouched for ──
 UPDATE public.approval_requests ar
 SET document_digest = public.approval_document_digest(ar.company_id, ar.document_type, ar.document_id)
 FROM pg_temp.r873_bound b

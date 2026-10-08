@@ -3,18 +3,22 @@
  * (#663 review, MEDIUM 3). Posting used to derive CC1 at POST time from the
  * customer's CURRENT FNO and the CC2's CURRENT parent, so a customer FNO change
  * or a project re-parented after approval changed what posted while the
- * approval still cleared. Now the FNO is stored at save; a row posting would
- * add a CC1 to is refused ("re-save the draft"); a stored CC1 its project now
- * contradicts is refused by the derivation.
+ * approval still cleared. Now the FNO is stored at save. APPROVING a draft
+ * (or pending) document refuses a line posting would add a CC1 to ("re-save the
+ * draft"), and a stored CC1 its project now contradicts. A document already
+ * past draft — Post to GL, the backfill route — posts exactly what it stores,
+ * adding and refusing nothing, so an approved invoice can never be left in AR
+ * with no journal.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { als } from '../../src/lib/als';
 import { createDraftCustomerInvoice } from '../../src/modules/accounting/services/ar/customerInvoiceCreateService';
-import { approveSupplierInvoice } from '../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { approveSupplierInvoice, postSupplierInvoiceToGL } from '../../src/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import customerInvoicesGl from '../../pages/api/accounting/customer-invoices-gl';
 import { approveCreditNote } from '../../src/modules/accounting/services/ar/creditNoteApproveService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantBill } from './r035-approval.helpers';
+import { callRoute, createUser, plantBill } from './r035-approval.helpers';
 import { postableCompany } from './r035-pr2.helpers';
 import { noteCompany, plantNote } from './r035-pr3.helpers';
 import { cleanupPr4, invoiceCompany, invoiceRoutes, plantInvoice } from './r035-pr4.helpers';
@@ -115,6 +119,23 @@ describe('a customer invoice', () => {
     expect((await routes.approve(owner, c, inv.id)).state.statusCode).toBe(400);
     expect(await statusOf('customer_invoices', inv.id)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
   });
+
+  it('approving refuses a stored dimension that is no longer an active master; already approved, it posts as stored', async () => {
+    const { c, d } = await invoiceFixture();
+    const draft = await plantInvoice(pool, c, owner, { functionalTotal: 1150 });
+    const approved = await plantInvoice(pool, c, owner, { functionalTotal: 1150, status: 'approved' });
+    for (const id of [draft.id, approved.id]) {
+      await pool.query('UPDATE customer_invoice_items SET cc1_id = $2, cc2_id = $3 WHERE invoice_id = $1', [id, d.fno1, d.proj1]);
+    }
+    await pool.query('UPDATE cost_centres SET is_active = false WHERE id = $1', [d.proj1]);
+    const res = await routes.approve(owner, c, draft.id);
+    expect(res.state.statusCode).toBe(400);
+    expect(JSON.stringify(res.state.body)).toMatch(/CC2 must name an active CC2 cost centre/);
+    const posted = await callRoute(customerInvoicesGl as never, tokens[owner]!, c, 'POST', { invoiceId: approved.id },
+      '/api/accounting/customer-invoices-gl');
+    expect(posted.state.statusCode, JSON.stringify(posted.state.body)).toBe(200);
+    expect(await revenueCc1(approved.id)).toEqual([d.fno1]);
+  });
 });
 
 describe('a bill and a credit note', () => {
@@ -140,3 +161,47 @@ describe('a bill and a credit note', () => {
     expect((await statusOf('credit_notes', note.id)).status).toBe('draft');
   });
 });
+
+describe('a document already past draft posts exactly what it stores', () => {
+  const postGl = (c: string, invoiceId: string) => callRoute(customerInvoicesGl as never, tokens[owner]!, c, 'POST',
+    { invoiceId }, '/api/accounting/customer-invoices-gl');
+  const revenueDims = async (invoiceId: string) => (await pool.query(
+    `SELECT jl.cc1_id, jl.cc2_id FROM customer_invoices ci JOIN gl_journal_lines jl ON jl.journal_entry_id = ci.gl_journal_entry_id
+     JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.account_subtype = 'default_revenue' WHERE ci.id = $1`, [invoiceId])).rows;
+
+  it('an approved, never-posted invoice whose customer has since gained an FNO posts, without it', async () => {
+    const { c, d } = await invoiceFixture();
+    const inv = await plantInvoice(pool, c, owner, { functionalTotal: 1150, status: 'approved' });
+    await pool.query('UPDATE customers SET default_cc1_id = $2 WHERE id = $1', [inv.customerId, d.fno1]);
+    const res = await postGl(c, inv.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(await revenueDims(inv.id)).toEqual([{ cc1_id: null, cc2_id: null }]);
+  });
+
+  it('an approved invoice whose project was re-parented posts the stored CC2 and no derived CC1', async () => {
+    const { c, d } = await invoiceFixture();
+    const inv = await plantInvoice(pool, c, owner, { functionalTotal: 1150, status: 'approved' });
+    const project = await orphanProject(c);
+    await pool.query('UPDATE customer_invoice_items SET cc2_id = $2 WHERE invoice_id = $1', [inv.id, project]);
+    await reparent(project, d.fno1);
+    const res = await postGl(c, inv.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(await revenueDims(inv.id)).toEqual([{ cc1_id: null, cc2_id: project }]);
+  });
+
+  it('an approved bill whose project was re-parented posts (Post to GL) the stored CC2 and no derived CC1', async () => {
+    const c = await postableCompany(pool, [[owner, 'owner']], companies);
+    const d = await plantDims(pool, c);
+    const bill = await plantBill(pool, c, owner);
+    const project = await orphanProject(c);
+    await pool.query("UPDATE supplier_invoice_items SET cc2_id = $2 WHERE supplier_invoice_id = $1 AND description = 'Line A'", [bill.id, project]);
+    await pool.query("UPDATE supplier_invoices SET status = 'approved' WHERE id = $1", [bill.id]);
+    await reparent(project, d.fno1);
+    await inRequest(c, () => postSupplierInvoiceToGL(c, bill.id, owner));
+    const lines = (await pool.query(
+      `SELECT jl.cc1_id, jl.cc2_id FROM supplier_invoices si JOIN gl_journal_lines jl ON jl.journal_entry_id = si.gl_journal_entry_id
+       WHERE si.id = $1 AND jl.gl_account_id = $2`, [bill.id, bill.accountA])).rows;
+    expect(lines).toEqual([{ cc1_id: null, cc2_id: project }]);
+  });
+});
+

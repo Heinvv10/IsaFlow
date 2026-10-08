@@ -41,7 +41,7 @@ list/planCreate/applyCreateDimensionCostCentre       // CC master with parents +
 plan/apply CustomerDefaultFno | BankAccountDefaults | ReportingAttributes   // dimensionDefaultsService
 keepStoredDimensions(lines, storedRows, label?)      // draft line replace: absent keeps, null clears (dimensionKeepStored)
 revenueLineDefaults(companyId, customerId)           // the customer FNO a dimension-less revenue line stores
-assertPostsStoredDimensions(companyId, lines, label, customerFno?) // posting adds no CC1 (dimensionStoredPosting)
+assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // approve-time check; POST_AS_STORED for createJournalEntry
 ```
 
 ## Business rules
@@ -49,10 +49,13 @@ assertPostsStoredDimensions(companyId, lines, label, customerFno?) // posting ad
 - **A document posts what it stores (873).** Every revenue-line writer stores
   the customer's FNO at save (`deriveRevenueDimensions` always applies it;
   `revenueLineDefaults` for writers with no dimension source), so the approval
-  digest covers it. Posting never derives: a stored line posting would add a
-  CC1 to (customer FNO, or the project's FNO after a re-parent) is refused
-  "re-save the draft"; a stored CC1 the project now contradicts is refused by
-  createJournalEntry's derivation. Bills and credit notes take the same guard.
+  digest covers it. Every document posting passes `POST_AS_STORED`
+  (historical-copy), so createJournalEntry copies the stored dimensions and
+  never re-derives. APPROVING (from draft / pending_approval) refuses, "re-save
+  the draft", a line posting would once have added a CC1 to (customer FNO, or
+  the project's FNO after a re-parent), a stored CC1 its project contradicts,
+  or an inactive / foreign master. A document already past draft (Post to GL,
+  the backfill route) posts exactly what it stores and refuses nothing.
 - **A draft edit keeps what it does not send.** When a draft's lines are
   replaced (customer invoice PUT, `update_supplier_invoice`) a key sent wins and
   null clears it; a key left out keeps the value EVERY stored line shares, and

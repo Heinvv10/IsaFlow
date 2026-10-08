@@ -178,14 +178,15 @@ export async function assertBillLineAccounts(
 
 /**
  * For the posting paths: the stored lines, re-checked against the chart as it
- * is now — and their CC1 / CC2 / BU posted as stored, never re-derived from a
- * project's current FNO (dimensionStoredPosting, migration 873).
+ * is now — and, when the bill is being APPROVED, its CC1 / CC2 / BU checked as
+ * dimensionStoredPosting requires; one already approved posts them as stored.
  */
 export async function assertSupplierInvoiceLinesPostable(
   companyId: string,
-  invoice: Pick<SupplierInvoice, 'invoiceNumber' | 'items'>,
+  invoice: Pick<SupplierInvoice, 'invoiceNumber' | 'items' | 'status'>,
 ): Promise<void> {
   const refusal = await billLineAccountRefusal(companyId, (invoice.items ?? []).map((i) => i.glAccountId));
   if (refusal) throw new BillLineAccountRefusal(`Supplier invoice ${invoice.invoiceNumber}: ${refusal}${POSTING_HINT}`);
-  await assertPostsStoredDimensions(companyId, invoice.items ?? [], (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
+  await assertPostsStoredDimensions(companyId, invoice.status, invoice.items ?? [],
+    (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
 }
