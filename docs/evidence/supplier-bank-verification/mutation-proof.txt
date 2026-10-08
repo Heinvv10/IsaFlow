@@ -190,3 +190,9 @@ Breaker round 3 residual fix (2026-10-08T16:52:20Z) — same method:
      × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 55ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
       Tests  2 failed | 13 passed (15)
+
+Blind re-confirmation LOW fix (2026-10-08T17:05:00Z) — same method:
+=== MUTANT M38-message-on-floor-not-required (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 72ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
