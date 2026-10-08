@@ -234,14 +234,16 @@ export async function fetchJournalLineCandidates(
       -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,
       -- walking DOWN from every held provisional (a journal is held iff its chain reaches one), and hashed for NOT IN:
       -- a walk correlated to each candidate re-ran per bank line (6 s at 200k lines, sec-nrfa round 24 M1) or per
-      -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1).
+      -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1). DISTINCT keeps the NOT IN
+      -- hashed whatever the held set's estimate (a plain SELECT spilled past hash_mem to a linear scan per candidate:
+      -- 16-40 s with thousands of held provisionals, sec-nrfa round 26 M1).
       AND je.id NOT IN (
           WITH RECURSIVE held AS (
             SELECT bp.provisional_je_id AS id, 0 AS d FROM bank_transactions bp
             WHERE bp.provisional_je_id IS NOT NULL AND bp.company_id = ${companyId}::UUID
             UNION ALL SELECT c.id, held.d + 1 FROM gl_journal_entries c JOIN held ON c.reversal_of_id = held.id
               WHERE c.company_id = ${companyId}::UUID AND held.d < 64)
-          SELECT id FROM held)
+          SELECT DISTINCT id FROM held)
     -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
     -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
     -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
