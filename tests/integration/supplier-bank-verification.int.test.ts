@@ -197,6 +197,26 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
     expect(reasonOf(res)).toBe('FINGERPRINT_STALE');
   });
 
+  it('the file read details replaced — and the replacement verified — before its lock: refused, the file is not built from them', async () => {
+    const { c, batch, s } = await enforcedBatch();
+    const held = await pool.connect();
+    await held.query('BEGIN');
+    await held.query("UPDATE suppliers SET bank_account_number = '62999999999' WHERE id = $1", [s]);
+    await held.query(
+      `INSERT INTO supplier_bank_verifications(company_id, supplier_id, fingerprint, kind, method, note, verified_by)
+       SELECT company_id, id, supplier_bank_fingerprint(bank_name, bank_account_number, bank_branch_code, bank_account_type,
+              bank_account_holder), 'verified', 'other', 'race', $2 FROM suppliers WHERE id = $1`, [s, u.c]);
+    const generating = r.eft(u.a, c, batch.id); // reads the old account, then waits on the payee lock
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await held.query('COMMIT');
+    held.release();
+    const res = await generating;
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(reasonOf(res)).toBe('SUPPLIER_BANK_DETAILS_UNVERIFIED');
+    expect((await r.state(u.b, c, s)).state).toBe('verified'); // the NEW details are verified; a fresh file may go
+    expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+  });
+
   it('a bank edit racing the EFT file: the file waits, then refuses 409 for the new details', async () => {
     const { c, batch, s } = await enforcedBatch();
     const held = await pool.connect();
