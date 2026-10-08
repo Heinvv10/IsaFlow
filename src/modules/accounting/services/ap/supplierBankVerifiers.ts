@@ -7,12 +7,13 @@
  *  - The verifier role (supplierBankVerifierRole) is the strictest active
  *    supplier-payment rule's role, never below the admin FLOOR.
  *  - A person who did not set the current details needs that role — unless no
- *    such person holds it AND the destination is the raised-role holder's own
- *    (whoever last re-pointed the account — the first of its setters — holds
- *    the raised role): then the floor is enough. Otherwise an owner-level
- *    payment rule plus a sole owner's own change would leave the details
- *    unverifiable for good. An admin's redirect that an owner merely touched
- *    afterwards keeps the raised requirement (fails closed).
+ *    such person holds it AND the details are wholly the raised-role
+ *    holders' own (EVERY setter holds the raised role): then the floor is
+ *    enough. Otherwise an owner-level payment rule plus a sole owner's own
+ *    change would leave the details unverifiable for good. Any change by
+ *    someone below the raised role — a redirect an owner merely touched
+ *    afterwards, or an edit under an owner's account — keeps the raised
+ *    requirement (fails closed).
  *  - A setter verifies only as R-035's sole approver: no OTHER active member
  *    reaches the floor. Judged on the floor, never on the raised role, so a
  *    setter cannot raise the role to make themselves the only one who
@@ -42,11 +43,11 @@ async function facts(companyId: string, supplierId: string, userId: string, ownR
   const everyone = [...others.map((m) => ({ id: String(m.user_id), role: String(m.role) })), { id: userId, role: ownRole }];
   const holds = (role: string | undefined, level: string) => role !== undefined && actorRank(role) >= requiredRank(level);
   const nonSetterHoldsRole = everyone.some((m) => !setters.includes(m.id) && holds(m.role, verifierRole));
-  // The destination's setter: a repoint restarts the list at its editor, and later editors are appended.
-  const destinationIsRaisedRoles = holds(everyone.find((m) => m.id === setters[0])?.role, verifierRole);
+  // Every setter holds the raised role (one who left the company holds nothing).
+  const whollyRaisedRoles = setters.length > 0 && setters.every((id) => holds(everyone.find((m) => m.id === id)?.role, verifierRole));
   const atFloor = others.filter((m) => holds(String(m.role), floor));
   return {
-    required: requiredRank(verifierRole) > requiredRank(floor) && !nonSetterHoldsRole && destinationIsRaisedRoles ? floor : verifierRole,
+    required: requiredRank(verifierRole) > requiredRank(floor) && !nonSetterHoldsRole && whollyRaisedRoles ? floor : verifierRole,
     setter: setters.includes(userId),
     othersAtFloor: atFloor.length,
     nonSettersAtFloor: atFloor.filter((m) => !setters.includes(String(m.user_id))).length,
