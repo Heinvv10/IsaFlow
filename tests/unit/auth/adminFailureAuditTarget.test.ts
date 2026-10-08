@@ -1,6 +1,6 @@
 /**
- * adminFailureAudit's target_id (sec-nrfb LOW-1): the route's decoded uuid param, a whole value only — never a uuid
- * found anywhere in the raw path, which percent-encoding or a suffix could point at another user.
+ * adminFailureAudit's target_id: a uuid that is a whole DECODED path segment — never one from the query string
+ * (brk-nrfb LOW-1) or found anywhere in the raw path (sec-nrfb LOW-1).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest } from 'next';
@@ -20,27 +20,44 @@ const targetOf = () => query.mock.calls[0]![1][1];
 beforeEach(() => { query.mockReset(); query.mockResolvedValue({ rows: [] }); });
 
 describe('the failure row target', () => {
-  it("is the route's decoded uuid param", async () => {
+  it('is the uuid that is a whole path segment', async () => {
     await auditFailedAdminRequest(req(`/api/admin/users/${VICTIM}/impersonate`, { id: VICTIM }), 'admin', 500, 'threw');
     expect(targetOf()).toBe(VICTIM);
   });
 
-  it('is not a uuid read out of the raw path (percent-encoded id: the decoded param wins)', async () => {
+  it('is the DECODED segment when a character of the id is percent-encoded', async () => {
     const encoded = `/api/admin/users/${OTHER.slice(0, 35)}%${OTHER.charCodeAt(35).toString(16)}/x`;
     await auditFailedAdminRequest(req(encoded, { id: OTHER }), 'admin', 500, 'threw');
     expect(targetOf()).toBe(OTHER);
   });
 
-  it('is null for a param that only contains a uuid (a suffix)', async () => {
+  it('is null for a segment that only contains a uuid (a suffix)', async () => {
     await auditFailedAdminRequest(req(`/api/admin/users/${VICTIM}zzz/reset-password`, { id: `${VICTIM}zzz` }), 'admin', 500, 'threw');
     expect(targetOf()).toBeNull();
   });
 
-  it('is null with no uuid param, and GET is not recorded', async () => {
+  // brk-nrfb LOW-1: Next puts the query string ahead of the route params in req.query.
+  it('ignores a uuid in the query string', async () => {
+    await auditFailedAdminRequest(req(`/api/admin/users/${VICTIM}/reset-password?ref=${OTHER}`, { ref: OTHER, id: VICTIM }),
+      'admin', 500, 'threw');
+    expect(targetOf()).toBe(VICTIM);
+    query.mockReset(); query.mockResolvedValue({ rows: [] });
+    await auditFailedAdminRequest(req(`/api/admin/alert-settings?ref=${OTHER}`, { ref: OTHER }), 'admin', 500, 'threw');
+    expect(targetOf()).toBeNull();
+  });
+
+  it('is null with no uuid segment, and GET is not recorded', async () => {
     await auditFailedAdminRequest(req('/api/admin/plans', {}), 'admin', 500, 'rolled_back');
     expect(targetOf()).toBeNull();
     query.mockReset();
     await auditFailedAdminRequest(req('/api/admin/plans', {}, 'GET'), 'admin', 500, 'rolled_back');
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("writes on the caller's connection when one is given, else on the pool", async () => {
+    const own = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    await auditFailedAdminRequest(req('/api/admin/plans', {}), 'admin', 500, 'rolled_back', own);
+    expect(own.query).toHaveBeenCalledTimes(1);
     expect(query).not.toHaveBeenCalled();
   });
 });

@@ -213,9 +213,11 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       answerThrow(req, res, deferred, err, { source: 'withPlatformAdmin', userId: claims!.sub, rolledBack: !failed });
       failure = { status: 500, reason: 'threw' };
     } finally {
+      // After the rollback and the answer; never resurrects the action, never changes the answer. On this connection
+      // when its ROLLBACK succeeded (autocommit now, nothing to queue for); on the pool once it is destroyed.
+      if (failure && !unusable) await auditFailedAdminRequest(req, claims!.sub, failure.status, failure.reason, adminClient);
       adminClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
-      // After the rollback and the answer, on its own connection: never resurrects the action, never changes the answer.
-      if (failure) await auditFailedAdminRequest(req, claims!.sub, failure.status, failure.reason);
+      if (failure && unusable) await auditFailedAdminRequest(req, claims!.sub, failure.status, failure.reason);
       const ms = Date.now() - startedAt;
       if (ms > 200) log.info('withPlatformAdmin slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {
