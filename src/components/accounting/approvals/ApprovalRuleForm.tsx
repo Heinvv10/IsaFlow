@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { demandableApproverRoles } from '@/modules/accounting/services/gl/approvalRank';
-import { CONDITION_OPERATORS, RULE_FORM_DOCUMENT_TYPES } from '@/modules/accounting/services/gl/approvalRuleOptions';
+import { CONDITION_OPERATORS, RULE_FORM_DOCUMENT_TYPES, RULE_NAME_MAX } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
 import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
 
@@ -44,6 +44,7 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
   /** The request body, or a sentence saying what to fix. */
   function buildBody(): Record<string, unknown> | string {
     if (name.trim() === '') return 'Enter a name for the rule.';
+    if (name.trim().length > RULE_NAME_MAX) return `Enter a name of at most ${RULE_NAME_MAX} characters.`;
     const value = operator === 'any' ? 0 : parseAmount(amount);
     if (value === null) return `Enter an amount ${AMOUNT_RANGE}.`;
     if (!rule) {

@@ -112,12 +112,12 @@ describe('the preview', () => {
     expect(within(region).queryByText(/^Created/)).toBeNull();
   });
 
-  it('refuses to send an amount that is not a number, or one beyond the column', async () => {
+  it('refuses to send an amount that is not a number, beyond the column, or below a cent', async () => {
     const { sent, region } = await openPreview({ rules: [], actorRole: 'owner' });
-    for (const value of ['', '10000000000000']) {
+    for (const value of ['', '10000000000000', '50000.005']) {
       fireEvent.change(within(region).getByLabelText('Amount for Supplier Invoice'), { target: { value } });
       await act(async () => { fireEvent.click(within(region).getByRole('button', { name: 'Create selected rules' })); });
-      expect(await within(region).findByText('Enter an amount from 0 to 9,999,999,999,999.99 for Supplier Invoice.')).toBeDefined();
+      expect(await within(region).findByText('Enter an amount for Supplier Invoice from 0 to 9,999,999,999,999.99, in rand and cents.')).toBeDefined();
     }
     expect(sent).toEqual([]);
   });

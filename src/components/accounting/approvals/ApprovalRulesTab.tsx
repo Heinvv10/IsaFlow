@@ -33,13 +33,15 @@ export function ApprovalRulesTab({ rules, loaded, actorRole, onChanged }: Props)
   const [form, setForm] = useState<{ rule?: ApprovalRuleRow } | null>(null);
   const [deleting, setDeleting] = useState<ApprovalRuleRow | null>(null);
   const [starterOpen, setStarterOpen] = useState(false);
-  const [busy, setBusy] = useState('');
+  // The rules with a write in flight. Per rule (review round 2): one write's
+  // cleanup must not re-enable another rule's buttons while its write runs.
+  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState('');
 
   const lacksStarterType = STARTER_RULES.some((t) => !rules.some((r) => r.isActive && r.documentType === t.documentType));
 
   const write = async (ruleId: string, init: RequestInit, url: string, failure: string) => {
-    setBusy(ruleId);
+    setBusy((cur) => new Set(cur).add(ruleId));
     setError('');
     try {
       const res = await apiFetch(url, init);
@@ -48,7 +50,7 @@ export function ApprovalRulesTab({ rules, loaded, actorRole, onChanged }: Props)
     } catch (err) {
       setError(apiErrorMessage(err, failure));
     } finally {
-      setBusy('');
+      setBusy((cur) => { const next = new Set(cur); next.delete(ruleId); return next; });
     }
   };
 
@@ -128,11 +130,11 @@ export function ApprovalRulesTab({ rules, loaded, actorRole, onChanged }: Props)
                       </button>
                     )}
                     <button type="button" aria-label={`${rule.isActive ? 'Deactivate' : 'Activate'} ${rule.name}`}
-                      title={rule.isActive ? 'Deactivate' : 'Activate'} disabled={busy === rule.id}
+                      title={rule.isActive ? 'Deactivate' : 'Activate'} disabled={busy.has(rule.id)}
                       onClick={() => void toggle(rule)} className="text-[var(--ff-text-secondary)] hover:text-teal-500 disabled:opacity-50">
                       <Power className="h-4 w-4" />
                     </button>
-                    <button type="button" aria-label={`Delete ${rule.name}`} disabled={busy === rule.id}
+                    <button type="button" aria-label={`Delete ${rule.name}`} disabled={busy.has(rule.id)}
                       onClick={() => setDeleting(rule)} className="text-red-400 hover:text-red-500 disabled:opacity-50">
                       <Trash2 className="h-4 w-4" />
                     </button>
