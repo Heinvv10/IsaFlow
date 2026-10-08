@@ -150,6 +150,18 @@ describe('a bill and a credit note', () => {
     expect(await statusOf('supplier_invoices', bill.id)).toMatchObject({ status: 'draft', gl_journal_entry_id: null });
   });
 
+  it('a bill approved from pending_approval is held to what it stores too', async () => {
+    const c = await postableCompany(pool, [[owner, 'owner']], companies);
+    const d = await plantDims(pool, c);
+    const bill = await plantBill(pool, c, owner);
+    const project = await orphanProject(c);
+    await pool.query('UPDATE supplier_invoice_items SET cc2_id = $2 WHERE supplier_invoice_id = $1', [bill.id, project]);
+    await pool.query("UPDATE supplier_invoices SET status = 'pending_approval' WHERE id = $1", [bill.id]);
+    await reparent(project, d.fno1);
+    await expect(inRequest(c, () => approveSupplierInvoice(c, bill.id, owner))).rejects.toThrow(/project's FNO.*Re-save the draft/);
+    expect(await statusOf('supplier_invoices', bill.id)).toMatchObject({ status: 'pending_approval', gl_journal_entry_id: null });
+  });
+
   it.each(['customer', 'supplier'] as const)('a %s credit note whose project gained an FNO is refused', async (type) => {
     const c = await noteCompany(pool, [[owner, 'owner']], companies);
     const d = await plantDims(pool, c);

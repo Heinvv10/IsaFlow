@@ -150,6 +150,24 @@ describe('migration 873', () => {
     });
   });
 
+  it('re-binds nothing when schema_migrations has no 870 row: it cannot tell when the columns appeared', async () => {
+    await rolledBack(async (client) => {
+      await client.query(digest869('public.approval_document_digest'));
+      await client.query("DELETE FROM schema_migrations WHERE name IN ('870_dimensions_cc_bu_capture.sql', '870_dimensions_cc_bu_capture')");
+      await client.query(
+        "INSERT INTO schema_migrations(name, version, applied_at) VALUES('870_dimensions_cc_bu_capture.sql', '870', now() - INTERVAL '1 hour')");
+      const f = await plantAll(client, null);
+      const requests = await Promise.all(([['customer_invoice', f.inv, 'pending'], ['supplier_invoice', f.bill, 'approved']] as const)
+        .map(([type, id, status]) => request(client, f.c, f.user, type, id, status, 'current')));
+      const before = await Promise.all(requests.map((r) => storedDigest(client, r)));
+      // The same requests the first test re-binds — but now nothing dates 870.
+      await client.query("DELETE FROM schema_migrations WHERE name IN ('870_dimensions_cc_bu_capture.sql', '870_dimensions_cc_bu_capture')");
+      await client.query(migration873);
+      expect(await Promise.all(requests.map((r) => storedDigest(client, r)))).toEqual(before);
+      expect(await digestOf(client, f.c, 'customer_invoice', f.inv)).not.toBe(before[0]);
+    });
+  });
+
   it('holds every writer of what it snapshots until it commits', async () => {
     await rolledBack(async (client) => {
       await client.query(migration873);
