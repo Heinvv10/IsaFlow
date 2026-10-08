@@ -32,9 +32,17 @@ export const isRuleAmount = (value: unknown): value is number =>
  */
 export const RULE_NAME_MAX = 100;
 
-/** A rule name every write path accepts: text that is 1 to RULE_NAME_MAX characters once trimmed. */
+/**
+ * Whether `text` shows anything: `trim` leaves format characters (Unicode Cf —
+ * a zero-width space, a word joiner), so a name of only those rendered blank in
+ * the table and in the audit row (review round 3).
+ */
+export const hasVisibleCharacter = (text: string): boolean => /[^\s\p{Cf}]/u.test(text);
+
+/** A rule name every write path accepts: text of 1 to RULE_NAME_MAX characters once trimmed, with one visible. */
 export const isRuleName = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0 && value.trim().length <= RULE_NAME_MAX;
+  typeof value === 'string' && value.trim().length > 0 && value.trim().length <= RULE_NAME_MAX
+  && hasVisibleCharacter(value);
 
 /**
  * The types whose posting paths consult the approval gate — the only types an
