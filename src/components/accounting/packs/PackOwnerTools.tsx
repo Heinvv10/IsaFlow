@@ -61,7 +61,6 @@ export function PackCommentary({ params }: { params: SharePackParams }) {
 
   return (
     <CommentaryPanel
-      sectionRef="commentary"
       mode="internal"
       canApprove={isApprover(companyRole)}
       params={params}
