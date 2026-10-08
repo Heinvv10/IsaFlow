@@ -16,7 +16,7 @@ import approvalEnforcement from '../../pages/api/accounting/approval-enforcement
 import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
-import { cleanupPr5, inRequest, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, inRequest, plantBatch, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes } from './supplier-bank-verification.helpers';
 
 assertDisposable();
@@ -83,6 +83,7 @@ describe('R2-1 — off/on still launders a pending change on a supplier with NO 
 describe('the switch preview after a first switch-on', () => {
   it('off again, it says switching on would accept 0 — though suppliers with bank details exist', async () => {
     const { c } = await onWithBatch();
+    await plantSupplier(pool, c); // added after the first switch-on: no verification history
     expect((await r.toggle(u.b, c, false)).state.statusCode).toBe(200);
     const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement',
       { preview: '1' });
