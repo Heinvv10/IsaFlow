@@ -72,6 +72,18 @@ describe('switching on', () => {
     expect(audit.rows[0].changes.metadata.baselineSuppliers).toBe('2');
   });
 
+  it('the switcher\'s own changes are not baselined: off, change, on again leaves that supplier unverified', async () => {
+    const { c, batch, s } = await enforcedBatch();
+    expect((await r.toggle(u.b, c, false)).state.statusCode).toBe(200);
+    await r.changeBank(u.b, c, s, { bankAccountNumber: '62444444444' });
+    expect((await r.toggle(u.b, c, true)).state.statusCode).toBe(200);
+    expect((await r.state(u.c, c, s)).state).toBe('unverified');
+    expect((await r.state(u.c, c, batch.members[1]!.supplierId)).state).toBe('verified');
+    expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(409);
+    expect((await r.verify(u.b, c, s)).state.statusCode).toBe(403);
+    expect((await r.verify(u.c, c, s)).state.statusCode).toBe(200);
+  });
+
   it('a baselined batch is sendable: EFT file and Netcash submission go out', async () => {
     const { c, batch } = await enforcedBatch();
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);

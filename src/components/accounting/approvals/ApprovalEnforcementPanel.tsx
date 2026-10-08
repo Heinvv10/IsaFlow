@@ -51,6 +51,26 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
+/**
+ * Supplier bank verification (forensic-controls step 1) shares this switchboard
+ * but is no approval: its row says what switching on does to bank details.
+ * `n` is the server's preview — unverified suppliers when on; when off, the
+ * suppliers whose current details switching on accepts as the baseline.
+ */
+const BANK = 'supplier_bank_details';
+function bankRow(on: boolean, n: number): { label: string; count: string; note: string } {
+  const suppliers = `${n} supplier${n === 1 ? '' : 's'}`;
+  return {
+    label: 'Require independent verification of supplier bank details',
+    count: on ? `${suppliers} unverified` : `${suppliers} with bank details`,
+    note: on
+      ? 'A change to a supplier\'s bank details blocks EFT files and Netcash submissions paying it until someone '
+        + 'who did not make the change verifies it on the supplier\'s page. Raw Netcash payment lists are refused.'
+      : 'Switching on accepts every supplier\'s current bank details as verified, recorded in your name — '
+        + 'except details you set yourself, which someone else must verify.',
+  };
+}
+
 const GATES_NOTHING = 'No active rule for this type — turning this on gates nothing.';
 
 /**
@@ -136,6 +156,21 @@ export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?
         When on, a document an active rule matches cannot be posted until an eligible approver approves it.
       </p>
       {data.enforceable.map((type) => {
+        if (type === BANK) {
+          const on = data.items.some((i) => i.documentType === type);
+          const row = bankRow(on, data.preview[type] ?? 0);
+          return (
+            <div key={type} className="flex flex-wrap items-center justify-between gap-2">
+              <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <input type="checkbox" checked={on} disabled={busy === type}
+                  onChange={(e) => { void toggle(type, e.target.checked); }} className="h-4 w-4 accent-teal-600" />
+                {row.label}
+              </label>
+              <span className="text-xs text-[var(--ff-text-secondary)]">{row.count}</span>
+              <p className="w-full text-xs text-[var(--ff-text-secondary)]">{row.note}</p>
+            </div>
+          );
+        }
         const label = LABELS[type] ?? { name: type.replace(/_/g, ' '), noun: 'document' };
         const on = data.items.some((i) => i.documentType === type);
         const n = data.preview[type] ?? 0;

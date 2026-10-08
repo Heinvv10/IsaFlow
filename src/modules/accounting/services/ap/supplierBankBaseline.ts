@@ -7,6 +7,7 @@
  */
 import { sql } from '@/lib/neon';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
+import { suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
 
 export type SupplierBankVerificationErrorCode =
   | 'IMPERSONATION_FORBIDDEN' | 'VERIFIER_ROLE_REQUIRED' | 'SETTER_FORBIDDEN' | 'NOT_ENFORCED'
@@ -48,19 +49,22 @@ export async function assertVerifyingSession(): Promise<void> {
  * inserted the switch row (the 876 guard accepts a baseline only then). The
  * suppliers are share-locked first, in id order (the order the outbound gate
  * takes), so an edit in flight is waited for rather than half-baselined.
- * Soft-deleted suppliers are left out: one restored later comes back
- * unverified, so its details are looked at before it is paid. Returns how
- * many were baselined.
+ * Left out, so they stay unverified until someone else looks: soft-deleted
+ * suppliers (one restored later is then checked before it is paid), and
+ * suppliers whose current details the switcher set — otherwise switching
+ * off, changing and switching on again would verify one's own change (the
+ * 876 guard refuses such a baseline too). Returns how many were baselined.
  */
 export async function recordBankBaseline(companyId: string, userId: string): Promise<number> {
   await sql`SELECT id FROM suppliers WHERE company_id = ${companyId}::UUID ORDER BY id FOR SHARE`;
+  const own = await suppliersWithBankDetailsSetBy(companyId, userId);
   const rows = await sql`
     INSERT INTO supplier_bank_verifications (company_id, supplier_id, fingerprint, kind, verified_by)
     SELECT s.company_id, s.id,
            supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_account_holder),
            'baseline', ${userId}
     FROM suppliers s
-    WHERE s.company_id = ${companyId}::UUID AND s.deleted_at IS NULL
+    WHERE s.company_id = ${companyId}::UUID AND s.deleted_at IS NULL AND s.id <> ALL(${own}::UUID[])
       AND supplier_bank_details_present(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_account_holder)
     RETURNING id
   `;

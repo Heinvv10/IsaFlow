@@ -172,7 +172,8 @@ describe('listing is tenant-scoped', () => {
     expect(res.state.statusCode).toBe(200);
     const data = (res.state.body as { data: { items: { documentType: string }[]; enforceable: string[] } }).data;
     expect(data.items.map((i) => i.documentType)).toEqual(['credit_note']);
+    // supplier_bank_details (forensic-controls step 1, mig 876) shares the switchboard.
     expect(data.enforceable).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
-      'supplier_payment', 'payment_batch', 'manual_journal']);
+      'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details']);
   });
 });

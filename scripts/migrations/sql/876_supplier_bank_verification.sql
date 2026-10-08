@@ -16,12 +16,14 @@
 --   2. supplier_bank_verifications: append-only evidence — who, when, how
 --      (method + note), and for a sole-approver self-verification the roster
 --      it was allowed on. Kinds: `baseline` (written by switching on, for every
---      supplier with details, by the switcher), `verified`, `self_verified`.
+--      supplier with details the switcher did not set, by the switcher),
+--      `verified`, `self_verified`.
 --   3. What the table refuses, whoever writes (memory: a control table must
 --      refuse rows the code never writes): RLS binds the tenant AND the actor
 --      (verified_by = the request's JWT subject); a BEFORE INSERT guard binds
 --      the fingerprint to the supplier's CURRENT details, refuses a setter's
---      plain `verified`, a `baseline` outside the switch-on transaction, and
+--      plain `verified` or `baseline`, a `baseline` outside the switch-on
+--      transaction, and
 --      any row while the switch is off; verified_at is the transaction time.
 --      app_user holds SELECT and INSERT only, and a trigger refuses UPDATE,
 --      DELETE and TRUNCATE for every role — except the FK cascade when the
@@ -163,6 +165,12 @@ BEGIN
         AND ae.enabled_by = NEW.verified_by AND ae.enabled_at = pg_catalog.now()
     ) THEN
       RAISE EXCEPTION 'supplier_bank_verifications: a baseline is written only by switching the control on'
+        USING ERRCODE = '23514';
+    END IF;
+    -- Not details the switcher set: switching off, changing and switching on
+    -- again must not verify the switcher's own change.
+    IF NEW.verified_by = ANY (s.setters) THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: % set these bank details and cannot baseline them', NEW.verified_by
         USING ERRCODE = '23514';
     END IF;
     RETURN NEW;

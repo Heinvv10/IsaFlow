@@ -349,3 +349,32 @@ Mutation checks. Each one must turn a test red:
   - `audit_log` (`app_user=arwd`, RLS company-scoped): the Q2 sole-approver row can be deleted or rewritten after the decision commits, and a forged `sole_approver` marker inserted — the row records a self-approval, it does not make one tamper-proof;
   - `company_users`, through the `cu_admin_write` policy: an admin can raise their own role to owner (or demote or remove other owners before raising, manufacturing a Q2 sole approver) by raw SQL, and the definers trust that role — the route refuses it (`company-users.ts`, pentest H5), the table does not.
   - Also outside N1: `auth.user_admin_companies(text)` is SECURITY DEFINER with `search_path = public` and no explicit `pg_temp`, so pg_temp is searched first (the 872 definers do not call it).
+
+## As built: supplier bank-detail verification (forensic-controls step 1, migration 876)
+
+Not an approval document type, but it shares the switchboard: `approval_enforcement.document_type = 'supplier_bank_details'`
+(`EnforcementType` / `ENFORCEABLE_TYPES` in `gl/approvalRuleOptions.ts`; `RULE_FORM_DOCUMENT_TYPES` is unchanged — no rule
+is ever written for it). Hein's decisions, 2026-10-08:
+
+- **Gate outbound money only.** `eft-generate` and `netcash/submit` (batch mode) refuse 409 `SUPPLIER_BANK_DETAILS_UNVERIFIED`,
+  naming the suppliers, when any payee is unverified; a raw Netcash `payments[]` list is refused 403 while the control is on.
+  Nothing that records money is gated. Census: `tests/unit/services/ap/supplierBankVerificationCensus.test.ts`.
+- **Independent of payment approval**: works with `supplier_payment`/`payment_batch` enforcement on or off.
+- **Derived state**: verified iff the latest `supplier_bank_verifications` row's fingerprint equals
+  `supplier_bank_fingerprint()` of the five current bank columns (trimmed, whitespace collapsed, lower-cased names;
+  digits-only account and branch; '' = NULL). `supplier_bank_verified(company, supplier)`.
+- **Switch-on baseline**: enabling writes a `baseline` row for every non-deleted supplier with bank details, by the
+  switcher, in the enable's transaction (the 876 guard accepts a baseline only then) — except suppliers whose current
+  details the switcher set (a refinement of decision 3: otherwise off → change → on verifies one's own change; the guard
+  refuses such a baseline too). Enabling needs a human session and a
+  role ≥ the verifier role; disabling needs `mayWeakenAtLevel` at the verifier role.
+- **Who verifies**: role ≥ `supplierBankVerifierRole` (the strictest active `supplier_payment`/`payment_batch` rule's role,
+  else `admin`); not in `bank_details_setters`, except R-035 Q2's sole approver (no OTHER active member reaches the role),
+  recorded `self_verified` with `approval_roster_snapshot`. Cookie session only (impersonated / claim-less refused).
+  Verify sends the fingerprint the verifier saw; the supplier is locked FOR UPDATE and a changed fingerprint is 409.
+- **Table**: append-only (app_user SELECT+INSERT; a trigger refuses UPDATE/DELETE/TRUNCATE for every role except the FK
+  cascade from a purged supplier); RLS binds tenant and `verified_by = auth.uid()`; a BEFORE INSERT guard binds the row
+  to the supplier's current fingerprint, refuses a setter's plain `verified` and any verify while the control is off.
+  Same boundary as N1: it binds code paths, not raw SQL run as app_user.
+- **Not in this step**: a bank-detail edit UI, evidence uploads, employee/payroll beneficiaries, steps 2–5 of the programme.
+
