@@ -431,7 +431,7 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, hand, bank2, c.fx.userId, 'BTXF hand transfer', 'transfer'));
     const je = ((await sql`SELECT je.id, je.reference FROM bank_transactions bt JOIN gl_journal_entries je
       ON je.id = bt.transfer_journal_entry_id WHERE bt.id = ${hand}::UUID`) as Row[])[0]!;
-    expect(je.reference).toBe('Hand-keyed bank line');
+    expect(je.reference).toBe('No statement or feed line');
     const flagged = (await getUnusualJournals(c.fx.companyId, { start: '2027-03-01', end: '2027-03-31' }))
       .flags.filter((f) => f.reason === 'round_number').map((f) => f.entryId);
     expect(flagged).toContain(je.id);

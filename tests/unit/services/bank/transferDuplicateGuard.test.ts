@@ -67,6 +67,15 @@ describe('assertNoDuplicateTransfer', () => {
       expect(consumption(n)).toContain(`ml.gl_account_id = ${t}.bank_account_id`);
       expect(consumption(n)).toContain(`(CASE WHEN ${t}.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(${t}.amount)`);
     }
+    // brk-nrfa round 6 M1: only an imported or feed line on this bank pairs the journal, never a hand-keyed one.
+    for (const [n, t] of [[0, 'own'], [1, 'bt']] as const) {
+      expect(consumption(n)).toContain(`(${t}.import_batch_id IS NOT NULL OR ${t}.bank_feed_connection_id IS NOT NULL)`);
+    }
+    // brk-nrfa round 6 L1: arm 1's counterparty line is live and matched to its leg of a journal that stands.
+    const outer = text(0).slice(0, text(0).indexOf('NOT EXISTS'));
+    expect(outer).toMatch(/AND status IN \('allocated', 'matched', 'reconciled'\)/);
+    expect(outer).toContain('tl.id = bank_transactions.matched_journal_line_id');
+    expect(outer).toContain('tj.reversed_at IS NULL');
   });
 });
 
