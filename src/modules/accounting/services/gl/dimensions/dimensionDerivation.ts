@@ -35,7 +35,12 @@ export function deriveFnoId(cc2Id: string, nodes: ReadonlyMap<string, CostCentre
   return null;
 }
 
-/** Every cost centre on the parent chains of `ids`, company-scoped. */
+/**
+ * Every cost centre on the parent chains of `ids`, company-scoped. An id that
+ * is not a UUID names no cost centre and is left out of the query (it would
+ * fail the cast): its line keeps it as typed, and the slot validator
+ * (journalCostCentreValidation) refuses it as it refuses an unknown id.
+ */
 export async function loadCostCentreChains(
   companyId: string,
   ids: readonly string[],
@@ -136,8 +141,12 @@ export async function customerFnoId(companyId: string, customerId: string): Prom
 }
 
 /**
- * Derive from CC2, then apply the customer rule. Queries only when a line names
- * a dimension; with none, the customer default is applied at posting instead.
+ * Derive from CC2, then apply the customer rule: the EFFECTIVE dimensions a
+ * revenue line stores, which is what it posts (posting adds nothing:
+ * dimensionStoredPosting). The customer's FNO is applied to every line without
+ * a CC1, whether or not any line names a dimension, so it is on the document —
+ * and in its approval digest — from the first save. One query (the customer)
+ * when no line names a dimension.
  */
 export async function deriveRevenueDimensions<T extends DimensionIds>(
   companyId: string,
@@ -145,10 +154,22 @@ export async function deriveRevenueDimensions<T extends DimensionIds>(
   lines: readonly T[],
   label?: (index: number) => string,
 ): Promise<T[]> {
-  if (!lines.some((l) => l.cc1Id || l.cc2Id || l.buId)) return [...lines];
-  const derived = await deriveLineDimensions(companyId, lines, label);
+  const derived = lines.some((l) => l.cc1Id || l.cc2Id || l.buId)
+    ? await deriveLineDimensions(companyId, lines, label) : [...lines];
   const fno = await customerFnoId(companyId, customerId);
+  if (!fno) return derived;
   const ids = derived.flatMap((l) => (l.cc1Id ? [l.cc1Id] : []));
-  const nodes = fno ? await loadCostCentreChains(companyId, [fno, ...ids]) : new Map<string, CostCentreNode>();
+  const nodes = ids.length > 0 ? await loadCostCentreChains(companyId, [fno, ...ids]) : new Map<string, CostCentreNode>();
   return applyCustomerFno(derived, fno, label, (id) => codeOf(nodes, id));
+}
+
+/**
+ * The dimensions a revenue line with none of its own stores: the customer's
+ * FNO, or nothing. For the writers whose source carries no dimension (quote,
+ * sales-order, recurring, WIP and time-entry billing, the Sage import).
+ */
+export async function revenueLineDefaults(companyId: string, customerId: string | null): Promise<DimensionIds> {
+  if (!customerId) return {};
+  const [line] = await deriveRevenueDimensions<DimensionIds>(companyId, customerId, [{}]);
+  return line ?? {};
 }

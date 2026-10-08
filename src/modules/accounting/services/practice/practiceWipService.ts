@@ -8,6 +8,7 @@ import { mapEntry } from './practiceTimeEntryMap';
 import { lockEligibleWipEntries } from './wipEntryLock';
 import { WipInvoiceRefusal, assertWipTaxRate, assertWipEntryLines } from './wipInvoiceGuards';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 export { WipInvoiceRefusal } from './wipInvoiceGuards';
 
@@ -217,8 +218,9 @@ export async function generateWipInvoice(
       },
     );
 
-    // 4. Insert line items based on groupBy mode
+    // 4. Insert line items based on groupBy mode, each carrying the customer's FNO (dimensionStoredPosting).
     const groupBy = input.groupBy ?? 'detailed';
+    const fno = (await revenueLineDefaults(companyId, customerId)).cc1Id ?? null;
     let lineCount = 0;
 
     if (groupBy === 'detailed') {
@@ -231,9 +233,9 @@ export async function generateWipInvoice(
         const desc = `${dateStr}${wi} — ${String(e.task_description)} (${hours}h @ R${rate}/h)`;
         await sql`
           INSERT INTO customer_invoice_items (
-            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id, cc1_id
           ) VALUES (
-            ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR', ${String(e.id)}::UUID
+            ${invoiceId}::UUID, ${desc}, ${rate}, ${hours}, ${lineAmount}, ${taxRate}, 'ZAR', ${String(e.id)}::UUID, ${fno}::UUID
           )
         `;
         lineCount++;
@@ -246,9 +248,9 @@ export async function generateWipInvoice(
         const unit = hours > 0 ? round2(value / hours) : 0;
         await sql`
           INSERT INTO customer_invoice_items (
-            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, time_entry_id, cc1_id
           ) VALUES (
-            ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR', ${null as null}
+            ${invoiceId}::UUID, ${g.name}, ${unit}, ${hours}, ${value}, ${taxRate}, 'ZAR', ${null as null}, ${fno}::UUID
           )
         `;
         lineCount++;

@@ -38,6 +38,7 @@ export type {
   CommitPayload,
   CommitSummary,
 } from './sageMigrationTypes';
+import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -179,12 +180,14 @@ export async function commitARInvoice(
   `)) as Row[];
   const invoiceId = String(inserted[0]!.id);
 
+  // The customer's FNO is stored on the line, so it is what posts (dimensionStoredPosting).
+  const dims = await revenueLineDefaults(companyId, customerId);
   await sql`
     INSERT INTO customer_invoice_items
-      (invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code)
+      (invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, cc1_id)
     VALUES
       (${invoiceId}::UUID, ${inv.reference ?? `Invoice ${inv.invoiceNumber}`},
-       ${inv.subtotal}, 1, ${inv.subtotal}, ${taxRate}, 'ZAR')
+       ${inv.subtotal}, 1, ${inv.subtotal}, ${taxRate}, 'ZAR', ${dims.cc1Id ?? null}::UUID)
   `;
   // historicalImport: a migrated invoice belongs in its ORIGINAL period, which
   // is usually closed. Without this the canonical path would refuse it, and
