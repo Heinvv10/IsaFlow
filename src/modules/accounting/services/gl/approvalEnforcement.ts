@@ -146,20 +146,25 @@ export function coupledTypes(documentType: EnforcementType): EnforcementType[] {
     ? ['supplier_payment', 'payment_batch'] : [documentType];
 }
 
+/** The floor of the verifier role: R-035's default (an unreadable approver_role ranks as admin), the payment starter rules' role. */
+export const SUPPLIER_BANK_VERIFIER_FLOOR = 'admin';
+
 /**
  * Who may verify supplier bank details (decision 5): whoever may approve any
  * supplier payment — the role of the strictest ACTIVE supplier_payment or
- * payment_batch rule (coupled, so both are read) — or, with no such rule,
- * 'admin': the default an unreadable approver_role ranks as on the decide
- * path (requiredRank) and the role the recommended payment rules demand.
+ * payment_batch rule (coupled, so both are read) — but never below
+ * SUPPLIER_BANK_VERIFIER_FLOOR. A rule can only RAISE it: otherwise an admin
+ * could plant an inert low-level payment rule (a threshold no payment
+ * reaches — the amount is not read here) and so lower who may verify, switch
+ * on and switch off (review of PR #679, REPRO 1).
  */
 export async function supplierBankVerifierRole(companyId: string): Promise<string> {
-  let strictest: string | null = null;
+  let strictest = SUPPLIER_BANK_VERIFIER_FLOOR;
   for (const type of coupledTypes('supplier_payment')) {
     const role = await strictestActiveRuleRole(companyId, type as DocumentType);
-    if (role !== null && (strictest === null || requiredRank(role) > requiredRank(strictest))) strictest = role;
+    if (role !== null && requiredRank(role) > requiredRank(strictest)) strictest = role;
   }
-  return strictest ?? 'admin';
+  return strictest;
 }
 
 /**
@@ -223,6 +228,8 @@ export async function disableEnforcement(companyId: string, documentType: Enforc
   // have no rule of their own: the level weakened is the verifier role, so
   // the person who set a supplier's details cannot simply switch the check off.
   const types = coupledTypes(documentType);
+  // …and, like switching on, only by a person in their own session ("login as" may not weaken it either).
+  if (documentType === SUPPLIER_BANK_DETAILS) await assertVerifyingSession();
   let strictest: string | null = documentType === SUPPLIER_BANK_DETAILS ? await supplierBankVerifierRole(companyId) : null;
   for (const type of documentType === SUPPLIER_BANK_DETAILS ? [] : types) {
     const role = await strictestActiveRuleRole(companyId, type as DocumentType);

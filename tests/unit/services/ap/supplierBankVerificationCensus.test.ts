@@ -16,6 +16,8 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { APPROVER_RANK } from '@/modules/accounting/services/gl/approvalRank';
+import { SUPPLIER_BANK_VERIFIER_FLOOR } from '@/modules/accounting/services/gl/approvalEnforcement';
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const ROOTS = ['src', 'pages', 'scripts', 'lib'];
@@ -104,6 +106,16 @@ describe('one fingerprint, in SQL', () => {
   it('no source hashes bank details in TypeScript', () => {
     const hashing = matching(/createHash|subtle\.digest|\bsha256\b/);
     expect(hashing.filter((f) => /bank_account_number|bankAccountNumber|accountNumber/.test(text(f)))).toEqual([]);
+  });
+});
+
+describe('the database guard ranks on the same ladder', () => {
+  it("migration 876's verifier-floor role list is exactly the ladder's roles at or above the floor", () => {
+    const sql = readFileSync(path.join(ROOT, 'scripts/migrations/sql/876_supplier_bank_verification.sql'), 'utf8');
+    const lists = [...sql.matchAll(/IN \(('super_admin'[^)]*)\)/g)].map((m) => m[1]!.split(',').map((r) => r.trim().replace(/'/g, '')).sort());
+    const expected = Object.keys(APPROVER_RANK).filter((r) => APPROVER_RANK[r]! >= APPROVER_RANK[SUPPLIER_BANK_VERIFIER_FLOOR]!).sort();
+    expect(lists).toHaveLength(2);
+    for (const list of lists) expect(list).toEqual(expected);
   });
 });
 

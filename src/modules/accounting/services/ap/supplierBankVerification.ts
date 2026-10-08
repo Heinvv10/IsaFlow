@@ -18,12 +18,12 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
-import { isEnforced, supplierBankVerifierRole } from '../gl/approvalEnforcement';
+import { isEnforced, SUPPLIER_BANK_VERIFIER_FLOOR, supplierBankVerifierRole } from '../gl/approvalEnforcement';
 import { actorRank, requiredRank } from '../gl/approvalRank';
 import { SUPPLIER_BANK_DETAILS } from '../gl/approvalRuleOptions';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertVerifyingSession, isVerifyingSession, SupplierBankVerificationError } from './supplierBankBaseline';
-import { isBankDetailsSetter } from './supplierPaymentAuthors';
+import { isBankDetailsSetter, suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
 
 export const VERIFICATION_METHODS = ['phone_known_number', 'bank_confirmation_letter', 'in_person', 'other'] as const;
 export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
@@ -82,19 +82,26 @@ async function readSupplier(companyId: string, supplierId: string): Promise<Row 
 /**
  * The refusal for a setter, or 'self_verified' with the roster when they are
  * the sole approver: no OTHER active member of the company reaches the
- * verifier role (R-035 Q2 — platform roles count, so it fails closed). Read
- * through approval_company_other_members (SECURITY DEFINER; app_user cannot
- * see the roster), which answers only inside the caller's own request.
+ * verifier FLOOR (admin) — R-035 Q2, platform roles counted, so it fails
+ * closed. Judged against the floor, not the verifier role: a setter who
+ * raised the role with a payment rule would otherwise make themselves the
+ * only one who qualifies (review of PR #679, REPRO 2). Migration 876's guard
+ * checks the same thing on the roster. Read through
+ * approval_company_other_members (SECURITY DEFINER; app_user cannot see the
+ * roster), which answers only inside the caller's own request.
  */
 async function setterOutcome(companyId: string, userId: string, verifierRole: string): Promise<{ roster: unknown }> {
   const others = (await sql`
     SELECT m.role, m.is_active, m.status, m.suspended_at
     FROM approval_company_other_members(${companyId}::UUID, ${userId}::TEXT) m
   `) as { role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }[];
-  const n = others.filter((m) => isActiveUserAccount(m) && actorRank(String(m.role)) >= requiredRank(verifierRole)).length;
+  const floor = SUPPLIER_BANK_VERIFIER_FLOOR;
+  const n = others.filter((m) => isActiveUserAccount(m) && actorRank(String(m.role)) >= requiredRank(floor)).length;
   if (n > 0) {
-    throw new SupplierBankVerificationError('SETTER_FORBIDDEN', 'You cannot verify these bank details: you set them. '
-      + `${n} other member${n === 1 ? '' : 's'} with the ${verifierRole} role or above can verify them — one who did not set them must.`);
+    const raised = requiredRank(verifierRole) > requiredRank(floor)
+      ? ` (they need the ${verifierRole} role the payment rules demand)` : '';
+    throw new SupplierBankVerificationError('SETTER_FORBIDDEN', 'You cannot verify these bank details: you set them, and '
+      + `${n} other member${n === 1 ? '' : 's'} with the ${floor} role or above could — one who did not set them must${raised}.`);
   }
   const rows = (await sql`SELECT approval_roster_snapshot(${companyId}::UUID, ${userId}::TEXT) AS roster`) as Row[];
   return { roster: rows[0]?.roster ?? null };
@@ -125,7 +132,7 @@ export async function getSupplierBankVerification(companyId: string, supplierId:
            approval_company_member_name(v.company_id, v.verified_by) AS verified_by_name
     FROM supplier_bank_verifications v
     WHERE v.company_id = ${companyId}::UUID AND v.supplier_id = ${supplierId}::UUID
-    ORDER BY v.seq DESC LIMIT 20
+    ORDER BY v.verified_at DESC, v.seq DESC LIMIT 20
   `) as Row[]).map((r): BankVerificationEntry => ({
     kind: String(r.kind) as BankVerificationEntry['kind'],
     method: isVerificationMethod(r.method) ? r.method : null,
@@ -213,18 +220,23 @@ export async function verifySupplierBankDetails(input: VerifyInput): Promise<{ i
 }
 
 /**
- * The count beside the switch: suppliers (not soft-deleted) with bank details
- * that are unverified now — or, while the control is off, that switching it
- * on would accept as the baseline.
+ * The count beside the switch, for `viewerId`: while on, suppliers (not
+ * soft-deleted) with bank details that are unverified now; while off,
+ * exactly those switching on would accept as the baseline — no verification
+ * history (recordBankBaseline) and details the viewer did not set.
  */
-export async function bankDetailsPreview(companyId: string): Promise<number> {
+export async function bankDetailsPreview(companyId: string, viewerId: string): Promise<number> {
   const enforced = await isEnforced(companyId, SUPPLIER_BANK_DETAILS);
+  const own = enforced ? [] : await suppliersWithBankDetailsSetBy(companyId, viewerId);
   const rows = (await sql`
     SELECT count(*)::INT AS n FROM suppliers s
     WHERE s.company_id = ${companyId}::UUID AND s.deleted_at IS NULL
       AND supplier_bank_details_present(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
                                         s.bank_account_holder)
-      AND (${!enforced} OR NOT supplier_bank_verified(s.company_id, s.id))
+      AND CASE WHEN ${enforced} THEN NOT supplier_bank_verified(s.company_id, s.id)
+               ELSE s.id <> ALL(${own}::UUID[])
+                    AND NOT EXISTS (SELECT 1 FROM supplier_bank_verifications v
+                                    WHERE v.company_id = s.company_id AND v.supplier_id = s.id) END
   `) as Row[];
   return Number(rows[0]?.n ?? 0);
 }
