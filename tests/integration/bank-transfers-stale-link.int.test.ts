@@ -147,4 +147,31 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
       { fromAccountId: bankA, toAccountId: bankB, amount: 2600, transferDate: '2026-10-06' });
     expect(typed.statusCode, JSON.stringify(typed.body)).toBe(200);
   }, 60000);
+
+  // sec-nrfa round 5 L1: "already paired" means a line matched to its own bank's leg for its amount, not any line
+  // matched to any leg. An unrelated charge matched to the typed journal's OTHER leg, or a fee to the free leg of a
+  // statement transfer, must not let the real line post the movement a second time.
+  it('arm 2: a charge matched to the other leg does not consume a typed transfer', async () => {
+    const t = await journal('2026-11-04', bankB, bankA, 5000, 'auto_bank_transfer', 'Transfer: A -> B');
+    const real = await bankLine(bankB, '2026-11-04', 5000, 'L1 TRANSFER IN');
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    const junk = await bankLine(bankB, '2026-11-05', -12, 'L1 BANK CHARGE');
+    expect((await callRoute(c.fx, token, bankMatchConfirm,
+      { bankTransactionId: junk, candidateType: 'bank_transfer', candidateId: await lineOf(t, bankA) })).statusCode).toBe(200);
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    expect(await glMovement(bankB, '2026-11-01', '2026-11-10')).toBe(5000);
+  }, 60000);
+
+  it('arm 1: a fee matched to the free leg does not pair a statement transfer', async () => {
+    const a = await bankLine(bankA, '2026-12-05', -7000, 'L1 TRANSFER OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const s = String((await lineState(a))!.ptr);
+    const real = await bankLine(bankB, '2026-12-06', 7000, 'L1 TRANSFER IN');
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    const junk = await bankLine(bankB, '2026-12-06', -15, 'L1 FEE');
+    expect((await callRoute(c.fx, token, bankMatchConfirm,
+      { bankTransactionId: junk, candidateType: 'bank_transfer', candidateId: await lineOf(s, bankB) })).statusCode).toBe(200);
+    expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
+    expect(await glMovement(bankB, '2026-12-01', '2026-12-10')).toBe(7000);
+  }, 60000);
 });
