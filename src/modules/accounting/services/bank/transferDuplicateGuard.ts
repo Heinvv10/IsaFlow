@@ -3,18 +3,22 @@
  *
  * Two shapes of the same movement:
  *   1. the other bank's line, already allocated as the transfer back to this bank (a bank_transactions row that
- *      points at its transfer journal) within two days, whose journal no live line on THIS bank is linked to yet —
+ *      points at its transfer journal) within two days, whose journal no live line on THIS bank is matched to yet —
  *      the original guard, now with that consumption test (identical daily sweeps were refused);
  *   2. a TYPED Banking > Transfers journal (bank/bankTransferService: `reference` set; a statement allocation writes
  *      none), moving this amount in the SAME direction between the two banks (money into this bank: DR this bank /
  *      CR the other), dated within FIVE days (a Friday transfer clears on Monday or later), that no live line on THIS
- *      bank is linked to — by its transfer pointer or by an ordinary match of one of its lines. Without (2) a
- *      transfer typed on the Transfers page and then allocated from the statement posted twice (brk-nrfa M1). A
- *      statement-created journal is arm 1's business, not this arm's.
+ *      bank is MATCHED to. Without (2) a transfer typed on the Transfers page and then allocated from the statement
+ *      posted twice (brk-nrfa M1). A statement-created journal is arm 1's business, not this arm's.
+ * A line's transfer pointer is never a match in either arm: an unmatch leaves it set (brk-nrfa round 5 F1).
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by
  * `findTransferRecordedFromStatement`, below, which the Transfers page turns into a confirmation, not a refusal.
+ *
+ * Residual (stated, not closed): when `autoLinkCounterpartyTransfer` attaches the WRONG line of this bank (an unrelated
+ * line of the amount nearer the date) to the counterparty's transfer, the real leg allocated later is not refused — the
+ * guard cannot tell it from a daily sweep, whose earlier transfer is likewise already matched (brk-nrfa round 5 F5).
  *
  * Residual (stated, not closed): a typed post and a statement allocation of one movement IN FLIGHT TOGETHER both read
  * before either commits and both post. Closing it needs a lock shared by the bank-line allocation path, a single
@@ -38,15 +42,15 @@ export async function assertNoDuplicateTransfer(
       AND transfer_journal_entry_id IS NOT NULL
       AND amount = ${-lineAmount}
       AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days') AND (${txDate}::DATE + INTERVAL '2 days')
-      -- Already paired: a live line on THIS bank is linked to that transfer journal, so this line is another
-      -- movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2).
+      -- Already paired: a live line on THIS bank is MATCHED to a line of that transfer journal, so this line is
+      -- another movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2). The
+      -- transfer pointer is not a match: an unmatch leaves it set (brk-nrfa round 5 F1).
       AND NOT EXISTS (SELECT 1 FROM bank_transactions own WHERE own.company_id = bank_transactions.company_id
                         AND own.bank_account_id = ${bankAccountId}::UUID
                         AND own.status IN ('allocated', 'matched', 'reconciled')
-                        AND (own.transfer_journal_entry_id = bank_transactions.transfer_journal_entry_id
-                          OR own.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
-                            WHERE ml.journal_entry_id = bank_transactions.transfer_journal_entry_id
-                              AND ml.company_id = bank_transactions.company_id)))
+                        AND own.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+                          WHERE ml.journal_entry_id = bank_transactions.transfer_journal_entry_id
+                            AND ml.company_id = bank_transactions.company_id))
     LIMIT 1
   `) as DbRow[];
   const journals = lines.length > 0 ? [] : (await sql`
@@ -64,9 +68,8 @@ export async function assertNoDuplicateTransfer(
       AND NOT EXISTS (SELECT 1 FROM bank_transactions bt WHERE bt.company_id = je.company_id
                         AND bt.bank_account_id = ${bankAccountId}::UUID
                         AND bt.status IN ('allocated', 'matched', 'reconciled')
-                        AND (bt.transfer_journal_entry_id = je.id OR bt.matched_journal_line_id IN (
-                          SELECT ml.id FROM gl_journal_lines ml WHERE ml.journal_entry_id = je.id
-                            AND ml.company_id = je.company_id)))
+                        AND bt.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+                          WHERE ml.journal_entry_id = je.id AND ml.company_id = je.company_id))
     LIMIT 1
   `) as DbRow[];
   if (lines.length > 0 || journals.length > 0) {
@@ -80,7 +83,8 @@ export async function assertNoDuplicateTransfer(
 /**
  * Banking > Transfers' twin of the guard: a live transfer journal the STATEMENT CREATED (a bank line allocated as a
  * transfer: bankAllocationService writes no `reference`; every Transfers-page journal carries 'Transfer: … -> …'),
- * still linked to a live, posted line of this amount on one of its bank legs (the side the line's sign says),
+ * still MATCHED by a live, posted, imported or feed line of this amount to one of its bank legs (the side the line's
+ * sign says),
  * moving this amount from `fromAccountId` to `toAccountId` within five days of `date`. Its entry number, or null.
  * A typed transfer, matched to its statement line or not, never counts. Two real transfers of one amount are
  * legitimate, so the caller asks for a confirmation rather than refusing (brk-nrfa round 3 M2).
@@ -100,7 +104,7 @@ export async function findTransferRecordedFromStatement(
                     AND jl.gl_account_id = ${fromAccountId}::UUID AND jl.credit = ${amount})
       AND EXISTS (SELECT 1 FROM bank_transactions bt
                     JOIN gl_journal_lines bl ON bl.journal_entry_id = je.id AND bl.company_id = je.company_id
-                      AND bl.gl_account_id = bt.bank_account_id
+                      AND bl.gl_account_id = bt.bank_account_id AND bl.id = bt.matched_journal_line_id
                       AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
                     WHERE bt.company_id = je.company_id
                     AND bt.transfer_journal_entry_id = je.id AND ABS(bt.amount) = ${amount}

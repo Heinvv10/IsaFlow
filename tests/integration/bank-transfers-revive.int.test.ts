@@ -282,15 +282,21 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
       'debit', true) RETURNING id`) as Row[])[0]!.id);
     const out = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 50000, transferDate: '2026-09-07' });
     const id = (dataOf<{ journalEntry: { id: string } }>(out)).journalEntry.id;
+    // Each line is matched to the journal's leg on its own bank, as a real match leaves it (brk-nrfa round 5 F3).
     const line = (bank: string, amount: number) => sql`INSERT INTO bank_transactions (company_id, bank_account_id,
-      transaction_date, amount, description, import_batch_id, status, transfer_journal_entry_id) VALUES (${c.fx.companyId}::UUID,
-      ${bank}::UUID, '2026-09-07', ${amount}, 'BTXF ev', gen_random_uuid(), 'matched', ${id}::UUID)`;
+      transaction_date, amount, description, import_batch_id, status, transfer_journal_entry_id, matched_journal_line_id)
+      VALUES (${c.fx.companyId}::UUID, ${bank}::UUID, '2026-09-07', ${amount}, 'BTXF ev', gen_random_uuid(), 'matched',
+      ${id}::UUID, (SELECT jl.id FROM gl_journal_lines jl WHERE jl.journal_entry_id = ${id}::UUID
+        AND jl.gl_account_id = ${bank}::UUID AND jl.company_id = ${c.fx.companyId}::UUID))`;
     const flagged = async () => (await getUnusualJournals(c.fx.companyId, { start: '2026-09-01', end: '2026-09-30' }))
       .flags.some((f) => f.entryId === id && f.reason === 'round_number');
     await line(third, 50000); // a bank the transfer never touched
     expect(await flagged()).toBe(true);
     await line(bank2, -50000); // the destination bank, but money OUT of it
     expect(await flagged()).toBe(true);
+    // One statement line per leg: the wrong-sign line goes before the right one arrives.
+    await sql`DELETE FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID AND bank_account_id = ${bank2}::UUID
+      AND amount = -50000 AND description = 'BTXF ev'`;
     await line(bank2, 50000); // the destination bank, money in: the statement line of this very movement
     expect(await flagged()).toBe(false);
   }, 60000);
