@@ -18,7 +18,8 @@ import type { SharePackParams } from '@/modules/accounting/services/reports/pack
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface CommentaryPanelProps {
-  sectionRef: string;
+  /** Internal mode: omitted = every section of the pack, grouped. Published mode with none prints nothing. */
+  sectionRef?: string;
   mode: 'internal' | 'published';
   canApprove: boolean;
   params: SharePackParams;

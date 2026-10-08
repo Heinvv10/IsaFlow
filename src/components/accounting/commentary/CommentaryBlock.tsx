@@ -23,7 +23,7 @@
  * The internal arm takes the full row and adds the draft, the badge and the
  * approve/reject controls.
  */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import { CommentaryEditor } from './CommentaryEditor';
 import { commentaryCost } from '@/modules/accounting/services/commentary/commentaryLimits';
@@ -34,10 +34,11 @@ import { commentaryCost } from '@/modules/accounting/services/commentary/comment
 export type PublishedCommentaryRow = Pick<CommentaryRow, 'id' | 'sectionRef' | 'status' | 'approvedText'>;
 
 export type CommentaryBlockProps =
-  | { mode: 'published'; sectionRef: string; rows: PublishedCommentaryRow[] }
+  | { mode: 'published'; sectionRef?: string; rows: PublishedCommentaryRow[] }
   | {
       mode: 'internal';
-      sectionRef: string;
+      /** Omitted = every section of the pack, grouped under a heading each. */
+      sectionRef?: string;
       rows: CommentaryRow[];
       /** `text` present = approve with the approver's own wording. Resolves
        *  true when the approval was accepted — a Promise, not void, so the
@@ -55,6 +56,16 @@ export type CommentaryBlockProps =
 function editLabel(sentence: string): string {
   const text = sentence.trim().replace(/\s+/g, ' ');
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
+}
+
+const SECTION_LABELS: Record<string, string> = {
+  income_statement: 'Income statement', balance_sheet: 'Balance sheet',
+};
+function sectionLabel(ref: string): string {
+  const known = SECTION_LABELS[ref];
+  if (known) return known;
+  const text = ref.replace(/_/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; sectionRef: string }) {
@@ -83,19 +94,22 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
     (el?.querySelector<HTMLElement>('[data-edit]') ?? el?.querySelector<HTMLElement>('p'))?.focus();
   }, [editingId]);
   const closeEditor = (id: string) => { closedId.current = id; setEditingId(null); };
-  if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef} />;
+  if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef ?? ''} />;
   const { onApprove, onReject, onRefresh, budgeted = true } = props;
 
-  const mine = rows.filter(r => r.sectionRef === sectionRef && r.status !== 'rejected');
+  const mine = rows.filter(r => (sectionRef === undefined || r.sectionRef === sectionRef) && r.status !== 'rejected');
   if (mine.length === 0) return null;
 
   return (
     <div className="mt-3 space-y-2" data-commentary="internal">
-      {mine.map(r => {
+      {mine.map((r, i) => {
+        const heading = sectionRef === undefined && (i === 0 || mine[i - 1]!.sectionRef !== r.sectionRef)
+          ? <h4 key={`h-${r.sectionRef}`} className="pt-1 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)]">{sectionLabel(r.sectionRef)}</h4>
+          : null;
         const approved = r.status === 'approved' && r.approvedText !== null;
         if (!approved && onApprove && editingId === r.id) {
           return (
-            <div key={r.id} className="flex items-start gap-2">
+            <Fragment key={r.id}>{heading}<div className="flex items-start gap-2">
               <CommentaryEditor
                 initialText={r.draftText}
                 onRefresh={onRefresh}
@@ -109,11 +123,11 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
                   return ok;
                 }}
               />
-            </div>
+            </div></Fragment>
           );
         }
         return (
-          <div key={r.id} className="flex items-start gap-2"
+          <Fragment key={r.id}>{heading}<div className="flex items-start gap-2"
             ref={el => { if (el) rowEls.current.set(r.id, el); else rowEls.current.delete(r.id); }}>
             <p tabIndex={-1} className="flex-1 break-words text-sm leading-relaxed text-[var(--ff-text-secondary)]">
               {approved ? r.approvedText : r.draftText}
@@ -141,7 +155,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
                 Reject
               </button>
             )}
-          </div>
+          </div></Fragment>
         );
       })}
     </div>
