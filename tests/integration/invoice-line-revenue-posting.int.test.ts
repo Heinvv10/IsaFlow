@@ -208,6 +208,19 @@ describeIfDisposable('invoice line revenue posting (migration 873)', () => {
     expect((err as Error).message).toMatch(/100\.00.*150\.00/);
   });
 
+  it('an FNO is read from the invoice\'s customer in THIS company only (a forged foreign client carries none)', async () => {
+    const id = await draft([{ description: 'Forged', unitPrice: 100 }]);
+    await sql`UPDATE customers SET default_cc1_id = ${f.dim.foreignCc2}::UUID WHERE id = ${f.other.customerId}::UUID`;
+    try {
+      await sql`UPDATE customer_invoices SET status = 'approved', client_id = ${f.other.customerId}::UUID,
+                customer_id = ${f.other.customerId}::UUID WHERE id = ${id}::UUID`;
+      const je = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId));
+      expect((await legs(je)).filter((l) => l.code === '4000')).toEqual([L('4000', 0, 100)]);
+    } finally {
+      await sql`UPDATE customers SET default_cc1_id = NULL WHERE id = ${f.other.customerId}::UUID`;
+    }
+  });
+
   it('approve refuses a line whose FNO is not the customer\'s (set since), before the status moves', async () => {
     const id = await draft([{ description: 'Job', unitPrice: 100, cc2Id: f.dim.cc2 }]);
     await sql`UPDATE customers SET default_cc1_id = ${f.dim.otherFno}::UUID WHERE id = ${f.fx.customerId}::UUID`;
