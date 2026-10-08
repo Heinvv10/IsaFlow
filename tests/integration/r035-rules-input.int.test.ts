@@ -181,7 +181,7 @@ describe('review round 2 (prA-adv-r2)', () => {
     const id = await plantRule(pool, c, 'admin', { operator: 'greater_than', value: 1000, name: 'Keep me' });
     const res = await call(u.owner, c, 'PUT', { id, name });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(messageOf(res)).toBe('name must be text of 1 to 100 characters');
+    expect(messageOf(res)).toBe('name must be 1 to 100 characters of visible text, with no control characters');
     expect((await pool.query('SELECT name FROM approval_rules WHERE id = $1', [id])).rows[0].name).toBe('Keep me');
   });
 
