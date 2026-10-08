@@ -4,7 +4,8 @@
  * A NOT IN subplan the planner cannot hash re-reads the whole list for every candidate: 7-49 s with thousands of held
  * provisionals, and no answer in 300 s past about 210k matched lines. Times are not testable; the plan shape is: with
  * work_mem at its floor and a few thousand of each, no subplan may be an unhashed NOT IN. Everything is seeded, analysed
- * and planned in one transaction that is rolled back, statistics included.
+ * and planned in one transaction that is rolled back: the rows and pg_statistic go with it, but ANALYZE writes pg_class's
+ * reltuples/relpages in place (sec-nrfa round 28), so afterAll analyses both tables again to put the row counts back.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -42,6 +43,8 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
   afterAll(async () => {
     await sql`DELETE FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID`;
     await dropFixture(c.fx);
+    await sql`ANALYZE bank_transactions`;
+    await sql`ANALYZE gl_journal_lines`;
   }, 60000);
 
   it('neither the matched-line nor the held-journal exclusion is an unhashed NOT IN', async () => {
