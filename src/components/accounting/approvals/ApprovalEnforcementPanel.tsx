@@ -51,7 +51,25 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
-const NO_RULE_WARNING = 'No active rule for this type — turning this on gates nothing.';
+/** The coupled payment types (D1): switching one on switches the other, so its rules gate too. */
+const COUPLED: Record<string, { other: string; plural: string }> = {
+  supplier_payment: { other: 'payment_batch', plural: 'payment batches' },
+  payment_batch: { other: 'supplier_payment', plural: 'supplier payments' },
+};
+
+/**
+ * The note beside a switch whose type has no active rule, or null. A coupled
+ * switch whose partner HAS an active rule does gate something — the partner's
+ * documents — so it must say only that, never "nothing".
+ */
+function noRuleNote(type: string, activeRuleTypes: string[] | undefined): string | null {
+  if (!activeRuleTypes || activeRuleTypes.includes(type)) return null;
+  const coupled = COUPLED[type];
+  if (coupled && activeRuleTypes.includes(coupled.other)) {
+    return `No active rule for this type — turning this on gates only ${coupled.plural}.`;
+  }
+  return 'No active rule for this type — turning this on gates nothing.';
+}
 
 export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?: string[] } = {}) {
   const [data, setData] = useState<EnforcementData | null>(null);
@@ -114,6 +132,7 @@ export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?
             ? legacyWarning(data.legacyPaymentRules!, 'payment', 'supplier payment or payment batch')
             : type === 'manual_journal' && (data.legacyJournalRules ?? 0) > 0
               ? legacyWarning(data.legacyJournalRules!, 'journal-entry', 'manual journal') : null;
+        const noRule = noRuleNote(type, activeRuleTypes);
         return (
           <div key={type} className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
@@ -136,9 +155,7 @@ export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?
                 a batch is also held by each payment&apos;s own rule.
               </p>
             )}
-            {activeRuleTypes && !activeRuleTypes.includes(type) && (
-              <p className="w-full text-xs text-amber-500">{NO_RULE_WARNING}</p>
-            )}
+            {noRule && <p className="w-full text-xs text-amber-500">{noRule}</p>}
             {warning && <p className="w-full text-xs text-amber-500">{warning}</p>}
           </div>
         );
