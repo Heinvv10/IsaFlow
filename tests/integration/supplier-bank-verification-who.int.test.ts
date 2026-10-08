@@ -104,6 +104,15 @@ describe('a raised verifier role never leaves the details unverifiable', () => {
     expect(reasonOf(res)).toBe('VERIFIER_ROLE_REQUIRED');
   });
 
+  it('…nor when the owner created the account and an admin later changed another bank column (every setter must hold the role)', async () => {
+    const { c, s } = await changed([[u.b, 'owner'], [u.a, 'admin'], [u.c, 'admin']], u.b, u.b);
+    await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
+    await r.changeBank(u.a, c, s, { bankBranchCode: '470010' }); // the admin's change, under the owner's destination
+    const res = await r.verify(u.c, c, s);
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('VERIFIER_ROLE_REQUIRED');
+  });
+
   it('…but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused', async () => {
     const { c, s } = await changed([[u.b, 'owner'], [u.p, 'owner'], [u.c, 'admin']], u.b, u.b);
     await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
