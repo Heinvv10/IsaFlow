@@ -107,7 +107,7 @@ it('the switch row: off shows the baseline count, and switching on posts supplie
   const toggle = await screen.findByRole('checkbox', { name: /require independent verification of supplier bank details/i });
   expect(toggle).not.toBeChecked();
   expect(screen.getByText('4 suppliers would be accepted as verified')).toBeDefined();
-  expect(screen.getByText(/not details you set yourself, nor a supplier verified before/i)).toBeDefined();
+  expect(screen.getByText(/switching on again accepts nothing/i)).toBeDefined();
   fireEvent.click(toggle);
   await waitFor(() => expect(toggle).toBeChecked());
   expect(posts().map((p) => p.body)).toEqual([{ documentType: 'supplier_bank_details', enabled: true }]);
