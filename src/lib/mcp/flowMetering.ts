@@ -384,6 +384,23 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   mark_vat_declared_elsewhere: null,
   // Posts nothing to the ledger — links/unlinks evidence, same reasoning.
   link_document_to_journal: null,
+
+  // ── CC1 / CC2 / BU dimensions ─────────────────────────────────────────────
+  // Reads are free, like every read.
+  list_cost_centres: null,
+  list_business_units: null,
+  // Master data posts nothing, same as create_gl_account / update_customer.
+  create_cost_centre: null,
+  create_business_unit: null,
+  set_gl_account_reporting_attributes: null,
+  set_customer_default_fno: null,
+  set_bank_account_default_dimensions: null,
+  // A split is a bank allocation, and bank allocation is free in the app.
+  split_allocate_bank_transaction: null,
+  // Dimension-only restatement of posted lines, and its undo: a remediation
+  // control like merge_gl_accounts, and it posts no journal.
+  tag_journal_lines: null,
+  reverse_dimension_tag_batch: null,
 };
 
 /**

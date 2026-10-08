@@ -43,6 +43,9 @@ const BankTxQueryModal = dynamic(
 interface Props {
   transactions: BankTx[];
   glAccounts: SelectOption[];
+  /** Project (CC2) and BU pickers for the split modal's lines. */
+  cc2Options?: SelectOption[];
+  buOptions?: SelectOption[];
   suppliers: SelectOption[];
   customers: SelectOption[];
   bankAccounts?: SelectOption[];
@@ -75,7 +78,7 @@ interface Props {
 }
 
 export function BankTxModals({
-  transactions, glAccounts, suppliers, customers, bankAccounts, selectedBank, rowSelections,
+  transactions, glAccounts, cc2Options, buOptions, suppliers, customers, bankAccounts, selectedBank, rowSelections,
   splitTxId, excludingTxId, findMatchTxId, attachmentsTxId, createRuleTx,
   createEntityTxId, createEntityType, queryTx, linkTx,
   onSplitClose, onSplitDone,
@@ -98,6 +101,8 @@ export function BankTxModals({
         <SplitTransactionModal
           transaction={splitTx}
           glAccounts={glAccounts}
+          cc2Options={cc2Options}
+          buOptions={buOptions}
           onClose={onSplitClose}
           onSplit={onSplitDone}
         />

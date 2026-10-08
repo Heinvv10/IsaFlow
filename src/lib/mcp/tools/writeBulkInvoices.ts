@@ -31,6 +31,7 @@ import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS } from './invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
@@ -73,6 +74,7 @@ const SUPPLIER_LINE_SCHEMA = {
     unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
     tax_rate: { type: 'number', minimum: 0, maximum: 100 },
     gl_account_id: { type: 'string', description: 'Expense GL account UUID' },
+    ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'quantity', 'unit_price'],
   additionalProperties: false,
@@ -170,8 +172,21 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       }
       return toolError(accountRefusal);
     }
+    // cc1/cc2/bu for every element, resolved and derived before the first write.
+    const withDims: (typeof kept[number]['inv']['items'])[] = [];
+    const warnings: string[] = [];
+    for (const { index, inv } of kept) {
+      const label = (i: number) => `invoices[${index}].lines[${i}]`;
+      const items = await itemsWithDimensions(ctx.companyId, inv.items, inv.dimensionRefs, label);
+      if (typeof items === 'string') return toolError(items);
+      const cos = await dimensionWarningsOrRefusal(ctx.companyId, items, label);
+      if (typeof cos === 'string') return toolError(cos);
+      warnings.push(...cos.warnings);
+      withDims.push(items);
+    }
 
     const created: Record<string, unknown>[] = [];
+    let element = 0;
     for (const { index, inv: p } of kept) {
       try {
         const invoice = await createSupplierInvoice(
@@ -185,7 +200,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
             paymentTerms: p.paymentTerms,
             reference: p.reference,
             notes: p.notes,
-            items: p.items,
+            items: withDims[element++]!,
           },
           ctx.userId,
           mcpPostingOpts(ctx, 'bulk_create_supplier_invoices'),
@@ -213,6 +228,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       skipped_count: skipped.length,
       invoices: created,
       skipped,
+      ...(warnings.length > 0 ? { dimension_warnings: warnings } : {}),
     });
   },
 };
