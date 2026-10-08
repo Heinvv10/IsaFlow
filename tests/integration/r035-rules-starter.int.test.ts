@@ -109,6 +109,37 @@ describe('idempotent on the active (document_type, name)', () => {
   });
 });
 
+describe('a double-submitted confirm (review round 1: the advisory lock)', () => {
+  it('two concurrent confirms create each rule once: the second waits, then skips', async () => {
+    const c = await company();
+    // Hold a SHARE lock on approval_rules: both requests can read (the existence
+    // check) but neither can INSERT until it is released. Without the
+    // per-company advisory lock both pass the check and both insert; with it
+    // the second waits for the first to COMMIT, and then sees its rows.
+    const blocker = await pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('LOCK TABLE approval_rules IN SHARE MODE');
+      const body = [{ documentType: 'supplier_invoice' }, { documentType: 'manual_journal' }];
+      const both = Promise.all([starter(u.owner, c, body), starter(u.owner, c, body)]);
+      for (let i = 0; i < 200; i += 1) {
+        const { rows } = await pool.query(
+          `SELECT count(*)::INT AS n FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+           WHERE NOT l.granted AND a.pid <> pg_backend_pid()`);
+        if (rows[0].n >= 2) break;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await blocker.query('COMMIT');
+      const [a, b] = await both;
+      expect([a.state.statusCode, b.state.statusCode]).toEqual([200, 200]);
+      expect([dataOf(a).created.length, dataOf(b).created.length].sort()).toEqual([0, 2]);
+    } finally {
+      blocker.release();
+    }
+    expect((await rulesOf(c)).map((r) => r.document_type)).toEqual(['manual_journal', 'supplier_invoice']);
+  });
+});
+
 describe('all or nothing', () => {
   it('a manager confirming an admin-level payment rule after a manager-level one: 403 verbatim, NOTHING created or audited', async () => {
     const c = await company();
@@ -164,6 +195,7 @@ describe('the body is validated before any write', () => {
     ['an amount on a rule that matches every journal', [{ documentType: 'manual_journal', conditionValue: 5 }]],
     ['a role the ladder does not know', [{ documentType: 'supplier_invoice', approverRole: 'Owner' }]],
     ['a role that is not text', [{ documentType: 'supplier_invoice', approverRole: 5 }]],
+    ['an amount the column cannot hold', [{ documentType: 'supplier_invoice', conditionValue: 1e13 }]],
   ])('%s: 400, nothing created', async (_label, rules) => {
     const c = await company();
     const res = await starter(u.owner, c, rules);

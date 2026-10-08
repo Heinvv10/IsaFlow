@@ -14,7 +14,10 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withSavepoint } from '@/lib/neon';
-import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError, ApprovalFieldInvalidError } from '@/modules/accounting/services/gl/approvalService';
+import {
+  listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError,
+  ApprovalFieldInvalidError, ApprovalAmountInvalidError, ApprovalActiveFlagInvalidError,
+} from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import { ApprovalRuleLegacyTypeError } from '@/modules/accounting/services/gl/approvalDocumentTypes';
@@ -57,7 +60,8 @@ function isForeignKeyViolation(error: unknown): boolean {
  */
 function respondToRuleWriteError(res: NextApiResponse, error: unknown, onDelete = false): boolean {
   if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError
-      || error instanceof ApprovalFieldInvalidError || error instanceof ApprovalRuleLegacyTypeError) {
+      || error instanceof ApprovalFieldInvalidError || error instanceof ApprovalRuleLegacyTypeError
+      || error instanceof ApprovalAmountInvalidError || error instanceof ApprovalActiveFlagInvalidError) {
     apiResponse.badRequest(res, error.message);
     return true;
   }
