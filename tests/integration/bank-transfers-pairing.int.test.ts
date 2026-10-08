@@ -44,7 +44,6 @@ const lineOf = async (je: string, acct: string) => String(((await sql`SELECT id 
   WHERE journal_entry_id = ${je}::UUID AND gl_account_id = ${acct}::UUID AND company_id = ${c.fx.companyId}::UUID`) as Row[])[0]!.id);
 const lineState = async (id: string) => ((await sql`SELECT status, matched_journal_line_id AS m,
   transfer_journal_entry_id AS ptr FROM bank_transactions WHERE id = ${id}::UUID`) as Row[])[0];
-/** A posted journal DR `dr` / CR `cr`, through the funnel (source as given: 'manual' for an unrelated entry). */
 
 describeIfDb('which line pairs a transfer, and what the manual route refuses', () => {
   beforeAll(async () => {
@@ -141,7 +140,7 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
 
   // brk-nrfa round 8 L3: Receive/Spend Money answers a closed period and an over-credit supplier refund 400 with the
   // reason, as the allocate action does, and the line it inserted first is rolled back.
-  it('the manual route answers a closed period and an over-credit refund 400, leaving no line', async () => {
+  it('the manual route answers a closed period, an inactive account and an over-credit refund 400, leaving no line', async () => {
     await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${c.fx.companyId}::UUID AND fiscal_year = 2025`;
     try {
       for (const [allocationType, contraAccountId, d] of [['account', c.expense, 'M2 closed'], ['transfer', bankB, 'M2 closed t']]) {
@@ -153,6 +152,14 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     } finally {
       await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${c.fx.companyId}::UUID AND fiscal_year = 2025`;
     }
+    // An inactive contra account (rev-nrfa round 8 LOW 1).
+    const idle = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
+      normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '6999', 'PAIR Retired', 'expense', 'debit', false)
+      RETURNING id`) as Row[])[0]!.id);
+    const inactive = await manual({ type: 'spend', bankAccountId: bankA, date: '2028-10-09', amount: 77,
+      description: `M5 inactive ${c.fx.tag}`, allocationType: 'account', contraAccountId: idle });
+    expect(inactive.statusCode, JSON.stringify(inactive.body)).toBe(400);
+    expect(await linesNamed(`M5 inactive ${c.fx.tag}`)).toBe(0);
     const refund = await manual({ type: 'receive', bankAccountId: bankA, date: '2028-10-10', amount: 99999,
       description: `M4 refund ${c.fx.tag}`, allocationType: 'supplier', entityId: c.fx.supplierId });
     expect(refund.statusCode, JSON.stringify(refund.body)).toBe(400);
