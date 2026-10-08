@@ -25,7 +25,7 @@ import { DuplicateTransferError } from '@/modules/accounting/services/bank/trans
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
-import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
+import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -122,8 +122,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   try {
     // The line and its allocation stand or fall together: anything thrown inside rolls the INSERT back to this
-    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa rounds 7-8). A closed period or inactive
-    // account is answered 400 here, as the allocate action answers it.
+    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa rounds 7-8). The refusals a person can act on
+    // are answered 400 in the catch below, as the allocate action answers them.
     const saved = await withJournalDateRefusal(res, async () => {
       // ── Step 1: Insert bank_transactions row ─────────────────────────────────
 
@@ -202,10 +202,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, (err as Error).message);
     }
     // Refusals the person can act on, answered 400 with the reason as the allocate action answers them: the ledger
-    // already holds this transfer (match it), a closed period, a locked VAT period, a refund over what the supplier
-    // is owed, a line refusal (brk-nrfa round 8 L3).
+    // already holds this transfer (match it), a closed period, an inactive account, a locked VAT period, a refund
+    // over what the supplier is owed, a line refusal (brk-nrfa round 8 L3, rev-nrfa round 8 LOW 1).
     if (err instanceof DuplicateTransferError || err instanceof ClosedFiscalPeriodError
-      || err instanceof VatPeriodLockedError || isSupplierRefundRefusal(err) || isBankAllocationRefusal(err)) {
+      || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError || isSupplierRefundRefusal(err) || isBankAllocationRefusal(err)) {
       return apiResponse.badRequest(res, err.message);
     }
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
