@@ -36,6 +36,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 type Row = Record<string, unknown>;
 
 /**
@@ -159,6 +160,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
         // R-035 PR4: raised under the row lock before any write — a 409 that commits nothing.
         if (respondIfApprovalRequired(res, err)) return;
+        // A dimension posting would add or contradict (dimensionStoredPosting), refused before the journal.
+        if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }

@@ -129,10 +129,13 @@ describe('convertToInvoice — writes real customer_invoice_items columns', () =
       'tax_rate',
       'amount',
       'gl_account_id',
+      'cc1_id',
     ]);
 
     const values = insertItemCall.slice(1);
     expect(values[columnList.indexOf('amount')]).toBe(200);
     expect(values[columnList.indexOf('gl_account_id')]).toBe(GL_ACCOUNT_ID);
+    // A quote with no customer has no FNO to store (and sends no query for one).
+    expect(values[columnList.indexOf('cc1_id')]).toBeNull();
   });
 });

@@ -2,21 +2,20 @@
  * The revenue leg(s) of a customer invoice, carrying CC1 / CC2 / BU.
  *
  * Before migration 870 an invoice posted ONE revenue line for its subtotal. It
- * still does whenever its items name no dimensions and the customer has no FNO
- * — byte-for-byte the old journal. Otherwise the subtotal is split by distinct
- * (CC1, CC2, BU) across the items, each group a revenue line, with the cents
- * left by rounding on the last group so the lines sum EXACTLY to the subtotal
- * the AR and VAT legs were built from.
+ * still does whenever its items carry no dimensions — byte-for-byte the old
+ * journal. Otherwise the subtotal is split by distinct (CC1, CC2, BU) across
+ * the items, each group a revenue line, with the cents left by rounding on the
+ * last group so the lines sum EXACTLY to the subtotal the AR and VAT legs were
+ * built from.
  *
- * FNO on revenue comes from the customer (brief §5.4): an item with no CC1
- * takes customers.default_cc1_id; an explicit CC1 that differs is refused. A
- * CC2 whose own FNO differs from that is refused by the journal-level
- * derivation (dimensions/dimensionPolicy.ts) — before anything is written.
+ * The items' STORED dimensions, and nothing else: the customer's FNO is applied
+ * when the invoice is saved (deriveRevenueDimensions), so it is covered by the
+ * approval digest. An item saved without the FNO its customer now has is
+ * refused before posting (dimensions/dimensionStoredPosting.ts), never filled.
  *
  * Pure: the caller reads the rows.
  */
 import type { JournalLineInput } from '../../types/gl.types';
-import { applyCustomerFno } from '../gl/dimensions/dimensionDerivation';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 
 export interface RevenueItemDims extends DimensionIds {
@@ -28,7 +27,6 @@ export interface RevenueLinesInput {
   subtotal: number;
   invoiceNumber: string;
   items: readonly RevenueItemDims[];
-  customerFnoId: string | null;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -38,10 +36,9 @@ export function buildRevenueLines(input: RevenueLinesInput): JournalLineInput[] 
   const single = (dims: DimensionIds): JournalLineInput[] => [{
     glAccountId: input.revenueAccountId, debit: 0, credit: Number(input.subtotal), description, ...dims,
   }];
-  const anyItemDims = input.items.some((i) => i.cc1Id || i.cc2Id || i.buId);
-  if (!anyItemDims && !input.customerFnoId) return single({});
+  const items = input.items;
+  if (!items.some((i) => i.cc1Id || i.cc2Id || i.buId)) return single({});
 
-  const items = applyCustomerFno(input.items, input.customerFnoId, (i) => `Invoice ${input.invoiceNumber} item ${i + 1}`);
   const groups = new Map<string, { dims: DimensionIds; amount: number }>();
   for (const item of items) {
     const dims: DimensionIds = {
@@ -55,12 +52,15 @@ export function buildRevenueLines(input: RevenueLinesInput): JournalLineInput[] 
     groups.set(key, group);
   }
   const list = [...groups.values()];
-  const fnoOnly: DimensionIds = input.customerFnoId ? { cc1Id: input.customerFnoId.toLowerCase() } : {};
+  // The fallback single line keeps the one CC1 every item stores (the customer's FNO), if there is one.
+  const cc1s = new Set(items.map((i) => i.cc1Id?.toLowerCase() ?? null));
+  const shared = cc1s.size === 1 ? [...cc1s][0] : null;
+  const fnoOnly: DimensionIds = shared ? { cc1Id: shared } : {};
   if (list.length === 0) return single(fnoOnly);
   if (list.length === 1) return single(list[0]!.dims);
   // A group that nets to nothing or below (a discount line on its own
   // dimensions) cannot post as a revenue CREDIT. Rather than refuse the
-  // invoice, it posts as before — one line — keeping only the customer's FNO.
+  // invoice, it posts as before — one line — keeping only the shared FNO.
   if (list.some((g) => g.amount <= 0)) return single(fnoOnly);
 
   const lines: JournalLineInput[] = [];

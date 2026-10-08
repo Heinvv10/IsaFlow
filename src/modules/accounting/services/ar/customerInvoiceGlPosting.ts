@@ -19,6 +19,7 @@ import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
 import { buildRevenueLines, parseRevenueItems } from './customerInvoiceRevenueLines';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 type Row = DbRow;
 
@@ -74,6 +75,12 @@ export async function postCustomerInvoiceToGL(
       );
     }
 
+    // What posts is what is stored (and approved): a row saved before its
+    // customer's FNO, or its project's, existed is refused, never filled here.
+    const revenueItems = parseRevenueItems(inv.dim_items);
+    await assertPostsStoredDimensions(companyId, revenueItems, (i) => `Invoice ${String(inv.invoice_number)} line ${i + 1}`,
+      inv.customer_fno_id ? String(inv.customer_fno_id) : null);
+
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
     const vatAccount = await getSystemAccount('vat_output', companyId);
@@ -84,8 +91,7 @@ export async function postCustomerInvoiceToGL(
       // One revenue line per distinct CC1/CC2/BU (one line, as before, when none is named).
       ...buildRevenueLines({
         revenueAccountId: revenueAccount.id, subtotal: Number(inv.subtotal), invoiceNumber: String(inv.invoice_number),
-        items: parseRevenueItems(inv.dim_items),
-        customerFnoId: inv.customer_fno_id ? String(inv.customer_fno_id) : null,
+        items: revenueItems,
       }),
     ];
 

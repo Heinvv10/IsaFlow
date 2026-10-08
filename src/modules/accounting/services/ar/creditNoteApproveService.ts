@@ -26,6 +26,7 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -69,6 +70,8 @@ export async function approveCreditNote(
       ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
       ...(cn.bu_id ? { buId: String(cn.bu_id) } : {}),
     };
+    // As stored (and approved), never re-derived from the project's current FNO (dimensionStoredPosting).
+    await assertPostsStoredDimensions(companyId, [dims], () => `Credit note ${String(cn.credit_note_number)}`);
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable

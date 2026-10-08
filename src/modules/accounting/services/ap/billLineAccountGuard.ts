@@ -47,6 +47,7 @@ import { sql } from '@/lib/neon';
 import type { SupplierInvoice } from '../../types/ap.types';
 import { canonicalSubtype, isBankSubtype } from '../gl/accountSubtypes';
 import { reportingClassFor } from '../gl/accountReportingClass';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /** Raised by the throwing forms; the code lets its message reach an MCP caller. */
 export class BillLineAccountRefusal extends Error {
@@ -175,11 +176,16 @@ export async function assertBillLineAccounts(
   if (refusal) throw new BillLineAccountRefusal(refusal);
 }
 
-/** For the posting paths: the stored lines, re-checked against the chart as it is now. */
+/**
+ * For the posting paths: the stored lines, re-checked against the chart as it
+ * is now — and their CC1 / CC2 / BU posted as stored, never re-derived from a
+ * project's current FNO (dimensionStoredPosting, migration 873).
+ */
 export async function assertSupplierInvoiceLinesPostable(
   companyId: string,
   invoice: Pick<SupplierInvoice, 'invoiceNumber' | 'items'>,
 ): Promise<void> {
   const refusal = await billLineAccountRefusal(companyId, (invoice.items ?? []).map((i) => i.glAccountId));
   if (refusal) throw new BillLineAccountRefusal(`Supplier invoice ${invoice.invoiceNumber}: ${refusal}${POSTING_HINT}`);
+  await assertPostsStoredDimensions(companyId, invoice.items ?? [], (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
 }
