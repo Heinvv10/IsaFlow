@@ -230,7 +230,12 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const cands = await fetchJournalLineCandidates(c.fx.companyId, -980, '2032-05-06', 'UBER TRIP second', bankA);
     expect(cands.map((x) => x.id)).not.toContain(await lineOf(pj, bankA));
     // Reversed and re-reversed in the GL: the live head is still the provisional's journal, still held (sec-nrfa r23).
-    const head = await glReverse(await glReverse(pj));
+    // Reversed by hand in the GL (a dead provisional, its line still linked): R1's leg is held too (brk-nrfa round 24).
+    const r1 = await glReverse(pj);
+    const r1Date = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${r1}::UUID`) as Row[])[0]!.d);
+    const refund = await fetchJournalLineCandidates(c.fx.companyId, 980, r1Date, 'UBER REFUND', bankA);
+    expect(refund.map((x) => x.id)).not.toContain(await lineOf(r1, bankA));
+    const head = await glReverse(r1);
     const headDate = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${head}::UUID`) as Row[])[0]!.d);
     const after = await fetchJournalLineCandidates(c.fx.companyId, -980, headDate, 'UBER TRIP second', bankA);
     expect(after.map((x) => x.id)).not.toContain(await lineOf(head, bankA));
