@@ -35,12 +35,14 @@ export class ApprovalExpectedDigestRequiredError extends Error {
  * The rule set or the document moved between the rule requestApproval chose
  * and the write (approval_request_raise / _rebind found a stricter rule
  * governing it now). Nothing was written; raising again binds the right rule.
- * The route answers 409 with the changed-document reason.
+ * The route answers 409 APPROVAL_RULES_CHANGED — its own reason, not the
+ * decide path's DOCUMENT_CHANGED, since a client shows every 409 message alike
+ * and "submit again" is not "the content moved".
  */
 export class ApprovalRequestStaleError extends Error {
-  readonly code = 'DOCUMENT_CHANGED';
+  readonly code = 'APPROVAL_RULES_CHANGED';
   constructor(documentType: string, documentId: string) {
-    super(`The ${documentType} ${documentId} or its approval rules changed while the request was being raised. Submit it for approval again.`);
+    super(`The approval rules for ${documentType} ${documentId}, or its amount, changed while the request was being raised. Submit it for approval again.`);
     this.name = 'ApprovalRequestStaleError';
   }
 }

@@ -10,6 +10,15 @@
  * would pass an untracked new writer), and pins the callers of the functions.
  * Migrations are the owner's and may write it; a later migration that hands a
  * write grant back would undo 872, so those are scanned for re-grants.
+ *
+ * It is a TEXT check, and its limits are known (adversarial round 2): a grant
+ * built at run time (`EXECUTE 'GRANT UPD' || 'ATE …'`, `format('GRANT %s ON %I
+ * …')` — the shape 872 itself uses), a later CREATE OR REPLACE of a writer
+ * with a weaker body, and `ALTER FUNCTION … SECURITY INVOKER` all slip past
+ * it. The catalogue is the authority: tests/integration/r035-n1-catalog
+ * asserts the four writers' prosecdef, search_path, owner and EXECUTE list and
+ * every role's privileges on the table, against whatever DATABASE_URL names
+ * (local `bun run ci` with a database; GitHub runs none).
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';

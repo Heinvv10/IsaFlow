@@ -448,8 +448,11 @@ $$;
 -- approvalAuthors.ts, approvalSelfApproval.ts, approvalDecideDocument.ts).
 -- Identities are compared as TEXT where the TypeScript compares strings.
 -- A sole-approver self-approval (Q2) writes its audit row here, in the same
--- shape auditSoleApproverSelfApproval wrote it — an unrecorded self-approval
--- must not stand, so a direct call cannot skip it.
+-- shape auditSoleApproverSelfApproval wrote it, in the decision's own
+-- statement sequence: the decision cannot commit without its row. The row is
+-- only as durable as audit_log, which app_user may still UPDATE and DELETE
+-- (and INSERT a forged one) under RLS — not closed here (N1 covers
+-- approval_requests only).
 -- No row: the request is gone, foreign or already decided (404, as before).
 CREATE OR REPLACE FUNCTION public.approval_request_decide(
   p_company_id pg_catalog.uuid, p_request_id pg_catalog.uuid, p_decision pg_catalog.text,
