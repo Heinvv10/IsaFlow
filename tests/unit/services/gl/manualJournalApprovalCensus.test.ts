@@ -134,8 +134,20 @@ describe('the other journal writers', () => {
     ]);
   });
 
-  it("only the account merge (it authors the drafts it re-points) and the late-claim split rewrite a journal's lines", () => {
-    expect(filesMatching(/UPDATE gl_journal_lines/)).toEqual([`${A}gl/accountMergeService.ts`, `${A}gl/vatLateClaimSplit.ts`]);
+  it("only the account merge (it authors the drafts it re-points), the late-claim split and dimension tagging rewrite a journal's lines", () => {
+    expect(filesMatching(/UPDATE gl_journal_lines/)).toEqual([
+      `${A}gl/accountMergeService.ts`,
+      // Dimensions Phase 1 (tag_journal_lines): cc1/cc2/bu only, on POSTED lines only — a draft (whose
+      // manual-journal digest hashes its dimensions) is refused by the plan before any write.
+      `${A}gl/dimensions/dimensionTagApply.ts`,
+      `${A}gl/vatLateClaimSplit.ts`,
+    ]);
+    const tagUpdates = textOf(`${A}gl/dimensions/dimensionTagApply.ts`).match(/UPDATE gl_journal_lines jl\s+SET [^\n]+/g) ?? [];
+    expect(tagUpdates).toHaveLength(2);
+    for (const u of tagUpdates) {
+      expect(u).toMatch(/^UPDATE gl_journal_lines jl\s+SET cc1_id = bl\.(new|old)_cc1_id, cc2_id = bl\.\1_cc2_id, bu_id = bl\.\1_bu_id$/);
+    }
+    expect(textOf(`${A}gl/dimensions/dimensionTagPlan.ts`)).toMatch(/row\.status !== 'posted'/);
     expect(textOf(`${A}gl/accountMergeService.ts`)).toMatch(/repointDocumentRows\(companyId, sourceId, targetId, userId, movedLineIds\)/);
     expect(textOf(`${A}gl/accountMergeDocumentRows.ts`)).toMatch(/stampMergedDraftJournals\(companyId, movedJournalLineIds, editedBy\)/);
     expect(filesMatching(/DELETE FROM gl_journal_lines/)).toEqual([]);

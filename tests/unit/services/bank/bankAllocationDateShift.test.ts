@@ -40,6 +40,11 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   mapTxRow: vi.fn((row: unknown) => row),
 }));
+// The split's per-line dimension plan reads the accounts (dimensions Phase 1); this
+// file is about dates, so it plans "no dimensions" and keeps the positional sql queue below.
+vi.mock('@/modules/accounting/services/bank/bankSplitDimensions', () => ({
+  planSplitDimensions: vi.fn(async (_c: string, _b: string, lines: unknown[]) => ({ dims: lines.map(() => ({})), warnings: [] })),
+}));
 
 // This file is about the DATE the journal and the receipt carry. Applying the
 // receipt afterwards is a different concern with its own file, and left real it
