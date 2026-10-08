@@ -23,9 +23,11 @@
  *
  * LIMIT, by decision (review round 3): a function that builds its statement at
  * run time (`EXECUTE 'UPDATE public.approval_' || 'requests …'`) names no table
- * this can read, and is not chased further. The backstop is behavioural: the
- * forgery, roles, decide, raise and parity suites prove on a disposable
- * fixture that nothing app_user can call writes a row the app would not.
+ * this can read, and is not chased further. For the four writers the body
+ * pin above plus the behaviour suites on the disposable fixture (forgery,
+ * roles, decide, raise, parity) are the backstop; a NEW function that writes
+ * the table through run-time SQL is detected by no test — code review of the
+ * migration that adds it is the control.
  *
  * A database without 872 fails here by design, and says so: the code needs
  * the migration (isaflow_dev needs Hein's OK to get it).
