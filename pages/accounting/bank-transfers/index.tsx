@@ -10,10 +10,11 @@ import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 
+/** The chart-of-accounts GET answers its accounts camelCased, as a plain array when filtered by subtype. */
 interface BankAccount {
   id: string;
-  account_code: string;
-  account_name: string;
+  accountCode: string;
+  accountName: string;
 }
 
 export default function BankTransfersPage() {
@@ -33,8 +34,7 @@ export default function BankTransfersPage() {
       const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
       await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
-      const data = json.data || json;
-      setBankAccounts(data.accounts || []);
+      setBankAccounts(Array.isArray(json.data) ? json.data : []);
     } catch (err) {
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
     } finally {
@@ -110,7 +110,7 @@ export default function BankTransfersPage() {
                   >
                     <option value="">Select source account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>
@@ -128,7 +128,7 @@ export default function BankTransfersPage() {
                   >
                     <option value="">Select destination account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>
