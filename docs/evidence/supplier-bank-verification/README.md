@@ -2,7 +2,7 @@
 
 ## Two-person flow (`00`–`03`)
 
-These ran against `next dev` at c718db69a on a disposable fixture DB (`isaflow_schema_fixture`, migration 876 applied). There were two fixture users, both with locally signed sessions: Alex Setter (admin) and Bongi Verifier (owner). The company, supplier and batch are fictitious.
+These ran against `next dev` at 6e1f1ac13 (re-shot after review rounds 1–3; first shot at c718db69a) on a disposable fixture DB (`isaflow_schema_fixture`, migration 876 applied). There were two fixture users, both with locally signed sessions: Alex Setter (admin) and Bongi Verifier (owner). The company, supplier and batch are fictitious.
 
 The flow was not run on `isaflow_dev` for two reasons. Sessions may only be minted for the QA user there, and no route or UI on dev edits bank details. Account A's change ran through the real writer (`updateSupplier`, the function MCP `update_supplier` uses).
 
