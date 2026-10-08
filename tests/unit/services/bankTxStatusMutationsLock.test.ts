@@ -78,8 +78,9 @@ const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: un
   {
     name: 'matchTransaction',
     run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
-    // line, its journal (not reversed), claim, its chain root (D10: none -> the journal), a provisional holding it (none)
-    preWrite: [[{ id: JL_ID }], [], [], [], []],
+    // line, its journal (not reversed), claim, its chain root (an unreversed journal is its own root; none is now a
+    // refusal — brk-nrfa round 25), a provisional holding it (none)
+    preWrite: [[{ id: JL_ID }], [], [], [{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }], []],
   },
   { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
   { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },

@@ -240,4 +240,21 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const after = await fetchJournalLineCandidates(c.fx.companyId, -980, headDate, 'UBER TRIP second', bankA);
     expect(after.map((x) => x.id)).not.toContain(await lineOf(head, bankA));
   }, 120000);
+
+  // brk-nrfa round 25 L1 (pre-existing): confirm read a chain that does not reach its root within the walk bound as
+  // rooted at the journal itself, so a held provisional reversed 64 times let a second statement line claim its head —
+  // two lines for one GL movement. It now refuses (400), nothing written.
+  it('a held provisional past the walk bound cannot be claimed by a second line', async () => {
+    const pj = await postJournal('2032-07-01', c.expense, bankB, 'Provisional deep 864', 864);
+    const own = await bankLine(bankB, '2032-07-01', -864, 'DEEP own');
+    await sql`UPDATE bank_transactions SET status = 'provisional', provisional_je_id = ${pj}::UUID
+      WHERE id = ${own}::UUID AND company_id = ${c.fx.companyId}::UUID`;
+    let head = pj;
+    for (let i = 0; i < 64; i++) head = await glReverse(head); // even: the head moves the provisional's money again
+    const second = await bankLine(bankB, '2032-07-03', -864, 'DEEP second');
+    const r = await callRoute(c.fx, token, bankMatchConfirm,
+      { bankTransactionId: second, candidateType: 'journal_line', candidateId: await lineOf(head, bankB) });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+    expect((await lineState(second))!.status).toBe('imported');
+  }, 600000);
 });
