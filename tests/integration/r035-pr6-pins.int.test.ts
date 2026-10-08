@@ -10,9 +10,9 @@
  *  - the reversal of a posted manual journal posts, unmarked — not in decision
  *    2 (a follow-up for Hein), and reversing writes no status onto the
  *    original, so the backstop never judges it.
- * bank-transfers (a raw 'posted' insert, also not in decision 2) and the
- * system posters that insert headers directly are pinned by the census
- * (manualJournalApprovalCensus.test.ts): they write no marker.
+ * The system posters that insert headers directly are pinned by the census
+ * (manualJournalApprovalCensus.test.ts): they write no marker. Bank transfers
+ * (EXEMPT there since 2026-10-08) are pinned by bank-transfers-revive.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
