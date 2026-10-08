@@ -73,3 +73,57 @@ Mutation proof — supplier bank verification (fixture DB isaflow_schema_fixture
      × no role but the owner holds UPDATE, DELETE or TRUNCATE; app_user holds only SELECT and INSERT 7ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 13 passed (14)
+
+Review round 1 fixes (2026-10-08T16:12:42Z) — same method:
+=== MUTANT M14-verifier-floor-removed (src/modules/accounting/services/gl/approvalEnforcement.ts)
+     × switching off stays refused to the admin (default verifier role admin => owner only) 134ms
+     × a manager must not become a bank-detail verifier through an inert rule an admin planted 97ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 8 passed (10)
+=== MUTANT M15-sole-approver-on-verifier-role (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × an owner who set the details may not self-verify while an admin could have verified them 266ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M16-disable-session-check-removed (src/modules/accounting/services/gl/approvalEnforcement.ts)
+     × switching off is refused to "login as", like switching on 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M17-baseline-history-filter-removed (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 138ms
+     × off and on again does not baseline someone else's pending change: a supplier with history keeps its derived state 118ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 13 passed (15)
+=== MUTANT M18-repoint-on-raw-string (src/modules/accounting/services/ap/supplierPaymentAuthors.ts)
+     × A redirects the account, C re-types the same digits with spaces: A is still a setter and may not verify 80ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M19-outbound-digits-removed (pages/api/accounting/eft-generate.ts)
+     × separators in the account number leave the file line unchanged (digits only) 137ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M20-eft-type-case-sensitive (pages/api/accounting/eft-generate.ts)
+     × a case-only account-type edit leaves the ACB account-type code unchanged 169ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M21-db-role-floor-dropped (migration 876, fixture DB)
+     × a bookkeeper (below the verifier floor) cannot write a plain verified row 98ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 24 passed (25)
+=== MUTANT M22-db-self-verified-roster-and-sole-check-dropped (migration 876, fixture DB)
+     × a setter self_verifies with an invented roster while another admin exists, pinned latest by OVERRIDING SYSTEM VALUE 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M23-db-history-guard-dropped (migration 876, fixture DB)
+     × refuses a baseline for a supplier that already has verification history 97ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M24-latest-by-seq-only (migration 876, fixture DB)
+     × a row inserted with an overriding huge seq is not "latest for ever": a later verification still decides 125ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 15 passed (16)
+
+UI (component tests, tests/unit/components/supplierBankDetailsPanel.test.tsx), panel committed before mutating:
+=== MUTANT UI-M1 fingerprint not sent -> 1 failed
+=== MUTANT UI-M2 response shape check removed -> 1 failed (a body without the expected shape is an error message, not a crash)
+=== MUTANT UI-M3 no reload after a refused verify -> 2 failed
+=== MUTANT UI-M4 UTC date instead of SAST -> 1 failed
