@@ -15,6 +15,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The COS-without-project check (dimensions Phase 1) reads the database; this
+// file does not, so it answers "no warnings" — its behaviour is in dimensionPolicy.test.ts.
+vi.mock('@/modules/accounting/services/gl/dimensions/dimensionPolicy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/dimensions/dimensionPolicy')>()),
+  cosProjectWarnings: vi.fn(async () => []),
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

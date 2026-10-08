@@ -151,6 +151,7 @@ import {
 } from './tools/writeFiscalPeriods';
 import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
+import { DIMENSION_READ_TOOLS, DIMENSION_WRITE_TOOLS } from './tools/dimensionToolSet';
 
 export const MCP_TOOLS = [
   // read (64)
@@ -232,6 +233,8 @@ export const MCP_TOOLS = [
   jobCostReportTool,
   budgetVarianceTool,
   proposeReclassificationTool,
+  // CC1 / CC2 / BU masters (dimensions Phase 1).
+  ...DIMENSION_READ_TOOLS,
   // write (56) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
@@ -324,6 +327,8 @@ export const MCP_TOOLS = [
   // Links/unlinks a captured document to a posted journal — never posts to
   // the GL. requiresPost because it changes what blocks a VAT exception/lock.
   linkDocumentToJournalTool,
+  // CC1 / CC2 / BU: masters and defaults post nothing; split, tag and its reversal require write:post.
+  ...DIMENSION_WRITE_TOOLS,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

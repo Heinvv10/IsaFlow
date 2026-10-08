@@ -1,0 +1,24 @@
+/**
+ * The CC1 / CC2 / BU dimension tools, grouped so toolIndex.ts registers them in
+ * one place each (reads with the reads, writes with the writes).
+ */
+import { createBusinessUnitTool, createCostCentreTool, listBusinessUnitsTool, listCostCentresTool } from './dimensionMasterTools';
+import {
+  setBankAccountDefaultDimensionsTool, setCustomerDefaultFnoTool, setGlAccountReportingAttributesTool,
+} from './dimensionDefaultsTools';
+import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
+import { splitAllocateBankTransactionTool } from './writeBankSplit';
+
+export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool] as const;
+
+export const DIMENSION_WRITE_TOOLS = [
+  createCostCentreTool,
+  createBusinessUnitTool,
+  setGlAccountReportingAttributesTool,
+  setCustomerDefaultFnoTool,
+  setBankAccountDefaultDimensionsTool,
+  // Post (requiresPost): a split posts a journal; tagging rewrites posted lines' dimensions in place.
+  splitAllocateBankTransactionTool,
+  tagJournalLinesTool,
+  reverseDimensionTagBatchTool,
+] as const;

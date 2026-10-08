@@ -13,6 +13,8 @@ export interface BusinessUnit {
   code: string;
   name: string;
   description?: string;
+  /** Organisation ladder L2 (migration 870). */
+  division?: string;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +24,7 @@ export interface BusinessUnitInput {
   code: string;
   name: string;
   description?: string;
+  division?: string;
 }
 
 export async function getBusinessUnits(companyId: string, activeOnly = false): Promise<BusinessUnit[]> {
@@ -33,8 +36,8 @@ export async function getBusinessUnits(companyId: string, activeOnly = false): P
 
 export async function createBusinessUnit(companyId: string, input: BusinessUnitInput, _userId: string): Promise<BusinessUnit> {
   const rows = (await sql`
-    INSERT INTO business_units (company_id, code, name, description)
-    VALUES (${companyId}, ${input.code}, ${input.name}, ${input.description || null})
+    INSERT INTO business_units (company_id, code, name, description, division)
+    VALUES (${companyId}, ${input.code}, ${input.name}, ${input.description || null}, ${input.division || null})
     RETURNING *
   `) as Record<string, unknown>[];
   log.info('Created business unit', { id: rows[0]!.id, code: input.code }, 'accounting');
@@ -47,6 +50,7 @@ export async function updateBusinessUnit(companyId: string, id: string, input: P
       code = COALESCE(${input.code || null}, code),
       name = COALESCE(${input.name || null}, name),
       description = COALESCE(${input.description || null}, description),
+      division = COALESCE(${input.division || null}, division),
       updated_at = NOW()
     WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
   `) as Record<string, unknown>[];
@@ -82,6 +86,7 @@ function mapRow(row: Record<string, unknown>): BusinessUnit {
     code: String(row.code),
     name: String(row.name),
     description: row.description ? String(row.description) : undefined,
+    division: row.division ? String(row.division) : undefined,
     isActive: Boolean(row.is_active),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),

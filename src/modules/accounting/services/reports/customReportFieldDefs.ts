@@ -18,15 +18,21 @@ export interface FieldDef {
 const GL_TRANSACTIONS: FieldDef[] = [
   { field: 'entry_date',    label: 'Entry Date',     type: 'date',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'je.entry_date' },
   { field: 'entry_number',  label: 'Entry Number',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'je.entry_number' },
-  { field: 'account_code',  label: 'Account Code',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.code' },
-  { field: 'account_name',  label: 'Account Name',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.name' },
-  { field: 'account_type',  label: 'Account Type',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.type' },
+  { field: 'account_code',  label: 'Account Code',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.account_code' },
+  { field: 'account_name',  label: 'Account Name',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.account_name' },
+  { field: 'account_type',  label: 'Account Type',   type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'a.account_type' },
   { field: 'description',   label: 'Description',    type: 'text',     sortable: false, filterable: true,  totalable: false, sqlExpr: 'jl.description' },
   { field: 'reference',     label: 'Reference',      type: 'text',     sortable: false, filterable: true,  totalable: false, sqlExpr: 'je.reference' },
-  { field: 'debit',         label: 'Debit',          type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'jl.debit_amount' },
-  { field: 'credit',        label: 'Credit',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'jl.credit_amount' },
+  { field: 'debit',         label: 'Debit',          type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'jl.debit' },
+  { field: 'credit',        label: 'Credit',         type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'jl.credit' },
   { field: 'vat_type',      label: 'VAT Type',       type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'jl.vat_type' },
-  { field: 'cost_centre',   label: 'Cost Centre',    type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'jl.cost_centre_id' },
+  // gl_journal_lines has no cost_centre_id (that reference was a 42703 on every
+  // run). The canonical dimensions are cc1_id / cc2_id / bu_id (migration 285);
+  // CC1 falls back to the legacy cost_center_id the way migration 285 backfilled it.
+  // Codes, not ids, joined through the tenant-scoped masters.
+  { field: 'cost_centre',   label: 'Cost Centre (CC1)', type: 'text',  sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc1.code' },
+  { field: 'project_cc2',   label: 'Project (CC2)',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc2.code' },
+  { field: 'business_unit', label: 'Business Unit',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'bu.code' },
   { field: 'project',       label: 'Project',        type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'jl.project_id' },
   { field: 'status',        label: 'Status',         type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'je.status' },
   { field: 'source',        label: 'Source',         type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'je.source' },
@@ -122,7 +128,10 @@ export function getBaseQuery(dataSource: string): string {
     case 'gl_transactions':
       return `FROM gl_journal_entries je
         JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
-        JOIN gl_accounts a ON a.id = jl.gl_account_id`;
+        JOIN gl_accounts a ON a.id = jl.gl_account_id
+        LEFT JOIN cost_centres cc1 ON cc1.id = COALESCE(jl.cc1_id, jl.cost_center_id) AND cc1.company_id = je.company_id
+        LEFT JOIN cost_centres cc2 ON cc2.id = jl.cc2_id AND cc2.company_id = je.company_id
+        LEFT JOIN business_units bu ON bu.id = jl.bu_id AND bu.company_id = je.company_id`;
     case 'customer_invoices':
       return `FROM customer_invoices ci
         LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)`;
