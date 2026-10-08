@@ -42,7 +42,9 @@ export const updateSupplierInvoiceTool: McpTool = {
     + 'change while a payment, credit note, approval request or matched statement line names the bill, or '
     + 'the supplier already has a live bill with that number; or the '
     + 'stored lines carry a purchase-order link, project, cost centre or VAT classification that replacing '
-    + 'them would drop. due_date is never re-derived from payment_terms — send it when the dates change.',
+    + 'them would drop. A line that leaves out cc1 / cc2 / bu keeps the value every stored line shares; when '
+    + 'the stored lines differ on one, name it on every line. due_date is never re-derived from payment_terms — '
+    + 'send it when the dates change.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {

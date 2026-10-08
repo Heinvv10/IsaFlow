@@ -26,6 +26,7 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -69,6 +70,8 @@ export async function approveCreditNote(
       ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
       ...(cn.bu_id ? { buId: String(cn.bu_id) } : {}),
     };
+    // As stored (and approved), never re-derived from the project's current FNO (dimensionStoredPosting).
+    await assertPostsStoredDimensions(companyId, String(cn.status), [dims], () => `Credit note ${String(cn.credit_note_number)}`);
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
@@ -126,7 +129,7 @@ export async function approveCreditNote(
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       lines,
-    }, userId, actorMeta(opts));
+    }, userId, actorMeta(opts), POST_AS_STORED);
     await postJournalEntry(companyId, je.id, userId);
 
     // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the

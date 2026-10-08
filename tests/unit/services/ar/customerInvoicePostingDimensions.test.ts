@@ -1,7 +1,8 @@
 /**
  * Dimensions Phase 1 — postCustomerInvoiceToGL builds its revenue legs from the
- * items' CC1/CC2/BU and the customer's FNO, read on the SAME query as the
- * invoice (no extra round trip), and never puts a dimension on the AR or VAT leg.
+ * items' STORED CC1/CC2/BU, read on the SAME query as the invoice (no extra
+ * round trip), and never puts a dimension on the AR or VAT leg. The customer's
+ * FNO is read only to refuse an item saved without it (dimensionStoredPosting).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,12 +36,12 @@ type Line = { glAccountId: string; credit: number; cc1Id?: string; cc2Id?: strin
 const posted = () => (vi.mocked(createJournalEntry).mock.calls[0]![1] as { lines: Line[] }).lines;
 
 describe('postCustomerInvoiceToGL — revenue dimensions', () => {
-  it('splits revenue by item dimensions, FNO from the customer, AR and VAT untagged', async () => {
+  it('splits revenue by the items\' STORED dimensions; AR and VAT untagged', async () => {
     sqlMock.mockResolvedValueOnce([{
       ...INV, customer_fno_id: 'fno-ft',
       dim_items: [
-        { amount: 700, cc1_id: null, cc2_id: 'lawley', bu_id: 'act' },
-        { amount: 300, cc1_id: null, cc2_id: null, bu_id: 'maint' },
+        { amount: 700, cc1_id: 'fno-ft', cc2_id: 'lawley', bu_id: 'act' },
+        { amount: 300, cc1_id: 'fno-ft', cc2_id: null, bu_id: 'maint' },
       ],
     }]).mockResolvedValue([]);
     await postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1');
@@ -56,6 +57,21 @@ describe('postCustomerInvoiceToGL — revenue dimensions', () => {
     for (const l of lines.filter((x) => x.glAccountId !== 'default_revenue')) {
       expect(l.cc1Id ?? l.cc2Id ?? l.buId).toBeUndefined();
     }
+  });
+
+  it('approving: refuses, posting nothing, an item saved without the FNO its customer now has', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...INV, customer_fno_id: 'fno-ft', dim_items: [{ amount: 1000, cc1_id: null }] }]).mockResolvedValue([]);
+    await expect(postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1', { approvingFromStatus: 'draft' }))
+      .rejects.toThrow(/customer's FNO.*Re-save the draft/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('already approved: posts the line as stored, adding no FNO, and never re-derives (POST_AS_STORED)', async () => {
+    sqlMock.mockResolvedValueOnce([{ ...INV, customer_fno_id: 'fno-ft', dim_items: [{ amount: 1000, cc1_id: null }] }]).mockResolvedValue([]);
+    await postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1');
+    expect(posted().filter((l) => l.glAccountId === 'default_revenue'))
+      .toEqual([{ glAccountId: 'default_revenue', debit: 0, credit: 1000, description: 'Revenue: INV-9' }]);
+    expect(vi.mocked(createJournalEntry).mock.calls[0]![4]).toEqual({ dimensionAssignmentMode: 'historical-copy' });
   });
 
   it('posts the single revenue line exactly as before when nothing names a dimension', async () => {
