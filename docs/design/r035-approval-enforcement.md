@@ -387,7 +387,11 @@ is ever written for it). Hein's decisions, 2026-10-08:
   company has any row from an earlier transaction), so switching off and on cannot accept anything — a pending change, a
   supplier created or given details meanwhile; a setter is shed only when the account
   number's DIGITS change (`bankDetailsChange`), so re-typing the same number cannot clear whoever redirected it.
-- **Known limits (review of PR #679)**: the masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
+- **Known limits (review of PR #679)**: a narrow dead end, failing closed — under a raised (e.g. owner-level) payment rule,
+  if every holder of that role set the details and someone below it did too (the only owner set the account, an admin
+  then changed the branch), nobody can verify until a member with that role who did not set them is added, the rule is
+  relaxed, or the owner re-points the account (setters reset to them, and an admin may then verify); the refusal says
+  so. The masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
   (unsalted sha256 of low-entropy fields) is returned to them. The fingerprint covers the five bank columns; Netcash sends
   the supplier NAME as account holder, which it does not cover (a name change redirects nothing — the bank routes on
   account and branch). Payment and batch pages do not yet show the verification state.

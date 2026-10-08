@@ -111,6 +111,11 @@ describe('a raised verifier role never leaves the details unverifiable', () => {
     const res = await r.verify(u.c, c, s);
     expect(res.state.statusCode).toBe(403);
     expect(reasonOf(res)).toBe('VERIFIER_ROLE_REQUIRED');
+    // A known limit (fails closed): nobody can verify now — and the owner is told so, and the way out, not "another member must".
+    const owner = await r.verify(u.b, c, s);
+    expect(reasonOf(owner)).toBe('SETTER_FORBIDDEN');
+    expect(messageOf(owner)).toMatch(/no other member who did not set them holds the owner role or above/);
+    expect(messageOf(owner)).toMatch(/relax the supplier-payment rule/);
   });
 
   it('…but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused', async () => {
@@ -148,7 +153,7 @@ describe('the sole-approver exception (R-035 Q2)', () => {
     await r.changeBank(u.b, c, s, { bankAccountType: 'savings' });
     const res = await r.verify(u.c, c, s);
     expect(reasonOf(res)).toBe('SETTER_FORBIDDEN');
-    expect(messageOf(res)).toMatch(/so did every other member with the admin role or above/);
+    expect(messageOf(res)).toMatch(/no other member who did not set them holds the admin role or above/);
   });
 
   it('a suspended second admin does not count: the sole active approver may self-verify', async () => {
