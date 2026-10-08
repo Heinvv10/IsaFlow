@@ -12,7 +12,10 @@ import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { callRoute, dataOf, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -164,6 +167,9 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     const ok = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 9, transferDate: '2026-03-14' });
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     expect(await journalCount()).toBe(n + 1);
+    // The rule stays out of the later tests' way.
+    await sql`DELETE FROM approval_rules WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM approval_enforcement WHERE company_id = ${c.fx.companyId}::UUID`;
   }, 60000);
 
   // R-032 L5 (sec-nrfa M1): a Login-as session is refused 403 before anything is read or written.
@@ -179,5 +185,48 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     expect(out.statusCode, JSON.stringify(out.body)).toBe(403);
     expect(JSON.stringify(out.body)).toMatch(/impersonating/);
     expect(await journalCount()).toBe(n);
+  }, 60000);
+
+  // brk-nrfa M1: the statement line of a movement already posted on the Transfers page must be matched to that
+  // journal, not allocated as a second transfer (which doubled the movement in the GL).
+  it("a bank line allocated as the transfer a Transfers-page journal already posted is refused, nothing written", async () => {
+    const posted = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 1000, transferDate: '2026-04-20' });
+    expect(posted.statusCode, JSON.stringify(posted.body)).toBe(200);
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2026-04-21', 1000, 'BTXF stmt in', 'imported')
+      RETURNING id`) as Row[])[0]!.id);
+    const n = await journalCount();
+    const err = await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, c.fx.bankAccountId, c.fx.userId,
+      'BTXF from Transfers', 'transfer')).then(() => null, (e: unknown) => e);
+    expect(String(err)).toMatch(/A matching transfer already exists/);
+    expect(await journalCount()).toBe(n);
+    const after = ((await sql`SELECT status FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!;
+    expect(after.status).toBe('imported');
+  }, 60000);
+
+  // sec-nrfa M2 / brk-nrfa M2: a typed transfer is tested for a round number; a pointer alone is not evidence.
+  it('the board pack flags a typed R50 000 transfer as a round number, even with a stale pointer to it', async () => {
+    const out = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 50000, transferDate: '2026-05-05' });
+    const id = (dataOf<{ journalEntry: { id: string } }>(out)).journalEntry.id;
+    // An unrelated, unmatched line left pointing at it (a match then an unmatch leaves the pointer set).
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+      transfer_journal_entry_id) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2026-05-05', -12.34, 'BTXF stale', 'imported',
+      ${id}::UUID)`;
+    const r = await getUnusualJournals(c.fx.companyId, { start: '2026-05-01', end: '2026-05-31' });
+    expect(r.flags.find((f) => f.entryId === id)?.reason).toBe('round_number');
+  }, 60000);
+
+  // brk-nrfa L3: a bank-line transfer and its reversal carry the line's amount; neither is a typed round number.
+  it('a bank-line transfer of R60 000 and its reversal are not flagged as round numbers', async () => {
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-06-10', -60000,
+      'BTXF line out', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF line transfer', 'transfer'));
+    const je = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
+    const reversal = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, je, c.fx.userId, { reversalDate: '2026-06-11' }));
+    const r = await getUnusualJournals(c.fx.companyId, { start: '2026-06-01', end: '2026-06-30' });
+    const flagged = r.flags.filter((f) => f.reason === 'round_number').map((f) => f.entryId);
+    expect(flagged).not.toContain(je);
+    expect(flagged).not.toContain((reversal as { id: string }).id);
   }, 60000);
 });
