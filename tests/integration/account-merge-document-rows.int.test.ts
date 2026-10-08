@@ -1,6 +1,6 @@
 /**
  * A GL account merge repoints the DOCUMENT lines coded to the source — bill
- * lines, customer invoice lines (migration 873), expense-claim lines, PO lines
+ * lines, customer invoice lines (migration 874), expense-claim lines, PO lines
  * and capture events — in the same
  * transaction as the journal lines, and records exactly which rows moved.
  *

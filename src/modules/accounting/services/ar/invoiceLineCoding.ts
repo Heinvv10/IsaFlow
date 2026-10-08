@@ -4,7 +4,7 @@
  * revenue is tagged with. Both optional. The line's CC1 / CC2 / BU are the
  * dimensions model's (migration 870, gl/dimensions); a line naming none of the
  * five posts to the company's `default_revenue` account, exactly as every
- * invoice did before migration 873.
+ * invoice did before migration 874.
  *
  * Pure — no DB. Every write path reads the caller's ids through
  * `parseLineCoding` before anything else touches them; ownership and account

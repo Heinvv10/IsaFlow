@@ -1,5 +1,5 @@
 /**
- * Migration 873 with 870's dimensions: a LINKED customer credit note reverses
+ * Migration 874 with 870's dimensions: a LINKED customer credit note reverses
  * the invoice journal's legs on all five tags (account, job, CC1, CC2, BU),
  * records them, and follows a dimension re-tag of the invoice line; its own
  * header tags are refused (CREDIT_NOTE_DIMENSIONS_REFUSED) at create and at
@@ -38,7 +38,7 @@ const note = (input: Record<string, unknown>) => inTx(f.fx, () => createCreditNo
   type: 'customer', clientId: f.fx.customerId, creditDate: '2026-07-20', taxRate: 0, ...input,
 } as never, f.fx.userId));
 const approve = (id: string) => inTx(f.fx, () => approveCreditNote(f.fx.companyId, id, f.fx.userId));
-/** A draft inserted as rows written before 873 can be: a header tag the create path now refuses. */
+/** A draft inserted as rows written before 874 can be: a header tag the create path now refuses. */
 const forgedDraft = async (cols: { invoice?: string | null; project?: string | null; cc2?: string | null }) => ((await sql`
   INSERT INTO credit_notes (company_id, type, client_id, customer_invoice_id, credit_date, subtotal, tax_rate, tax_amount,
                             total_amount, status, created_by, project_id, cc2_id)
@@ -59,7 +59,7 @@ async function revenueDebits(je: string) {
     ORDER BY a.account_code, jl.debit`) as Record<string, unknown>[];
 }
 
-describeIfDisposable('credit notes and the five revenue tags (migrations 870 + 873)', () => {
+describeIfDisposable('credit notes and the five revenue tags (migrations 870 + 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 

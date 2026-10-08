@@ -23,7 +23,7 @@
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
-// Migration 873: the quote-line account check has its own real-PG suite
+// Migration 874: the quote-line account check has its own real-PG suite
 // (invoice-line-revenue-quotes.int.test.ts); here every account is accepted.
 vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', () => ({ assertLineAccountIds: vi.fn(async () => undefined) }));
 vi.mock('@/lib/neon', () => {

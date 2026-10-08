@@ -1,5 +1,5 @@
 /**
- * Migration 873: an invoice whose stored line coding approve would refuse (an
+ * Migration 874: an invoice whose stored line coding approve would refuse (an
  * account deactivated since, a foreign id) is a SKIP in bulk_finalize_invoices
  * with approve's own reason — in the dry run and the live call alike, so the
  * preview is of the batch that posts. The refusal itself is pinned against a

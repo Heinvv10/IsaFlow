@@ -11,7 +11,7 @@ export interface CustomerInvoiceItem {
   unit_price: number;
   amount: number;
   tax_rate: number;
-  /** Migration 873: what the line posts to, named for the approver. Null when uncoded. */
+  /** Migration 874: what the line posts to, named for the approver. Null when uncoded. */
   gl_account_id?: string | null;
   /** Posted invoices: whether its journal credited the line's account (null when unposted or uncoded). */
   account_posted?: boolean | null;

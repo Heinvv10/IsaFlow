@@ -88,7 +88,7 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    // Migration 873: the lines' revenue account and job (an
+    // Migration 874: the lines' revenue account and job (an
     // absent key keeps the stored coding — customerInvoiceDraftCoding) and the
     // header's display project, under the row lock and before the first write.
     let codings: InvoiceLineCoding[] = [];

@@ -215,7 +215,7 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
            c1.code AS cc1_code, c1.name AS cc1_name, c2.code AS cc2_code, c2.name AS cc2_name,
            bu.code AS bu_code, bu.name AS bu_name,
            -- Posted invoices only: did its journal actually credit this line's account? An invoice posted
-           -- before migration 873 credited default_revenue whatever account its line names.
+           -- before migration 874 credited default_revenue whatever account its line names.
            CASE WHEN ci.gl_journal_entry_id IS NULL OR cii.gl_account_id IS NULL THEN NULL
                 ELSE EXISTS (SELECT 1 FROM gl_journal_lines jl
                              WHERE jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id

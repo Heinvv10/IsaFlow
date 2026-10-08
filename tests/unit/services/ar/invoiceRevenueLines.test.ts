@@ -211,7 +211,7 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
       .toEqual([[COMMERCIALS, P1, 120], [POST, P2, 80], [DEFAULT, null, 800]]);
   });
 
-  it('replays pre-873 notes in approval order: two unequal notes on uneven legs, swapped, leave different legs', () => {
+  it('replays pre-874 notes in approval order: two unequal notes on uneven legs, swapped, leave different legs', () => {
     // Found by search. Rounding makes the replay order-sensitive, so the order is the approval order.
     const legs3 = [0.33, 0.25, 0.01].map((net, i) => ({ glAccountId: `acct-${i}`, projectId: null, cc1Id: null, cc2Id: null, buId: null, net }));
     const took = (earlier: number[]) => allocateCreditNote(legs3, 0.33, 'CN-3', DEFAULT, earlier).allocations

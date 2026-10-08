@@ -1,5 +1,5 @@
 /**
- * Migration 873, the invoice writers that do NOT carry line coding today: a
+ * Migration 874, the invoice writers that do NOT carry line coding today: a
  * sales-order conversion (customer_sales_order_items.gl_account_id exists but
  * nothing writes it, and the conversion does not copy it) and a recurring
  * invoice run (its template lines' glAccountId is dropped by parseLineItems).
@@ -7,7 +7,7 @@
  * posts the single default_revenue leg — and the recurring template's header
  * project tags nothing (D1: only line dimensions post).
  *
- * Disposable databases only (869 and 873 are not on isaflow_dev).
+ * Disposable databases only (869 and 874 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -36,7 +36,7 @@ const codingOf = async (invoiceId: string) => (await sql`
   SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${invoiceId}::UUID`) as
   Record<string, string | null>[];
 
-describeIfDisposable('invoice writers without line coding (migration 873)', () => {
+describeIfDisposable('invoice writers without line coding (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => {
     if (!f) return;

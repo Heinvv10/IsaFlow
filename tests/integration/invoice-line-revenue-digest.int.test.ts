@@ -1,5 +1,5 @@
 /**
- * Migration 873, the approval half: a line's job posts to the journal, so it
+ * Migration 874, the approval half: a line's job posts to the journal, so it
  * is approval content (as its account already was). Retagging either after a request
  * was raised makes the approve refuse DOCUMENT_CHANGED; retagging after the
  * approval makes it stale, in the TypeScript gate and in migration 865's
@@ -65,7 +65,7 @@ const RETAGS: [string, () => Coding, () => Coding][] = [
   ['revenue account', () => ({ glAccountId: f.acct.commercials }), () => ({ glAccountId: f.acct.postProduction })],
 ];
 
-describeIfDisposable('an invoice line\'s job is approval content (migration 873)', () => {
+describeIfDisposable('an invoice line\'s job is approval content (migration 874)', () => {
   beforeAll(async () => {
     f = await seedLineRevenue(process.env.DATABASE_URL!);
     await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by, enabled_at)

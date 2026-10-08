@@ -11,7 +11,7 @@
  *  - UNLINKED: they post on its one revenue debit (870's rule for CC1 / CC2 /
  *    BU, extended to the job so Project Profitability sees the credit). The
  *    job must be this company's and not cancelled — `credit_notes.project_id`
- *    was stored unchecked before 873.
+ *    was stored unchecked before 874.
  *
  * Supplier notes are unaffected (their CC1 / CC2 / BU ride on the expense leg,
  * as 870 posts them).

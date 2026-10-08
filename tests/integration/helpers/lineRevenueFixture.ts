@@ -1,6 +1,6 @@
 /**
  * A company with a revenue chart to code invoice lines against (migration
- * 873): default_revenue plus two revenue lines, every account a line must be
+ * 874): default_revenue plus two revenue lines, every account a line must be
  * refused, two jobs and a cancelled one; and migration 870's dimensions — an
  * FNO (CC1) with a CC2 project under it, a second FNO with its own CC2, and a
  * BU. A SECOND company holds one of each, for the tenancy arms. The customer

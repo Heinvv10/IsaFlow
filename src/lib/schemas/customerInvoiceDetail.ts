@@ -14,7 +14,7 @@ export const PutItemSchema = z.object({
   unitPrice: z.number().nonnegative(),
   taxRate: z.number().min(0).max(100).optional(),
   discount: z.number().min(0).max(100).optional(),
-  // Migration 873: the account the line credits and its job. Shape only —
+  // Migration 874: the account the line credits and its job. Shape only —
   // ownership and the revenue-account rules are invoiceLineCodingGuard's.
   glAccountId: UUID.nullable().optional(),
   projectId: UUID.nullable().optional(),

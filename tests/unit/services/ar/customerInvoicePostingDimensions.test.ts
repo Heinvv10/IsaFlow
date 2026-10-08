@@ -1,7 +1,7 @@
 /**
  * Dimensions Phase 1 — postCustomerInvoiceToGL builds its revenue legs from the
  * items' CC1/CC2/BU and the customer's FNO (read with the stored lines,
- * invoiceLineCodingGuard.storedInvoiceLines, since migration 873), and never
+ * invoiceLineCodingGuard.storedInvoiceLines, since migration 874), and never
  * puts a dimension on the AR or VAT leg.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';

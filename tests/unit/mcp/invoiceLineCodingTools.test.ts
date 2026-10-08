@@ -1,5 +1,5 @@
 /**
- * The MCP customer-invoice create tools and line coding (migration 873),
+ * The MCP customer-invoice create tools and line coding (migration 874),
  * through their HANDLERS: the header project_id reaches the service, a coding
  * refusal is the registered INVOICE_LINE_CODING_REFUSED (bulk: named by
  * element), and an unknown line key — camelCase glAccountId — is refused

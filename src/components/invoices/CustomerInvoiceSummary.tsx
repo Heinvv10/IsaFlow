@@ -22,7 +22,7 @@ interface Props {
 }
 
 /**
- * What the line posts to, for whoever approves it (migration 873). A posted
+ * What the line posts to, for whoever approves it (migration 874). A posted
  * invoice whose journal did NOT credit the line's account (posted before line
  * accounts existed) says so instead of naming an account it never touched; a
  * line account, job, CC1, CC2 or BU this company cannot resolve is

@@ -2,7 +2,7 @@
  * InvoiceLineItemsTable — the line editor shared by the new and edit customer
  * invoice pages. Each line may name the revenue account it credits (blank =
  * the company's default sales account) and, behind "Dimensions", the job
- * (Project Profitability, migration 873) and the CC2 project and BU (migration
+ * (Project Profitability, migration 874) and the CC2 project and BU (migration
  * 870) its revenue belongs to — labelled apart, since the job and the CC2
  * project are two models until Hein rules. The CC1 is derived (from the CC2,
  * or the customer's FNO), never picked. The bill editor's account column,

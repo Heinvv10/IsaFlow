@@ -1,5 +1,5 @@
 /**
- * Migration 873, the write half: every path that codes a customer invoice line
+ * Migration 874, the write half: every path that codes a customer invoice line
  * — create (HTTP and MCP share it), draft edit, a recurring template — refuses
  * an account or job the line may not name, BEFORE its first write, and stores
  * what it accepts, beside migration 870's CC1 / CC2 / BU. The invoice header's
@@ -47,7 +47,7 @@ async function storedLines(invoiceId: string) {
 const coded = (gl: string | null, project: string | null) =>
   ({ gl_account_id: gl, project_id: project, cc1_id: null, cc2_id: null, bu_id: null });
 
-describeIfDisposable('invoice line coding on write (migration 873)', () => {
+describeIfDisposable('invoice line coding on write (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 
@@ -165,7 +165,7 @@ describeIfDisposable('invoice line coding on write (migration 873)', () => {
     // Another invoice's journal DOES credit 4200: the check is this invoice's journal, not any.
     const other = (await create([{ description: 'Grade', unitPrice: 50, glAccountId: f.acct.postProduction }])).id;
     await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, other, f.fx.userId));
-    // As a pre-873 invoice reads: the line names an account its journal never credited.
+    // As a pre-874 invoice reads: the line names an account its journal never credited.
     await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.postProduction}::UUID WHERE invoice_id = ${id}::UUID`;
     expect(await posted()).toBe(false);
   });

@@ -196,7 +196,7 @@ export const bulkFinalizeInvoicesTool: McpTool = {
     // Read, not written, so the dry run and the live call decide it alike.
     const refusals = await agentApprovalRefusals(ctx.companyId, 'customer_invoice',
       await approvableCustomerInvoiceIds(ctx.companyId, partitioned.postable.map((p) => p.id)));
-    // Line coding approve would refuse (migration 873) — skipped with approve's
+    // Line coding approve would refuse (migration 874) — skipped with approve's
     // own reason, so the dry run and the live call decide it alike.
     const lineRefusals = await storedInvoiceLinesRefusals(ctx.companyId,
       partitioned.postable.filter((p) => !refusals.has(p.id)).map((p) => p.id));

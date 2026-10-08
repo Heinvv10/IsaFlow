@@ -154,8 +154,8 @@ export async function convertToInvoice(
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
   // The lines' accounts are copied onto the invoice, and posting credits them
-  // (migration 873): re-checked against the chart as it is now, before the
-  // claim below writes anything. A quote saved before 873 was never checked.
+  // (migration 874): re-checked against the chart as it is now, before the
+  // claim below writes anything. A quote saved before 874 was never checked.
   await assertLineAccountIds(companyId, (quote.lines ?? []).map((l) => l.accountId));
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED — the same guard convertToSalesOrder

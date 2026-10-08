@@ -4,7 +4,7 @@
  * real journal validator (tests/unit/services/ar/invoiceRevenueLines.test.ts).
  *
  * INVOICE. When no line names an account, a job or a CC1 / CC2 / BU (every
- * invoice before migrations 870 and 873, and every writer that still writes
+ * invoice before migrations 870 and 874, and every writer that still writes
  * none) the result is the single `default_revenue` credit of the subtotal
  * posted before, byte for byte — tagged with the customer's FNO when it has
  * one (870's rule) — and the line amounts are not read. Otherwise each line
@@ -192,10 +192,10 @@ export function noteShares(carries: readonly number[], total: number): number[] 
  * the allocation rows that record it.
  *
  * What each leg still carries is its net, less what earlier notes TOOK:
- *  - notes approved since migration 873 recorded it (`leg.taken`, from
+ *  - notes approved since migration 874 recorded it (`leg.taken`, from
  *    credit_note_revenue_allocations of live notes — a cancelled note's rows
  *    stop counting the moment it is cancelled);
- *  - notes approved before 873 recorded nothing, so their take is REPLAYED
+ *  - notes approved before 874 recorded nothing, so their take is REPLAYED
  *    (`legacyNotes`, their amounts in approval order, allocated with this same
  *    rule) — the fallback only; they all predate any recorded note.
  * No leg is debited past what it carries; whatever the legs cannot take goes

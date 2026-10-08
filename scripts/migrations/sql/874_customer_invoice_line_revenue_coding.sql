@@ -1,4 +1,4 @@
--- 873_customer_invoice_line_revenue_coding.sql
+-- 874_customer_invoice_line_revenue_coding.sql
 -- A customer invoice line may name its own revenue account and job (`projects`: Project
 -- Profitability, WIP, time), so revenue posts by line and Project Profitability sees it (Hein,
 -- 2026-10-07). Its CC1 / CC2 / BU are migration 870's (`customer_invoice_items.cc1_id/cc2_id/
@@ -97,13 +97,13 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.approval_manual_journal_gate_amount(uuid,uuid)') IS NULL
      OR pg_catalog.pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'::pg_catalog.regprocedure)
         NOT LIKE '%WHEN ''manual_journal''%' THEN
-    RAISE EXCEPTION 'migration 873: apply migration 869 (PR #660, manual journal approval) first — 873 replaces 869''s approval_document_digest';
+    RAISE EXCEPTION 'migration 874: apply migration 869 (PR #660, manual journal approval) first — 874 replaces 869''s approval_document_digest';
   END IF;
 END $$;
 
 -- Every document whose digest anything could still be compared against, as 869 snapshots them.
-DROP TABLE IF EXISTS pg_temp.r873_before;
-CREATE TEMP TABLE r873_before ON COMMIT DROP AS
+DROP TABLE IF EXISTS pg_temp.r874_before;
+CREATE TEMP TABLE r874_before ON COMMIT DROP AS
   SELECT si.company_id, 'supplier_invoice'::TEXT AS document_type, si.id,
          public.approval_document_digest(si.company_id, 'supplier_invoice', si.id) AS digest
   FROM public.supplier_invoices si
@@ -264,11 +264,11 @@ DECLARE
   v_changed pg_catalog.int8;
 BEGIN
   SELECT count(*) INTO v_changed
-  FROM pg_temp.r873_before b
+  FROM pg_temp.r874_before b
   WHERE b.document_type <> 'customer_invoice'
     AND b.digest IS DISTINCT FROM public.approval_document_digest(b.company_id, b.document_type, b.id);
   IF v_changed > 0 THEN
-    RAISE EXCEPTION 'migration 873: approval_document_digest changed for % non-invoice document(s)', v_changed;
+    RAISE EXCEPTION 'migration 874: approval_document_digest changed for % non-invoice document(s)', v_changed;
   END IF;
 END $$;
 
@@ -277,7 +277,7 @@ END $$;
 -- requests are left as they are; they clear nothing either way.
 UPDATE public.approval_requests ar
 SET document_digest = public.approval_document_digest(ar.company_id, 'customer_invoice', ar.document_id)
-FROM pg_temp.r873_before b
+FROM pg_temp.r874_before b
 WHERE ar.document_type = 'customer_invoice' AND ar.status IN ('pending', 'approved')
   AND b.document_type = 'customer_invoice' AND b.id = ar.document_id AND b.company_id = ar.company_id
   AND ar.document_digest = b.digest;

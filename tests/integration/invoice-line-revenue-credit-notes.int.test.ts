@@ -1,5 +1,5 @@
 /**
- * Migration 873, credit notes against coded invoices: the note's revenue legs
+ * Migration 874, credit notes against coded invoices: the note's revenue legs
  * are decided BEFORE its journal is written — a leg whose account was
  * deactivated since the invoice posted (a year-end clean-up) is debited on
  * default_revenue with its job and CC1 / CC2 / BU kept, so the note approves
@@ -7,7 +7,7 @@
  * earlier notes on the same invoice took, the rest untagged. A failure
  * after the journal is written is a 5xx class, so the request rolls back.
  *
- * Disposable databases only (869 and 873 are not on isaflow_dev).
+ * Disposable databases only (869 and 874 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -64,7 +64,7 @@ const draftCreditJournals = async () => Number(((await sql`
   SELECT COUNT(*) AS n FROM gl_journal_entries
   WHERE company_id = ${f.fx.companyId}::UUID AND source = 'auto_credit_note' AND status = 'draft'`) as { n: string }[])[0]!.n);
 
-describeIfDisposable('credit notes against coded invoices (migration 873)', () => {
+describeIfDisposable('credit notes against coded invoices (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 

@@ -1,4 +1,4 @@
-// The REAL new and edit customer-invoice pages with the shared line table (migration 873): the account picker
+// The REAL new and edit customer-invoice pages with the shared line table (migration 874): the account picker
 // offers only active LEAF revenue accounts; Dimensions offers jobs that are not cancelled, ACTIVE CC2 projects and
 // business units (fetched with ?active=true) — the job and the CC2 project labelled apart; each picker writes its own
 // field; the header Job is display only and pre-fills new lines; the edit page shows a line's CC2 / BU but cannot

@@ -1,12 +1,12 @@
 /**
- * Migration 873, quotes: a quote line's account is copied onto the invoice its
+ * Migration 874, quotes: a quote line's account is copied onto the invoice its
  * conversion raises, and posting credits it — so the quote is held to the
  * invoice-line rules when it is saved (create and update) and again when it is
- * converted (a quote saved before 873 was never checked), each before anything
+ * converted (a quote saved before 874 was never checked), each before anything
  * is written: an expense account and another company's account are refused
  * with INVOICE_LINE_CODING_REFUSED; a revenue account converts and posts.
  *
- * Disposable databases only (869 and 873 are not on isaflow_dev).
+ * Disposable databases only (869 and 874 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -31,7 +31,7 @@ const input = (accountId?: string) => ({
 const quoteCount = async () => Number(((await sql`
   SELECT COUNT(*) AS n FROM customer_quotes WHERE company_id = ${f.fx.companyId}::UUID`) as { n: string }[])[0]!.n);
 
-/** An accepted quote whose line names `accountId`, written directly — as a quote saved before 873 could be. */
+/** An accepted quote whose line names `accountId`, written directly — as a quote saved before 874 could be. */
 async function acceptedQuote(accountId: string): Promise<string> {
   const q = await inTx(f.fx, () => createQuote(f.fx.companyId, input(), f.fx.userId));
   await sql`UPDATE customer_quote_lines SET gl_account_id = ${accountId}::UUID WHERE quote_id = ${q.id}::UUID`;
@@ -39,7 +39,7 @@ async function acceptedQuote(accountId: string): Promise<string> {
   return q.id;
 }
 
-describeIfDisposable('quote line accounts (migration 873)', () => {
+describeIfDisposable('quote line accounts (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => {
     if (!f) return;

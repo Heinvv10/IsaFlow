@@ -1,7 +1,7 @@
 /**
  * What an invoice line may be coded to: the company's ACTIVE, LEAF revenue
  * accounts and its jobs (`projects`) that are not cancelled — the population
- * ar/invoiceLineCodingGuard accepts (migration 873) — and its active CC2
+ * ar/invoiceLineCodingGuard accepts (migration 874) — and its active CC2
  * projects and business units (migration 870's dimensions; the CC1 is derived
  * from the CC2 or the customer's FNO, never picked).
  *

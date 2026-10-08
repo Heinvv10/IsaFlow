@@ -54,7 +54,7 @@ export async function invoiceRevenueJournalLines(
  * credit_note_revenue_allocations rows record it, grouped by the referenced
  * journal line's CURRENT account and tags (an account merge or a dimension
  * re-tag moves the line in place). A cancelled note's rows stop counting, so
- * its share is available again. A note approved before migration 873 has no
+ * its share is available again. A note approved before migration 874 has no
  * rows; its take is REPLAYED from its amount in approval order — the fallback
  * for those notes only. The excess posts untagged to default_revenue. A leg
  * whose account has since been deactivated is debited on default_revenue,
@@ -103,7 +103,7 @@ export async function creditNoteRevenueJournalLines(
       AND NOT a.is_excess AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID
     GROUP BY jl.gl_account_id, jl.project_id, jl.cc1_id, jl.cc2_id, jl.bu_id
   `) as Record<string, unknown>[];
-  // Live earlier notes that recorded nothing: approved before 873 — replayed.
+  // Live earlier notes that recorded nothing: approved before 874 — replayed.
   const legacy = (await sql`
     SELECT cn.subtotal FROM credit_notes cn
     WHERE cn.company_id = ${companyId}::UUID AND cn.customer_invoice_id = ${note.customerInvoiceId}::UUID

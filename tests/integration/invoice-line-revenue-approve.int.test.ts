@@ -1,5 +1,5 @@
 /**
- * Migration 873, the approve side (review round 1):
+ * Migration 874, the approve side (review round 1):
  *  - an UNCODED invoice is never refused for its lines — approve and bulk
  *    finalize both post it even when its lines do not add up to the subtotal;
  *  - a CODED invoice whose lines total zero is refused before the status moves;
@@ -8,7 +8,7 @@
  *    dry run and live alike, and reads only this company's invoices;
  *  - the FOR SHARE read really locks the accounts against a concurrent change.
  *
- * Disposable databases only (869 and 873 are not on isaflow_dev).
+ * Disposable databases only (869 and 874 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -50,7 +50,7 @@ const finalize = (ids: string[], dry = false) => inTx(f.fx, async () => JSON.par
 // The lines of a draft made to disagree with its own subtotal, as a legacy import can leave them.
 const skew = (id: string) => sql`UPDATE customer_invoice_items SET amount = amount + 7 WHERE invoice_id = ${id}::UUID`;
 
-describeIfDisposable('approving invoices with and without coded lines (migration 873)', () => {
+describeIfDisposable('approving invoices with and without coded lines (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 

@@ -1,10 +1,10 @@
 /**
  * Final review round, item 1: what a credit note took off each revenue leg of
- * its invoice is RECORDED (credit_note_revenue_allocations, migration 873), and
+ * its invoice is RECORDED (credit_note_revenue_allocations, migration 874), and
  * the next note's capacity is the leg less what the live notes recorded. A
  * replay of the earlier notes' amounts assumed every live note took its
  * pro-rata share — wrong once a note that went to default_revenue survives the
- * cancellation of the one that filled the leg. Notes approved before 873 have
+ * cancellation of the one that filled the leg. Notes approved before 874 have
  * no rows and are still replayed; that is the fallback only.
  *
  * Disposable databases only.
@@ -105,11 +105,11 @@ describeIfDisposable('credit notes take capacity from recorded allocations, not 
     expect(await p1Left(inv)).toBe(0);
   });
 
-  it('a note approved before 873 (no rows) is replayed, a recorded one is read', async () => {
+  it('a note approved before 874 (no rows) is replayed, a recorded one is read', async () => {
     const inv = await invoice([{ unitPrice: 600, glAccountId: f.acct.commercials, projectId: f.project.p1 },
       { unitPrice: 400, glAccountId: f.acct.postProduction }]);
     const legacy = await approve(await draftNote(inv, 500));
-    await sql`DELETE FROM credit_note_revenue_allocations WHERE credit_note_id = ${legacy}::UUID`; // as before 873
+    await sql`DELETE FROM credit_note_revenue_allocations WHERE credit_note_id = ${legacy}::UUID`; // as before 874
     const recorded = await approve(await draftNote(inv, 300));
     expect(await noteLegs(recorded)).toEqual({ '4100/P1': 180, '4200/-': 120 });
     const last = await approve(await draftNote(inv, 400));
@@ -118,7 +118,7 @@ describeIfDisposable('credit notes take capacity from recorded allocations, not 
     expect(await p1Left(inv)).toBe(0);
   });
 
-  it('pre-873 notes replay in APPROVAL order, not creation order (two unequal notes, uneven legs)', async () => {
+  it('pre-874 notes replay in APPROVAL order, not creation order (two unequal notes, uneven legs)', async () => {
     const inv = await invoice([{ unitPrice: 0.33, glAccountId: f.acct.commercials, projectId: f.project.p1 },
       { unitPrice: 0.25, glAccountId: f.acct.postProduction }, { unitPrice: 0.01, glAccountId: f.acct.commercials, projectId: f.project.p2 }]);
     const small = await approve(await draftNote(inv, 0.05));

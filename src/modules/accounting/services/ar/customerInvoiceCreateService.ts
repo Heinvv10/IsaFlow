@@ -29,7 +29,7 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
-  /** Revenue account and job (migration 873). Optional; read through parseLineCoding. */
+  /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
   glAccountId?: string | null;
   projectId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
@@ -94,7 +94,7 @@ export async function createDraftCustomerInvoice(
     if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
   }
 
-  // Migration 873: what each line credits and is tagged with. Shape first (a
+  // Migration 874: what each line credits and is tagged with. Shape first (a
   // uuid STRING or nothing — the body is untyped), then ownership and the
   // revenue-account rules, all before the first write below.
   const codings: InvoiceLineCoding[] = [];

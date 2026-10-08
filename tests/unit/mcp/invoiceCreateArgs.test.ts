@@ -64,7 +64,7 @@ describe('bulk_create_supplier_invoices — the path the 50-char limit killed', 
   });
 });
 
-describe('parseCustomerInvoiceInput — line coding (migration 873)', () => {
+describe('parseCustomerInvoiceInput — line coding (migration 874)', () => {
   const ACCOUNT = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
   const PROJECT = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
   const customer = (item: Record<string, unknown>, extra: Record<string, unknown> = {}) => parseCustomerInvoiceInput({

@@ -1,6 +1,6 @@
 /**
  * The DOCUMENT lines a GL account merge carries with it: bill lines,
- * customer invoice lines (migration 873: posting credits their account),
+ * customer invoice lines (migration 874: posting credits their account),
  * expense-claim lines, purchase-order lines and capture events coded to the
  * source account.
  *

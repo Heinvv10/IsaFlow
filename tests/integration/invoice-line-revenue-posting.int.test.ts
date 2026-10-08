@@ -1,5 +1,5 @@
 /**
- * Migration 873, the posting half: a customer invoice whose lines name their
+ * Migration 874, the posting half: a customer invoice whose lines name their
  * own revenue account, job and (migration 870) CC1 / CC2 / BU posts its
  * revenue by line, the customer's FNO on every revenue leg;
  * Project Profitability and the income statement see it; a credit note
@@ -68,7 +68,7 @@ async function legs(journalId: string): Promise<Leg[]> {
 const journalCount = async () => Number(((await sql`
   SELECT COUNT(*) AS n FROM gl_journal_entries WHERE company_id = ${f.fx.companyId}::UUID`) as { n: string }[])[0]!.n);
 
-describeIfDisposable('invoice line revenue posting (migration 873)', () => {
+describeIfDisposable('invoice line revenue posting (migration 874)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 

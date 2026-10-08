@@ -4,7 +4,7 @@
  * Bills: each item's dimensions ride on its EXPENSE leg; the AP and VAT legs
  * the workflow adds carry none. Customer invoices: one revenue line per
  * distinct (account, job, CC1, CC2, BU) — ar/invoiceRevenueLines since
- * migration 873 — summing exactly to the subtotal; the FNO defaults from the
+ * migration 874 — summing exactly to the subtotal; the FNO defaults from the
  * customer and a conflicting one is refused; with no dimension anywhere the
  * journal is the single revenue line it always was.
  */
@@ -43,7 +43,7 @@ describe('bill posting carries dimensions on the expense legs', () => {
   });
 });
 
-describe('customer invoice revenue legs (one builder: account, job, CC1, CC2, BU — migration 873)', () => {
+describe('customer invoice revenue legs (one builder: account, job, CC1, CC2, BU — migration 874)', () => {
   const build = (subtotal: number, lines: StoredRevenueLine[], customerFnoId: string | null) => buildInvoiceRevenueLines({
     invoiceNumber: 'INV-1', documentSubtotal: subtotal, credit: subtotal, lines, defaultRevenueAccountId: 'rev', customerFnoId,
   });

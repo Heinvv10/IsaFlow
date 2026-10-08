@@ -127,7 +127,7 @@ export async function assertValidLines(companyId: string, lines: QuoteInput['lin
       throw new LineValidationError(`Line "${l.description}": unit price cannot be negative`);
     }
   }
-  await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 873)
+  await assertLineAccountIds(companyId, (lines || []).map((l) => l.accountId)); // conversion posts to them (mig 874)
 }
 
 function calcTotals(lines: QuoteInput['lines']) {
