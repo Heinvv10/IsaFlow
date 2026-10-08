@@ -179,3 +179,14 @@ Review round 3 (blind LOWs) fixes (2026-10-08T16:51:20Z) — same method:
      × an impersonated session is refused 403 — verify and switching on alike 90ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 13 passed (14)
+
+Breaker round 3 residual fix (2026-10-08T16:52:20Z) — same method:
+=== MUTANT M36-loosen-on-first-setter-only (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 59ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M37-loosen-when-any-setter-holds (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …only for the owner's OWN destination: an admin's redirect the owner merely touched still needs the owner level 63ms
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 13 passed (15)
