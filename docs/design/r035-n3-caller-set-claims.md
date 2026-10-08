@@ -16,7 +16,8 @@ I did not connect to prod `isaflow` or to `isaflow_dev`, and I did not open any 
    - `withAuth` connects with `DATABASE_URL` (`authPool.ts:24-27`), then runs `SET LOCAL ROLE app_user` (`withAuth.ts:102`).
    - One injected expression undoes that: `set_config('role','none',true)` (or `RESET ROLE`, or `SET ROLE postgres`). On the scratch cluster, `current_user` went back to the login role, and an UPDATE refused to `app_user` then succeeded.
    - The login role is the schema owner. Prod migrations run with the same `DATABASE_URL` (`scripts/deploy.sh:144-146`, `apply-migrations.ts:150`).
-   - The deploy notes say that role is `postgres`: not a superuser, but BYPASSRLS and a member of `migration_admin`. On the fixture, and in any stock-docker CI database, `postgres` IS a superuser (`pg_roles.rolsuper = t`). A superuser can read server files, run `COPY … PROGRAM` (a shell in the DB container) and skip every trigger with `session_replication_role`.
+   - **The two memory notes disagree about that role.** The deploy note (`project_deployment.md:44`, 2026-10-05) says prod's `postgres` is not a superuser, but is BYPASSRLS and a member of `migration_admin`. The older infra note (`project_velo_supabase_infra.md:42`, 2026-04-19) says `postgres` is a superuser, and that `migration_admin` is "used by apply-migrations.ts". The code contradicts the second half of that: migrations run with `DATABASE_URL` (`deploy.sh:144-146`, `apply-migrations.ts:150`). Q2 settles both. This doc assumes the newer note, and P0 says what changes if the older one is right.
+   - On the fixture, and in any stock-docker CI database, `postgres` IS a superuser (`pg_roles.rolsuper = t`). A superuser can read server files, run `COPY … PROGRAM` (a shell in the DB container) and skip every trigger with `session_replication_role`.
    - The owner alone can `ALTER TABLE … DISABLE TRIGGER`, `CREATE OR REPLACE` any definer function, and write any row past RLS.
    - So today an injection gets the owner, or a superuser. Until §3 (P0) is done, PR B's REVOKE and every SECURITY DEFINER check stop application bugs, not attackers.
 2. **Injected statements can be stacked.**
@@ -38,7 +39,7 @@ I did not connect to prod `isaflow` or to `isaflow_dev`, and I did not open any 
    - So every agent session on this box can read the prod env (`/home/velo/isaflow/.env.local`, 0600 `velo`) and act as DB superuser. I stated this from `sudo -n -l` and `id` only; I did not use either.
 6. **`platform_admin` and `migration_admin` can write `approval_requests` directly.**
    - On the fixture, `platform_admin` holds INSERT, UPDATE and DELETE, and is BYPASSRLS.
-   - `migration_admin` also holds TRUNCATE and TRIGGER. TRUNCATE fires no row trigger, and an INSERT/UPDATE/DELETE REVOKE does not remove it. `migration_admin` is NOLOGIN on the fixture but LOGIN on prod (memory "Supabase infra").
+   - `migration_admin` also holds TRUNCATE and TRIGGER. TRUNCATE fires no row trigger, and an INSERT/UPDATE/DELETE REVOKE does not remove it. `migration_admin` is NOLOGIN on the fixture, but LOGIN on prod according to memory "Supabase infra", the same note whose superuser claim conflicts with the deploy note (fact 1).
    - The insert guard waves BYPASSRLS and superuser roles through (`869_manual_journal_approval_enforcement.sql:488-492`).
    - PR B's REVOKE must name both roles, including TRUNCATE and TRIGGER, or either can forge an approval.
 7. **The switch and rule tables are unguarded.**
@@ -139,9 +140,11 @@ The same URL runs prod migrations (`deploy.sh:144-146`).
 
 | | P0-i | P0-iii | P0-iv |
 |---|---|---|---|
-| **Migration** | None in `scripts/migrations`. The role is cluster-level: `CREATE ROLE` plus `GRANT app_user`, run once per cluster (prod, the dev cluster, the CI fixtures). With `APP_DATABASE_URL` unset the pools fall back to `DATABASE_URL`, so `isaflow_dev` and the golden paths are unaffected. Reversible: unset the variable. | Grants on every table, and `ALTER DEFAULT PRIVILEGES`. Reversible. | None. Code only. Reversible. |
+| **Migration** | None in `scripts/migrations`. The role is cluster-level: `CREATE ROLE` plus `GRANT app_user`, run once per cluster (prod, the dev cluster, the CI fixtures). Outside production, an unset `APP_DATABASE_URL` falls back to `DATABASE_URL`, so `isaflow_dev`, CI and the golden paths are unaffected. **In production the fallback would fail open:** a missing variable silently brings back the owner escape. So the request pool asserts its session user on first connect: not a superuser, not BYPASSRLS, and owning no relation (`NOT EXISTS (SELECT 1 FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = session_user))`). Under `NODE_ENV=production` a failed assertion stops the server from starting; elsewhere it logs a warning. `verify-deploy.sh` runs the same query. Reversible: point the variable at the old URL, which the assertion then refuses in prod, so the rollback is a deliberate code revert. | Grants on every table, and `ALTER DEFAULT PRIVILEGES`. Reversible. | None. Code only. Reversible. |
 | **Cost** | 1 to 2 days, with a real-PG test per wrapper: run the escape, assert the resulting role has no write privilege on `approval_requests` and no BYPASSRLS. Mutant: point the pool back at `DATABASE_URL`. | 2 to 3 days | 1 day, plus the census |
 | **Rollout risk** | Low to medium. Inside these transactions everything already runs as `app_user`, and no code does `RESET ROLE` / `set_config('role', …)` (`git grep`: none). A prod env change and a new role, so §8. | High care | Medium. A deliberate multi-statement call site 500s until it is split. |
+
+**If the prod login role is a superuser after all** (the older memory note; Q2): P0-i becomes urgent rather than desirable. The escape then reaches a superuser, so `COPY … PROGRAM` gives a shell in the DB container and `session_replication_role` skips every trigger.
 
 **What P0-i plus P0-iv closes:** T3's escalation to T1, and stacked-statement transaction control.
 
@@ -153,6 +156,31 @@ The same URL runs prod migrations (`deploy.sh:144-146`).
 ## 4. Options
 
 For each option, **Migration** says what it adds, whether `isaflow_dev` must have it before the golden paths run (applying it there is a §8 gate), and whether it can be reversed.
+
+**Rule for every protected object an option adds.** This rule is part of each option's Migration line.
+- **Why it is needed.** The fixture's default privileges (`pg_default_acl`) give, on every new table in `public`:
+  - `app_user=arwd`;
+  - `platform_admin=arwd`;
+  - `migration_admin=arwdDxt`;
+  - `app_user=U` (USAGE) on sequences.
+
+  `platform_shared` has the same rule for `app_user`, and the `app` and `auth` schemas grant `platform_admin` EXECUTE on new functions. Postgres itself also grants EXECUTE on every new function to `PUBLIC`.
+- **What a plain `CREATE TABLE` gets wrong.** It would ship each of these open to an injection:
+  - (a)'s secrets table, which would hand out `JWT_SECRET`;
+  - (b)'s binding table, which an injection could simply UPDATE;
+  - (c2)'s exemption table;
+  - (d)'s history;
+  - (f2)'s log.
+
+So each such migration must:
+1. Create the protected tables in a dedicated schema with no default ACL, for example `approval_private`, and `REVOKE ALL ON SCHEMA approval_private FROM PUBLIC`.
+2. Still `REVOKE ALL` on each table explicitly from `PUBLIC`, `app_user`, `platform_admin` and `migration_admin`, and from `isaflow_web` and `isaflow_jobs` if P0 created them.
+3. On each new function, `REVOKE EXECUTE … FROM PUBLIC` and then grant EXECUTE only where it is meant to be.
+4. Assert all of this in a plpgsql `DO` block, as each role (`SET LOCAL ROLE app_user`, and so on): `has_table_privilege(…, 'INSERT,UPDATE,DELETE,TRUNCATE,SELECT')` and `has_function_privilege` must be false wherever they are meant to be.
+
+   The assertion must be plpgsql, not an SQL `CASE`. A REVOKE from a role is a no-op while `PUBLIC` still holds the grant, so only checking the effective privilege proves it (memory "REVOKE ships as a no-op", "Privilege guard ≠ SQL branch").
+
+A catalog test in CI repeats the assertion, and the mutation is to drop one REVOKE.
 
 The golden paths log in with a cookie session (`tests/e2e/golden-paths/_api.ts:5`), so every call goes through `withAuth`. None raises or decides an approval, or writes a rule or a switch.
 
@@ -174,13 +202,13 @@ The golden paths log in with a cookie session (`tests/e2e/golden-paths/_api.ts:5
 - **Replay:** an injection can only reuse its own request's token. Other users' tokens are not stored in `isaflow`; GoTrue's tables live in the cluster's `postgres` database (`GOTRUE_DB_DATABASE_URL`).
 - **New exposure:** every DB backup then contains `JWT_SECRET`. Vault/pgsodium would keep the key outside the DB, but it was not checked.
 
-**Migration:** a definer-only secrets table, the verifier functions, and an extra argument on every request write function. If the app calls them on golden paths, `isaflow_dev` needs it first. Reversible.
+**Migration:** a definer-only secrets table and the verifier functions (both under the protected-object rule above), and an extra argument on every request write function. If the app calls them on golden paths, `isaflow_dev` needs it first. Reversible.
 
 **Closes:** T3 (after P0-i) acting as someone else, even by whole-statement injection; T5 mis-binding a user.
 
 **Does not close:** T1 (it reads the secrets), T2, T4, T6.
 
-**Cost:** 4 to 6 days per call site family.
+**Cost:** 4 to 6 days in all: three verifiers at about a day each, plus threading the credential into every request write function. As (b+a) the same verifiers run once per transaction, which is how (b+a)'s 5 to 7 days is made up: (b) 2 to 3, plus 3 to 4 for the verifiers.
 
 **Rollout risk: medium.**
 - Secret rotation must be lock-step with GoTrue.
@@ -206,7 +234,7 @@ The golden paths log in with a cookie session (`tests/e2e/golden-paths/_api.ts:5
 - **(b) alone, with P0-iv.** Closes partial-statement injection only.
 - **(b+a): the bind verifies the credential**, using (a)'s verifiers once per transaction. An injection can then bind only as the identity it holds a credential for. This closes whole-statement injection too, and avoids (a)'s mid-transaction expiry.
 
-**Migration:** the binding table, `isaflow_bind_request`, `request_actor`, and grants. Every request binds, so `isaflow_dev` must have it before the code reaches the golden paths: a §8 gate. A wrapper that tolerates the function's absence would fail open, so it must not. Reversible: drop the objects and revert the code.
+**Migration:** the binding table, `isaflow_bind_request` and `request_actor`, under the protected-object rule. An `app_user`-writable binding table would need no stacking at all to forge. Every request binds, so `isaflow_dev` must have it before the code reaches the golden paths: a §8 gate. A wrapper that tolerates the function's absence would fail open, so it must not. Reversible: drop the objects and revert the code.
 
 **Closes:**
 - (b) with P0-iv: T3 acting as another user via a partial-statement injection; the impersonation flag; T5's forged-actor bugs.
@@ -235,7 +263,7 @@ The golden paths log in with a cookie session (`tests/e2e/golden-paths/_api.ts:5
 - The three triggers check for a live exemption row instead of the GUC. The two TS wrappers call `…_begin`/`…_end`, so their nine callers do not change. `withPlatformAdmin`'s Sage commit must bind.
 
 **Migration:**
-- an exemption table and the begin/end functions;
+- an exemption table and the begin/end functions, under the protected-object rule;
 - `CREATE OR REPLACE` of the 712, 865 and 867 trigger functions;
 - for the bank-feed narrowing, possibly a `supplier_payments` column.
 
@@ -260,18 +288,27 @@ If the code ships without it, imports lose their exemption on `isaflow_dev`. No 
   - alerts when the live tables differ from that state (T6);
   - walks **every** document that entered a population, in every company, and alerts when the signed state says it needed approval but it has neither a valid approval nor a valid exemption.
 - Walking documents rather than requests catches a forged request that was deleted after use. Walking every document, not only those "under enforcement", catches a switch that was turned off and back on.
+- **The history is a hash chain (review round 2).** If each history entry were signed on its own, deleting the latest "enabled" or "rule created" entry together with the live row would leave a rebuilt state of "never enforced". That would match the live tables, and nothing would alert. So:
+  - each switch or rule entry carries a per-company sequence number;
+  - its MAC covers that sequence number, the previous entry's MAC and the new state;
+  - the nightly job stores the last chain head it verified (sequence number and MAC) **outside the DB**, and outside this host once item 1 has removed agents' root;
+  - it alerts on a gap, a broken link, a MAC it cannot verify, or a head older than the stored one.
 
-**Migration:** nullable MAC columns on `approval_requests`, `approval_enforcement` and `approval_rules`, plus an append-only exemption log. It is additive. If the TS writes the columns unconditionally, `isaflow_dev` needs it before the golden paths (as 869 noted); a conditional write avoids that. Reversible.
+  So deleting, truncating or rewriting any part of the history alerts on the next run.
+- **What the chain does not cover.** Decisions and exemption uses need no chain, because the document walk judges every document against the chained state, so deleting one of those rows still alerts. A document deleted outright is outside the walk: the GL integrity checks are the control there, and that is out of scope.
+
+**Migration:** nullable MAC columns on `approval_requests`, `approval_enforcement` and `approval_rules`, plus an append-only exemption log and the chain table, all under the protected-object rule. It is additive. If the TS writes the columns unconditionally, `isaflow_dev` needs it before the golden paths (as 869 noted); a conditional write avoids that. Reversible.
 
 **Closes or detects:**
-- T3 (with or without P0), T4, T4b, T5, T6;
+- T3 (with or without P0), T4, T4b, T5, T6, because the chain and the off-DB head make cutting the history visible;
 - T1, for any holder without the key. Today that excludes no agent session: fact 5 means every session can read the prod env, so this holds only once item 1 below removes that access.
 
 **Does not close:**
 - raw-SQL posting that skips the TS gate (the DB backstop cannot see the MAC). That is detected the next morning, not prevented;
+- an attacker who can also rewrite the job's stored head: today any root session on this host (fact 5), until the head lives elsewhere;
 - a holder of the prod env.
 
-**Cost:** 3 to 4 days.
+**Cost:** 4 to 5 days, including the chain and the off-DB head.
 
 **Rollout risk: low.** It is additive, and prod has 0 approval requests (census 2026-10-08), so there is nothing to grandfather. The switch and rule history must start from a signed snapshot of the current rows.
 
@@ -299,7 +336,7 @@ That is defensible only if Hein judges the injection surface small (§1) and tre
 
 **Migration (f1):** the definer functions, the REVOKEs, and `approvalService.ts` calling the functions. The golden paths write no rules or switches, but `isaflow_dev` must have the functions before code that calls them runs there (§8). Reversible: re-GRANT.
 
-**Migration (f2):** a trigger and a log table. Additive.
+**Migration (f2):** a trigger and a log table, under the protected-object rule. Additive.
 
 **Closes:**
 - (f1): T6 for T5, and for T3 as far as the anchor holds; T4b once `platform_admin` is revoked.
@@ -322,14 +359,14 @@ That is defensible only if Hein judges the injection surface small (§1) and tre
 2. **P0-i plus P0-iv.** 2 to 3 days.
    - Until both ship, PR B's text should say it stops bugs, not injection.
    - P0-iii later, if T4 is worth the grant upkeep.
-3. **(d) with (f2): signed decisions, exemptions and configuration.** 4 to 5 days.
+3. **(d) with (f2): signed decisions, exemptions and configuration.** 5 to 6 days.
    - It moves ahead of (b) because it depends on no database anchor and covers T6.
    - Against T1 it is worth something only after item 1.
 4. **(f1), with (b+a) as the identity source for PR B's functions and for (f1).** 7 to 10 days in all. (b) without credential verification is not worth shipping alone: after P0-iv it still falls to whole-statement injection. It lands as a follow-up migration after B merges, so B ships as planned.
 5. **(c2) for the exemption GUC**, on the (b+a) binding. 2 to 3 days. §8, because it touches live SI enforcement.
 6. **Reject (a) as a per-call check.** Its verifiers live on inside (b+a), run once per transaction.
 
-**Total for items 2 to 5:** about 15 to 21 working days, as separate PRs in that order. Each one is mutation-verified the way PR B is: run the attack as the attacker would, watch it succeed before and fail after.
+**Total for items 2 to 5:** about 16 to 22 working days: (2 to 3) + (5 to 6) + (7 to 10) + (2 to 3), as separate PRs in that order. Each one is mutation-verified the way PR B is: run the attack as the attacker would, watch it succeed before and fail after.
 
 **Strongest argument against:** while item 1 is open, items 2 to 5 harden the doors that need a bug to open, while the ones that need only a file read stay open. If Hein will not do item 1, item 3 is the only one with value against T1, and only partially.
 
