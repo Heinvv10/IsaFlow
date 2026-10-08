@@ -111,10 +111,15 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // is kept: 400, naming a field only when the code says which (22007/22008: a
     // date, and entryDate is the journal's only one). Any other driver error is
     // the server's, and goes on to the 500 that rolls the request back.
+    // 23505 is a clash with a row written at the same moment (a number, a claimed document): 409, retry.
+    // withErrorHandler logs what it answers 500, so only the 4xx answers are logged here.
     const sqlState = (err as { code?: unknown }).code;
     if (typeof sqlState === 'string' && /^[0-9A-Z]{5}$/.test(sqlState)) {
-      log.error('Failed to create journal entry', { error: err }, 'accounting-api');
       if (!sqlState.startsWith('22') && !sqlState.startsWith('23')) throw err;
+      log.warn('Journal entry refused by the database', { sqlState, error: err }, 'accounting-api');
+      if (sqlState === '23505') {
+        return apiResponse.conflict(res, 'This journal entry clashed with one recorded at the same moment. Nothing was saved — try again.');
+      }
       return apiResponse.badRequest(res, sqlState === '22007' || sqlState === '22008'
         ? 'entryDate must be a real date (YYYY-MM-DD)'
         : 'A value in the journal entry is not valid: check its accounts, dimensions, amounts and descriptions');
