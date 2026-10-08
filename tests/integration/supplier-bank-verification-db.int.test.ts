@@ -101,6 +101,28 @@ describe('supplier_bank_verifications as app_user', () => {
     });
   });
 
+  it('a row inserted with an overriding huge seq is not "latest for ever": a later verification still decides', async () => {
+    const { c, s } = await enforced();
+    const pinned = async (db: PoolClient) => db.query(
+      `INSERT INTO supplier_bank_verifications(seq, company_id, supplier_id, fingerprint, kind, method, note, verified_by)
+       OVERRIDING SYSTEM VALUE VALUES(9000000000000000000, $1, $2, $3, 'verified', 'other', 'pinned', $4)`, [c, s, await current(s), u.c]);
+    const committed = await pool.connect();
+    try {
+      await committed.query('BEGIN');
+      await committed.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: u.c, session_id: crypto.randomUUID() })]);
+      await committed.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await committed.query('SET LOCAL ROLE app_user');
+      await pinned(committed);
+      await committed.query('COMMIT');
+    } finally {
+      committed.release();
+    }
+    await r.changeBank(u.a, c, s, { bankAccountNumber: '62555555555' });
+    expect((await r.state(u.b, c, s)).state).toBe('unverified');
+    expect((await r.verify(u.c, c, s)).state.statusCode).toBe(200);
+    expect((await r.state(u.b, c, s)).state).toBe('verified');
+  });
+
   it('refuses UPDATE and DELETE (no grant) — append-only', async () => {
     const { c, s } = await enforced();
     for (const stmt of ["UPDATE supplier_bank_verifications SET note = 'x' WHERE supplier_id = $1",
