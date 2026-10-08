@@ -24,7 +24,7 @@
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
-import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
+import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
@@ -95,25 +95,36 @@ export async function editDraftCustomerInvoice(
     // CC1 / CC2 / BU (migration 870), as create treats them: a replacement line
     // keeps what it leaves out (dimensionKeepStored), CC1 is derived from CC2
     // and the customer's FNO applied, every id validated — all before the
-    // first write. A customer change re-checks the stored lines' FNO too.
+    // first write. On a customer change a CC1 that is the OLD customer's FNO
+    // was derived from that customer, so it is re-derived for the new one
+    // (lines replaced or not); only another explicit CC1 can conflict.
     let lines: (Omit<NonNullable<typeof items>[number], keyof DimensionIds> & DimensionIds)[] | null = null;
+    let restamped: { id: string; cc1Id: string | null }[] = [];
     if (items || clientId !== undefined) {
       const stored = (await tx`
-        SELECT cii.cc1_id, cii.cc2_id, cii.bu_id
+        SELECT cii.id, cii.cc1_id, cii.cc2_id, cii.bu_id
           FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
          WHERE cii.invoice_id = ${id}::UUID AND ci.company_id = ${companyId}
       `) as Row[];
-      const customerId = clientId ?? String(ownedRows[0]!.customer_id);
+      const oldCustomer = String(ownedRows[0]!.customer_id);
+      const customerId = clientId ?? oldCustomer;
+      const customerChanged = customerId.toLowerCase() !== oldCustomer.toLowerCase();
+      const oldFno = customerChanged ? (await customerFnoId(companyId, oldCustomer))?.toLowerCase() ?? null : null;
+      const rederive = <T extends DimensionIds>(line: T): T => {
+        if (!oldFno || line.cc1Id?.toLowerCase() !== oldFno) return line;
+        const { cc1Id: _fromOldCustomer, ...rest } = line;
+        return rest as T;
+      };
       try {
         if (items) {
-          lines = await deriveRevenueDimensions(companyId, customerId, keepStoredDimensions(items, stored));
+          lines = await deriveRevenueDimensions(companyId, customerId, keepStoredDimensions(items, stored).map(rederive));
           await assertDocumentDimensions(companyId, lines);
-        } else {
-          // The lines stay; only the customer moves. Their FNO must still be its.
-          await deriveRevenueDimensions(companyId, customerId, stored.map((r): DimensionIds => ({
+        } else if (customerChanged) {
+          const derived = await deriveRevenueDimensions(companyId, customerId, stored.map((r) => rederive<DimensionIds>({
             ...(r.cc1_id ? { cc1Id: String(r.cc1_id) } : {}), ...(r.cc2_id ? { cc2Id: String(r.cc2_id) } : {}),
             ...(r.bu_id ? { buId: String(r.bu_id) } : {}),
           })));
+          restamped = derived.map((d, i) => ({ id: String(stored[i]!.id), cc1Id: d.cc1Id ?? null }));
         }
       } catch (err) {
         if (isDimensionRefusal(err)) return { kind: 'bad_dimensions' as const, message: err.message };
@@ -184,6 +195,11 @@ export async function editDraftCustomerInvoice(
           )
         `;
       }
+    }
+
+    // The lines stay; the new customer's FNO replaces the one the old customer gave them.
+    for (const r of restamped) {
+      await tx`UPDATE customer_invoice_items SET cc1_id = ${r.cc1Id}::UUID WHERE id = ${r.id}::UUID AND invoice_id = ${id}::UUID`;
     }
 
     // R-035 PR4: the editor becomes an author of the content when — and only

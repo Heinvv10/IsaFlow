@@ -13,7 +13,7 @@ import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCu
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
-// CC1 / CC2 / BU round-trip untouched (this form does not edit them); a line added here sends none.
+// CC1 / CC2 / BU round-trip untouched (this form does not edit them); a line added here sends null for each.
 interface LineItem { key: string; description: string; quantity: number; unitPrice: number; discount: number; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null }
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;

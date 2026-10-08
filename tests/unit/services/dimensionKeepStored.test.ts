@@ -4,7 +4,7 @@
  *
  * A key sent wins (a value sets it, null clears it). A key left out keeps the
  * value every stored line shares, and is refused when the stored lines differ
- * on it. A CC2 sent leaves the CC1 to derivation.
+ * on it. A CC2 sent (or cleared) leaves the CC1 to derivation.
  */
 import { describe, expect, it } from 'vitest';
 import { keepStoredDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionKeepStored';
@@ -28,8 +28,10 @@ describe('keepStoredDimensions', () => {
 
   it('a value sent wins; null clears it', () => {
     const out = keepStoredDimensions([line({ buId: 'B2', cc2Id: null })], [row('F1', 'P1', 'B1')]);
-    // cc2 cleared, cc1 kept (no CC2 sent to derive from), bu replaced.
-    expect(out).toEqual([{ description: 'x', cc1Id: 'f1', buId: 'B2' }]);
+    // cc2 cleared, so the CC1 the old project gave is left to derivation (customer FNO or none); bu replaced.
+    expect(out).toEqual([{ description: 'x', buId: 'B2' }]);
+    // No stored line had a project: the stored CC1 was typed, not derived, and is kept.
+    expect(keepStoredDimensions([line({ cc2Id: null })], [row('F1', null, null)])).toEqual([{ description: 'x', cc1Id: 'f1' }]);
     expect(keepStoredDimensions([line({ cc1Id: null, cc2Id: null, buId: null })], [row('F1', 'P1', 'B1')]))
       .toEqual([{ description: 'x' }]);
   });

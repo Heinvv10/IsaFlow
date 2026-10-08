@@ -136,6 +136,48 @@ describe('the customer invoice draft PUT', () => {
   });
 });
 
+describe('the customer invoice draft PUT re-derives CC1 (#663 review, LOW 4 and 5)', () => {
+  const withCustomer = async (c: string, fno: string | null) => {
+    const id = crypto.randomUUID();
+    await pool.query('INSERT INTO customers(id,company_id,name,default_cc1_id) VALUES($1,$2,$3,$4)', [id, c, `dims ${id.slice(0, 6)}`, fno]);
+    return id;
+  };
+  const cc1s = async (id: string) => (await invoiceLines(id)).map((l) => l.cc1_id);
+
+  it('a customer change moves lines from the old customer\'s FNO to the new one\'s, lines sent or not', async () => {
+    for (const sendLines of [false, true]) {
+      const { c, d, inv } = await taggedInvoice(['fno1', null, null], ['fno1', null, null]);
+      await pool.query('UPDATE customers SET default_cc1_id = $2 WHERE id = $1', [inv.customerId, d.fno1]);
+      const moved = await withCustomer(c, d.fno2);
+      // As the edit form sends it: every loaded line's stored CC1, which it cannot change.
+      const body = sendLines
+        ? { id: inv.id, clientId: moved, items: RESEND.map((r) => ({ ...r, cc1Id: d.fno1 })) }
+        : { id: inv.id, clientId: moved };
+      const res = await routes.edit(owner, c, body);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      expect(await cc1s(inv.id), `lines sent: ${sendLines}`).toEqual([d.fno2, d.fno2]);
+    }
+  });
+
+  it('a typed CC1 that is not the old customer\'s FNO still conflicts with the new customer\'s', async () => {
+    const { c, d, inv } = await taggedInvoice(['fno1', null, null], [null, null, null]);
+    const res = await routes.edit(owner, c, { id: inv.id, clientId: await withCustomer(c, d.fno2) });
+    expect(res.state.statusCode).toBe(400);
+    expect(await cc1s(inv.id)).toEqual([d.fno1, null]);
+  });
+
+  it('clearing the project recomputes CC1: the customer\'s FNO, or none', async () => {
+    for (const customerFno of [null, 'fno1'] as const) {
+      const { c, d, inv } = await taggedInvoice(['fno1', 'proj1', null], ['fno1', 'proj1', null]);
+      if (customerFno) await pool.query('UPDATE customers SET default_cc1_id = $2 WHERE id = $1', [inv.customerId, d[customerFno]]);
+      const res = await routes.edit(owner, c, { id: inv.id, items: RESEND.map((r) => ({ ...r, cc2Id: null })) });
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      const want = customerFno ? d[customerFno] : null;
+      expect((await invoiceLines(inv.id)).map((l) => [l.cc1_id, l.cc2_id]), `customer FNO ${customerFno}`).toEqual([[want, null], [want, null]]);
+    }
+  });
+});
+
 const ctx = (): McpToolContext => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-dims' }) as unknown as McpToolContext;
 let seq = 0;
 const update = (id: string, args: Record<string, unknown>) =>

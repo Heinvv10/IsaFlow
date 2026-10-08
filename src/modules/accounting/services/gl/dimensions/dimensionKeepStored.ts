@@ -9,8 +9,9 @@
  * stored line (lines carry no position, and their content is what is being
  * edited), so it keeps only a value EVERY stored line shares. When the stored
  * lines differ on that dimension, the line is refused rather than guessed.
- * CC1 follows its CC2: a line that sends a CC2 leaves CC1 to derivation
- * (dimensionDerivation) instead of keeping the stored FNO.
+ * CC1 follows its CC2: a line that sends a CC2 — or clears one with null —
+ * leaves CC1 to derivation (dimensionDerivation: the project's FNO, else the
+ * customer's) instead of keeping the FNO the old project gave it.
  *
  * Pure. Runs before derivation and validation, which then treat the result
  * exactly as they treat a new document's lines.
@@ -57,7 +58,10 @@ export function keepStoredDimensions<T extends SentDimensions>(
         if (value !== null) out[key] = value;
         continue;
       }
-      if (key === 'cc1Id' && cc2Id) continue; // derived from the CC2 sent
+      // A CC2 sent (a project, or null clearing one) re-derives CC1 — from the
+      // project, or the customer's FNO — unless no stored line had a project,
+      // when the stored CC1 was typed rather than derived and is kept.
+      if (key === 'cc1Id' && (cc2Id || (cc2Id === null && shared.get('cc2_id') !== null))) continue;
       const kept = shared.get(column);
       if (kept === undefined) {
         throw new DimensionRefusal(
