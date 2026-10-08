@@ -19,14 +19,10 @@ import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatch
 import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
 import { rebindPendingRequest } from './approvalRebind';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
+import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 
-/** The id names no document of that type in this company. */
-export class ApprovalDocumentNotFoundError extends Error {
-  constructor(documentType: string, documentId: string) {
-    super(`No ${documentType} ${documentId} exists for this company`);
-    this.name = 'ApprovalDocumentNotFoundError';
-  }
-}
+export { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
 
 export interface ApprovalDocument {
   /** The amount the rules are matched against, read from the stored row. */
@@ -215,35 +211,20 @@ export async function requestApproval(companyId: string, input: {
   if (!check.matchedRule) throw new ApprovalNotRequiredError(input.documentType, input.documentId);
   const matchedRule = check.matchedRule;
 
-  // INSERT ... SELECT so the rule's ownership is part of the write itself: a rule
-  // belonging to another company matches no row and nothing is inserted. The FK
-  // alone does not help — a foreign-key check bypasses RLS and is global.
-  // `is_active` is re-checked because checkApproval only considered active rules:
-  // one deactivated in between must not be bound to a new request.
-  // `content_authors` (migration 712): who wrote the content this request
-  // vouches for — refused as approvers (approvalAuthors).
-  // `approver_roster` (migration 708): the roster snapshot a sole-approver
-  // self-approval is later checked against — taken only while enforcement is on
-  // for the type, since Q2 applies only then.
-  const insert = async () => (await sql`
-    INSERT INTO approval_requests (company_id, rule_id, document_type, document_id, document_reference, amount, requested_by, required_role, document_digest, content_authors, approver_roster)
-    SELECT ${companyId}::UUID, rl.id, ${input.documentType}::TEXT, ${input.documentId}::UUID,
-           ${document.reference}::TEXT, ${document.amount}::NUMERIC,
-           ${input.requestedBy}::UUID, rl.approver_role, ${document.digest}::TEXT,
-           approval_document_authors(${companyId}::UUID, ${input.documentType}::TEXT, ${input.documentId}::UUID),
-           (SELECT approval_roster_snapshot(${companyId}::UUID, ${input.requestedBy}::TEXT)
-            WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
-                          WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${input.documentType}::TEXT))
-    FROM approval_rules rl
-    WHERE rl.id = ${matchedRule.id}::UUID AND rl.company_id = ${companyId} AND rl.is_active = true
-    RETURNING *
-  `) as Record<string, unknown>[];
+  // approval_request_raise (migration 872) is the only way a request is
+  // inserted: it re-checks the rule is this company's, active and the
+  // strictest governing the document, binds the requester to the session
+  // user, and computes the amount, reference, digest, `content_authors`
+  // (approvalAuthors) and `approver_roster` (Q2's snapshot, while enforced)
+  // itself. No row: the rule was deactivated in between.
+  const insert = async () => insertRequestRow(
+    companyId, input.documentType, input.documentId, matchedRule.id, input.requestedBy);
 
   let rows: Record<string, unknown>[];
   try {
     rows = await withSavepoint('approval_request_insert', insert);
   } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
+    if (!isUniqueViolation(error)) throw raiseRefusal(error, input.documentType, input.documentId);
     // A concurrent POST won the race. Re-read and return that row, re-bound the
     // same way — two pending rows under different rules was itself a way to
     // choose the rule.

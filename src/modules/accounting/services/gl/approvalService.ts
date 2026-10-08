@@ -15,6 +15,7 @@ import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+import { decideRequestRow } from './approvalRequestWrites';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
 
 // Re-exported so every existing import site keeps working after the
@@ -275,15 +276,9 @@ export async function decideRequest(companyId: string,
   await lockApprovalRequestForUpdate(companyId, requestId);
   const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
   if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
-  const rows = (await sql`
-    UPDATE approval_requests SET
-      status = ${decision},
-      decided_by = ${decidedBy}::UUID,
-      decided_at = NOW(),
-      decision_notes = ${notes || null}
-    WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
-    RETURNING *
-  `) as Record<string, unknown>[];
+  // approval_request_decide (migration 872) repeats every check above in SQL
+  // and is the only way a decision is written.
+  const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
   if (selfApproval) await auditSoleApproverSelfApproval(companyId, decidedBy, rows[0], selfApproval);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
