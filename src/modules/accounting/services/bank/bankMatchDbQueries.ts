@@ -225,10 +225,11 @@ export async function fetchJournalLineCandidates(
       -- the bank, money out credits it — brk-nrfa round 21).
       AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
       AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
-      -- An anti join, not NOT IN: past hash_mem (about 210k matched lines) a NOT IN subplan scans the whole list per
-      -- candidate and the picker does not return (sec-nrfa round 27).
+      -- A per-line index probe, not NOT IN: past hash_mem (about 210k matched lines) a NOT IN subplan scans the whole
+      -- list per candidate and the picker does not return (sec-nrfa round 27). OFFSET 0 keeps it a probe: pulled up into
+      -- an anti join, stale stats planned it as a nested loop over the company's whole matched set (204 s, brk round 28).
       AND NOT EXISTS (SELECT 1 FROM bank_transactions mb
-                      WHERE mb.matched_journal_line_id = jl.id AND mb.company_id = ${companyId}::UUID)
+                      WHERE mb.matched_journal_line_id = jl.id AND mb.company_id = ${companyId}::UUID OFFSET 0)
       -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
       -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
       -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,

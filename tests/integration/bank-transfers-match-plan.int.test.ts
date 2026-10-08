@@ -28,6 +28,15 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   return { ...original, sql, default: sql };
 });
 
+/** SubPlan `n`'s block in an EXPLAIN text: the lines after its header, indented deeper than it. */
+function subPlanBlock(lines: string[], n: string): string {
+  const at = lines.findIndex((l) => l.trim() === `SubPlan ${n}`);
+  if (at < 0) return '';
+  const indent = lines[at]!.search(/\S/);
+  const end = lines.findIndex((l, i) => i > at && l.search(/\S/) <= indent);
+  return lines.slice(at + 1, end < 0 ? undefined : end).join('\n');
+}
+
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 type Row = Record<string, unknown>;
@@ -80,13 +89,17 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
         const rows = (await sql.query(`EXPLAIN ${q!.text}`, q!.values)) as Row[];
         return rows.map((r) => String(r['QUERY PLAN'])).join('\n');
       });
-      // The held set is a NOT IN over a CTE: it must be hashed. The matched lines are an anti join (no subplan at all).
+      // The held set is a NOT IN over a CTE: it must be hashed. The matched lines are a per-line index probe — the one
+      // unhashed subplan, keyed on the candidate line — and never an anti join: pulled up into one, stale stats planned
+      // a nested loop over the company's whole matched set (204 s, brk-nrfa round 28).
       expect(plan).toMatch(/NOT \(hashed SubPlan/);
-      expect(plan).not.toMatch(/NOT \(SubPlan/);
-      expect(plan).toMatch(/Anti Join/);
+      expect(plan).not.toMatch(/Anti Join/);
+      const lines = plan.split('\n');
+      const unhashed = [...plan.matchAll(/NOT \(SubPlan (\d+)\)/g)].map((m) => m[1]!);
+      expect(unhashed, plan).toHaveLength(1);
+      expect(subPlanBlock(lines, unhashed[0]!), plan).toMatch(/Index Cond: .*matched_journal_line_id = jl\.id/);
       // The held set filters the LINE: on je the planner could pair every unheld journal with every bank leg by a join
       // filter (3-18 s, brk-nrfa round 27). The plan node owning that filter is the gl_journal_lines scan.
-      const lines = plan.split('\n');
       const at = lines.findIndex((l) => /Filter: .*NOT \(hashed SubPlan/.test(l));
       expect(at, plan).toBeGreaterThan(-1);
       const owner = lines.slice(0, at).reverse().find((l) => /->|^\S/.test(l));
