@@ -36,6 +36,7 @@ export default function BankTransfersPage() {
       const json = await res.json();
       setBankAccounts(Array.isArray(json.data) ? json.data : []);
     } catch (err) {
+      setBankAccounts([]);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
     } finally {
       setIsLoading(false);
