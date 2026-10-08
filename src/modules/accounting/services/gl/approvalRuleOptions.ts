@@ -15,9 +15,26 @@ export const isConditionOperator = (value: unknown): value is ConditionOperator 
 /** The largest amount `approval_rules.condition_value` (NUMERIC(15,2)) holds. */
 export const MAX_RULE_AMOUNT = 9_999_999_999_999.99;
 
-/** A rule amount every write path accepts: a finite number from 0 to MAX_RULE_AMOUNT. */
+/**
+ * A rule amount every write path accepts: a finite number from 0 to
+ * MAX_RULE_AMOUNT in whole cents. A sub-cent value is refused, not rounded:
+ * the weakening guard judges the value sent, the column stores it rounded, so
+ * 999.995 passed as "below 1 000" and was stored as 1000.00 (review round 2).
+ */
 export const isRuleAmount = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_RULE_AMOUNT;
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_RULE_AMOUNT
+  && Number(value.toFixed(2)) === value;
+
+/**
+ * `approval_rules.name` is TEXT, but every rule write audits it as
+ * `audit_log.entity_ref`, a VARCHAR(100): a longer name was a 500 on create and
+ * on rename. 100 is the bound the write path can actually store.
+ */
+export const RULE_NAME_MAX = 100;
+
+/** A rule name every write path accepts: text that is 1 to RULE_NAME_MAX characters once trimmed. */
+export const isRuleName = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && value.trim().length <= RULE_NAME_MAX;
 
 /**
  * The types whose posting paths consult the approval gate — the only types an
