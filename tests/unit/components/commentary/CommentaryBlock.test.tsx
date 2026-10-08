@@ -14,9 +14,12 @@ const rows: CommentaryRow[] = [
 
 describe('CommentaryBlock in published mode with no section', () => {
   it('renders nothing at all, even with approved rows: no section means no published text', () => {
-    const { container } = render(<CommentaryBlock sectionRef={undefined} rows={rows} mode="published" />);
+    // Approved rows in BOTH sections, so a fallback to either one is caught.
+    const both = [...rows, { ...rows[1]!, id: 'bs', sectionRef: 'balance_sheet', approvedText: 'APPROVED BALANCE SENTENCE' }];
+    const { container } = render(<CommentaryBlock sectionRef={undefined} rows={both} mode="published" />);
     expect(container.textContent).toBe('');
     expect(screen.queryByText('APPROVED PROFIT SENTENCE')).toBeNull();
+    expect(screen.queryByText('APPROVED BALANCE SENTENCE')).toBeNull();
   });
 });
 
