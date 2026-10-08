@@ -168,16 +168,24 @@ export async function getUnusualJournals(
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = je.id
      AND jl.company_id = ${companyId}::UUID
+    -- A line is evidence only where the journal moved it: a leg on the line's own bank, on the side its sign says
+    -- (money in debits that bank). A match can point any line at any transfer (sec-nrfa round 3 L1).
     LEFT JOIN (
-      SELECT transfer_journal_entry_id, array_agg(DISTINCT ABS(amount)) AS amounts FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL AND feed_state = 'posted'
-        AND status IN ('allocated', 'matched', 'reconciled')
-      GROUP BY transfer_journal_entry_id
+      SELECT bt.transfer_journal_entry_id, array_agg(DISTINCT ABS(bt.amount)) AS amounts FROM bank_transactions bt
+      JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.transfer_journal_entry_id AND bl.company_id = bt.company_id
+        AND bl.gl_account_id = bt.bank_account_id
+        AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
+      WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
+        AND bt.status IN ('allocated', 'matched', 'reconciled')
+      GROUP BY bt.transfer_journal_entry_id
     ) tl ON tl.transfer_journal_entry_id = je.id
     LEFT JOIN (
-      SELECT transfer_journal_entry_id, array_agg(DISTINCT ABS(amount)) AS amounts FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL AND feed_state = 'posted'
-      GROUP BY transfer_journal_entry_id
+      SELECT bt.transfer_journal_entry_id, array_agg(DISTINCT ABS(bt.amount)) AS amounts FROM bank_transactions bt
+      JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.transfer_journal_entry_id AND bl.company_id = bt.company_id
+        AND bl.gl_account_id = bt.bank_account_id
+        AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
+      WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
+      GROUP BY bt.transfer_journal_entry_id
     ) tr ON tr.transfer_journal_entry_id = je.reversal_of_id
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
