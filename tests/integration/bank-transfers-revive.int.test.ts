@@ -257,4 +257,16 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     const after = ((await sql`SELECT status FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!;
     expect(after.status).toBe('allocated');
   }, 60000);
+
+  // rev-nrfa round 3 LOW-1: a typed transfer matched to its statement line does not refuse a second real one.
+  it('a second typed transfer of the same amount is posted even after the first was matched to its statement line', async () => {
+    const first = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 10000, transferDate: '2026-08-03' });
+    const id = (dataOf<{ journalEntry: { id: string } }>(first)).journalEntry.id;
+    // The statement line matched to it (what bank-match-confirm's bank_transfer arm writes).
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+      transfer_journal_entry_id, counterparty_account_id) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID,
+      '2026-08-03', -10000, 'BTXF matched out', 'matched', ${id}::UUID, ${bank2}::UUID)`;
+    const second = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 10000, transferDate: '2026-08-04' });
+    expect(second.statusCode, JSON.stringify(second.body)).toBe(200);
+  }, 60000);
 });
