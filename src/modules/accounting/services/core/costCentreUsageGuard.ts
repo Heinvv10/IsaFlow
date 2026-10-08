@@ -82,6 +82,15 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
           WHERE po.cost_center_id = ${id}::UUID AND po.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM expense_claim_lines ecl
           WHERE ecl.cost_centre_id = ${id}::UUID AND ecl.company_id = ${companyId}::UUID)
+      -- The CC1 / CC2 columns migration 870 put on the documents.
+      + (SELECT COUNT(*) FROM supplier_invoice_items sii
+          JOIN supplier_invoices sip ON sip.id = sii.supplier_invoice_id
+          WHERE (sii.cc1_id = ${id}::UUID OR sii.cc2_id = ${id}::UUID) AND sip.company_id = ${companyId}::UUID)
+      + (SELECT COUNT(*) FROM customer_invoice_items cii
+          JOIN customer_invoices cip ON cip.id = cii.invoice_id
+          WHERE (cii.cc1_id = ${id}::UUID OR cii.cc2_id = ${id}::UUID) AND cip.company_id = ${companyId}::UUID)
+      + (SELECT COUNT(*) FROM credit_notes cn
+          WHERE (cn.cc1_id = ${id}::UUID OR cn.cc2_id = ${id}::UUID) AND cn.company_id = ${companyId}::UUID)
       ) AS documents,
       (SELECT COUNT(*) FROM bank_transactions bt
         WHERE (bt.cc1_id = ${id}::UUID OR bt.cc2_id = ${id}::UUID)
@@ -91,7 +100,19 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
           WHERE scr.default_cost_centre_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM supplier_coding_history sch
           WHERE sch.cost_centre_id = ${id}::UUID AND sch.company_id = ${companyId}::UUID)
-      ) AS coding_rules
+      ) AS coding_rules,
+      (
+        (SELECT COUNT(*) FROM customers cu
+          WHERE cu.default_cc1_id = ${id}::UUID AND cu.company_id = ${companyId}::UUID)
+      + (SELECT COUNT(*) FROM gl_accounts ga
+          WHERE (ga.default_cc1_id = ${id}::UUID OR ga.default_cc2_id = ${id}::UUID)
+            AND ga.company_id = ${companyId}::UUID)
+      ) AS defaults,
+      -- No FK: an un-reversed tag batch would restore this id on reversal.
+      (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
+        JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
+        WHERE (tl.old_cc1_id = ${id}::UUID OR tl.old_cc2_id = ${id}::UUID)
+          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history
   `) as Record<string, unknown>[];
 
   const row = usage[0] ?? {};
@@ -105,10 +126,43 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
     ['documents', 'document(s)'],
     ['bank_transactions', 'bank transaction(s)'],
     ['coding_rules', 'coding rule(s)'],
+    ['defaults', 'customer/account default(s)'],
+    ['tag_history', 'un-reversed tag batch line(s)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row[key] ?? 0), label] as const)
     .filter(([count]) => count > 0)
     .map(([count, label]) => `${count} ${label}`);
   if (used.length > 0) throw new CostCentreActionError(cannotDeleteMessage(used));
+}
+
+/**
+ * How many lines, documents, defaults and un-reversed tag lines carry any of
+ * these cost centres AS A CC2. Each of them stored the CC1 that was derived when
+ * it was written, so moving the CC2 under another FNO would leave that CC1 wrong.
+ */
+export async function countCc2Carriers(companyId: string, ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const [row] = (await sql`
+    SELECT
+      (SELECT COUNT(*) FROM gl_journal_lines jl
+        WHERE jl.cc2_id = ANY(${ids}::UUID[]) AND jl.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM bank_transactions bt
+        WHERE bt.cc2_id = ANY(${ids}::UUID[]) AND bt.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM supplier_invoice_items sii
+        JOIN supplier_invoices sip ON sip.id = sii.supplier_invoice_id
+        WHERE sii.cc2_id = ANY(${ids}::UUID[]) AND sip.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM customer_invoice_items cii
+        JOIN customer_invoices cip ON cip.id = cii.invoice_id
+        WHERE cii.cc2_id = ANY(${ids}::UUID[]) AND cip.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM credit_notes cn
+        WHERE cn.cc2_id = ANY(${ids}::UUID[]) AND cn.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM gl_accounts ga
+        WHERE ga.default_cc2_id = ANY(${ids}::UUID[]) AND ga.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
+        JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
+        WHERE tl.old_cc2_id = ANY(${ids}::UUID[]) AND tb.reversed_at IS NULL
+          AND tb.company_id = ${companyId}::UUID) AS carriers
+  `) as { carriers: unknown }[];
+  return Number(row?.carriers ?? 0);
 }

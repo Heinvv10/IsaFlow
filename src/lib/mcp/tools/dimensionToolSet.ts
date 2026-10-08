@@ -4,6 +4,9 @@
  */
 import { createBusinessUnitTool, createCostCentreTool, listBusinessUnitsTool, listCostCentresTool } from './dimensionMasterTools';
 import {
+  deleteBusinessUnitTool, deleteCostCentreTool, updateBusinessUnitTool, updateCostCentreTool,
+} from './dimensionMasterEditTools';
+import {
   setBankAccountDefaultDimensionsTool, setCustomerDefaultFnoTool, setGlAccountReportingAttributesTool,
 } from './dimensionDefaultsTools';
 import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
@@ -14,6 +17,10 @@ export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool]
 export const DIMENSION_WRITE_TOOLS = [
   createCostCentreTool,
   createBusinessUnitTool,
+  updateCostCentreTool,
+  deleteCostCentreTool,
+  updateBusinessUnitTool,
+  deleteBusinessUnitTool,
   setGlAccountReportingAttributesTool,
   setCustomerDefaultFnoTool,
   setBankAccountDefaultDimensionsTool,

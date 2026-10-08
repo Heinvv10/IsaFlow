@@ -1,11 +1,14 @@
 /**
  * Business Units Page
- * CRUD for departments used as BU dimension on bank transactions and GL journal lines
+ * CRUD for the BU (function) dimension on bank transactions, documents and GL
+ * journal lines. Create -> /api/accounting/business-units; edit, toggle and
+ * delete -> /api/accounting/business-units-action (the delete is refused, with
+ * counts, while anything carries the BU — deactivate instead).
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
+import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil, Trash2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface BusinessUnit {
@@ -13,9 +16,12 @@ interface BusinessUnit {
   name: string;
   code: string;
   description?: string;
+  division?: string;
   isActive: boolean;
   staffCount?: number;
 }
+
+const EMPTY_FORM = { name: '', code: '', description: '', division: '' };
 
 export default function BusinessUnitsPage() {
   const [items, setItems] = useState<BusinessUnit[]>([]);
@@ -25,7 +31,7 @@ export default function BusinessUnitsPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [form, setForm] = useState({ name: '', code: '', description: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
@@ -41,7 +47,7 @@ export default function BusinessUnitsPage() {
         : (data?.items ?? []);
       setItems(rawRows.map(d => ({
         id: d.id, name: d.name, code: d.code,
-        description: d.description, isActive: d.isActive,
+        description: d.description, division: d.division, isActive: d.isActive,
         staffCount: d.staffCount,
       })));
     } catch (e) {
@@ -58,23 +64,25 @@ export default function BusinessUnitsPage() {
     e.preventDefault();
     setError(''); setSuccess(''); setBusy('save');
     try {
+      // A blank description / division on edit clears it.
+      const fields = { name: form.name, code: form.code, description: form.description, division: form.division };
       if (editId) {
-        const res = await apiFetch(`/api/departments/${editId}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        const res = await apiFetch('/api/accounting/business-units-action', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
+          body: JSON.stringify({ action: 'update', id: editId, ...fields }),
         });
         await assertOk(res, 'Could not save the business unit - try again');
       } else {
-        const res = await apiFetch('/api/accounting/cost-centres', {
+        const res = await apiFetch('/api/accounting/business-units', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ name: form.name, code: form.code, description: form.description }),
+          body: JSON.stringify(fields),
         });
         await assertOk(res, 'Could not save the business unit - try again');
       }
       setShowForm(false); setEditId(null);
-      setForm({ name: '', code: '', description: '' });
+      setForm(EMPTY_FORM);
       setSuccess('Business unit saved');
       await load();
     } catch (err) { setError(apiErrorMessage(err, 'Could not save the business unit - try again')); }
@@ -82,20 +90,20 @@ export default function BusinessUnitsPage() {
   };
 
   const startEdit = (bu: BusinessUnit) => {
-    setForm({ name: bu.name, code: bu.code, description: bu.description || '' });
+    setForm({ name: bu.name, code: bu.code, description: bu.description || '', division: bu.division || '' });
     setEditId(bu.id); setShowForm(true);
   };
 
-  const toggleActive = async (bu: BusinessUnit) => {
-    setBusy(bu.id); setSuccess('');
+  const doAction = async (bu: BusinessUnit, action: 'toggle' | 'delete') => {
+    setBusy(bu.id); setSuccess(''); setError('');
     try {
-      const res = await apiFetch(`/api/departments/${bu.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      const res = await apiFetch('/api/accounting/business-units-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ isActive: !bu.isActive }),
+        body: JSON.stringify({ action, id: bu.id, ...(action === 'toggle' ? { isActive: !bu.isActive } : {}) }),
       });
       await assertOk(res, 'Could not change the business unit - try again');
-      setSuccess('Business unit updated');
+      setSuccess(action === 'delete' ? 'Business unit deleted' : 'Business unit updated');
       await load();
     } catch (err) { setError(apiErrorMessage(err, 'Could not change the business unit - try again')); }
     setBusy('');
@@ -106,7 +114,8 @@ export default function BusinessUnitsPage() {
     !search ||
     bu.name.toLowerCase().includes(lowerSearch) ||
     bu.code.toLowerCase().includes(lowerSearch) ||
-    (bu.description || '').toLowerCase().includes(lowerSearch)
+    (bu.description || '').toLowerCase().includes(lowerSearch) ||
+    (bu.division || '').toLowerCase().includes(lowerSearch)
   );
 
   return (
@@ -122,7 +131,7 @@ export default function BusinessUnitsPage() {
               </div>
             </div>
             <button
-              onClick={() => { setEditId(null); setForm({ name: '', code: '', description: '' }); setShowForm(!showForm); }}
+              onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(!showForm); }}
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
               <Plus className="h-4 w-4" /> New Business Unit
             </button>
@@ -147,9 +156,10 @@ export default function BusinessUnitsPage() {
           {showForm && (
             <form onSubmit={handleSubmit} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6 space-y-4">
               <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">{editId ? 'Edit' : 'New'} Business Unit</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input" placeholder="Name *" required />
                 <input value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} className="ff-input" placeholder="Code (e.g. FIN) *" required />
+                <input value={form.division} onChange={e => setForm(f => ({ ...f, division: e.target.value }))} className="ff-input" placeholder="Division (e.g. Build & Delivery)" />
                 <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description (optional)" />
               </div>
               <div className="flex justify-end gap-2">
@@ -166,15 +176,16 @@ export default function BusinessUnitsPage() {
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Code</th>
                 <th className="px-4 py-3">Name</th>
+                <th className="px-4 py-3">Division</th>
                 <th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3">Staff</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
                 {!loading && filteredItems.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                     {search ? 'No matching business units' : 'No business units yet.'}
                   </td></tr>
                 )}
@@ -182,6 +193,7 @@ export default function BusinessUnitsPage() {
                   <tr key={bu.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 font-mono text-blue-400 font-medium">{bu.code}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{bu.name}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.division || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{bu.description || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{bu.staffCount ?? '—'}</td>
                     <td className="px-4 py-3">
@@ -194,13 +206,16 @@ export default function BusinessUnitsPage() {
                         <button onClick={() => startEdit(bu)} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title="Edit">
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <button onClick={() => toggleActive(bu)} disabled={busy === bu.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={bu.isActive ? 'Disable' : 'Enable'}>
+                        <button onClick={() => doAction(bu, 'toggle')} disabled={busy === bu.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={bu.isActive ? 'Disable' : 'Enable'}>
                           {busy === bu.id
                             ? <Loader2 className="h-4 w-4 animate-spin" />
                             : bu.isActive
                               ? <ToggleRight className="h-4 w-4 text-teal-400" />
                               : <ToggleLeft className="h-4 w-4" />
                           }
+                        </button>
+                        <button onClick={() => doAction(bu, 'delete')} disabled={busy === bu.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </td>

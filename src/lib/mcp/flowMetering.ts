@@ -392,6 +392,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Master data posts nothing, same as create_gl_account / update_customer.
   create_cost_centre: null,
   create_business_unit: null,
+  update_cost_centre: null,
+  delete_cost_centre: null,
+  update_business_unit: null,
+  delete_business_unit: null,
   set_gl_account_reporting_attributes: null,
   set_customer_default_fno: null,
   set_bank_account_default_dimensions: null,
