@@ -46,11 +46,13 @@ async function facts(companyId: string, supplierId: string, userId: string, ownR
   // Every setter holds the raised role (one who left the company holds nothing).
   const whollyRaisedRoles = setters.length > 0 && setters.every((id) => holds(everyone.find((m) => m.id === id)?.role, verifierRole));
   const atFloor = others.filter((m) => holds(String(m.role), floor));
+  const required = requiredRank(verifierRole) > requiredRank(floor) && !nonSetterHoldsRole && whollyRaisedRoles ? floor : verifierRole;
   return {
-    required: requiredRank(verifierRole) > requiredRank(floor) && !nonSetterHoldsRole && whollyRaisedRoles ? floor : verifierRole,
+    required,
     setter: setters.includes(userId),
     othersAtFloor: atFloor.length,
-    nonSettersAtFloor: atFloor.filter((m) => !setters.includes(String(m.user_id))).length,
+    /** Some other active member who did not set the details holds the role a verifier needs. */
+    someoneElseCan: others.some((m) => !setters.includes(String(m.user_id)) && holds(String(m.role), required)),
   };
 }
 
@@ -77,11 +79,12 @@ async function judge(companyId: string, userId: string, ownRole: string, f: Fact
   }
   if (!f.setter) return null;
   if (f.othersAtFloor > 0) {
-    throw new SupplierBankVerificationError('SETTER_FORBIDDEN', f.nonSettersAtFloor > 0
+    throw new SupplierBankVerificationError('SETTER_FORBIDDEN', f.someoneElseCan
       ? `You cannot verify these bank details: you set them. Another member with the ${f.required} role or above who did `
         + 'not set them must verify them.'
-      : 'You cannot verify these bank details: you set them, and so did every other member with the admin role or above. '
-        + 'A member with that role who did not set them must verify them.');
+      : `You cannot verify these bank details: you set them, and no other member who did not set them holds the ${f.required} `
+        + 'role or above, so nobody can verify them now. Add a member with that role, or relax the supplier-payment rule '
+        + 'that demands it.');
   }
   const rows = (await sql`SELECT approval_roster_snapshot(${companyId}::UUID, ${userId}::TEXT) AS roster`) as { roster: unknown }[];
   return { roster: rows[0]?.roster ?? null };
