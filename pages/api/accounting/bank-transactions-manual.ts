@@ -19,8 +19,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -116,9 +121,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   try {
-    // The line and its allocation stand or fall together: a refusal raised inside rolls the INSERT back to this
-    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa round 7 L2).
-    const { txId, result } = await withSavepoint('manual_bank_line', async () => {
+    // The line and its allocation stand or fall together: anything thrown inside rolls the INSERT back to this
+    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa rounds 7-8). A closed period or inactive
+    // account is answered 400 here, as the allocate action answers it.
+    const saved = await withJournalDateRefusal(res, async () => {
       // ── Step 1: Insert bank_transactions row ─────────────────────────────────
 
       const txRows = await sql`
@@ -174,6 +180,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
       return { txId, result };
     });
+    if (saved === JOURNAL_DATE_REFUSED) return;
+    const { txId, result } = saved;
 
     return apiResponse.created(res, {
       bankTransactionId: txId,
@@ -182,17 +190,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ...(result.lateClaim ? { lateClaim: result.lateClaim } : {}), // VAT claimed in a later period (s16(3))
     }, 'Transaction recorded and allocated successfully');
   } catch (err) {
-    // Contention is a 409, not a 500. This route calls `allocateTransaction`,
-    // so it raises the identical events the four settlement routes answer 409 —
-    // and `internalError` replaces the service's "retry in a moment" with "An
-    // internal error occurred", which is the one wording the caller can act on.
-    // The INSERT above is NOT rolled back by the choice of status — every
-    // member of `isRetryableContention` descends from 55P03/40P01, which abort
-    // the Postgres transaction, so `withAuth`'s COMMIT on a 4xx is a no-op and
-    // the manual row is discarded either way. What changes is the wording the
-    // caller reads. A blanket catch on a route that writes BEFORE it can refuse
-    // is still a hazard for any non-aborting throw — registered as R-060.
-    // A held row is 503 + Retry-After (D11); a retryable STATE conflict keeps the 409.
+    // Whatever was thrown, the savepoint above has already discarded the inserted line, so the status chosen here
+    // decides only what the caller reads (R-060 is closed for this route). Contention is a 409, not a 500 — the
+    // same events the settlement routes answer 409 — and a held row is 503 + Retry-After (D11).
     if (respondIfLockTimeout(res, err)) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return;
@@ -201,9 +201,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
     }
-    // The ledger already holds this transfer: the person's answer is to match it, not a fault (the savepoint has
-    // already discarded the line).
-    if (err instanceof DuplicateTransferError) return apiResponse.badRequest(res, err.message);
+    // Refusals the person can act on, answered 400 with the reason as the allocate action answers them: the ledger
+    // already holds this transfer (match it), a closed period, a locked VAT period, a refund over what the supplier
+    // is owed, a line refusal (brk-nrfa round 8 L3).
+    if (err instanceof DuplicateTransferError || err instanceof ClosedFiscalPeriodError
+      || err instanceof VatPeriodLockedError || isSupplierRefundRefusal(err) || isBankAllocationRefusal(err)) {
+      return apiResponse.badRequest(res, err.message);
+    }
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
     log.error('Manual bank transaction failed', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, message);

@@ -15,8 +15,12 @@
  * imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line must be live,
  * matched to its leg, on a journal that is not reversed (round 6 L1). "Not reversed" is read from the chain, as
  * bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the books, though
- * its `reversed_at` stays set (sec-nrfa round 6 M1). A pairing line is of the same movement: within five days of the
- * counterparty line (arm 1) or of the journal's date (arm 2) — sec-nrfa round 6 L1.
+ * its `reversed_at` stays set (sec-nrfa round 6 M1). A pairing line is of the same movement: within TEN days of the
+ * counterparty line (arm 1) or of the journal's date (arm 2) — sec-nrfa round 6 L1, widened from five so a real second
+ * transfer whose first one cleared a week later still posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal
+ * of the journal counts like one to the journal (round 8 L2: the match screen offers both). A hand-keyed line pairs only
+ * a journal no statement created (sec-nrfa round 7 L1). Residual, stated: the bound is a heuristic both ways — a first
+ * transfer clearing more than ten days off still refuses a real second one.
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by
@@ -82,16 +86,22 @@ export async function assertNoDuplicateTransfer(
       -- the movement is not the statement's, so the statement line still finds the journal (brk-nrfa round 6 M1).
       AND NOT EXISTS (SELECT 1 FROM bank_transactions own
                         JOIN gl_journal_lines ml ON ml.id = own.matched_journal_line_id AND ml.company_id = own.company_id
-                          AND ml.journal_entry_id = bank_transactions.transfer_journal_entry_id
+                          AND ml.journal_entry_id IN (WITH RECURSIVE w AS (
+            SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = bank_transactions.transfer_journal_entry_id AND r.company_id = bank_transactions.company_id
+            UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
+              WHERE n.company_id = bank_transactions.company_id AND n.status = 'posted' AND w.d < 20) SELECT id FROM w WHERE d % 2 = 0)
                           AND ml.gl_account_id = own.bank_account_id
                           AND (CASE WHEN own.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(own.amount)
                         WHERE own.company_id = bank_transactions.company_id
                         AND own.bank_account_id = ${bankAccountId}::UUID
                         AND own.status IN ('allocated', 'matched', 'reconciled')
                         AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL
-                             OR NOT ${lineEvidenced}::BOOLEAN)
-                        AND own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '5 days')
-                                                     AND (bank_transactions.transaction_date + INTERVAL '5 days'))
+                             -- A hand-keyed line pairs only a journal no statement created (sec-nrfa round 7 L1).
+                             OR (NOT ${lineEvidenced}::BOOLEAN AND EXISTS (SELECT 1 FROM gl_journal_entries pj
+                                   WHERE pj.id = bank_transactions.transfer_journal_entry_id
+                                     AND pj.company_id = bank_transactions.company_id AND pj.reference IS NOT NULL)))
+                        AND own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '10 days')
+                                                     AND (bank_transactions.transaction_date + INTERVAL '10 days'))
     LIMIT 1
   `) as DbRow[];
   const journals = lines.length > 0 ? [] : (await sql`
@@ -111,14 +121,18 @@ export async function assertNoDuplicateTransfer(
                     AND (CASE WHEN ${into}::BOOLEAN THEN jl.credit ELSE jl.debit END) = ${amount})
       AND NOT EXISTS (SELECT 1 FROM bank_transactions bt
                         JOIN gl_journal_lines ml ON ml.id = bt.matched_journal_line_id AND ml.company_id = bt.company_id
-                          AND ml.journal_entry_id = je.id AND ml.gl_account_id = bt.bank_account_id
+                          AND ml.journal_entry_id IN (WITH RECURSIVE w AS (
+            SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
+            UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
+              WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT id FROM w WHERE d % 2 = 0)
+                          AND ml.gl_account_id = bt.bank_account_id
                           AND (CASE WHEN bt.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(bt.amount)
                         WHERE bt.company_id = je.company_id
                         AND bt.bank_account_id = ${bankAccountId}::UUID
                         AND bt.status IN ('allocated', 'matched', 'reconciled')
                         AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL
                              OR NOT ${lineEvidenced}::BOOLEAN)
-                        AND bt.transaction_date BETWEEN (je.entry_date - INTERVAL '5 days') AND (je.entry_date + INTERVAL '5 days'))
+                        AND bt.transaction_date BETWEEN (je.entry_date - INTERVAL '10 days') AND (je.entry_date + INTERVAL '10 days'))
     LIMIT 1
   `) as DbRow[];
   if (lines.length > 0 || journals.length > 0) throw new DuplicateTransferError();
