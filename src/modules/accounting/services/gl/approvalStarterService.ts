@@ -58,7 +58,7 @@ export function parseStarterPicks(raw: unknown): Parsed {
       return { ok: false, message: `${template.documentType} is listed more than once` };
     }
     if (conditionValue !== undefined && !isRuleAmount(conditionValue)) {
-      return { ok: false, message: `conditionValue for ${template.documentType} must be a number from 0 to ${MAX_RULE_AMOUNT.toFixed(2)}` };
+      return { ok: false, message: `conditionValue for ${template.documentType} must be a number from 0 to ${MAX_RULE_AMOUNT.toFixed(2)} with at most 2 decimals` };
     }
     if (template.conditionOperator === 'any' && conditionValue !== undefined && conditionValue !== template.conditionValue) {
       return { ok: false, message: `"${template.name}" matches every document of its type; it takes no amount` };

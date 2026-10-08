@@ -16,7 +16,7 @@ import { mapRule, mapRequest } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
-import { assertRuleInput } from './approvalRuleInput';
+import { assertRuleDocumentTypeOffered, assertRuleInput } from './approvalRuleInput';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -86,7 +86,7 @@ export interface ApprovalCheckResult {
 // approvalRuleInput.ts (300-line ceiling); re-exported for every import site.
 export {
   ApprovalOperatorInvalidError, ApprovalFieldInvalidError, ApprovalRoleInvalidError, ApprovalAmountInvalidError,
-  ApprovalActiveFlagInvalidError, CONDITION_FIELDS,
+  ApprovalActiveFlagInvalidError, ApprovalNameInvalidError, ApprovalDocumentTypeInvalidError, CONDITION_FIELDS,
 } from './approvalRuleInput';
 
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
@@ -106,6 +106,7 @@ export async function createRule(companyId: string, input: {
   approverRole?: string;
 }, actor: RuleActor): Promise<ApprovalRule> {
   assertRuleDocumentTypeCreatable(input.documentType);
+  assertRuleDocumentTypeOffered(input.documentType);
   assertRuleInput(input);
   // The rank the NEW rule will demand, defaulted the same way the INSERT does.
   // Without this an admin refused a weakening of the owner-only rule simply
@@ -114,7 +115,7 @@ export async function createRule(companyId: string, input: {
   const rows = (await sql`
     INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
-      ${companyId}, ${input.name}, ${input.documentType},
+      ${companyId}, ${input.name.trim()}, ${input.documentType},
       ${input.conditionField || 'total'}, ${input.conditionOperator || 'greater_than'},
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
@@ -141,7 +142,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
-      name = COALESCE(${input.name ?? null}, name),
+      name = COALESCE(${input.name?.trim() ?? null}, name),
       condition_field = COALESCE(${input.conditionField ?? null}, condition_field),
       condition_operator = COALESCE(${input.conditionOperator ?? null}, condition_operator),
       condition_value = COALESCE(${input.conditionValue ?? null}, condition_value),

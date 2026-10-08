@@ -8,7 +8,9 @@
  * exceeds (R-035 follow-up PR A, review round 1).
  */
 import { APPROVER_ROLES, isApproverRole } from './approvalRank';
-import { CONDITION_OPERATORS, MAX_RULE_AMOUNT, isConditionOperator, isRuleAmount } from './approvalRuleOptions';
+import {
+  CONDITION_OPERATORS, MAX_RULE_AMOUNT, RULE_FORM_DOCUMENT_TYPES, RULE_NAME_MAX, isConditionOperator, isRuleAmount, isRuleName,
+} from './approvalRuleOptions';
 
 export class ApprovalOperatorInvalidError extends Error {
   constructor(operator: string) {
@@ -77,7 +79,7 @@ function assertConditionField(field: unknown): void {
 
 export class ApprovalAmountInvalidError extends Error {
   constructor() {
-    super(`conditionValue must be a number from 0 to ${MAX_RULE_AMOUNT.toFixed(2)}`);
+    super(`conditionValue must be a number from 0 to ${MAX_RULE_AMOUNT.toFixed(2)} with at most 2 decimals`);
     this.name = 'ApprovalAmountInvalidError';
   }
 }
@@ -89,10 +91,38 @@ export class ApprovalActiveFlagInvalidError extends Error {
   }
 }
 
+export class ApprovalNameInvalidError extends Error {
+  constructor() {
+    super(`name must be text of 1 to ${RULE_NAME_MAX} characters`);
+    this.name = 'ApprovalNameInvalidError';
+  }
+}
+
+export class ApprovalDocumentTypeInvalidError extends Error {
+  constructor() {
+    super(`documentType must be one of: ${RULE_FORM_DOCUMENT_TYPES.join(', ')}`);
+    this.name = 'ApprovalDocumentTypeInvalidError';
+  }
+}
+
+/**
+ * A NEW rule's type must be one a rule can govern (review round 2): the census
+ * of every caller of rule matching (checkApproval, strictestMatchingRule, the
+ * gate, the unattended and MCP paths) finds RULE_FORM_DOCUMENT_TYPES and the
+ * legacy types only, and the legacy ones are refused first with their own
+ * message (assertRuleDocumentTypeCreatable). Anything else — another case, an
+ * unknown name, a non-string — made a rule that governs nothing.
+ */
+export function assertRuleDocumentTypeOffered(documentType: unknown): void {
+  if (!(RULE_FORM_DOCUMENT_TYPES as readonly unknown[]).includes(documentType)) throw new ApprovalDocumentTypeInvalidError();
+}
+
 /** Throws the matching *InvalidError for the first value a rule may not hold; absent fields are not judged. */
 export function assertRuleInput(input: {
-  approverRole?: unknown; conditionOperator?: unknown; conditionField?: unknown; conditionValue?: unknown; isActive?: unknown;
+  name?: unknown; approverRole?: unknown; conditionOperator?: unknown; conditionField?: unknown; conditionValue?: unknown;
+  isActive?: unknown;
 }): void {
+  if (input.name !== undefined && !isRuleName(input.name)) throw new ApprovalNameInvalidError();
   assertApproverRole(input.approverRole);
   assertConditionOperator(input.conditionOperator);
   assertConditionField(input.conditionField);
