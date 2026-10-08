@@ -20,6 +20,7 @@ import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard'
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { BankTransferRefusedError, postBankTransfer } from '@/modules/accounting/services/bank/bankTransferService';
 import { log } from '@/lib/logger';
 
@@ -73,6 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       message: `Transferred R${amount.toFixed(2)} from ${done.fromName} to ${done.toName}`,
     });
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return; // R-032 L5: 403, raised before any read
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof BankTransferRefusedError || err instanceof ClosedFiscalPeriodError

@@ -12,10 +12,13 @@
  * write (409) — as a hand-keyed bank line transferred to another bank account is (bankLineJournalGate, R-035 PR6
  * round 4: any account can be relabelled bank). manualJournalApprovalCensus lists it GATED.
  *
+ * Refused from a Login-as (impersonation) session before anything is read (R-032 L5).
+ *
  * The caller runs this inside a savepoint (withJournalDateRefusal): a refusal raised after the draft exists rolls the
  * draft back with it.
  */
 import { sql } from '@/lib/neon';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { DbRow } from '@/lib/neon';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
@@ -48,6 +51,9 @@ export interface BankTransferResult {
 export async function postBankTransfer(
   companyId: string, input: BankTransferInput, userId: string,
 ): Promise<BankTransferResult> {
+  // R-032 L5: a person posting a journal they composed is refused from a Login-as session, as the journal post is
+  // (journal-entries-action); a transfer is not one of the routine postings Hein allowed (sec-nrfa M1, 2026-10-08).
+  await assertNotImpersonating();
   const rows = (await sql`
     SELECT id, account_name, account_subtype FROM gl_accounts
     WHERE company_id = ${companyId}::UUID AND id = ANY(${[input.fromAccountId, input.toAccountId]}::UUID[])`) as DbRow[];

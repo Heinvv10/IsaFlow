@@ -4,12 +4,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sql, createJournalEntry, postJournalEntry, newManualJournalRefusal } = vi.hoisted(() => ({
+const { sql, createJournalEntry, postJournalEntry, newManualJournalRefusal, assertNotImpersonating } = vi.hoisted(() => ({
   sql: vi.fn(), createJournalEntry: vi.fn(), postJournalEntry: vi.fn(), newManualJournalRefusal: vi.fn(),
+  assertNotImpersonating: vi.fn(),
 }));
 vi.mock('@/lib/neon', () => ({ sql }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry, postJournalEntry }));
 vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({ newManualJournalRefusal }));
+vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating }));
 
 import { BankTransferRefusedError, postBankTransfer } from '@/modules/accounting/services/bank/bankTransferService';
 
@@ -25,6 +27,7 @@ const input = { fromAccountId: FROM, toAccountId: TO, amount: 250.5, transferDat
 beforeEach(() => {
   vi.clearAllMocks();
   sql.mockResolvedValue(accounts());
+  assertNotImpersonating.mockResolvedValue(undefined);
   newManualJournalRefusal.mockResolvedValue(null);
   createJournalEntry.mockResolvedValue({ id: 'draft1' });
   postJournalEntry.mockResolvedValue({ id: 'draft1', status: 'posted', entryNumber: 'JE-2026-00001' });
@@ -74,5 +77,13 @@ describe('postBankTransfer', () => {
     expect(newManualJournalRefusal).toHaveBeenCalledWith(CO, 250.5, expect.any(Function));
     expect(createJournalEntry).not.toHaveBeenCalled();
     expect(postJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('a Login-as session is refused before anything is read or written (R-032 L5, sec-nrfa M1)', async () => {
+    const refused = Object.assign(new Error('impersonating'), { name: 'ImpersonationForbiddenError' });
+    assertNotImpersonating.mockRejectedValueOnce(refused);
+    await expect(postBankTransfer(CO, input, 'u1')).rejects.toBe(refused);
+    expect(sql).not.toHaveBeenCalled();
+    expect(createJournalEntry).not.toHaveBeenCalled();
   });
 });

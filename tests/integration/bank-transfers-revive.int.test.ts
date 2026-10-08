@@ -8,6 +8,7 @@
  * accounts must be the company's own bank accounts; any refusal after the draft exists rolls back to the savepoint.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
@@ -50,6 +51,7 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     await sql`DELETE FROM vat_period_locks WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM approval_rules WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM approval_enforcement WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM impersonation_sessions WHERE target_user_id = ${c.fx.userId}`;
     await dropRouteUser(c.fx);
     await dropFixture(c.fx);
   }, 60000);
@@ -162,5 +164,20 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     const ok = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 9, transferDate: '2026-03-14' });
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
     expect(await journalCount()).toBe(n + 1);
+  }, 60000);
+
+  // R-032 L5 (sec-nrfa M1): a Login-as session is refused 403 before anything is read or written.
+  it('a Login-as (impersonation) session is refused 403 with nothing written', async () => {
+    const sessionId = crypto.randomUUID();
+    await sql`INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id)
+      VALUES (${sessionId}, ${crypto.randomUUID()}, ${c.fx.userId})`;
+    const impersonated = await new SignJWT({ sub: c.fx.userId, aal: 'aal2', session_id: sessionId })
+      .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const n = await journalCount();
+    const out = await callRoute(c.fx, impersonated, bankTransfers,
+      { fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 9, transferDate: '2026-03-15' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(403);
+    expect(JSON.stringify(out.body)).toMatch(/impersonating/);
+    expect(await journalCount()).toBe(n);
   }, 60000);
 });

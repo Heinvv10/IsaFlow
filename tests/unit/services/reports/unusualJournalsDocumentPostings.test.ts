@@ -95,3 +95,14 @@ describe('the classification', () => {
   });
 });
 
+// sec-nrfa M2 (2026-10-08): Banking > Transfers writes auto_bank_transfer from an amount a person typed, with no bank
+// line; only a transfer a bank line points at carries a document's amount.
+describe('auto_bank_transfer', () => {
+  it('is tested for a round number unless a bank line points at it', async () => {
+    expect(await reasons(
+      row('typed', 'auto_bank_transfer', { bank_line_backed: false }),
+      row('line', 'auto_bank_transfer', { bank_line_backed: true }),
+      row('unknown', 'auto_bank_transfer'),
+    )).toEqual([['typed', 'round_number'], ['unknown', 'round_number']]);
+  });
+});
