@@ -67,15 +67,18 @@ export async function assertNoDuplicateTransfer(
     -- (an odd one is a reversal — the opposite movement — and a pointer at a reversal must not lend it the original's
     -- pairing: brk-nrfa round 11 M1), within this company and bounded like every walk here, so a forged cross-tenant or
     -- looping reversal_of_id neither drops the line nor hangs the allocation (sec-nrfa round 10 L1/L2). A chain that
-    -- loops (forged rows only) has no root: the pointer anchors at its own journal (sec-nrfa round 11 L1).
+    -- loops (forged rows only) has no root: the pointer anchors at its own journal (sec-nrfa round 11 L1). So does one the
+    -- walk's bound cut off with a parent still to go — a loop longer than 21 never repeats inside it (brk-nrfa r13 L1).
     CROSS JOIN LATERAL (WITH RECURSIVE up AS (
             SELECT u.id, u.reversal_of_id, 0 AS d, ARRAY[u.id] AS path FROM gl_journal_entries u
               WHERE u.id = bank_transactions.transfer_journal_entry_id AND u.company_id = bank_transactions.company_id
             UNION ALL SELECT p.id, p.reversal_of_id, up.d + 1, up.path || p.id FROM gl_journal_entries p
               JOIN up ON p.id = up.reversal_of_id
               WHERE p.company_id = bank_transactions.company_id AND up.d < 20 AND p.id <> ALL (up.path))
-          SELECT up.id AS root_id, EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)) AS cyc FROM up
-          WHERE CASE WHEN EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)) THEN up.d = 0
+          SELECT up.id AS root_id, EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)
+                                                OR (c.d = 20 AND c.reversal_of_id IS NOT NULL)) AS cyc FROM up
+          WHERE CASE WHEN EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)
+                                     OR (c.d = 20 AND c.reversal_of_id IS NOT NULL)) THEN up.d = 0
                      ELSE up.d % 2 = 0 END
           ORDER BY up.d DESC LIMIT 1) rt
     WHERE bank_transactions.company_id = ${companyId}::UUID
