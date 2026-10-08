@@ -33,6 +33,13 @@ export type GLAccountSubtype =
   | 'opening_balance_equity'
   | 'other_current_asset'
   | 'other_current_liability'
+  // Used by seeded/system accounts (2140-2175 payroll, 5810 finance cost, 1130
+  // cash, BL1024 / 2215 loans) and canonical in accountSubtypeVocabulary.
+  | 'cash'
+  | 'payroll_liability'
+  | 'current_liability'
+  | 'long_term_liability'
+  | 'finance_cost'
   | 'other';
 
 export type VatType =

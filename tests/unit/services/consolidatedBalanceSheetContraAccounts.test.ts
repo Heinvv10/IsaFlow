@@ -21,34 +21,33 @@ import { getConsolidatedBalanceSheet } from '@/modules/accounting/services/repor
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown>>;
 const CO = '00000000-0000-0000-0000-0000000000c1';
 
-const map = (companyAccountId: string, code: string, type: string, normal: string): [string, MappingEntry] => [companyAccountId, {
-  groupAccountId: `g${code}`, groupAccountCode: code, groupAccountName: code, groupAccountType: type,
-  groupNormalBalance: normal, companyAccountId,
+const map = (companyAccountId: string, code: string, type: string): [string, MappingEntry] => [companyAccountId, {
+  groupAccountId: `g${code}`, groupAccountCode: code, groupAccountName: code, groupAccountType: type, companyAccountId,
 }];
-const row = (account_id: string, account_type: string, normal_balance: string, total_debit: number, total_credit: number) =>
-  ({ account_id, account_type, normal_balance, total_debit, total_credit });
+const row = (account_id: string, account_type: string, total_debit: number, total_credit: number) =>
+  ({ account_id, account_type, total_debit, total_credit });
 
 describe('consolidated balance sheet: contra accounts subtract from their section', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getGroupMembers).mockResolvedValue([{ companyId: CO, companyName: 'Co', ownershipPct: 100, consolidationMethod: 'full' }]);
     vi.mocked(getCoaMappingsForCompanies).mockResolvedValue(new Map([[CO, new Map([
-      map('bank', '1000', 'asset', 'debit'),
-      map('ppe', '1500', 'asset', 'debit'),
-      map('accdep', '1510', 'asset', 'credit'),
-      map('cap', '3000', 'equity', 'credit'),
-      map('div', '3400', 'equity', 'debit'),
+      map('bank', '1000', 'asset'),
+      map('ppe', '1500', 'asset'),
+      map('accdep', '1510', 'asset'),
+      map('cap', '3000', 'equity'),
+      map('div', '3400', 'equity'),
     ])]]));
   });
 
   it('dividends and accumulated depreciation reduce their sections; an elimination on dividends is signed by section', async () => {
     // Bank 30,000 + PPE 100,000 - AccDep 40,000 = 90,000 = Capital 100,000 - Dividends 10,000 (no profit)
     mockSql.mockResolvedValueOnce([
-      row('bank', 'asset', 'debit', 30000, 0),
-      row('ppe', 'asset', 'debit', 100000, 0),
-      row('accdep', 'asset', 'credit', 0, 40000),
-      row('cap', 'equity', 'credit', 0, 100000),
-      row('div', 'equity', 'debit', 10000, 0),
+      row('bank', 'asset', 30000, 0),
+      row('ppe', 'asset', 100000, 0),
+      row('accdep', 'asset', 0, 40000),
+      row('cap', 'equity', 0, 100000),
+      row('div', 'equity', 10000, 0),
     ]).mockResolvedValueOnce([{ revenue: 0, expenses: 0 }]);
     // Eliminating R2,000 of intra-group dividend credits the dividends account (it shrinks toward zero).
     vi.mocked(getPostedEliminations).mockResolvedValue([
@@ -65,20 +64,20 @@ describe('consolidated balance sheet: contra accounts subtract from their sectio
   });
   it("a member line is signed by the GROUP line's section, and an elimination on accumulated depreciation by the asset section", async () => {
     vi.mocked(getCoaMappingsForCompanies).mockResolvedValue(new Map([[CO, new Map([
-      map('bank', '1000', 'asset', 'debit'),
-      map('accdep', '1510', 'asset', 'credit'),
-      map('ppe', '1500', 'asset', 'debit'),
+      map('bank', '1000', 'asset'),
+      map('accdep', '1510', 'asset'),
+      map('ppe', '1500', 'asset'),
       // A member ASSET (a clearing account) mapped onto a group LIABILITY line: its debit balance must REDUCE liabilities.
-      ['clearing', { groupAccountId: 'g2100', groupAccountCode: '2100', groupAccountName: '2100', groupAccountType: 'liability', groupNormalBalance: 'credit', companyAccountId: 'clearing' }],
-      map('cap', '3000', 'equity', 'credit'),
+      ['clearing', { groupAccountId: 'g2100', groupAccountCode: '2100', groupAccountName: '2100', groupAccountType: 'liability', companyAccountId: 'clearing' }],
+      map('cap', '3000', 'equity'),
     ])]]));
     // Bank 5,000 + PPE 2,000 - AccDep 1,000 = 6,000 = (Clearing -1,000) + Capital 7,000
     mockSql.mockResolvedValueOnce([
-      row('bank', 'asset', 'debit', 5000, 0),
-      row('ppe', 'asset', 'debit', 2000, 0),
-      row('accdep', 'asset', 'credit', 0, 1000),
-      row('clearing', 'asset', 'debit', 1000, 0),
-      row('cap', 'equity', 'credit', 0, 7000),
+      row('bank', 'asset', 5000, 0),
+      row('ppe', 'asset', 2000, 0),
+      row('accdep', 'asset', 0, 1000),
+      row('clearing', 'asset', 1000, 0),
+      row('cap', 'equity', 0, 7000),
     ]).mockResolvedValueOnce([{ revenue: 0, expenses: 0 }]);
     // An elimination DEBITING accumulated depreciation by 500 shrinks it: +500 on the asset section.
     vi.mocked(getPostedEliminations).mockResolvedValue([
