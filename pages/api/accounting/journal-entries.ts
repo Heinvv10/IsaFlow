@@ -104,6 +104,19 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     return apiResponse.success(res, entry);
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
+    // A driver error (5-character SQLSTATE) quotes the value and names the type
+    // ('invalid input syntax for type date: "garbage"'): never the body. Class 22
+    // is a value the caller sent that Postgres cannot read, raised inside the
+    // savepoint above before anything is kept: 400. Any other driver error is the
+    // server's, and goes on to the 500 that rolls the request back.
+    const sqlState = (err as { code?: unknown }).code;
+    if (typeof sqlState === 'string' && /^[0-9A-Z]{5}$/.test(sqlState)) {
+      log.error('Failed to create journal entry', { error: err }, 'accounting-api');
+      if (!sqlState.startsWith('22')) throw err;
+      return apiResponse.badRequest(res, sqlState === '22007' || sqlState === '22008'
+        ? 'entryDate must be a real date (YYYY-MM-DD)'
+        : 'A value in the journal entry is not valid: check entryDate and every line amount');
+    }
     const raw = err instanceof Error ? err.message : '';
     // Postgres column-not-found errors sometimes surface as empty message; fall back to generic
     const message = raw || 'Failed to create journal entry';

@@ -120,27 +120,6 @@ export function calculateStockValue(quantity: number, unitCost: number): number 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PRODUCT CODE GENERATION
-// ═══════════════════════════════════════════════════════════════════════════
-
-const CATEGORY_PREFIXES: Record<string, string> = {
-  widgets: 'WDG',
-  raw_materials: 'RAW',
-  finished_goods: 'FIN',
-  consumables: 'CON',
-  electronics: 'ELC',
-  packaging: 'PKG',
-  spare_parts: 'SPR',
-  services: 'SVC',
-  stationery: 'STN',
-};
-
-export function generateProductCode(category: string, existingCount: number): string {
-  const prefix = CATEGORY_PREFIXES[category] || 'PRD';
-  return `${prefix}-${String(existingCount + 1).padStart(4, '0')}`;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
 // VALIDATION
 // ═══════════════════════════════════════════════════════════════════════════
 
