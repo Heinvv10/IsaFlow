@@ -231,16 +231,17 @@ export async function fetchJournalLineCandidates(
       )
       -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
       -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
-      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The walk is the outer side and
-      -- joins bank lines by provisional_je_id (indexed): inside bp.provisional_je_id IN (...) it re-ran per bank line
-      -- of the company, 6 s at 200k lines (sec-nrfa round 24 M1).
-      AND NOT EXISTS (
-          WITH RECURSIVE up AS (
-            SELECT je.id AS id, je.reversal_of_id AS parent, 0 AS d
-            UNION ALL SELECT p.id, p.reversal_of_id, up.d + 1 FROM gl_journal_entries p JOIN up ON p.id = up.parent
-              WHERE p.company_id = je.company_id AND up.d < 64)
-          SELECT 1 FROM up JOIN bank_transactions bp
-            ON bp.provisional_je_id = up.id AND bp.company_id = ${companyId}::UUID)
+      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,
+      -- walking DOWN from every held provisional (a journal is held iff its chain reaches one), and hashed for NOT IN:
+      -- a walk correlated to each candidate re-ran per bank line (6 s at 200k lines, sec-nrfa round 24 M1) or per
+      -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1).
+      AND je.id NOT IN (
+          WITH RECURSIVE held AS (
+            SELECT bp.provisional_je_id AS id, 0 AS d FROM bank_transactions bp
+            WHERE bp.provisional_je_id IS NOT NULL AND bp.company_id = ${companyId}::UUID
+            UNION ALL SELECT c.id, held.d + 1 FROM gl_journal_entries c JOIN held ON c.reversal_of_id = held.id
+              WHERE c.company_id = ${companyId}::UUID AND held.d < 64)
+          SELECT id FROM held)
     -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
     -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
     -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
