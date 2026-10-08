@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { getSalesOrder } from './salesOrderService';
 import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
+import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
 
@@ -113,13 +114,15 @@ export async function convertSalesOrderToInvoice(
       return String(invRows[0]!.id);
     });
 
+  // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
+  const dims = await revenueLineDefaults(companyId, order.customerId || null);
   for (const item of order.items || []) {
     await sql`
       INSERT INTO customer_invoice_items (
-        invoice_id, description, quantity, unit_price, tax_rate, amount, currency_code
+        invoice_id, description, quantity, unit_price, tax_rate, amount, currency_code, cc1_id
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${item.quantity},
-        ${item.unitPrice}, ${item.taxRate}, ${item.lineTotal}, 'ZAR'
+        ${item.unitPrice}, ${item.taxRate}, ${item.lineTotal}, 'ZAR', ${dims.cc1Id ?? null}::UUID
       )
     `;
   }

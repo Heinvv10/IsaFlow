@@ -23,6 +23,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from './customerInvoiceUpstreamAuthors';
+import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
 
@@ -140,13 +141,15 @@ async function runOneTemplate(companyId: string, id: string, userId: string): Pr
       return String(inv[0]!.id);
     });
 
+  // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
+  const dims = await revenueLineDefaults(companyId, ri.client_id ? String(ri.client_id) : null);
   for (const li of lineItems) {
     await sql`
       INSERT INTO customer_invoice_items (
-        invoice_id, description, unit_price, quantity, amount, tax_rate
+        invoice_id, description, unit_price, quantity, amount, tax_rate, cc1_id
       ) VALUES (
         ${invoiceId}::UUID, ${li.description}, ${li.unitPrice},
-        ${li.quantity}, ${li.amount}, ${taxRate}
+        ${li.quantity}, ${li.amount}, ${taxRate}, ${dims.cc1Id ?? null}::UUID
       )
     `;
   }

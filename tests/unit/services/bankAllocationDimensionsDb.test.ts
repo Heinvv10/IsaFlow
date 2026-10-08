@@ -18,14 +18,20 @@ describe('bank allocation dimension workflow (Postgres)', async () => {
     try {
       await client.query('BEGIN');
       await als.run({ client, userId: '', claims: {} }, async () => {
+        // One row per company through LATERAL ... LIMIT 1: joining every journal to every period and
+        // account and sorting the product took 17-24 s on isaflow_dev, most of this test's 30 s budget.
         const [f] = await sql`
-          SELECT je.company_id, je.created_by, fp.id AS period_id, fp.start_date::TEXT AS entry_date,
+          SELECT c.id AS company_id, je.created_by, fp.id AS period_id, fp.start_date::TEXT AS entry_date,
                  b.id AS bank_id, a.id AS account_id, a.account_code
-          FROM gl_journal_entries je
-          JOIN fiscal_periods fp ON fp.company_id = je.company_id AND fp.status = 'open'
-          JOIN gl_accounts b ON b.company_id = je.company_id AND b.is_active AND b.account_subtype = 'bank'
-          JOIN gl_accounts a ON a.company_id = je.company_id AND a.is_active AND a.account_type = 'expense'
-          ORDER BY je.company_id, fp.start_date, a.account_code LIMIT 1`;
+          FROM companies c
+          CROSS JOIN LATERAL (SELECT je.created_by FROM gl_journal_entries je WHERE je.company_id = c.id LIMIT 1) je
+          CROSS JOIN LATERAL (SELECT fp.id, fp.start_date FROM fiscal_periods fp
+            WHERE fp.company_id = c.id AND fp.status = 'open' ORDER BY fp.start_date LIMIT 1) fp
+          CROSS JOIN LATERAL (SELECT b.id FROM gl_accounts b
+            WHERE b.company_id = c.id AND b.is_active AND b.account_subtype = 'bank' LIMIT 1) b
+          CROSS JOIN LATERAL (SELECT a.id, a.account_code FROM gl_accounts a
+            WHERE a.company_id = c.id AND a.is_active AND a.account_type = 'expense' ORDER BY a.account_code LIMIT 1) a
+          ORDER BY c.id LIMIT 1`;
         if (!f) throw new Error('Need an open period, journal author, bank and expense account');
         const companyId = String(f.company_id), userId = String(f.created_by);
         await als.run({ client, companyId, userId, claims: {} }, async () => {

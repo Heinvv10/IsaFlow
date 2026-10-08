@@ -145,8 +145,11 @@ describe('deriveLineDimensions / deriveRevenueDimensions (queries)', () => {
       .rejects.toThrow(/FNO FIBERTIME differs from the customer's FNO HEROTEL/);
   });
 
-  it('a revenue line with no dimension sends no query (the customer default is applied at posting)', async () => {
-    await deriveRevenueDimensions(COMPANY, 'cust-1', [{}]);
-    expect(mockSql).not.toHaveBeenCalled();
+  it('a revenue line with no dimension stores the customer FNO, read in ONE query (it is no longer applied at posting)', async () => {
+    mockSql.mockResolvedValueOnce([{ fno: HEROTEL }]);
+    expect(await deriveRevenueDimensions(COMPANY, 'cust-1', [{}])).toEqual([{ cc1Id: HEROTEL.toLowerCase() }]);
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    mockSql.mockResolvedValueOnce([{ fno: null }]);
+    expect(await deriveRevenueDimensions(COMPANY, 'cust-1', [{}])).toEqual([{}]);
   });
 });

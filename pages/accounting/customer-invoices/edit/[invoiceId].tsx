@@ -13,10 +13,11 @@ import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCu
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
-interface LineItem { key: string; description: string; quantity: number; unitPrice: number; discount: number }
+// CC1 / CC2 / BU round-trip untouched (this form does not edit them); a line added here sends null for each.
+interface LineItem { key: string; description: string; quantity: number; unitPrice: number; discount: number; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null }
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
-  amount?: number | string; tax_rate?: number | string;
+  amount?: number | string; tax_rate?: number | string; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
 };
 type InvoiceDetail = {
   id: string; status: string; invoice_number: string;
@@ -92,7 +93,7 @@ export default function EditCustomerInvoicePage() {
           description: String(it.description || ''),
           quantity: qty,
           unitPrice,
-          discount,
+          discount, cc1Id: it.cc1_id ?? null, cc2Id: it.cc2_id ?? null, buId: it.bu_id ?? null,
         };
       }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0 }]);
       setLoading(false);
@@ -136,7 +137,7 @@ export default function EditCustomerInvoicePage() {
           items: validLines.map(l => ({
             description: l.description, quantity: l.quantity,
             unitPrice: l.unitPrice, taxRate: form.taxRate,
-            discount: l.discount || 0,
+            discount: l.discount || 0, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null,
           })),
         }),
       });
