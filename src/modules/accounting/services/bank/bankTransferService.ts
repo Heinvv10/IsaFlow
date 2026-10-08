@@ -24,7 +24,6 @@ import type { JournalEntry } from '../../types/gl.types';
 
 /** A transfer refused before any write, for a reason the caller can fix: the route answers it 400. */
 export class BankTransferRefusedError extends Error {
-  readonly code = 'BANK_TRANSFER_REFUSED';
   constructor(message: string) {
     super(message);
     this.name = 'BankTransferRefusedError';
