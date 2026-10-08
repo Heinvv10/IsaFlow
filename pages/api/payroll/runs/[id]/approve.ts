@@ -12,6 +12,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import {
   withAuth,
   withCsrf,
@@ -46,7 +47,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   try {
-    const result = await approvePayrollRun(companyId, id, user.id, { expectedPlanHash });
+    const result = await withJournalDateRefusal(res, () => approvePayrollRun(companyId, id, user.id, { expectedPlanHash }));
+    if (result === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;

@@ -20,7 +20,7 @@ export function response() {
   return {
     statusCode: 200, body: undefined as unknown, headersSent: false,
     status(code: number) { this.statusCode = code; return this; },
-    setHeader() { return this; }, getHeader() { return undefined; },
+    setHeader() { return this; }, getHeader() { return undefined; }, removeHeader() { /* a replaced answer drops headers */ },
     json(body: unknown) { this.body = body; return this.end(); },
     end(..._a: unknown[]) { return this; },
   };

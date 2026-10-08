@@ -115,4 +115,16 @@ describe('recurring journals page — a refused generate is shown, not swallowed
     await waitFor(() => expect(screen.queryByText(/not due until/)).not.toBeInTheDocument());
     expect(fetchMock.mock.calls.length).toBeGreaterThan(before + 1);
   });
+
+  // R-035 PR6: a run whose journal a manual-journal rule holds says so — it is a draft, not posted.
+  it('says when the generated journal is held for approval, and nothing when it posted', async () => {
+    actionResponse = ok({ journalId: 'je-2', heldForApproval: ['je-2'] });
+    await mountPage();
+    fireEvent.click(screen.getByTitle('Generate Now'));
+    await waitFor(() => expect(screen.getByText(/1 journal held for approval/)).toBeInTheDocument());
+
+    actionResponse = ok({ journalId: 'je-3', heldForApproval: [] });
+    fireEvent.click(screen.getByTitle('Generate Now'));
+    await waitFor(() => expect(screen.queryByText(/held for approval/)).not.toBeInTheDocument());
+  });
 });

@@ -28,6 +28,7 @@ export function response() {
     status(code: number) { this.statusCode = code; return this; },
     setHeader(name: string, value: unknown) { headers.set(name.toLowerCase(), value); return this; },
     getHeader(name: string) { return headers.get(name.toLowerCase()); },
+    removeHeader(name: string) { headers.delete(name.toLowerCase()); },
     json(body: unknown) { this.body = body; return this.end(); },
     end() { return this; },
   };

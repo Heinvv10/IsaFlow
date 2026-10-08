@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { ITEM_CODE_SEED, takeCompanyNumberLock } from '@/modules/accounting/services/core/numberLock';
 type Row = DbRow;
 
 
@@ -153,8 +154,10 @@ async function generateItemCode(companyId: string): Promise<string> {
   // later auto-code repeated one already in use. `items_company_id_code_key` on
   // (company_id, code) exists, so that repeat was a hard 23505 that wedged item
   // creation permanently — the count never catches up — not a silent duplicate.
-  // MAX+1 with no savepointed retry: two concurrent creates still 23505 into a
-  // 500 rather than duplicating, which is the correct trade but is not a retry.
+  // The company's item-code lock (migration 864), taken before the MAX, makes a
+  // concurrent auto-coded create wait for this one to commit and mint the next
+  // code instead of failing 23505; held past 5 s -> 55P03 -> 503 (withErrorHandler).
+  await takeCompanyNumberLock(companyId, null, ITEM_CODE_SEED);
   const maxRows = await sql`
     SELECT COALESCE(MAX(CAST(SUBSTRING(code FROM '[0-9]+$') AS INTEGER)), 0) AS max_num
     FROM items WHERE company_id = ${companyId} AND code ~ '^ITEM-[0-9]+$'

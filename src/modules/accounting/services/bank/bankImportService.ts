@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
 import { detectBankFormat } from '../../utils/bankCsvParsers';
 import { parseStatement, type StatementFileType } from './bankStatementParseService';
+import { withLedgerDays } from './bankStatementLedgerDays';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 
@@ -43,7 +44,7 @@ export async function importBankStatement(
     const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
     const fileType: StatementFileType =
       format === 'ofx' ? 'ofx' : format === 'qif' ? 'qif' : format === 'mt940' ? 'mt940' : 'csv';
-    const parseResult = await parseStatement({ fileType, csvContent, bankFormat: format });
+    const parseResult = await withLedgerDays(await parseStatement({ fileType, csvContent, bankFormat: format }));
 
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };
@@ -108,7 +109,7 @@ export async function importBankStatement(
  */
 export async function importParsedTransactions(
   companyId: string,
-  parseResult: BankCsvParseResult,
+  parsed: BankCsvParseResult,
   bankAccountId: string,
   statementDate: string,
   options: {
@@ -136,6 +137,7 @@ export async function importParsedTransactions(
   } = {},
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
+    const parseResult = await withLedgerDays(parsed); // the ledger window on the day Postgres reads (S5)
     if (parseResult.transactions.length === 0) {
       return { batchId: '', transactionCount: 0, errors: parseResult.errors };
     }

@@ -11,6 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
@@ -19,6 +20,7 @@ import {
   ProposalDecisionError,
 } from '@/modules/accounting/services/gl/closeRun/closeRunService';
 import type { Decision } from '@/modules/accounting/services/gl/closeRun/closeRunTypes';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DECISIONS: Decision[] = ['approve', 'reject', 'dismiss'];
@@ -40,11 +42,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const proposal = await decideProposal(companyId, runId, proposalId, decision as Decision, userId);
+    const proposal = await withJournalDateRefusal(res, () => decideProposal(companyId, runId, proposalId, decision as Decision, userId));
+    if (proposal === JOURNAL_DATE_REFUSED) return;
     return apiResponse.success(res, { proposal });
   } catch (err) {
     if (err instanceof CloseRunNotFoundError) return apiResponse.notFound(res, err.message);
     if (err instanceof ProposalDecisionError) return apiResponse.conflict(res, err.message);
+    // R-035 PR6: a draft manual-journal approval holds — raised before any write.
+    if (respondIfApprovalRequired(res, err)) return;
     throw err;
   }
 }

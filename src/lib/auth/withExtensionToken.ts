@@ -181,7 +181,7 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
       replayEnd(res, flush, {
         source: 'withExtensionToken', companyId: claims.companyId, userId: claims.userId,
         extra: { connectionId: claims.connectionId },
-      });
+      }, handlerFailed);
       if (!handlerFailed) drainAfterCommit(ctx);
     } catch (err) {
       // R-159: answer the throw here; see withAuth.

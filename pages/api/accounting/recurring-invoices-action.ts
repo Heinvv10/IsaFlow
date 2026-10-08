@@ -7,6 +7,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -40,7 +41,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
         // R-035 PR4: a gated invoice is generated as a draft awaiting approval, and says so.
-        const { invoiceId, heldForApproval } = await runRecurringInvoice(companyId, id, userId);
+        const posted = await withJournalDateRefusal(res, () => runRecurringInvoice(companyId, id, userId));
+        if (posted === JOURNAL_DATE_REFUSED) return;
+        const { invoiceId, heldForApproval } = posted;
         return apiResponse.success(res, heldForApproval ? { invoiceId, heldForApproval } : { invoiceId });
       }
       default:
