@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { AlertCircle, Pencil, Plus, Power, Sparkles, Trash2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { STARTER_RULES } from '@/modules/accounting/services/gl/approvalStarterRules';
 import { ApprovalRuleForm } from './ApprovalRuleForm';
 import { ApprovalStarterPanel } from './ApprovalStarterPanel';
@@ -18,6 +19,8 @@ import { docTypeLabel, formatCurrency, type ApprovalRuleRow } from './approvalRu
 
 interface Props {
   rules: ApprovalRuleRow[];
+  /** False when the last load of the rules failed: the table says so instead of "no rules". */
+  loaded: boolean;
   actorRole: string | null;
   /** Reloads the rules after a write; reports its own failure. */
   onChanged: () => Promise<void>;
@@ -26,8 +29,9 @@ interface Props {
 const TH = 'text-left px-4 py-3 font-medium text-[var(--ff-text-secondary)]';
 const BUTTON = 'inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium';
 
-export function ApprovalRulesTab({ rules, actorRole, onChanged }: Props) {
+export function ApprovalRulesTab({ rules, loaded, actorRole, onChanged }: Props) {
   const [form, setForm] = useState<{ rule?: ApprovalRuleRow } | null>(null);
+  const [deleting, setDeleting] = useState<ApprovalRuleRow | null>(null);
   const [starterOpen, setStarterOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -54,8 +58,11 @@ export function ApprovalRulesTab({ rules, actorRole, onChanged }: Props) {
     body: JSON.stringify({ id: rule.id, isActive: !rule.isActive }),
   }, '/api/accounting/approval-rules', 'Could not change the rule - try again');
 
-  const remove = (rule: ApprovalRuleRow) => write(rule.id, { method: 'DELETE' },
-    `/api/accounting/approval-rules?id=${rule.id}`, 'Could not delete the rule - try again');
+  // Delete asks first (review round 1): it sits beside the toggle, on a control.
+  const remove = (rule: ApprovalRuleRow) => {
+    setDeleting(null);
+    return write(rule.id, { method: 'DELETE' }, `/api/accounting/approval-rules?id=${rule.id}`, 'Could not delete the rule - try again');
+  };
 
   return (
     <div className="space-y-4">
@@ -97,7 +104,9 @@ export function ApprovalRulesTab({ rules, actorRole, onChanged }: Props) {
           </thead>
           <tbody className="divide-y divide-[var(--ff-border-primary)]">
             {rules.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-secondary)]">No approval rules configured</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-secondary)]">
+                {loaded ? 'No approval rules configured' : 'The rules could not be loaded, so they are not shown.'}
+              </td></tr>
             ) : rules.map(rule => (
               <tr key={rule.id} className="hover:bg-[var(--ff-bg-hover)]">
                 <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{rule.name}</td>
@@ -124,7 +133,7 @@ export function ApprovalRulesTab({ rules, actorRole, onChanged }: Props) {
                       <Power className="h-4 w-4" />
                     </button>
                     <button type="button" aria-label={`Delete ${rule.name}`} disabled={busy === rule.id}
-                      onClick={() => void remove(rule)} className="text-red-400 hover:text-red-500 disabled:opacity-50">
+                      onClick={() => setDeleting(rule)} className="text-red-400 hover:text-red-500 disabled:opacity-50">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
@@ -134,6 +143,16 @@ export function ApprovalRulesTab({ rules, actorRole, onChanged }: Props) {
           </tbody>
         </table>
       </div>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete approval rule?"
+        message={deleting ? `"${deleting.name}" will be deleted. Deactivating it instead keeps its history.` : ''}
+        confirmLabel="Delete rule"
+        confirmTone="danger"
+        onConfirm={() => { if (deleting) void remove(deleting); }}
+        onCancel={() => setDeleting(null)}
+      />
 
       {actorRole && form && (
         <ApprovalRuleForm actorRole={actorRole} rule={form.rule} onSaved={onChanged} onClose={() => setForm(null)} />

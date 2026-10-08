@@ -11,8 +11,8 @@
  * The preview is the server's count of unposted documents the switch holds.
  *
  * `activeRuleTypes` (R-035 follow-up, PR A): the types the company has an ACTIVE
- * rule for, from the page's own rules list. A switch whose type has none gates
- * nothing, and says so. Undefined while that list is not known (not loaded, or
+ * rule for, from the page's own rules list. A switch whose type has none says
+ * what turning it on then does (noRuleNote). Undefined while that list is not known (not loaded, or
  * it failed), so the note never speaks from a list that is not there.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -51,24 +51,38 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
-/** The coupled payment types (D1): switching one on switches the other, so its rules gate too. */
-const COUPLED: Record<string, { other: string; plural: string }> = {
-  supplier_payment: { other: 'payment_batch', plural: 'payment batches' },
-  payment_batch: { other: 'supplier_payment', plural: 'supplier payments' },
-};
+const GATES_NOTHING = 'No active rule for this type — turning this on gates nothing.';
 
 /**
- * The note beside a switch whose type has no active rule, or null. A coupled
- * switch whose partner HAS an active rule does gate something — the partner's
- * documents — so it must say only that, never "nothing".
+ * The note beside a switch whose type has no ACTIVE rule, or null — each one
+ * true of what switching on does with no rule of that type (pinned against the
+ * real gates by tests/integration/r035-rules-panel-truth.int.test.ts):
+ *  - payments are COUPLED (D1): either switch turns both on. With no rule on
+ *    either, nothing waits for an approver, but assertBatchMayBeSent holds an
+ *    unapproved batch's bank file and netcash/submit refuses a raw payment list.
+ *  - a payment_batch row whose partner has a rule: a batch is also judged by
+ *    its members' supplier_payment rules (strictestBatchRule), so it IS held.
+ *  - a supplier_payment row whose partner has a rule: a single payment is
+ *    matched only by supplier_payment rules, so only batches are held.
+ *  - manual journals: MCP set_opening_balance is refused outright under
+ *    enforcement (R-035 PR6 round 4), rule or no rule.
  */
 function noRuleNote(type: string, activeRuleTypes: string[] | undefined): string | null {
   if (!activeRuleTypes || activeRuleTypes.includes(type)) return null;
-  const coupled = COUPLED[type];
-  if (coupled && activeRuleTypes.includes(coupled.other)) {
-    return `No active rule for this type — turning this on gates only ${coupled.plural}.`;
+  if (type === 'supplier_payment' || type === 'payment_batch') {
+    const other = type === 'supplier_payment' ? 'payment_batch' : 'supplier_payment';
+    if (!activeRuleTypes.includes(other)) {
+      return 'No active rule for either payment type — turning this on holds no payment for an approver, '
+        + "but a batch's bank file can then be sent only after the batch is approved, and a raw Netcash payment list is refused.";
+    }
+    if (type === 'payment_batch') return null;
+    return 'No active rule for this type — turning this on gates only payment batches (and refuses a raw Netcash payment list).';
   }
-  return 'No active rule for this type — turning this on gates nothing.';
+  if (type === 'manual_journal') {
+    return 'No active rule for this type — turning this on holds no journal for approval; '
+      + 'it only stops the MCP connector posting opening balances.';
+  }
+  return GATES_NOTHING;
 }
 
 export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?: string[] } = {}) {

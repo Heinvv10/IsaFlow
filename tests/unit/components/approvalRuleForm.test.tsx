@@ -46,7 +46,17 @@ describe('the approver roles offered respect the actor rank', () => {
     const roles = optionValues(within(dialog).getByLabelText('Approver role'));
     expect(roles[0]).toBe('owner');
     expect(roles).toContain('admin');
+    expect(roles).toContain('viewer');
     expect(roles).not.toContain('super_admin');
+    // `system` is a pseudo-role no person holds or picks (review round 1).
+    expect(roles).not.toContain('system');
+  });
+
+  it('a New rule form opens on a role the actor may choose (adversarial M16: never a fixed admin)', async () => {
+    const { dialog } = await openNewRule({ rules: [], actorRole: 'manager' });
+    const role = within(dialog).getByLabelText('Approver role') as HTMLSelectElement;
+    expect(role.value).toBe('manager');
+    expect(role.selectedOptions[0]!.disabled).toBe(false);
   });
 
   it('offers the enforceable document types (supplier invoices included) and no legacy type, and the three operators', async () => {
@@ -88,6 +98,15 @@ describe('create', () => {
     expect(await within(dialog).findByText(message)).toBeDefined();
     expect(screen.getByRole('dialog', { name: 'New approval rule' })).toBeDefined();
   });
+});
+
+it('refuses an amount beyond 9 999 999 999 999.99 (numeric(15,2)) without sending it', async () => {
+  const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
+  fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: 'Huge' } });
+  fireEvent.change(within(dialog).getByLabelText('Amount (R)'), { target: { value: '10000000000000' } });
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
+  expect(await within(dialog).findByText('Enter an amount from 0 to 9,999,999,999,999.99.')).toBeDefined();
+  expect(sent).toEqual([]);
 });
 
 describe('edit', () => {
@@ -144,11 +163,20 @@ describe('activate / deactivate', () => {
 });
 
 describe('delete', () => {
-  it('shows the in-use 400 verbatim', async () => {
+  const confirmDialog = () => screen.findByRole('dialog', { name: 'Delete approval rule?' });
+
+  it('asks first: Cancel sends nothing; confirming sends the DELETE and shows the in-use 400 verbatim', async () => {
     const message = 'This rule has approval requests recorded against it and cannot be deleted. Deactivate it instead.';
     const sent = await openRules({ rules: [rule()], actorRole: 'admin', writes: { DELETE: () => refusal(400, message) } });
-    const button = await screen.findByRole('button', { name: 'Delete Big bills' });
-    await act(async () => { fireEvent.click(button); });
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Big bills' }));
+    expect(await confirmDialog()).toHaveTextContent('Big bills');
+    fireEvent.click(within(await confirmDialog()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(sent).toEqual([]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Big bills' }));
+    const confirm = within(await confirmDialog()).getByRole('button', { name: 'Delete rule' });
+    await act(async () => { fireEvent.click(confirm); });
     expect(await screen.findByText(message)).toBeDefined();
     expect(sent.map((s) => s.method)).toEqual(['DELETE']);
   });

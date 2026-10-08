@@ -17,6 +17,9 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 afterEach(() => { cleanup(); });
 
 const WARNING = 'No active rule for this type — turning this on gates nothing.';
+// Manual-journal enforcement refuses MCP set_opening_balance outright, rule or no rule (R-035 PR6 round 4).
+const JOURNAL_NOTE = 'No active rule for this type — turning this on holds no journal for approval; '
+  + 'it only stops the MCP connector posting opening balances.';
 const ENFORCEABLE = ['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'manual_journal'];
 
 function answer(rules: ReturnType<typeof rule>[], legacyCreditNoteRules = 0) {
@@ -48,15 +51,15 @@ it('warns beside each switch whose type has no active rule, and only those', asy
   expect(await rowOf(/enforce supplier invoice approvals/i)).not.toHaveTextContent(WARNING);
   expect(await rowOf(/enforce customer credit note approvals/i)).toHaveTextContent(WARNING);
   expect(await rowOf(/enforce supplier credit note approvals/i)).toHaveTextContent(WARNING);
-  expect(await rowOf(/enforce manual journal approvals/i)).toHaveTextContent(WARNING);
-  expect(screen.getAllByText(WARNING)).toHaveLength(3);
+  expect(await rowOf(/enforce manual journal approvals/i)).toHaveTextContent(JOURNAL_NOTE);
+  expect(screen.getAllByText(WARNING)).toHaveLength(2);
 });
 
 it('says nothing once every type has an active rule', async () => {
   answer(ENFORCEABLE.map((documentType, i) => rule({ id: `r${i}`, documentType })));
   await openRules();
   await rowOf(/enforce manual journal approvals/i);
-  expect(screen.queryByText(WARNING)).toBeNull();
+  expect(screen.queryByText(/No active rule/)).toBeNull();
 });
 
 it('keeps the legacy credit-note warning beside the new one', async () => {
@@ -78,11 +81,18 @@ it('does not claim a type has no rule while the rules could not be loaded', asyn
   });
   await openRules();
   await rowOf(/enforce manual journal approvals/i);
-  expect(screen.queryByText(WARNING)).toBeNull();
+  expect(screen.queryByText(/No active rule/)).toBeNull();
 });
 
-describe('coupled payment switches (D1): the note never says something false', () => {
+describe('coupled payment switches (D1): every note is true of the gate (r035-rules-panel-truth.int.test.ts)', () => {
   const PAYMENTS = ['supplier_payment', 'payment_batch'];
+  // Switching either on switches both. With no rule nothing waits for an approver, but
+  // assertBatchMayBeSent refuses an unapproved batch's bank file and netcash/submit
+  // refuses a raw payment list.
+  const NEITHER = 'No active rule for either payment type — turning this on holds no payment for an approver, '
+    + "but a batch's bank file can then be sent only after the batch is approved, and a raw Netcash payment list is refused.";
+  const ONLY_BATCHES = 'No active rule for this type — turning this on gates only payment batches '
+    + '(and refuses a raw Netcash payment list).';
   function answerPayments(rules: ReturnType<typeof rule>[]) {
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
       const path = String(url);
@@ -94,30 +104,28 @@ describe('coupled payment switches (D1): the note never says something false', (
       return json({ success: true, data: { items: [] } });
     });
   }
+  const payRow = () => rowOf(/enforce supplier payment approvals/i);
+  const batchRow = () => rowOf(/enforce payment batch approvals/i);
 
-  it('neither type has an active rule: both say they gate nothing', async () => {
+  it('neither type has an active rule: both rows say exactly what switching on does', async () => {
     answerPayments([rule({ id: 'x', documentType: 'payment_batch', isActive: false })]);
     await openRules();
-    expect(await rowOf(/enforce supplier payment approvals/i)).toHaveTextContent(WARNING);
-    expect(await rowOf(/enforce payment batch approvals/i)).toHaveTextContent(WARNING);
-    expect(screen.queryByText(/gates only/)).toBeNull();
+    expect(await payRow()).toHaveTextContent(NEITHER);
+    expect(await batchRow()).toHaveTextContent(NEITHER);
+    expect(screen.queryByText(WARNING)).toBeNull();
   });
 
-  it('only the batch type has a rule: the payment switch says it gates only payment batches', async () => {
+  it('only a batch rule: the payment row says it gates only payment batches; the batch row says nothing', async () => {
     answerPayments([rule({ id: 'b', documentType: 'payment_batch' })]);
     await openRules();
-    const payment = await rowOf(/enforce supplier payment approvals/i);
-    expect(payment).toHaveTextContent('No active rule for this type — turning this on gates only payment batches.');
-    expect(payment).not.toHaveTextContent(WARNING);
-    expect(await rowOf(/enforce payment batch approvals/i)).not.toHaveTextContent('No active rule');
+    expect(await payRow()).toHaveTextContent(ONLY_BATCHES);
+    expect(await batchRow()).not.toHaveTextContent('No active rule');
   });
 
-  it('only the payment type has a rule: the batch switch says it gates only supplier payments', async () => {
+  it('only a payment rule: the batch row says nothing — its batches are held by their payments\' rule', async () => {
     answerPayments([rule({ id: 'p', documentType: 'supplier_payment' })]);
     await openRules();
-    const batch = await rowOf(/enforce payment batch approvals/i);
-    expect(batch).toHaveTextContent('No active rule for this type — turning this on gates only supplier payments.');
-    expect(batch).not.toHaveTextContent(WARNING);
-    expect(await rowOf(/enforce supplier payment approvals/i)).not.toHaveTextContent('No active rule');
+    expect(await batchRow()).not.toHaveTextContent('No active rule');
+    expect(await payRow()).not.toHaveTextContent('No active rule');
   });
 });

@@ -2,7 +2,7 @@
  * Approval Workflows — Manage rules and pending approval requests
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
@@ -50,6 +50,9 @@ export default function ApprovalsPage() {
   // note must not speak from a list that failed to load.
   const [actorRole, setActorRole] = useState<string | null>(null);
   const [rulesLoaded, setRulesLoaded] = useState(false);
+  // Every rules load takes a number; only the latest may set the list, so a slow
+  // reload from an earlier write cannot overwrite a newer one (review round 1).
+  const rulesSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -57,6 +60,7 @@ export default function ApprovalsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
+    const seq = ++rulesSeq.current;
     try {
       const [reqRes, rulesRes] = await Promise.all([
         apiFetch(tab === 'pending' ? '/api/accounting/approval-requests?status=pending' : '/api/accounting/approval-requests'),
@@ -67,11 +71,14 @@ export default function ApprovalsPage() {
       const reqJson = await reqRes.json();
       const rulesJson = await rulesRes.json();
       setRequests(reqJson.data?.items ?? []);
-      setRules(rulesJson.data?.items ?? []);
-      setActorRole(typeof rulesJson.data?.actorRole === 'string' ? rulesJson.data.actorRole : null);
-      setRulesLoaded(true);
+      if (seq === rulesSeq.current) {
+        setRules(rulesJson.data?.items ?? []);
+        setActorRole(typeof rulesJson.data?.actorRole === 'string' ? rulesJson.data.actorRole : null);
+        setRulesLoaded(true);
+      }
     } catch (err) {
-      setRequests([]); setRules([]); setActorRole(null); setRulesLoaded(false);
+      setRequests([]);
+      if (seq === rulesSeq.current) { setRules([]); setActorRole(null); setRulesLoaded(false); }
       setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
     } finally {
       setLoading(false);
@@ -105,16 +112,21 @@ export default function ApprovalsPage() {
   };
 
   // After a rule write: reload the rules alone, without the page spinner, so the
-  // Rules tab (and a starter result it is showing) stays mounted.
+  // Rules tab (and a starter result it is showing) stays mounted. A failed reload
+  // clears the rows it could not refresh (they may name a rule just deleted), and
+  // the tab says they could not be loaded rather than that there are none.
   const refreshRules = useCallback(async () => {
+    const seq = ++rulesSeq.current;
     try {
       const res = await apiFetch('/api/accounting/approval-rules');
       await assertOk(res, 'Could not load the approval rules - try again');
       const json = await res.json();
+      if (seq !== rulesSeq.current) return;
       setRules(json.data?.items ?? []);
       setActorRole(typeof json.data?.actorRole === 'string' ? json.data.actorRole : null);
       setRulesLoaded(true);
     } catch (err) {
+      if (seq !== rulesSeq.current) return;
       setRules([]); setActorRole(null); setRulesLoaded(false);
       setError(apiErrorMessage(err, 'Could not load the approval rules - try again'));
     }
@@ -175,7 +187,7 @@ export default function ApprovalsPage() {
           </div>
         ) : tab === 'rules' ? (
           /* Rules Tab — R-035: rules the Enforce switch (above) governs */
-          <ApprovalRulesTab rules={rules} actorRole={actorRole} onChanged={refreshRules} />
+          <ApprovalRulesTab rules={rules} loaded={rulesLoaded} actorRole={actorRole} onChanged={refreshRules} />
         ) : (
           /* Pending / History Tab */
           <div className="space-y-3">

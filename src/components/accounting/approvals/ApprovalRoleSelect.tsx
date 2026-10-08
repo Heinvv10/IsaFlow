@@ -21,7 +21,7 @@ export function ApprovalRoleSelect({ actorRole, value, onChange, label, id, clas
   const roles = demandableApproverRoles(actorRole);
   return (
     <select id={id} aria-label={id ? undefined : label} value={value} onChange={(e) => onChange(e.target.value)} className={className}>
-      {!roles.includes(value) && <option value={value} disabled>{value} (above your role)</option>}
+      {!roles.includes(value) && <option value={value} disabled>{value} (you cannot choose this role)</option>}
       {roles.map((role) => <option key={role} value={role}>{role}</option>)}
     </select>
   );

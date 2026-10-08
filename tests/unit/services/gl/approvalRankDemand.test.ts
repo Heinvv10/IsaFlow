@@ -3,7 +3,8 @@
  * may DEMAND (Hein 2026-10-08 §2a.3: mirror assertMayDemand; the server stays
  * authoritative). The list is derived from the same ladder and the same
  * predicate as the guard, so for every pair of roles the form offers a role
- * exactly when the guard would accept it.
+ * exactly when the guard would accept it — except the `system` pseudo-role,
+ * which is never offered.
  */
 import { describe, expect, it } from 'vitest';
 import { demandableApproverRoles, mayDemandRole, APPROVER_RANK } from '@/modules/accounting/services/gl/approvalRank';
@@ -25,7 +26,8 @@ describe('demandableApproverRoles', () => {
   it.each(ACTORS)('for a %s offers exactly the roles assertMayDemand accepts', (actorRole) => {
     const offered = demandableApproverRoles(actorRole);
     for (const ruleRole of APPROVER_ROLES) {
-      expect(offered.includes(ruleRole), `${actorRole} → ${ruleRole}`).toBe(guardAccepts(actorRole, ruleRole));
+      // `system` is never offered (a pseudo-role no person picks); every other role exactly when the guard accepts it.
+      expect(offered.includes(ruleRole), `${actorRole} → ${ruleRole}`).toBe(ruleRole !== 'system' && guardAccepts(actorRole, ruleRole));
       expect(mayDemandRole(actorRole, ruleRole)).toBe(guardAccepts(actorRole, ruleRole));
     }
   });
@@ -33,6 +35,8 @@ describe('demandableApproverRoles', () => {
   it('never offers a role above the actor, strictest first', () => {
     expect(demandableApproverRoles('manager')).toEqual(['manager', 'accountant', 'bookkeeper', 'storeman', 'technician', 'user', 'viewer']);
     expect(demandableApproverRoles('owner')).not.toContain('super_admin');
+    expect(demandableApproverRoles('super_admin')).not.toContain('system');
+    expect(demandableApproverRoles('owner')).toContain('viewer');
     expect(demandableApproverRoles('admin')).not.toContain('owner');
     // An unrecognised actor role carries no authority (actorRank): only viewer.
     expect(demandableApproverRoles('Owner')).toEqual(['viewer']);
