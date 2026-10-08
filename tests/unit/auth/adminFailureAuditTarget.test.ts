@@ -60,4 +60,16 @@ describe('the failure row target', () => {
     expect(own.query).toHaveBeenCalledTimes(1);
     expect(query).not.toHaveBeenCalled();
   });
+
+  // rev-nrfb-blind round 2 LOW-2: ip_address is varchar(45); a request with no socket records NULL.
+  it('the client IP is cut to the column, and a request without a socket records NULL', async () => {
+    const long = { method: 'POST', url: '/api/admin/plans', query: {}, socket: { remoteAddress: '10.0.0.1' },
+      headers: { 'x-forwarded-for': `${'f'.repeat(60)}` } } as unknown as NextApiRequest;
+    await auditFailedAdminRequest(long, 'admin', 500, 'threw');
+    expect(query.mock.calls[0]![1][3]).toHaveLength(45);
+    query.mockReset(); query.mockResolvedValue({ rows: [] });
+    await auditFailedAdminRequest({ method: 'POST', url: '/api/admin/plans', query: {}, headers: {} } as unknown as NextApiRequest,
+      'admin', 500, 'threw');
+    expect(query.mock.calls[0]![1][3]).toBeNull();
+  });
 });
