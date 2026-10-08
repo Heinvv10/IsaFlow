@@ -7,24 +7,9 @@
 import { sql } from '@/lib/neon';
 import { resolveApprovalDocument } from './approvalDocuments';
 import type { DocumentType } from './approvalService';
+import { ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError } from './approvalDocumentErrors';
 
-/** approve on a request whose document no longer has the content it was raised for. */
-export class ApprovalDocumentChangedError extends Error {
-  readonly code = 'DOCUMENT_CHANGED';
-  constructor(requestId: string) {
-    super(`The document changed after approval request ${requestId} was raised. Submit it for approval again.`);
-    this.name = 'ApprovalDocumentChangedError';
-  }
-}
-
-/** approve without naming the digest the approver was shown, on a request that carries one. */
-export class ApprovalExpectedDigestRequiredError extends Error {
-  readonly code = 'EXPECTED_DIGEST_REQUIRED';
-  constructor(requestId: string) {
-    super(`Approving request ${requestId} requires expectedDigest — the document digest you were shown.`);
-    this.name = 'ApprovalExpectedDigestRequiredError';
-  }
-}
+export { ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError } from './approvalDocumentErrors';
 
 /**
  * Refuses an approve unless three digests agree: the one the approver was shown

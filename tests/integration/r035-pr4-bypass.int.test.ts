@@ -137,16 +137,20 @@ describe('a customer-invoice request is inserted only as requestApproval writes 
   it('app_user INSERTing an approved row is refused, and the invoice stays unpostable', async () => {
     const c = await company();
     const inv = await plantInvoice(pool, c, u.a);
-    await expect(asAppUser(pool, u.a, c, (cl) => insert(cl, c, inv.id, u.a, 'approved'))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    // R-035 N1 (migration 872): app_user holds no INSERT on approval_requests.
+    await expect(asAppUser(pool, u.a, c, (cl) => insert(cl, c, inv.id, u.a, 'approved'))).rejects.toThrow(/permission denied for table approval_requests/);
     await expect(asAppUser(pool, u.a, c, (cl) => cl.query(
       "UPDATE customer_invoices SET status = 'approved' WHERE id = $1", [inv.id]))).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
   });
 
-  it('refuses a pending row naming another requester; accepts one raised by the session user', async () => {
+  it('refuses a pending row naming another requester; accepts one raised by the session user (through approval_request_raise)', async () => {
     const c = await company();
     const inv = await plantInvoice(pool, c, u.a);
-    await expect(asAppUser(pool, u.b, c, (cl) => insert(cl, c, inv.id, u.a, 'pending'))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
-    await asAppUser(pool, u.a, c, (cl) => insert(cl, c, inv.id, u.a, 'pending'));
+    await expect(asAppUser(pool, u.b, c, (cl) => insert(cl, c, inv.id, u.a, 'pending'))).rejects.toThrow(/permission denied for table approval_requests/);
+    const rule = (await pool.query(
+      "SELECT id FROM approval_rules WHERE company_id = $1 AND document_type = 'customer_invoice'", [c])).rows[0].id as string;
+    await asAppUser(pool, u.a, c, (cl) => cl.query('SELECT * FROM approval_request_raise($1, $2, $3, $4, $5)',
+      [c, 'customer_invoice', inv.id, rule, u.a]));
     const { rows } = await pool.query('SELECT status FROM approval_requests WHERE document_id = $1', [inv.id]);
     expect(rows.map((r) => r.status)).toEqual(['pending']);
   });
