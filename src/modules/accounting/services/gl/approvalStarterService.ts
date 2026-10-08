@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { createRule, type ApprovalRule, type DocumentType } from './approvalService';
 import { isApproverRole } from './approvalRank';
 import { STARTER_RULES, type StarterRule } from './approvalStarterRules';
+import { MAX_RULE_AMOUNT, isRuleAmount } from './approvalRuleOptions';
 import type { RuleActor } from './approvalRuleGuards';
 
 /** One confirmed row: which recommended rule, and the amount and approver the person chose. */
@@ -56,9 +57,8 @@ export function parseStarterPicks(raw: unknown): Parsed {
     if (picks.some((p) => p.documentType === template.documentType)) {
       return { ok: false, message: `${template.documentType} is listed more than once` };
     }
-    if (conditionValue !== undefined
-        && (typeof conditionValue !== 'number' || !Number.isFinite(conditionValue) || conditionValue < 0)) {
-      return { ok: false, message: `conditionValue for ${template.documentType} must be a number of 0 or more` };
+    if (conditionValue !== undefined && !isRuleAmount(conditionValue)) {
+      return { ok: false, message: `conditionValue for ${template.documentType} must be a number from 0 to ${MAX_RULE_AMOUNT.toFixed(2)}` };
     }
     if (template.conditionOperator === 'any' && conditionValue !== undefined && conditionValue !== template.conditionValue) {
       return { ok: false, message: `"${template.name}" matches every document of its type; it takes no amount` };

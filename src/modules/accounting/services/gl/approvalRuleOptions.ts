@@ -12,6 +12,13 @@ export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
 export const isConditionOperator = (value: unknown): value is ConditionOperator =>
   typeof value === 'string' && (CONDITION_OPERATORS as readonly string[]).includes(value);
 
+/** The largest amount `approval_rules.condition_value` (NUMERIC(15,2)) holds. */
+export const MAX_RULE_AMOUNT = 9_999_999_999_999.99;
+
+/** A rule amount every write path accepts: a finite number from 0 to MAX_RULE_AMOUNT. */
+export const isRuleAmount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MAX_RULE_AMOUNT;
+
 /**
  * The types whose posting paths consult the approval gate — the only types an
  * Enforce switch can turn on (approvalEnforcement.ts). Grows by one type per PR.
