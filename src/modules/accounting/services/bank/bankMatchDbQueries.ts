@@ -234,7 +234,10 @@ export async function fetchJournalLineCandidates(
     const isTransfer = String(row.source || '') === 'auto_bank_transfer';
     let score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
     let matchReason: string | undefined = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
-    if (isTransfer && Math.abs(lineNet - txAmount) < 0.01) {
+    // Only a transfer journal of the same movement (the transfer guard's ten days) is "the existing transfer": an old
+    // unmatched leg of the amount on this bank is an ordinary candidate, not the top one.
+    const sameMovement = Math.abs(new Date(txDate).getTime() - new Date(candDate).getTime()) <= 10 * 86400000;
+    if (isTransfer && sameMovement && Math.abs(lineNet - txAmount) < 0.01) {
       // Surface the opposite leg of an inter-account transfer at the top — no
       // new JE must be posted, user should match against this existing one.
       score += 40;

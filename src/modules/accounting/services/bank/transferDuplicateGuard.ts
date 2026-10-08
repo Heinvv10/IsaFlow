@@ -28,9 +28,9 @@
  * A pairing line is of the same movement: within TEN days of the counterparty line (arm 1) or of the journal's date
  * (arm 2) — sec-nrfa round 6 L1, widened from five so a real second transfer whose first one cleared a week later still
  * posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal of the journal counts like one to the journal
- * (round 8 L2: the match screen offers both). A hand-keyed line pairs only
- * a journal no statement created (sec-nrfa round 7 L1). Residual, stated: the bound is a heuristic both ways — a first
- * transfer clearing more than ten days off still refuses a real second one. Residual, stated (brk-nrfa round 10 L3, the
+ * (round 8 L2: the match screen offers both). A hand-keyed line pairs only a journal no statement created (sec-nrfa
+ * round 7 L1). Residual, stated: the bound is a heuristic both ways — a first transfer clearing more than ten days off
+ * still refuses a real second one. Residual, stated (brk-nrfa round 10 L3, the
  * cost of sec-nrfa round 7 L1): a hand-keyed line the auto-link attached to a STATEMENT journal does not pair it, so a
  * second real hand-keyed banking of the amount within ten days is refused (match remedy). A pointer at a live
  * re-reversal is read from its deepest ancestor an EVEN number of steps up — never the root itself, since a pointer at

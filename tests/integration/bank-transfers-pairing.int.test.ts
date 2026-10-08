@@ -369,4 +369,33 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       await sql`UPDATE gl_journal_entries SET entry_date = '2029-11-03' WHERE id = ${inf}::UUID`;
     }
   }, 300000);
+
+  // brk-nrfa round 18 L1: the "existing bank transfer" bonus is for the same movement only (the guard's ten days). An
+  // old unmatched transfer leg of the amount on this bank stays an ordinary candidate and does not outrank the line
+  // that is; a transfer leg within ten days still gets it.
+  it('only a transfer leg within ten days is ranked as the existing transfer', async () => {
+    const a = await bankLine(bankA, '2030-03-02', -2500, 'RT OLD OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200); // B's March leg: never matched (no B line)
+    const old = await lineOf(String((await lineState(a))!.ptr), bankB);
+    const near = await inTx(c.fx, async () => {
+      const je = await createJournalEntry(c.fx.companyId, { entryDate: '2030-09-14', description: 'Receipt from Acme',
+        source: 'manual', lines: [{ glAccountId: bankB, debit: 2500, credit: 0, description: 'in' },
+          { glAccountId: c.expense, debit: 0, credit: 2500, description: 'acme' }] } as never, c.fx.userId);
+      await postJournalEntry(c.fx.companyId, je.id, c.fx.userId);
+      return lineOf(String(je.id), bankB);
+    });
+    const ranked = (await fetchJournalLineCandidates(c.fx.companyId, 2500, '2030-09-15', 'ACME RECEIPT', bankB))
+      .sort((x, y) => y.score - x.score);
+    // (The receipt's own expense leg can rank first — the scoring's date+description bonus, older than this PR.)
+    const rank = (id: string) => ranked.findIndex((x) => x.id === id);
+    expect(rank(near)).toBeGreaterThanOrEqual(0);
+    expect(rank(near)).toBeLessThan(rank(old));
+    expect(ranked.find((x) => x.id === old)?.matchReason ?? '').not.toMatch(/existing bank transfer/);
+    const b = await bankLine(bankA, '2030-09-20', -2600, 'RT NEAR OUT');
+    expect((await allocTransfer(b, bankB)).statusCode).toBe(200);
+    const nearLeg = await lineOf(String((await lineState(b))!.ptr), bankB);
+    const top = (await fetchJournalLineCandidates(c.fx.companyId, 2600, '2030-09-22', 'TRANSFER IN', bankB))
+      .sort((x, y) => y.score - x.score)[0]!;
+    expect([top.id, top.matchReason]).toEqual([nearLeg, expect.stringMatching(/existing bank transfer/)]);
+  }, 300000);
 });
