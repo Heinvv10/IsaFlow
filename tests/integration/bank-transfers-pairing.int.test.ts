@@ -291,4 +291,29 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id IN (${j1!}::UUID, ${j2!}::UUID, ${j3!}::UUID)`;
     }
   }, 120000);
+
+  // brk-nrfa round 13 L1: a forged loop longer than the walk's bound never repeats inside it; a walk that ends at the
+  // bound with a parent still to go is as unresolved as a loop, so the pointer anchors at itself.
+  it('a forged loop longer than the walk bound does not lend another transfer\'s pairing', async () => {
+    const D = '2029-06-04';
+    const outs: string[] = [];
+    for (let i = 0; i < 22; i++) {
+      const a = await bankLine(bankA, D, -(6000 + i), `L22 A OUT ${i}`);
+      expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+      outs.push(a);
+    }
+    const j: string[] = [];
+    for (const a of outs) j.push(String((await lineState(a))!.ptr));
+    expect((await confirm(await bankLine(bankB, D, 6002, 'L22 B IN 2'), await lineOf(j[2]!, bankB))).statusCode).toBe(200);
+    const b0 = await bankLine(bankB, D, 6000, 'L22 B IN 0');
+    expect((await allocTransfer(b0, bankA)).statusCode).toBe(400);
+    try {
+      for (let i = 0; i < 22; i++) {
+        await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j[(i + 1) % 22]!}::UUID WHERE id = ${j[i]!}::UUID`;
+      }
+      expect((await allocTransfer(b0, bankA)).statusCode).toBe(400);
+    } finally {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id = ANY(${j}::UUID[])`;
+    }
+  }, 300000);
 });
