@@ -20,6 +20,12 @@ export function validateJournalLine(line: JournalLineInput): LineValidationResul
     return { valid: false, error: 'GL account ID is required' };
   }
 
+  // NaN compares false with everything, so it passed every rule below, Postgres numeric stores 'NaN', and
+  // trg_gl_je_balanced let the entry post (NaN = NaN): every balance it touched became NaN (brk-nrfd, 2026-10-08).
+  if (!isFiniteAmount(line.debit) || !isFiniteAmount(line.credit)) {
+    return { valid: false, error: 'Debit and credit must be numbers' };
+  }
+
   if (line.debit < 0 || line.credit < 0) {
     return { valid: false, error: 'Debit and credit amounts cannot be negative' };
   }
@@ -33,6 +39,11 @@ export function validateJournalLine(line: JournalLineInput): LineValidationResul
   }
 
   return { valid: true };
+}
+
+/** An absent amount is zero; anything else must read as a finite number (a NaN or Infinity, as a number or text, must not). */
+function isFiniteAmount(v: unknown): boolean {
+  return v === null || v === undefined || Number.isFinite(Number(v));
 }
 
 /**

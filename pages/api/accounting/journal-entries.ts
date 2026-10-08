@@ -105,17 +105,19 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     // A driver error (5-character SQLSTATE) quotes the value and names the type
-    // ('invalid input syntax for type date: "garbage"'): never the body. Class 22
-    // is a value the caller sent that Postgres cannot read, raised inside the
-    // savepoint above before anything is kept: 400. Any other driver error is the
-    // server's, and goes on to the 500 that rolls the request back.
+    // ('invalid input syntax for type date: "garbage"'): never the body. Classes
+    // 22 (a value Postgres cannot read) and 23 (a value a constraint refuses) come
+    // from what the caller sent, raised inside the savepoint above before anything
+    // is kept: 400, naming a field only when the code says which (22007/22008: a
+    // date, and entryDate is the journal's only one). Any other driver error is
+    // the server's, and goes on to the 500 that rolls the request back.
     const sqlState = (err as { code?: unknown }).code;
     if (typeof sqlState === 'string' && /^[0-9A-Z]{5}$/.test(sqlState)) {
       log.error('Failed to create journal entry', { error: err }, 'accounting-api');
-      if (!sqlState.startsWith('22')) throw err;
+      if (!sqlState.startsWith('22') && !sqlState.startsWith('23')) throw err;
       return apiResponse.badRequest(res, sqlState === '22007' || sqlState === '22008'
         ? 'entryDate must be a real date (YYYY-MM-DD)'
-        : 'A value in the journal entry is not valid: check entryDate and every line amount');
+        : 'A value in the journal entry is not valid: check its accounts, dimensions, amounts and descriptions');
     }
     const raw = err instanceof Error ? err.message : '';
     // Postgres column-not-found errors sometimes surface as empty message; fall back to generic
