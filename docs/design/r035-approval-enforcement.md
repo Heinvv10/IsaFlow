@@ -371,7 +371,8 @@ is ever written for it). Hein's decisions, 2026-10-08:
 - **Who verifies** (`ap/supplierBankVerifiers.ts`): role ≥ `supplierBankVerifierRole` — the strictest active
   `supplier_payment`/`payment_batch` rule's role but **never below admin** (a refinement of decision 5: a rule may only raise
   it, or an inert low rule lowers who may verify and switch off) — falling back to admin only when nobody who did not set
-  the details holds the raised role (else a sole owner's own change under an owner-level rule is unverifiable). Not in
+  the details holds the raised role AND every setter holds it (else a sole owner's own change under an owner-level rule
+  is unverifiable; anyone below the raised role having touched the details keeps the raised requirement). Not in
   `bank_details_setters`, except R-035 Q2's sole approver judged on the **admin floor** (no OTHER active member reaches
   admin — so a setter cannot raise the role to qualify alone), recorded `self_verified` with `approval_roster_snapshot`.
   Own role and standing read from the database. Cookie session only (impersonated / claim-less refused).
