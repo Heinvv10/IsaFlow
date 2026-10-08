@@ -28,7 +28,10 @@
  *  - the triggers on approval_requests are exactly the 862 insert guard
  *    (BEFORE INSERT, FOR EACH ROW, enabled), and audit_log has none — a
  *    trigger rewriting NEW runs inside the definers' writes and calls nothing
- *    the closure check would see.
+ *    the closure check would see;
+ *  - neither table carries a rewrite RULE (an ON INSERT … DO INSTEAD NOTHING
+ *    on audit_log would swallow the Q2 row; one on approval_requests could
+ *    redirect or add to the definers' writes).
  *
  * EXCEPTION: approval_document_digest is NOT body-pinned. It is redefined by
  * design on other branches (873 dimensions, 874 line revenue) as documents
@@ -179,6 +182,13 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
       { tbl: 'approval_requests', tgname: 'trg_approval_request_insert_guard', fn: 'approval_request_insert_guard()',
         tgenabled: 'O', tgtype: 7 },
     ]);
+  });
+
+  it('no rewrite rule on approval_requests or audit_log', async () => {
+    const { rows } = await pool.query(`
+      SELECT ev_class::regclass::text AS tbl, rulename FROM pg_rewrite
+      WHERE ev_class IN ('public.approval_requests'::regclass, 'public.audit_log'::regclass) ORDER BY 1, 2`);
+    expect(rows, 'a rewrite rule on approval_requests or audit_log — re-review N1').toEqual([]);
   });
 
   it('the pinned set is closed: every function a writer or pinned helper calls is pinned (or the digest)', async () => {
