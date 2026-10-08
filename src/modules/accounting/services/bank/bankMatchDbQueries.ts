@@ -22,7 +22,9 @@ import {
 export async function fetchBankTransaction(
   bankTransactionId: string,
   companyId: string,
-): Promise<{ id: string; bankAccountId: string; amount: number; transactionDate: string; description: string; reference: string } | null> {
+): Promise<{
+  id: string; bankAccountId: string; amount: number; transactionDate: string; description: string; reference: string;
+} | null> {
   const txRows = (await sql`
     SELECT id, bank_account_id, amount, transaction_date, description, reference
     FROM bank_transactions
@@ -219,7 +221,8 @@ export async function fetchJournalLineCandidates(
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
-      -- Only a line that can be this statement line's bank leg: on its own bank, in its direction (auto-match's rule).
+      -- Only a line that can be this statement line's bank leg: on its own bank, in its direction (money in debits
+      -- the bank, money out credits it — brk-nrfa round 21).
       AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
       AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
       AND jl.id NOT IN (
