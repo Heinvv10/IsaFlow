@@ -15,26 +15,26 @@
  *      left the ledger short (brk-nrfa round 15 L1). Residual, stated: a transfer recorded as a manual, recurring, still
  *      unapproved or split journal is not seen, so its statement line allocated as a transfer posts it again — match the
  *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14).
- * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its amount;
- * a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5 L1). Only an
- * imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line must be live,
- * matched to its leg, on a journal that is not reversed (round 6 L1). "Not reversed" is read from the chain, as
- * bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the books, though
- * its `reversed_at` stays set (sec-nrfa round 6 M1). Every walk here goes 64 steps (a real chain of reversals can pass
- * 20: brk-nrfa round 14 L1); journalReversalState and autoPostHandOffset still stop at 20, so for a chain 21-64 deep
- * this guard and the auto-post undo can read it differently — theirs is outside this guard (rev-nrfa round 14 LOW-3).
- * Residual, stated (brk-nrfa round 16 L2): past 64 steps a walk is cut off and read as unresolved, so a reversed
- * transfer more than 64 reversals deep still refuses a real transfer of its amount (fails closed; match remedy).
- * A pairing line is of the same movement: within TEN days of the counterparty line (arm 1) or of the journal's date
- * (arm 2) — sec-nrfa round 6 L1, widened from five so a real second transfer whose first one cleared a week later still
- * posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal of the journal counts like one to the journal
- * (round 8 L2: the match screen offers both). A hand-keyed line pairs only a journal no statement created (sec-nrfa
- * round 7 L1). Residual, stated: the bound is a heuristic both ways — a first transfer clearing more than ten days off
- * still refuses a real second one. Residual, stated (brk-nrfa round 10 L3, the
- * cost of sec-nrfa round 7 L1): a hand-keyed line the auto-link attached to a STATEMENT journal does not pair it, so a
- * second real hand-keyed banking of the amount within ten days is refused (match remedy). A pointer at a live
- * re-reversal is read from its deepest ancestor an EVEN number of steps up — never the root itself, since a pointer at
- * a reversal (an odd step) is the opposite movement — in both arms and the 428 lookup (brk-nrfa rounds 10-11).
+ * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its
+ * amount; a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5
+ * L1). Only an imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line
+ * must be live, matched to its leg, on a journal that is not reversed (round 6 L1). "Not reversed" is read from the
+ * chain, as bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the
+ * books, though its `reversed_at` stays set (sec-nrfa round 6 M1). Every walk here goes 64 steps (a real chain of
+ * reversals can pass 20: brk-nrfa round 14 L1); journalReversalState and autoPostHandOffset still stop at 20, so for a
+ * chain 21-64 deep this guard and the auto-post undo can read it differently — theirs is outside this guard (rev-nrfa
+ * round 14 LOW-3). Residual, stated (brk-nrfa round 16 L2): past 64 steps a walk is cut off and read as unresolved, so
+ * a reversed transfer more than 64 reversals deep still refuses a real transfer of its amount (fails closed; match
+ * remedy). A pairing line is of the same movement: within TEN days of the counterparty line (arm 1) or of the journal's
+ * date (arm 2) — sec-nrfa round 6 L1, widened from five so a real second transfer whose first one cleared a week later
+ * still posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal of the journal counts like one to the
+ * journal (round 8 L2: the match screen offers both). A hand-keyed line pairs only a journal no statement created
+ * (sec-nrfa round 7 L1). Residual, stated: the bound is a heuristic both ways — a first transfer clearing more than ten
+ * days off still refuses a real second one. Residual, stated (brk-nrfa round 10 L3, the cost of sec-nrfa round 7 L1): a
+ * hand-keyed line the auto-link attached to a STATEMENT journal does not pair it, so a second real hand-keyed banking
+ * of the amount within ten days is refused (match remedy). A pointer at a live re-reversal is read from its deepest
+ * ancestor an EVEN number of steps up — never the root itself, since a pointer at a reversal (an odd step) is the
+ * opposite movement — in both arms and the 428 lookup (brk-nrfa rounds 10-11).
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by

@@ -207,9 +207,11 @@ export async function fetchJournalLineCandidates(
   bankAccountId?: string,
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
-    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source
+    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source,
+      (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL AND orig.reversal_of_id IS NULL)) AS undone
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
@@ -231,12 +233,19 @@ export async function fetchJournalLineCandidates(
     const lineNet = Number(row.debit) - Number(row.credit);
     const label = String(row.description ?? 'Journal line');
     const candDate = fmtDate(row.entry_date);
-    const isTransfer = String(row.source || '') === 'auto_bank_transfer';
+    // A reversed transfer, or the reversal undoing one, is not a movement the statement line can be the other leg of.
+    const isTransfer = String(row.source || '') === 'auto_bank_transfer' && row.undone !== true;
     let score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
     let matchReason: string | undefined = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
     // Only a transfer journal of the same movement (the transfer guard's ten days) is "the existing transfer": an old
     // unmatched leg of the amount on this bank is an ordinary candidate, not the top one.
-    const sameMovement = Math.abs(new Date(txDate).getTime() - new Date(candDate).getTime()) <= 10 * 86400000;
+    const gapDays = Math.abs(new Date(txDate).getTime() - new Date(candDate).getTime()) / 86400000;
+    const sameMovement = gapDays <= 10;
+    if (isTransfer && !sameMovement && gapDays <= 30 && Math.abs(lineNet - txAmount) < 0.01) {
+      // Past the guard's ten days nothing refuses a second posting, so a late-clearing leg is still named, lower.
+      score += 20;
+      matchReason = `May be an existing bank transfer journal (${Math.round(gapDays)} days apart) — check it before posting a new transfer`;
+    }
     if (isTransfer && sameMovement && Math.abs(lineNet - txAmount) < 0.01) {
       // Surface the opposite leg of an inter-account transfer at the top — no
       // new JE must be posted, user should match against this existing one.
@@ -244,7 +253,7 @@ export async function fetchJournalLineCandidates(
       matchReason = 'Matches existing bank transfer journal — select to reconcile without posting a new entry';
     }
     return {
-      type: isTransfer ? ('bank_transfer' as const) : ('journal_line' as const),
+      type: isTransfer && gapDays <= 30 ? ('bank_transfer' as const) : ('journal_line' as const),
       id: String(row.id), label, amount: lineNet, date: candDate, score, matchReason,
     };
   });

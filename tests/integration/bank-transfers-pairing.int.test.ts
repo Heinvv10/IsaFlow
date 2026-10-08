@@ -398,4 +398,33 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       .sort((x, y) => y.score - x.score)[0]!;
     expect([top.id, top.matchReason]).toEqual([nearLeg, expect.stringMatching(/existing bank transfer/)]);
   }, 300000);
+
+  // brk-nrfa round 19: past the guard's ten days nothing refuses a second posting, so a transfer leg up to 30 days off
+  // is still named (a lower bonus, its own label) in the "Bank Transfers" group; older ones are ordinary journal lines;
+  // a reversed transfer, or the reversal undoing one, is never offered as "the existing transfer".
+  it('graded transfer bonus: named up to 30 days, ordinary after, never for a reversal', async () => {
+    const leg = async (date: string, amount: number) => {
+      const a = await bankLine(bankA, date, -amount, `GR OUT ${date}`);
+      expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+      return { line: a, id: await lineOf(String((await lineState(a))!.ptr), bankB) };
+    };
+    const find = async (amount: number, date: string, id: string) =>
+      (await fetchJournalLineCandidates(c.fx.companyId, amount, date, 'TRANSFER IN', bankB)).find((x) => x.id === id)!;
+    const late = await leg('2031-01-05', 2710);
+    const l12 = await find(2710, '2031-01-17', late.id);
+    expect([l12.type, l12.matchReason]).toEqual(['bank_transfer', expect.stringMatching(/May be an existing bank transfer journal \(12 days apart\)/)]);
+    const old = await leg('2031-02-01', 2720);
+    const l40 = await find(2720, '2031-03-13', old.id);
+    expect([l40.type, l40.matchReason ?? '']).toEqual(['journal_line', expect.not.stringMatching(/bank transfer/)]);
+    const undone = await leg('2031-04-01', 2730);
+    expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: undone.line })).statusCode).toBe(200);
+    const cands = await fetchJournalLineCandidates(c.fx.companyId, -2730, '2031-04-03', 'RECEIPT', bankB);
+    const ofAmount = cands.filter((y) => Math.abs(Math.abs(y.amount) - 2730) < 0.01);
+    expect(ofAmount.length).toBeGreaterThan(0); // the reversal's B leg (and the original's) are candidates
+    for (const x of ofAmount) {
+      expect([x.type, x.matchReason ?? '']).toEqual(['journal_line', expect.not.stringMatching(/bank transfer/)]);
+    }
+    const orig = await find(2730, '2031-04-03', undone.id);
+    expect(orig === undefined || orig.type === 'journal_line').toBe(true);
+  }, 300000);
 });
