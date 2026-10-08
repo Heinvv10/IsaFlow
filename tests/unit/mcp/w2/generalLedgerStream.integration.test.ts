@@ -99,6 +99,7 @@ describe('general-ledger line stream — real database', async () => {
 
       const byId = new Map(whole.lines.map((l) => [l.lineId, l.runningBalance]));
       expect(small.lines.length).toBeGreaterThan(500);
+      expect(small.pages).toBeGreaterThan(1); // non-vacuity: the cut has to have happened
       for (const line of small.lines) {
         // Null only for an income-statement line on or after the first FY start in range.
         const nulled = isNulledByFyStart(line, whole.incomeStatementBalanceNullFrom);
