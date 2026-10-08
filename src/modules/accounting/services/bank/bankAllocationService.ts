@@ -415,9 +415,10 @@ export async function allocateTransaction(
     sourceDocumentId: invoiceSourceDocId,
   };
 
-  // A hand-keyed line's transfer is a typed amount like a Transfers-page one: the reference says so (only a journal
-  // the statement created is reference-less: reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1).
-  const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'Hand-keyed bank line' : undefined;
+  // A transfer from a line with no statement or feed behind it (hand-keyed; a Sage-migrated line too) is a typed amount
+  // like a Transfers-page one: the reference says so (only a journal the statement created is reference-less:
+  // reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1, brk-nrfa r6 L2).
+  const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'No statement or feed line' : undefined;
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference,
   }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });

@@ -11,7 +11,9 @@
  *      bank is MATCHED to. Without (2) a transfer typed on the Transfers page and then allocated from the statement
  *      posted twice (brk-nrfa M1). A statement-created journal is arm 1's business, not this arm's.
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its amount;
- * a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5 L1).
+ * a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5 L1). Only an
+ * imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line must be live,
+ * matched to its leg, on a journal that is not reversed (round 6 L1).
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by
@@ -43,11 +45,23 @@ export async function assertNoDuplicateTransfer(
       AND transfer_journal_entry_id IS NOT NULL
       AND amount = ${-lineAmount}
       AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days') AND (${txDate}::DATE + INTERVAL '2 days')
+      -- That line is live and still matched to its own leg of a journal that stands: a reversed transfer holds no
+      -- movement, and a pointer an unmatch left behind is not a match (brk-nrfa round 6 L1).
+      AND status IN ('allocated', 'matched', 'reconciled')
+      AND EXISTS (SELECT 1 FROM gl_journal_lines tl
+                    JOIN gl_journal_entries tj ON tj.id = tl.journal_entry_id AND tj.company_id = tl.company_id
+                    WHERE tl.id = bank_transactions.matched_journal_line_id AND tl.company_id = bank_transactions.company_id
+                      AND tl.journal_entry_id = bank_transactions.transfer_journal_entry_id
+                      AND tl.gl_account_id = bank_transactions.bank_account_id
+                      AND (CASE WHEN bank_transactions.amount > 0 THEN tl.debit ELSE tl.credit END)
+                        = ABS(bank_transactions.amount)
+                      AND tj.reversed_at IS NULL)
       -- Already paired: a live line on THIS bank is MATCHED to a line of that transfer journal, so this line is
       -- another movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2). The
       -- transfer pointer is not a match: an unmatch leaves it set (brk-nrfa round 5 F1). The match must be to this
       -- bank's own leg, on the side the line's sign says, for its amount: a R15 fee matched to the leg is not the
-      -- transfer (sec-nrfa round 5 L1).
+      -- transfer (sec-nrfa round 5 L1). And it is an imported or feed line: a hand-keyed Receive/Spend Money line of
+      -- the movement is not the statement's, so the statement line still finds the journal (brk-nrfa round 6 M1).
       AND NOT EXISTS (SELECT 1 FROM bank_transactions own
                         JOIN gl_journal_lines ml ON ml.id = own.matched_journal_line_id AND ml.company_id = own.company_id
                           AND ml.journal_entry_id = bank_transactions.transfer_journal_entry_id
@@ -55,7 +69,8 @@ export async function assertNoDuplicateTransfer(
                           AND (CASE WHEN own.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(own.amount)
                         WHERE own.company_id = bank_transactions.company_id
                         AND own.bank_account_id = ${bankAccountId}::UUID
-                        AND own.status IN ('allocated', 'matched', 'reconciled'))
+                        AND own.status IN ('allocated', 'matched', 'reconciled')
+                        AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL))
     LIMIT 1
   `) as DbRow[];
   const journals = lines.length > 0 ? [] : (await sql`
@@ -76,7 +91,8 @@ export async function assertNoDuplicateTransfer(
                           AND (CASE WHEN bt.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(bt.amount)
                         WHERE bt.company_id = je.company_id
                         AND bt.bank_account_id = ${bankAccountId}::UUID
-                        AND bt.status IN ('allocated', 'matched', 'reconciled'))
+                        AND bt.status IN ('allocated', 'matched', 'reconciled')
+                        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL))
     LIMIT 1
   `) as DbRow[];
   if (lines.length > 0 || journals.length > 0) {

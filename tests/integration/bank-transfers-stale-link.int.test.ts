@@ -9,6 +9,8 @@ import { sql } from '@/lib/neon';
 import bankTxAction from '../../pages/api/accounting/bank-transactions-action';
 import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
 import bankTransfers from '../../pages/api/accounting/bank-transfers';
+import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
+import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
@@ -173,5 +175,46 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
       { bankTransactionId: junk, candidateType: 'bank_transfer', candidateId: await lineOf(s, bankB) })).statusCode).toBe(200);
     expect((await allocTransfer(real, bankA)).statusCode).toBe(400);
     expect(await glMovement(bankB, '2026-12-01', '2026-12-10')).toBe(7000);
+  }, 60000);
+
+  // brk-nrfa round 6 M1: a transfer keyed by hand through Receive Money on B (its journal auto-links A's imported
+  // line) is not B's statement line: when that arrives and is allocated as the transfer from A, it is refused.
+  it('a hand-keyed line on this bank does not pair the transfer for the statement line', async () => {
+    const aLine = await bankLine(bankA, '2027-01-04', -1500, 'H1 TRANSFER OUT');
+    expect((await callRoute(c.fx, token, bankTxManual, { type: 'receive', bankAccountId: bankB, date: '2027-01-04',
+      amount: 1500, description: `H1 hk ${c.fx.tag}`, allocationType: 'transfer', contraAccountId: bankA })).statusCode).toBe(201);
+    expect((await lineState(aLine))!.status).not.toBe('imported'); // the auto-link took A's statement line
+    const bLine = await bankLine(bankB, '2027-01-04', 1500, 'H1 TRANSFER IN');
+    expect((await allocTransfer(bLine, bankA)).statusCode).toBe(400);
+    expect(await glMovement(bankB, '2027-01-01', '2027-01-08')).toBe(1500);
+    expect(await glMovement(bankA, '2027-01-01', '2027-01-08')).toBe(-1500);
+  }, 60000);
+
+  // brk-nrfa round 6 L1: once both legs of a statement transfer are reversed from the bank, the movement can be
+  // allocated again — a reversed journal holds nothing, and a dead line pairs nothing.
+  it('both legs of a reversed transfer can be allocated again', async () => {
+    const aLine = await bankLine(bankA, '2027-02-22', -2300, 'H2b OUT');
+    const bLine = await bankLine(bankB, '2027-02-22', 2300, 'H2b IN');
+    expect((await allocTransfer(aLine, bankB)).statusCode).toBe(200);
+    for (const id of [aLine, bLine]) {
+      expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: id })).statusCode).toBe(200);
+    }
+    expect(await glMovement(bankB, '2027-02-20', '2027-02-28')).toBe(0);
+    const again = await allocTransfer(aLine, bankB);
+    expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
+    expect(await glMovement(bankB, '2027-02-20', '2027-02-28')).toBe(2300);
+  }, 60000);
+
+  // brk-nrfa round 6 L1: a transfer journal reversed in the GL leaves its statement line allocated and matched to it;
+  // the other bank's line of that movement is not refused against a journal that no longer holds it.
+  it('a transfer reversed in the GL does not refuse the other leg', async () => {
+    const aLine = await bankLine(bankA, '2027-03-10', -2400, 'GLREV OUT');
+    expect((await allocTransfer(aLine, bankB)).statusCode).toBe(200);
+    const j1 = String((await lineState(aLine))!.ptr);
+    expect((await callRoute(c.fx, token, journalEntriesAction, { id: j1, action: 'reverse' })).statusCode).toBe(200);
+    expect((await lineState(aLine))!.status).toBe('allocated'); // still matched to the reversed journal
+    const bLine = await bankLine(bankB, '2027-03-11', 2400, 'GLREV IN');
+    const b = await allocTransfer(bLine, bankA);
+    expect(b.statusCode, JSON.stringify(b.body)).toBe(200);
   }, 60000);
 });
