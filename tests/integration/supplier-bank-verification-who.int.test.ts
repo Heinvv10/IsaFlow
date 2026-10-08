@@ -69,6 +69,18 @@ describe('the verifier role', () => {
   });
 });
 
+describe('the setter is not shed by a formatting-only re-entry', () => {
+  it('A redirects the account, C re-types the same digits with spaces: A is still a setter and may not verify', async () => {
+    const { c, s } = await changed([[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin']], u.b, u.a);
+    await r.changeBank(u.c, c, s, { bankAccountNumber: '624 4444 4444' });
+    const setters = (await pool.query('SELECT bank_details_setters::TEXT[] AS s FROM suppliers WHERE id = $1', [s])).rows[0].s;
+    expect(setters).toContain(u.a);
+    const res = await r.verify(u.a, c, s);
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('SETTER_FORBIDDEN');
+  });
+});
+
 describe('the sole-approver exception (R-035 Q2)', () => {
   it('the only member of the verifier rank set the details: they verify, recorded self_verified with the roster', async () => {
     const { c, s } = await changed([[u.b, 'owner'], [u.k, 'bookkeeper']], u.b, u.b);

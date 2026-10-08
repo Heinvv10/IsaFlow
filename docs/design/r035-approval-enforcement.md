@@ -376,5 +376,14 @@ is ever written for it). Hein's decisions, 2026-10-08:
   cascade from a purged supplier); RLS binds tenant and `verified_by = auth.uid()`; a BEFORE INSERT guard binds the row
   to the supplier's current fingerprint, refuses a setter's plain `verified` and any verify while the control is off.
   Same boundary as N1: it binds code paths, not raw SQL run as app_user.
+- **Baseline only once per supplier**: a supplier with any verification row is never baselined again (TS filter and 876
+  guard), so switching off and on cannot accept a change that is unverified now; a setter is shed only when the account
+  number's DIGITS change (`bankDetailsChange`), so re-typing the same number cannot clear whoever redirected it.
+- **Known limits (review of PR #679)**: the verifier role FOLLOWS the supplier-payment rules (decision 5) — a rule demanding
+  a role below admin lowers who may verify, switch on and switch off; lowering a rule is itself governed by R-048. The
+  masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
+  (unsalted sha256 of low-entropy fields) is returned to them. The fingerprint covers the five bank columns; Netcash sends
+  the supplier NAME as account holder, which it does not cover (a name change redirects nothing — the bank routes on
+  account and branch). Payment and batch pages do not yet show the verification state.
 - **Not in this step**: a bank-detail edit UI, evidence uploads, employee/payroll beneficiaries, steps 2–5 of the programme.
 

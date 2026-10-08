@@ -16,7 +16,8 @@
 --   2. supplier_bank_verifications: append-only evidence — who, when, how
 --      (method + note), and for a sole-approver self-verification the roster
 --      it was allowed on. Kinds: `baseline` (written by switching on, for every
---      supplier with details the switcher did not set, by the switcher),
+--      supplier with details the switcher did not set and no verification
+--      history, by the switcher),
 --      `verified`, `self_verified`.
 --   3. What the table refuses, whoever writes (memory: a control table must
 --      refuse rows the code never writes): RLS binds the tenant AND the actor
@@ -166,6 +167,16 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'supplier_bank_verifications: a baseline is written only by switching the control on'
         USING ERRCODE = '23514';
+    END IF;
+    -- Only a supplier with no verification history: switching off and on
+    -- again must not accept a change that is pending (unverified) now — a
+    -- supplier with history keeps its derived state.
+    IF EXISTS (
+      SELECT 1 FROM public.supplier_bank_verifications v
+      WHERE v.company_id = NEW.company_id AND v.supplier_id = NEW.supplier_id
+    ) THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: supplier % already has verification history; it is not baselined again',
+        NEW.supplier_id USING ERRCODE = '23514';
     END IF;
     -- Not details the switcher set: switching off, changing and switching on
     -- again must not verify the switcher's own change.

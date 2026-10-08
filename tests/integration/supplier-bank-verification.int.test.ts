@@ -84,6 +84,17 @@ describe('switching on', () => {
     expect((await r.verify(u.c, c, s)).state.statusCode).toBe(200);
   });
 
+  it('off and on again does not baseline someone else\'s pending change: a supplier with history keeps its derived state', async () => {
+    const { c, batch, s } = await enforcedBatch();
+    await r.changeBank(u.a, c, s, { bankAccountNumber: '62444444444' });
+    expect((await r.toggle(u.b, c, false)).state.statusCode).toBe(200);
+    expect((await r.toggle(u.b, c, true)).state.statusCode).toBe(200);
+    expect((await r.state(u.c, c, s)).state).toBe('unverified');
+    expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(409);
+    // A supplier whose details were never looked at before is still baselined.
+    expect((await r.state(u.c, c, batch.members[1]!.supplierId)).state).toBe('verified');
+  });
+
   it('a baselined batch is sendable: EFT file and Netcash submission go out', async () => {
     const { c, batch } = await enforcedBatch();
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);

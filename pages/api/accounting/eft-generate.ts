@@ -24,7 +24,9 @@ type Row = Record<string, unknown>;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
 
 function toEFTAccountType(value: unknown): EFTAccountType {
-  return value === 'savings' || value === 'transmission' || value === 'current' ? value : 'current';
+  // Case-insensitive, as supplier_bank_fingerprint reads it: 'Savings' and 'savings' are one verified detail.
+  const type = String(value ?? '').trim().toLowerCase();
+  return type === 'savings' || type === 'transmission' || type === 'current' ? type : 'current';
 }
 
 const GENERATORS: Record<string, typeof generateStandardBankACB> = {
