@@ -141,3 +141,17 @@ export async function stampBatchesOfMovedPayments(companyId: string, batchIds: r
     WHERE company_id = ${companyId}::UUID AND id = ANY(${batchIds}::UUID[])
   `;
 }
+
+/**
+ * Whether `userId` set the supplier's CURRENT bank details — is in
+ * `bank_details_setters` since the account was last re-pointed. Supplier bank
+ * verification (decision 5) refuses such a person, as payment approval does;
+ * read here so this module stays the only one naming the column.
+ */
+export async function isBankDetailsSetter(companyId: string, supplierId: string, userId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT (${userId} = ANY (COALESCE(bank_details_setters::TEXT[], '{}'))) AS setter
+    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return rows[0]?.setter === true;
+}
