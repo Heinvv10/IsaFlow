@@ -9,6 +9,11 @@
  * a control and is refused (403) below the strictest rule's authority, so a
  * refusal is shown and the switch left as it was — apiFetch resolves on a 4xx.
  * The preview is the server's count of unposted documents the switch holds.
+ *
+ * `activeRuleTypes` (R-035 follow-up, PR A): the types the company has an ACTIVE
+ * rule for, from the page's own rules list. A switch whose type has none gates
+ * nothing, and says so. Undefined while that list is not known (not loaded, or
+ * it failed), so the note never speaks from a list that is not there.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
@@ -46,7 +51,9 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
-export function ApprovalEnforcementPanel() {
+const NO_RULE_WARNING = 'No active rule for this type — turning this on gates nothing.';
+
+export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?: string[] } = {}) {
   const [data, setData] = useState<EnforcementData | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -128,6 +135,9 @@ export function ApprovalEnforcementPanel() {
                 Switches together with {type === 'supplier_payment' ? 'payment batch' : 'supplier payment'} approvals —
                 a batch is also held by each payment&apos;s own rule.
               </p>
+            )}
+            {activeRuleTypes && !activeRuleTypes.includes(type) && (
+              <p className="w-full text-xs text-amber-500">{NO_RULE_WARNING}</p>
             )}
             {warning && <p className="w-full text-xs text-amber-500">{warning}</p>}
           </div>
