@@ -15,10 +15,12 @@
  * built at run time (`EXECUTE 'GRANT UPD' || 'ATE …'`, `format('GRANT %s ON %I
  * …')` — the shape 872 itself uses), a later CREATE OR REPLACE of a writer
  * with a weaker body, and `ALTER FUNCTION … SECURITY INVOKER` all slip past
- * it. The catalogue is the authority: tests/integration/r035-n1-catalog
- * asserts the four writers' prosecdef, search_path, owner and EXECUTE list and
- * every role's privileges on the table, against whatever DATABASE_URL names
- * (local `bun run ci` with a database; GitHub runs none).
+ * it. tests/integration/r035-n1-catalog reads the live catalogue for those
+ * (prosecdef, search_path, owner, EXECUTE, every role's privileges, the
+ * writers' pinned bodies, statically named writes) against whatever
+ * DATABASE_URL names (local `bun run ci` with a database; GitHub runs none).
+ * A writer built from run-time SQL is beyond both; the fixture behaviour
+ * suites are the backstop.
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
