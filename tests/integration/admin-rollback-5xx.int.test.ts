@@ -59,9 +59,10 @@ async function call(handler: unknown, method = 'POST') {
   return o.wire;
 }
 const rows = async (action: string, marker?: string) => (await pool.query(
-  `SELECT action, target_type, target_id, details FROM admin_audit_log
+  `SELECT action, target_type, target_id, details, ip_address FROM admin_audit_log
    WHERE admin_user_id = $1 AND action = $2 AND ($3::text IS NULL OR target_id = $3) ORDER BY created_at`,
-  [ADMIN, action, marker ?? null])).rows as { action: string; target_id: string | null; details: Record<string, unknown> }[];
+  [ADMIN, action, marker ?? null])).rows as
+  { action: string; target_id: string | null; details: Record<string, unknown>; ip_address: string | null }[];
 
 describe('withPlatformAdmin: a 5xx rolls the admin action back, the attempt is still audited', () => {
   beforeAll(async () => {
@@ -91,6 +92,8 @@ describe('withPlatformAdmin: a 5xx rolls the admin action back, the attempt is s
     expect(failed.filter((r) => (r.details as { status?: number }).status === 500 && r.details.reason === 'rolled_back'))
       .toHaveLength(1);
     expect(failed.at(-1)!.details).toMatchObject({ method: 'POST', route: '/api/admin/nrfb', status: 500 });
+    expect(failed.at(-1)!.ip_address).toBe('127.0.0.1');
+    expect(failed.at(-1)!.target_id).toBeNull(); // no id in this path
   });
 
   it('a handler that throws (withErrorHandler answers 500): rolled back and audited the same way', async () => {
