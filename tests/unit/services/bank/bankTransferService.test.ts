@@ -15,7 +15,9 @@ vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({ newMa
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating }));
 vi.mock('@/modules/accounting/services/bank/transferDuplicateGuard', () => ({ findTransferRecordedFromStatement: findRecorded }));
 
-import { BankTransferRefusedError, postBankTransfer } from '@/modules/accounting/services/bank/bankTransferService';
+import {
+  BankTransferRefusedError, PossibleDuplicateTransferError, postBankTransfer,
+} from '@/modules/accounting/services/bank/bankTransferService';
 
 const CO = 'c0000000-0000-4000-8000-000000000001';
 const FROM = 'a0000000-0000-4000-8000-000000000001';
@@ -91,13 +93,21 @@ describe('postBankTransfer', () => {
   });
 
   // rev-nrfa LOW-1: the statement already recorded this movement as a transfer — typing it again would double it.
-  it('a movement already recorded from the statement is refused before the gate and before any journal', async () => {
+  it('a movement the statement may already hold needs a confirmation: refused before the gate and any journal', async () => {
     findRecorded.mockResolvedValueOnce('JE-2026-00042');
     const err = await postBankTransfer(CO, input, 'u1').then(() => null, (e: unknown) => e);
-    expect(err).toBeInstanceOf(BankTransferRefusedError);
-    expect(String((err as Error).message)).toMatch(/already in the ledger as JE-2026-00042/);
+    expect(err).toBeInstanceOf(PossibleDuplicateTransferError);
+    expect((err as PossibleDuplicateTransferError).existingEntryNumber).toBe('JE-2026-00042');
     expect(findRecorded).toHaveBeenCalledWith(CO, FROM, TO, 250.5, '2026-03-10');
     expect(newManualJournalRefusal).not.toHaveBeenCalled();
     expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('with confirmDuplicate the check is skipped and the transfer posts', async () => {
+    findRecorded.mockResolvedValue('JE-2026-00042');
+    await postBankTransfer(CO, { ...input, confirmDuplicate: true }, 'u1');
+    expect(findRecorded).not.toHaveBeenCalled();
+    expect(postJournalEntry).toHaveBeenCalledTimes(1);
+    expect(BankTransferRefusedError).toBeDefined();
   });
 });

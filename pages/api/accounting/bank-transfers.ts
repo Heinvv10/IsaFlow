@@ -21,7 +21,10 @@ import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/account
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-import { BankTransferRefusedError, postBankTransfer } from '@/modules/accounting/services/bank/bankTransferService';
+import {
+  BankTransferRefusedError, PossibleDuplicateTransferError, postBankTransfer,
+} from '@/modules/accounting/services/bank/bankTransferService';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { log } from '@/lib/logger';
 
 /** gl_journal_lines.debit / credit are numeric(15,2). */
@@ -36,6 +39,7 @@ const TransferSchema = z.object({
     }),
   reference: z.string().max(500).optional(),
   transferDate: z.string().max(30).optional(),
+  confirmDuplicate: z.boolean().optional(),
 }).refine(v => v.fromAccountId !== v.toAccountId, {
   message: 'Source and destination accounts must be different',
   path: ['toAccountId'],
@@ -52,7 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  const { fromAccountId, toAccountId, amount, reference, transferDate: rawDate } = parsed.data;
+  const { fromAccountId, toAccountId, amount, reference, transferDate: rawDate, confirmDuplicate } = parsed.data;
   // The day Postgres stores (gl/journalDateGuard) must be a ledger date: 422 before anything runs. Empty means today.
   const day = rawDate ? (await ledgerDaysOf([rawDate])).get(rawDate) ?? null : fmtDate(new Date());
   if (day === null) return apiResponse.validationError(res, { transferDate: ['transferDate must be a real date (YYYY-MM-DD)'] });
@@ -62,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // In a savepoint: a refusal raised after the draft exists (closed period, inactive account) rolls it back.
     const done = await withJournalDateRefusal(res, () => postBankTransfer(companyId, {
-      fromAccountId, toAccountId, amount, transferDate: day, reference,
+      fromAccountId, toAccountId, amount, transferDate: day, reference, confirmDuplicate,
     }, userId));
     if (done === JOURNAL_DATE_REFUSED) return;
 
@@ -77,6 +81,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return; // R-032 L5: 403, raised before any read
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     if (respondIfLockTimeout(res, err)) return;
+    // 428: resend with confirmDuplicate once the person confirms it is a separate transfer.
+    if (err instanceof PossibleDuplicateTransferError) {
+      return apiResponse.error(res, ErrorCode.PRECONDITION_REQUIRED, err.message, { existingEntry: err.existingEntryNumber });
+    }
     if (err instanceof BankTransferRefusedError || err instanceof ClosedFiscalPeriodError
       || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError) {
       return apiResponse.badRequest(res, err.message);

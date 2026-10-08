@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 
@@ -27,6 +27,8 @@ export default function BankTransfersPage() {
   const [reference, setReference] = useState('');
   const [transferDate, setTransferDate] = useState(localISODate());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 428 from the route: the statement may already hold this transfer; posting again needs the person's confirmation.
+  const [needsConfirm, setNeedsConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -49,12 +51,13 @@ export default function BankTransfersPage() {
 
   useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
 
-  const handleTransfer = async () => {
+  const handleTransfer = async (confirmDuplicate = false) => {
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
     setIsSubmitting(true);
+    setNeedsConfirm(false);
     setMessage({ type: '', text: '' });
     try {
       const res = await apiFetch('/api/accounting/bank-transfers', {
@@ -66,6 +69,7 @@ export default function BankTransfersPage() {
           amount: parseFloat(amount),
           reference,
           transferDate,
+          ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
         }),
       });
       await assertOk(res, 'Could not record the transfer - try again');
@@ -73,6 +77,7 @@ export default function BankTransfersPage() {
       setAmount('');
       setReference('');
     } catch (err) {
+      setNeedsConfirm(err instanceof ApiRequestError && err.status === 428);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not record the transfer - try again') });
     } finally {
       setIsSubmitting(false);
@@ -182,8 +187,18 @@ export default function BankTransfersPage() {
                   </div>
                 )}
 
+                {needsConfirm && (
+                  <button
+                    onClick={() => { void handleTransfer(true); }}
+                    disabled={isSubmitting}
+                    className="w-full px-4 py-2.5 border border-amber-500/60 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 rounded-lg text-sm font-medium"
+                  >
+                    It is a separate transfer — post it anyway
+                  </button>
+                )}
+
                 <button
-                  onClick={handleTransfer}
+                  onClick={() => { void handleTransfer(); }}
                   disabled={isSubmitting}
                   className="w-full px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-medium"
                 >

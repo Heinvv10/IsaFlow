@@ -45,6 +45,15 @@ describe('assertNoDuplicateTransfer', () => {
       expect(values(1)).toContain(into);
       expect(values(1)).toContain(1000);
     });
+
+  // brk-nrfa round 3: only a TYPED journal (reference set) counts, within five days, and a journal an ordinary match
+  // already tied to a line on this bank is linked.
+  it('asks only for typed journals within five days, and treats an ordinary match as linked', async () => {
+    await assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20');
+    expect(text(1)).toMatch(/je\.reference IS NOT NULL/);
+    expect(text(1)).toMatch(/INTERVAL '5 days'/);
+    expect(text(1)).toMatch(/bt\.matched_journal_line_id IN \(/);
+  });
 });
 
 describe('findTransferRecordedFromStatement', () => {
@@ -58,5 +67,6 @@ describe('findTransferRecordedFromStatement', () => {
     expect(text(0)).toMatch(/bt\.status IN \('allocated', 'matched', 'reconciled'\) AND bt\.feed_state = 'posted'/);
     // Only a journal the statement created (no reference); a typed one, even matched, never blocks another typed one.
     expect(text(0)).toMatch(/je\.reference IS NULL/);
+    expect(text(0)).toMatch(/INTERVAL '5 days'/);
   });
 });

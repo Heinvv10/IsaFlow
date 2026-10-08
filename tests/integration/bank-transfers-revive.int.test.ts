@@ -231,16 +231,21 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
   }, 60000);
 
   // rev-nrfa LOW-1: the other order — the statement recorded the transfer first; typing it on the page is refused.
-  it('a movement already recorded from the statement is refused on the Transfers page, nothing written', async () => {
+  it('a movement the statement already recorded needs a confirmation on the Transfers page (428), then posts', async () => {
     const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
       description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-07-01', -777,
       'BTXF stmt out', 'imported') RETURNING id`) as Row[])[0]!.id);
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF stmt transfer', 'transfer'));
     const n = await journalCount();
     const out = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 777, transferDate: '2026-07-02' });
-    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    // A possible duplicate needs the person's confirmation (brk-nrfa round 3 M2): 428, nothing written.
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(428);
     expect(JSON.stringify(out.body)).toMatch(/already in the ledger as JE-2026-/);
     expect(await journalCount()).toBe(n);
+    const confirmed = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 777,
+      transferDate: '2026-07-02', confirmDuplicate: true });
+    expect(confirmed.statusCode, JSON.stringify(confirmed.body)).toBe(200);
+    expect(await journalCount()).toBe(n + 1);
     // The opposite direction is a different movement: posted.
     const back = await post({ fromAccountId: bank2, toAccountId: c.fx.bankAccountId, amount: 777, transferDate: '2026-07-02' });
     expect(back.statusCode, JSON.stringify(back.body)).toBe(200);
@@ -288,5 +293,84 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     expect(await flagged()).toBe(true);
     await line(bank2, 50000); // the destination bank, money in: the statement line of this very movement
     expect(await flagged()).toBe(false);
+  }, 60000);
+
+  // brk-nrfa round 3 M2(a): a typed transfer tied to its statement line by an ORDINARY match does not block the
+  // statement line of a second real transfer.
+  it('a typed transfer reconciled through an ordinary match does not refuse a second transfer from the statement', async () => {
+    const typed = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 2222, transferDate: '2026-10-01' });
+    const id = (dataOf<{ journalEntry: { id: string } }>(typed)).journalEntry.id;
+    const leg = String(((await sql`SELECT id FROM gl_journal_lines WHERE journal_entry_id = ${id}::UUID
+      AND gl_account_id = ${c.fx.bankAccountId}::UUID`) as Row[])[0]!.id);
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+      matched_journal_line_id) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-10-01', -2222,
+      'BTXF matched first', 'matched', ${leg}::UUID)`;
+    const second = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date,
+      amount, description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-10-02', -2222,
+      'BTXF second', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, second, bank2, c.fx.userId, 'BTXF second transfer', 'transfer'));
+    expect(((await sql`SELECT status FROM bank_transactions WHERE id = ${second}::UUID`) as Row[])[0]!.status).toBe('allocated');
+  }, 60000);
+
+  // brk-nrfa round 3 M2(b): identical transfers swept from the statement on consecutive days are not duplicates.
+  it('a daily sweep of identical statement transfers is not refused', async () => {
+    for (const day of ['2026-10-12', '2026-10-13']) {
+      const id = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+        description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, ${day}::DATE, -333,
+        'BTXF sweep', 'imported') RETURNING id`) as Row[])[0]!.id);
+      await inTx(c.fx, () => allocateTransaction(c.fx.companyId, id, bank2, c.fx.userId, 'BTXF sweep', 'transfer'));
+    }
+    const n = Number(((await sql`SELECT COUNT(*)::int AS n FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID
+      AND description LIKE 'BTXF sweep%' AND status = 'allocated'`) as Row[])[0]!.n);
+    expect(n).toBe(2);
+  }, 60000);
+
+  // brk-nrfa round 3 L4: a Friday transfer that clears on Monday (D+3) is the same movement.
+  it('the statement line of a typed transfer three days later is refused (match it instead)', async () => {
+    await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 909, transferDate: '2026-10-16' });
+    const id = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2026-10-19', 909, 'BTXF monday', 'imported')
+      RETURNING id`) as Row[])[0]!.id);
+    const err = await inTx(c.fx, () => allocateTransaction(c.fx.companyId, id, c.fx.bankAccountId, c.fx.userId,
+      'BTXF monday in', 'transfer')).then(() => null, (e: unknown) => e);
+    expect(String(err)).toMatch(/A matching transfer already exists/);
+  }, 60000);
+
+  // brk-nrfa round 3 L3: a statement transfer reversed from the bank keeps its evidence; a typed one never gains it.
+  it('round numbers after reversals: a statement transfer and its reversal are not flagged; a typed one is', async () => {
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-11-03', -80000,
+      'BTXF to reverse', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF stmt 80k', 'transfer'));
+    const stmtJe = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
+    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2026-11-04' }));
+    await sql`UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL WHERE id = ${line}::UUID`;
+    const typed = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 70000, transferDate: '2026-11-05' });
+    const typedJe = (dataOf<{ journalEntry: { id: string } }>(typed)).journalEntry.id;
+    // A stale pointer at the typed journal (matched, then unmatched: status back to imported, pointer left set).
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+      transfer_journal_entry_id) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2026-11-05', 70000, 'BTXF stale',
+      'imported', ${typedJe}::UUID)`;
+    const typedRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, typedJe, c.fx.userId, { reversalDate: '2026-11-06' }));
+    const flagged = (await getUnusualJournals(c.fx.companyId, { start: '2026-11-01', end: '2026-11-30' }))
+      .flags.filter((f) => f.reason === 'round_number').map((f) => f.entryId);
+    expect(flagged).not.toContain(stmtJe);
+    expect(flagged).not.toContain((stmtRev as { id: string }).id);
+    expect(flagged).toContain(typedJe);
+    expect(flagged).toContain((typedRev as { id: string }).id);
+  }, 60000);
+
+  // brk-nrfa round 3 M2(b): only a TYPED journal counts in the journal arm — a statement-created transfer four days
+  // earlier (outside the line arm's two days) does not refuse another statement line.
+  it('a statement-created transfer does not refuse a later statement transfer of the same amount', async () => {
+    const inB = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2026-12-01', 444, 'BTXF B in', 'imported')
+      RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, inB, c.fx.bankAccountId, c.fx.userId, 'BTXF B from A', 'transfer'));
+    const outA = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-12-05', -444, 'BTXF A out',
+      'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, outA, bank2, c.fx.userId, 'BTXF A to B', 'transfer'));
+    expect(((await sql`SELECT status FROM bank_transactions WHERE id = ${outA}::UUID`) as Row[])[0]!.status).toBe('allocated');
   }, 60000);
 });

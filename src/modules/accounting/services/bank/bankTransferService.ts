@@ -26,6 +26,18 @@ import { findTransferRecordedFromStatement } from './transferDuplicateGuard';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntry } from '../../types/gl.types';
 
+/**
+ * The statement already recorded a transfer like this one (findTransferRecordedFromStatement): refused before any
+ * write until the caller confirms it is a separate movement (`confirmDuplicate`). The route answers it 428.
+ */
+export class PossibleDuplicateTransferError extends Error {
+  constructor(readonly existingEntryNumber: string) {
+    super(`A transfer like this is already in the ledger as ${existingEntryNumber}, recorded from the bank statement `
+      + 'within five days. Nothing was posted. If this is a separate transfer, post it again and confirm.');
+    this.name = 'PossibleDuplicateTransferError';
+  }
+}
+
 /** A transfer refused before any write, for a reason the caller can fix: the route answers it 400. */
 export class BankTransferRefusedError extends Error {
   constructor(message: string) {
@@ -41,6 +53,8 @@ export interface BankTransferInput {
   /** A ledger day (YYYY-MM-DD). */
   transferDate: string;
   reference?: string;
+  /** The caller has seen the possible-duplicate warning and confirms this is a separate transfer. */
+  confirmDuplicate?: boolean;
 }
 
 export interface BankTransferResult {
@@ -65,13 +79,13 @@ export async function postBankTransfer(
     throw new BankTransferRefusedError('A transfer moves money between two of the company\'s bank accounts: '
       + 'both accounts must be bank accounts');
   }
-  // The bank statement already recorded this movement as a transfer: typing it again would post it twice — the
-  // reverse of transferDuplicateGuard (rev-nrfa LOW-1).
-  const recorded = await findTransferRecordedFromStatement(
-    companyId, input.fromAccountId, input.toAccountId, input.amount, input.transferDate);
-  if (recorded) {
-    throw new BankTransferRefusedError(`This transfer is already in the ledger as ${recorded}, recorded from the bank `
-      + 'statement for this amount and date. Nothing was posted.');
+  // The bank statement may already have recorded this movement as a transfer: typing it again would post it twice
+  // (rev-nrfa LOW-1). A second real transfer of the same amount is legitimate too, so the caller confirms instead of
+  // being refused outright (brk-nrfa round 3 M2).
+  if (!input.confirmDuplicate) {
+    const recorded = await findTransferRecordedFromStatement(
+      companyId, input.fromAccountId, input.toAccountId, input.amount, input.transferDate);
+    if (recorded) throw new PossibleDuplicateTransferError(recorded);
   }
   const refusal = await newManualJournalRefusal(companyId, input.amount, (role, rule, amountText) =>
     `A bank transfer is a journal a person composed, so transferring ${amountText} needs ${role} approval before it `
