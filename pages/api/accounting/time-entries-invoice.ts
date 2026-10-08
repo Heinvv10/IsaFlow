@@ -17,6 +17,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { assertNonNegativeDocumentTotal, NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import { lockTimeEntries, TimeEntriesNotClaimedError } from '@/modules/accounting/services/practice/timeEntryLock';
+import { revenueLineDefaults } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 
 type Row = Record<string, unknown>;
 
@@ -119,7 +120,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       },
     );
 
-    // 5. Insert line items for each time entry
+    // 5. Insert line items for each time entry, each carrying the customer's FNO (dimensionStoredPosting).
+    const fno = (await revenueLineDefaults(companyId, customerId)).cc1Id ?? null;
     for (const e of entries) {
       const hours = Number(e.hours ?? 0);
       const entryRate = Number(e.rate ?? 0);
@@ -130,10 +132,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       await sql`
         INSERT INTO customer_invoice_items (
-          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+          invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code, cc1_id
         ) VALUES (
           ${invoiceId}::UUID, ${description}, ${entryRate},
-          ${hours}, ${lineAmount}, ${rate}, 'ZAR'
+          ${hours}, ${lineAmount}, ${rate}, 'ZAR', ${fno}::UUID
         )
       `;
     }

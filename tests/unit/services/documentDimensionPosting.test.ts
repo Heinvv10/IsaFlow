@@ -44,23 +44,23 @@ describe('bill posting carries dimensions on the expense legs', () => {
 describe('customer invoice revenue legs', () => {
   const base = { revenueAccountId: 'rev', invoiceNumber: 'INV-1' };
 
-  it('is the SAME single revenue line as before when nothing names a dimension', () => {
-    expect(buildRevenueLines({ ...base, subtotal: 1000, items: [{ amount: 600 }, { amount: 400 }], customerFnoId: null }))
+  it('is the SAME single revenue line as before when nothing carries a dimension', () => {
+    expect(buildRevenueLines({ ...base, subtotal: 1000, items: [{ amount: 600 }, { amount: 400 }] }))
       .toEqual([{ glAccountId: 'rev', debit: 0, credit: 1000, description: 'Revenue: INV-1' }]);
   });
 
-  it('takes the customer FNO on revenue when the items name none', () => {
-    const lines = buildRevenueLines({ ...base, subtotal: 1000, items: [{ amount: 1000 }], customerFnoId: 'FNO-FT' });
+  it('posts the FNO the items STORE (written at save), never one it adds', () => {
+    const lines = buildRevenueLines({ ...base, subtotal: 1000, items: [{ amount: 1000, cc1Id: 'fno-ft' }] });
     expect(lines).toEqual([{ glAccountId: 'rev', debit: 0, credit: 1000, description: 'Revenue: INV-1', cc1Id: 'fno-ft' }]);
   });
 
   it('splits the subtotal by (CC1, CC2, BU), summing EXACTLY to it', () => {
     const lines = buildRevenueLines({
-      ...base, subtotal: 1000.01, customerFnoId: 'fno-ft',
+      ...base, subtotal: 1000.01,
       items: [
-        { amount: 333.33, cc2Id: 'lawley', buId: 'act' },
-        { amount: 333.34, cc2Id: 'lawley', buId: 'act' },
-        { amount: 333.34, cc2Id: 'mohadin', buId: 'civ' },
+        { amount: 333.33, cc1Id: 'fno-ft', cc2Id: 'lawley', buId: 'act' },
+        { amount: 333.34, cc1Id: 'fno-ft', cc2Id: 'lawley', buId: 'act' },
+        { amount: 333.34, cc1Id: 'fno-ft', cc2Id: 'mohadin', buId: 'civ' },
       ],
     });
     expect(lines).toHaveLength(2);
@@ -73,18 +73,13 @@ describe('customer invoice revenue legs', () => {
     expect(validateJournalEntry(journal).valid).toBe(true);
   });
 
-  it('REFUSES an item whose FNO differs from the customer FNO', () => {
-    expect(() => buildRevenueLines({
-      ...base, subtotal: 100, customerFnoId: 'fno-ft', items: [{ amount: 100, cc1Id: 'fno-herotel' }],
-    })).toThrow(/differs from the customer's FNO/);
-  });
-
-  it('falls back to one line (customer FNO only) when a group nets to zero or below', () => {
-    const lines = buildRevenueLines({
-      ...base, subtotal: 900, customerFnoId: 'fno-ft',
-      items: [{ amount: 1000, buId: 'build' }, { amount: -100, buId: 'disc' }],
-    });
-    expect(lines).toEqual([{ glAccountId: 'rev', debit: 0, credit: 900, description: 'Revenue: INV-1', cc1Id: 'fno-ft' }]);
+  it('falls back to one line, keeping only the FNO every item stores, when a group nets to zero or below', () => {
+    const items = [{ amount: 1000, cc1Id: 'fno-ft', buId: 'build' }, { amount: -100, cc1Id: 'fno-ft', buId: 'disc' }];
+    expect(buildRevenueLines({ ...base, subtotal: 900, items }))
+      .toEqual([{ glAccountId: 'rev', debit: 0, credit: 900, description: 'Revenue: INV-1', cc1Id: 'fno-ft' }]);
+    // Items that do not share one FNO: the single line carries none.
+    expect(buildRevenueLines({ ...base, subtotal: 900, items: [items[0]!, { ...items[1]!, cc1Id: 'fno-other' }] }))
+      .toEqual([{ glAccountId: 'rev', debit: 0, credit: 900, description: 'Revenue: INV-1' }]);
   });
 
   it('parses the posting query\'s json_agg in both shapes', () => {

@@ -189,7 +189,8 @@ export async function approveCustomerInvoice(
   // nothing surfacing the divergence. Letting it propagate matches the AP side
   // (supplierInvoiceWorkflowService.approveSupplierInvoice) and lets withAuth
   // roll the request transaction back, taking the status UPDATE above with it.
-  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
+  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId,
+    { ...opts, approvingFromStatus: String(locked[0]?.status) });
   log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
 
   // PRD-06 Phase 1: seal the rendered PDF as evidence on approve.

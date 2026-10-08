@@ -18,6 +18,7 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
+import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
@@ -145,7 +146,7 @@ async function approveInner(
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
       lines,
-    }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim });
+    }, userId, actorMeta(opts), { allowLateInputClaim: opts?.allowLateInputClaim, ...POST_AS_STORED });
 
     const posted = await postJournalEntry(companyId, journalEntry.id, userId, opts);
 
@@ -262,7 +263,7 @@ async function postToGLInner(
     description: `Supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_invoice',
     lines,
-  }, userId, actorMeta(opts));
+  }, userId, actorMeta(opts), POST_AS_STORED);
 
   // NEVER a late claim: this posts a bill that is ALREADY approved, so it was in
   // the figures of the VAT period its date falls in when that return was filed.
