@@ -255,7 +255,8 @@ export async function allocateTransaction(
     }
 
     // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.
-    await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate);
+    await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate,
+      isBankEvidenced(tx));
 
     counterpartyAccountId = contraAccountId;
     allocEntityName = `${String(cp.account_code)} ${String(cp.account_name)}`;

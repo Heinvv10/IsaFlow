@@ -19,7 +19,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -115,58 +116,64 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   try {
-    // ── Step 1: Insert bank_transactions row ─────────────────────────────────
+    // The line and its allocation stand or fall together: a refusal raised inside rolls the INSERT back to this
+    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa round 7 L2).
+    const { txId, result } = await withSavepoint('manual_bank_line', async () => {
+      // ── Step 1: Insert bank_transactions row ─────────────────────────────────
 
-    const txRows = await sql`
-      INSERT INTO bank_transactions (
-        bank_account_id,
-        transaction_date,
-        amount,
+      const txRows = await sql`
+        INSERT INTO bank_transactions (
+          bank_account_id,
+          transaction_date,
+          amount,
+          description,
+          reference,
+          status,
+          company_id
+        ) VALUES (
+          ${bankAccountId}::UUID,
+          ${date}::DATE,
+          ${signedAmount},
+          ${description ?? null},
+          ${reference ?? null},
+          'imported',
+          ${companyId}
+        )
+        RETURNING id
+      `;
+
+      const txId = String((txRows as Record<string, unknown>[])[0]!.id);
+
+      log.info('Manual bank transaction created', {
+        txId, type, bankAccountId, amount: signedAmount, date,
+      }, 'accounting-api');
+
+      // ── Step 2: Immediately allocate the transaction ──────────────────────────
+
+      const result = await allocateTransaction(
+        companyId,
+        txId,
+        contraAccountId ?? '',
+        userId,
         description,
-        reference,
-        status,
-        company_id
-      ) VALUES (
-        ${bankAccountId}::UUID,
-        ${date}::DATE,
-        ${signedAmount},
-        ${description ?? null},
-        ${reference ?? null},
-        'imported',
-        ${companyId}
-      )
-      RETURNING id
-    `;
+        allocationType,
+        entityId,
+        vatCode,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // The service owns the autoApply default; this route only forwards an
+        // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
+        { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
+      );
 
-    const txId = String((txRows as Record<string, unknown>[])[0]!.id);
+      log.info('Manual bank transaction allocated', {
+        txId, journalEntryId: result.journalEntryId,
+      }, 'accounting-api');
 
-    log.info('Manual bank transaction created', {
-      txId, type, bankAccountId, amount: signedAmount, date,
-    }, 'accounting-api');
-
-    // ── Step 2: Immediately allocate the transaction ──────────────────────────
-
-    const result = await allocateTransaction(
-      companyId,
-      txId,
-      contraAccountId ?? '',
-      userId,
-      description,
-      allocationType,
-      entityId,
-      vatCode,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      // The service owns the autoApply default; this route only forwards an
-      // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
-      { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
-    );
-
-    log.info('Manual bank transaction allocated', {
-      txId, journalEntryId: result.journalEntryId,
-    }, 'accounting-api');
+      return { txId, result };
+    });
 
     return apiResponse.created(res, {
       bankTransactionId: txId,
@@ -194,6 +201,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
     }
+    // The ledger already holds this transfer: the person's answer is to match it, not a fault (the savepoint has
+    // already discarded the line).
+    if (err instanceof DuplicateTransferError) return apiResponse.badRequest(res, err.message);
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
     log.error('Manual bank transaction failed', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, message);
