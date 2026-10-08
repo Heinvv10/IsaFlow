@@ -15,7 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { demandableApproverRoles } from '@/modules/accounting/services/gl/approvalRank';
 import {
-  CONDITION_OPERATORS, RULE_FORM_DOCUMENT_TYPES, RULE_NAME_MAX, hasVisibleCharacter,
+  CONDITION_OPERATORS, RULE_FORM_DOCUMENT_TYPES, RULE_NAME_MAX, hasControlCharacter, hasVisibleCharacter,
 } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
 import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
@@ -45,6 +45,7 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
 
   /** The request body, or a sentence saying what to fix. */
   function buildBody(): Record<string, unknown> | string {
+    if (hasControlCharacter(name.trim())) return 'Enter a name without control characters.';
     if (name.trim() === '' || !hasVisibleCharacter(name)) return 'Enter a name for the rule.';
     if (name.trim().length > RULE_NAME_MAX) return `Enter a name of at most ${RULE_NAME_MAX} characters.`;
     const value = operator === 'any' ? 0 : parseAmount(amount);

@@ -133,3 +133,34 @@ describe('documentType: legacy refusal first, then the allow-list; each with its
     expect(await rows(c)).toEqual([]);
   });
 });
+
+// Review round 4 (prA-adv-r4, REPRO F/G): blank characters outside \s/Cf, and
+// control characters. NUL reached Postgres as a 500 with the raw pg message.
+describe('names: fillers, marks and control characters (review round 4)', () => {
+  it.each([
+    ['HANGUL FILLER U+3164 (Lo)', 'ㅤ'], ['HANGUL CHOSEONG FILLER U+115F', 'ᅟ'],
+    ['HANGUL JUNGSEONG FILLER U+1160', 'ᅠ'], ['HALFWIDTH HANGUL FILLER U+FFA0', 'ﾠ'],
+    ['BRAILLE PATTERN BLANK U+2800 (So)', '⠀'], ['COMBINING GRAPHEME JOINER U+034F (Mn)', '͏'],
+    ['VARIATION SELECTOR-16 U+FE0F (Mn)', '️'], ['control U+0001 (Cc)', '\u0001'],
+  ])('POST a name that renders blank (%s) is a 400', async (_l, name) => {
+    const c = await company();
+    const res = await call(u.owner, c, 'POST', { ...base, name, conditionValue: 10 });
+    expect(status(res), JSON.stringify((await rows(c)).map((r) => r.name))).toBe(400);
+  });
+
+  it.each([['POST', 'a\u0000b'], ['PUT', 'a\u0000b'], ['POST', 'Big\u0007bills'], ['PUT', 'Big\tbills']])(
+    '%s a name holding a control character is a 400, never the raw pg 500', async (method, name) => {
+      const c = await company();
+      const body = method === 'POST' ? { ...base, name, conditionValue: 10 }
+        : { id: await plantRule(pool, c, 'admin', { operator: 'greater_than', value: 5 }), name };
+      const res = await call(u.owner, c, method, body);
+      expect(status(res), JSON.stringify(res.state.body)).toBe(400);
+      expect(msg(res)).toBe('name must be text of 1 to 100 characters');
+    });
+
+  it.each([['a visible letter beside a filler', 'Billsㅤ'], ['a decomposed é', 'Café bills'], ['an emoji', '\u{1F4B0} bills']])(
+    'a name with %s is accepted', async (_l, name) => {
+      const c = await company();
+      expect(status(await call(u.owner, c, 'POST', { ...base, name, conditionValue: 10 }))).toBe(200);
+    });
+});

@@ -112,6 +112,8 @@ it.each(['10000000000000', '1000.005'])('refuses amount %s (beyond numeric(15,2)
 it.each([
   ['over 100 characters (audit_log.entity_ref is VARCHAR(100))', 'x'.repeat(101), 'Enter a name of at most 100 characters.'],
   ['a zero-width space only (review r3, REPRO D)', '\u200b', 'Enter a name for the rule.'],
+  ['a Hangul filler only (review r4, REPRO F)', '\u3164', 'Enter a name for the rule.'],
+  ['holding a control character (review r4, REPRO G)', 'a\u0000b', 'Enter a name without control characters.'],
 ])('refuses a name %s without sending it', async (_l, name, message) => {
   const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
   fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: name } });
