@@ -214,6 +214,10 @@ describe('the approver sees what each line posts to', () => {
       .toBe('Revenue: 4100 Commercials · Project: P1 Shoot · Cost centre: CC1 Studio');
     expect(lineCoding(base)).toBe('Revenue: default sales account');
     expect(lineCoding({ ...base, gl_account_id: 'gone' })).toBe('Revenue: unknown account');
+    expect(lineCoding({ ...base, project_id: 'gone', cost_center_id: 'gone' }))
+      .toBe('Revenue: default sales account · Project: unknown · Cost centre: unknown');
+    expect(lineCoding({ ...base, project_id: 'p', project_number: 'P1', line_project_name: 'Shoot', cost_center_id: 'gone' }))
+      .toBe('Revenue: default sales account · Project: P1 Shoot · Cost centre: unknown');
     expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: false }))
       .toBe('Revenue: as posted — see the journal');
     expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: true }))

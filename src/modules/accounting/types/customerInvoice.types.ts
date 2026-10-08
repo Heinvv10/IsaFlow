@@ -17,8 +17,10 @@ export interface CustomerInvoiceItem {
   account_posted?: boolean | null;
   gl_account_code?: string | null;
   gl_account_name?: string | null;
+  project_id?: string | null;
   project_number?: string | null;
   line_project_name?: string | null;
+  cost_center_id?: string | null;
   cost_center_code?: string | null;
   cost_center_name?: string | null;
 }

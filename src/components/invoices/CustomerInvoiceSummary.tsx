@@ -25,7 +25,8 @@ interface Props {
  * What the line posts to, for whoever approves it (migration 870). A posted
  * invoice whose journal did NOT credit the line's account (posted before line
  * accounts existed) says so instead of naming an account it never touched; a
- * line account this company cannot resolve is "unknown", never the default.
+ * line account, project or cost centre this company cannot resolve is
+ * "unknown", never the default or nothing.
  */
 export function lineCoding(item: CustomerInvoiceItem): string {
   const named = (code?: string | null, name?: string | null) => [code, name].filter(Boolean).join(' ');
@@ -33,9 +34,10 @@ export function lineCoding(item: CustomerInvoiceItem): string {
     : item.account_posted === false ? 'as posted — see the journal'
       : named(item.gl_account_code, item.gl_account_name) || 'unknown account';
   const parts = [`Revenue: ${account}`];
-  const project = named(item.project_number, item.line_project_name);
+  // A tag set on the line that this company cannot resolve is shown as "unknown", never dropped.
+  const project = named(item.project_number, item.line_project_name) || (item.project_id ? 'unknown' : '');
   if (project) parts.push(`Project: ${project}`);
-  const centre = named(item.cost_center_code, item.cost_center_name);
+  const centre = named(item.cost_center_code, item.cost_center_name) || (item.cost_center_id ? 'unknown' : '');
   if (centre) parts.push(`Cost centre: ${centre}`);
   return parts.join(' · ');
 }

@@ -3,8 +3,8 @@
  * are decided BEFORE its journal is written — a leg whose account was
  * deactivated since the invoice posted (a year-end clean-up) is debited on
  * default_revenue with its project and cost centre kept, so the note approves
- * and no orphan draft journal is left — and each leg is capped at what earlier
- * POSTED notes on the same invoice left on it, the rest untagged. A failure
+ * and no orphan draft journal is left — and each leg is capped at what the live
+ * earlier notes on the same invoice took, the rest untagged. A failure
  * after the journal is written is a 5xx class, so the request rolls back.
  *
  * Disposable databases only (migrations 869 and 870 are not on isaflow_dev).
@@ -15,6 +15,7 @@ import { createDraftCustomerInvoice } from '@/modules/accounting/services/ar/cus
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
 import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteApproveService';
+import { assertCreditNoteCanPost } from '@/modules/accounting/services/ar/creditNotePostingChecks';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
@@ -105,6 +106,22 @@ describeIfDisposable('credit notes against coded invoices (migration 870)', () =
     const n2 = await note(inv, 400, true);
     const j2 = (await inTx(f.fx, () => approveCreditNote(f.fx.companyId, n2, f.fx.userId))).glJournalEntryId!;
     expect(await revenueLegs(j2)).toEqual([{ code: '4100', debit: 400, project: f.project.p1 }]);
+  });
+
+  it('the inactive-account precheck reads only this company\'s accounts', async () => {
+    await sql`UPDATE gl_accounts SET is_active = false WHERE id = ${f.acct.foreign}::UUID`;
+    const line = (glAccountId: string) => ({ glAccountId, debit: 1, credit: 0, description: 'x' });
+    try {
+      // Another company's deactivated account is not this company's to report.
+      await expect(inTx(f.fx, () => assertCreditNoteCanPost(f.fx.companyId, '2026-07-20',
+        [line(f.acct.commercials), line(f.acct.foreign)]))).resolves.toBeUndefined();
+      const err = await inTx(f.fx, () => assertCreditNoteCanPost(f.fx.companyId, '2026-07-20',
+        [line(f.acct.inactive), line(f.acct.foreign)])).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InactiveAccountError);
+      expect((err as InactiveAccountError).accounts).toEqual(['4400']);
+    } finally {
+      await sql`UPDATE gl_accounts SET is_active = true WHERE id = ${f.acct.foreign}::UUID`;
+    }
   });
 
   it('a closed period, or an AR account deactivated since, is refused BEFORE the journal is written: the 400 commits nothing', async () => {
