@@ -64,4 +64,18 @@ describe('journal lines refuse non-finite amounts', () => {
   it('a stored-balanced entry with float noise still passes', () => {
     expect(validateJournalEntry([line(0.1 + 0.2, 0), { glAccountId: B, debit: 0, credit: 0.3 } as never]).valid).toBe(true);
   });
+
+  // rev/brk-nrfd round 4 LOW: exponent TEXT was rounded with a binary multiply; Postgres reads it exactly.
+  it.each([
+    ['100.5e-2', '1.00', false], ['100.5e-2', 1.01, true], ['586055e-3', 586.05, false], ['586055e-3', 586.06, true],
+    ['1.005e0', 1.01, true], ['0.000001e5', 0.1, true], ['12E2', 1200, true],
+  ])('debit %j against credit %j balanced as stored: %j', (debit, credit, valid) => {
+    expect(validateJournalEntry([line(debit, 0), { glAccountId: B, debit: 0, credit } as never]).valid).toBe(valid);
+  });
+
+  it('exponent text below a tenth of a cent is a zero line; JS exponent numbers keep working', () => {
+    expect(validateJournalLine(line('5e-4', 0)).valid).toBe(false);
+    expect(validateJournalLine(line('1e-1000', 0)).valid).toBe(false);
+    expect(validateJournalLine(line(1e-7, 0)).valid).toBe(false);
+  });
 });
