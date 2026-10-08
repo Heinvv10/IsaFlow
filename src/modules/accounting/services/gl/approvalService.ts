@@ -273,14 +273,16 @@ export async function decideRequest(companyId: string,
   // request onto a different rule between the two statements.
   await assertDecidingSession();
   await lockApprovalRequestForUpdate(companyId, requestId);
-  await assertMayDecide(companyId, requestId, decidedBy, decision);
+  const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
   if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
   // approval_request_decide (migration 872) repeats every check above in SQL,
   // is the only way a decision is written, and writes the sole-approver (Q2)
-  // audit row itself, so no caller can decide one unrecorded.
+  // audit row itself in the same transaction (as durable as audit_log is).
   const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
-  log.info('Approval decided', { id: requestId, decision }, 'accounting');
+  log.info('Approval decided', {
+    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === 'sole_approver',
+  }, 'accounting');
   return mapRequest(rows[0]);
 }
 

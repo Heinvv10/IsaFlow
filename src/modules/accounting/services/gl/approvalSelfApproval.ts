@@ -73,5 +73,7 @@ type MemberRow = { role: string; is_active: boolean | null; status: string | nul
  * The distinct marker — an `approve` audit row on the request whose metadata
  * says it was the requester's own, allowed because nobody else could — is
  * written by approval_request_decide (migration 872), in the same transaction
- * as the decision, so an unrecorded self-approval cannot stand.
+ * as the decision, so the decision cannot commit without it. The row is only
+ * as durable as audit_log itself, which app_user can still UPDATE or DELETE
+ * by raw SQL (a follow-up outside R-035 N1).
  */

@@ -3,9 +3,9 @@
  * app and the admin platform connect as. Each forgery is attempted as raw SQL
  * against a request the real route raised, with real claims — as app_user and
  * as platform_admin (BYPASSRLS) — and the bill it would clear stays gated.
- * The catalogue half pins what migration 872 ships: no non-owner write grant,
- * the writers SECURITY DEFINER with an RLS-bypassing owner, search_path with
- * pg_temp last, EXECUTE for app_user only.
+ * The catalogue half — no non-owner write grant, the writers SECURITY
+ * DEFINER with an RLS-bypassing owner, search_path with pg_temp last, EXECUTE
+ * for app_user only — is r035-n1-catalog.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -82,65 +82,5 @@ describe.each(ROLES)('as %s, raw SQL cannot', (role) => {
   });
 });
 
-describe('the catalogue', () => {
-  const WRITERS = [
-    'approval_request_raise(uuid,text,uuid,uuid,text)',
-    'approval_request_rebind(uuid,uuid,uuid,text)',
-    'approval_request_lock(uuid,uuid)',
-    'approval_request_decide(uuid,uuid,text,text,text,text)',
-  ];
-
-  it('no role but the owner holds a write, truncate or trigger privilege on approval_requests, by table or by column', async () => {
-    const { rows } = await pool.query(`
-      SELECT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS who, a.privilege_type
-      FROM pg_class c, aclexplode(c.relacl) a
-      WHERE c.oid = 'public.approval_requests'::regclass AND a.grantee <> c.relowner
-        AND a.privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER')
-      UNION ALL
-      SELECT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type || ' ' || att.attname
-      FROM pg_attribute att, aclexplode(att.attacl) a
-      WHERE att.attrelid = 'public.approval_requests'::regclass AND a.privilege_type IN ('INSERT','UPDATE')`);
-    expect(rows).toEqual([]);
-    for (const who of ['app_user', 'platform_admin', 'migration_admin', 'public']) {
-      for (const priv of ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER']) {
-        const { rows: [p] } = await pool.query('SELECT has_table_privilege($1, $2, $3) AS ok', [who, 'public.approval_requests', priv]);
-        expect(p.ok, `${who} ${priv}`).toBe(false);
-      }
-    }
-  });
-
-  it.each(WRITERS)('%s is SECURITY DEFINER, owned by a role that bypasses RLS, pg_temp last, app_user-only', async (fn) => {
-    const { rows: [p] } = await pool.query(`
-      SELECT p.prosecdef, (r.rolbypassrls OR r.rolsuper) AS bypass, p.proconfig[array_upper(p.proconfig, 1)] AS last_config,
-             has_function_privilege('public', p.oid, 'EXECUTE') AS public_exec,
-             has_function_privilege('app_user', p.oid, 'EXECUTE') AS app_exec
-      FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = $1::regprocedure`, [`public.${fn}`]);
-    expect(p).toEqual({ prosecdef: true, bypass: true, last_config: expect.stringMatching(/^search_path=.*pg_temp$/),
-      public_exec: false, app_exec: true });
-  });
-
-  it('the helpers are executable by nobody but the owner; the writers by app_user alone', async () => {
-    const { rows } = await pool.query(`
-      SELECT p.proname, r.rolname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-      CROSS JOIN (SELECT rolname, oid FROM pg_roles WHERE NOT rolsuper AND rolname !~ '^pg_' UNION ALL SELECT 'public', 0) r
-      WHERE n.nspname = 'public' AND r.oid <> p.proowner
-        AND (p.proname LIKE 'approval\\_request\\_%' OR p.proname = 'approval_actor_rank')
-        AND p.proname <> 'approval_request_insert_guard'
-        AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
-      ORDER BY 1, 2`);
-    expect(rows).toEqual(['decide', 'lock', 'raise', 'rebind'].map((fn) => ({ proname: `approval_request_${fn}`, rolname: 'app_user' })));
-  });
-
-  it('no other function body writes approval_requests, and every writer is a SECURITY DEFINER', async () => {
-    const { rows } = await pool.query(`
-      SELECT p.proname, p.prosecdef FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-      WHERE n.nspname NOT IN ('pg_catalog','information_schema')
-        AND p.prosrc ~* '(insert\\s+into|update|delete\\s+from)\\s+(public\\.)?approval_requests\\M'
-      ORDER BY 1`);
-    expect(rows).toEqual([
-      { proname: 'approval_request_decide', prosecdef: true },
-      { proname: 'approval_request_raise', prosecdef: true },
-      { proname: 'approval_request_rebind', prosecdef: true },
-    ]);
-  });
-});
+// The catalogue half (grants, prosecdef, search_path, owners, EXECUTE) is
+// r035-n1-catalog.int.test.ts, which runs against any DATABASE_URL.

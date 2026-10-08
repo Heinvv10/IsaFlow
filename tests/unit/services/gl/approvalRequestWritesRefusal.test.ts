@@ -60,10 +60,10 @@ describe('raiseRefusal', () => {
     expect(raiseRefusal(pgError('RA007', 'x'), 'supplier_invoice', REQ)).toBeInstanceOf(ApprovalNotRequiredError);
   });
 
-  it('RA010 (a stricter rule governs now) → ApprovalRequestStaleError, the DOCUMENT_CHANGED reason', () => {
+  it('RA010 (a stricter rule governs now) → ApprovalRequestStaleError, reason APPROVAL_RULES_CHANGED', () => {
     const mapped = raiseRefusal(pgError('RA010', 'x'), 'supplier_invoice', REQ);
     expect(mapped).toBeInstanceOf(ApprovalRequestStaleError);
-    expect(mapped).toMatchObject({ code: 'DOCUMENT_CHANGED' });
+    expect(mapped).toMatchObject({ code: 'APPROVAL_RULES_CHANGED' });
   });
 
   it.each(['RA009', 'RA008', 'RA001', '23505'])('%s passes through untouched', (state) => {

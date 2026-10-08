@@ -28,6 +28,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
   'APPROVAL_REQUIRED',
+  // R-035 N1: the approval rules or the amount moved while a request was being
+  // raised (gl/approvalDocumentErrors). Names the caller's own document type
+  // and id; nothing is written. No MCP tool raises requests (Q6).
+  'APPROVAL_RULES_CHANGED',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
