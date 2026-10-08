@@ -193,7 +193,7 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
   }, 120000);
 
   // brk-nrfa round 21 M1 (pre-existing): only a line that can be this statement line's bank leg is a candidate — on its
-  // own bank, in its direction (auto-match's rule). A Sales line of the amount is never offered for a payment.
+  // own bank, in its direction (money in debits the bank, money out credits it). A Sales line of the amount is never offered for a payment.
   it('only lines on the statement line\'s own bank, in its direction, are candidates', async () => {
     const sales = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
       normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '4000', 'MSCR Sales', 'revenue', 'credit', true)
@@ -218,5 +218,16 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const r = await confirm(b, await lineOf(j1, bankB));
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
     expect((await lineState(b))!.status).toBe('imported');
+  }, 120000);
+
+  // brk-nrfa round 23 L1 (pre-existing): a bank-first provisional's journal is held by its own statement line through
+  // provisional_je_id; its bank leg is never offered to another line (confirming it would be refused, 409).
+  it('a provisional journal\'s bank leg is not offered to another line', async () => {
+    const pj = await postJournal('2032-05-04', c.expense, bankA, 'Provisional Uber 980', 980);
+    const own = await bankLine(bankA, '2032-05-04', -980, 'UBER TRIP own');
+    await sql`UPDATE bank_transactions SET status = 'provisional', provisional_je_id = ${pj}::UUID
+      WHERE id = ${own}::UUID AND company_id = ${c.fx.companyId}::UUID`;
+    const cands = await fetchJournalLineCandidates(c.fx.companyId, -980, '2032-05-06', 'UBER TRIP second', bankA);
+    expect(cands.map((x) => x.id)).not.toContain(await lineOf(pj, bankA));
   }, 120000);
 });
