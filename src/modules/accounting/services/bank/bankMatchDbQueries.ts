@@ -22,9 +22,9 @@ import {
 export async function fetchBankTransaction(
   bankTransactionId: string,
   companyId: string,
-): Promise<{ id: string; amount: number; transactionDate: string; description: string; reference: string } | null> {
+): Promise<{ id: string; bankAccountId: string; amount: number; transactionDate: string; description: string; reference: string } | null> {
   const txRows = (await sql`
-    SELECT id, amount, transaction_date, description, reference
+    SELECT id, bank_account_id, amount, transaction_date, description, reference
     FROM bank_transactions
     WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
   `) as DbRow[];
@@ -32,6 +32,7 @@ export async function fetchBankTransaction(
   const tx = txRows[0]!;
   return {
     id: String(tx.id),
+    bankAccountId: String(tx.bank_account_id),
     amount: Number(tx.amount),
     transactionDate: fmtDate(tx.transaction_date),
     description: String(tx.description ?? tx.reference ?? ''),
@@ -203,6 +204,7 @@ export async function fetchJournalLineCandidates(
   txAmount: number,
   txDate: string,
   txDesc: string,
+  bankAccountId?: string,
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
     SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source
@@ -215,7 +217,13 @@ export async function fetchJournalLineCandidates(
         SELECT matched_journal_line_id FROM bank_transactions
         WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
       )
-    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC, ABS(je.entry_date - ${txDate}::DATE) ASC
+    -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
+    -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
+    -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
+    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC,
+      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE DESC,
+      CASE WHEN isfinite(je.entry_date) AND isfinite(${txDate}::DATE) THEN ABS(je.entry_date - ${txDate}::DATE) END
+        ASC NULLS LAST
     LIMIT 20
   `) as DbRow[];
 
