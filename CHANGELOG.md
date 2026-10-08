@@ -23,6 +23,35 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-08 — Approvals Hardening (R-035 N1+UI), Dimensions Phase 1, Reports Day-Count Fix
+
+**Approvals — R-035**
+
+- `approval_requests` is now writable only through SECURITY DEFINER functions; `app_user` direct-write path removed (N1, migration 872) (#674)
+- Rules UI: create, edit, deactivate approval rules, seed from recommended starter set — Rules tab live (#672)
+- Approval digest extended to cover CC1/CC2/BU dimension columns (migration 873) (#675)
+- R-035 N3 design spike: caller-set claims, role-escape vector, exemption GUC, hash-chained audit history landed as spec docs (#667)
+
+**Dimensions**
+
+- Phase 1 shipped: CC1/CC2/BU dimension infrastructure; CC1 derivation guards against malformed non-UUID CC2 values (#663, #673)
+
+**Reports**
+
+- Debtor days, creditor days, inventory days and cash conversion cycle now multiply by the window's own day count instead of 365 — shorter periods were overstated in proportion; all comparatives use their own window (#664)
+
+**Commentary**
+
+- "Approve with edits" action on commentary items, constrained to what page 4 can print (#665)
+
+**Admin**
+
+- A 5xx response now rolls back the admin action but still writes the `admin_request_failed` audit row — the action cannot silently disappear (#669)
+
+Migrations: **872** (`approval_request_definer_writes`), **873** (`approval_digest_dimensions`)
+
+---
+
 ## 2026-09-18 — Subledger Reconciliation: Control Accounts, Unapplied Cash, Invariants
 
 **Reconciliation**
