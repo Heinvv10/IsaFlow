@@ -55,6 +55,19 @@ function isFiniteAmount(v: unknown): boolean {
   return typeof v === 'string' && DECIMAL_TEXT.test(v) && Number.isFinite(Number(v));
 }
 
+/** '100.5e-2' -> '1.005', '-1.2E3' -> '-1200'. Below 0.001 it is '0' (0 cents either way), so no huge padding. */
+function plainDecimal(text: string): string {
+  const m = /^([+-]?)(\d*)\.?(\d*)[eE]([+-]?\d+)$/.exec(text);
+  if (!m) return text;
+  const [, sign = '', whole = '', fraction = '', exponent = '0'] = m;
+  const digits = `${whole}${fraction}`;
+  const point = whole.length + Number(exponent);
+  if (point < -3) return '0';
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
 /**
  * A line amount in whole cents as numeric(15,2) stores it: absent is zero; otherwise the decimal text the pg driver
  * sends (String(n) for a number) rounded half away from zero, read from its digits — n * 100 is binary
@@ -62,10 +75,11 @@ function isFiniteAmount(v: unknown): boolean {
  */
 function storedCents(v: unknown): number {
   if (v === null || v === undefined) return 0;
-  const text = String(v).trim();
+  let text = String(v).trim();
   if (/e/i.test(text)) {
-    const n = Number(text);
-    return Math.sign(n) * Math.round(Math.abs(n) * 100);
+    // A JS number prints in exponent form only below 1e-6 (0 cents) or from 1e21 (beyond numeric(15,2)).
+    if (typeof v === 'number') return Math.sign(v) * Math.round(Math.abs(v) * 100);
+    text = plainDecimal(text); // exponent TEXT: move the point in the digits, as Postgres reads it exactly
   }
   const negative = text.startsWith('-');
   const [whole = '', fraction = ''] = text.replace(/^[+-]/, '').split('.');
