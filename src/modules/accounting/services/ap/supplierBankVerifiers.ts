@@ -83,8 +83,9 @@ async function judge(companyId: string, userId: string, ownRole: string, f: Fact
       ? `You cannot verify these bank details: you set them. Another member with the ${f.required} role or above who did `
         + 'not set them must verify them.'
       : `You cannot verify these bank details: you set them, and no other member who did not set them holds the ${f.required} `
-        + 'role or above, so nobody can verify them now. Add a member with that role, or relax the supplier-payment rule '
-        + 'that demands it.');
+        + 'role or above, so nobody can verify them now. Add a member with that role who did not set them'
+        + (requiredRank(f.required) > requiredRank(SUPPLIER_BANK_VERIFIER_FLOOR)
+          ? ', or relax the supplier-payment rule that demands it.' : '.'));
   }
   const rows = (await sql`SELECT approval_roster_snapshot(${companyId}::UUID, ${userId}::TEXT) AS roster`) as { roster: unknown }[];
   return { roster: rows[0]?.roster ?? null };
