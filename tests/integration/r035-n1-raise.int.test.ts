@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanupPr2 } from './r035-pr2.helpers';
+import { plantRule } from './r035-approval.helpers';
 import { asRole, n1Users, outcome, pendingBill, raiseFn, rebindFn, requestRow } from './r035-n1.helpers';
 
 assertDisposable();
@@ -50,9 +51,15 @@ describe('approval_request_raise', () => {
     expect(row.approver_roster).not.toBeNull();
   });
 
-  it('refuses a laxer rule than the strictest one governing the document (RA009)', async () => {
+  it('refuses a laxer rule than the strictest one governing the document — as a retryable race (RA010)', async () => {
     const f = await freshBill();
-    expect(await outcome(raise(f.c, f.bill.id, f.managerRule, u.b))).toBe('RA009');
+    expect(await outcome(raise(f.c, f.bill.id, f.managerRule, u.b))).toBe('RA010');
+  });
+
+  it("refuses a rule of another document type (RA009: no race produces it)", async () => {
+    const f = await freshBill();
+    const other = await plantRule(pool, f.c, 'owner', { documentType: 'customer_invoice', name: 'n1 other type' });
+    expect(await outcome(raise(f.c, f.bill.id, other, u.b))).toBe('RA009');
   });
 
   it('refuses a request raised in another user\'s name (RA009)', async () => {
@@ -115,6 +122,19 @@ describe('approval_request_rebind', () => {
     await pool.query("UPDATE supplier_invoices SET invoice_date = DATE '2026-09-08' WHERE id = $1", [f.bill.id]);
     expect(await rebind(f.c, f.requestId, null, u.a)).toMatchObject([
       { requested_by: u.a, past_requesters: [u.b], rule_id: f.ownerRule, required_role: 'owner' }]);
+  });
+});
+
+describe('approval_request_rebind when the matched rule went inactive in the window (blind LOW 2)', () => {
+  it('keeps the binding and still re-stamps the content, as the direct UPDATE did', async () => {
+    const f = await pendingBill(pool, tokens, u, companies);
+    const late = await plantRule(pool, f.c, 'owner', { name: 'n1 late owner' });
+    await pool.query('UPDATE approval_rules SET is_active = false WHERE id = $1', [late]);
+    await pool.query("UPDATE supplier_invoices SET invoice_date = DATE '2026-09-10' WHERE id = $1", [f.bill.id]);
+    const [row] = await rebind(f.c, f.requestId, late, u.a);
+    const { rows: [live] } = await pool.query("SELECT approval_document_digest($1,'supplier_invoice',$2) AS d", [f.c, f.bill.id]);
+    expect(row).toMatchObject({ rule_id: f.ownerRule, required_role: 'owner', requested_by: u.a, past_requesters: [u.b],
+      document_digest: live.d });
   });
 });
 

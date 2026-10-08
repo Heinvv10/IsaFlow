@@ -13,7 +13,7 @@ import { assertDocumentUnchanged } from '../../src/modules/accounting/services/g
 import { resolveApprovalDocument } from '../../src/modules/accounting/services/gl/approvalDocuments';
 import { assertNotImpersonating } from '../../src/lib/auth/impersonationGuard';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { cleanupPr2 } from './r035-pr2.helpers';
+import { cleanupPr6, journalCompany, plantJournal } from './r035-pr6.helpers';
 import { asRole, decideFn, n1Users, outcome, pendingBill, raiseFn, requestRow } from './r035-n1.helpers';
 
 assertDisposable();
@@ -25,7 +25,7 @@ let u: Awaited<ReturnType<typeof n1Users>>;
 beforeAll(async () => { u = await n1Users(pool, tokens); });
 afterAll(async () => {
   await pool.query('DELETE FROM impersonation_sessions WHERE actor_user_id = ANY($1)', [Object.values(u)]);
-  await cleanupPr2(pool, companies, Object.values(u));
+  await cleanupPr6(pool, companies, Object.values(u));
 });
 
 /** The TypeScript refusal, in the SQL function's SQLSTATE vocabulary. */
@@ -109,6 +109,22 @@ describe('TypeScript and SQL refuse the same decisions', () => {
     await pool.query("UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2", [f.c, u.m]);
     await pool.query('DELETE FROM approval_enforcement WHERE company_id = $1', [f.c]);
     expect(await both(k)).toEqual({ ts: 'RA001', sql: 'RA001' });
+  });
+
+  it('a type with no editor tracking (legacy journal_entry): a past requester is refused (RA001), others not (blind LOW 5)', async () => {
+    const f = await journalCompany(pool, [[u.a, 'owner'], [u.b, 'owner'], [u.m, 'owner']], companies);
+    const rule = (await pool.query(
+      `INSERT INTO approval_rules(company_id,name,document_type,condition_field,condition_operator,condition_value,approver_role,is_active)
+       VALUES($1,'legacy journals','journal_entry','amount','any',0,'owner',true) RETURNING id`, [f.c])).rows[0].id as string;
+    const je = await plantJournal(pool, f, u.m);
+    const { rows: [req] } = await pool.query(
+      `INSERT INTO approval_requests(company_id,rule_id,document_type,document_id,requested_by,required_role,past_requesters,document_digest)
+       VALUES($1,$2,'journal_entry',$3,$4,'owner',ARRAY[$5]::UUID[],approval_document_digest($1,'journal_entry',$3)) RETURNING id`,
+      [f.c, rule, je, u.b, u.a]);
+    expect((await pool.query("SELECT approval_document_authors($1,'journal_entry',$2) AS a", [f.c, je])).rows[0].a).toBeNull();
+    const k = { c: f.c, requestId: req.id as string, decision: 'approved' as const };
+    expect(await both({ ...k, by: u.a })).toEqual({ ts: 'RA001', sql: 'RA001' });
+    expect(await both({ ...k, by: u.m })).toEqual({ ts: 'ok', sql: 'ok' });
   });
 
   it('allowed alike: an eligible approver, and the requester withdrawing', async () => {

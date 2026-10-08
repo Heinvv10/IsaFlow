@@ -72,6 +72,12 @@ export function violations(text: string): string[] {
 const REGRANT = [
   /\bgrant\b[^;]*\b(?:insert|update|delete|truncate|trigger|all)\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:public\.)?approval_requests\b/i,
   /\bgrant\b[^;]*\bon\s+all\s+tables\s+in\s+schema\s+public\b/i,
+  // A ROLE grant (no ON clause) to app_user: membership in postgres,
+  // pg_write_all_data or any writer hands the table's writes back.
+  /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\bapp_user\b/i,
+  // A new owner of the table or of a writer changes who writes it.
+  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?approval_requests"?\s+owner\b/i,
+  /\balter\s+function\s+(?:public\.)?approval_request_\w+\s*\([^)]*\)\s+owner\b/i,
 ];
 const migrationNumber = (file: string): number => Number(/(\d{3})[a-z]?_/.exec(path.basename(file))?.[1] ?? '999');
 
@@ -90,7 +96,7 @@ describe('approval_requests writers (census by table)', () => {
     }
   });
 
-  it('no migration after 872 hands a write privilege on the table back', () => {
+  it('no migration after 872 hands a write privilege on the table back, grants app_user a role, or moves an owner', () => {
     const found = sourceFiles()
       .filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > 872)
       .filter(({ text }) => REGRANT.some((re) => re.test(stripComments(text))))
@@ -125,5 +131,17 @@ describe('the census detects (counterexamples)', () => {
     expect(REGRANT.some((re) => re.test('GRANT UPDATE ON approval_requests TO app_user;'))).toBe(true);
     expect(REGRANT.some((re) => re.test('GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO app_user;'))).toBe(true);
     expect(REGRANT.some((re) => re.test('GRANT SELECT ON approval_requests TO app_user;'))).toBe(false);
+    expect(REGRANT.some((re) => re.test('GRANT USAGE ON SCHEMA app TO app_user;'))).toBe(false);
+  });
+
+  it.each([
+    'GRANT postgres TO app_user;',
+    'GRANT pg_write_all_data TO app_user;',
+    'GRANT migration_admin, platform_admin TO app_user WITH INHERIT TRUE;',
+    'ALTER TABLE approval_requests OWNER TO migration_admin;',
+    'ALTER TABLE IF EXISTS public.approval_requests OWNER TO app_user;',
+    'ALTER FUNCTION public.approval_request_decide(uuid, uuid, text, text, text, text) OWNER TO migration_admin;',
+  ])('a role membership or ownership change in a later migration: %s', (stmt) => {
+    expect(REGRANT.some((re) => re.test(stmt))).toBe(true);
   });
 });

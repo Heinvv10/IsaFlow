@@ -11,7 +11,6 @@ import {
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
 import { assertDocumentUnchanged } from './approvalDecideDocument';
-import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
 import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
@@ -274,13 +273,13 @@ export async function decideRequest(companyId: string,
   // request onto a different rule between the two statements.
   await assertDecidingSession();
   await lockApprovalRequestForUpdate(companyId, requestId);
-  const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
+  await assertMayDecide(companyId, requestId, decidedBy, decision);
   if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
-  // approval_request_decide (migration 872) repeats every check above in SQL
-  // and is the only way a decision is written.
+  // approval_request_decide (migration 872) repeats every check above in SQL,
+  // is the only way a decision is written, and writes the sole-approver (Q2)
+  // audit row itself, so no caller can decide one unrecorded.
   const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
-  if (selfApproval) await auditSoleApproverSelfApproval(companyId, decidedBy, rows[0], selfApproval);
   log.info('Approval decided', { id: requestId, decision }, 'accounting');
   return mapRequest(rows[0]);
 }

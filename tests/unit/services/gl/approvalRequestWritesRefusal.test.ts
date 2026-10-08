@@ -13,6 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import { decideRefusal, raiseRefusal } from '@/modules/accounting/services/gl/approvalRequestWrites';
 import { ApprovalDecisionError, ApprovalNotRequiredError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
+import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/approvalDocumentErrors';
 import {
   ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
 } from '@/modules/accounting/services/gl/approvalDecideDocument';
@@ -26,6 +27,7 @@ describe('decideRefusal', () => {
     ['RA001', 'SELF_APPROVAL_FORBIDDEN'],
     ['RA002', 'APPROVER_ROLE_REQUIRED'],
     ['RA003', 'IMPERSONATION_FORBIDDEN'],
+    ['RA008', 'APPROVER_ROLE_REQUIRED'],
   ])('%s is ApprovalDecisionError %s (403), with the SQL message', (state, code) => {
     const mapped = decideRefusal(pgError(state, 'This approval requires the owner role'), REQ);
     expect(mapped).toBeInstanceOf(ApprovalDecisionError);
@@ -58,7 +60,13 @@ describe('raiseRefusal', () => {
     expect(raiseRefusal(pgError('RA007', 'x'), 'supplier_invoice', REQ)).toBeInstanceOf(ApprovalNotRequiredError);
   });
 
-  it.each(['RA009', 'RA001', '23505'])('%s passes through untouched', (state) => {
+  it('RA010 (a stricter rule governs now) → ApprovalRequestStaleError, the DOCUMENT_CHANGED reason', () => {
+    const mapped = raiseRefusal(pgError('RA010', 'x'), 'supplier_invoice', REQ);
+    expect(mapped).toBeInstanceOf(ApprovalRequestStaleError);
+    expect(mapped).toMatchObject({ code: 'DOCUMENT_CHANGED' });
+  });
+
+  it.each(['RA009', 'RA008', 'RA001', '23505'])('%s passes through untouched', (state) => {
     const error = pgError(state, 'boom');
     expect(raiseRefusal(error, 'supplier_invoice', REQ)).toBe(error);
   });

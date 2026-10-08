@@ -19,7 +19,7 @@ import { checkApproval as checkApprovalRules, mapRequest } from './approvalMatch
 import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from './approvalAuthority';
 import { rebindPendingRequest } from './approvalRebind';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
+import { ApprovalDocumentNotFoundError, ApprovalRequestStaleError } from './approvalDocumentErrors';
 import { insertRequestRow, raiseRefusal } from './approvalRequestWrites';
 
 export { ApprovalDocumentNotFoundError } from './approvalDocumentErrors';
@@ -199,6 +199,25 @@ export async function requestApproval(companyId: string, input: {
   // R-035 PR2-must (4): under Login-as the requester would be recorded as the
   // TARGET, and the real one pushed into past_requesters. Raising is refused.
   await assertNotImpersonating();
+  // A stricter rule (or a new amount) between the read below and the write is
+  // refused by the definer (RA010) with nothing written; re-reading once binds
+  // the rule that governs now. A second race is the 409 the route answers.
+  try {
+    return await raiseOnce(companyId, input);
+  } catch (error) {
+    if (!(error instanceof ApprovalRequestStaleError)) throw error;
+    log.info('Approval request raced a rule change; raising again', {
+      documentType: input.documentType, documentId: input.documentId,
+    }, 'accounting');
+    return raiseOnce(companyId, input);
+  }
+}
+
+async function raiseOnce(companyId: string, input: {
+  documentType: DocumentType;
+  documentId: string;
+  requestedBy: string;
+}): Promise<ApprovalRequest> {
   const document = await resolveApprovalDocument(companyId, input.documentType, input.documentId);
   const check = await checkApprovalRules(companyId, input.documentType, input.documentId, document.amount);
   // One pending request per document — enforced by uq_approval_requests_pending
