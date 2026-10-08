@@ -22,7 +22,7 @@ import { isEnforced, supplierBankVerifierRole } from '../gl/approvalEnforcement'
 import { actorRank, requiredRank } from '../gl/approvalRank';
 import { SUPPLIER_BANK_DETAILS } from '../gl/approvalRuleOptions';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { assertVerifyingSession, SupplierBankVerificationError } from './supplierBankBaseline';
+import { assertVerifyingSession, isVerifyingSession, SupplierBankVerificationError } from './supplierBankBaseline';
 import { isBankDetailsSetter } from './supplierPaymentAuthors';
 
 export const VERIFICATION_METHODS = ['phone_known_number', 'bank_confirmation_letter', 'in_person', 'other'] as const;
@@ -100,9 +100,9 @@ async function setterOutcome(companyId: string, userId: string, verifierRole: st
   return { roster: rows[0]?.roster ?? null };
 }
 
-/** May `role` verify, as a hint for the panel: rank, and not a setter unless the sole approver. */
+/** May `role` verify, as a hint for the panel: own session, rank, and not a setter unless the sole approver. */
 async function mayVerify(companyId: string, supplierId: string, userId: string, role: string, verifierRole: string): Promise<boolean> {
-  if (actorRank(role) < requiredRank(verifierRole)) return false;
+  if (!(await isVerifyingSession()) || actorRank(role) < requiredRank(verifierRole)) return false;
   if (!(await isBankDetailsSetter(companyId, supplierId, userId))) return true;
   try {
     await setterOutcome(companyId, userId, verifierRole);

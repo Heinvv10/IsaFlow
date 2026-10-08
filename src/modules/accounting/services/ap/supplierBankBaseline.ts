@@ -34,6 +34,11 @@ export class SupplierBankVerificationError extends Error {
  * context that cannot show it is not one (no session claims: an MCP tool, a
  * job), exactly as R-035 refuses approval decisions (assertDecidingSession).
  */
+/** Whether this request is a person in their own session — the hint the panel's Verify form follows. */
+export async function isVerifyingSession(): Promise<boolean> {
+  return (await currentSessionActor()) === 'self';
+}
+
 export async function assertVerifyingSession(): Promise<void> {
   const actor = await currentSessionActor();
   if (actor === 'self') return;
@@ -50,10 +55,12 @@ export async function assertVerifyingSession(): Promise<void> {
  * suppliers are share-locked first, in id order (the order the outbound gate
  * takes), so an edit in flight is waited for rather than half-baselined.
  * Left out, so they stay unverified until someone else looks: soft-deleted
- * suppliers (one restored later is then checked before it is paid), and
- * suppliers whose current details the switcher set — otherwise switching
- * off, changing and switching on again would verify one's own change (the
- * 876 guard refuses such a baseline too). Returns how many were baselined.
+ * suppliers (one restored later is then checked before it is paid);
+ * suppliers that already have verification history — they keep their
+ * derived state, so switching off and on again cannot accept a change that
+ * is unverified now; and suppliers whose current details the switcher set.
+ * The 876 guard refuses both of the latter baselines too. Returns how many
+ * were baselined.
  */
 export async function recordBankBaseline(companyId: string, userId: string): Promise<number> {
   await sql`SELECT id FROM suppliers WHERE company_id = ${companyId}::UUID ORDER BY id FOR SHARE`;
@@ -66,6 +73,7 @@ export async function recordBankBaseline(companyId: string, userId: string): Pro
     FROM suppliers s
     WHERE s.company_id = ${companyId}::UUID AND s.deleted_at IS NULL AND s.id <> ALL(${own}::UUID[])
       AND supplier_bank_details_present(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_account_holder)
+      AND NOT EXISTS (SELECT 1 FROM supplier_bank_verifications v WHERE v.company_id = s.company_id AND v.supplier_id = s.id)
     RETURNING id
   `;
   return rows.length;

@@ -49,15 +49,21 @@ export async function lockSupplierBankDetails(companyId: string, supplierId: str
 
 export type BankDetailsChange = 'none' | 'appended' | 'repointed';
 
+/** An account number as a destination: its digits ("62-000 001" is 62000001), as supplier_bank_fingerprint reads it. */
+const destination = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
 /**
  * What an UPDATE did to the bank details: nothing; a change to the account
- * NUMBER ('repointed' — a new destination); or a change to any other bank
- * column, the branch code included ('appended'). A column the returned row does not carry
- * counts as unchanged.
+ * NUMBER's digits ('repointed' — a new destination); or a change to any other
+ * bank column, the branch code included, or a re-typing of the same account
+ * digits ('appended'). Judging the destination on its digits — the
+ * normalisation migration 876's fingerprint uses — means re-entering the same
+ * number with spaces cannot reset the setters and shed whoever redirected it.
+ * A column the returned row does not carry counts as unchanged.
  */
 export function bankDetailsChange(before: DbRow, after: DbRow): BankDetailsChange {
   const moved = (c: string) => c in after && (before[c] ?? null) !== (after[c] ?? null);
-  if (DESTINATION_COLUMNS.some(moved)) return 'repointed';
+  if (DESTINATION_COLUMNS.some((c) => c in after && destination(before[c]) !== destination(after[c]))) return 'repointed';
   return BANK_COLUMNS.some(moved) ? 'appended' : 'none';
 }
 
