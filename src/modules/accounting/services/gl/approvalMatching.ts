@@ -11,11 +11,10 @@ import type {
   ApprovalCheckResult, ApprovalRequest, ApprovalRule, ApprovalStatus, DocumentType,
 } from './approvalService';
 
-/** The only operators checkApproval can evaluate. Mirrored by the CHECK constraint in 647. */
-export const CONDITION_OPERATORS = ['any', 'greater_than', 'greater_equal'] as const;
-export type ConditionOperator = (typeof CONDITION_OPERATORS)[number];
-export const isConditionOperator = (value: unknown): value is ConditionOperator =>
-  typeof value === 'string' && (CONDITION_OPERATORS as readonly string[]).includes(value);
+// The operator allowlist lives in approvalRuleOptions.ts (no database import, so
+// the rule form offers the same list); re-exported for every existing import site.
+export { CONDITION_OPERATORS, isConditionOperator } from './approvalRuleOptions';
+export type { ConditionOperator } from './approvalRuleOptions';
 
 /** Check if a document requires approval based on active rules */
 export async function checkApproval(

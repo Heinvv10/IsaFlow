@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { als, assertTxUsable } from '@/lib/als';
+import { enterNumberLockBudget, NO_BUDGET } from './documentNumberLockBudget';
 
 // ── Document Numbers ──────────────────────────────────────────────────────────
 
@@ -139,26 +140,31 @@ export async function reserveNextDocumentNumber(
   // a savepoint rollback restores it to 0 — no timeout at all — and every
   // retry attempt in insertWithReservedNumber runs in its own savepoint.
   // Skipped outside a request transaction, where SET LOCAL affects nothing.
+  // Tighten-only, as migrations 858/864: 5s when the caller's budget is
+  // unbounded (0) or looser, a tighter one kept; and it is the CALLER'S value
+  // that is put back afterwards — DEFAULT would unbound a request that set one.
   const client = als.getStore()?.client;
-  if (client) {
-    assertTxUsable();
-    await client.query("SET LOCAL lock_timeout = '5s'");
-  }
+  if (client) assertTxUsable();
+  const { restore, leave } = client ? await enterNumberLockBudget(client) : NO_BUDGET;
   try {
-    return await reserveNextDocumentNumberInner(companyId, documentType, client);
+    return await reserveNextDocumentNumberInner(companyId, documentType, restore);
   } catch (err) {
     if (typeof err === 'object' && err !== null
       && (err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) {
       throw new DocumentNumberLockTimeoutError(documentType);
     }
     throw err;
+  } finally {
+    // A path that did not restore (a lock timeout: the transaction is aborted and its rollback restores the
+    // setting) still leaves, or the pooled connection would carry a stale budget into its next request.
+    leave();
   }
 }
 
 async function reserveNextDocumentNumberInner(
   companyId: string,
   documentType: string,
-  client: { query: (text: string) => Promise<unknown> } | undefined,
+  restoreLockTimeout: () => Promise<unknown>,
 ): Promise<string> {
   // Hot path: try the UPDATE first. If the row exists (the common case once
   // ensureDocumentNumbers has run for this company even once), we incur a single
@@ -186,14 +192,14 @@ async function reserveNextDocumentNumberInner(
     // still usable — so leaving the 5s ceiling set would leak it onto every later
     // statement in the request and fail an unrelated write on a lock wait that
     // has nothing to do with numbering.
-    if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
+    await restoreLockTimeout();
     throw new Error(`No document number config for type ${documentType}`);
   }
   // Restored on the SUCCESS path only. After a lock timeout the transaction is
   // aborted and this statement would itself raise 25P02, replacing the typed
   // error with an opaque one. Left set, the 5s ceiling would leak onto every
   // later statement in the request.
-  if (client) await client.query('SET LOCAL lock_timeout = DEFAULT');
+  await restoreLockTimeout();
   return formatDocumentNumber(
     String(rows[0]!.prefix),
     Number(rows[0]!.used),

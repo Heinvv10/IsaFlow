@@ -149,10 +149,16 @@ describe('the pack page between the pack fetch and the comparator fetches', () =
 
     // The cover is slide 1; page forward to the income slide.
     expect(await screen.findByText('Acme — Management Pack')).toBeInTheDocument();
-    const { fireEvent } = await import('@testing-library/react');
-    fireEvent.keyDown(window, { key: 'ArrowRight' });
-
-    expect(await screen.findByText(/Loading the income statement/)).toBeInTheDocument();
+    const { fireEvent, waitFor } = await import('@testing-library/react');
+    // PresentDeck attaches its keydown listener in a passive effect, which can
+    // land after the cover is already in the DOM — a key pressed in that gap
+    // reaches no listener and the deck stays on 1 / 2 (CI run 37726555216).
+    // Press only while the cover is still showing, so a press that landed is
+    // never repeated and the deck cannot step past the income slide.
+    await waitFor(() => {
+      if (screen.queryByText('Acme — Management Pack')) fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(screen.getByText(/Loading the income statement/)).toBeInTheDocument();
+    });
     expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
     releaseIncome(undefined);
   });

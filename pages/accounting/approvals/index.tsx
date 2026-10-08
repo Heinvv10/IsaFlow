@@ -2,31 +2,20 @@
  * Approval Workflows — Manage rules and pending approval requests
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import {
-  Shield, CheckCircle2, XCircle, Loader2, Trash2, AlertCircle,
+  Shield, CheckCircle2, XCircle, Loader2, AlertCircle,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ApprovalEnforcementPanel } from '@/components/accounting/approvals/ApprovalEnforcementPanel';
 import { approvalDocumentHref } from '@/components/accounting/approvals/approvalDocumentHref';
-
-function formatCurrency(amount: number): string {
-  return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-interface ApprovalRule {
-  id: string;
-  name: string;
-  documentType: string;
-  conditionField: string;
-  conditionOperator: string;
-  conditionValue: number;
-  approverRole: string;
-  isActive: boolean;
-}
+import { ApprovalRulesTab } from '@/components/accounting/approvals/ApprovalRulesTab';
+import {
+  DOC_TYPE_LABELS, formatCurrency, type ApprovalRuleRow as ApprovalRule,
+} from '@/components/accounting/approvals/approvalRuleDisplay';
 
 interface ApprovalRequest {
   id: string;
@@ -45,19 +34,6 @@ interface ApprovalRequest {
   decisionNotes: string | null;
 }
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  customer_invoice: 'Customer Invoice',
-  supplier_invoice: 'Supplier Invoice',
-  payment: 'Payment',
-  journal_entry: 'Journal Entry',
-  credit_note: 'Credit Note',
-  customer_credit_note: 'Customer Credit Note',
-  supplier_credit_note: 'Supplier Credit Note',
-  supplier_payment: 'Supplier Payment',
-  payment_batch: 'Payment Batch',
-  manual_journal: 'Manual Journal',
-};
-
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-amber-500/20 text-amber-500',
   approved: 'bg-teal-500/20 text-teal-500',
@@ -69,6 +45,17 @@ export default function ApprovalsPage() {
   const [tab, setTab] = useState<'pending' | 'rules' | 'history'>('pending');
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [rules, setRules] = useState<ApprovalRule[]>([]);
+  // The role withAuth resolved for this company (the one the rule guards rank),
+  // and whether the rules list is current — the Enforce panel's "no active rule"
+  // note must not speak from a list that failed to load.
+  const [actorRole, setActorRole] = useState<string | null>(null);
+  const [rulesLoaded, setRulesLoaded] = useState(false);
+  // Every rules load takes a number; only the latest may set the list, so a slow
+  // reload from an earlier write cannot overwrite a newer one (review round 1).
+  const rulesSeq = useRef(0);
+  // The same for the page's own load (requests, its error and the spinner): a
+  // slow load from an earlier tab or decision must not land over a newer one.
+  const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -76,6 +63,8 @@ export default function ApprovalsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
+    const load = ++loadSeq.current;
+    const seq = ++rulesSeq.current;
     try {
       const [reqRes, rulesRes] = await Promise.all([
         apiFetch(tab === 'pending' ? '/api/accounting/approval-requests?status=pending' : '/api/accounting/approval-requests'),
@@ -85,13 +74,20 @@ export default function ApprovalsPage() {
       await assertOk(rulesRes, 'Could not load the approval rules - try again');
       const reqJson = await reqRes.json();
       const rulesJson = await rulesRes.json();
-      setRequests(reqJson.data?.items ?? []);
-      setRules(rulesJson.data?.items ?? []);
+      if (load === loadSeq.current) setRequests(reqJson.data?.items ?? []);
+      if (seq === rulesSeq.current) {
+        setRules(rulesJson.data?.items ?? []);
+        setActorRole(typeof rulesJson.data?.actorRole === 'string' ? rulesJson.data.actorRole : null);
+        setRulesLoaded(true);
+      }
     } catch (err) {
-      setRequests([]); setRules([]);
-      setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
+      if (seq === rulesSeq.current) { setRules([]); setActorRole(null); setRulesLoaded(false); }
+      if (load === loadSeq.current) {
+        setRequests([]);
+        setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
+      }
     } finally {
-      setLoading(false);
+      if (load === loadSeq.current) setLoading(false);
     }
   }, [tab]);
 
@@ -121,16 +117,26 @@ export default function ApprovalsPage() {
     }
   };
 
-  const handleDeleteRule = async (ruleId: string) => {
-    setError('');
+  // After a rule write: reload the rules alone, without the page spinner, so the
+  // Rules tab (and a starter result it is showing) stays mounted. A failed reload
+  // clears the rows it could not refresh (they may name a rule just deleted), and
+  // the tab says they could not be loaded rather than that there are none.
+  const refreshRules = useCallback(async () => {
+    const seq = ++rulesSeq.current;
     try {
-      const res = await apiFetch(`/api/accounting/approval-rules?id=${ruleId}`, { method: 'DELETE' });
-      await assertOk(res, 'Could not delete the rule - try again');
-      await fetchData();
+      const res = await apiFetch('/api/accounting/approval-rules');
+      await assertOk(res, 'Could not load the approval rules - try again');
+      const json = await res.json();
+      if (seq !== rulesSeq.current) return;
+      setRules(json.data?.items ?? []);
+      setActorRole(typeof json.data?.actorRole === 'string' ? json.data.actorRole : null);
+      setRulesLoaded(true);
     } catch (err) {
-      setError(apiErrorMessage(err, 'Could not delete the rule - try again'));
+      if (seq !== rulesSeq.current) return;
+      setRules([]); setActorRole(null); setRulesLoaded(false);
+      setError(apiErrorMessage(err, 'Could not load the approval rules - try again'));
     }
-  };
+  }, []);
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
 
@@ -175,7 +181,11 @@ export default function ApprovalsPage() {
             GET fires on mount, and gating it on `loading` unmounted/remounted it
             (and refired the GET) every time the shared rules/requests fetch
             re-ran after the tab switch, doubling the request for one visit. */}
-        {tab === 'rules' && <ApprovalEnforcementPanel />}
+        {tab === 'rules' && (
+          <ApprovalEnforcementPanel
+            activeRuleTypes={rulesLoaded ? rules.filter(r => r.isActive).map(r => r.documentType) : undefined}
+          />
+        )}
 
         {loading ? (
           <div className="flex justify-center py-12">
@@ -183,44 +193,7 @@ export default function ApprovalsPage() {
           </div>
         ) : tab === 'rules' ? (
           /* Rules Tab — R-035: rules the Enforce switch (above) governs */
-          <div className="space-y-4">
-          <div className="bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-[var(--ff-bg-secondary)]">
-                  <th className="text-left px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Rule Name</th>
-                  <th className="text-left px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Document Type</th>
-                  <th className="text-left px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Condition</th>
-                  <th className="text-left px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Approver</th>
-                  <th className="text-center px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Active</th>
-                  <th className="text-center px-4 py-3 font-medium text-[var(--ff-text-secondary)]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--ff-border-primary)]">
-                {rules.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-secondary)]">No approval rules configured</td></tr>
-                ) : rules.map(rule => (
-                  <tr key={rule.id} className="hover:bg-[var(--ff-bg-hover)]">
-                    <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{rule.name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{DOC_TYPE_LABELS[rule.documentType] || rule.documentType}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                      {rule.conditionOperator === 'any' ? 'All documents' : `${rule.conditionField} > ${formatCurrency(rule.conditionValue)}`}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">{rule.approverRole}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-block w-2 h-2 rounded-full ${rule.isActive ? 'bg-teal-500' : 'bg-gray-400'}`} />
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => void handleDeleteRule(rule.id)} className="text-red-400 hover:text-red-500">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </div>
+          <ApprovalRulesTab rules={rules} loaded={rulesLoaded} actorRole={actorRole} onChanged={refreshRules} />
         ) : (
           /* Pending / History Tab */
           <div className="space-y-3">
