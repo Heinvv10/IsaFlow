@@ -7,12 +7,13 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
   updateRecurringJournalStatus,
-  generateJournalFromRecurring,
+  runRecurringJournal,
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
@@ -46,8 +47,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         await updateRecurringJournalStatus(companyId, id, 'cancelled');
         return apiResponse.success(res, { status: 'cancelled' });
       case 'generate': {
-        const journalId = await generateJournalFromRecurring(companyId, id, userId);
-        return apiResponse.success(res, { journalId });
+        // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
+        const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
+        if (run === JOURNAL_DATE_REFUSED) return;
+        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
@@ -91,7 +94,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // its number outside the insert, there is nothing left here to retry into.
     // withAuth COMMITs a 4xx, which is safe here because everything the action
     // wrote — the claim, the entry, its lines — is inside the `withTransaction`
-    // that `generateJournalFromRecurring` opens, and inside a request that is a
+    // that `runRecurringJournal` opens, and inside a request that is a
     // SAVEPOINT: the 23505 takes a `ROLLBACK TO SAVEPOINT` on the way out, so
     // the COMMIT that follows has nothing of this action left to commit. The
     // test asserts that outcome — run_count, entry count, line count — rather

@@ -38,7 +38,7 @@ import { withInviteToken } from '@/lib/auth/withInviteToken';
 
 const res = () => ({
   statusCode: 200, headersSent: false, body: '' as string | undefined,
-  status(c: number) { this.statusCode = c; return this; }, setHeader() { return this; },
+  status(c: number) { this.statusCode = c; return this; }, setHeader() { return this; }, removeHeader() { /* noop */ },
   json(b: unknown) { return this.end(JSON.stringify(b)); }, // funnels through end, as Next's does
   end(chunk?: string) { this.body = chunk; return this; },
 });

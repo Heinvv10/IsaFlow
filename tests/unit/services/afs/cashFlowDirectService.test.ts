@@ -17,12 +17,13 @@ const PERIOD_START = '2026-01-01';
 const PERIOD_END   = '2026-12-31';
 
 // Opening cash now comes from cash.balance.v1's owning service
-// (bank/cashBalanceService), which returns one row PER bank account with a
-// `gl_balance` column. fetchOpeningCash no longer carries its own copy of the
-// query — that private copy is why cash had four answers.
+// (bank/cashBalanceService), which returns one row PER bank account with its
+// `gl_debit`, `gl_credit` and `account_type`. fetchOpeningCash no longer
+// carries its own copy of the query — that private copy is why cash had four
+// answers.
 const OPENING_ROWS = [
   { id: 'bank-1', account_code: '1110', account_name: 'Bank', is_active: true,
-    gl_balance: 15000, posted_through: null },
+    account_type: 'asset', gl_debit: 15000, gl_credit: 0, posted_through: null },
 ];
 
 // The service issues two queries: opening cash, then every cash leg in the
@@ -102,7 +103,7 @@ describe('cashFlowDirectService', () => {
     mockSql
       .mockResolvedValueOnce([
         { id: 'bank-1', account_code: '1110', account_name: 'Bank', is_active: true,
-          gl_balance: 0, posted_through: null },
+          account_type: 'asset', gl_debit: 0, gl_credit: 0, posted_through: null },
       ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);

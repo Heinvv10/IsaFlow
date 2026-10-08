@@ -9,6 +9,9 @@ import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
+import { journalDayWindowError } from '../../utils/journalDateWindow';
+import { ledgerDaysOf } from './journalDateGuard';
+import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
 
@@ -87,8 +90,14 @@ export async function importJournalEntries(
 
     // ── Resolve every group before writing anything ──────────────────────────
     const resolved: ResolvedGroup[] = [];
+    // The day Postgres stores for each group's date (gl/journalDateGuard): a day outside the ledger window is refused
+    // before any write, a 400; a date it cannot read fails at its journal, as before the window.
+    const days = await ledgerDaysOf([...grouped.values()].map((g) => String(g[0]!.date)));
     for (const [, groupRows] of grouped) {
       const firstRow = groupRows[0]!;
+      const day = days.get(String(firstRow.date)) ?? null;
+      const badDate = day === null ? null : journalDayWindowError(day);
+      if (badDate) throw new ImportValidationError(`Import group ${firstRow.reference ? `"${firstRow.reference}" ` : ''}: ${badDate}`);
       const lines: JournalLineInput[] = [];
       let totalDebit = 0;
 
@@ -139,7 +148,7 @@ export async function importJournalEntries(
       }
 
       resolved.push({
-        entryDate: firstRow.date,
+        entryDate: day ?? firstRow.date,
         description: firstRow.reference
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
@@ -153,8 +162,16 @@ export async function importJournalEntries(
     let entriesCreated = 0;
     let linesCreated = 0;
     let totalValue = 0;
+    const heldForApproval: string[] = [];
 
     for (const group of resolved) {
+      // R-035 PR6: the importer composed these journals. Under manual-journal
+      // enforcement each is marked, and one posted immediately that an active
+      // rule matches is HELD instead — left a draft, the request raised as the
+      // importer — while the rest post. Decided from reads before the journal
+      // is written; the import never fails because of approval.
+      const approval = await newManualJournalGate(companyId, group.lines);
+      const held = postImmediately && approval.held;
       // createJournalEntry resolves the fiscal period from entryDate and runs
       // validateJournalEntry, so an unbalanced group is rejected here rather
       // than becoming a posted entry nobody checked.
@@ -165,10 +182,10 @@ export async function importJournalEntries(
         ...(group.reference ? { reference: group.reference } : {}),
         lines: group.lines,
       }, userId, { postingAgent: 'import:gl-manual' });
+      await settleUnattendedJournal(companyId, entry.id, userId, { enforced: approval.enforced, held });
 
-      if (postImmediately) {
-        await postJournalEntry(companyId, entry.id, userId);
-      }
+      if (held) heldForApproval.push(entry.id);
+      else if (postImmediately) await postJournalEntry(companyId, entry.id, userId);
 
       entriesCreated++;
       linesCreated += group.lines.length;
@@ -176,10 +193,10 @@ export async function importJournalEntries(
     }
 
     log.info('Imported journal entries', {
-      companyId, entriesCreated, linesCreated, totalValue, postImmediately,
+      companyId, entriesCreated, linesCreated, totalValue, postImmediately, held: heldForApproval.length,
     }, 'gl-import');
 
-    return { entriesCreated, linesCreated, totalValue };
+    return { entriesCreated, linesCreated, totalValue, heldForApproval };
   } catch (err) {
     log.error('Failed to import journal entries', { error: err }, 'gl-import');
     throw err;

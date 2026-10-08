@@ -200,7 +200,7 @@ async function mergeAccountsInner(
   // The document side of the same postings — bill, expense-claim and PO lines
   // and capture events coded to the source — moves with the ledger, under the
   // same account locks, and must match what the dry run reported per table.
-  const movedDocumentRows = await repointDocumentRows(companyId, sourceId, targetId, userId);
+  const movedDocumentRows = await repointDocumentRows(companyId, sourceId, targetId, userId, movedLineIds);
   const documentRowsRepointed = countsOf(movedDocumentRows);
   if (DOCUMENT_ROW_TABLES.some((t) => documentRowsRepointed[t] !== preview.documentRowsToRepoint[t])) {
     throw new AccountMergeError(

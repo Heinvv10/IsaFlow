@@ -9,7 +9,9 @@
  * posting and rollback in writeBankBulkAllocate.posting.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
+  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -60,7 +62,6 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customersBelongToCompany: vi.fn(),
   suppliersBelongToCompany: vi.fn(),
 }));
-
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   findBankTransactionsByReferences,
@@ -76,7 +77,6 @@ import {
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkAllocate';
-
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const BATCH = '0f000000-0000-4000-8000-000000000001';
 // Real UUIDs: every id on a line is a uuid column, and the parser refuses a

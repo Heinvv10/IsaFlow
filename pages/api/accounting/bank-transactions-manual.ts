@@ -9,6 +9,8 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
+import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
@@ -23,6 +25,7 @@ import {
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
 import { manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
+import { handKeyedLineJournalRefusal } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   assertCustomerInCompany, assertSupplierInCompany, CustomerNotInCompanyError, SupplierNotInCompanyError,
@@ -68,9 +71,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
   const {
-    type, bankAccountId, date, amount: numericAmount,
+    type, bankAccountId, date: rawDate, amount: numericAmount,
     reference, description, allocationType, contraAccountId, entityId, vatCode, autoApply,
   } = parsed.data;
+  // The day Postgres stores (gl/journalDateGuard); outside the ledger window it is a 422 like any schema error.
+  const day = (await ledgerDaysOf([rawDate])).get(rawDate) ?? null;
+  const windowError = day === null ? null : journalDayWindowError(day);
+  if (windowError) return apiResponse.validationError(res, { date: [windowError] });
+  const date = day ?? rawDate;
 
   // ── Amount sign — negative for spend, positive for receive ─────────────────
 
@@ -95,6 +103,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // nothing is written. Money in (a refund) is not an instruction to pay.
   if (allocationType === 'supplier' && type === 'spend') {
     const refusal = await manualLinePaymentRefusal(companyId, numericAmount);
+    if (refusal && respondIfApprovalRequired(res, refusal)) return;
+  }
+  // R-035 PR6 (Hein, H2): posted to a GL account — in or out, and a transfer to
+  // another bank-subtype account is one (any account can be relabelled bank) —
+  // it is a manual journal a person composed; refused the same way, before the
+  // line is inserted.
+  if (allocationType === 'account' || allocationType === 'transfer') {
+    const refusal = await handKeyedLineJournalRefusal(companyId, numericAmount);
     if (refusal && respondIfApprovalRequired(res, refusal)) return;
   }
 

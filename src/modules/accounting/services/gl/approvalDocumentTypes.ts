@@ -19,13 +19,16 @@ export function creditNoteApprovalType(type: string): DocumentType {
  * A NEW rule of a legacy type would govern nothing, so creating one is
  * refused, naming the types that do. `credit_note` governs neither
  * credit-note type (R-035 PR3 review B2); `payment` governs neither supplier
- * payments nor payment batches (R-035 PR5). Existing legacy rows are left alone.
+ * payments nor payment batches (R-035 PR5); `journal_entry` governs no journal
+ * (R-035 PR6: manual journals are `manual_journal`). Existing legacy rows are
+ * left alone.
  */
 const LEGACY_TYPES: Record<string, string> = {
   credit_note: 'Approval rules of type credit_note no longer govern any credit note. Create a customer_credit_note or '
     + 'supplier_credit_note rule instead.',
   payment: 'Approval rules of type payment no longer govern any supplier payment. Create a supplier_payment or '
     + 'payment_batch rule instead.',
+  journal_entry: 'Approval rules of type journal_entry no longer govern any journal. Create a manual_journal rule instead.',
 };
 
 export class ApprovalRuleLegacyTypeError extends Error {

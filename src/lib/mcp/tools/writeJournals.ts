@@ -8,6 +8,9 @@ import type { McpTool } from '../types';
 import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { journalVatRefusal } from '@/modules/accounting/services/capture/capturedVatEvidence';
+import {
+  agentManualJournalRefusal, lockManualJournalIfEnforced, markCreatedManualJournal, markManualJournal,
+} from '@/modules/accounting/services/gl/manualJournalApproval';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput, VatType } from '@/modules/accounting/types/gl.types';
 import { mcpPostingOpts } from '../mcpActor';
@@ -131,6 +134,7 @@ export const createDraftJournalTool: McpTool = {
         );
       }
     }
+    let entry: Awaited<ReturnType<typeof createJournalEntry>>;
     try {
       // Stamp the agent. Without meta, createJournalEntry falls back to
       // defaultHumanMeta(userId) and the entry lands as human:<userId> — agent
@@ -138,19 +142,23 @@ export const createDraftJournalTool: McpTool = {
       // invisible to list_agent_postings (which filters posting_agent LIKE
       // 'mcp:%'). Drafts count: post_journal does not restamp, so an unstamped
       // draft stays mislabelled after it is posted.
-      const entry = await createJournalEntry(
+      entry = await createJournalEntry(
         ctx.companyId,
         { entryDate, description: strArg(args, 'memo'), lines },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_draft_journal'),
         { allowLateInputClaim: allowLateInputClaim(args) },
       );
-      return ok(entry);
     } catch (err) {
       // Balance/period validation errors (plain Errors) are safe to surface;
       // pg errors (with a SQLSTATE code) are generic-ified to avoid leaking schema.
       return toolError(safeErrorText(err, 'Failed to create journal (check it balances and the date is in an open period).'));
     }
+    // R-035 PR6: an agent composed it — marked under manual-journal enforcement
+    // (still only a draft). Outside the catch: a failure here must reach the
+    // registry's savepoint, not commit an unmarked draft behind a tool error.
+    await markCreatedManualJournal(ctx.companyId, entry.id);
+    return ok(entry);
   },
 };
 
@@ -176,6 +184,9 @@ export const postJournalTool: McpTool = {
     if (!journalId) return toolError('journal_id is required');
     const bad = guardCastableArgs(args, { uuid: ['journal_id'] });
     if (bad) return bad;
+    // R-035 PR6: under manual-journal enforcement the draft is locked before
+    // the reads below, so the approval read and the post see one state.
+    const enforced = await lockManualJournalIfEnforced(ctx.companyId, journalId);
     // Pre-write refusals are answered from a READ, so the service call below
     // needs no catch. postJournalEntry raises the same two itself, but a
     // `catch → toolError` cannot tell them from a failure after the status
@@ -189,6 +200,14 @@ export const postJournalTool: McpTool = {
     // K-072 r31–r36: a VAT the captured receipt never showed, or a held meals merchant's VAT, is not an agent's to post.
     const vatRefusal = await journalVatRefusal(ctx.companyId, journalId);
     if (vatRefusal) return toolError(`Cannot post entry: ${vatRefusal}.`);
+    // R-035 PR6, decision Q6: an agent may neither raise nor decide an approval,
+    // so a draft the gate does not clear is refused here, from the same read,
+    // before anything is written — the key stays free for the call that
+    // succeeds once a person has had it approved.
+    const approvalRefusal = enforced ? await agentManualJournalRefusal(ctx.companyId, journalId) : null;
+    if (approvalRefusal) return toolError(approvalRefusal);
+    // Cleared: marked, so migration 869's backstop judges the flip below too.
+    if (enforced) await markManualJournal(ctx.companyId, journalId);
 
     // No catch: a closed period, an unbalanced entry or a database failure must
     // reach the registry's savepoint rather than being flattened into a tool

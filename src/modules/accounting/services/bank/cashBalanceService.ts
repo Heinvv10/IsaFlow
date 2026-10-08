@@ -51,7 +51,9 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { toMoney } from '@/lib/money/decimalSum';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { balanceByAccountType } from '@/modules/accounting/services/gl/balanceByAccountType';
 
 export interface CashAccountBalance {
   accountId: string;
@@ -59,7 +61,7 @@ export interface CashAccountBalance {
   accountName: string;
   /** The picker flag. Reported, never used to filter. */
   isActive: boolean;
-  /** Posted debit less credit on this account, up to and including `asAt`. */
+  /** Posted debit less credit on this account, up to and including `asAt`, in whole cents. */
   glBalance: number;
 }
 
@@ -128,12 +130,18 @@ export async function getCashBalance(
   // fix the arithmetic and reintroduce the opposite defect — an account whose
   // only lines are drafts would vanish from the report entirely, and "has never
   // moved" is not the same fact as "is not in this report".
+  //
+  // Debits and credits come back APART and are signed below, in TypeScript,
+  // by `balanceByAccountType`: a sign inside the SQL is one no unit test can
+  // see, and these sums once signed by `normal_balance` (K-091g).
   const rows = (await sql`
     SELECT ga.id,
            ga.account_code,
            ga.account_name,
+           ga.account_type,
            ga.is_active,
-           COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0)::numeric AS gl_balance,
+           COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END), 0)::numeric  AS gl_debit,
+           COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit END), 0)::numeric AS gl_credit,
            MAX(je.created_at)                              AS posted_through
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl
@@ -149,7 +157,7 @@ export async function getCashBalance(
      WHERE ga.company_id      = ${companyId}::UUID
        AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
        AND ga.account_type    = 'asset'
-     GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
+     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.is_active
      ORDER BY ga.account_code
   `) as DbRow[];
 
@@ -158,7 +166,11 @@ export async function getCashBalance(
     accountCode: String(r.account_code),
     accountName: String(r.account_name),
     isActive: r.is_active === true,
-    glBalance: Number(r.gl_balance ?? 0),
+    // In whole cents: a float difference (0.3 − 0.1) carries sub-cent residue.
+    glBalance: toMoney(balanceByAccountType(
+      String(r.account_type),
+      Number(r.gl_debit ?? 0) - Number(r.gl_credit ?? 0),
+    )),
   }));
 
   const stamps = rows
@@ -167,7 +179,7 @@ export async function getCashBalance(
 
   return {
     asAt,
-    total: accounts.reduce((sum, a) => sum + a.glBalance, 0),
+    total: toMoney(accounts.reduce((sum, a) => sum + a.glBalance, 0)),
     accounts,
     deactivatedWithBalance: accounts.filter((a) => !a.isActive && a.glBalance !== 0),
     postedThrough: stamps.length === 0 ? null : stamps.reduce((a, b) => (a > b ? a : b)),

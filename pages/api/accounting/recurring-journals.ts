@@ -46,8 +46,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { id, templateName, frequency, nextRunDate, description } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
     try {
+      // R-035 PR6: the name, description and next run date are what the
+      // template's journals carry (their description and date), so an edit
+      // that changes any of them — or the frequency, which dates every later
+      // run — makes its user an author of every journal the template mints
+      // (refused as their approver). Append-only; an edit changing nothing
+      // stamps nobody. Its creator is created_by.
       await sql`
         UPDATE recurring_journals SET
+          content_authors = CASE
+            WHEN (template_name, frequency, next_run_date, description) IS DISTINCT FROM
+                 (COALESCE(${templateName || null}, template_name), COALESCE(${frequency || null}, frequency),
+                  COALESCE(${nextRunDate || null}::DATE, next_run_date), COALESCE(${description || null}, description))
+            THEN approval_add_author(content_authors, ${req.user.id}::UUID) ELSE content_authors END,
           template_name = COALESCE(${templateName || null}, template_name),
           frequency = COALESCE(${frequency || null}, frequency),
           next_run_date = COALESCE(${nextRunDate || null}, next_run_date),

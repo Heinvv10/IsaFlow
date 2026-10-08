@@ -38,7 +38,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLock', async (orig) => 
 vi.mock('@/modules/accounting/services/payroll/payrollRunService', () => ({ calculatePayrollRun: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/approvalService', async (orig) => ({ ...(await orig<object>()), decideRequest: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({
-  ...(await orig<object>()), updateRecurringJournalStatus: vi.fn(), generateJournalFromRecurring: vi.fn(),
+  ...(await orig<object>()), updateRecurringJournalStatus: vi.fn(), runRecurringJournal: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reports/vatAdjustmentService', async (orig) => ({
   ...(await orig<object>()), approveVATAdjustment: vi.fn(), cancelVATAdjustment: vi.fn(),
@@ -72,7 +72,7 @@ import { PayrollLoanLockTimeoutError, PayrollRunJournalPostedError } from '@/mod
 import { decideRequest } from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRequestLockTimeoutError, } from '@/modules/accounting/services/gl/approvalRequestLock';
 import { ApprovalDocumentChangedError } from '@/modules/accounting/services/gl/approvalDecideDocument';
-import { updateRecurringJournalStatus, generateJournalFromRecurring } from '@/modules/accounting/services/gl/recurringJournalService';
+import { updateRecurringJournalStatus, runRecurringJournal } from '@/modules/accounting/services/gl/recurringJournalService';
 import { RecurringJournalLockTimeoutError, RecurringJournalRequestError } from '@/modules/accounting/services/gl/recurringJournalGuards';
 import { approveVATAdjustment, VatAdjustmentRefusal } from '@/modules/accounting/services/reports/vatAdjustmentService';
 import { lockVatPeriod, unlockVatPeriod } from '@/modules/accounting/services/reports/vatPeriodLockService';
@@ -228,7 +228,7 @@ describe('D11 approval-requests, recurring-journals-action, journal-entries-acti
     expectStatus(await call(approvalRequests, decide), 409);
   });
   it('recurring-journals-action: a held template -> 503 (was 409)', async () => {
-    vi.mocked(generateJournalFromRecurring).mockRejectedValueOnce(new RecurringJournalLockTimeoutError(ID));
+    vi.mocked(runRecurringJournal).mockRejectedValueOnce(new RecurringJournalLockTimeoutError(ID));
     expectHeld(await call(recurringJournals, { action: 'generate', id: ID }));
   });
   it('recurring-journals-action: a request refusal keeps 400; a numbering collision keeps 409', async () => {

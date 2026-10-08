@@ -9,6 +9,7 @@ import type { NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -71,7 +72,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
 
     case 'import_ledger': {
-      const run = await importLedgerTransactions(companyId, userId);
+      const run = await withJournalDateRefusal(res, () => importLedgerTransactions(companyId, userId));
+      if (run === JOURNAL_DATE_REFUSED) return;
       return apiResponse.success(res, run);
     }
 

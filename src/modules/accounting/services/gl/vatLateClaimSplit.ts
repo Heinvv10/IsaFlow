@@ -31,6 +31,7 @@ import { resolveReversalDateDetailed, type VatLockRoll } from './journalEntryRev
 import { assertJournalVatPeriodOpen, loadJournalVatLines } from './journalVatLockGuard';
 import type { JournalEntryMeta } from './journalEntryMeta';
 import { planLockedVatPosting, type LateClaimInfo, type LateClaimPlan } from './vatLateClaimPlan';
+import { isMarkedUnderEnforcement } from './manualJournalApproval';
 
 type Row = Record<string, unknown>;
 
@@ -80,6 +81,13 @@ async function applyLateClaimSplit(
     const taxLineIds = plan.taxLines.map((t) => t.id).filter((v): v is string => Boolean(v));
     if (taxLineIds.length !== plan.taxLines.length) throw new Error('Late claim: the draft\'s tax lines have no ids');
 
+    // R-035 PR6: a MARKED manual journal under manual-journal enforcement posts
+    // FIRST, with its lines as drafted — what its approval vouched for, and
+    // what migration 869's backstop judges as it enters 'posted'; steps 1-3
+    // then rewrite the posted lines (the balance trigger re-files them), all
+    // in this savepoint. Every other journal keeps the order below exactly.
+    const approvedFirst = (await isMarkedUnderEnforcement(companyId, entry.id)) ? await hooks.postOriginal() : null;
+
     // 1. The original's input VAT onto the clearing account.
     await sql`
       UPDATE gl_journal_lines SET gl_account_id = ${clearingId}::UUID, vat_type = NULL
@@ -93,7 +101,7 @@ async function applyLateClaimSplit(
     // 3. The lock guard, on the lines as they now stand: the original must be
     //    in no box of the filed return, or it may not post.
     await assertJournalVatPeriodOpen(companyId, entry.entryDate, await loadJournalVatLines(companyId, entry.id));
-    const posted = await hooks.postOriginal();
+    const posted = approvedFirst ?? await hooks.postOriginal();
 
     // 4. The companion, on the claim date.
     const total = r2(plan.taxLines.reduce((s, t) => s + t.amount, 0));

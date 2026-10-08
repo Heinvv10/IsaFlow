@@ -74,6 +74,17 @@ function wording(documentType: string | undefined) {
         + "approver — one who did not set the payee's bank details — can approve it, or have someone",
     };
   }
+  // A manual journal carries its recurring template's authors and whoever
+  // merged an account its lines name (R-035 PR6). It has no edit route, so its
+  // way out is the template's author running it themselves.
+  if (documentType === 'manual_journal') {
+    return {
+      created: 'you created the journal, merged an account its lines name, or created or edited the recurring '
+        + 'template it was generated from',
+      deadEnd: 'Have the author of the recurring template it came from generate it themselves, so another eligible '
+        + 'approver can approve the journal, or have someone',
+    };
+  }
   return { created: 'you created the document or made an edit that changed it', deadEnd: 'Cancel and re-enter the bill, or have someone' };
 }
 

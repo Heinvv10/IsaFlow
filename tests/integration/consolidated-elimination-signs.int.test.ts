@@ -21,8 +21,9 @@
 // 100 instead of down. Group profit moved by 200 for a 100 elimination, in the
 // wrong direction.
 //
-// getConsolidatedBalanceSheet already did this correctly, keying the sign off
-// the account's normal balance; only the income statement did not.
+// getConsolidatedBalanceSheet signs member balances and eliminations by the
+// line's SECTION (assets debit − credit, liabilities/equity credit − debit);
+// see gl/balanceByAccountType and tests/unit/services/consolidatedBalanceSheetContraAccounts.
 //
 // Consolidation is dormant in production (no group_accounts, no posted
 // consolidation_adjustments), so this is latent rather than live — but it is
