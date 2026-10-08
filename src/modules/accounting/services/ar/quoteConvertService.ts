@@ -19,6 +19,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
+import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
 
@@ -211,10 +212,13 @@ export async function convertToInvoice(
       return String(invRows[0]!.id);
     });
 
+  // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
+  const dims = await revenueLineDefaults(companyId, quote.clientId || null);
   for (const line of quote.lines || []) {
     await sql`
-      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id)
-      VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId})
+      INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id)
+      VALUES (${invoiceId}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice}, ${line.taxRate}, ${line.lineTotal}, ${line.accountId},
+        ${dims.cc1Id ?? null}::UUID)
     `;
   }
 
