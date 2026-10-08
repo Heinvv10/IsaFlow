@@ -55,7 +55,7 @@ describe('BankTransfersPage', () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
       if (String(url).includes('chart-of-accounts')) return json(banks);
       posts += 1;
-      if (posts === 1) {
+      if (posts <= 2) {
         return new Response(JSON.stringify({ success: false, error: { code: 'PRECONDITION_REQUIRED',
           message: 'A transfer like this is already in the ledger as JE-2026-00042' } }), { status: 428 });
       }
@@ -69,11 +69,18 @@ describe('BankTransfersPage', () => {
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
     fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
     expect(await screen.findByText(/already in the ledger as JE-2026-00042/)).toBeTruthy();
+    // An edit withdraws the offer: the confirmation covers the transfer that was checked (brk-nrfa round 4 LOW-2).
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '501' } });
+    expect(screen.queryByRole('button', { name: /post it anyway/i })).toBeNull();
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    expect(await screen.findByRole('button', { name: /post it anyway/i })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /post it anyway/i }));
     expect(await screen.findByText(/Transfer completed/)).toBeTruthy();
     const bodies = vi.mocked(apiFetch).mock.calls.filter(([u]) => u === '/api/accounting/bank-transfers')
       .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
     expect(bodies[0].confirmDuplicate).toBeUndefined();
-    expect(bodies[1].confirmDuplicate).toBe(true);
+    expect(bodies[1].confirmDuplicate).toBeUndefined();
+    expect(bodies[2].confirmDuplicate).toBe(true);
   });
 });

@@ -373,4 +373,46 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     await inTx(c.fx, () => allocateTransaction(c.fx.companyId, outA, bank2, c.fx.userId, 'BTXF A to B', 'transfer'));
     expect(((await sql`SELECT status FROM bank_transactions WHERE id = ${outA}::UUID`) as Row[])[0]!.status).toBe('allocated');
   }, 60000);
+
+  // brk-nrfa round 4 LOW-1: a statement transfer reversed from the bank and its line re-allocated elsewhere stays a
+  // document's amount (it was flagged once the pointer moved); a typed transfer's reversal chain stays flagged.
+  it('round numbers: a reversed statement transfer whose line was re-allocated, and a typed reversal chain', async () => {
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2027-01-11', -60000,
+      'BTXF realloc', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF realloc 60k', 'transfer'));
+    const stmtJe = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!.id);
+    const stmtRev = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, stmtJe, c.fx.userId, { reversalDate: '2027-01-12' }));
+    // The bank reversal frees the line; re-allocated, its pointer no longer names the original.
+    await sql`UPDATE bank_transactions SET status = 'imported', matched_journal_line_id = NULL, transfer_journal_entry_id = NULL
+      WHERE id = ${line}::UUID`;
+    const typed = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 90000, transferDate: '2027-01-13' });
+    const typedJe = (dataOf<{ journalEntry: { id: string } }>(typed)).journalEntry.id;
+    const r1 = await inTx(c.fx, () => reverseJournalEntry(c.fx.companyId, typedJe, c.fx.userId, { reversalDate: '2027-01-14' }));
+    const flagged = (await getUnusualJournals(c.fx.companyId, { start: '2027-01-01', end: '2027-01-31' }))
+      .flags.filter((f) => f.reason === 'round_number').map((f) => f.entryId);
+    expect(flagged).not.toContain(stmtJe);
+    expect(flagged).not.toContain((stmtRev as { id: string }).id);
+    expect(flagged).toContain(typedJe);
+    expect(flagged).toContain((r1 as { id: string }).id);
+  }, 60000);
+
+  // brk-nrfa rounds 3-4 / rev-nrfa round 4 LOW-2: arm 1 skips a counterparty transfer already paired with a line on
+  // this bank — the next day's identical transfer from the statement is another movement.
+  it("the other bank's line of an already paired transfer does not refuse the next day's identical transfer", async () => {
+    const monA = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2027-02-01', -555,
+      'BTXF mon A', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, monA, bank2, c.fx.userId, 'BTXF mon', 'transfer'));
+    const j1 = String(((await sql`SELECT transfer_journal_entry_id AS id FROM bank_transactions WHERE id = ${monA}::UUID`) as Row[])[0]!.id);
+    // Monday's B line matched to the same journal (what the transfer match writes).
+    await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
+      transfer_journal_entry_id, counterparty_account_id) VALUES (${c.fx.companyId}::UUID, ${bank2}::UUID, '2027-02-01',
+      555, 'BTXF mon B', 'matched', ${j1}::UUID, ${c.fx.bankAccountId}::UUID)`;
+    const tueA = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2027-02-02', -555,
+      'BTXF tue A', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, tueA, bank2, c.fx.userId, 'BTXF tue', 'transfer'));
+    expect(((await sql`SELECT status FROM bank_transactions WHERE id = ${tueA}::UUID`) as Row[])[0]!.status).toBe('allocated');
+  }, 60000);
 });

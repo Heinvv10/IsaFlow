@@ -154,14 +154,14 @@ export async function getUnusualJournals(
       je.source,
       je.created_at,
       COALESCE(SUM(jl.debit), 0) AS amount,
-      -- A transfer journal carries a bank line's amount when a LIVE line points at it with that amount (on one of
-      -- its bank legs, below). A journal the STATEMENT created (no reference: Transfers-page journals always carry
-      -- one) keeps that evidence once reversed — the bank reversal resets its line — and so does its reversal. A
-      -- typed journal's only evidence is a live line: a stale pointer is not evidence (journalSourceKinds, brk-nrfa
-      -- M2/L3, round 3 L3).
-      (COALESCE(SUM(jl.debit), 0) = ANY(tl.amounts)
-        OR (je.reference IS NULL AND je.reversed_at IS NOT NULL AND COALESCE(SUM(jl.debit), 0) = ANY(ta.amounts))
-        OR (orig.reference IS NULL AND COALESCE(SUM(jl.debit), 0) = ANY(tr.amounts))) AS bank_line_backed
+      -- A transfer journal carries a bank line's amount when the STATEMENT created it — a journal with no
+      -- reference that is not a reversal (bankAllocationService writes none; every Transfers-page journal carries
+      -- 'Transfer: … -> …') — or reverses one; a typed journal only when a LIVE line points at it with its amount on
+      -- one of its bank legs (below). Pointers alone are not evidence: a match can link any line, an unmatch leaves
+      -- it set, a re-allocation moves it (journalSourceKinds; brk-nrfa M2/L3, rounds 3-4; sec-nrfa round 3).
+      ((je.reference IS NULL AND je.reversal_of_id IS NULL)
+        OR (orig.id IS NOT NULL AND orig.reference IS NULL AND orig.reversal_of_id IS NULL)
+        OR COALESCE(SUM(jl.debit), 0) = ANY(tl.amounts)) AS bank_line_backed
     FROM gl_journal_entries je
     -- THE LINES ARE SCOPED TOO, not only the entry they hang off. The FK
     -- makes it redundant today and the root CLAUDE.md rule is "ALWAYS add
@@ -183,28 +183,12 @@ export async function getUnusualJournals(
         AND bt.status IN ('allocated', 'matched', 'reconciled')
       GROUP BY bt.transfer_journal_entry_id
     ) tl ON tl.transfer_journal_entry_id = je.id
-    LEFT JOIN (
-      SELECT bt.transfer_journal_entry_id, array_agg(DISTINCT ABS(bt.amount)) AS amounts FROM bank_transactions bt
-      JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.transfer_journal_entry_id AND bl.company_id = bt.company_id
-        AND bl.gl_account_id = bt.bank_account_id
-        AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
-      WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
-      GROUP BY bt.transfer_journal_entry_id
-    ) ta ON ta.transfer_journal_entry_id = je.id
     LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
-    LEFT JOIN (
-      SELECT bt.transfer_journal_entry_id, array_agg(DISTINCT ABS(bt.amount)) AS amounts FROM bank_transactions bt
-      JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.transfer_journal_entry_id AND bl.company_id = bt.company_id
-        AND bl.gl_account_id = bt.bank_account_id
-        AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
-      WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
-      GROUP BY bt.transfer_journal_entry_id
-    ) tr ON tr.transfer_journal_entry_id = je.reversal_of_id
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
     GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, je.reference,
-      je.reversed_at, orig.reference, tl.amounts, ta.amounts, tr.amounts
+      je.reversal_of_id, orig.id, orig.reference, orig.reversal_of_id, tl.amounts
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
