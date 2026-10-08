@@ -1,7 +1,8 @@
 /**
  * withPlatformAdmin records EVERY rolled-back admin request, with the reason it rolled back (NUMRACE register (c),
  * rev-nrfb-blind M-1): a handler's 5xx, a rollback-only request, a failed critical audit write, a throw (including a
- * failed COMMIT) and a failed ROLLBACK — and records nothing for a committed answer. The integration file
+ * failed COMMIT) and a failed ROLLBACK — and records nothing for a committed answer; on the request's own connection
+ * after a successful ROLLBACK, on the pool after a destroyed one. The integration file
  * admin-rollback-5xx.int.test.ts proves the row itself on a database.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -83,7 +84,7 @@ describe('withPlatformAdmin: the failure audit records every rollback, with its 
     expect(admin.queries).toContain('ROLLBACK');
     expect(admin.queries).not.toContain('COMMIT');
     expect(audit).toHaveBeenCalledTimes(1);
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 503, 'rolled_back']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 503, 'rolled_back']);
   });
 
   it("a rollback-only request that answered 200: 500 COMMIT_FAILED, recorded 'rollback_only'", async () => {
@@ -93,7 +94,7 @@ describe('withPlatformAdmin: the failure audit records every rollback, with its 
       res.status(200).json({ success: true });
     });
     expect(wire[0]!.status).toBe(500);
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 500, 'rollback_only']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 500, 'rollback_only']);
   });
 
   it("a failed critical audit write: 500 AUDIT_WRITE_FAILED, recorded 'audit_write_failed'", async () => {
@@ -103,25 +104,25 @@ describe('withPlatformAdmin: the failure audit records every rollback, with its 
       res.status(200).json({ success: true });
     });
     expect(wire[0]).toMatchObject({ status: 500, body: { error: { code: 'AUDIT_WRITE_FAILED' } } });
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 500, 'audit_write_failed']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 500, 'audit_write_failed']);
   });
 
   it("a throw past the handler: answered 500, recorded 'threw'", async () => {
     const { wire } = await run(() => { throw new Error('boom'); });
     expect(wire[0]!.status).toBe(500);
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 500, 'threw']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 500, 'threw']);
   });
 
   it("a failed COMMIT: recorded 'threw'", async () => {
     const { wire } = await run((_q, res) => { res.status(200).json({ success: true }); }, /^COMMIT/);
     expect(wire.at(-1)!.status).toBe(500);
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 500, 'threw']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 500, 'threw']);
   });
 
   it('a failed ROLLBACK after a 5xx: still recorded, the connection destroyed', async () => {
     const { admin } = await run((_q, res) => { res.status(500).json({ success: false }); }, /^ROLLBACK/);
     expect(admin.state.released).toBe(true);
-    expect(audit.mock.calls[0]!.slice(1)).toEqual(['user-1', 500, 'rolled_back']);
+    expect(audit.mock.calls[0]!.slice(1, 4)).toEqual(['user-1', 500, 'rolled_back']);
   });
 
   it('a committed 200 and a 4xx record nothing', async () => {
@@ -130,12 +131,20 @@ describe('withPlatformAdmin: the failure audit records every rollback, with its 
     expect(audit).not.toHaveBeenCalled();
   });
 
-  it('the record is written after the connection is released, never on it', async () => {
-    // Before release, state.released is undefined; release(false) sets it false.
-    let releasedWhenAudited: boolean | undefined;
+  // brk-nrfb M-1: a second connection queued behind a busy pool and timed out, leaving no row.
+  it("after a successful ROLLBACK the record goes on the request's own connection, before it is released", async () => {
+    let releasedWhenAudited: boolean | undefined = true;
     audit.mockImplementation(async () => { releasedWhenAudited = lastAdmin!.state.released; });
     const { admin } = await run((_q, res) => { res.status(500).json({ success: false }); });
-    expect(releasedWhenAudited).toBe(false);
-    expect(admin.queries.some((q) => /admin_audit_log/.test(q))).toBe(false);
+    expect(audit.mock.calls[0]![4]).toBe(admin);
+    expect(releasedWhenAudited).toBeUndefined();
+  });
+
+  it('after a failed ROLLBACK (connection destroyed) it goes on the pool, after the release', async () => {
+    let releasedWhenAudited: boolean | undefined;
+    audit.mockImplementation(async () => { releasedWhenAudited = lastAdmin!.state.released; });
+    await run((_q, res) => { res.status(500).json({ success: false }); }, /^ROLLBACK/);
+    expect(audit.mock.calls[0]![4]).toBeUndefined();
+    expect(releasedWhenAudited).toBe(true);
   });
 });
