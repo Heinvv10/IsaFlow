@@ -23,11 +23,11 @@ import type { DocumentType } from './approvalService';
 import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { ENFORCEABLE_DOCUMENT_TYPES } from './approvalRuleOptions';
 
-export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
-  'supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
-  'supplier_payment', 'payment_batch', 'manual_journal',
-];
+// The list lives in approvalRuleOptions.ts (no database import, so the rule form
+// offers the same types); re-exported for every existing import site.
+export { ENFORCEABLE_DOCUMENT_TYPES } from './approvalRuleOptions';
 
 export interface ApprovalEnforcement {
   documentType: DocumentType;

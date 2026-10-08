@@ -171,12 +171,21 @@ describe('R-032 — approval decisions under platform-admin impersonation', () =
     const auditQuery = `SELECT count(*) AS n FROM admin_audit_log
       WHERE admin_user_id=$1 AND target_id=$2 AND action='impersonation_start'`;
     const stashQuery = 'SELECT count(*) AS n FROM admin_impersonation_stash WHERE admin_user_id=$1 AND target_user_id=$2';
-    const [auditsBefore, stashesBefore] = [await countOf(auditQuery), await countOf(stashQuery)];
+    // Since 2026-10-08 the 500 rolls the start back, impersonation_start row included; withPlatformAdmin records
+    // the attempt as admin_request_failed on its own connection (target_id: the user id in the route).
+    const failedQuery = `SELECT count(*) AS n FROM admin_audit_log
+      WHERE admin_user_id=$1 AND action='admin_request_failed' AND details->>'status' = '500' AND target_id=$2
+        AND details->>'route' LIKE '%/impersonate'`;
+    const [auditsBefore, stashesBefore, failedBefore] =
+      [await countOf(auditQuery), await countOf(stashQuery), await countOf(failedQuery)];
     const errors = vi.spyOn(log, 'error');
     const started = response();
     let logged: unknown[][];
     try {
-      await startImpersonation(request(jar, 'POST', target), started.res);
+      // The real route path: the failure row keeps it, and the target id in it as target_id.
+      const startReq = request(jar, 'POST', target) as never as { url: string };
+      startReq.url = `/api/admin/users/${target}/impersonate`;
+      await startImpersonation(startReq as never, started.res);
     } finally {
       logged = [...errors.mock.calls]; // mockRestore clears the recording
       errors.mockRestore();
@@ -186,11 +195,12 @@ describe('R-032 — approval decisions under platform-admin impersonation', () =
     expect(issued).not.toContain('sb-access-token');
     expect(issued).not.toContain('sb-admin-stash');
     expect(gotrue.minted).toContain(sessionId);
-    // L4: the refused start is still on the record, its stash is cleaned up, and
-    // the cleanup ran on a usable transaction (no 25P02 logged as a cleanup failure).
+    // L4: the refused start is still on the record (as admin_request_failed: the 500 rolled impersonation_start
+    // back), its stash is cleaned up, and the cleanup ran on a usable transaction (no 25P02 logged as a cleanup failure).
     const cleanupFailures = logged.filter(([message]) => String(message).includes('cleanup failed'));
     expect(cleanupFailures).toEqual([]);
-    expect(await countOf(auditQuery)).toBe(auditsBefore + 1);
+    expect(await countOf(auditQuery)).toBe(auditsBefore);
+    expect(await countOf(failedQuery)).toBe(failedBefore + 1);
     expect(await countOf(stashQuery)).toBe(stashesBefore);
   });
 

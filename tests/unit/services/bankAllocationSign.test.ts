@@ -35,7 +35,7 @@
  *     mint a `customer_payments` row — a receipt for money the company paid.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
@@ -103,6 +103,14 @@ import { enterFakeRequestCtx } from '../helpers/requestCtx';
 import { log } from '@/lib/logger';
 
 beforeEach(() => enterFakeRequestCtx());
+
+// The service's module graph takes ~3 s to load cold, and over 10 s on a loaded
+// CI runner. Load it here, under its own budget, so a test's 10 s timeout is
+// spent on the test: a first test that timed out mid-import left its queued
+// `sql` rows behind for the next test to read (CI, 2026-10-08).
+beforeAll(async () => {
+  await import('@/modules/accounting/services/bank/bankAllocationService');
+}, 60_000);
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;
@@ -196,7 +204,9 @@ function lineFor(lines: JournalLineInput[], accountId: string): JournalLineInput
 }
 
 describe('allocateTransaction — supplier lines follow the sign', () => {
-  beforeEach(() => vi.clearAllMocks());
+  // clearAllMocks keeps queued mockResolvedValueOnce rows; reset `sql` so one
+  // test's unconsumed queue cannot become the next test's bank row.
+  beforeEach(() => { vi.clearAllMocks(); mockSql.mockReset(); });
 
   it('posts DR AP / CR Bank for a payment OUT (unchanged)', async () => {
     const lines = await allocate('supplier', -115);
@@ -304,7 +314,9 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
 });
 
 describe('allocateTransaction — customer lines follow the sign', () => {
-  beforeEach(() => vi.clearAllMocks());
+  // clearAllMocks keeps queued mockResolvedValueOnce rows; reset `sql` so one
+  // test's unconsumed queue cannot become the next test's bank row.
+  beforeEach(() => { vi.clearAllMocks(); mockSql.mockReset(); });
 
   it('posts DR Bank / CR AR for a receipt IN (unchanged)', async () => {
     const lines = await allocate('customer', 500);
