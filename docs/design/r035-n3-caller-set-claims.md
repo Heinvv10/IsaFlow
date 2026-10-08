@@ -140,7 +140,7 @@ The same URL runs prod migrations (`deploy.sh:144-146`).
 
 | | P0-i | P0-iii | P0-iv |
 |---|---|---|---|
-| **Migration** | None in `scripts/migrations`. The role is cluster-level: `CREATE ROLE` plus `GRANT app_user`, run once per cluster (prod, the dev cluster, the CI fixtures). Outside production, an unset `APP_DATABASE_URL` falls back to `DATABASE_URL`, so `isaflow_dev`, CI and the golden paths are unaffected. **In production the fallback would fail open:** a missing variable silently brings back the owner escape. So the request pool asserts its session user on first connect: not a superuser, not BYPASSRLS, and owning no relation (`NOT EXISTS (SELECT 1 FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = session_user))`). Under `NODE_ENV=production` a failed assertion stops the server from starting; elsewhere it logs a warning. `verify-deploy.sh` runs the same query. Reversible: point the variable at the old URL, which the assertion then refuses in prod, so the rollback is a deliberate code revert. | Grants on every table, and `ALTER DEFAULT PRIVILEGES`. Reversible. | None. Code only. Reversible. |
+| **Migration** | None in `scripts/migrations`. The role is cluster-level: `CREATE ROLE` plus `GRANT app_user`, run once per cluster (prod, the dev cluster, the CI fixtures). Outside production, an unset `APP_DATABASE_URL` falls back to `DATABASE_URL`, so `isaflow_dev`, CI and the golden paths are unaffected. **In production the fallback would fail open:** a missing variable silently brings back the owner escape. So the request pool asserts its session user on first connect: not a superuser, not BYPASSRLS, owning no relation (`NOT EXISTS (SELECT 1 FROM pg_class WHERE relowner = (SELECT oid FROM pg_roles WHERE rolname = session_user))`), and a member of `app_user` and nothing else, so that `SET ROLE` can reach no other role (`SELECT array_agg(roleid::regrole) FROM pg_auth_members WHERE member = (SELECT oid FROM pg_roles WHERE rolname = session_user)` must equal `{app_user}`). Under `NODE_ENV=production` a failed assertion stops the server from starting; elsewhere it logs a warning. `verify-deploy.sh` runs the same query. Reversible: point the variable at the old URL, which the assertion then refuses in prod, so the rollback is a deliberate code revert. | Grants on every table, and `ALTER DEFAULT PRIVILEGES`. Reversible. | None. Code only. Reversible. |
 | **Cost** | 1 to 2 days, with a real-PG test per wrapper: run the escape, assert the resulting role has no write privilege on `approval_requests` and no BYPASSRLS. Mutant: point the pool back at `DATABASE_URL`. | 2 to 3 days | 1 day, plus the census |
 | **Rollout risk** | Low to medium. Inside these transactions everything already runs as `app_user`, and no code does `RESET ROLE` / `set_config('role', …)` (`git grep`: none). A prod env change and a new role, so §8. | High care | Medium. A deliberate multi-statement call site 500s until it is split. |
 
@@ -162,7 +162,7 @@ For each option, **Migration** says what it adds, whether `isaflow_dev` must hav
   - `app_user=arwd`;
   - `platform_admin=arwd`;
   - `migration_admin=arwdDxt`;
-  - `app_user=U` (USAGE) on sequences.
+  - on sequences: `app_user=rU`, `platform_admin=rU` and `migration_admin=rwU` (SELECT, UPDATE, USAGE).
 
   `platform_shared` has the same rule for `app_user`, and the `app` and `auth` schemas grant `platform_admin` EXECUTE on new functions. Postgres itself also grants EXECUTE on every new function to `PUBLIC`.
 - **What a plain `CREATE TABLE` gets wrong.** It would ship each of these open to an injection:
@@ -176,7 +176,7 @@ So each such migration must:
 1. Create the protected tables in a dedicated schema with no default ACL, for example `approval_private`, and `REVOKE ALL ON SCHEMA approval_private FROM PUBLIC`.
 2. Still `REVOKE ALL` on each table explicitly from `PUBLIC`, `app_user`, `platform_admin` and `migration_admin`, and from `isaflow_web` and `isaflow_jobs` if P0 created them.
 3. On each new function, `REVOKE EXECUTE … FROM PUBLIC` and then grant EXECUTE only where it is meant to be.
-4. Assert all of this in a plpgsql `DO` block, as each role (`SET LOCAL ROLE app_user`, and so on): `has_table_privilege(…, 'INSERT,UPDATE,DELETE,TRUNCATE,SELECT')` and `has_function_privilege` must be false wherever they are meant to be.
+4. Assert all of this in a plpgsql `DO` block, using the role-argument forms so the migration never switches role: `has_table_privilege('app_user', 'approval_private.<table>', 'INSERT,UPDATE,DELETE,TRUNCATE,SELECT')` and `has_function_privilege('app_user', '<fn>(…)', 'EXECUTE')`, repeated for each role. Each must be false wherever access is not meant to be granted.
 
    The assertion must be plpgsql, not an SQL `CASE`. A REVOKE from a role is a no-op while `PUBLIC` still holds the grant, so only checking the effective privilege proves it (memory "REVOKE ships as a no-op", "Privilege guard ≠ SQL branch").
 
@@ -282,7 +282,7 @@ If the code ships without it, imports lose their exemption on `isaflow_dev`. No 
 **Why the naive form fails.** An audit trigger cannot know whether a row had "a matching app session". The database has no app-only fact to compare against.
 
 **A buildable form:**
-- **What is signed.** The TS paths compute an HMAC with a key held only in the app's prod env, never in the DB. They sign each decision (request id, decision, actor, digest, time), each exemption use (company, kind, document), and each switch or rule change (the full new state).
+- **What is signed.** The TS paths compute an HMAC with a key held only in the app's prod env, never in the DB. They sign each decision (request id, company id, document type, document id, decision, actor, digest, time). `approval_document_digest()` hashes content only, not company, type or id (`869_…:152-177`). Without the binding, an owner-level attacker could re-point a signed approval at another document with identical content, and the MAC would still verify. They also sign each exemption use (company, kind, document type, document id), and each switch or rule change (the full new state).
 - **Prevention.** The TS gate (`assertApprovalCleared`) refuses an approval whose MAC is missing or wrong. That stops forged approvals for every posting that goes through the app.
 - **Detection.** A nightly job, run off the DB, rebuilds each company's enforcement state from the signed switch and rule history alone. It then:
   - alerts when the live tables differ from that state (T6);
@@ -294,7 +294,9 @@ If the code ships without it, imports lose their exemption on `isaflow_dev`. No 
   - the nightly job stores the last chain head it verified (sequence number and MAC) **outside the DB**, and outside this host once item 1 has removed agents' root;
   - it alerts on a gap, a broken link, a MAC it cannot verify, or a head older than the stored one.
 
-  So deleting, truncating or rewriting any part of the history alerts on the next run.
+  - **The head is also pushed off the DB when each entry is written.** Within the same request, after COMMIT, through `afterCommit`, the app sends the new head (company, sequence number, MAC) to an off-DB sink: an append-only log on another host, or the alert channel. The job checks the DB chain against the latest pushed head, not only against its own stored head. Without the push, an entry appended after the job's last run (say, a switch turned on this morning) could be deleted along with its live row before the next run, and the chain would end cleanly at the stored head.
+
+  So, with the push, deleting, truncating or rewriting any part of the history alerts on the next run. Without it, that holds only for history the job has already verified. A push that fails is itself alerted on. What remains is an entry deleted in the instant between COMMIT and the push, and that needs the attacker to race the app.
 - **What the chain does not cover.** Decisions and exemption uses need no chain, because the document walk judges every document against the chained state, so deleting one of those rows still alerts. A document deleted outright is outside the walk: the GL integrity checks are the control there, and that is out of scope.
 
 **Migration:** nullable MAC columns on `approval_requests`, `approval_enforcement` and `approval_rules`, plus an append-only exemption log and the chain table, all under the protected-object rule. It is additive. If the TS writes the columns unconditionally, `isaflow_dev` needs it before the golden paths (as 869 noted); a conditional write avoids that. Reversible.
