@@ -14,6 +14,11 @@ export const PutItemSchema = z.object({
   unitPrice: z.number().nonnegative(),
   taxRate: z.number().min(0).max(100).optional(),
   discount: z.number().min(0).max(100).optional(),
+  // CC1 / CC2 / BU (migration 870): left out keeps the value every stored line
+  // shares; null clears it (gl/dimensions/dimensionKeepStored).
+  cc1Id: UUID.nullable().optional(),
+  cc2Id: UUID.nullable().optional(),
+  buId: UUID.nullable().optional(),
 });
 
 export const PutBodySchema = z.object({

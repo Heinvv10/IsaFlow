@@ -16,17 +16,26 @@
  * between the read and the write would otherwise make a reverting edit look
  * like no change, and an edit whose author went unrecorded could be approved
  * by that author (supplierInvoiceContentEditor's reasons, review LOW-1).
+ *
+ * The lines carry CC1 / CC2 / BU (migration 870), which the approval digest
+ * covers (873). Replacing the lines used to drop them; a line now keeps what it
+ * leaves out, or the edit is refused when that is ambiguous (`bad_dimensions`).
  */
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
+import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
+import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 
 type Row = Record<string, unknown>;
 
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
-  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' };
+  | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
+  | { kind: 'bad_dimensions'; message: string };
 
 export async function editDraftCustomerInvoice(
   companyId: string, editedBy: string, edit: CustomerInvoiceDraftEdit,
@@ -49,7 +58,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate,
+      SELECT status, currency_code, exchange_rate, tax_rate, COALESCE(client_id, customer_id) AS customer_id,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -80,6 +89,35 @@ export async function editDraftCustomerInvoice(
       `) as Row[];
       if (customerOwned.length === 0) {
         return { kind: 'bad_client' as const };
+      }
+    }
+
+    // CC1 / CC2 / BU (migration 870), as create treats them: a replacement line
+    // keeps what it leaves out (dimensionKeepStored), CC1 is derived from CC2
+    // and the customer's FNO applied, every id validated — all before the
+    // first write. A customer change re-checks the stored lines' FNO too.
+    let lines: (Omit<NonNullable<typeof items>[number], keyof DimensionIds> & DimensionIds)[] | null = null;
+    if (items || clientId !== undefined) {
+      const stored = (await tx`
+        SELECT cii.cc1_id, cii.cc2_id, cii.bu_id
+          FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
+         WHERE cii.invoice_id = ${id}::UUID AND ci.company_id = ${companyId}
+      `) as Row[];
+      const customerId = clientId ?? String(ownedRows[0]!.customer_id);
+      try {
+        if (items) {
+          lines = await deriveRevenueDimensions(companyId, customerId, keepStoredDimensions(items, stored));
+          await assertDocumentDimensions(companyId, lines);
+        } else {
+          // The lines stay; only the customer moves. Their FNO must still be its.
+          await deriveRevenueDimensions(companyId, customerId, stored.map((r): DimensionIds => ({
+            ...(r.cc1_id ? { cc1Id: String(r.cc1_id) } : {}), ...(r.cc2_id ? { cc2Id: String(r.cc2_id) } : {}),
+            ...(r.bu_id ? { buId: String(r.bu_id) } : {}),
+          })));
+        }
+      } catch (err) {
+        if (isDimensionRefusal(err)) return { kind: 'bad_dimensions' as const, message: err.message };
+        throw err;
       }
     }
 
@@ -123,7 +161,7 @@ export async function editDraftCustomerInvoice(
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;
 
-    if (items && computed) {
+    if (lines && computed) {
       // Tenant ownership is already enforced by the FOR UPDATE select above,
       // so a plain delete by invoice_id is sufficient here.
       await tx`DELETE FROM customer_invoice_items WHERE invoice_id = ${id}::UUID`;
@@ -132,15 +170,17 @@ export async function editDraftCustomerInvoice(
       // line-item currency on FX invoices.
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
       const lineCurrency = fxCode || existingCurrency;
-      for (const it of items) {
+      for (const it of lines) {
         const qty = it.quantity;
         const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
         await tx`
           INSERT INTO customer_invoice_items (
-            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+            invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
+            cc1_id, cc2_id, bu_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
-            ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency}
+            ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
+            ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID
           )
         `;
       }

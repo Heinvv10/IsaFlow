@@ -39,10 +39,17 @@ planDimensionTags / applyDimensionTags               // tag_journal_lines (dimen
 planTagBatchReversal / applyTagBatchReversal         // reverse_dimension_tag_batch
 list/planCreate/applyCreateDimensionCostCentre       // CC master with parents + aliases (dimensionMasterService)
 plan/apply CustomerDefaultFno | BankAccountDefaults | ReportingAttributes   // dimensionDefaultsService
+keepStoredDimensions(lines, storedRows, label?)      // draft line replace: absent keeps, null clears (dimensionKeepStored)
 ```
 
 ## Business rules
 
+- **A draft edit keeps what it does not send.** When a draft's lines are
+  replaced (customer invoice PUT, `update_supplier_invoice`) a key sent wins and
+  null clears it; a key left out keeps the value EVERY stored line shares, and
+  is refused (`DimensionRefusal`, a 400 / tool error) when they differ — a
+  replacement line cannot be matched to its stored line. A CC2 sent leaves CC1
+  to derivation. The digest covers all three (migration 873).
 - **Derived never typed (§5.5).** A CC1 that conflicts with the CC2's FNO is
   refused, never resolved either way. On revenue the FNO comes from
   `customers.default_cc1_id`; a project under another FNO is refused.
@@ -64,4 +71,5 @@ plan/apply CustomerDefaultFno | BankAccountDefaults | ReportingAttributes   // d
 
 ## Recent changes
 
+- 2026-10-08: `dimensionKeepStored` — draft edits stopped stripping cc1/cc2/bu; the approval digest hashes them (873).
 - 2026-10-07: created (migration 870, dimensions Phase 1).
