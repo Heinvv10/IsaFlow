@@ -225,10 +225,10 @@ export async function fetchJournalLineCandidates(
       -- the bank, money out credits it — brk-nrfa round 21).
       AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
       AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
-      AND jl.id NOT IN (
-        SELECT matched_journal_line_id FROM bank_transactions
-        WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
-      )
+      -- An anti join, not NOT IN: past hash_mem (about 210k matched lines) a NOT IN subplan scans the whole list per
+      -- candidate and the picker does not return (sec-nrfa round 27).
+      AND NOT EXISTS (SELECT 1 FROM bank_transactions mb
+                      WHERE mb.matched_journal_line_id = jl.id AND mb.company_id = ${companyId}::UUID)
       -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
       -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
       -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,
@@ -236,8 +236,9 @@ export async function fetchJournalLineCandidates(
       -- a walk correlated to each candidate re-ran per bank line (6 s at 200k lines, sec-nrfa round 24 M1) or per
       -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1). DISTINCT keeps the NOT IN
       -- hashed whatever the held set's estimate (a plain SELECT spilled past hash_mem to a linear scan per candidate:
-      -- 16-40 s with thousands of held provisionals, sec-nrfa round 26 M1).
-      AND je.id NOT IN (
+      -- 16-40 s with thousands of held provisionals, sec-nrfa round 26 M1). Filtered on the line, not on je: on je the
+      -- planner could pair every unheld journal with every bank leg by a join filter (3-18 s, brk-nrfa round 27).
+      AND jl.journal_entry_id NOT IN (
           WITH RECURSIVE held AS (
             SELECT bp.provisional_je_id AS id, 0 AS d FROM bank_transactions bp
             WHERE bp.provisional_je_id IS NOT NULL AND bp.company_id = ${companyId}::UUID
