@@ -142,6 +142,16 @@ describe('supplier_bank_verifications as app_user', () => {
     await expect(asApp(u.c, c, (db) => insert(db, c, s, stale, u.c))).rejects.toThrow(/current bank details/);
   });
 
+  it('refuses a row by an admin whose account is deactivated (standing, not only role)', async () => {
+    const { c, s } = await enforced();
+    await pool.query('UPDATE users SET is_active = false WHERE id = $1', [u.c]);
+    try {
+      await expect(asApp(u.c, c, async (db) => insert(db, c, s, await current(s), u.c))).rejects.toThrow(/good standing/);
+    } finally {
+      await pool.query('UPDATE users SET is_active = true WHERE id = $1', [u.c]);
+    }
+  });
+
   it("refuses a setter's plain verified, and a baseline outside the switch-on", async () => {
     const { c, s } = await enforced();
     await expect(asApp(u.a, c, async (db) => insert(db, c, s, await current(s), u.a))).rejects.toThrow(/set these bank details/);
