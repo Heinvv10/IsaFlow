@@ -78,4 +78,19 @@ describe('journal lines refuse non-finite amounts', () => {
     expect(validateJournalLine(line('1e-1000', 0)).valid).toBe(false);
     expect(validateJournalLine(line(1e-7, 0)).valid).toBe(false);
   });
+
+  // rev-nrfd round 5 LOW: a zero mantissa with a huge exponent padded that many zeros (RangeError -> 500).
+  it.each(['0e600000000', '0.000e999999999', '-0E100000000'])('%s is a zero amount, answered at once', (debit) => {
+    const started = Date.now();
+    expect(validateJournalLine(line(debit, 0)).valid).toBe(false);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  // Security review 2026-10-08: the amount pattern must not backtrack on a long digit run that fails at its end.
+  it('a 1 MB digit run that is not an amount is refused at once', () => {
+    const started = Date.now();
+    expect(validateJournalLine(line(`${'1'.repeat(1_000_000)}x`, 0)).valid).toBe(false);
+    expect(validateJournalLine(line(`${'1'.repeat(1_000_000)}.x`, 0)).valid).toBe(false);
+    expect(Date.now() - started).toBeLessThan(500);
+  });
 });

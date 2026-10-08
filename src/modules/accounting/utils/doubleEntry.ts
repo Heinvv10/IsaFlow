@@ -46,7 +46,9 @@ export function validateJournalLine(line: JournalLineInput): LineValidationResul
 }
 
 /** A decimal literal as Postgres numeric reads one ('10', '-0.5', '.5', '1e3'); not '', '0x10', 'NaN' or 'Infinity'. */
-const DECIMAL_TEXT = /^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$/;
+// Unambiguous (`\d+(\.\d*)?`, not `\d+\.?\d*`): the ambiguous form backtracked quadratically on a long digit run that
+// fails at its end — 20,000 characters took 0.5 s, a 1 MB body would pin the process (security review, 2026-10-08).
+const DECIMAL_TEXT = /^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
 
 /** An absent amount is zero; a number must be finite; text must be a decimal literal. Nothing else is an amount. */
 function isFiniteAmount(v: unknown): boolean {
@@ -57,10 +59,13 @@ function isFiniteAmount(v: unknown): boolean {
 
 /** '100.5e-2' -> '1.005', '-1.2E3' -> '-1200'. Below 0.001 it is '0' (0 cents either way), so no huge padding. */
 function plainDecimal(text: string): string {
-  const m = /^([+-]?)(\d*)\.?(\d*)[eE]([+-]?\d+)$/.exec(text);
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?[eE]([+-]?\d+)$/.exec(text);
   if (!m) return text;
   const [, sign = '', whole = '', fraction = '', exponent = '0'] = m;
   const digits = `${whole}${fraction}`;
+  // A zero mantissa is zero whatever its exponent: '0e600000000' must not pad 600 million zeros (rev-nrfd round 5).
+  // A non-zero one pads at most ~309 (a larger value is not finite, and isFiniteAmount refused it).
+  if (!/[1-9]/.test(digits)) return '0';
   const point = whole.length + Number(exponent);
   if (point < -3) return '0';
   if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
