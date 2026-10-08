@@ -7,15 +7,22 @@
  *      the original guard, now with that consumption test (identical daily sweeps were refused);
  *   2. a TYPED Banking > Transfers journal (bank/bankTransferService: `reference` set; a statement allocation writes
  *      none), moving this amount in the SAME direction between the two banks (money into this bank: DR this bank /
- *      CR the other), dated within TEN days (a Friday transfer clears on Monday or later; brk-nrfa round 10 L2: as wide as pairing), that no live line on THIS
- *      bank is MATCHED to. Without (2) a transfer typed on the Transfers page and then allocated from the statement
- *      posted twice (brk-nrfa M1). A statement-created journal is arm 1's business, not this arm's.
+ *      CR the other), dated within TEN days (a Friday transfer clears on Monday or later; brk-nrfa round 10 L2: as wide
+ *      as pairing), that no live line on THIS bank is MATCHED to. Without (2) a transfer typed on the Transfers page and
+ *      then allocated from the statement posted twice (brk-nrfa M1). A statement-created journal is arm 1's business.
+ *      Only Transfers-page journals, deliberately: a manual journal of the amount between the two banks may be a
+ *      correction, a reclass or part of a compound entry, and refusing on it blocked real transfers with a remedy that
+ *      left the ledger short (brk-nrfa round 15 L1). Residual, stated: a transfer recorded as a manual, recurring, still
+ *      unapproved or split journal is not seen, so its statement line allocated as a transfer posts it again — match the
+ *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14).
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its amount;
  * a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5 L1). Only an
  * imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line must be live,
  * matched to its leg, on a journal that is not reversed (round 6 L1). "Not reversed" is read from the chain, as
  * bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the books, though
- * its `reversed_at` stays set (sec-nrfa round 6 M1). A pairing line is of the same movement: within TEN days of the
+ * its `reversed_at` stays set (sec-nrfa round 6 M1). Every walk here goes 64 steps (a real chain of reversals can pass
+ * 20: brk-nrfa round 14 L1); journalReversalState and autoPostHandOffset still stop at 20, so for a chain 21-64 deep
+ * this guard and the auto-post undo can read it differently — theirs is outside this guard (rev-nrfa round 14 LOW-3). A pairing line is of the same movement: within TEN days of the
  * counterparty line (arm 1) or of the journal's date (arm 2) — sec-nrfa round 6 L1, widened from five so a real second
  * transfer whose first one cleared a week later still posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal
  * of the journal counts like one to the journal (round 8 L2: the match screen offers both). A hand-keyed line pairs only
@@ -133,7 +140,7 @@ export async function assertNoDuplicateTransfer(
   const journals = lines.length > 0 ? [] : (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND ((je.source = 'auto_bank_transfer' AND je.reference IS NOT NULL) OR je.source = 'manual')
+      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id

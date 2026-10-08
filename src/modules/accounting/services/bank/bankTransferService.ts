@@ -89,7 +89,8 @@ export async function postBankTransfer(
   }
   const refusal = await newManualJournalRefusal(companyId, input.amount, (role, rule, amountText) =>
     `A bank transfer is a journal a person composed, so transferring ${amountText} needs ${role} approval before it `
-    + `can be posted (rule: ${rule}). Record it as a journal through Journal Entries and submit it for approval.`);
+    + `can be posted (rule: ${rule}). Record it as a journal through Journal Entries and submit it for approval; when `
+    + 'the bank statement shows it, match the statement line to that journal rather than allocating it as a transfer.');
   if (refusal) throw refusal;
   const fromName = String(from.account_name);
   const toName = String(to.account_name);

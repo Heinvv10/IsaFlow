@@ -12,8 +12,7 @@ import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture, inTx } from './helpers/l1FifoFixture';
-import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { dropFixture } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -336,20 +335,4 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     await bankLine(bankA, '2029-07-03', -7221, 'LC A OUT TUE');
     expect((await allocTransfer(await bankLine(bankB, '2029-07-03', 7221, 'LC B IN TUE'), bankA)).statusCode).toBe(200);
   }, 600000);
-
-  // brk-nrfa round 14 L2: under manual_journal enforcement the 409 sends the person to Journal Entries; a transfer
-  // recorded there (a posted MANUAL journal between the two banks) is found by arm 2 like a Transfers-page one, so the
-  // statement line allocated later is refused, not posted a second time.
-  it('a transfer recorded as a manual journal is not posted again from the statement', async () => {
-    const je = await inTx(c.fx, async () => {
-      const draft = await createJournalEntry(c.fx.companyId, { entryDate: '2029-08-01', description: 'MJ transfer A -> B',
-        source: 'manual', lines: [{ glAccountId: bankB, debit: 150, credit: 0, description: 'in' },
-          { glAccountId: bankA, debit: 0, credit: 150, description: 'out' }] } as never, c.fx.userId);
-      await postJournalEntry(c.fx.companyId, draft.id, c.fx.userId);
-      return String(draft.id);
-    });
-    expect(je).toBeTruthy();
-    expect((await allocTransfer(await bankLine(bankB, '2029-08-02', 150, 'MJ B IN'), bankA)).statusCode).toBe(400);
-    expect(await glMovement(bankB, '2029-08-01', '2029-08-31')).toBe(150);
-  }, 120000);
 });
