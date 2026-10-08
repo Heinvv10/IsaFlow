@@ -49,15 +49,21 @@ export async function lockSupplierBankDetails(companyId: string, supplierId: str
 
 export type BankDetailsChange = 'none' | 'appended' | 'repointed';
 
+/** An account number as a destination: its digits ("62-000 001" is 62000001), as supplier_bank_fingerprint reads it. */
+const destination = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
 /**
  * What an UPDATE did to the bank details: nothing; a change to the account
- * NUMBER ('repointed' — a new destination); or a change to any other bank
- * column, the branch code included ('appended'). A column the returned row does not carry
- * counts as unchanged.
+ * NUMBER's digits ('repointed' — a new destination); or a change to any other
+ * bank column, the branch code included, or a re-typing of the same account
+ * digits ('appended'). Judging the destination on its digits — the
+ * normalisation migration 876's fingerprint uses — means re-entering the same
+ * number with spaces cannot reset the setters and shed whoever redirected it.
+ * A column the returned row does not carry counts as unchanged.
  */
 export function bankDetailsChange(before: DbRow, after: DbRow): BankDetailsChange {
   const moved = (c: string) => c in after && (before[c] ?? null) !== (after[c] ?? null);
-  if (DESTINATION_COLUMNS.some(moved)) return 'repointed';
+  if (DESTINATION_COLUMNS.some((c) => c in after && destination(before[c]) !== destination(after[c]))) return 'repointed';
   return BANK_COLUMNS.some(moved) ? 'appended' : 'none';
 }
 
@@ -140,4 +146,36 @@ export async function stampBatchesOfMovedPayments(companyId: string, batchIds: r
     SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
     WHERE company_id = ${companyId}::UUID AND id = ANY(${batchIds}::UUID[])
   `;
+}
+
+/**
+ * Whether `userId` set the supplier's CURRENT bank details — is in
+ * `bank_details_setters` since the account was last re-pointed. Supplier bank
+ * verification (decision 5) refuses such a person, as payment approval does;
+ * read here so this module stays the only one naming the column.
+ */
+export async function isBankDetailsSetter(companyId: string, supplierId: string, userId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT (${userId} = ANY (COALESCE(bank_details_setters::TEXT[], '{}'))) AS setter
+    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return rows[0]?.setter === true;
+}
+
+/** The company's suppliers whose CURRENT bank details `userId` set — left out of the switch-on baseline. */
+export async function suppliersWithBankDetailsSetBy(companyId: string, userId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT id::TEXT AS id FROM suppliers
+    WHERE company_id = ${companyId}::UUID AND ${userId} = ANY (COALESCE(bank_details_setters::TEXT[], '{}'))
+  `) as DbRow[];
+  return rows.map((r) => String(r.id));
+}
+
+/** Everyone who set the supplier's CURRENT bank details (`bank_details_setters`); [] for none or no such supplier. */
+export async function bankDetailsSetters(companyId: string, supplierId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT COALESCE(bank_details_setters::TEXT[], '{}') AS setters
+    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return Array.isArray(rows[0]?.setters) ? (rows[0]!.setters as unknown[]).map(String) : [];
 }

@@ -14,6 +14,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
+import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
 
 interface Supplier {
   id: string;
@@ -210,6 +211,7 @@ export default function SupplierDetailPage() {
                   </p>
                 )}
               </div>
+              <SupplierBankDetailsPanel key={`bank-${supplier.id}`} supplierId={supplier.id} />
               <DrcFlagToggle key={supplier.id} supplierId={supplier.id} initial={supplier.subject_to_drc_vat === true} />
             </div>
           )}
