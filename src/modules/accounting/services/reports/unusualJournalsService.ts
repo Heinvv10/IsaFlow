@@ -153,7 +153,9 @@ export async function getUnusualJournals(
       je.description,
       je.source,
       je.created_at,
-      COALESCE(SUM(jl.debit), 0) AS amount
+      COALESCE(SUM(jl.debit), 0) AS amount,
+      -- A transfer journal is the bank line's amount only when a line points at it (journalSourceKinds).
+      (tl.transfer_journal_entry_id IS NOT NULL) AS bank_line_backed
     FROM gl_journal_entries je
     -- THE LINES ARE SCOPED TOO, not only the entry they hang off. The FK
     -- makes it redundant today and the root CLAUDE.md rule is "ALWAYS add
@@ -164,10 +166,14 @@ export async function getUnusualJournals(
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = je.id
      AND jl.company_id = ${companyId}::UUID
+    LEFT JOIN (
+      SELECT DISTINCT transfer_journal_entry_id FROM bank_transactions
+      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL
+    ) tl ON tl.transfer_journal_entry_id = je.id
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
-    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at
+    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, tl.transfer_journal_entry_id
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
@@ -198,7 +204,8 @@ export async function getUnusualJournals(
       entryDate,
       amount,
       recordedOn: recorded ? recordedOn(createdAt) : '',
-      isRoundNumber: !isDocumentPosting(row.source) && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
+      isRoundNumber: !isDocumentPosting(row.source, row.bank_line_backed === true)
+        && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
       isBackdated: recorded && isBackdated(entryDate, createdAt),
     };
   });
