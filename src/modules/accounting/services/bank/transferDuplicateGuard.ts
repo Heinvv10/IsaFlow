@@ -62,13 +62,15 @@ export async function assertNoDuplicateTransfer(
   const lines = (await sql`
     SELECT bank_transactions.id FROM bank_transactions
     -- The pointer may sit at a live re-reversal (bank-match-confirm stamps the journal of the leg it matched); the
-    -- movement's chain is walked from its ROOT (brk-nrfa round 10 K1).
+    -- movement's chain is walked from its ROOT (brk-nrfa round 10 K1): the deepest member this company owns, bounded
+    -- like every walk here, so a forged cross-tenant or looping reversal_of_id neither drops the line nor hangs the
+    -- allocation (sec-nrfa round 10 L1/L2).
     CROSS JOIN LATERAL (WITH RECURSIVE up AS (
-            SELECT u.id, u.reversal_of_id FROM gl_journal_entries u
+            SELECT u.id, u.reversal_of_id, 0 AS d FROM gl_journal_entries u
               WHERE u.id = bank_transactions.transfer_journal_entry_id AND u.company_id = bank_transactions.company_id
-            UNION ALL SELECT p.id, p.reversal_of_id FROM gl_journal_entries p JOIN up ON p.id = up.reversal_of_id
-              WHERE p.company_id = bank_transactions.company_id)
-          SELECT up.id AS root_id FROM up WHERE up.reversal_of_id IS NULL LIMIT 1) rt
+            UNION ALL SELECT p.id, p.reversal_of_id, up.d + 1 FROM gl_journal_entries p JOIN up ON p.id = up.reversal_of_id
+              WHERE p.company_id = bank_transactions.company_id AND up.d < 20)
+          SELECT up.id AS root_id FROM up ORDER BY up.d DESC LIMIT 1) rt
     WHERE bank_transactions.company_id = ${companyId}::UUID
       AND bank_account_id = ${counterpartyAccountId}::UUID
       AND counterparty_account_id = ${bankAccountId}::UUID

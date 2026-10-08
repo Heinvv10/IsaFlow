@@ -242,7 +242,7 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
       { fromAccountId: bankA, toAccountId: bankB, amount: 6400, transferDate: '2027-06-11' })).statusCode).toBe(428);
   }, 90000);
 
-  // sec-nrfa round 6 L1: a line that pairs the journal is of the same movement — within five days of it. A May
+  // sec-nrfa round 6 L1: a line that pairs the journal is of the same movement — within ten days of it (five at first; widened in round 8).
   // receipt of the amount matched to an October transfer's leg does not let October's real line post it again.
   it('a far-dated line matched to the leg does not pair the transfer', async () => {
     const a = await bankLine(bankA, '2027-10-12', -8800, 'RR5 OUT');

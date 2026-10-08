@@ -216,4 +216,37 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       expect(await linesNamed(`${d} ${c.fx.tag}`)).toBe(0);
     }
   }, 120000);
+
+  // sec-nrfa round 10 L1/L2: arm 1's root walk is bounded and takes the deepest member this company owns, so a forged
+  // cross-tenant reversal_of_id on the pointer journal does not drop the line (the duplicate is still refused), and a
+  // forged reversal loop does not hang the allocation.
+  it('a forged reversal_of_id (cross-tenant, or a loop) neither drops the line nor hangs arm 1', async () => {
+    const other = await seedDateFixture('PAIRX', DATABASE_URL!);
+    const foreign = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, source,
+      created_by) VALUES (${other.fx.companyId}::UUID, '2029-03-01', 'PAIRX other tenant', 'draft', 'manual',
+      ${other.fx.userId}::UUID) RETURNING id`) as Row[])[0]!.id);
+    const a = await bankLine(bankA, '2029-03-05', -5000, 'W1 OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const j1 = String((await lineState(a))!.ptr);
+    const b = await bankLine(bankB, '2029-03-06', 5000, 'W1 IN');
+    try {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${foreign}::UUID WHERE id = ${j1}::UUID`;
+      expect((await allocTransfer(b, bankA)).statusCode).toBe(400);
+      const j2 = String(((await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, source,
+        created_by) VALUES (${c.fx.companyId}::UUID, '2029-03-05', 'PAIR loop', 'draft', 'manual', ${c.fx.userId}::UUID)
+        RETURNING id`) as Row[])[0]!.id);
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j2}::UUID WHERE id = ${j1}::UUID`;
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = ${j1}::UUID WHERE id = ${j2}::UUID`;
+      const started = Date.now();
+      expect((await allocTransfer(b, bankA)).statusCode).toBe(400);
+      expect(Date.now() - started).toBeLessThan(15000);
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id IN (${j1}::UUID, ${j2}::UUID)`;
+      await sql`DELETE FROM gl_journal_entries WHERE id = ${j2}::UUID AND status = 'draft'`;
+    } finally {
+      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id = ${j1}::UUID`;
+      await sql`DELETE FROM gl_journal_entries WHERE id = ${foreign}::UUID AND status = 'draft'`;
+      await dropFixture(other.fx);
+    }
+    expect(await glMovement(bankB, '2029-03-01', '2029-03-31')).toBe(5000);
+  }, 120000);
 });
