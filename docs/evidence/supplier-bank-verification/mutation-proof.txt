@@ -165,3 +165,17 @@ Review round 3 fixes (2026-10-08T16:36:22Z) — same method:
      × off again, it says switching on would accept 0 — though suppliers with bank details exist 131ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 4 passed (5)
+
+Review round 3 (blind LOWs) fixes (2026-10-08T16:51:20Z) — same method:
+=== MUTANT M33-loosen-regardless-of-destination (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …only for the owner's OWN destination: an admin's redirect the owner merely touched still needs the owner level 96ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M34-message-ignores-setters (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × when every other admin-or-above member also set the details, the refusal says so (no false "another member must") 88ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M35-panel-hint-ignores-session (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × an impersonated session is refused 403 — verify and switching on alike 90ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
