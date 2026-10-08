@@ -16,6 +16,9 @@ import {
 } from '@/modules/accounting/services/ap/eftService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import {
+  assertSuppliersBankVerified, respondIfBankDetailsUnverified,
+} from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
 type Row = Record<string, unknown>;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
@@ -55,9 +58,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     throw err;
   }
 
-  // Get payments in batch — scoped to company via batch ownership already validated above
+  // Get payments in batch — scoped to company via batch ownership already validated above.
+  // bank_fingerprint: of exactly the bank columns this file is built from (supplier bank verification).
   const payments = await sql`
-    SELECT sp.*, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name
+    SELECT sp.*, s.name as supplier_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_name,
+           supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
+                                     s.bank_account_holder) AS bank_fingerprint
     FROM supplier_payments sp
     JOIN suppliers s ON sp.supplier_id = s.id
     WHERE sp.batch_id = ${batchId} AND sp.company_id = ${companyId}::UUID
@@ -65,6 +71,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   ` as Row[];
 
   if (payments.length === 0) return apiResponse.badRequest(res, 'No payments in batch');
+
+  // Supplier bank verification (forensic-controls step 1): under the control,
+  // every payee's details as read above must be verified now — payees
+  // share-locked to the end of the request (ap/supplierBankVerificationGate).
+  // 409 naming the suppliers otherwise. Off: unchanged.
+  try {
+    await assertSuppliersBankVerified(companyId, payments.map((p) => ({
+      supplierId: String(p.supplier_id), fingerprint: String(p.bank_fingerprint),
+    })));
+  } catch (err) {
+    if (respondIfBankDetailsUnverified(res, err)) return;
+    throw err;
+  }
 
   // Build EFT header and payments
   const header: EFTBatchHeader = {
