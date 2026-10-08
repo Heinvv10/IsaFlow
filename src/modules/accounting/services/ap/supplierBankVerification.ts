@@ -20,7 +20,7 @@ import { SUPPLIER_BANK_DETAILS } from '../gl/approvalRuleOptions';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertVerifyingSession, bankVerificationEverOn, SupplierBankVerificationError } from './supplierBankBaseline';
 import { suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
-import { assertMayVerify, mayVerify, requiredVerifierRole } from './supplierBankVerifiers';
+import { assertMayVerify, verifierView } from './supplierBankVerifiers';
 
 export const VERIFICATION_METHODS = ['phone_known_number', 'bank_confirmation_letter', 'in_person', 'other'] as const;
 export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
@@ -100,6 +100,9 @@ export async function getSupplierBankVerification(companyId: string, supplierId:
   }));
   const state: BankVerificationState = !enforced ? 'not_enforced' : s.present !== true ? 'no_bank_details'
     : s.verified === true ? 'verified' : 'unverified';
+  // One roster read, and only when there is something to verify.
+  const who = state === 'unverified' ? await verifierView(companyId, supplierId, viewer.userId, ruleRole)
+    : { required: ruleRole, canVerify: false };
   return {
     supplierId,
     enforced,
@@ -109,8 +112,8 @@ export async function getSupplierBankVerification(companyId: string, supplierId:
       bankName: text(s.bank_name), maskedAccount: mask(s.bank_account_number), branchCode: text(s.bank_branch_code),
       accountType: text(s.bank_account_type), holder: text(s.bank_account_holder),
     },
-    verifierRole: await requiredVerifierRole(companyId, supplierId, viewer.userId, ruleRole),
-    canVerify: state === 'unverified' && await mayVerify(companyId, supplierId, viewer.userId, ruleRole),
+    verifierRole: who.required,
+    canVerify: who.canVerify,
     latest: history[0] ?? null,
     history,
   };

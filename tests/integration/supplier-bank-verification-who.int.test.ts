@@ -18,7 +18,7 @@ import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supp
 import { verifySupplierBankDetails } from '@/modules/accounting/services/ap/supplierBankVerification';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule, reasonOf } from './r035-approval.helpers';
-import { impersonationToken } from './r035-pr2.helpers';
+import { impersonationToken, messageOf } from './r035-pr2.helpers';
 import { cleanupPr5, inRequest, payRoutes, plantBatch, plantPayment, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes, verificationsOf } from './supplier-bank-verification.helpers';
 
@@ -94,6 +94,15 @@ describe('a raised verifier role never leaves the details unverifiable', () => {
     expect((await verificationsOf(pool, s)).at(-1)!.kind).toBe('verified');
   });
 
+  it('…only for the owner\'s OWN destination: an admin\'s redirect the owner merely touched still needs the owner level', async () => {
+    const { c, s } = await changed([[u.b, 'owner'], [u.a, 'admin'], [u.c, 'admin']], u.b, u.a);
+    await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
+    await r.changeBank(u.b, c, s, { bankName: 'R035 BANK' }); // the owner touches a column: now a setter too
+    const res = await r.verify(u.c, c, s);
+    expect(res.state.statusCode).toBe(403);
+    expect(reasonOf(res)).toBe('VERIFIER_ROLE_REQUIRED');
+  });
+
   it('…but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused', async () => {
     const { c, s } = await changed([[u.b, 'owner'], [u.p, 'owner'], [u.c, 'admin']], u.b, u.b);
     await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
@@ -121,6 +130,15 @@ describe('the sole-approver exception (R-035 Q2)', () => {
       expect(res.state.statusCode).toBe(403);
       expect(reasonOf(res)).toBe('SETTER_FORBIDDEN');
     }
+  });
+
+  it('when every other admin-or-above member also set the details, the refusal says so (no false "another member must")', async () => {
+    const { c, s } = await changed([[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin']], u.b, u.a);
+    await r.changeBank(u.c, c, s, { bankBranchCode: '470010' });
+    await r.changeBank(u.b, c, s, { bankAccountType: 'savings' });
+    const res = await r.verify(u.c, c, s);
+    expect(reasonOf(res)).toBe('SETTER_FORBIDDEN');
+    expect(messageOf(res)).toMatch(/so did every other member with the admin role or above/);
   });
 
   it('a suspended second admin does not count: the sole active approver may self-verify', async () => {
