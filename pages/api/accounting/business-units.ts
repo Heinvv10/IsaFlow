@@ -23,10 +23,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    const { code, name, description } = req.body;
+    const { code, name, description, division } = req.body;
     if (!code || !name) return apiResponse.badRequest(res, 'code and name are required');
     try {
-      const bu = await createBusinessUnit(companyId, { code, name, description }, userId);
+      const taken = (await getBusinessUnits(companyId, false))
+        .find((b) => b.code.toLowerCase() === String(code).trim().toLowerCase());
+      if (taken) return apiResponse.badRequest(res, `A business unit with code ${taken.code} already exists`);
+      const bu = await createBusinessUnit(companyId, { code: String(code).trim(), name: String(name).trim(), description, division }, userId);
       return apiResponse.success(res, bu);
     } catch (err) {
       log.error('Failed to create business unit', { error: err }, 'accounting-api');

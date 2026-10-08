@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 73 read + 79 write = 152. Drift-guarded against
+ * All MCP tool names — 73 read + 83 write = 156. Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
@@ -168,6 +168,10 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'link_document_to_journal',
   'create_cost_centre',
   'create_business_unit',
+  'update_cost_centre',
+  'delete_cost_centre',
+  'update_business_unit',
+  'delete_business_unit',
   'set_gl_account_reporting_attributes',
   'set_customer_default_fno',
   'set_bank_account_default_dimensions',
