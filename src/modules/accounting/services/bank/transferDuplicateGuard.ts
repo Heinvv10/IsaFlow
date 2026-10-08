@@ -59,10 +59,11 @@ export async function assertNoDuplicateTransfer(
 }
 
 /**
- * Banking > Transfers' twin of the guard: a live transfer journal ALREADY RECORDED FROM THE STATEMENT (a live, posted
- * bank line points at it with this amount) moving this amount from `fromAccountId` to `toAccountId` within two days
- * of `date`. Its entry number, or null. A transfer typed by hand twice is not refused: two real transfers of one
- * amount are legitimate, and neither has a statement line yet.
+ * Banking > Transfers' twin of the guard: a live transfer journal the STATEMENT CREATED (a bank line allocated as a
+ * transfer: bankAllocationService writes no `reference`; every Transfers-page journal carries 'Transfer: … -> …'),
+ * still linked to a live, posted line of this amount, moving this amount from `fromAccountId` to `toAccountId`
+ * within two days of `date`. Its entry number, or null. A typed transfer — matched to its statement line or not —
+ * never refuses another typed one: two real transfers of one amount are legitimate (rev-nrfa LOW-1, round 3).
  */
 export async function findTransferRecordedFromStatement(
   companyId: string, fromAccountId: string, toAccountId: string, amount: number, date: string,
@@ -70,7 +71,7 @@ export async function findTransferRecordedFromStatement(
   const rows = (await sql`
     SELECT je.entry_number FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.source = 'auto_bank_transfer' AND je.status = 'posted'
+      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NULL
       AND je.reversed_at IS NULL AND je.reversal_of_id IS NULL
       AND je.entry_date BETWEEN (${date}::DATE - INTERVAL '2 days') AND (${date}::DATE + INTERVAL '2 days')
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id

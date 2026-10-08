@@ -40,7 +40,8 @@ describe('assertNoDuplicateTransfer', () => {
   it.each([[-1000, false], [1000, true]])('a line of %d asks for the journal in its own direction (into this bank: %j)',
     async (amount, into) => {
       await assertNoDuplicateTransfer(CO, A, B, amount, '2026-04-20');
-      expect(text(1)).toMatch(/CASE WHEN \?::BOOLEAN THEN jl\.debit ELSE jl\.credit END/);
+      // This bank's leg, then the counterparty's: opposite sides (rev-nrfa round 3 LOW-2).
+      expect(text(1)).toMatch(/CASE WHEN \?::BOOLEAN THEN jl\.debit ELSE jl\.credit END[\s\S]*CASE WHEN \?::BOOLEAN THEN jl\.credit ELSE jl\.debit END/);
       expect(values(1)).toContain(into);
       expect(values(1)).toContain(1000);
     });
@@ -55,5 +56,7 @@ describe('findTransferRecordedFromStatement', () => {
     expect(text(0)).toMatch(/gl_account_id = \?::UUID AND jl\.debit = \?/);
     expect(values(0).slice(0, 6)).toEqual([CO, '2026-04-20', '2026-04-20', B, 1000, A]);
     expect(text(0)).toMatch(/bt\.status IN \('allocated', 'matched', 'reconciled'\) AND bt\.feed_state = 'posted'/);
+    // Only a journal the statement created (no reference); a typed one, even matched, never blocks another typed one.
+    expect(text(0)).toMatch(/je\.reference IS NULL/);
   });
 });
