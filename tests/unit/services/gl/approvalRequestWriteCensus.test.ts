@@ -19,8 +19,9 @@
  * (prosecdef, search_path, owner, EXECUTE, every role's privileges, the
  * writers' pinned bodies, statically named writes) against whatever
  * DATABASE_URL names (local `bun run ci` with a database; GitHub runs none).
- * A writer built from run-time SQL is beyond both; the fixture behaviour
- * suites are the backstop.
+ * A NEW writer built from run-time SQL is beyond both (migration review is
+ * the control); the four existing writers are pinned by body and covered by
+ * the fixture behaviour suites.
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
