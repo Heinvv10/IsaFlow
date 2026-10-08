@@ -165,4 +165,55 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     expect(refund.statusCode, JSON.stringify(refund.body)).toBe(400);
     expect(await linesNamed(`M4 refund ${c.fx.tag}`)).toBe(0);
   }, 120000);
+
+  // brk-nrfa round 10 K1/K2: the remedy match stamps the line's pointer at the re-reversal R2. Both arms and the 428
+  // read the movement from its chain's root, so the next real sweep posts and a typed copy still answers 428.
+  const bankReverseAndReReverse = async (line: string) => {
+    const j1 = String((await lineState(line))!.ptr);
+    expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: line })).statusCode).toBe(200);
+    const r1 = String(((await sql`SELECT id FROM gl_journal_entries WHERE company_id = ${c.fx.companyId}::UUID
+      AND reversal_of_id = ${j1}::UUID`) as Row[])[0]!.id);
+    return { j1, r2: await glReverse(r1) };
+  };
+  it('a pointer at a live re-reversal is read from the chain root (sweep posts; typed copy answers 428)', async () => {
+    const aMon = await bankLine(bankA, '2028-11-06', -4100, 'K1 OUT MON');
+    await bankLine(bankB, '2028-11-06', 4100, 'K1 IN MON');
+    expect((await allocTransfer(aMon, bankB)).statusCode).toBe(200);
+    const { r2 } = await bankReverseAndReReverse(aMon);
+    expect((await confirm(aMon, await lineOf(r2, bankA))).statusCode).toBe(200);
+    await bankLine(bankA, '2028-11-07', -4100, 'K1 OUT TUE');
+    expect((await allocTransfer(await bankLine(bankB, '2028-11-07', 4100, 'K1 IN TUE'), bankA)).statusCode).toBe(200);
+    expect(await glMovement(bankB, '2028-11-06', '2028-11-30')).toBe(8200);
+
+    for (const [date, amt, toRoot] of [['2028-12-04', 4200, false], ['2028-12-11', 4300, true]] as const) {
+      const a = await bankLine(bankA, date, -amt, `K2 OUT ${date}`);
+      expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+      const { j1, r2: rr } = await bankReverseAndReReverse(a);
+      expect((await confirm(a, await lineOf(toRoot ? j1 : rr, bankA))).statusCode).toBe(200);
+      expect((await typed(amt, date)).statusCode).toBe(428);
+      expect(await glMovement(bankB, date, date)).toBe(amt);
+    }
+  }, 180000);
+
+  // brk-nrfa round 10 L2: arm 2 looks as far as pairing does (ten days), so a typed transfer's statement line clearing
+  // on D+6 and ALLOCATED (not matched) is refused, not posted a second time.
+  it('a typed transfer is found within ten days of its statement line', async () => {
+    expect((await typed(3300, '2029-01-08')).statusCode).toBe(200);
+    expect((await allocTransfer(await bankLine(bankB, '2029-01-14', 3300, 'P1 IN D+6'), bankA)).statusCode).toBe(400);
+    expect(await glMovement(bankB, '2029-01-01', '2029-01-31')).toBe(3300);
+  }, 120000);
+
+  // brk-nrfa round 10 L4: a transfer with no contra (the body's own shape: 422), another company's contra or a non-bank
+  // contra (400) is an answer the person can act on, with nothing written.
+  it('the manual route answers a transfer with no contra 422, and a foreign or non-bank contra 400', async () => {
+    const foreign = String(((await sql`SELECT id FROM gl_accounts WHERE company_id <> ${c.fx.companyId}::UUID
+      AND account_subtype = 'bank' LIMIT 1`) as Row[])[0]?.id ?? '00000000-0000-4000-8000-000000000001');
+    for (const [d, contra, status] of [['X1 nocontra', undefined, 422], ['X2 foreign', foreign, 400],
+      ['X3 nonbank', c.expense, 400]] as const) {
+      const r = await manual({ type: 'spend', bankAccountId: bankA, date: '2029-02-05', amount: 180,
+        description: `${d} ${c.fx.tag}`, allocationType: 'transfer', ...(contra ? { contraAccountId: contra } : {}) });
+      expect(r.statusCode, `${d} ${JSON.stringify(r.body)}`).toBe(status);
+      expect(await linesNamed(`${d} ${c.fx.tag}`)).toBe(0);
+    }
+  }, 120000);
 });

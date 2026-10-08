@@ -55,8 +55,8 @@ const ManualTxSchema = z.object({
   // open documents, 'none' leaves the cash on account.
   autoApply: z.enum(AUTO_APPLY_MODES).optional(),
 }).refine(
-  v => !(v.allocationType === 'account' && !v.contraAccountId),
-  { message: 'contraAccountId is required when allocationType is account', path: ['contraAccountId'] },
+  v => !((v.allocationType === 'account' || v.allocationType === 'transfer') && !v.contraAccountId),
+  { message: 'contraAccountId is required when allocationType is account or transfer', path: ['contraAccountId'] },
 ).refine(
   v => !((v.allocationType === 'supplier' || v.allocationType === 'customer') && !v.entityId),
   { message: 'entityId is required when allocationType is supplier or customer', path: ['entityId'] },
