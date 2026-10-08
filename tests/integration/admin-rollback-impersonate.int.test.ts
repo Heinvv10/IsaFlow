@@ -107,9 +107,10 @@ describe('impersonate start that fails after setting the cookies', () => {
     expect(start.rowCount).toBe(0);
     const stash = await pool.query(`SELECT 1 FROM admin_impersonation_stash WHERE admin_user_id = $1`, [adminId]);
     expect(stash.rowCount).toBe(0);
-    const failed = await pool.query(`SELECT details FROM admin_audit_log WHERE admin_user_id = $1 AND action = 'admin_request_failed'`,
-      [adminId]);
+    const failed = await pool.query(`SELECT details, target_id FROM admin_audit_log WHERE admin_user_id = $1
+      AND action = 'admin_request_failed'`, [adminId]);
     expect(failed.rows).toHaveLength(1);
+    expect(failed.rows[0].target_id).toBe(targetId);
     expect(failed.rows[0].details).toMatchObject({ method: 'POST', route: `/api/admin/users/${targetId}/impersonate`, status: 500 });
   }, 60000);
 
