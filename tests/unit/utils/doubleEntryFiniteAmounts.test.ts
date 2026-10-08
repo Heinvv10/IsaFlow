@@ -13,6 +13,8 @@ const line = (debit: unknown, credit: unknown) => ({ glAccountId: A, debit, cred
 describe('journal lines refuse non-finite amounts', () => {
   it.each([
     [NaN, NaN], [NaN, 0], [0, NaN], ['NaN', 'NaN'], [Infinity, 0], [0, -Infinity], ['Infinity', 0], ['abc', 0],
+    // rev-nrfd round 2: Number() reads these as finite, Postgres numeric refuses them.
+    ['', 10], [' ', 10], [[], 10], [true, 0], ['0x10', 0],
   ])('debit %j credit %j is refused', (debit, credit) => {
     expect(validateJournalLine(line(debit, credit))).toEqual({ valid: false, error: 'Debit and credit must be numbers' });
   });
@@ -23,7 +25,23 @@ describe('journal lines refuse non-finite amounts', () => {
     expect(r.errors.join(' ')).toMatch(/must be numbers/);
   });
 
-  it.each([[10, 0], [0, 10], ['10', 0], [10, undefined], [10, null]])('debit %j credit %j still passes', (debit, credit) => {
+  // brk-nrfd round 2 LOW: text amounts concatenated in the totals ('0.10' + '0.20' = '00.100.20' -> NaN) and a NaN
+  // difference passed as balanced.
+  it('text amounts are summed as numbers: 0.10 + 0.20 against 999 is unbalanced', () => {
+    const r = validateJournalEntry([
+      line('0.10', 0), line('0.20', 0), { glAccountId: B, debit: 0, credit: 999 } as never,
+    ]);
+    expect(r.valid).toBe(false);
+    expect(r.totalDebit).toBe(0.3);
+    expect(r.errors.join(' ')).toMatch(/not balanced/);
+  });
+
+  it('text amounts that balance still pass', () => {
+    expect(validateJournalEntry([line('0.10', 0), line('0.20', 0), { glAccountId: B, debit: 0, credit: '0.30' } as never]).valid)
+      .toBe(true);
+  });
+
+  it.each([[10, 0], [0, 10], ['10', 0], [' 10.50 ', 0], ['1e3', 0], [10, undefined], [10, null]])('debit %j credit %j still passes', (debit, credit) => {
     expect(validateJournalLine(line(debit, credit)).valid).toBe(true);
   });
 });

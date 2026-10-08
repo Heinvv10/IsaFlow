@@ -102,4 +102,19 @@ describeIfDb('journal-entries POST: an uncastable entryDate answers caller-safe 
     const status = ((await sql`SELECT status FROM gl_journal_entries WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status;
     expect(status).toBe('draft');
   }, 60000);
+
+  // brk-nrfd round 2 HIGH (pre-existing): a null side was stored NULL and dropped the line out of every
+  // SUM(debit - credit). It is stored as 0 now.
+  it('a line with credit null is stored with credit 0', async () => {
+    const out = await callRoute(c.fx, token, journalEntries, {
+      entryDate: '2026-06-03', description: 'RSJD null side',
+      lines: [{ glAccountId: c.expense, debit: 12, credit: null }, { glAccountId: c.fx.bankAccountId, debit: null, credit: 12 }],
+    });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(200);
+    const rows = (await sql`SELECT jl.debit::float8 AS debit, jl.credit::float8 AS credit FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      WHERE je.company_id = ${c.fx.companyId}::UUID AND je.description = 'RSJD null side' ORDER BY jl.debit DESC`) as
+      { debit: number | null; credit: number | null }[];
+    expect(rows).toEqual([{ debit: 12, credit: 0 }, { debit: 0, credit: 12 }]);
+  }, 60000);
 });

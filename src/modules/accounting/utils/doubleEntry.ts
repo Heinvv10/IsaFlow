@@ -41,9 +41,19 @@ export function validateJournalLine(line: JournalLineInput): LineValidationResul
   return { valid: true };
 }
 
-/** An absent amount is zero; anything else must read as a finite number (a NaN or Infinity, as a number or text, must not). */
+/** A decimal literal as Postgres numeric reads one ('10', '-0.5', '.5', '1e3'); not '', '0x10', 'NaN' or 'Infinity'. */
+const DECIMAL_TEXT = /^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$/;
+
+/** An absent amount is zero; a number must be finite; text must be a decimal literal. Nothing else is an amount. */
 function isFiniteAmount(v: unknown): boolean {
-  return v === null || v === undefined || Number.isFinite(Number(v));
+  if (v === null || v === undefined) return true;
+  if (typeof v === 'number') return Number.isFinite(v);
+  return typeof v === 'string' && DECIMAL_TEXT.test(v) && Number.isFinite(Number(v));
+}
+
+/** A line amount as a number: absent is zero. Text is summed as a number, never concatenated ('0.10' + '0.20'). */
+function amountOf(v: unknown): number {
+  return v === null || v === undefined ? 0 : Number(v);
 }
 
 /**
@@ -80,14 +90,17 @@ export function validateJournalEntry(lines: JournalLineInput[]): JournalValidati
 
   // Calculate totals using fixed-point arithmetic to avoid floating-point issues
   const totalDebit = roundToCents(
-    lines.reduce((sum, line) => sum + (line.debit || 0), 0)
+    lines.reduce((sum, line) => sum + amountOf(line.debit), 0)
   );
   const totalCredit = roundToCents(
-    lines.reduce((sum, line) => sum + (line.credit || 0), 0)
+    lines.reduce((sum, line) => sum + amountOf(line.credit), 0)
   );
   const difference = roundToCents(Math.abs(totalDebit - totalCredit));
 
-  if (difference > 0) {
+  // A NaN difference compares false with 0: refuse it rather than pass it as balanced.
+  if (!Number.isFinite(difference)) {
+    errors.push('Entry totals are not numbers');
+  } else if (difference > 0) {
     errors.push(
       `Entry is not balanced: total debit R${totalDebit.toFixed(2)} != total credit R${totalCredit.toFixed(2)} (difference: R${difference.toFixed(2)})`
     );

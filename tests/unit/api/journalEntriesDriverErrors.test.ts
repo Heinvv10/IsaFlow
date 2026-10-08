@@ -38,6 +38,7 @@ describe('journal-entries POST: driver errors', () => {
     ['22P02', 'invalid input syntax for type uuid: "x"', /check its accounts, dimensions, amounts and descriptions/],
     ['23514', 'new row for relation "gl_journal_lines" violates check constraint "chk_debit_or_credit"', /check its accounts/],
     ['23503', 'insert or update on table "gl_journal_lines" violates foreign key constraint "fk_x"', /check its accounts/],
+    ['23502', 'null value in column "x" of relation "gl_journal_lines" violates not-null constraint', /check its accounts/],
   ])('%s: 400, caller-safe wording, no driver text', async (code, message, wording) => {
     createJournalEntry.mockRejectedValueOnce(driverError(code, message));
     const { run, res } = call();
@@ -46,6 +47,15 @@ describe('journal-entries POST: driver errors', () => {
     expect(bodyOf(res)).toMatch(wording);
     expect(bodyOf(res)).not.toContain(message.slice(0, 20));
     if (code !== '22007' && code !== '22008') expect(bodyOf(res)).not.toMatch(/entryDate/);
+  });
+
+  it('23505 (a clash with a row written at the same moment): 409, retry wording, no driver text', async () => {
+    createJournalEntry.mockRejectedValueOnce(driverError('23505', 'duplicate key value violates unique constraint "uq_x"'));
+    const { run, res } = call();
+    await run();
+    expect(res.statusCode).toBe(409);
+    expect(bodyOf(res)).toMatch(/try again/);
+    expect(bodyOf(res)).not.toMatch(/duplicate key|uq_x/);
   });
 
   it.each(['XX000', '53300', '42703'])('%s (the server\'s): rethrown to the 500 that rolls back', async (code) => {
