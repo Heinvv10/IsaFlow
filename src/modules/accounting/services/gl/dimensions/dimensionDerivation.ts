@@ -13,6 +13,7 @@
  * check, any dimension), so a journal without dimensions costs nothing extra.
  */
 import { sql } from '@/lib/neon';
+import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal, type DimensionIds } from './dimensionTypes';
 
 export interface CostCentreNode { id: string; code: string; parentId: string | null; ccType: string | null }
@@ -34,12 +35,17 @@ export function deriveFnoId(cc2Id: string, nodes: ReadonlyMap<string, CostCentre
   return null;
 }
 
-/** Every cost centre on the parent chains of `ids`, company-scoped. */
+/**
+ * Every cost centre on the parent chains of `ids`, company-scoped. An id that
+ * is not a UUID names no cost centre and is left out of the query (it would
+ * fail the cast): its line keeps it as typed, and the slot validator
+ * (journalCostCentreValidation) refuses it as it refuses an unknown id.
+ */
 export async function loadCostCentreChains(
   companyId: string,
   ids: readonly string[],
 ): Promise<Map<string, CostCentreNode>> {
-  const unique = [...new Set(ids.map((id) => id.toLowerCase()))];
+  const unique = [...new Set(ids.filter((id) => UUID_RE.test(id)).map((id) => id.toLowerCase()))];
   if (unique.length === 0) return new Map();
   const rows = (await sql`
     WITH RECURSIVE chain AS (
