@@ -35,11 +35,13 @@
  * below is true of revenue, gross margin, operating expenses, net profit and
  * cash: one measure, two windows.
  *
- * DEBTOR DAYS IS THE ONE THAT IS STILL NOT ONLY THE WINDOW. The trends page
- * multiplies each month's ratio by the days in THAT month; the period figure
- * annualises on 365. Page 12's glossary has always defined both, and the note
- * names the difference rather than restating the definition — a second
- * paragraph here is paid for out of this page's own disclosures.
+ * DEBTOR DAYS IS NOW ONLY THE WINDOW TOO. The trends page multiplies each
+ * month's ratio by the days in THAT month, and the period figure annualised
+ * on 365 — so this note carried a clause saying the two also differed in
+ * their annualisation. The engine multiplies by the period's own days now
+ * (`FinancialData.periodDays`), one rule on both pages, and the clause is
+ * gone: a difference the note names that the figures no longer have is a
+ * false sentence on the sheet.
  *
  * PAGES ARE NAMED IN WORDS, never by number — page numbers come from position
  * in the sequence now, and a literal here is the class of cross-reference
@@ -177,21 +179,6 @@ export function trendWindowNote(
     : without.length === 0
     ? ', with a comparative'
     : `, with a comparative except ${inWords(without)}`;
-  // Debtor days is measured differently as well as over a different window,
-  // and a note that named only the window would be doing to that measure what
-  // this whole file used to do to revenue.
-  // ONE CLAUSE, and the length is the whole of the design. The first draft ran
-  // two sentences and cost this page 8mm it did not have: `fitPageToBox` paid
-  // for them by dropping THIS NOTE, so the sheet lost the reconciliation
-  // entirely in order to make it more complete. The basis of preparation
-  // already defines both annualisations in full; what is owed here is that
-  // there is a second difference, not what it is.
-  const debtorDays = panels.some((panel) => panel.id === 'trend-debtor-days')
-    // "the basis page", which is what every other pointer in the pack calls
-    // sheet 12 — and ten of the sixteen characters the second comparative
-    // exception costs this note.
-    ? ' Debtor days also differs in its annualisation, which the basis page defines.'
-    : '';
   // THE FRAME IS SHORTER BY A LINE AND THE LIST IS UNTOUCHED. It read "plots
   // one MONTH at a time … — <list> — against the comparative period", and on
   // the live demo company, where all six panels have a counterpart, that ran
@@ -216,6 +203,6 @@ export function trendWindowNote(
       // this note has no slack on the live demo sheet.
       'Each panel plots one MONTH. The WHOLE period\'s figures print on other pages'
       + `${comparative} — ${inWords(where)}. Different windows: the two `
-      + `need not agree.${debtorDays}${leftOut}`,
+      + `need not agree.${leftOut}`,
   };
 }

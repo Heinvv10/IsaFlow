@@ -533,12 +533,19 @@ describe('write-tool manifest invariants', () => {
       'reverse_allocations',
       'reverse_bank_allocation',
       'reverse_bank_allocation_batch',
+      // Restores the dimensions a tag batch replaced on POSTED lines.
+      'reverse_dimension_tag_batch',
       'reverse_journal_entry',
       'run_depreciation',
       'set_opening_balance',
       // A contra settles a debtor or creditor against a balance-sheet account,
       // so it posts.
       'settle_by_contra',
+      // A split posts a journal, like allocate_bank_transaction.
+      'split_allocate_bank_transaction',
+      // Rewrites the dimensions of POSTED lines in place (amounts never move),
+      // the same authority merge_gl_accounts asks for.
+      'tag_journal_lines',
       // Un-applying moves documents' outstanding balances, as applying does.
       'unapply_credit_note',
       'unapply_supplier_payment',
@@ -728,6 +735,16 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing action before reading anything; behaviour in
       // journalDocumentLinkService.test.ts and journalDocumentLinksRoute.test.ts.
       link_document_to_journal: { ...KEY },
+      // The dimension tools each refuse on a missing required argument before any
+      // service call; behaviour in tests/unit/mcp/dimension*.test.ts.
+      create_cost_centre: { ...KEY },
+      create_business_unit: { ...KEY },
+      set_gl_account_reporting_attributes: { ...KEY },
+      set_customer_default_fno: { ...KEY },
+      set_bank_account_default_dimensions: { ...KEY },
+      split_allocate_bank_transaction: { ...KEY },
+      tag_journal_lines: { ...KEY },
+      reverse_dimension_tag_batch: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

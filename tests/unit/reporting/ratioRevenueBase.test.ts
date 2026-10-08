@@ -22,6 +22,7 @@ import { calculateExtendedRatios, type FinancialData } from '@/modules/accountin
 import { NO_STOCK_HELD } from '@/modules/accounting/services/reports/ratioBasis';
 
 const COMPANY: FinancialData = {
+  periodDays: 365,
   revenue: 1_000_000, costOfSales: 600_000, operatingExpenses: 250_000, otherIncome: 0, operatingProfit: 150_000,
   netProfit: 93_000, totalAssets: 2_000_000, totalLiabilities: 800_000, totalEquity: 1_200_000,
   currentAssets: 900_000, currentLiabilities: 450_000, inventory: 150_000, accountsReceivable: 200_000,

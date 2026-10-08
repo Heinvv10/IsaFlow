@@ -70,6 +70,12 @@ export async function approveCreditNote(
 
     let lines: JournalLineInput[];
     let allocations: CreditNoteAllocation[] = [];
+    // The note's CC1/CC2/BU ride on its revenue/expense leg only — never AR/AP/VAT (brief §5.3).
+    const dims = {
+      ...(cn.cc1_id ? { cc1Id: String(cn.cc1_id) } : {}),
+      ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
+      ...(cn.bu_id ? { buId: String(cn.bu_id) } : {}),
+    };
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
@@ -104,7 +110,7 @@ export async function approveCreditNote(
           description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
       lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
-        description: `Expense credit: ${cn.credit_note_number}` });
+        description: `Expense credit: ${cn.credit_note_number}`, ...dims });
     }
 
     // credit_date comes back from pg as a Date object (or a string on some

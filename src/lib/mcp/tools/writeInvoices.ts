@@ -20,6 +20,7 @@ import { customerBelongsToCompany } from '@/modules/accounting/services/core/con
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './invoiceCreateArgs';
+import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
 interface LineIn {
   description: string;
@@ -52,6 +53,8 @@ const LINE_ITEMS_SCHEMA = {
       description: { type: 'string' },
       quantity: { type: 'number', exclusiveMinimum: 0 },
       unit_price: { type: 'number', minimum: 0 },
+      // The FNO defaults from the customer; a project under another FNO is refused.
+      ...DIMENSION_LINE_PROPERTIES,
     },
     required: ['description', 'unit_price'],
     additionalProperties: false,
@@ -86,10 +89,12 @@ export const createDraftInvoiceTool: McpTool = {
     // would otherwise accept any company's customer id). Generic error — no
     // existence oracle for foreign ids.
     if (!(await customerBelongsToCompany(ctx.companyId, parsed.customerId))) return toolError(NOT_FOUND);
+    const items = await itemsWithDimensions(ctx.companyId, parsed.items, parsed.dimensionRefs, (i) => `items[${i}]`);
+    if (typeof items === 'string') return toolError(items);
     try {
       const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
         clientId: parsed.customerId,
-        items: parsed.items,
+        items,
         invoiceDate: parsed.invoiceDate,
         dueDate: parsed.dueDate,
         taxRate: parsed.taxRate,

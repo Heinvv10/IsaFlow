@@ -11,9 +11,11 @@
  * sparkline printed next to a statement line has one job: to describe THAT
  * number over time. A second aggregation written in the test would agree with
  * the service and still disagree with the statement — which is the whole
- * defect. The balance sheet signs by SECTION (assets debit − credit,
- * liabilities and equity credit − debit), so contra accounts subtract; contra
- * equity/liability lines are footed in accountTrendsContraAccounts.int.test.ts.
+ * defect. The balance sheet signs by account type (assets debit less credit,
+ * liabilities and equity credit less debit); a series signed any other way
+ * would draw a contra account upside down against the figure printed next to it.
+ * Every contra equity/liability line in the database is footed in
+ * accountTrendsContraAccounts.int.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -30,6 +32,10 @@ const AS_OF = '2026-08-31';
 const TENANTS: Array<{ name: string; id: string }> = [
   { name: 'ISAFlow Demo', id: '00000000-0000-0000-0000-000000000001' },
   { name: 'Brightsphere', id: 'd27bac33-cdc0-4e58-bf6b-709c1597d41c' },
+  // Carries a DEBIT-normal equity account (3400 Dividends Declared). Signed by
+  // normal_balance, both services drew it as +R2.5m of equity, so the two
+  // agreed with each other and both were wrong. Its line must reduce equity.
+  { name: 'Sample Trading', id: 'e6f0dde9-1688-4562-9ddc-be0477c5999b' },
 ];
 
 beforeAll(async () => {

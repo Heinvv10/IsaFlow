@@ -26,6 +26,8 @@ import { formatScorecardValue, scorecardFigure } from '@/modules/accounting/serv
 /** The demo pack's shape: a sliver of revenue under a large cost base, and negative equity. */
 const DEMO: ReportPackInput = {
   companyName: 'Demo', period: '2026-01-01 to 2026-09-07',
+  // The window's 250 days: 58 000 / 100 000 × 250 is 145 (212 on 365).
+  periodDays: 250,
   revenue: 100_000, costOfSales: 1_400_000, operatingExpenses: 200_000, netProfit: -1_500_000,
   totalAssets: 900_000, totalLiabilities: 1_300_000, totalEquity: -400_000,
   currentAssets: 140_000, currentLiabilities: 1_000_000,
@@ -61,7 +63,7 @@ const DEMO_TILES: Array<[string, string, string]> = [
   ['Gross Profit Margin', '(1 300.0%)', '35.0%'],
   ['Net Profit Margin', '(1 500.0%)', '15.0%'],
   ['Current Ratio', '0.14×', '1.50×'],
-  ['Debtor Days', '212 days', '30 days'],
+  ['Debtor Days', '145 days', '30 days'],
 ];
 
 describe('the pack document\'s tile (screen, print view, deck)', () => {

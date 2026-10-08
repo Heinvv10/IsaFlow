@@ -36,9 +36,14 @@ export async function postCustomerInvoiceToGL(
   opts?: PostingActorOpts & { historicalImport?: boolean },
 ): Promise<string> {
   try {
+    // The customer's FNO and the items' dimensions ride on the same read (customerInvoiceRevenueLines.ts).
     const invRows = (await sql`
-      SELECT ci.*, c.name AS client_name
-      FROM customer_invoices ci LEFT JOIN customers c ON c.id = ci.client_id
+      SELECT ci.*, c.name AS client_name, c.default_cc1_id::TEXT AS customer_fno_id,
+        (SELECT json_agg(json_build_object('amount', cii.amount, 'cc1_id', cii.cc1_id,
+                 'cc2_id', cii.cc2_id, 'bu_id', cii.bu_id) ORDER BY cii.created_at, cii.id)
+           FROM customer_invoice_items cii WHERE cii.invoice_id = ci.id) AS dim_items
+      FROM customer_invoices ci
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     `) as Row[];
     if (invRows.length === 0) throw new Error(`Invoice ${invoiceId} not found`);

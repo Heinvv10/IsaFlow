@@ -16,6 +16,8 @@ import { castableArgError, strArg } from './toolHelpers';
 import {
   MCP_CODING_KEYS, parseLineCoding, readCodingId, type InvoiceLineCoding,
 } from '@/modules/accounting/services/ar/invoiceLineCoding';
+import { DIMENSION_LINE_PROPERTIES, parseDimensionRefs } from './dimensionArgs';
+import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /** More lines than this on one invoice is a mistake, not a bill. */
 export const MAX_LINES = 200;
@@ -59,6 +61,8 @@ export interface ParsedSupplierInvoice {
   items: SupplierInvoiceItemInput[];
   /** Every `gl_account_id` named by a line, for one batched ownership check. */
   accountIds: string[];
+  /** Per line, the cc1/cc2/bu as typed (undefined where none); resolved pre-write by the tool. */
+  dimensionRefs: (DimensionRefs | undefined)[];
 }
 
 export interface ParsedCustomerInvoiceLine extends InvoiceLineCoding {
@@ -75,6 +79,8 @@ export interface ParsedCustomerInvoice {
   taxRate: number | undefined;
   notes: string | undefined;
   projectId: string | null;
+  /** Per item, the cc1/cc2/bu as typed (undefined where none). */
+  dimensionRefs: (DimensionRefs | undefined)[];
 }
 
 /**
@@ -91,6 +97,7 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the default sales account.' },
     project_id: { type: 'string', description: 'Project (job / production) the line\'s revenue belongs to.' },
     cost_center_id: { type: 'string', description: 'Active cost centre the line\'s revenue belongs to.' },
+    ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'unit_price'],
   additionalProperties: false,
@@ -108,7 +115,7 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
  */
 export function parseSupplierLines(
   raw: unknown,
-): { items: SupplierInvoiceItemInput[]; accountIds: string[] } | string {
+): { items: SupplierInvoiceItemInput[]; accountIds: string[]; dimensionRefs: (DimensionRefs | undefined)[] } | string {
   if (!Array.isArray(raw) || raw.length === 0) {
     return 'lines must be a non-empty array of {description, quantity, unit_price}';
   }
@@ -118,6 +125,7 @@ export function parseSupplierLines(
 
   const items: SupplierInvoiceItemInput[] = [];
   const accountIds: string[] = [];
+  const dimensionRefs: (DimensionRefs | undefined)[] = [];
   for (let i = 0; i < raw.length; i++) {
     const line = raw[i];
     if (typeof line !== 'object' || line === null || Array.isArray(line)) {
@@ -156,10 +164,14 @@ export function parseSupplierLines(
       accountIds.push(value);
     }
 
+    const dims = parseDimensionRefs(o, `lines[${i}]`);
+    if (typeof dims === 'string') return dims;
+    dimensionRefs.push(dims);
+
     items.push({ description, quantity, unitPrice, taxRate, glAccountId });
   }
 
-  return { items, accountIds };
+  return { items, accountIds, dimensionRefs };
 }
 
 /** Parse one supplier-invoice payload. Returns the refusal MESSAGE on failure. */
@@ -204,6 +216,7 @@ export function parseSupplierInvoiceInput(
     notes: strArg(args, 'notes'),
     items: parsed.items,
     accountIds: parsed.accountIds,
+    dimensionRefs: parsed.dimensionRefs,
   };
 }
 
@@ -236,6 +249,7 @@ export function parseCustomerInvoiceInput(
   }
 
   const items: ParsedCustomerInvoiceLine[] = [];
+  const dimensionRefs: (DimensionRefs | undefined)[] = [];
   for (let i = 0; i < raw.length; i++) {
     const line = raw[i];
     if (typeof line !== 'object' || line === null || Array.isArray(line)) {
@@ -272,6 +286,9 @@ export function parseCustomerInvoiceInput(
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;
+    const dims = parseDimensionRefs(o, `items[${i}]`);
+    if (typeof dims === 'string') return dims;
+    dimensionRefs.push(dims);
     items.push({ description, unitPrice, quantity, ...coding });
   }
   const projectId = readCodingId(args.project_id);
@@ -291,5 +308,6 @@ export function parseCustomerInvoiceInput(
     taxRate,
     notes: strArg(args, 'notes'),
     projectId,
+    dimensionRefs,
   };
 }

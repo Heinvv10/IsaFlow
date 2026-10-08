@@ -107,10 +107,11 @@ export interface PackTrendPoint {
   accountsReceivable: number;
   /**
    * Days of sales outstanding for the month: `accountsReceivable ÷ that
-   * month's revenue × the days that revenue covers` (`daysCovered` — the whole
-   * month unless `partial`). The multiplier matches a MONTHLY revenue base, unlike `calculateExtendedRatios.debtorDays`
-   * which multiplies by 365 against a period revenue and would overstate a
-   * month's figure roughly twelvefold if reused here unchanged.
+   * month's revenue × the days that revenue covers` (this point's own
+   * `daysCovered` field — the whole month unless `partial`). The same rule as
+   * `calculateExtendedRatios.debtorDays`, which multiplies by the reporting
+   * window's days (`ratioCalculations.windowDays`): one measure over two
+   * windows.
    *
    * Null when the month has no revenue — the R-P45 case: a debtor book that
    * collected nothing that month does not mean zero days outstanding, it
