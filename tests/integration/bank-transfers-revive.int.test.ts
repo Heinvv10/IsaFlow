@@ -269,4 +269,24 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     const second = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 10000, transferDate: '2026-08-04' });
     expect(second.statusCode, JSON.stringify(second.body)).toBe(200);
   }, 60000);
+
+  // sec-nrfa round 3 L1: a line is evidence only on one of the journal's bank legs, on the side its sign says.
+  it('an unrelated line matched to a typed transfer does not hide its round number; its real line does', async () => {
+    const third = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
+      account_subtype, normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '1030', 'BTXF Third', 'asset', 'bank',
+      'debit', true) RETURNING id`) as Row[])[0]!.id);
+    const out = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 50000, transferDate: '2026-09-07' });
+    const id = (dataOf<{ journalEntry: { id: string } }>(out)).journalEntry.id;
+    const line = (bank: string, amount: number) => sql`INSERT INTO bank_transactions (company_id, bank_account_id,
+      transaction_date, amount, description, status, transfer_journal_entry_id) VALUES (${c.fx.companyId}::UUID,
+      ${bank}::UUID, '2026-09-07', ${amount}, 'BTXF ev', 'matched', ${id}::UUID)`;
+    const flagged = async () => (await getUnusualJournals(c.fx.companyId, { start: '2026-09-01', end: '2026-09-30' }))
+      .flags.some((f) => f.entryId === id && f.reason === 'round_number');
+    await line(third, 50000); // a bank the transfer never touched
+    expect(await flagged()).toBe(true);
+    await line(bank2, -50000); // the destination bank, but money OUT of it
+    expect(await flagged()).toBe(true);
+    await line(bank2, 50000); // the destination bank, money in: the statement line of this very movement
+    expect(await flagged()).toBe(false);
+  }, 60000);
 });

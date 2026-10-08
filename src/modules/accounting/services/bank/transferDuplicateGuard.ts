@@ -61,8 +61,8 @@ export async function assertNoDuplicateTransfer(
 /**
  * Banking > Transfers' twin of the guard: a live transfer journal the STATEMENT CREATED (a bank line allocated as a
  * transfer: bankAllocationService writes no `reference`; every Transfers-page journal carries 'Transfer: … -> …'),
- * still linked to a live, posted line of this amount, moving this amount from `fromAccountId` to `toAccountId`
- * within two days of `date`. Its entry number, or null. A typed transfer — matched to its statement line or not —
+ * still linked to a live, posted line of this amount on one of its bank legs (the side the line's sign says),
+ * moving this amount from `fromAccountId` to `toAccountId` within two days of `date`. Its entry number, or null. A typed transfer — matched to its statement line or not —
  * never refuses another typed one: two real transfers of one amount are legitimate (rev-nrfa LOW-1, round 3).
  */
 export async function findTransferRecordedFromStatement(
@@ -78,7 +78,11 @@ export async function findTransferRecordedFromStatement(
                     AND jl.gl_account_id = ${toAccountId}::UUID AND jl.debit = ${amount})
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${fromAccountId}::UUID AND jl.credit = ${amount})
-      AND EXISTS (SELECT 1 FROM bank_transactions bt WHERE bt.company_id = je.company_id
+      AND EXISTS (SELECT 1 FROM bank_transactions bt
+                    JOIN gl_journal_lines bl ON bl.journal_entry_id = je.id AND bl.company_id = je.company_id
+                      AND bl.gl_account_id = bt.bank_account_id
+                      AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
+                    WHERE bt.company_id = je.company_id
                     AND bt.transfer_journal_entry_id = je.id AND ABS(bt.amount) = ${amount}
                     AND bt.status IN ('allocated', 'matched', 'reconciled') AND bt.feed_state = 'posted')
     ORDER BY je.entry_date, je.entry_number
