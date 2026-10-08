@@ -229,5 +229,10 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
       WHERE id = ${own}::UUID AND company_id = ${c.fx.companyId}::UUID`;
     const cands = await fetchJournalLineCandidates(c.fx.companyId, -980, '2032-05-06', 'UBER TRIP second', bankA);
     expect(cands.map((x) => x.id)).not.toContain(await lineOf(pj, bankA));
+    // Reversed and re-reversed in the GL: the live head is still the provisional's journal, still held (sec-nrfa r23).
+    const head = await glReverse(await glReverse(pj));
+    const headDate = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${head}::UUID`) as Row[])[0]!.d);
+    const after = await fetchJournalLineCandidates(c.fx.companyId, -980, headDate, 'UBER TRIP second', bankA);
+    expect(after.map((x) => x.id)).not.toContain(await lineOf(head, bankA));
   }, 120000);
 });
