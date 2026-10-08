@@ -78,7 +78,12 @@ describe('assertNoDuplicateTransfer', () => {
     const outer = text(0).slice(0, text(0).indexOf('NOT EXISTS'));
     expect(outer).toMatch(/AND status IN \('allocated', 'matched', 'reconciled'\)/);
     expect(outer).toContain('tl.id = bank_transactions.matched_journal_line_id');
-    expect(outer).toContain('tj.reversed_at IS NULL');
+    // sec-nrfa round 6: "not reversed" is read from the chain (an even count of posted reversals stands), and a pairing
+    // line is of the same movement — within five days.
+    expect(outer).toMatch(/tj\.reversed_at IS NULL OR \(SELECT MAX\(ch\.d\) % 2 = 0[\s\S]*WITH RECURSIVE/);
+    expect(text(1)).toMatch(/je\.reversed_at IS NULL OR \(SELECT MAX\(ch\.d\) % 2 = 0[\s\S]*WITH RECURSIVE/);
+    expect(consumption(0)).toContain("own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '5 days')");
+    expect(consumption(1)).toContain("bt.transaction_date BETWEEN (je.entry_date - INTERVAL '5 days')");
   });
 });
 
@@ -101,5 +106,6 @@ describe('findTransferRecordedFromStatement', () => {
     await findTransferRecordedFromStatement(CO, A, B, 1000, '2026-04-20');
     expect(text(0)).toMatch(/bl\.id = bt\.matched_journal_line_id/);
     expect(text(0)).toMatch(/bt\.import_batch_id IS NOT NULL OR bt\.bank_feed_connection_id IS NOT NULL/);
+    expect(text(0)).toMatch(/je\.reversed_at IS NULL OR \(SELECT MAX\(ch\.d\) % 2 = 0[\s\S]*WITH RECURSIVE/); // sec-nrfa r6 M1
   });
 });

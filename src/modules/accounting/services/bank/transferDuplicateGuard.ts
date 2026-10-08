@@ -13,7 +13,10 @@
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its amount;
  * a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5 L1). Only an
  * imported or feed line on THIS bank pairs a journal (brk-nrfa round 6 M1), and arm 1's counterparty line must be live,
- * matched to its leg, on a journal that is not reversed (round 6 L1).
+ * matched to its leg, on a journal that is not reversed (round 6 L1). "Not reversed" is read from the chain, as
+ * bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the books, though
+ * its `reversed_at` stays set (sec-nrfa round 6 M1). A pairing line is of the same movement: within five days of the
+ * counterparty line (arm 1) or of the journal's date (arm 2) — sec-nrfa round 6 L1.
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by
@@ -55,7 +58,10 @@ export async function assertNoDuplicateTransfer(
                       AND tl.gl_account_id = bank_transactions.bank_account_id
                       AND (CASE WHEN bank_transactions.amount > 0 THEN tl.debit ELSE tl.credit END)
                         = ABS(bank_transactions.amount)
-                      AND tj.reversed_at IS NULL)
+                      AND (tj.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
+          SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = tj.id AND r.company_id = tj.company_id
+          UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
+            WHERE n.company_id = tj.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch)))
       -- Already paired: a live line on THIS bank is MATCHED to a line of that transfer journal, so this line is
       -- another movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2). The
       -- transfer pointer is not a match: an unmatch leaves it set (brk-nrfa round 5 F1). The match must be to this
@@ -70,14 +76,19 @@ export async function assertNoDuplicateTransfer(
                         WHERE own.company_id = bank_transactions.company_id
                         AND own.bank_account_id = ${bankAccountId}::UUID
                         AND own.status IN ('allocated', 'matched', 'reconciled')
-                        AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL))
+                        AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL)
+                        AND own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '5 days')
+                                                     AND (bank_transactions.transaction_date + INTERVAL '5 days'))
     LIMIT 1
   `) as DbRow[];
   const journals = lines.length > 0 ? [] : (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
       AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
-      AND je.reversed_at IS NULL AND je.reversal_of_id IS NULL
+      AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
+          SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
+          UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
+            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch))
       AND je.entry_date BETWEEN (${txDate}::DATE - INTERVAL '5 days') AND (${txDate}::DATE + INTERVAL '5 days')
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${bankAccountId}::UUID
@@ -92,7 +103,8 @@ export async function assertNoDuplicateTransfer(
                         WHERE bt.company_id = je.company_id
                         AND bt.bank_account_id = ${bankAccountId}::UUID
                         AND bt.status IN ('allocated', 'matched', 'reconciled')
-                        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL))
+                        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL)
+                        AND bt.transaction_date BETWEEN (je.entry_date - INTERVAL '5 days') AND (je.entry_date + INTERVAL '5 days'))
     LIMIT 1
   `) as DbRow[];
   if (lines.length > 0 || journals.length > 0) {
@@ -119,7 +131,10 @@ export async function findTransferRecordedFromStatement(
     SELECT je.entry_number FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
       AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NULL
-      AND je.reversed_at IS NULL AND je.reversal_of_id IS NULL
+      AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
+          SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
+          UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
+            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch))
       AND je.entry_date BETWEEN (${date}::DATE - INTERVAL '5 days') AND (${date}::DATE + INTERVAL '5 days')
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${toAccountId}::UUID AND jl.debit = ${amount})
