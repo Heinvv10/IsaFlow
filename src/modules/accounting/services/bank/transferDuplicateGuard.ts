@@ -104,6 +104,7 @@ export async function findTransferRecordedFromStatement(
                       AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
                     WHERE bt.company_id = je.company_id
                     AND bt.transfer_journal_entry_id = je.id AND ABS(bt.amount) = ${amount}
+                    AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL)
                     AND bt.status IN ('allocated', 'matched', 'reconciled') AND bt.feed_state = 'posted')
     ORDER BY je.entry_date, je.entry_number
     LIMIT 1
