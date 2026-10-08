@@ -67,6 +67,7 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
           SELECT ${co}::UUID, ${bank}::UUID, '2025-03-01', -100, 'MPLN holder', 'imported', gen_random_uuid(), ${je}::UUID
           FROM generate_series(1, ${N})`;
         await sql`ANALYZE bank_transactions`;
+        await sql`ANALYZE gl_journal_lines`;
         await sql`SET LOCAL work_mem = '64kB'`;
         await sql`SET LOCAL hash_mem_multiplier = 1`;
         captured.length = 0;
@@ -84,6 +85,7 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
       // filter (3-18 s, brk-nrfa round 27). The plan node owning that filter is the gl_journal_lines scan.
       const lines = plan.split('\n');
       const at = lines.findIndex((l) => /Filter: .*NOT \(hashed SubPlan/.test(l));
+      expect(at, plan).toBeGreaterThan(-1);
       const owner = lines.slice(0, at).reverse().find((l) => /->|^\S/.test(l));
       expect(owner, plan).toMatch(/on gl_journal_lines jl/);
     } finally {
