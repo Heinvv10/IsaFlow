@@ -26,7 +26,8 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
-import { creditNoteRevenueJournalLines } from './invoiceRevenuePosting';
+import { creditNoteRevenueJournalLines, recordCreditNoteRevenueAllocations } from './invoiceRevenuePosting';
+import type { CreditNoteAllocation } from './invoiceRevenueLines';
 import { ArPostingAfterWriteError } from './arErrors';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
 
@@ -68,6 +69,7 @@ export async function approveCreditNote(
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
 
     let lines: JournalLineInput[];
+    let allocations: CreditNoteAllocation[] = [];
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
@@ -75,10 +77,10 @@ export async function approveCreditNote(
       const arAccount = await getSystemAccount('receivable', companyId);
       const vatAccount = await getSystemAccount('vat_output', companyId);
 
-      lines = await creditNoteRevenueJournalLines(companyId, {
+      ({ lines, allocations } = await creditNoteRevenueJournalLines(companyId, {
         id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
         customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null,
-      }, revenueAccount.id);
+      }, revenueAccount.id));
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
         // exception, and 'standard' is what the VAT201 already read it as.
@@ -131,6 +133,11 @@ export async function approveCreditNote(
     // From here the draft journal is written: a failure is a 5xx (rollback), not the route's 400.
     const noteNumber = String(cn.credit_note_number);
     await afterJournalWritten(noteNumber, () => postJournalEntry(companyId, je.id, userId));
+    // What this note took per invoice leg: the next note's capacity is read from it.
+    if (allocations.length > 0 && cn.customer_invoice_id) {
+      const invoiceId = String(cn.customer_invoice_id);
+      await afterJournalWritten(noteNumber, () => recordCreditNoteRevenueAllocations(companyId, id, invoiceId, allocations));
+    }
 
     // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
     // document it names first, capped at that document's outstanding balance,

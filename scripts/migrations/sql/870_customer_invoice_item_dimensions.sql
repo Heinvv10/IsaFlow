@@ -40,11 +40,10 @@
 -- customer_invoice arm of approval_document_digest gains cii.project_id and cii.cost_center_id,
 -- in the line array and the ORDER BY, as the supplier arm carries sii.project_id/cost_center_id.
 --
--- MERGES ONLY AFTER PR #660. Migration 869 (#660) redefines the WHOLE function (it adds the
--- manual_journal arm), so the CREATE OR REPLACE below is 869's complete body plus this change.
--- Were 870 applied first, 869 would then replace the function without these two columns and the
--- bypass would return silently — so the first DO block refuses to run until 869's objects exist.
--- If #660 changes 869's digest before it merges, re-copy its body here.
+-- AFTER 869. Migration 869 redefines the WHOLE function (it adds the manual_journal arm), so the
+-- CREATE OR REPLACE below is 869's complete body plus this change. Were 870 applied first, 869
+-- would then replace the function without these two columns and the bypass would return
+-- silently — so the first DO block refuses to run until 869's objects exist.
 --
 -- Every customer invoice digest changes (two more elements per line, NULL today), so requests
 -- are RE-BOUND as 708 did for its pending supplier-invoice requests: a pending or approved
@@ -52,6 +51,20 @@
 -- the replace is moved to the new digest. Same content — project_id and cost_center_id are NULL
 -- on every line when this first runs — so an approval keeps clearing exactly what it cleared,
 -- and a request that was already stale stays stale. Every other type's digest must not move.
+--
+-- CREDIT NOTE ALLOCATIONS. A customer credit note debits the invoice journal's revenue legs pro
+-- rata, each capped at what it still carries. What it carries is its net less what the LIVE earlier
+-- notes took, so what each note took is recorded here, per leg, in its approval's transaction
+-- (plus an is_excess row for what no leg could take, debited untagged to default_revenue). A
+-- cancelled note's rows stay but stop counting. Replaying the earlier notes' amounts instead gets
+-- it wrong once one is cancelled: the replay assumes every live note took its pro-rata share, when a
+-- later one may have gone to default_revenue because the leg was full at the time. Notes approved
+-- before this migration have no rows; their take is still replayed (invoiceRevenuePosting.ts).
+-- journal_line_id is the invoice journal line the leg was read from (its first); capacity groups by
+-- that line's CURRENT account, project and cost centre, so an account merge — which moves the
+-- line in place — carries the allocation with it. gl_account_id / project_id / cost_center_id are
+-- the leg as it was at approval, for the audit trail. No FK on them or on journal_line_id: an FK
+-- onto gl_accounts joins the merge's catalogue sweep (above), and the rest copy the journal.
 --
 -- Locks: ADD COLUMN takes ACCESS EXCLUSIVE on customer_invoice_items for a catalogue-only change
 -- (nullable, no default); each ADD CONSTRAINT takes SHARE ROW EXCLUSIVE on both tables (the new
@@ -277,3 +290,44 @@ FROM pg_temp.r870_before b
 WHERE ar.document_type = 'customer_invoice' AND ar.status IN ('pending', 'approved')
   AND b.document_type = 'customer_invoice' AND b.id = ar.document_id AND b.company_id = ar.company_id
   AND ar.document_digest = b.digest;
+
+CREATE TABLE IF NOT EXISTS public.credit_note_revenue_allocations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES public.companies(id),
+  credit_note_id UUID NOT NULL REFERENCES public.credit_notes(id) ON DELETE CASCADE,
+  invoice_id UUID NOT NULL REFERENCES public.customer_invoices(id),
+  journal_line_id UUID,
+  gl_account_id UUID NOT NULL,
+  project_id UUID,
+  cost_center_id UUID,
+  amount NUMERIC(15,2) NOT NULL,
+  is_excess BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT credit_note_revenue_allocations_leg_line
+    CHECK (is_excess = (journal_line_id IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_credit_note_revenue_allocations_invoice
+  ON public.credit_note_revenue_allocations (company_id, invoice_id);
+CREATE INDEX IF NOT EXISTS idx_credit_note_revenue_allocations_note
+  ON public.credit_note_revenue_allocations (company_id, credit_note_id);
+
+ALTER TABLE public.credit_note_revenue_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.credit_note_revenue_allocations FORCE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'credit_note_revenue_allocations'
+      AND policyname = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON public.credit_note_revenue_allocations
+      TO app_user
+      USING (company_id IN (SELECT auth.user_companies()))
+      WITH CHECK (company_id = app.current_company_id());
+  END IF;
+END $$;
+
+-- Rows are written once, at approval; nothing updates or deletes them (a cancel stops them counting).
+GRANT SELECT, INSERT ON public.credit_note_revenue_allocations TO app_user, platform_admin;

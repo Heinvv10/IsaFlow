@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   allocateByWeight,
   buildInvoiceRevenueLines,
+  allocateCreditNote,
   prorateRevenueLegs,
   revenueLinesInconsistency,
   type StoredRevenueLine,
@@ -208,6 +209,37 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
     ];
     expect(debits(prorateRevenueLegs(legs2, 1000, 'CN-3', DEFAULT, [500, 300])))
       .toEqual([[COMMERCIALS, P1, 120], [POST, P2, 80], [DEFAULT, null, 800]]);
+  });
+
+  it('replays pre-870 notes in approval order: two unequal notes on uneven legs, swapped, leave different legs', () => {
+    // Found by search. Rounding makes the replay order-sensitive, so the order is the approval order.
+    const legs3 = [0.33, 0.25, 0.01].map((net, i) => ({ glAccountId: `acct-${i}`, projectId: null, costCenterId: null, net }));
+    const took = (earlier: number[]) => allocateCreditNote(legs3, 0.33, 'CN-3', DEFAULT, earlier).allocations
+      .map((a) => [a.glAccountId, a.amount, a.isExcess]);
+    expect(took([0.29, 0.05])).toEqual([['acct-0', 0.13, false], ['acct-1', 0.11, false], ['acct-2', 0.01, false], [DEFAULT, 0.08, true]]);
+    expect(took([0.05, 0.29])).toEqual([['acct-0', 0.14, false], ['acct-1', 0.11, false], [DEFAULT, 0.08, true]]);
+  });
+
+  it('subtracts what live notes RECORDED (taken) after the replay, and never takes a leg past zero', () => {
+    const legs2 = [
+      { glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, net: 600, taken: 100, journalLineId: 'l1' },
+      { glAccountId: POST, projectId: P2, costCenterId: null, net: 400, taken: 500, journalLineId: 'l2' },
+    ];
+    // Replayed 500 takes 300/200 → 300/200 left; recorded 100/500 → 200/0 (clamped, not −300).
+    expect(allocateCreditNote(legs2, 1000, 'CN-3', DEFAULT, [500]).allocations).toEqual([
+      { journalLineId: 'l1', glAccountId: COMMERCIALS, projectId: P1, costCenterId: null, amount: 200, isExcess: false },
+      { journalLineId: null, glAccountId: DEFAULT, projectId: null, costCenterId: null, amount: 800, isExcess: true },
+    ]);
+  });
+
+  it('records the leg by identity (glAccountId), not where it posts now', () => {
+    const { lines, allocations } = allocateCreditNote([
+      { glAccountId: COMMERCIALS, postAccountId: DEFAULT, projectId: P1, costCenterId: CC, net: 600, journalLineId: 'l1' },
+    ], 100, 'CN-1', DEFAULT);
+    expect(debits(lines)).toEqual([[DEFAULT, P1, 100]]);
+    expect(allocations).toEqual([
+      { journalLineId: 'l1', glAccountId: COMMERCIALS, projectId: P1, costCenterId: CC, amount: 100, isExcess: false },
+    ]);
   });
 
   it('debits a leg where it posts NOW (postAccountId) while counting it by identity', () => {

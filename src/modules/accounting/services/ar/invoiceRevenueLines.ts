@@ -39,6 +39,21 @@ export interface RevenueLeg {
   costCenterId: string | null;
   /** Credit minus debit the invoice journal posted to this leg. */
   net: number;
+  /** Already taken by earlier notes, per their RECORDED allocations (credit_note_revenue_allocations). */
+  taken?: number;
+  /** The invoice journal line the leg was read from (its first); the allocation row references it. */
+  journalLineId?: string;
+}
+
+/** What a note took, per invoice leg, plus what no leg could take (`isExcess`, default_revenue untagged). */
+export interface CreditNoteAllocation {
+  /** Null on the excess row only. */
+  journalLineId: string | null;
+  glAccountId: string;
+  projectId: string | null;
+  costCenterId: string | null;
+  amount: number;
+  isExcess: boolean;
 }
 
 const cents = (n: number): number => Math.round(n * 100);
@@ -147,32 +162,40 @@ export function noteShares(carries: readonly number[], total: number): number[] 
 }
 
 /**
- * The note's revenue debit, split over the invoice journal's revenue legs.
+ * The note's revenue debit, split over the invoice journal's revenue legs, and
+ * the allocation rows that record it.
  *
- * What each leg still carries is REPLAYED, not read back from earlier notes'
- * journals: every earlier note on the invoice (`earlierNotes`, in approval
- * order) is allocated with this same rule, and its shares are taken off the
- * legs by the legs' own identity — whatever account that note actually posted
- * to (a leg deactivated, then reactivated, posts under different accounts).
+ * What each leg still carries is its net, less what earlier notes TOOK:
+ *  - notes approved since migration 870 recorded it (`leg.taken`, from
+ *    credit_note_revenue_allocations of live notes — a cancelled note's rows
+ *    stop counting the moment it is cancelled);
+ *  - notes approved before 870 recorded nothing, so their take is REPLAYED
+ *    (`legacyNotes`, their amounts in approval order, allocated with this same
+ *    rule) — the fallback only; they all predate any recorded note.
  * No leg is debited past what it carries; whatever the legs cannot take goes
  * to `default_revenue`, untagged, merged with an untagged default leg the
  * invoice itself has, so an uncoded invoice posts exactly the one line it did
  * before. Lines landing on the same (account, project, cost centre) merge.
  */
-export function prorateRevenueLegs(
+export function allocateCreditNote(
   legs: readonly RevenueLeg[],
   amount: number,
   creditNoteNumber: string,
   defaultRevenueAccountId: string,
-  earlierNotes: readonly number[] = [],
-): JournalLineInput[] {
+  legacyNotes: readonly number[] = [],
+): { lines: JournalLineInput[]; allocations: CreditNoteAllocation[] } {
   let carries = legs.map((l) => cents(l.net));
-  for (const earlier of earlierNotes) {
+  for (const earlier of legacyNotes) {
     const took = noteShares(carries, cents(earlier));
     carries = carries.map((c, i) => c - took[i]!);
   }
+  carries = carries.map((c, i) => {
+    const left = c - cents(legs[i]!.taken ?? 0);
+    return legs[i]!.net >= 0 ? Math.max(0, left) : Math.min(0, left);
+  });
   const total = cents(amount);
   const shares = noteShares(carries, total);
+  const excess = total - shares.reduce((a, b) => a + b, 0);
   const merged = new Map<string, { account: string; projectId: string | null; costCenterId: string | null; amount: number }>();
   const add = (account: string, projectId: string | null, costCenterId: string | null, amountCents: number) => {
     const key = `${account}|${projectId ?? ''}|${costCenterId ?? ''}`;
@@ -181,9 +204,31 @@ export function prorateRevenueLegs(
     merged.set(key, m);
   };
   legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, l.projectId, l.costCenterId, shares[i]!));
-  add(defaultRevenueAccountId, null, null, total - shares.reduce((a, b) => a + b, 0));
+  add(defaultRevenueAccountId, null, null, excess);
   const description = `Credit note ${creditNoteNumber}`;
-  return [...merged.values()]
-    .map((m) => leg(m.account, m.amount, 'debit', description, m.projectId, m.costCenterId))
-    .filter((l): l is JournalLineInput => l !== null);
+  const allocations: CreditNoteAllocation[] = legs
+    .map((l, i) => ({ journalLineId: l.journalLineId ?? null, glAccountId: l.glAccountId, projectId: l.projectId,
+      costCenterId: l.costCenterId, amount: rands(shares[i]!), isExcess: false }))
+    .filter((a) => a.amount !== 0);
+  if (excess !== 0) {
+    allocations.push({ journalLineId: null, glAccountId: defaultRevenueAccountId, projectId: null, costCenterId: null,
+      amount: rands(excess), isExcess: true });
+  }
+  return {
+    lines: [...merged.values()]
+      .map((m) => leg(m.account, m.amount, 'debit', description, m.projectId, m.costCenterId))
+      .filter((l): l is JournalLineInput => l !== null),
+    allocations,
+  };
+}
+
+/** The journal lines alone (see allocateCreditNote). */
+export function prorateRevenueLegs(
+  legs: readonly RevenueLeg[],
+  amount: number,
+  creditNoteNumber: string,
+  defaultRevenueAccountId: string,
+  legacyNotes: readonly number[] = [],
+): JournalLineInput[] {
+  return allocateCreditNote(legs, amount, creditNoteNumber, defaultRevenueAccountId, legacyNotes).lines;
 }

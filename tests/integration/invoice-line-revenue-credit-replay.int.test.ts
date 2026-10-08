@@ -1,12 +1,15 @@
 /**
  * Review round 2, items 1, 2 and 7: what a credit note may still take off each
- * revenue leg of its invoice is REPLAYED from the earlier notes' amounts, by
- * the leg's identity — not read back from the accounts they posted to, which a
- * deactivation or a reactivation between notes changes — and approvals of
- * notes on one invoice are serialised, so two concurrent approvals cannot both
- * take the same revenue. Per production, revenue never goes below zero.
+ * revenue leg of its invoice is counted by the leg's identity — not read back
+ * from the accounts the earlier notes posted to, which a deactivation or a
+ * reactivation between notes changes — and approvals of notes on one invoice
+ * are serialised, so two concurrent approvals cannot both take the same
+ * revenue. Per production, revenue never goes below zero. Since the final
+ * round the earlier notes' takes are RECORDED (credit_note_revenue_allocations;
+ * see invoice-line-revenue-credit-allocations.int.test.ts, which also covers
+ * the replay fallback for notes approved before 870).
  *
- * Disposable databases only (migrations 869 and 870 are not on isaflow_dev).
+ * Disposable databases only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
