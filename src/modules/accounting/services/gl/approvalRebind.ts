@@ -3,14 +3,12 @@
  * of approvalDocuments.ts to hold that file under the 300-line ceiling.
  */
 
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ApprovalRequest, ApprovalRule } from './approvalService';
 import type { ApprovalDocument } from './approvalDocuments';
 import { mapRequest } from './approvalMatching';
 import { requiredRank } from './approvalAuthority';
-
-type Row = Record<string, unknown>;
+import { rebindRequestRow } from './approvalRequestWrites';
 
 /**
  * Bring a pending request onto the rule the CURRENT facts choose — but only
@@ -70,32 +68,15 @@ export async function rebindPendingRequest(
     return existing;
   }
   const ruleId = keepBinding ? null : matched!.id;
-  const role = keepBinding ? null : matched!.approverRole;
 
   // A NULL-digest request (raised between migration 708 and this code, or never
   // bound) heals here: NULL !== the document's digest, so it is re-stamped.
-  const rows = (await sql`
-    UPDATE approval_requests ar SET
-      rule_id = COALESCE(${ruleId}::UUID, ar.rule_id),
-      required_role = COALESCE(${role}::TEXT, ar.required_role),
-      amount = ${document.amount}::NUMERIC,
-      document_reference = ${document.reference}::TEXT,
-      document_digest = ${document.digest}::TEXT,
-      content_authors = CASE WHEN ${digestChanged}::BOOLEAN
-                             THEN approval_document_authors(ar.company_id, ar.document_type, ar.document_id)
-                             ELSE ar.content_authors END,
-      past_requesters = CASE WHEN ${digestChanged}::BOOLEAN AND ar.requested_by <> ${requestedBy}::UUID
-                             THEN array_append(ar.past_requesters, ar.requested_by) ELSE ar.past_requesters END,
-      requested_by = CASE WHEN ${digestChanged}::BOOLEAN THEN ${requestedBy}::UUID ELSE ar.requested_by END,
-      requested_at = CASE WHEN ${digestChanged}::BOOLEAN THEN NOW() ELSE ar.requested_at END,
-      approver_roster = CASE WHEN ${digestChanged}::BOOLEAN THEN (
-        SELECT approval_roster_snapshot(${companyId}::UUID, ${requestedBy}::TEXT)
-        WHERE EXISTS (SELECT 1 FROM approval_enforcement ae
-                      WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ar.document_type)
-      ) ELSE ar.approver_roster END
-    WHERE ar.id = ${existing.id}::UUID AND ar.company_id = ${companyId} AND ar.status = 'pending'
-    RETURNING *
-  `) as Row[];
+  // approval_request_rebind (migration 872) is the only way a pending request
+  // is rewritten: it re-reads the document and the row under FOR UPDATE,
+  // refuses a laxer rule or another user's name, and decides "content moved"
+  // itself, from the digest it computes — the same comparison as above.
+  const rows = await rebindRequestRow(companyId, existing.id, ruleId, requestedBy,
+    { type: existing.documentType, id: existing.documentId });
   // Decided between the read and the write: nothing pending to re-bind.
   if (!rows[0]) return existing;
   log.info('Approval request re-bound', {

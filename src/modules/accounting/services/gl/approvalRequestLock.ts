@@ -18,7 +18,8 @@
  * Modelled on `bank/bankTxLock.ts` and `gl/glAccountLock.ts` — same idiom, same
  * 5s budget, deliberately not a third one.
  */
-import { sql, withSavepoint } from '@/lib/neon';
+import { withSavepoint } from '@/lib/neon';
+import { lockRequestRow } from './approvalRequestWrites';
 import { als, assertTxUsable } from '@/lib/als';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
@@ -73,10 +74,9 @@ export async function lockApprovalRequestForUpdate(
   // savepoint is what keeps it harmless if anything is ever written before it.
   try {
     await withSavepoint('approval_request_lock', async () => {
-      await sql`
-        SELECT id FROM approval_requests
-         WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
-         FOR UPDATE`;
+      // approval_request_lock (migration 872): FOR UPDATE needs UPDATE
+      // privilege, which no role but the table's owner holds any more.
+      await lockRequestRow(companyId, requestId);
     });
   } catch (err) {
     if (isLockTimeout(err)) throw new ApprovalRequestLockTimeoutError(requestId);

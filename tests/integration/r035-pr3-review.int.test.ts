@@ -6,8 +6,10 @@
  *    requesters, and raised by the session's own user. A decided row is an
  *    approval nobody gave; a row naming another requester lets its real raiser
  *    decide their own request. A role that bypasses RLS (the owner a script or
- *    fixture runs as) is not held to it. Supplier-invoice requests are out of
- *    scope (live): unchanged.
+ *    fixture runs as) is not held to it. Since R-035 N1 (migration 872)
+ *    app_user may not INSERT the table at all — every forgery below is refused
+ *    by privilege — and a legitimate raise goes through
+ *    approval_request_raise; supplier-invoice requests included.
  *  - A4: the credit-note backstop applies the rank ratchet the TypeScript gate
  *    does — an approval clears only at a rank at or above the strictest active
  *    rule matching today — and refuses a row bound to no role.
@@ -35,6 +37,14 @@ beforeAll(async () => {
 afterAll(() => cleanupPr3(pool, companies, Object.values(u)));
 
 const company = () => noteCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.m, 'manager']], companies);
+
+/** R-035 N1 (migration 872): app_user holds no INSERT on approval_requests. */
+const DENIED = /permission denied for table approval_requests/;
+/** The legitimate raise since N1: approval_request_raise, bound to an `admin any` rule of the note's type. */
+const raisePending = async (cl: PoolClient, c: string, documentType: string, noteId: string, requestedBy: string) => {
+  const rule = await plantRule(pool, c, 'admin', { documentType });
+  return cl.query('SELECT * FROM approval_request_raise($1, $2, $3, $4, $5)', [c, documentType, noteId, rule, requestedBy]);
+};
 
 /** What withAuth sets up: app_user, the session's claims (a non-impersonation session) and the company. */
 async function asAppUser<T>(userId: string, companyId: string, body: (c: PoolClient) => Promise<T>,
@@ -75,17 +85,17 @@ describe.each(['customer', 'supplier'] as const)('A3 — a decided %s credit-not
     const note = await plantNote(pool, c, u.a, type);
     for (const status of ['approved', 'rejected', 'cancelled']) {
       await expect(asAppUser(u.a, c, (cl) => insertRequest(cl, c, approvalTypeOf(type), note.id, status)), status)
-        .rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+        .rejects.toThrow(DENIED);
     }
     await expect(asAppUser(u.a, c, async (cl) => {
       await postRaw(cl, note.id);
     })).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
   });
 
-  it('app_user may still INSERT a pending one, and the owner role may plant a decided one', async () => {
+  it('app_user may still raise a pending one (through approval_request_raise), and the owner role may plant a decided one', async () => {
     const c = await company();
     const note = await plantNote(pool, c, u.a, type);
-    await asAppUser(u.a, c, (cl) => insertRequest(cl, c, approvalTypeOf(type), note.id, 'pending'));
+    await asAppUser(u.a, c, (cl) => raisePending(cl, c, approvalTypeOf(type), note.id, u.a));
     const other = await plantNote(pool, c, u.a, type);
     await insertRequest(pool, c, approvalTypeOf(type), other.id, 'approved');
     const { rows } = await pool.query('SELECT status FROM approval_requests WHERE document_id = ANY($1) ORDER BY status',
@@ -105,13 +115,13 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
   it('refuses a row naming another requester — its real raiser could then decide it', async () => {
     const c = await company();
     const note = await plantNote(pool, c, u.a, type);
-    await expect(asAppUser(u.b, c, (cl) => insertPending(cl, c, note.id, u.a))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    await expect(asAppUser(u.b, c, (cl) => insertPending(cl, c, note.id, u.a))).rejects.toThrow(DENIED);
   });
 
   it('compares the subject as a uuid: the same id in upper case may still raise (round 3)', async () => {
     const c = await company();
     const note = await plantNote(pool, c, u.a, type);
-    await asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a), u.a.toUpperCase());
+    await asAppUser(u.a, c, (cl) => raisePending(cl, c, approvalTypeOf(type), note.id, u.a), u.a.toUpperCase());
     const { rows } = await pool.query('SELECT requested_by FROM approval_requests WHERE document_id = $1', [note.id]);
     expect(rows).toEqual([{ requested_by: u.a }]);
   });
@@ -121,7 +131,7 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
       const c = await company();
       const note = await plantNote(pool, c, u.a, type);
       await expect(asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a), badSub))
-        .rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+        .rejects.toThrow(DENIED);
     });
 
   it('refuses any insert from a session with no JWT subject (auth.uid() NULL), whoever it names', async () => {
@@ -132,7 +142,7 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
       await cl.query('BEGIN');
       await cl.query('SET LOCAL ROLE app_user');
       await cl.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
-      await expect(insertPending(cl, c, note.id, u.a)).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+      await expect(insertPending(cl, c, note.id, u.a)).rejects.toThrow(DENIED);
     } finally {
       await cl.query('ROLLBACK');
       cl.release();
@@ -146,7 +156,7 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
   ] as [string, string][])('refuses a pending row that already carries %s', async (column, value) => {
     const c = await company();
     const note = await plantNote(pool, c, u.a, type);
-    await expect(asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a, [column, value]))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    await expect(asAppUser(u.a, c, (cl) => insertPending(cl, c, note.id, u.a, [column, value]))).rejects.toThrow(DENIED);
   });
 
   it('the human raise (approval-requests route, under withAuth) still writes its request', async () => {
@@ -170,13 +180,13 @@ describe.each(['customer', 'supplier'] as const)('N2 — a pending %s credit-not
   });
 });
 
-describe('A3 scope — supplier-invoice requests are unchanged (live enforcement, out of bounds)', () => {
-  it('app_user may still INSERT a decided supplier_invoice request row', async () => {
+describe('A3 scope — supplier-invoice requests (closed by R-035 N1, migration 872)', () => {
+  it('app_user may NOT insert a decided supplier_invoice request row', async () => {
     const c = await company();
-    const id = crypto.randomUUID(); // the trigger reads no document: any id shows it is not consulted
-    await asAppUser(u.a, c, (cl) => insertRequest(cl, c, 'supplier_invoice', id, 'approved'));
+    const id = crypto.randomUUID();
+    await expect(asAppUser(u.a, c, (cl) => insertRequest(cl, c, 'supplier_invoice', id, 'approved'))).rejects.toThrow(DENIED);
     const { rows } = await pool.query('SELECT status FROM approval_requests WHERE document_id = $1', [id]);
-    expect(rows).toEqual([{ status: 'approved' }]);
+    expect(rows).toEqual([]);
   });
 });
 
