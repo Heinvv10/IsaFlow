@@ -15,7 +15,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { mayDemandRole } from '@/modules/accounting/services/gl/approvalRank';
 import { STARTER_RULES } from '@/modules/accounting/services/gl/approvalStarterRules';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
-import { OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
+import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
 
 interface Props {
   actorRole: string;
@@ -54,7 +54,7 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
       if (!row.include) continue;
       if (t.conditionOperator === 'any') { out.push({ documentType: t.documentType, approverRole: row.role }); continue; }
       const value = parseAmount(row.amount);
-      if (value === null) return `Enter an amount of 0 or more for ${docTypeLabel(t.documentType)}.`;
+      if (value === null) return `Enter an amount ${AMOUNT_RANGE} for ${docTypeLabel(t.documentType)}.`;
       out.push({ documentType: t.documentType, conditionValue: value, approverRole: row.role });
     }
     return out.length > 0 ? out : 'Tick at least one rule to create.';

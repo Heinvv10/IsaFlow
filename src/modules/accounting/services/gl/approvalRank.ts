@@ -57,7 +57,14 @@ export const actorRank = (role: string): number =>
 export const mayDemandRole = (actorRole: string, ruleRole: string): boolean =>
   actorRank(actorRole) >= requiredRank(ruleRole);
 
-/** The approver roles `actorRole` may put on a rule, strictest first. */
+/**
+ * Ladder roles the rule form never offers: `system` is a pseudo-role for
+ * service accounts — no person holds or picks it (R-035 follow-up PR A review
+ * round 1). The server still accepts it; this narrows only what is offered.
+ */
+const NOT_OFFERED = new Set(['system']);
+
+/** The approver roles the rule form offers `actorRole`: those it may demand, strictest first. */
 export const demandableApproverRoles = (actorRole: string): string[] =>
-  APPROVER_ROLES.filter((role) => mayDemandRole(actorRole, role))
+  APPROVER_ROLES.filter((role) => !NOT_OFFERED.has(role) && mayDemandRole(actorRole, role))
     .sort((a, b) => APPROVER_RANK[b]! - APPROVER_RANK[a]!);

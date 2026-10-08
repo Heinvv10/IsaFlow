@@ -16,7 +16,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { demandableApproverRoles } from '@/modules/accounting/services/gl/approvalRank';
 import { CONDITION_OPERATORS, RULE_FORM_DOCUMENT_TYPES } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import { ApprovalRoleSelect } from './ApprovalRoleSelect';
-import { OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
+import { AMOUNT_RANGE, OPERATOR_LABELS, docTypeLabel, parseAmount, type ApprovalRuleRow } from './approvalRuleDisplay';
 
 interface Props {
   actorRole: string;
@@ -45,7 +45,7 @@ export function ApprovalRuleForm({ actorRole, rule, onSaved, onClose }: Props) {
   function buildBody(): Record<string, unknown> | string {
     if (name.trim() === '') return 'Enter a name for the rule.';
     const value = operator === 'any' ? 0 : parseAmount(amount);
-    if (value === null) return 'Enter an amount of 0 or more.';
+    if (value === null) return `Enter an amount ${AMOUNT_RANGE}.`;
     if (!rule) {
       return { name: name.trim(), documentType, conditionOperator: operator, conditionValue: value, approverRole: role };
     }

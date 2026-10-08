@@ -4,6 +4,7 @@
  * format. Pure; split out of pages/accounting/approvals/index.tsx so the Rules
  * tab components can share it (300-line ceiling).
  */
+import { isRuleAmount } from '@/modules/accounting/services/gl/approvalRuleOptions';
 
 export interface ApprovalRuleRow {
   id: string;
@@ -41,9 +42,12 @@ export function formatCurrency(amount: number): string {
   return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** A form's amount field as a number, or null when it is not one of 0 or more. */
+/** MAX_RULE_AMOUNT (approval_rules.condition_value is NUMERIC(15,2)) as a person reads it. */
+export const AMOUNT_RANGE = 'from 0 to 9,999,999,999,999.99';
+
+/** A form's amount field as a number, or null when it is not one a rule may hold (isRuleAmount). */
 export function parseAmount(text: string): number | null {
   if (text.trim() === '') return null;
   const value = Number(text);
-  return Number.isFinite(value) && value >= 0 ? value : null;
+  return isRuleAmount(value) ? value : null;
 }
