@@ -155,3 +155,12 @@ export async function isBankDetailsSetter(companyId: string, supplierId: string,
   `) as DbRow[];
   return rows[0]?.setter === true;
 }
+
+/** The company's suppliers whose CURRENT bank details `userId` set — left out of the switch-on baseline. */
+export async function suppliersWithBankDetailsSetBy(companyId: string, userId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT id::TEXT AS id FROM suppliers
+    WHERE company_id = ${companyId}::UUID AND ${userId} = ANY (COALESCE(bank_details_setters::TEXT[], '{}'))
+  `) as DbRow[];
+  return rows.map((r) => String(r.id));
+}

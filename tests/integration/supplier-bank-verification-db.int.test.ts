@@ -126,6 +126,16 @@ describe('supplier_bank_verifications as app_user', () => {
     await expect(asApp(u.c, c, async (db) => insert(db, c, s, await current(s), u.c, 'baseline'))).rejects.toThrow(/baseline/);
   });
 
+  it('refuses a baseline of details the switcher set, even inside the switch-on transaction', async () => {
+    const { company: c } = await bankCompany(pool, [[u.a, 'admin']], companies);
+    const s = await plantSupplier(pool, c);
+    await pool.query('UPDATE suppliers SET bank_details_setters = ARRAY[$1::UUID] WHERE id = $2', [u.a, s]);
+    await expect(asApp(u.a, c, async (db) => {
+      await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.a]);
+      await insert(db, c, s, await current(s), u.a, 'baseline');
+    })).rejects.toThrow(/set these bank details/);
+  });
+
   it('refuses a verify while the control is off', async () => {
     const { company: c } = await bankCompany(pool, [[u.c, 'admin']], companies);
     const s = await plantSupplier(pool, c);
