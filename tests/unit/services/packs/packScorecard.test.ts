@@ -10,6 +10,7 @@ function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   return {
     companyName: 'Test Co',
     period: '2026-01-01 to 2026-01-31',
+    periodDays: 31,
     revenue: 1_000_000,
     costOfSales: 600_000,
     operatingExpenses: 250_000,

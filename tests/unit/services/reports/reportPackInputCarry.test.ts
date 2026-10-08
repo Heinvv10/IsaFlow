@@ -223,6 +223,12 @@ describe('getReportPackInput carries the cash flows of the window it was asked f
     expect(warnMock).toHaveBeenCalledTimes(1);
   });
 
+  it('carries the window\'s day count, which every pack\'s day ratios multiply by', async () => {
+    figuresMock.mockResolvedValue({ period: PERIOD, cumulative: PERIOD, periodDays: 184 });
+    const input = await getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31');
+    expect(input.periodDays).toBe(184);
+  });
+
   it('does not call a code bug in the statement "no cash flow figures"', async () => {
     cashFlowMock.mockRejectedValue(new TypeError('legs.values is not a function'));
     await expect(getReportPackInput('c-1', 'Demo', '2026-03-01', '2026-08-31'))

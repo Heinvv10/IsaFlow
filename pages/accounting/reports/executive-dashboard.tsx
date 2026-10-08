@@ -75,10 +75,21 @@ export default function ExecutiveDashboardPage() {
   // hides the four ratio tiles and the scorecard, and computes nothing
   // differently.
   const { density, setDensity, error: densityError } = useDensity();
+  // A WINDOW THE ROUTES REFUSE IS NOT FETCHED. The scorecard answers a
+  // backwards window with 400, and `assertOk` on it then blanked the summary
+  // that loaded beside it; neither request goes, and the reason sits under
+  // the dates instead.
+  const windowError = !from || !to ? 'Choose a start and an end date.'
+    : from > to ? 'The start date is after the end date.' : '';
 
   const loadData = useCallback(async () => {
-    setLoading(true);
     setError('');
+    if (windowError) {
+      setSummary(null); setScorecard([]); setUnclassified(null); setInventory(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const [sumRawRes, scRawRes] = await Promise.all([
         apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`),
@@ -103,7 +114,7 @@ export default function ExecutiveDashboardPage() {
       setError(apiErrorMessage(err, 'Could not load the executive dashboard - try again'));
       log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
     } finally { setLoading(false); }
-  }, [from, to]);
+  }, [from, to, windowError]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 
@@ -149,6 +160,9 @@ export default function ExecutiveDashboardPage() {
           </div>
           {densityError && (
             <p role="alert" className="mt-2 text-xs text-red-400">{densityError}</p>
+          )}
+          {windowError && (
+            <p role="alert" className="mt-2 text-xs text-red-400">{windowError}</p>
           )}
         </div>
 
@@ -244,7 +258,7 @@ export default function ExecutiveDashboardPage() {
                 </div>
               )}
             </>
-          ) : error ? null : (
+          ) : error || windowError ? null : (
             <div className="flex flex-col items-center justify-center py-20 text-[var(--ff-text-secondary)]">
               <LayoutDashboard className="h-12 w-12 mb-3 opacity-30" />
               <p>No financial data available for the selected period.</p>

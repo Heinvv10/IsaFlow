@@ -7,6 +7,7 @@
  * function, so the two lines both callers need live here instead. Nothing
  * changed in the move; `boardPackDocument.ts` re-exports both names.
  */
+import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -130,31 +131,16 @@ export function packDateOf(value: string): string {
  *
  * The fifteenth gate withheld credit for this rather than failing a
  * criterion: 1 January to 7 September 2026 is 250 days and 26 April to 31
- * December 2025 is also 250, which is what makes the prior column and the
- * annualised day counts comparable at all, and the pack said so nowhere. A
+ * December 2025 is also 250, which is what makes the prior column's totals
+ * comparable at all, and the pack said so nowhere. A
  * reader who checks it has the most reassuring fact about the comparison; a
  * reader who does not check it is entitled to be told.
  *
  * It states the MEASUREMENT and not a verdict, so the clause is as true of a
  * pack whose windows differ — which is the case a director needs it for. The
- * day counts are inclusive of both endpoints, counted off the ISO parts
- * through `Date.UTC` rather than `new Date(iso)`: this host is UTC+2 and a
- * local-midnight parse is a day short of the window it is measuring.
+ * day counts are `priorPeriod.inclusiveDays`, the count the ratio engine's
+ * day ratios multiply by.
  */
-function inclusiveDays(start: string, end: string): number | null {
-  const utc = (iso: string): number => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1);
-  };
-  const days = Math.round((utc(end) - utc(start)) / 86_400_000) + 1;
-  // A MALFORMED DATE IS NOT A DAY COUNT. `?? 0` covered a missing part and
-  // not a non-numeric one: `Number('xx')` is NaN, `Date.UTC` carries it
-  // through, and the clause printed "NaN days" on a sheet whose whole claim
-  // is that the two windows are comparable. Null here, and the caller says
-  // nothing rather than something false.
-  return Number.isFinite(days) ? days : null;
-}
-
 export function comparativeLengthClause(
   current: { start: string; end: string },
   prior: { start: string; end: string },

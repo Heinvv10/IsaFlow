@@ -39,6 +39,7 @@ export const velocitySet: PackFigureSet = {
   current: figures({
     companyName: 'Velocity Fibre (Pty) Ltd',
     period: '2026-01-01 to 2026-10-02',
+    periodDays: 275,
     revenue: 95_526_000,
     costOfSales: 69_967_000,
     operatingExpenses: 21_698_000,
@@ -70,6 +71,7 @@ export const velocitySet: PackFigureSet = {
   prior: figures({
     companyName: 'Velocity Fibre (Pty) Ltd',
     period: '2025-04-01 to 2025-12-31',
+    periodDays: 275,
     revenue: 13_163_000,
     costOfSales: 51_512_000,
     operatingExpenses: 13_820_000,

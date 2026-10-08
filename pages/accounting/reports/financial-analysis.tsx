@@ -18,14 +18,12 @@ import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ratioLabel, ratioLine } from '@/modules/accounting/services/reports/ratioPresentation';
 import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+// The note only: the chart itself loads through `dynamic` below.
+import { RATIO_TREND_STUB_NOTE, RATIO_TREND_STUB_NOTE_ID } from '@/components/accounting/charts/ratioTrendStub';
 
-const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
-const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
+const RatioTrendChart = dynamic(
+  () => import('@/components/accounting/charts/RatioTrendChart').then(m => m.RatioTrendChart), { ssr: false },
+);
 
 interface ScorecardItem {
   ratioKey: string;
@@ -40,7 +38,7 @@ interface ScorecardItem {
 interface TrendItem {
   ratioName: string;
   /** A point is null where the ratio could not be stated in that period. */
-  values: Array<{ period: string; value: number | null }>;
+  values: Array<{ period: string; value: number | null; partial: boolean }>;
   trend: 'improving' | 'declining' | 'stable' | 'not_meaningful';
   changePercent: number | null;
 }
@@ -258,8 +256,11 @@ export default function FinancialAnalysisPage() {
                   {['grossProfitMargin', 'currentRatio', 'debtorDays', 'returnOnEquity'].map(key => {
                     const trend = trends.find(t => t.ratioName === key);
                     if (!trend || trend.values.length === 0) return null;
+                    // The "*" on a stub's axis label is explained by the note
+                    // under the charts; a screen reader is pointed at it.
+                    const hasStub = trend.values.some(v => v.partial);
                     return (
-                      <div key={key}>
+                      <div key={key} data-trend={key} aria-describedby={hasStub ? RATIO_TREND_STUB_NOTE_ID : undefined}>
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-sm font-medium text-[var(--ff-text-secondary)]">{ratioLabel(key)}</span>
                           <span className={`text-xs font-medium ${trendColors[trend.trend]}`}>
@@ -268,19 +269,15 @@ export default function FinancialAnalysisPage() {
                               : `${trend.changePercent > 0 ? '+' : ''}${trend.changePercent.toFixed(1)}%`}
                           </span>
                         </div>
-                        <ResponsiveContainer width="100%" height={120}>
-                          <LineChart data={trend.values}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                            <XAxis dataKey="period" tick={{ fontSize: 10, fill: '#888' }} />
-                            <YAxis tick={{ fontSize: 10, fill: '#888' }} width={45} />
-                            <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
-                            <Line type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
+                        <RatioTrendChart values={trend.values} />
                       </div>
                     );
                   })}
                 </div>
+                {trends.some(t => t.values.some(v => v.partial)) && (
+                  // --ff-text-secondary on --ff-bg-secondary: 4.6:1 light, 11.9:1 dark.
+                  <p id={RATIO_TREND_STUB_NOTE_ID} role="note" className="mt-3 text-xs text-[var(--ff-text-secondary)]">{RATIO_TREND_STUB_NOTE}</p>
+                )}
               </div>
             </>
           )}

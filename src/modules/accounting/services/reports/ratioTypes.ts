@@ -60,6 +60,15 @@ export interface FinancialData {
    * report", which is true only of a caller that never reads them.
    */
   ledgerInputsNotRead?: string;
+  /**
+   * The days the flow figures (revenue, cost of sales) cover — the reporting
+   * window, both ends counted (`priorPeriod.inclusiveDays`). Debtor, creditor
+   * and inventory days multiply by it: 365 over six months' revenue read six
+   * months of sales as a year's and doubled the count. REQUIRED, so every
+   * builder decides: a caller holding a year's figures passes 365 itself.
+   * Null: the window could not be measured, and no day count is stated.
+   */
+  periodDays: number | null;
 }
 
 /**

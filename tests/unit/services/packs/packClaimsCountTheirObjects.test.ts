@@ -70,7 +70,7 @@ describe('page 12 counts what it is about', () => {
         .flatMap((p) => p.blocks)
         .some((b) => b.kind === 'smallMultiples' && b.panels.some((x) => x.id === 'trend-debtor-days'));
       expect(
-        /trends page instead multiplies/.test(glossary),
+        /On the trends page that period is each month/.test(glossary),
         drawn
           ? `${company} draws a debtor-days panel and page 12 does not define it`
           : `${company} draws no debtor-days panel and page 12 defines what it would do`,

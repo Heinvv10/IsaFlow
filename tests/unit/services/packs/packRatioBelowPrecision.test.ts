@@ -94,11 +94,12 @@ describe('every ratio page 9 states takes the same path', () => {
     ['Debtor days', { accountsReceivable: 1, revenue: 100_000_000 }, '<1 day'],
     ['Creditor days', { accountsPayable: 1, costOfSales: 100_000_000 }, '<1 day'],
   ];
-  it('restores debtor days annualised, as the engine annualises them', () => {
-    // 1 000 owed on 100 000 000 of revenue: 0.00365 days. The engine's
-    // two-place figure is 0; the restored one is the same quotient times 365.
+  it('restores debtor days on the window\'s days, as the engine counts them', () => {
+    // 1 000 owed on 100 000 000 of revenue over the demo's 184-day window:
+    // 0.00184 days. The engine's two-place figure is 0; the restored one is
+    // the same quotient times the same 184.
     const set: PackFigureSet = { ...demoSet, current: { ...demoSet.current, accountsReceivable: 1_000, revenue: 100_000_000 } };
-    expect(rowOf(set, 'Debtor days').actual.value).toBeCloseTo((1_000 / 100_000_000) * 365, 10);
+    expect(rowOf(set, 'Debtor days').actual.value).toBeCloseTo((1_000 / 100_000_000) * 184, 10);
   });
 
   for (const [metric, override, expected] of tiny) {

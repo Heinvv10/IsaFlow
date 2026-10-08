@@ -26,6 +26,7 @@ import {
 } from '@/modules/accounting/services/packs/pages/packTradeBalances';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { comparativeLengthClause } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
+import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
 import { formatMoney, inProse, MONEY_SCALES } from '@/lib/format/money';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { ScorecardTable } from '@/components/accounting/packs/primitives/ScorecardTable';
@@ -119,12 +120,14 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
       .find((r) => r.metric === 'Creditor days');
     expect(row?.prior?.value, 'the scorecard prints no prior creditor days').not.toBeNull();
     const days = row!.prior!.value!;
+    // Over the comparative's own days, which the prior-column footnote states.
+    const window = inclusiveDays(set.priorWindow.start, set.priorWindow.end)!;
 
-    expect((set.prior!.accountsPayable / set.prior!.costOfSales) * 365).toBeCloseTo(days, 1);
+    expect((set.prior!.accountsPayable / set.prior!.costOfSales) * window).toBeCloseTo(days, 1);
 
     // And off the ROUNDED pair a director divides, to the drift page 12's
     // rounding note licenses — half a unit each way on each input.
-    const fromTheSheet = (printed(set.prior!.accountsPayable) / printed(set.prior!.costOfSales)) * 365;
+    const fromTheSheet = (printed(set.prior!.accountsPayable) / printed(set.prior!.costOfSales)) * window;
     const half = MONEY_SCALES[PACK_SCALE] / 2;
     const bound = days
       * (half / Math.abs(set.prior!.accountsPayable) + half / Math.abs(set.prior!.costOfSales));
@@ -132,9 +135,10 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
   });
 
   /**
-   * THE POINT OF PRINTING THEM — 213 comes back out.
+   * THE POINT OF PRINTING THEM — the day count comes back out.
    *
-   * Debtor days is receivables over revenue times 365. Both figures are now
+   * Debtor days is receivables over revenue times the period's days, which
+   * the basis page dates. Both figures are now
    * on the paper (the receivable in page 7's memorandum, revenue on page 6),
    * so this takes the division the way a director would: on the ROUNDED
    * figures the sheets print, to within the unit the day count prints in.
@@ -150,21 +154,19 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
       .find((r) => r.metric === 'Debtor days');
     expect(row?.actual.value, 'the scorecard prints no debtor days').not.toBeNull();
     const days = row!.actual.value!;
+    const window = inclusiveDays(set.currentWindow.start, set.currentWindow.end)!;
 
     // THE IDENTITY, on the figures the ledger issued. If the memorandum ever
     // prints a receivable the day count is not taken on, this is the
-    // assertion that goes red. To a twentieth of a day: `calculateExtendedRatios`
-    // rounds the quotient to four places before annualising it, so an honest
-    // day count sits a hundredth or two off the raw division and no further.
-    expect((set.current.accountsReceivable / set.current.revenue) * 365).toBeCloseTo(days, 1);
+    // assertion that goes red.
+    expect((set.current.accountsReceivable / set.current.revenue) * window).toBeCloseTo(days, 1);
 
     // AND THE DIVISION A DIRECTOR ACTUALLY TAKES, off the two ROUNDED figures
     // the sheets print. The bound is what rounding both inputs to the nearest
     // R'000 can move the quotient by — half a unit each way on each — which
     // is precisely the drift page 12's rounding note licenses and nothing
-    // more. It is not a slack tolerance: on the live demo ledger the two
-    // agree at 213 days exactly.
-    const fromTheSheet = (printed(set.current.accountsReceivable) / printed(set.current.revenue)) * 365;
+    // more. It is not a slack tolerance.
+    const fromTheSheet = (printed(set.current.accountsReceivable) / printed(set.current.revenue)) * window;
     const half = MONEY_SCALES[PACK_SCALE] / 2;
     const bound = days * (half / Math.abs(set.current.accountsReceivable) + half / Math.abs(set.current.revenue));
     expect(Math.abs(fromTheSheet - days)).toBeLessThanOrEqual(bound);
@@ -388,8 +390,8 @@ describe('two conventions the pack applied and did not declare', () => {
 describe('facts stated where the figure is read', () => {
   /**
    * The comparative is EXACTLY as long as the reporting period — 250 days
-   * each — which is what makes the prior column and every annualised day
-   * count comparable at all, and the pack said so nowhere. It is stated on
+   * each — which is what makes the prior column's totals comparable at
+   * all, and the pack said so nowhere. It is stated on
    * the statement pages, under the column it qualifies, because page 12's
    * own fact list cannot afford the line (see `statementFootnotes`).
    */
@@ -413,25 +415,25 @@ describe('facts stated where the figure is read', () => {
   });
 
   /**
-   * 213 days against a 30-day target, and a third of that gap is the 365-day
-   * multiplier: on the period's own 250 days the same book is 146. Page 12
-   * disclosed it; page 9, where a director reads the number beside its
-   * target, did not.
+   * 213 days against a 30-day target, and a third of that gap was the 365-day
+   * multiplier: on the period's own 250 days the same book is 146. The engine
+   * multiplies by the period's own days now, and page 9, where a director
+   * reads the number beside its target, says so.
    */
-  it('the scorecard says its day count is annualised, on the scorecard', () => {
+  it('the scorecard says its day count is on the period\'s own days, on the scorecard', () => {
     const scorecard = pageNamed(liveDemoRenderedInput, 'Scorecard');
     const rows = scorecard.blocks
       .flatMap((b) => (b.kind === 'scorecard' ? b.groups.flatMap((g) => g.rows) : []));
     const debtorDays = rows.find((r) => r.metric === 'Debtor days');
-    // NOT VACUOUS: the page must actually print the annualised count against
+    // NOT VACUOUS: the page must actually print the day count against
     // a target, or the sentence explains nothing.
     expect(debtorDays?.actual.value, 'no debtor days on the scorecard').not.toBeNull();
     expect(debtorDays?.target, 'no target to read it against').not.toBeNull();
 
-    expect(proseOf(scorecard)).toContain('annualised on 365 days');
-    // And it is NOT claimed of a measure that is not annualised: the income
+    expect(proseOf(scorecard)).toContain('over the period\'s own days');
+    // And it is NOT claimed of a measure that is not a day count: the income
     // statement carries the same footnote for gross margin.
     expect(proseOf(pageNamed(liveDemoRenderedInput, 'Income statement')))
-      .not.toContain('annualised on 365 days');
+      .not.toContain('over the period\'s own days');
   });
 });

@@ -13,6 +13,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { fmtDate } from '@/lib/fmtDate';
 
 const getFinancialFiguresMock = vi.fn();
 const sqlMock = vi.fn();
@@ -171,12 +172,14 @@ describe('Financial Analysis: the ratio trends', () => {
     expect(reads).toHaveLength(1);
     const dates = reads[0]![1] as string[];
     expect(dates).toHaveLength(12);
-    // Each is the last day of its month, in order.
-    for (const date of dates) {
+    // Each is the last day of its month, in order — the current month's is
+    // today, which is where its window ends.
+    for (const date of dates.slice(0, -1)) {
       const next = new Date(`${date}T00:00:00Z`);
       next.setUTCDate(next.getUTCDate() + 1);
       expect(next.getUTCDate(), date).toBe(1);
     }
+    expect(dates.at(-1)).toBe(fmtDate(new Date()));
     expect([...dates].sort()).toEqual(dates);
   });
 
