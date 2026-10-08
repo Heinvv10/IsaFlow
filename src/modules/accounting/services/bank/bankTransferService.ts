@@ -22,6 +22,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { DbRow } from '@/lib/neon';
 import { isBankSubtype } from '../gl/accountSubtypes';
 import { newManualJournalRefusal } from '../gl/manualJournalApproval';
+import { findTransferRecordedFromStatement } from './transferDuplicateGuard';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntry } from '../../types/gl.types';
 
@@ -63,6 +64,14 @@ export async function postBankTransfer(
   if (!isBankSubtype(from.account_subtype) || !isBankSubtype(to.account_subtype)) {
     throw new BankTransferRefusedError('A transfer moves money between two of the company\'s bank accounts: '
       + 'both accounts must be bank accounts');
+  }
+  // The bank statement already recorded this movement as a transfer: typing it again would post it twice — the
+  // reverse of transferDuplicateGuard (rev-nrfa LOW-1).
+  const recorded = await findTransferRecordedFromStatement(
+    companyId, input.fromAccountId, input.toAccountId, input.amount, input.transferDate);
+  if (recorded) {
+    throw new BankTransferRefusedError(`This transfer is already in the ledger as ${recorded}, recorded from the bank `
+      + 'statement for this amount and date. Nothing was posted.');
   }
   const refusal = await newManualJournalRefusal(companyId, input.amount, (role, rule, amountText) =>
     `A bank transfer is a journal a person composed, so transferring ${amountText} needs ${role} approval before it `
