@@ -12,9 +12,7 @@ import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture, inTx } from './helpers/l1FifoFixture';
-import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
-import { fetchJournalLineCandidates } from '@/modules/accounting/services/bank/bankMatchDbQueries';
+import { dropFixture } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 

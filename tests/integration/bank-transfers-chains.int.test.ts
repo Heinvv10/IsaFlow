@@ -7,13 +7,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import bankTxAction from '../../pages/api/accounting/bank-transactions-action';
 import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
-import bankTransfers from '../../pages/api/accounting/bank-transfers';
-import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture, inTx } from './helpers/l1FifoFixture';
-import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
-import { fetchJournalLineCandidates } from '@/modules/accounting/services/bank/bankMatchDbQueries';
+import { dropFixture } from './helpers/l1FifoFixture';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -65,16 +61,11 @@ describeIfDb('the transfer guard on reversal chains', () => {
 
   const confirm = (line: string, leg: string) => callRoute(c.fx, token, bankMatchConfirm,
     { bankTransactionId: line, candidateType: 'bank_transfer', candidateId: leg });
-  const typed = (amount: number, date: string) => callRoute(c.fx, token, bankTransfers,
-    { fromAccountId: bankA, toAccountId: bankB, amount, transferDate: date });
   const glReverse = async (je: string) => {
     const r = await callRoute(c.fx, token, journalEntriesAction, { id: je, action: 'reverse' });
     expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
     return String((r.body as { data: { id: string } }).data.id);
   };
-  const manual = (body: Record<string, unknown>) => callRoute(c.fx, token, bankTxManual, body);
-  const linesNamed = async (desc: string) => Number(((await sql`SELECT COUNT(*)::int AS n FROM bank_transactions
-    WHERE company_id = ${c.fx.companyId}::UUID AND description = ${desc}`) as Row[])[0]!.n);
 
   // sec-nrfa round 10 L1/L2: arm 1's root walk is bounded and takes the deepest member this company owns, so a forged
   // cross-tenant reversal_of_id on the pointer journal does not drop the line (the duplicate is still refused), and a

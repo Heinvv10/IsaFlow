@@ -219,6 +219,9 @@ export async function fetchJournalLineCandidates(
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
+      -- Only a line that can be this statement line's bank leg: on its own bank, in its direction (auto-match's rule).
+      AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
+      AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
       AND jl.id NOT IN (
         SELECT matched_journal_line_id FROM bank_transactions
         WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}

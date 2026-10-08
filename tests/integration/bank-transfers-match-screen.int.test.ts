@@ -7,8 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from '@/lib/neon';
 import bankTxAction from '../../pages/api/accounting/bank-transactions-action';
 import bankMatchConfirm from '../../pages/api/accounting/bank-match-confirm';
-import bankTransfers from '../../pages/api/accounting/bank-transfers';
-import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
 import { dropFixture, inTx } from './helpers/l1FifoFixture';
@@ -25,14 +23,6 @@ let token = '';
 let bankA = '';
 let bankB = '';
 
-const transferJournals = async (from: string, to: string) => (await sql`SELECT id, entry_number, entry_date::text AS d,
-  status, reversal_of_id, reference FROM gl_journal_entries WHERE company_id = ${c.fx.companyId}::UUID
-  AND source = 'auto_bank_transfer' AND entry_date BETWEEN ${from}::DATE AND ${to}::DATE ORDER BY created_at`) as Row[];
-const glMovement = async (acct: string, from: string, to: string) => Number(((await sql`
-  SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::float8 AS n FROM gl_journal_lines jl
-  JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${c.fx.companyId}::UUID
-  WHERE jl.company_id = ${c.fx.companyId}::UUID AND jl.gl_account_id = ${acct}::UUID AND je.status IN ('posted', 'reversed')
-    AND je.entry_date BETWEEN ${from}::DATE AND ${to}::DATE`) as Row[])[0]!.n);
 const bankLine = async (account: string, date: string, amount: number, desc: string) => String(((await sql`
   INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
     import_batch_id)
@@ -65,16 +55,19 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
 
   const confirm = (line: string, leg: string) => callRoute(c.fx, token, bankMatchConfirm,
     { bankTransactionId: line, candidateType: 'bank_transfer', candidateId: leg });
-  const typed = (amount: number, date: string) => callRoute(c.fx, token, bankTransfers,
-    { fromAccountId: bankA, toAccountId: bankB, amount, transferDate: date });
+  /** A posted manual journal DR `dr` / CR `cr` of `amount`, through the funnel. */
+  const postJournal = (date: string, dr: string, cr: string, description: string, amount: number) => inTx(c.fx, async () => {
+    const je = await createJournalEntry(c.fx.companyId, { entryDate: date, description, source: 'manual', lines: [
+      { glAccountId: dr, debit: amount, credit: 0, description: 'dr' },
+      { glAccountId: cr, debit: 0, credit: amount, description: 'cr' }] } as never, c.fx.userId);
+    await postJournalEntry(c.fx.companyId, je.id, c.fx.userId);
+    return String(je.id);
+  });
   const glReverse = async (je: string) => {
     const r = await callRoute(c.fx, token, journalEntriesAction, { id: je, action: 'reverse' });
     expect(r.statusCode, JSON.stringify(r.body)).toBe(200);
     return String((r.body as { data: { id: string } }).data.id);
   };
-  const manual = (body: Record<string, unknown>) => callRoute(c.fx, token, bankTxManual, body);
-  const linesNamed = async (desc: string) => Number(((await sql`SELECT COUNT(*)::int AS n FROM bank_transactions
-    WHERE company_id = ${c.fx.companyId}::UUID AND description = ${desc}`) as Row[])[0]!.n);
 
   // brk-nrfa rounds 16-17: the residual's remedy is "match the statement line to the journal". The match screen keeps
   // the 20 unmatched posted lines nearest the amount; among many lines of that amount the statement line's OWN BANK
@@ -183,7 +176,13 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const a = await bankLine(bankA, '2032-02-03', -888, 'R3 OUT');
     expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
     let je = String((await lineState(a))!.ptr);
-    for (let i = 0; i < 3; i++) je = await glReverse(je);
+    for (let i = 0; i < 2; i++) je = await glReverse(je);
+    // A live re-reversal (depth 2) IS the movement again: its B leg keeps the bonus (rev-nrfa round 20 LOW-2).
+    const rrDate = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${je}::UUID`) as Row[])[0]!.d);
+    const rrLeg = await lineOf(je, bankB);
+    const rrCand = (await fetchJournalLineCandidates(c.fx.companyId, 888, rrDate, 'TRANSFER IN', bankB)).find((x) => x.id === rrLeg)!;
+    expect([rrCand.type, rrCand.matchReason]).toEqual(['bank_transfer', expect.stringMatching(/Matches existing bank transfer journal/)]);
+    je = await glReverse(je);
     const r3Leg = await lineOf(je, bankB);
     // The statement line is dated with R3 (a reversal may be dated today), so only the depth decides.
     const r3Date = String(((await sql`SELECT entry_date::text AS d FROM gl_journal_entries WHERE id = ${je}::UUID`) as Row[])[0]!.d);
@@ -191,5 +190,33 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const offered = cands.find((x) => x.id === r3Leg);
     expect(offered).toBeDefined(); // an exact-amount candidate: it is offered, just not as the existing transfer
     expect(offered === undefined || (offered.type === 'journal_line' && !/bank transfer/.test(offered.matchReason ?? ''))).toBe(true);
+  }, 120000);
+
+  // brk-nrfa round 21 M1 (pre-existing): only a line that can be this statement line's bank leg is a candidate — on its
+  // own bank, in its direction (auto-match's rule). A Sales line of the amount is never offered for a payment.
+  it('only lines on the statement line\'s own bank, in its direction, are candidates', async () => {
+    const sales = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
+      normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '4000', 'MSCR Sales', 'revenue', 'credit', true)
+      RETURNING id`) as Row[])[0]!.id);
+    const je = await postJournal('2032-03-03', c.expense, sales, 'Sale reclass', 9300);
+    const salesLeg = await lineOf(je, sales);
+    // A receipt INTO bank B of the amount: on this bank, but the opposite direction of a payment.
+    const receiptLeg = await lineOf(await postJournal('2032-03-03', bankB, sales, 'Receipt', 9300), bankB);
+    const cands = await fetchJournalLineCandidates(c.fx.companyId, -9300, '2032-03-04', 'PAYMENT', bankB);
+    expect(cands.map((x) => x.id)).not.toContain(salesLeg);
+    expect(cands.map((x) => x.id)).not.toContain(receiptLeg);
+    expect(cands.every((x) => x.amount < 0)).toBe(true);
+  }, 120000);
+
+  // brk-nrfa round 21 L1: confirming a reversed journal's leg is a refusal the person can act on (400), not a 500.
+  it('confirming a reversed transfer journal\'s leg answers 400, writing nothing', async () => {
+    const a = await bankLine(bankA, '2032-04-06', -3900, 'RV OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const j1 = String((await lineState(a))!.ptr);
+    await glReverse(j1);
+    const b = await bankLine(bankB, '2032-04-06', 3900, 'RV IN');
+    const r = await confirm(b, await lineOf(j1, bankB));
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+    expect((await lineState(b))!.status).toBe('imported');
   }, 120000);
 });
