@@ -61,7 +61,7 @@ function mappings(entries: Array<[string, Record<string, string>]>) {
 
 const BANK_MAPPING = {
   groupAccountId: GROUP_BANK, groupAccountCode: 'B100', groupAccountName: 'Cash and equivalents',
-  groupAccountType: 'asset', groupNormalBalance: 'debit', companyAccountId: 'acc-bank',
+  groupAccountType: 'asset', companyAccountId: 'acc-bank',
 };
 
 beforeEach(() => {

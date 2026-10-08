@@ -112,7 +112,7 @@ function checkQuotients(located: Located[]): string[] {
     // unrecomputed because the check only fired on figures that had already
     // volunteered their working. 'days' is deliberately not a quotient
     // format here: a day count is a rate multiplied by a period length
-    // (`receivables / revenue * 365`), so it has no numerator-over-
+    // (`receivables / revenue * periodDays`), so it has no numerator-over-
     // denominator the gate could reproduce without inventing a third term.
     if (basis === undefined) {
       if (format === 'pct' || format === 'ratio') {

@@ -8,6 +8,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { canonicalSubtype } from '../gl/accountSubtypes';
+import { balanceByAccountType } from '../gl/balanceByAccountType';
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
@@ -120,7 +121,7 @@ export async function getConsolidatedIncomeStatement(
       // expenses went UP by the eliminated amount instead of down. A standard
       // elimination journal (debit revenue, credit expense) therefore moved
       // group profit by twice the amount eliminated, in the wrong direction.
-      // getConsolidatedBalanceSheet keys it off the line's section the same way (sectionSigned).
+      // getConsolidatedBalanceSheet keys it off the section in the same way.
       if (entry) {
         entry.eliminationAmount += entry.category === 'revenue'
           ? elim.credit - elim.debit
@@ -170,10 +171,6 @@ export async function getConsolidatedIncomeStatement(
   }
 }
 
-/** Balance-sheet sign by section: assets debit − credit; liabilities and equity credit − debit. */
-const sectionSigned = (section: string, debit: number, credit: number): number =>
-  (section === 'asset' ? debit - credit : credit - debit);
-
 export async function getConsolidatedBalanceSheet(
   groupId: string, asAtDate: string
 ): Promise<ConsolidatedBalanceSheet> {
@@ -205,9 +202,10 @@ export async function getConsolidatedBalanceSheet(
       for (const r of rows) {
         const mapping = mappings.get(String(r.account_id));
         if (!mapping) continue;
-        // Signed by the SECTION the line lands in (assets debit − credit, liabilities/equity credit − debit), never by
-        // the account's own normal side: a contra account (accumulated depreciation, Dividends Declared) must subtract.
-        const balance = sectionSigned(mapping.groupAccountType, Number(r.total_debit), Number(r.total_credit));
+        // Signed by the GROUP account's type — the section the line lands in —
+        // never by normal_balance or the member's own type: a contra account
+        // reduces its section, and a member overdraft mapped to group Cash nets it.
+        const balance = balanceByAccountType(mapping.groupAccountType, Number(r.total_debit) - Number(r.total_credit));
         if (Math.abs(balance) < 0.01) continue;
         let entry = lineMap.get(mapping.groupAccountId);
         if (!entry) {
@@ -257,7 +255,7 @@ export async function getConsolidatedBalanceSheet(
     for (const elim of await getPostedEliminations(groupId, '1900-01-01', asAtDate)) {
       const entry = lineMap.get(elim.groupAccountId);
       if (!entry) continue;
-      entry.eliminationAmount += sectionSigned(entry.category, elim.debit, elim.credit);
+      entry.eliminationAmount += balanceByAccountType(entry.category, elim.debit - elim.credit);
     }
 
     const assets: ConsolidatedBSLineItem[] = [];

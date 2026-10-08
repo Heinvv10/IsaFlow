@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
 const SOUND: FinancialData = {
+  periodDays: 365,
   revenue: 1_000_000, costOfSales: 600_000, operatingExpenses: 250_000, netProfit: 100_000,
   totalAssets: 2_000_000, totalLiabilities: 800_000, totalEquity: 1_200_000,
   currentAssets: 900_000, currentLiabilities: 450_000,
