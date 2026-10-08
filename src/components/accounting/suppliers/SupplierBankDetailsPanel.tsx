@@ -47,15 +47,17 @@ const KIND: Record<Entry['kind'], string> = {
   self_verified: 'Self-verified (the only eligible verifier)',
 };
 const NOTE_MAX = 500;
+/** The verification's calendar date in South Africa, not UTC (a 01:00 SAST verify is that day). */
+const sastDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' });
 
-function StateBadge({ state }: { state: State }) {
+function StateBadge({ state, neverVerified }: { state: State; neverVerified: boolean }) {
   if (state === 'verified') {
     return <span className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-400"><ShieldCheck className="h-4 w-4" />Verified</span>;
   }
   if (state === 'unverified') {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-500">
-        <ShieldAlert className="h-4 w-4" />Unverified — changed since last verified
+        <ShieldAlert className="h-4 w-4" />{neverVerified ? 'Unverified — not verified yet' : 'Unverified — changed since last verified'}
       </span>
     );
   }
@@ -118,7 +120,7 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 space-y-3" data-testid="supplier-bank-details">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)] uppercase"><Landmark className="h-3.5 w-3.5" />Bank details</p>
-        <StateBadge state={view.state} />
+        <StateBadge state={view.state} neverVerified={!latest} />
       </div>
       <dl className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {rows.map(([label, value]) => (
@@ -135,12 +137,13 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
       {view.state === 'unverified' && (
         <p className="text-xs text-amber-500">
           EFT files and Netcash submissions paying this supplier are refused until someone with the {view.verifierRole} role or
-          above, who did not set these details, confirms them independently and verifies them here.
+          above confirms these details independently and verifies them here. Whoever set them may not, unless nobody else
+          has that role.
         </p>
       )}
       {latest && (
         <p className="text-xs text-[var(--ff-text-secondary)]">
-          Last: {KIND[latest.kind]} by {latest.verifiedByName ?? latest.verifiedBy} on {latest.verifiedAt.slice(0, 10)}
+          Last: {KIND[latest.kind]} by {latest.verifiedByName ?? latest.verifiedBy} on {sastDate(latest.verifiedAt)}
           {latest.method && ` — ${METHODS.find((m) => m.value === latest.method)?.label ?? latest.method}`}
           {latest.note && `: “${latest.note}”`}
         </p>
@@ -166,7 +169,10 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
         </div>
       )}
       {view.state === 'unverified' && !view.canVerify && (
-        <p className="text-xs text-[var(--ff-text-secondary)]">You cannot verify these details: it needs someone else with the {view.verifierRole} role or above.</p>
+        <p className="text-xs text-[var(--ff-text-secondary)]">
+          You cannot verify these details here: it needs someone with the {view.verifierRole} role or above who did not set them,
+          signed in as themselves.
+        </p>
       )}
     </div>
   );
