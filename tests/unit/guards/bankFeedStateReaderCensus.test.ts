@@ -103,6 +103,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankAllocationBatchService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675); writer-plan support",
   'src/modules/accounting/services/bank/bankAllocationRangeService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/bank/bankAllocationService.ts': 'exempt: writer (Task 3) — write + post-write re-read',
+  'src/modules/accounting/services/bank/bankSplitDimensions.ts': "exempt: writer pre-check — reads one row's bank_account_id by id to resolve card default dimensions for a split allocation; the post itself goes through splitAllocateTransaction (Task 3 gate)",
   'src/modules/accounting/services/bank/bankAutoMatchService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankCoverageDirections.ts': 'filtered',
   'src/modules/accounting/services/bank/bankCoverageQueries.ts': 'filtered',
