@@ -20,6 +20,7 @@ import {
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
+import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -82,6 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // The credit-note number is minted under the company+year number lock (migration 858): held past its 5 s
       // bound it is a 55P03, which is contention (503 + Retry-After), not a server fault.
       if (respondIfLockTimeout(res, err)) return;
+      // Raised before the first write (creditNoteHeaderTags): a 400 commits nothing.
+      if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create credit note');
     }

@@ -1,12 +1,12 @@
 /**
- * Migration 870, the write half: every path that codes a customer invoice line
+ * Migration 873, the write half: every path that codes a customer invoice line
  * — create (HTTP and MCP share it), draft edit, a recurring template — refuses
- * an account, project or cost centre the line may not name, BEFORE its first
- * write, and stores what it accepts. The invoice header's project is what the
- * caller sent or nothing: never a guess from the client's projects. A cost
- * centre a line names cannot be deleted out from under it.
+ * an account or job the line may not name, BEFORE its first write, and stores
+ * what it accepts, beside migration 870's CC1 / CC2 / BU. The invoice header's
+ * job is what the caller sent or nothing: never a guess from the client's
+ * projects.
  *
- * Disposable databases only (migration 870 is not on isaflow_dev).
+ * Disposable databases only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -17,7 +17,6 @@ import { getCustomerInvoiceDetail } from '@/modules/accounting/services/ar/custo
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { mintRecurringCustomerInvoice } from '@/modules/accounting/services/core/recurringTransactionInvoices';
 import { RecurringTemplateLineAccountError } from '@/modules/accounting/services/core/recurringTransactionErrors';
-import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
 import type { RecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
@@ -41,22 +40,26 @@ const create = (items: Record<string, unknown>[], projectId?: unknown) =>
 
 async function storedLines(invoiceId: string) {
   return (await sql`
-    SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items
+    SELECT gl_account_id, project_id, cc1_id, cc2_id, bu_id FROM customer_invoice_items
     WHERE invoice_id = ${invoiceId}::UUID ORDER BY unit_price DESC, id`) as Record<string, string | null>[];
 }
+/** A stored line with no CC1 / CC2 / BU. */
+const coded = (gl: string | null, project: string | null) =>
+  ({ gl_account_id: gl, project_id: project, cc1_id: null, cc2_id: null, bu_id: null });
 
-describeIfDisposable('invoice line coding on write (migration 870)', () => {
+describeIfDisposable('invoice line coding on write (migration 873)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 
-  it('stores what each line names, lower-cased, and leaves an uncoded line uncoded', async () => {
+  it('stores what each line names, lower-cased — the job beside 870\'s CC2 / BU (CC1 derived) — and leaves an uncoded line uncoded', async () => {
     const { id } = await create([
-      { description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials.toUpperCase(), projectId: f.project.p1, costCenterId: f.centre.active },
+      { description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials.toUpperCase(), projectId: f.project.p1,
+        cc2Id: f.dim.cc2, buId: f.dim.bu },
       { description: 'Fee', unitPrice: 50 },
     ]);
     expect(await storedLines(id)).toEqual([
-      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: f.centre.active },
-      { gl_account_id: null, project_id: null, cost_center_id: null },
+      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cc1_id: f.dim.fno, cc2_id: f.dim.cc2, bu_id: f.dim.bu },
+      coded(null, null),
     ]);
   });
 
@@ -72,13 +75,11 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
   it.each([
     ['another company\'s account', () => ({ glAccountId: f.acct.foreign }), /not in your company/],
     ['another company\'s project', () => ({ projectId: f.project.foreign }), /not in your company/],
-    ['another company\'s cost centre', () => ({ costCenterId: f.centre.foreign }), /not in your company/],
     ['an id that exists nowhere', () => ({ glAccountId: '00000000-0000-4000-8000-000000000000' }), /not in your company/],
     ['an expense account', () => ({ glAccountId: f.acct.expense }), /6100 Crew.*not a revenue account \(it is expense\)/],
     ['a header account', () => ({ glAccountId: f.acct.header }), /4300 Studio header.*header account/],
     ['an inactive account', () => ({ glAccountId: f.acct.inactive }), /4400 Retired line.*inactive/],
-    ['a cancelled project', () => ({ projectId: f.project.cancelled }), /project P3-.*cancelled/],
-    ['an inactive cost centre', () => ({ costCenterId: f.centre.inactive }), /cost centre CC2.*inactive/],
+    ['a cancelled job', () => ({ projectId: f.project.cancelled }), /job P3-.*cancelled/],
     ['an array holding a valid id', () => ({ glAccountId: [f.acct.commercials] }), /items\[0\]\.glAccountId must be a UUID/],
     ['a number', () => ({ projectId: 42 }), /items\[0\]\.projectId must be a UUID/],
   ])('create refuses %s before writing anything', async (_label, coding, message) => {
@@ -101,11 +102,11 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
       id, items: [{ description: 'y', quantity: 1, unitPrice: 200, ...coding }],
     }));
     expect(await edit({ glAccountId: f.acct.postProduction, projectId: f.project.p2 })).toEqual({ kind: 'ok' });
-    expect(await storedLines(id)).toEqual([{ gl_account_id: f.acct.postProduction, project_id: f.project.p2, cost_center_id: null }]);
+    expect(await storedLines(id)).toEqual([coded(f.acct.postProduction, f.project.p2)]);
 
-    const refused = await edit({ costCenterId: f.centre.foreign });
+    const refused = await edit({ projectId: f.project.foreign });
     expect(refused).toEqual({ kind: 'bad_line', message: expect.stringMatching(/not in your company/) });
-    expect(await storedLines(id)).toEqual([{ gl_account_id: f.acct.postProduction, project_id: f.project.p2, cost_center_id: null }]);
+    expect(await storedLines(id)).toEqual([coded(f.acct.postProduction, f.project.p2)]);
     const subtotal = ((await sql`SELECT subtotal FROM customer_invoices WHERE id = ${id}::UUID`) as { subtotal: string }[])[0]!.subtotal;
     expect(Number(subtotal)).toBe(200);
   });
@@ -119,17 +120,11 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
       id, items: items.map((i) => ({ description: 'x', quantity: 1, unitPrice: 15, ...i })) as never,
     }));
     expect(await put([{}, {}])).toEqual({ kind: 'ok' });
-    expect(await storedLines(id)).toEqual([
-      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: null },
-      { gl_account_id: f.acct.commercials, project_id: f.project.p1, cost_center_id: null },
-    ]);
+    expect(await storedLines(id)).toEqual([coded(f.acct.commercials, f.project.p1), coded(f.acct.commercials, f.project.p1)]);
     expect(await put([{ projectId: f.project.p2 }, { projectId: null }])).toEqual({ kind: 'ok' });
     expect(await put([{}, {}])).toEqual({ kind: 'bad_line', message: expect.stringMatching(/items\[0\]\.projectId was left out/) });
     expect(await put([{ glAccountId: null, projectId: null }, { glAccountId: null, projectId: null }])).toEqual({ kind: 'ok' });
-    expect(await storedLines(id)).toEqual([
-      { gl_account_id: null, project_id: null, cost_center_id: null },
-      { gl_account_id: null, project_id: null, cost_center_id: null },
-    ]);
+    expect(await storedLines(id)).toEqual([coded(null, null), coded(null, null)]);
   });
 
   it('draft edit: the header project is set, kept when absent, cleared on null, and refused when not this company\'s', async () => {
@@ -146,16 +141,20 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     expect(await header()).toBeNull();
   });
 
-  it('the invoice detail names each line\'s account, project and cost centre — never another company\'s', async () => {
+  it('the invoice detail names each line\'s account, job, CC1, CC2 and BU — never another company\'s', async () => {
     const { id } = await create([{ description: 'Spot', unitPrice: 100, glAccountId: f.acct.commercials, projectId: f.project.p1,
-      costCenterId: f.centre.active }]);
+      cc2Id: f.dim.cc2, buId: f.dim.bu }]);
     const named = async () => ((await inTx(f.fx, () => getCustomerInvoiceDetail(f.fx.companyId, id))) as { items: Record<string, unknown>[] }).items[0]!;
     expect(await named()).toMatchObject({ gl_account_code: '4100', project_number: expect.stringMatching(/^P1-/),
-      line_project_name: 'Production P1', cost_center_code: 'CC1', account_posted: null });
+      line_project_name: 'Production P1', cc1_code: 'FT', cc2_code: 'LAW', bu_code: 'ACT', account_posted: null });
+    const otherBu = ((await sql`INSERT INTO business_units (company_id, code, name) VALUES (${f.other.companyId}::UUID, 'ACT', 'Theirs')
+      RETURNING id`) as { id: string }[])[0]!.id;
     await sql`UPDATE customer_invoice_items SET project_id = ${f.project.foreign}::UUID, gl_account_id = ${f.acct.foreign}::UUID,
-              cost_center_id = ${f.centre.foreign}::UUID WHERE invoice_id = ${id}::UUID`;
+              cc1_id = ${f.dim.foreignCc2}::UUID, cc2_id = ${f.dim.foreignCc2}::UUID, bu_id = ${otherBu}::UUID
+              WHERE invoice_id = ${id}::UUID`;
     expect(await named()).toMatchObject({ gl_account_code: null, gl_account_name: null, project_number: null,
-      line_project_name: null, cost_center_code: null, cost_center_name: null });
+      line_project_name: null, cc1_code: null, cc1_name: null, cc2_code: null, cc2_name: null, bu_code: null, bu_name: null });
+    await sql`DELETE FROM customer_invoice_items WHERE invoice_id = ${id}::UUID`;
   });
 
   it('account_posted says whether a posted invoice\'s journal credited the line\'s account', async () => {
@@ -166,7 +165,7 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     // Another invoice's journal DOES credit 4200: the check is this invoice's journal, not any.
     const other = (await create([{ description: 'Grade', unitPrice: 50, glAccountId: f.acct.postProduction }])).id;
     await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, other, f.fx.userId));
-    // As a pre-870 invoice reads: the line names an account its journal never credited.
+    // As a pre-873 invoice reads: the line names an account its journal never credited.
     await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.postProduction}::UUID WHERE invoice_id = ${id}::UUID`;
     expect(await posted()).toBe(false);
   });
@@ -203,13 +202,5 @@ describeIfDisposable('invoice line coding on write (migration 870)', () => {
     }
     const ok = await inTx(f.fx, () => mintRecurringCustomerInvoice(f.fx.companyId, template(f.acct.commercials), f.fx.userId));
     expect((await storedLines(ok.entityId))[0]!.gl_account_id).toBe(f.acct.commercials);
-  });
-
-  it('a cost centre an invoice line names cannot be deleted; the refusal counts it', async () => {
-    const centre = ((await sql`
-      INSERT INTO cost_centres (company_id, code, name) VALUES (${f.fx.companyId}::UUID, 'CC9', 'Centre CC9')
-      RETURNING id`) as { id: string }[])[0]!.id;
-    await create([{ description: 'x', unitPrice: 10, costCenterId: centre }]);
-    await expect(inTx(f.fx, () => deleteCostCentre(f.fx.companyId, centre))).rejects.toThrow(/used by 1 document/);
   });
 });

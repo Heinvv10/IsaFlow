@@ -1,9 +1,12 @@
 /**
- * Which revenue account, project and cost centre a customer invoice line may
- * name. Checked when a line is coded (create, draft edit, the MCP create
- * tools, a recurring template) AND again before the invoice posts (approve,
- * bulk finalize, Post to GL): an account can be deactivated, gain children or
- * be reclassified, and a cost centre deactivated, after the line names it.
+ * Which revenue account and job a customer invoice line may name. Checked when
+ * a line is coded (create, draft edit, the MCP create tools, a recurring
+ * template) AND again before the invoice posts (approve, bulk finalize, Post
+ * to GL): an account can be deactivated, gain children or be reclassified, and
+ * a job cancelled, after the line names it. The line's CC1 / CC2 / BU are the
+ * dimensions model's (gl/dimensions): checked at save by its own
+ * assertDocumentDimensions, and again here before posting, with the customer's
+ * FNO (applyCustomerFno).
  *
  * A line credits revenue, so its account must be:
  *  - this company's (`gl_account_id` is a single-column FK: another tenant's
@@ -11,23 +14,25 @@
  *  - account_type 'revenue' — which already excludes AR/AP control, bank, VAT,
  *    equity and every system-only subtype the bill guard lists one by one;
  *  - a leaf (a header is hidden from every picker) and active.
- * A project must be this company's and not cancelled; a cost centre this
- * company's and active. One message for a foreign, deleted or invented id, so
- * no reply says whether another company's id exists.
+ * A job must be this company's and not cancelled. One message for a foreign,
+ * deleted or invented id, so no reply says whether another company's id exists.
  *
  * The accounts are read FOR SHARE in id order — the order the GL account merge
  * locks them (`lockGlAccountsForUpdate`) — so a merge or deactivation cannot
  * land between this check and the caller's write in the same transaction.
- * Projects and cost centres are plain reads: the journal writer re-checks
- * their ownership (`journalLineOwnership`) in the same transaction anyway.
+ * Jobs are plain reads: the journal writer re-checks their ownership
+ * (`journalLineOwnership`) in the same transaction anyway.
  */
 import { sql } from '@/lib/neon';
 import {
-  InvoiceLineAccountLockError, InvoiceLineCodingRefusal, isCoded, readCodingId, type InvoiceLineCoding,
+  InvoiceLineAccountLockError, InvoiceLineCodingRefusal, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
-import { revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
+import { isRevenueCoded, revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
+import { applyCustomerFno } from '../gl/dimensions/dimensionDerivation';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 
-export const FOREIGN_LINE_CODING = 'One or more invoice lines name an account, project or cost centre that is not in your company.';
+export const FOREIGN_LINE_CODING = 'One or more invoice lines name an account or job that is not in your company.';
 
 const POSTING_HINT = ' Recode the line on the draft, or cancel the invoice and re-enter it.';
 
@@ -112,18 +117,7 @@ export async function invoiceLineCodingRefusal(
     `) as { project_number: string; name: string; status: string }[];
     if (rows.length !== projects.length) return FOREIGN_LINE_CODING;
     const cancelled = rows.find((p) => p.status === 'cancelled');
-    if (cancelled) return `An invoice line cannot be tagged to project ${cancelled.project_number} ${cancelled.name}: it is cancelled.`;
-  }
-
-  const centres = present(codings.map((c) => c.costCenterId));
-  if (centres.length > 0) {
-    const rows = (await sql`
-      SELECT code, name, is_active FROM cost_centres
-      WHERE company_id = ${companyId}::UUID AND id = ANY(${centres}::UUID[])
-    `) as { code: string; name: string; is_active: boolean }[];
-    if (rows.length !== centres.length) return FOREIGN_LINE_CODING;
-    const inactive = rows.find((c) => !c.is_active);
-    if (inactive) return `An invoice line cannot be tagged to cost centre ${inactive.code} ${inactive.name}: it is inactive.`;
+    if (cancelled) return `An invoice line cannot be tagged to job ${cancelled.project_number} ${cancelled.name}: it is cancelled.`;
   }
   return null;
 }
@@ -138,42 +132,56 @@ export async function assertLineAccountIds(companyId: string, ids: readonly unkn
   for (const [i, raw] of ids.entries()) {
     const glAccountId = readCodingId(raw);
     if (glAccountId === undefined) throw new InvoiceLineCodingRefusal(`lines[${i}].accountId must be a UUID`);
-    codings.push({ glAccountId, projectId: null, costCenterId: null });
+    codings.push({ glAccountId, projectId: null });
   }
   const refusal = await invoiceLineCodingRefusal(companyId, codings);
   if (refusal) throw new InvoiceLineCodingRefusal(refusal);
+}
+
+export interface StoredInvoiceLines {
+  invoiceNumber: string;
+  subtotal: number;
+  /** customers.default_cc1_id of the invoice's customer. */
+  customerFnoId: string | null;
+  lines: StoredRevenueLine[];
 }
 
 /** An invoice's stored lines, oldest first; `null` when the invoice is not this company's. */
 export async function storedInvoiceLines(
   companyId: string,
   invoiceId: string,
-): Promise<{ invoiceNumber: string; subtotal: number; lines: StoredRevenueLine[] } | null> {
+): Promise<StoredInvoiceLines | null> {
   const rows = (await sql`
-    SELECT ci.invoice_number, ci.subtotal, cii.id AS line_id, cii.amount,
-           cii.gl_account_id, cii.project_id, cii.cost_center_id
+    SELECT ci.invoice_number, ci.subtotal, c.default_cc1_id AS customer_fno_id, cii.id AS line_id, cii.amount,
+           cii.gl_account_id, cii.project_id, cii.cc1_id, cii.cc2_id, cii.bu_id
     FROM customer_invoices ci
+    LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     LEFT JOIN customer_invoice_items cii ON cii.invoice_id = ci.id
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
     ORDER BY cii.created_at, cii.id
   `) as Record<string, unknown>[];
   if (rows.length === 0) return null;
   const id = (v: unknown): string | null => (v == null ? null : String(v));
+  const dim = (v: unknown) => (v == null ? undefined : String(v));
   return {
     invoiceNumber: String(rows[0]!.invoice_number),
     subtotal: Number(rows[0]!.subtotal),
+    customerFnoId: id(rows[0]!.customer_fno_id),
     lines: rows.filter((r) => r.line_id != null).map((r) => ({
       amount: Number(r.amount),
       glAccountId: id(r.gl_account_id),
       projectId: id(r.project_id),
-      costCenterId: id(r.cost_center_id),
+      cc1Id: dim(r.cc1_id),
+      cc2Id: dim(r.cc2_id),
+      buId: dim(r.bu_id),
     })),
   };
 }
 
 /**
  * Why this invoice's STORED lines cannot post, or null: the coding rules
- * against the chart as it is now, and lines that do not add up to the
+ * against the chart as it is now, the lines' CC1 / CC2 / BU against the
+ * masters and the customer's FNO, and lines that do not add up to the
  * subtotal. An invoice none of whose lines is coded posts as it always did and
  * is never refused here.
  */
@@ -188,12 +196,19 @@ export async function storedInvoiceLinesRefusal(
 /** The same over lines already read. */
 export async function storedLinesRefusal(
   companyId: string,
-  stored: { invoiceNumber: string; subtotal: number; lines: StoredRevenueLine[] } | null,
+  stored: StoredInvoiceLines | null,
   opts: { lock?: boolean } = {},
 ): Promise<string | null> {
-  if (!stored || !stored.lines.some(isCoded)) return null;
+  if (!stored || !stored.lines.some(isRevenueCoded)) return null;
   const coding = await invoiceLineCodingRefusal(companyId, stored.lines, opts);
   if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
+  try {
+    const lines = applyCustomerFno(stored.lines, stored.customerFnoId, (i) => `line ${i + 1}`);
+    await assertDocumentDimensions(companyId, lines);
+  } catch (err) {
+    if (isDimensionRefusal(err)) return `Invoice ${stored.invoiceNumber}: ${err.message}${POSTING_HINT}`;
+    throw err;
+  }
   const problem = revenueLinesProblem(stored.lines, stored.subtotal);
   return problem ? `Invoice ${stored.invoiceNumber}: ${problem}` : null;
 }

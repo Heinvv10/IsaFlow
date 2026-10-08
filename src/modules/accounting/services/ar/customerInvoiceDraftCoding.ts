@@ -1,5 +1,5 @@
 /**
- * What a draft edit's lines are coded to (migration 870). The PUT replaces
+ * What a draft edit's lines are coded to (account and job, migration 873). The PUT replaces
  * every line, and a caller that sends no coding keys at all — an older client,
  * an integration — must not silently strip the coding off the invoice:
  *
@@ -15,7 +15,7 @@
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 
 type CodingKey = keyof InvoiceLineCoding;
-const KEYS: readonly CodingKey[] = ['glAccountId', 'projectId', 'costCenterId'];
+const KEYS: readonly CodingKey[] = ['glAccountId', 'projectId'];
 
 export type EditLineCoding = { [K in CodingKey]?: string | null };
 
@@ -30,7 +30,7 @@ export function resolveEditCodings(
   }
   const out: InvoiceLineCoding[] = [];
   for (const [i, item] of items.entries()) {
-    const coding = { glAccountId: null, projectId: null, costCenterId: null } as InvoiceLineCoding;
+    const coding = { glAccountId: null, projectId: null } as InvoiceLineCoding;
     for (const key of KEYS) {
       const sent = item[key];
       if (sent !== undefined) {

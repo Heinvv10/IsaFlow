@@ -16,11 +16,11 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
 type LineItem = InvoiceLine;
-const UNCODED = { glAccountId: '', projectId: '', costCenterId: '' };
+const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
   amount?: number | string; tax_rate?: number | string;
-  gl_account_id?: string | null; project_id?: string | null; cost_center_id?: string | null;
+  gl_account_id?: string | null; project_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
 };
 type InvoiceDetail = {
   id: string; status: string; invoice_number: string;
@@ -99,7 +99,8 @@ export default function EditCustomerInvoicePage() {
           discount,
           glAccountId: it.gl_account_id ?? '',
           projectId: it.project_id ?? '',
-          costCenterId: it.cost_center_id ?? '',
+          cc2Id: it.cc2_id ?? '',
+          buId: it.bu_id ?? '',
         };
       }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
       setLoading(false);
@@ -149,7 +150,6 @@ export default function EditCustomerInvoicePage() {
             discount: l.discount || 0,
             glAccountId: l.glAccountId || null,
             projectId: l.projectId || null,
-            costCenterId: l.costCenterId || null,
           })),
         }),
       });
@@ -223,8 +223,8 @@ export default function EditCustomerInvoicePage() {
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Project <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
-                    <CodingPicker label="Invoice project" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No project" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
+                    <label className={lbl}>Job <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <CodingPicker label="Invoice job" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No job" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
                   </div>
                   {isFx && (
                     <div>
@@ -247,7 +247,7 @@ export default function EditCustomerInvoicePage() {
 
               <div className={`${card} overflow-hidden`}>
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} dimensionsReadOnly />
               </div>
 
               <div className={`${card} p-5`}>

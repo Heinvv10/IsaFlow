@@ -1,12 +1,15 @@
--- 870_customer_invoice_item_dimensions.sql
--- A customer invoice line may name its own revenue account, project (job / production) and cost
--- centre, so revenue posts by line and Project Profitability sees it (Hein, 2026-10-07).
+-- 873_customer_invoice_line_revenue_coding.sql
+-- A customer invoice line may name its own revenue account and job (`projects`: Project
+-- Profitability, WIP, time), so revenue posts by line and Project Profitability sees it (Hein,
+-- 2026-10-07). Its CC1 / CC2 / BU are migration 870's (`customer_invoice_items.cc1_id/cc2_id/
+-- bu_id`, #663); the job and the CC2 project are two models, kept apart until Hein rules whether
+-- CC2 replaces projects (2026-10-08).
 --
 -- customer_invoice_items already had gl_account_id (written by quote conversion and recurring
--- transactions, never read by posting, no FK). This adds project_id and cost_center_id beside it,
--- nullable, each under a foreign key. The posting rules live in
--- src/modules/accounting/services/ar/invoiceRevenueLines.ts; an invoice none of whose lines names
--- any of the three posts the single default_revenue leg it always did.
+-- transactions, never read by posting, no FK). This adds project_id beside it, nullable, under a
+-- foreign key. The posting rules live in src/modules/accounting/services/ar/invoiceRevenueLines.ts;
+-- an invoice none of whose lines names an account, job or CC1/CC2/BU posts the single
+-- default_revenue leg it always did (carrying the customer's FNO when it has one, as 870 does).
 --
 -- EXISTING DRAFTS THAT CHANGE: lines that already carry gl_account_id — written, unchecked, by quote
 -- conversion (the quote line's account) and by recurring-transaction templates (the template
@@ -21,12 +24,9 @@
 --     AND cii.gl_account_id IS NOT NULL
 --   GROUP BY ci.company_id;
 --
--- The FKs are single-column: they prove the row exists, NOT that it is the invoice's company (the
+-- The FK is single-column: it proves the row exists, NOT that it is the invoice's company (the
 -- line has no company_id). Tenancy is the application's check (ar/invoiceLineCodingGuard.ts), at
--- write time and again at posting. What the FKs buy is that a delete cannot strand a line:
---   - cost_centres: deleteCostCentre already maps 23503 onto its counted "in use" message, and
---     costCentreUsageGuard now counts these lines, so the operator gets the count, not a 500;
---   - projects: nothing deletes a project today.
+-- write time and again at posting. Nothing deletes a project today.
 --
 -- gl_account_id gets NO foreign key here, on purpose. Any FK onto gl_accounts joins the account
 -- merge's catalogue sweep (gl/accountMergeReferences.ts) and must be named in its exclusion list,
@@ -35,22 +35,23 @@
 -- (accountMergeDocumentRows), and a line naming a deleted account is refused at posting as not
 -- this company's (invoiceLineCodingGuard), so the gap fails closed.
 --
--- APPROVAL DIGEST. A line's project and cost centre reach the journal, so they are approval
--- content: retagging a line after its approval must stale it (security review, 2026-10-07). The
--- customer_invoice arm of approval_document_digest gains cii.project_id and cii.cost_center_id,
--- in the line array and the ORDER BY, as the supplier arm carries sii.project_id/cost_center_id.
+-- APPROVAL DIGEST. A line's job reaches the journal, so it is approval content: retagging a line
+-- after its approval must stale it (security review, 2026-10-07). The customer_invoice arm of
+-- approval_document_digest gains cii.project_id, in the line array and the ORDER BY, as the
+-- supplier arm carries sii.project_id. (870's cc1/cc2/bu are added to the digests by their own
+-- fix, which lands first; this body is re-based on it then.)
 --
 -- AFTER 869. Migration 869 redefines the WHOLE function (it adds the manual_journal arm), so the
--- CREATE OR REPLACE below is 869's complete body plus this change. Were 870 applied first, 869
--- would then replace the function without these two columns and the bypass would return
--- silently — so the first DO block refuses to run until 869's objects exist.
+-- CREATE OR REPLACE below is 869's complete body plus this change. Were this applied before 869,
+-- 869 would then replace the function without the column and the bypass would return silently —
+-- so the first DO block refuses to run until 869's objects exist.
 --
--- Every customer invoice digest changes (two more elements per line, NULL today), so requests
+-- Every customer invoice digest changes (one more element per line, NULL today), so requests
 -- are RE-BOUND as 708 did for its pending supplier-invoice requests: a pending or approved
 -- customer_invoice request whose stored digest equals the invoice's digest computed just before
--- the replace is moved to the new digest. Same content — project_id and cost_center_id are NULL
--- on every line when this first runs — so an approval keeps clearing exactly what it cleared,
--- and a request that was already stale stays stale. Every other type's digest must not move.
+-- the replace is moved to the new digest. Same content — project_id is NULL on every line when
+-- this first runs — so an approval keeps clearing exactly what it cleared, and a request that was
+-- already stale stays stale. Every other type's digest must not move.
 --
 -- CREDIT NOTE ALLOCATIONS. A customer credit note debits the invoice journal's revenue legs pro
 -- rata, each capped at what it still carries. What it carries is its net less what the LIVE earlier
@@ -61,25 +62,23 @@
 -- later one may have gone to default_revenue because the leg was full at the time. Notes approved
 -- before this migration have no rows; their take is still replayed (invoiceRevenuePosting.ts).
 -- journal_line_id is the invoice journal line the leg was read from (its first); capacity groups by
--- that line's CURRENT account, project and cost centre, so an account merge — which moves the
--- line in place — carries the allocation with it. gl_account_id / project_id / cost_center_id are
--- the leg as it was at approval, for the audit trail. No FK on them or on journal_line_id: an FK
+-- that line's CURRENT account, job, CC1, CC2 and BU, so an account merge or a dimension re-tag
+-- (tag_journal_lines) — each moves the line in place — carries the allocation with it.
+-- gl_account_id / project_id / cc1_id / cc2_id / bu_id are the leg as it was at approval, for the
+-- audit trail. No FK on them or on journal_line_id: an FK
 -- onto gl_accounts joins the merge's catalogue sweep (above), and the rest copy the journal.
 --
 -- Locks: ADD COLUMN takes ACCESS EXCLUSIVE on customer_invoice_items for a catalogue-only change
--- (nullable, no default); each ADD CONSTRAINT takes SHARE ROW EXCLUSIVE on both tables (the new
--- columns are all NULL, so validating them scans nothing that can fail). The digest replace and
+-- (nullable, no default); ADD CONSTRAINT takes SHARE ROW EXCLUSIVE on both tables (the new column
+-- is all NULL, so validating it scans nothing that can fail). The digest replace and
 -- the request re-bind read every open document once. Bounded below; either firing rolls back.
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
 ALTER TABLE customer_invoice_items ADD COLUMN IF NOT EXISTS project_id UUID;
-ALTER TABLE customer_invoice_items ADD COLUMN IF NOT EXISTS cost_center_id UUID;
 
 CREATE INDEX IF NOT EXISTS idx_cii_project_id
   ON customer_invoice_items (project_id) WHERE project_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cii_cost_center_id
-  ON customer_invoice_items (cost_center_id) WHERE cost_center_id IS NOT NULL;
 
 DO $$
 BEGIN
@@ -90,14 +89,6 @@ BEGIN
       ADD CONSTRAINT customer_invoice_items_project_id_fkey
       FOREIGN KEY (project_id) REFERENCES projects(id);
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                 WHERE conname = 'customer_invoice_items_cost_center_id_fkey'
-                   AND conrelid = 'customer_invoice_items'::regclass) THEN
-    ALTER TABLE customer_invoice_items
-      ADD CONSTRAINT customer_invoice_items_cost_center_id_fkey
-      FOREIGN KEY (cost_center_id) REFERENCES cost_centres(id);
-  END IF;
 END $$;
 
 -- ── Approval digest ────────────────────────────────────────────────────────
@@ -106,13 +97,13 @@ BEGIN
   IF pg_catalog.to_regprocedure('public.approval_manual_journal_gate_amount(uuid,uuid)') IS NULL
      OR pg_catalog.pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'::pg_catalog.regprocedure)
         NOT LIKE '%WHEN ''manual_journal''%' THEN
-    RAISE EXCEPTION 'migration 870: apply migration 869 (PR #660, manual journal approval) first — 870 replaces 869''s approval_document_digest';
+    RAISE EXCEPTION 'migration 873: apply migration 869 (PR #660, manual journal approval) first — 873 replaces 869''s approval_document_digest';
   END IF;
 END $$;
 
 -- Every document whose digest anything could still be compared against, as 869 snapshots them.
-DROP TABLE IF EXISTS pg_temp.r870_before;
-CREATE TEMP TABLE r870_before ON COMMIT DROP AS
+DROP TABLE IF EXISTS pg_temp.r873_before;
+CREATE TEMP TABLE r873_before ON COMMIT DROP AS
   SELECT si.company_id, 'supplier_invoice'::TEXT AS document_type, si.id,
          public.approval_document_digest(si.company_id, 'supplier_invoice', si.id) AS digest
   FROM public.supplier_invoices si
@@ -218,10 +209,10 @@ AS $$
           SELECT jsonb_agg(jsonb_build_array(
                    cii.description, trim_scale(cii.quantity), trim_scale(cii.unit_price),
                    trim_scale(cii.amount), trim_scale(cii.tax_rate), cii.gl_account_id,
-                   cii.project_id, cii.cost_center_id, cii.currency_code)
+                   cii.project_id, cii.currency_code)
                  ORDER BY cii.created_at, cii.description, cii.quantity, cii.unit_price,
                           cii.amount, cii.tax_rate, cii.gl_account_id, cii.project_id,
-                          cii.cost_center_id, cii.currency_code, cii.id)
+                          cii.currency_code, cii.id)
           FROM public.customer_invoice_items cii
           WHERE cii.invoice_id = ci.id
         ), '[]'::jsonb)
@@ -273,11 +264,11 @@ DECLARE
   v_changed pg_catalog.int8;
 BEGIN
   SELECT count(*) INTO v_changed
-  FROM pg_temp.r870_before b
+  FROM pg_temp.r873_before b
   WHERE b.document_type <> 'customer_invoice'
     AND b.digest IS DISTINCT FROM public.approval_document_digest(b.company_id, b.document_type, b.id);
   IF v_changed > 0 THEN
-    RAISE EXCEPTION 'migration 870: approval_document_digest changed for % non-invoice document(s)', v_changed;
+    RAISE EXCEPTION 'migration 873: approval_document_digest changed for % non-invoice document(s)', v_changed;
   END IF;
 END $$;
 
@@ -286,7 +277,7 @@ END $$;
 -- requests are left as they are; they clear nothing either way.
 UPDATE public.approval_requests ar
 SET document_digest = public.approval_document_digest(ar.company_id, 'customer_invoice', ar.document_id)
-FROM pg_temp.r870_before b
+FROM pg_temp.r873_before b
 WHERE ar.document_type = 'customer_invoice' AND ar.status IN ('pending', 'approved')
   AND b.document_type = 'customer_invoice' AND b.id = ar.document_id AND b.company_id = ar.company_id
   AND ar.document_digest = b.digest;
@@ -299,7 +290,9 @@ CREATE TABLE IF NOT EXISTS public.credit_note_revenue_allocations (
   journal_line_id UUID,
   gl_account_id UUID NOT NULL,
   project_id UUID,
-  cost_center_id UUID,
+  cc1_id UUID,
+  cc2_id UUID,
+  bu_id UUID,
   amount NUMERIC(15,2) NOT NULL,
   is_excess BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

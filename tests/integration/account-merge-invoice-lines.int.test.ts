@@ -1,7 +1,7 @@
 /**
  * A GL account merge must not strand an open customer invoice's lines on a
  * target the invoice-line guard refuses — a header account, including one that
- * becomes a header by taking the source's children (migration 870). The merge
+ * becomes a header by taking the source's children (migration 873). The merge
  * refuses `target_refused_for_open_invoice_lines`, naming the invoices, before
  * it writes (dry run and live) and again after it, on exactly the lines it
  * moved: a draft line landing on the source between the two checks is caught

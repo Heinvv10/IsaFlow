@@ -7,7 +7,7 @@
  * revenue. Per production, revenue never goes below zero. Since the final
  * round the earlier notes' takes are RECORDED (credit_note_revenue_allocations;
  * see invoice-line-revenue-credit-allocations.int.test.ts, which also covers
- * the replay fallback for notes approved before 870).
+ * the replay fallback for notes approved before 873).
  *
  * Disposable databases only.
  */

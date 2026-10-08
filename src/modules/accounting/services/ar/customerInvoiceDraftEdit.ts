@@ -88,16 +88,16 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    // Migration 870: the lines' revenue account / project / cost centre (an
+    // Migration 873: the lines' revenue account and job (an
     // absent key keeps the stored coding — customerInvoiceDraftCoding) and the
     // header's display project, under the row lock and before the first write.
     let codings: InvoiceLineCoding[] = [];
     if (items) {
       const stored = (await tx`
-        SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
+        SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
       `) as Row[];
       const resolved = resolveEditCodings(items, stored.map((r) => ({
-        glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id), costCenterId: idOrNull(r.cost_center_id),
+        glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id),
       })));
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
       codings = resolved;
@@ -106,7 +106,7 @@ export async function editDraftCustomerInvoice(
       // The header project is display only: re-sending the one it already has
       // (cancelled since it was set) must not refuse every save of the draft.
       const changed = projectId && projectId.toLowerCase() !== idOrNull(ownedRows[0]!.project_id);
-      const header = changed ? [{ glAccountId: null, projectId: projectId.toLowerCase(), costCenterId: null }] : [];
+      const header = changed ? [{ glAccountId: null, projectId: projectId.toLowerCase() }] : [];
       const refusal = await invoiceLineCodingRefusal(companyId, [...codings, ...header]);
       if (refusal) return { kind: 'bad_line' as const, message: refusal };
     }
@@ -168,11 +168,11 @@ export async function editDraftCustomerInvoice(
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            gl_account_id, project_id, cost_center_id
+            gl_account_id, project_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
-            ${coding.glAccountId}::UUID, ${coding.projectId}::UUID, ${coding.costCenterId}::UUID
+            ${coding.glAccountId}::UUID, ${coding.projectId}::UUID
           )
         `;
       }

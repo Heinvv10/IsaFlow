@@ -59,6 +59,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
+  // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
+  // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
+  'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
@@ -86,8 +89,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'HAND_CORRECTION_REFUSED',
   // The FOR SHARE read of an invoice's line accounts lost a lock race (55P03 / 40P01): says "retry".
   'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT',
-  // A customer invoice line's revenue account, project or cost centre refused
-  // (ar/invoiceLineCoding): names only the caller's own account, project or centre.
+  // A customer invoice line's revenue account, job or CC1 / CC2 / BU (with the customer's FNO) refused
+  // (ar/invoiceLineCoding): names only the caller's own account, job or cost centre.
   'INVOICE_LINE_CODING_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.

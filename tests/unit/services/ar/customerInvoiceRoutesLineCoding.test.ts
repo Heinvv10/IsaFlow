@@ -1,5 +1,5 @@
 /**
- * The two customer-invoice routes, for line coding (migration 870): create
+ * The two customer-invoice routes, for line coding (migration 873): create
  * passes the header projectId through and answers a coding refusal 400 with
  * INVOICE_LINE_CODING_REFUSED; the detail route answers a draft edit's
  * `bad_line` and approve's pre-write refusal the same way, and RETHROWS a

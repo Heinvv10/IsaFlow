@@ -1,8 +1,9 @@
 /**
- * What an invoice line may be coded to (migration 870): the company's ACTIVE,
- * LEAF revenue accounts, its projects that are not cancelled, and its active
- * cost centres — the same population ar/invoiceLineCodingGuard accepts, so a
- * picker never offers a choice the save would refuse.
+ * What an invoice line may be coded to: the company's ACTIVE, LEAF revenue
+ * accounts and its jobs (`projects`) that are not cancelled — the population
+ * ar/invoiceLineCodingGuard accepts (migration 873) — and its active CC2
+ * projects and business units (migration 870's dimensions; the CC1 is derived
+ * from the CC2 or the customer's FNO, never picked).
  *
  * `known` labels every id the document already names, including a project
  * past the 200-row list or one since cancelled (fetched by id), so an existing
@@ -18,7 +19,10 @@ export interface CodingOption { id: string; label: string }
 export interface InvoiceLineCodingOptions {
   accounts: CodingOption[];
   projects: CodingOption[];
-  centres: CodingOption[];
+  /** Active CC2 projects (cost_centres.cc_type 'cc2'). */
+  cc2s: CodingOption[];
+  /** Active business units. */
+  bus: CodingOption[];
   known: Readonly<Record<string, string>>;
   status: 'loading' | 'ready' | 'failed';
   /** The by-id lookup of the projects the document names failed: those read "could not load", not "unavailable". */
@@ -50,13 +54,14 @@ export function projectOptions(projects: unknown): CodingOption[] {
     .map((p) => ({ id: str(p.id), label: projectLabel(p) }));
 }
 
+/** Cost centres or business units, as their list routes return them ({ items }). */
 export function centreOptions(body: unknown): CodingOption[] {
   const items = typeof body === 'object' && body !== null ? (body as Rec).items : undefined;
   return records(items).map((c) => ({ id: str(c.id), label: `${str(c.code)} ${str(c.name)}` }));
 }
 
 type Loaded = Omit<InvoiceLineCodingOptions, 'retry'>;
-const EMPTY: Loaded = { accounts: [], projects: [], centres: [], known: {}, status: 'loading', lookupFailed: false, error: '' };
+const EMPTY: Loaded = { accounts: [], projects: [], cc2s: [], bus: [], known: {}, status: 'loading', lookupFailed: false, error: '' };
 
 /** @param referencedProjectIds projects the document already names — labelled even when not offered. */
 export function useInvoiceLineCodingOptions(referencedProjectIds: readonly string[] = []): InvoiceLineCodingOptions {
@@ -68,13 +73,14 @@ export function useInvoiceLineCodingOptions(referencedProjectIds: readonly strin
     Promise.all([
       apiJson('/api/accounting/chart-of-accounts', undefined, 'Could not load the revenue accounts - try again'),
       apiJson('/api/accounting/projects', undefined, 'Could not load the projects - try again'),
-      apiJson('/api/accounting/cost-centres?active=true', undefined, 'Could not load the cost centres - try again'),
-    ]).then(([accounts, projects, centres]) => {
+      apiJson('/api/accounting/cost-centres?active=true&cc_type=cc2', undefined, 'Could not load the CC2 projects - try again'),
+      apiJson('/api/accounting/business-units?active=true', undefined, 'Could not load the business units - try again'),
+    ]).then(([accounts, projects, cc2s, bus]) => {
       if (!live) return;
       const all = [...revenueAccountOptions(accounts), ...records(projects).map((p) => ({ id: str(p.id), label: projectLabel(p) })),
-        ...centreOptions(centres)];
+        ...centreOptions(cc2s), ...centreOptions(bus)];
       setOptions({
-        accounts: revenueAccountOptions(accounts), projects: projectOptions(projects), centres: centreOptions(centres),
+        accounts: revenueAccountOptions(accounts), projects: projectOptions(projects), cc2s: centreOptions(cc2s), bus: centreOptions(bus),
         known: Object.fromEntries(all.map((o) => [o.id, o.label])), status: 'ready', lookupFailed: false, error: '',
       });
     }).catch((err: unknown) => {

@@ -28,6 +28,7 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 
 import handler from '../../../../pages/api/accounting/credit-notes-action';
 import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
+import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
 import { afterJournalWritten } from '@/modules/accounting/services/ar/creditNotePostingChecks';
 import { apiResponse } from '@/lib/apiResponse';
 
@@ -41,6 +42,13 @@ describe('credit-notes-action approve: a failure after the journal is written is
   it('rethrows ArPostingAfterWriteError so withAuth rolls the draft journal back', async () => {
     approveMock.mockRejectedValueOnce(new ArPostingAfterWriteError('Credit note CN-1 was not approved: period closed'));
     await expect(call()).rejects.toBeInstanceOf(ArPostingAfterWriteError);
+  });
+
+  it('answers a header-tag refusal 400 with its code (pre-write)', async () => {
+    approveMock.mockRejectedValueOnce(new CreditNoteDimensionRefusal('A credit note linked to an invoice reverses that invoice\'s own revenue lines'));
+    await call();
+    expect(apiResponse.badRequest).toHaveBeenLastCalledWith(expect.anything(), expect.stringMatching(/linked to an invoice/),
+      { code: 'CREDIT_NOTE_DIMENSIONS_REFUSED' });
   });
 
   it('still answers a pre-write refusal 400', async () => {

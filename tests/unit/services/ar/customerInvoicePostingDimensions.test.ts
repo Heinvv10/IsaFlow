@@ -1,7 +1,8 @@
 /**
  * Dimensions Phase 1 — postCustomerInvoiceToGL builds its revenue legs from the
- * items' CC1/CC2/BU and the customer's FNO, read on the SAME query as the
- * invoice (no extra round trip), and never puts a dimension on the AR or VAT leg.
+ * items' CC1/CC2/BU and the customer's FNO (read with the stored lines,
+ * invoiceLineCodingGuard.storedInvoiceLines, since migration 873), and never
+ * puts a dimension on the AR or VAT leg.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -15,6 +16,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ res
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ assertNoInactiveAccountLines: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({ getPeriodStatusForDate: vi.fn(async () => 'open') }));
 vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', () => ({ assertJournalVatPeriodOpen: vi.fn() }));
+const { stored } = vi.hoisted(() => ({ stored: { value: null as unknown } }));
+vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', () => ({
+  storedInvoiceLines: vi.fn(async () => stored.value),
+  storedLinesRefusal: vi.fn(async () => null),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(async (role: string) => ({ id: role })),
 }));
@@ -36,17 +42,15 @@ const posted = () => (vi.mocked(createJournalEntry).mock.calls[0]![1] as { lines
 
 describe('postCustomerInvoiceToGL — revenue dimensions', () => {
   it('splits revenue by item dimensions, FNO from the customer, AR and VAT untagged', async () => {
-    sqlMock.mockResolvedValueOnce([{
-      ...INV, customer_fno_id: 'fno-ft',
-      dim_items: [
-        { amount: 700, cc1_id: null, cc2_id: 'lawley', bu_id: 'act' },
-        { amount: 300, cc1_id: null, cc2_id: null, bu_id: 'maint' },
+    sqlMock.mockResolvedValueOnce([INV]).mockResolvedValue([]);
+    stored.value = {
+      invoiceNumber: 'INV-9', subtotal: 1000, customerFnoId: 'fno-ft',
+      lines: [
+        { amount: 700, glAccountId: null, projectId: null, cc2Id: 'lawley', buId: 'act' },
+        { amount: 300, glAccountId: null, projectId: null, buId: 'maint' },
       ],
-    }]).mockResolvedValue([]);
+    };
     await postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1');
-    const sqlText = (sqlMock.mock.calls[0]![0] as string[]).join('?');
-    expect(sqlText).toMatch(/default_cc1_id::TEXT AS customer_fno_id/);
-    expect(sqlText).toMatch(/json_agg[\s\S]*customer_invoice_items cii/);
     const lines = posted();
     const revenue = lines.filter((l) => l.glAccountId === 'default_revenue');
     expect(revenue).toEqual([
@@ -59,7 +63,9 @@ describe('postCustomerInvoiceToGL — revenue dimensions', () => {
   });
 
   it('posts the single revenue line exactly as before when nothing names a dimension', async () => {
-    sqlMock.mockResolvedValueOnce([{ ...INV, customer_fno_id: null, dim_items: [{ amount: 1000 }] }]).mockResolvedValue([]);
+    sqlMock.mockResolvedValueOnce([INV]).mockResolvedValue([]);
+    stored.value = { invoiceNumber: 'INV-9', subtotal: 1000, customerFnoId: null,
+      lines: [{ amount: 1000, glAccountId: null, projectId: null }] };
     await postCustomerInvoiceToGL('co-1', 'inv-1', 'user-1');
     expect(posted().filter((l) => l.glAccountId === 'default_revenue'))
       .toEqual([{ glAccountId: 'default_revenue', debit: 0, credit: 1000, description: 'Revenue: INV-9' }]);

@@ -1,8 +1,10 @@
 /**
  * A company with a revenue chart to code invoice lines against (migration
- * 870): default_revenue plus two revenue lines, every account a line must be
- * refused, two projects and a cancelled one, an active and an inactive cost
- * centre — and a SECOND company holding one of each, for the tenancy arms.
+ * 873): default_revenue plus two revenue lines, every account a line must be
+ * refused, two jobs and a cancelled one; and migration 870's dimensions — an
+ * FNO (CC1) with a CC2 project under it, a second FNO with its own CC2, and a
+ * BU. A SECOND company holds one of each, for the tenancy arms. The customer
+ * has no FNO; tests that need one set customers.default_cc1_id themselves.
  *
  * Built on l1FifoFixture (AR, VAT Output, an open FY2026). Disposable
  * databases only: the suites using it skip unless isDisposableDb().
@@ -18,7 +20,7 @@ export interface LineRevenueFixture {
     header: string; headerChild: string; inactive: string; expense: string; foreign: string;
   };
   project: { p1: string; p2: string; cancelled: string; foreign: string };
-  centre: { active: string; inactive: string; foreign: string };
+  dim: { fno: string; cc2: string; otherFno: string; otherCc2: string; bu: string; foreignCc2: string };
 }
 
 async function account(
@@ -45,10 +47,18 @@ async function project(fx: Fixture, number: string, status = 'active'): Promise<
   return rows[0]!.id;
 }
 
-async function centre(fx: Fixture, code: string, active = true): Promise<string> {
+async function centre(fx: Fixture, code: string, ccType: 'cc1' | 'cc2', parent: string | null = null): Promise<string> {
   const rows = (await sql`
-    INSERT INTO cost_centres (company_id, code, name, is_active)
-    VALUES (${fx.companyId}::UUID, ${code}, ${`Centre ${code}`}, ${active})
+    INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id, is_active)
+    VALUES (${fx.companyId}::UUID, ${code}, ${`Centre ${code}`}, ${ccType}, ${parent}::UUID, true)
+    RETURNING id`) as { id: string }[];
+  return rows[0]!.id;
+}
+
+async function businessUnit(fx: Fixture, code: string): Promise<string> {
+  const rows = (await sql`
+    INSERT INTO business_units (company_id, code, name, is_active)
+    VALUES (${fx.companyId}::UUID, ${code}, ${`Unit ${code}`}, true)
     RETURNING id`) as { id: string }[];
   return rows[0]!.id;
 }
@@ -76,11 +86,16 @@ export async function seedLineRevenue(databaseUrl: string): Promise<LineRevenueF
       cancelled: await project(fx, 'P3', 'cancelled'),
       foreign: await project(other, 'PX'),
     },
-    centre: {
-      active: await centre(fx, 'CC1'),
-      inactive: await centre(fx, 'CC2', false),
-      foreign: await centre(other, 'CCX'),
-    },
+    dim: await (async () => {
+      const fno = await centre(fx, 'FT', 'cc1');
+      const otherFno = await centre(fx, 'HT', 'cc1');
+      return {
+        fno, cc2: await centre(fx, 'LAW', 'cc2', fno),
+        otherFno, otherCc2: await centre(fx, 'MOH', 'cc2', otherFno),
+        bu: await businessUnit(fx, 'ACT'),
+        foreignCc2: await centre(other, 'LAW', 'cc2', await centre(other, 'FT', 'cc1')),
+      };
+    })(),
   };
 }
 
@@ -96,7 +111,10 @@ export async function dropLineRevenue(f: LineRevenueFixture): Promise<void> {
     await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
     await sql`DELETE FROM gl_journal_entries WHERE company_id = ${c}::UUID`;
     await sql`DELETE FROM projects WHERE company_id = ${c}::UUID`;
+    await sql`UPDATE customers SET default_cc1_id = NULL WHERE company_id = ${c}::UUID`;
+    await sql`DELETE FROM cost_centres WHERE company_id = ${c}::UUID AND parent_id IS NOT NULL`;
     await sql`DELETE FROM cost_centres WHERE company_id = ${c}::UUID`;
+    await sql`DELETE FROM business_units WHERE company_id = ${c}::UUID`;
     await sql`DELETE FROM company_document_numbers WHERE company_id = ${c}::UUID`;
     await dropFixture(fx);
   }

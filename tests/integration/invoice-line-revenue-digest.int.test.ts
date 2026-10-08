@@ -1,11 +1,14 @@
 /**
- * Migration 870, the approval half: a line's project and cost centre post to
- * the journal, so they are approval content. Retagging either after a request
+ * Migration 873, the approval half: a line's job posts to the journal, so it
+ * is approval content (as its account already was). Retagging either after a request
  * was raised makes the approve refuse DOCUMENT_CHANGED; retagging after the
  * approval makes it stale, in the TypeScript gate and in migration 865's
  * database backstop alike. Re-saving the SAME coding moves nothing (Q9).
  *
- * Disposable databases only (migrations 869 and 870 are not on isaflow_dev).
+ * The CC1 / CC2 / BU half (migration 870's columns) is the dims-digest fix's,
+ * which lands first.
+ *
+ * Disposable databases only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -28,7 +31,7 @@ const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
 const APPROVER = '99999999-0000-4000-8000-0000000000a1';
 
-type Coding = { glAccountId?: string; projectId?: string | null; costCenterId?: string | null };
+type Coding = { glAccountId?: string; projectId?: string | null };
 const line = (c: Coding) => ({ description: 'Spot', quantity: 1, unitPrice: 1000, glAccountId: f.acct.commercials, ...c });
 
 async function draft(c: Coding): Promise<string> {
@@ -57,12 +60,12 @@ async function request(id: string, status: 'pending' | 'approved'): Promise<{ id
 
 let ruleId = '';
 const RETAGS: [string, () => Coding, () => Coding][] = [
-  ['project', () => ({ projectId: f.project.p1 }), () => ({ projectId: f.project.p2 })],
-  ['cost centre', () => ({ costCenterId: f.centre.active }), () => ({ costCenterId: null })],
+  ['job', () => ({ projectId: f.project.p1 }), () => ({ projectId: f.project.p2 })],
+  ['job, cleared', () => ({ projectId: f.project.p1 }), () => ({ projectId: null })],
   ['revenue account', () => ({ glAccountId: f.acct.commercials }), () => ({ glAccountId: f.acct.postProduction })],
 ];
 
-describeIfDisposable('invoice line project / cost centre are approval content (migration 870)', () => {
+describeIfDisposable('an invoice line\'s job is approval content (migration 873)', () => {
   beforeAll(async () => {
     f = await seedLineRevenue(process.env.DATABASE_URL!);
     await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by, enabled_at)
@@ -90,9 +93,9 @@ describeIfDisposable('invoice line project / cost centre are approval content (m
     expect(await digest(id)).not.toBe(before);
   });
 
-  it('two lines that differ only by project or cost centre digest in a content-determined order', async () => {
-    // Lines re-inserted in one transaction share created_at, so without the two
-    // columns in the ORDER BY the order would fall to the random line id and the
+  it('two lines that differ only by job digest in a content-determined order', async () => {
+    // Lines re-inserted in one transaction share created_at, so without the
+    // column in the ORDER BY the order would fall to the random line id and the
     // same content would digest differently from one save to the next.
     const pair = (a: Coding, b: Coding) => [line(a), line(b)];
     const id = (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
@@ -100,7 +103,7 @@ describeIfDisposable('invoice line project / cost centre are approval content (m
       items: pair({ projectId: f.project.p1 }, { projectId: f.project.p2 }),
     }))).id;
     for (const [a, b] of [[{ projectId: f.project.p1 }, { projectId: f.project.p2 }],
-      [{ projectId: null, costCenterId: f.centre.active }, { projectId: null, costCenterId: null }]] as [Coding, Coding][]) {
+      [{ projectId: f.project.p1 }, { projectId: null }]] as [Coding, Coding][]) {
       expect(await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, items: pair(a, b) })))
         .toEqual({ kind: 'ok' });
       const first = await digest(id);
@@ -133,7 +136,7 @@ describeIfDisposable('invoice line project / cost centre are approval content (m
   });
 
   it('the backstop still lets the approved, untouched invoice through', async () => {
-    const id = await draft({ projectId: f.project.p1, costCenterId: f.centre.active });
+    const id = await draft({ projectId: f.project.p1 });
     await request(id, 'approved');
     await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
     expect(((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status)

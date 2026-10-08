@@ -59,7 +59,7 @@ vi.mock('@/modules/accounting/services/gl/approvalGate', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/gl/approvalGate')>()),
   assertApprovalCleared: vi.fn(async () => undefined),
 }));
-// Migration 870: the line-coding pre-check has its own real-PG suite
+// Migration 873: the line-coding pre-check has its own real-PG suite
 // (invoice-line-revenue-coding.int.test.ts); here no line is coded.
 vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/ar/invoiceLineCodingGuard')>()),
@@ -174,7 +174,7 @@ describe('customer-invoices-detail POST action guards', () => {
     expect((glCall[3] as { postingAgent?: string } | undefined)?.postingAgent).toBeUndefined();
   });
 
-  it('migration 870: a line refusal raised by posting AFTER the status UPDATE is a 5xx class, never the pre-write 400', async () => {
+  it('migration 873: a line refusal raised by posting AFTER the status UPDATE is a 5xx class, never the pre-write 400', async () => {
     sqlMock.mockResolvedValueOnce([{ status: 'draft' }]).mockResolvedValueOnce([{ id: INV_ID }]);
     postGlMock.mockRejectedValueOnce(new InvoiceLineCodingRefusal('Invoice INV-1: cost centre CC2 is inactive.'));
     await expect(call({ id: INV_ID, action: 'approve' })).rejects.toBeInstanceOf(ArPostingAfterWriteError);

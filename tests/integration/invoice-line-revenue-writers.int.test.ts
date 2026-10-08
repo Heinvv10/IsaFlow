@@ -1,5 +1,5 @@
 /**
- * Migration 870, the invoice writers that do NOT carry line coding today: a
+ * Migration 873, the invoice writers that do NOT carry line coding today: a
  * sales-order conversion (customer_sales_order_items.gl_account_id exists but
  * nothing writes it, and the conversion does not copy it) and a recurring
  * invoice run (its template lines' glAccountId is dropped by parseLineItems).
@@ -7,7 +7,7 @@
  * posts the single default_revenue leg — and the recurring template's header
  * project tags nothing (D1: only line dimensions post).
  *
- * Disposable databases only (migrations 869 and 870 are not on isaflow_dev).
+ * Disposable databases only (869 and 873 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -33,10 +33,10 @@ const revenueOf = async (invoiceId: string) => (await sql`
   WHERE ci.id = ${invoiceId}::UUID AND a.account_type = 'revenue' ORDER BY a.account_code`) as
   { code: string; credit: number; project: string | null }[];
 const codingOf = async (invoiceId: string) => (await sql`
-  SELECT gl_account_id, project_id, cost_center_id FROM customer_invoice_items WHERE invoice_id = ${invoiceId}::UUID`) as
+  SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${invoiceId}::UUID`) as
   Record<string, string | null>[];
 
-describeIfDisposable('invoice writers without line coding (migration 870)', () => {
+describeIfDisposable('invoice writers without line coding (migration 873)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => {
     if (!f) return;
@@ -58,7 +58,7 @@ describeIfDisposable('invoice writers without line coding (migration 870)', () =
                                                       line_total, gl_account_id)
               VALUES (${so}::UUID, 1, 'Shoot day', 1, 500, 0, 500, ${f.acct.commercials}::UUID)`;
     const { invoiceId } = await inTx(f.fx, () => convertSalesOrderToInvoice(f.fx.companyId, so, f.fx.userId));
-    expect(await codingOf(invoiceId)).toEqual([{ gl_account_id: null, project_id: null, cost_center_id: null }]);
+    expect(await codingOf(invoiceId)).toEqual([{ gl_account_id: null, project_id: null }]);
     await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, invoiceId, f.fx.userId));
     expect(await revenueOf(invoiceId)).toEqual([{ code: '4000', credit: 500, project: null }]);
   });
@@ -72,7 +72,7 @@ describeIfDisposable('invoice writers without line coding (migration 870)', () =
               800, 0, 0, 800, ${f.fx.userId})
       RETURNING id`) as { id: string }[])[0]!.id;
     const run = await inTx(f.fx, () => runRecurringInvoice(f.fx.companyId, ri, f.fx.userId));
-    expect(await codingOf(run.invoiceId)).toEqual([{ gl_account_id: null, project_id: null, cost_center_id: null }]);
+    expect(await codingOf(run.invoiceId)).toEqual([{ gl_account_id: null, project_id: null }]);
     expect(await revenueOf(run.invoiceId)).toEqual([{ code: '4000', credit: 800, project: null }]);
   });
 });

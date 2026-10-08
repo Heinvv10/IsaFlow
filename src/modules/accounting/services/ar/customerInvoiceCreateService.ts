@@ -29,10 +29,9 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
-  /** Revenue account, project, cost centre (migration 870). Optional; read through parseLineCoding. */
+  /** Revenue account and job (migration 873). Optional; read through parseLineCoding. */
   glAccountId?: string | null;
   projectId?: string | null;
-  costCenterId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
   cc1Id?: string;
   cc2Id?: string;
@@ -95,7 +94,7 @@ export async function createDraftCustomerInvoice(
     if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
   }
 
-  // Migration 870: what each line credits and is tagged with. Shape first (a
+  // Migration 873: what each line credits and is tagged with. Shape first (a
   // uuid STRING or nothing — the body is untyped), then ownership and the
   // revenue-account rules, all before the first write below.
   const codings: InvoiceLineCoding[] = [];
@@ -107,7 +106,7 @@ export async function createDraftCustomerInvoice(
   const projectId = readCodingId(input.projectId);
   if (projectId === undefined) throw new InvoiceLineCodingRefusal('projectId must be a UUID');
   const codingRefusal = await invoiceLineCodingRefusal(
-    companyId, [...codings, { glAccountId: null, projectId, costCenterId: null }],
+    companyId, [...codings, { glAccountId: null, projectId }],
   );
   if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
@@ -189,11 +188,11 @@ export async function createDraftCustomerInvoice(
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        gl_account_id, project_id, cost_center_id, cc1_id, cc2_id, bu_id
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
-        ${coding.glAccountId}::UUID, ${coding.projectId}::UUID, ${coding.costCenterId}::UUID,
+        ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
       )
     `;

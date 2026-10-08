@@ -151,7 +151,7 @@ describe('create_draft_invoice', () => {
     )) as Record<string, unknown>;
     expect(createDraftCustomerInvoice).toHaveBeenCalledWith(
       COMPANY_ID, USER_ID,
-      expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2, glAccountId: null, projectId: null, costCenterId: null }] }),
+      expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2, glAccountId: null, projectId: null }] }),
       // The document itself records the actor: a draft invoice posts no
       // journal, so until approval this is the only trace of who raised it.
       { postingAgent: 'mcp:create_draft_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },

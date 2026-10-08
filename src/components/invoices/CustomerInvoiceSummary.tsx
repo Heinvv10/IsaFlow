@@ -22,11 +22,12 @@ interface Props {
 }
 
 /**
- * What the line posts to, for whoever approves it (migration 870). A posted
+ * What the line posts to, for whoever approves it (migration 873). A posted
  * invoice whose journal did NOT credit the line's account (posted before line
  * accounts existed) says so instead of naming an account it never touched; a
- * line account, project or cost centre this company cannot resolve is
- * "unknown", never the default or nothing.
+ * line account, job, CC1, CC2 or BU this company cannot resolve is
+ * "unknown", never the default or nothing. The job (Project Profitability) and
+ * the CC2 project are labelled apart: two models until Hein rules.
  */
 export function lineCoding(item: CustomerInvoiceItem): string {
   const named = (code?: string | null, name?: string | null) => [code, name].filter(Boolean).join(' ');
@@ -35,10 +36,14 @@ export function lineCoding(item: CustomerInvoiceItem): string {
       : named(item.gl_account_code, item.gl_account_name) || 'unknown account';
   const parts = [`Revenue: ${account}`];
   // A tag set on the line that this company cannot resolve is shown as "unknown", never dropped.
-  const project = named(item.project_number, item.line_project_name) || (item.project_id ? 'unknown' : '');
-  if (project) parts.push(`Project: ${project}`);
-  const centre = named(item.cost_center_code, item.cost_center_name) || (item.cost_center_id ? 'unknown' : '');
-  if (centre) parts.push(`Cost centre: ${centre}`);
+  const tag = (label: string, id?: string | null, code?: string | null, name?: string | null) => {
+    const shown = named(code, name) || (id ? 'unknown' : '');
+    if (shown) parts.push(`${label}: ${shown}`);
+  };
+  tag('Job', item.project_id, item.project_number, item.line_project_name);
+  tag('CC1', item.cc1_id, item.cc1_code, item.cc1_name);
+  tag('CC2 project', item.cc2_id, item.cc2_code, item.cc2_name);
+  tag('BU', item.bu_id, item.bu_code, item.bu_name);
   return parts.join(' · ');
 }
 export function CustomerInvoiceSummary({

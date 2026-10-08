@@ -1,5 +1,5 @@
 /**
- * The MCP customer-invoice create tools and line coding (migration 870),
+ * The MCP customer-invoice create tools and line coding (migration 873),
  * through their HANDLERS: the header project_id reaches the service, a coding
  * refusal is the registered INVOICE_LINE_CODING_REFUSED (bulk: named by
  * element), and an unknown line key — camelCase glAccountId — is refused
@@ -41,7 +41,7 @@ describe('create_draft_invoice', () => {
     await createDraftInvoiceTool.handler({ ...one({ project_id: PROJECT }, { gl_account_id: ACCOUNT }), idempotency_key: 'k' }, ctx);
     expect(create.mock.calls[0]![2]).toMatchObject({
       projectId: PROJECT,
-      items: [{ glAccountId: ACCOUNT, projectId: null, costCenterId: null }],
+      items: [{ glAccountId: ACCOUNT, projectId: null }],
     });
   });
 
@@ -53,7 +53,7 @@ describe('create_draft_invoice', () => {
   });
 
   it.each([
-    ['glAccountId', 'gl_account_id'], ['projectId', 'project_id'], ['costCenterId', 'cost_center_id'],
+    ['glAccountId', 'gl_account_id'], ['projectId', 'project_id'], ['costCenterId', 'cc1, cc2 or bu'],
   ])('refuses the unknown line key %s, naming %s, before anything is written', async (camel, snake) => {
     const res = await createDraftInvoiceTool.handler({ ...one({}, { [camel]: ACCOUNT }), idempotency_key: 'k' }, ctx) as Res;
     expect(res.isError).toBe(true);

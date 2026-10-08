@@ -1,9 +1,10 @@
 /**
- * What a customer invoice line is CODED to: the revenue account it credits,
- * the project (job / production) and the cost centre its revenue is tagged
- * with. All three optional; a line naming none of them posts to the company's
- * `default_revenue` account untagged, exactly as every invoice did before
- * migration 870.
+ * What a customer invoice line is CODED to: the revenue account it credits and
+ * the job (`projects`, what Project Profitability, WIP and time read) its
+ * revenue is tagged with. Both optional. The line's CC1 / CC2 / BU are the
+ * dimensions model's (migration 870, gl/dimensions); a line naming none of the
+ * five posts to the company's `default_revenue` account, exactly as every
+ * invoice did before migration 873.
  *
  * Pure — no DB. Every write path reads the caller's ids through
  * `parseLineCoding` before anything else touches them; ownership and account
@@ -18,23 +19,21 @@ import { UUID_RE } from '@/lib/validation';
 export interface InvoiceLineCoding {
   glAccountId: string | null;
   projectId: string | null;
-  costCenterId: string | null;
 }
 
-/** The body keys a caller names the three dimensions by. */
+/** The body keys a caller names the account and the job by. */
 export interface CodingKeys {
   account: string;
   project: string;
-  costCentre: string;
 }
 
-export const HTTP_CODING_KEYS: CodingKeys = { account: 'glAccountId', project: 'projectId', costCentre: 'costCenterId' };
-export const MCP_CODING_KEYS: CodingKeys = { account: 'gl_account_id', project: 'project_id', costCentre: 'cost_center_id' };
+export const HTTP_CODING_KEYS: CodingKeys = { account: 'glAccountId', project: 'projectId' };
+export const MCP_CODING_KEYS: CodingKeys = { account: 'gl_account_id', project: 'project_id' };
 
 /**
  * Raised when a line's coding cannot be accepted or posted. The code lets the
  * message reach an MCP caller (refusalCodes.ts); it names only the caller's own
- * account, project or cost centre.
+ * account or job.
  */
 export class InvoiceLineCodingRefusal extends Error {
   readonly code = 'INVOICE_LINE_CODING_REFUSED';
@@ -78,11 +77,10 @@ export function parseLineCoding(
   if (glAccountId === undefined) return `${where}.${keys.account} must be a UUID`;
   const projectId = readCodingId(line[keys.project]);
   if (projectId === undefined) return `${where}.${keys.project} must be a UUID`;
-  const costCenterId = readCodingId(line[keys.costCentre]);
-  if (costCenterId === undefined) return `${where}.${keys.costCentre} must be a UUID`;
-  return { glAccountId, projectId, costCenterId };
+  return { glAccountId, projectId };
 }
 
+/** The line names an account or a job (its CC1 / CC2 / BU are `hasDimensions`). */
 export function isCoded(c: InvoiceLineCoding): boolean {
-  return c.glAccountId !== null || c.projectId !== null || c.costCenterId !== null;
+  return c.glAccountId !== null || c.projectId !== null;
 }

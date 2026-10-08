@@ -3,13 +3,16 @@
  * reverses one. Pure — no DB — so every allocation rule is provable against the
  * real journal validator (tests/unit/services/ar/invoiceRevenueLines.test.ts).
  *
- * INVOICE. When no line is coded (every invoice before migration 870, and
- * every writer that still writes none) the result is the single
- * `default_revenue` credit of the subtotal posted before, byte for byte, and
- * the line amounts are not read. When any line is coded, the lines are grouped
- * by (account ?? default_revenue, project, cost centre) and the posted amount
- * is split across the groups by their line totals. The VAT and AR legs are
- * the caller's and are unchanged.
+ * INVOICE. When no line names an account, a job or a CC1 / CC2 / BU (every
+ * invoice before migrations 870 and 873, and every writer that still writes
+ * none) the result is the single `default_revenue` credit of the subtotal
+ * posted before, byte for byte — tagged with the customer's FNO when it has
+ * one (870's rule) — and the line amounts are not read. Otherwise each line
+ * without a CC1 takes the customer's FNO (one that differs is refused), the
+ * lines are grouped by (account ?? default_revenue, job, CC1, CC2, BU), and the
+ * posted amount is split across the groups by their line totals. A group that
+ * nets negative (a discount on its own dimensions) posts as a debit on its own
+ * leg. The VAT and AR legs are the caller's and are unchanged.
  *
  * Split BY WEIGHT, not posted as the raw line sums: the journal's amount is the
  * caller's (`credit`), the lines only decide where it goes. Today `credit` is
@@ -18,25 +21,44 @@
  * DOCUMENT subtotal — a split nobody entered is refused, not posted.
  *
  * CREDIT NOTE. `prorateRevenueLegs` debits the invoice journal's own revenue
- * legs pro rata to the note, so a credit note reverses to the accounts,
- * projects and cost centres the invoice actually credited — the journal, not
+ * legs pro rata to the note, so a credit note reverses to the accounts, jobs
+ * and CC1 / CC2 / BU the invoice actually credited — the journal, not
  * the lines, because an invoice posted before this change credited
  * default_revenue whatever its lines said.
  */
 import type { JournalLineInput } from '../../types/gl.types';
+import { applyCustomerFno } from '../gl/dimensions/dimensionDerivation';
+import { hasDimensions, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { InvoiceLineCodingRefusal, isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
 
-export interface StoredRevenueLine extends InvoiceLineCoding {
+export interface StoredRevenueLine extends InvoiceLineCoding, DimensionIds {
   amount: number;
 }
 
-export interface RevenueLeg {
+/** What a revenue leg is tagged with besides its account: the job and the CC1 / CC2 / BU. */
+export interface LegTags {
+  projectId: string | null;
+  cc1Id: string | null;
+  cc2Id: string | null;
+  buId: string | null;
+}
+
+export const NO_TAGS: LegTags = { projectId: null, cc1Id: null, cc2Id: null, buId: null };
+
+/** The line posts somewhere other than the untagged default leg. */
+export const isRevenueCoded = (l: StoredRevenueLine): boolean => isCoded(l) || hasDimensions(l);
+
+type Tagged = { projectId?: string | null; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null };
+const tagsOf = (l: Tagged): LegTags => ({
+  projectId: l.projectId ?? null, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null,
+});
+const tagKey = (account: string, t: LegTags): string => [account, t.projectId, t.cc1Id, t.cc2Id, t.buId].map((v) => v ?? '').join('|');
+
+export interface RevenueLeg extends LegTags {
   /** The leg's identity: the account the invoice journal credited. */
   glAccountId: string;
   /** Where a note debits the leg now — default_revenue once that account is deactivated. Defaults to glAccountId. */
   postAccountId?: string;
-  projectId: string | null;
-  costCenterId: string | null;
   /** Credit minus debit the invoice journal posted to this leg. */
   net: number;
   /** Already taken by earlier notes, per their RECORDED allocations (credit_note_revenue_allocations). */
@@ -46,12 +68,10 @@ export interface RevenueLeg {
 }
 
 /** What a note took, per invoice leg, plus what no leg could take (`isExcess`, default_revenue untagged). */
-export interface CreditNoteAllocation {
+export interface CreditNoteAllocation extends LegTags {
   /** Null on the excess row only. */
   journalLineId: string | null;
   glAccountId: string;
-  projectId: string | null;
-  costCenterId: string | null;
   amount: number;
   isExcess: boolean;
 }
@@ -82,15 +102,16 @@ export function revenueLinesInconsistency(lines: readonly StoredRevenueLine[], d
   return `its lines add up to ${money(lineTotal)} but its subtotal is ${money(cents(documentSubtotal))}`;
 }
 
-const dims = (projectId: string | null, costCenterId: string | null) => ({
-  projectId: projectId ?? undefined,
-  costCenterId: costCenterId ?? undefined,
+const dims = (t: LegTags) => ({
+  projectId: t.projectId ?? undefined,
+  cc1Id: t.cc1Id ?? undefined,
+  cc2Id: t.cc2Id ?? undefined,
+  buId: t.buId ?? undefined,
 });
 
 /** A signed amount (cents) as a journal line: positive on `side`, negative on the other, zero dropped. */
 function leg(
-  glAccountId: string, signed: number, side: 'debit' | 'credit', description: string,
-  projectId: string | null, costCenterId: string | null,
+  glAccountId: string, signed: number, side: 'debit' | 'credit', description: string, tags: LegTags,
 ): JournalLineInput | null {
   if (signed === 0) return null;
   const onSide = signed > 0 ? side : side === 'debit' ? 'credit' : 'debit';
@@ -100,7 +121,7 @@ function leg(
     debit: onSide === 'debit' ? amount : 0,
     credit: onSide === 'credit' ? amount : 0,
     description,
-    ...dims(projectId, costCenterId),
+    ...dims(tags),
   };
 }
 
@@ -122,28 +143,33 @@ export function buildInvoiceRevenueLines(input: {
   credit: number;
   lines: readonly StoredRevenueLine[];
   defaultRevenueAccountId: string;
+  /** customers.default_cc1_id — the FNO revenue carries (migration 870). */
+  customerFnoId?: string | null;
 }): JournalLineInput[] {
-  const { invoiceNumber, documentSubtotal, credit, lines, defaultRevenueAccountId } = input;
+  const { invoiceNumber, documentSubtotal, credit, defaultRevenueAccountId } = input;
   const description = `Revenue: ${invoiceNumber}`;
-  if (!lines.some(isCoded)) {
-    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description }];
+  const fno = input.customerFnoId ? input.customerFnoId.toLowerCase() : null;
+  if (!input.lines.some(isRevenueCoded)) {
+    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description, ...(fno ? { cc1Id: fno } : {}) }];
   }
+  const lines = applyCustomerFno(input.lines, fno, (i) => `Invoice ${invoiceNumber} line ${i + 1}`);
 
   const problem = revenueLinesProblem(lines, documentSubtotal);
   if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
 
-  const groups = new Map<string, { glAccountId: string; projectId: string | null; costCenterId: string | null; weight: number }>();
+  const groups = new Map<string, { glAccountId: string; tags: LegTags; weight: number }>();
   for (const l of lines) {
     const glAccountId = l.glAccountId ?? defaultRevenueAccountId;
-    const key = `${glAccountId}|${l.projectId ?? ''}|${l.costCenterId ?? ''}`;
-    const g = groups.get(key) ?? { glAccountId, projectId: l.projectId, costCenterId: l.costCenterId, weight: 0 };
+    const tags = tagsOf(l);
+    const key = tagKey(glAccountId, tags);
+    const g = groups.get(key) ?? { glAccountId, tags, weight: 0 };
     g.weight += cents(l.amount);
     groups.set(key, g);
   }
   const list = [...groups.values()];
   const shares = allocateByWeight(cents(credit), list.map((g) => g.weight));
   return list
-    .map((g, i) => leg(g.glAccountId, shares[i]!, 'credit', description, g.projectId, g.costCenterId))
+    .map((g, i) => leg(g.glAccountId, shares[i]!, 'credit', description, g.tags))
     .filter((l): l is JournalLineInput => l !== null);
 }
 
@@ -166,16 +192,16 @@ export function noteShares(carries: readonly number[], total: number): number[] 
  * the allocation rows that record it.
  *
  * What each leg still carries is its net, less what earlier notes TOOK:
- *  - notes approved since migration 870 recorded it (`leg.taken`, from
+ *  - notes approved since migration 873 recorded it (`leg.taken`, from
  *    credit_note_revenue_allocations of live notes — a cancelled note's rows
  *    stop counting the moment it is cancelled);
- *  - notes approved before 870 recorded nothing, so their take is REPLAYED
+ *  - notes approved before 873 recorded nothing, so their take is REPLAYED
  *    (`legacyNotes`, their amounts in approval order, allocated with this same
  *    rule) — the fallback only; they all predate any recorded note.
  * No leg is debited past what it carries; whatever the legs cannot take goes
  * to `default_revenue`, untagged, merged with an untagged default leg the
  * invoice itself has, so an uncoded invoice posts exactly the one line it did
- * before. Lines landing on the same (account, project, cost centre) merge.
+ * before. Lines landing on the same (account, job, CC1, CC2, BU) merge.
  */
 export function allocateCreditNote(
   legs: readonly RevenueLeg[],
@@ -196,27 +222,27 @@ export function allocateCreditNote(
   const total = cents(amount);
   const shares = noteShares(carries, total);
   const excess = total - shares.reduce((a, b) => a + b, 0);
-  const merged = new Map<string, { account: string; projectId: string | null; costCenterId: string | null; amount: number }>();
-  const add = (account: string, projectId: string | null, costCenterId: string | null, amountCents: number) => {
-    const key = `${account}|${projectId ?? ''}|${costCenterId ?? ''}`;
-    const m = merged.get(key) ?? { account, projectId, costCenterId, amount: 0 };
+  const merged = new Map<string, { account: string; tags: LegTags; amount: number }>();
+  const add = (account: string, tags: LegTags, amountCents: number) => {
+    const key = tagKey(account, tags);
+    const m = merged.get(key) ?? { account, tags, amount: 0 };
     m.amount += amountCents;
     merged.set(key, m);
   };
-  legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, l.projectId, l.costCenterId, shares[i]!));
-  add(defaultRevenueAccountId, null, null, excess);
+  legs.forEach((l, i) => add(l.postAccountId ?? l.glAccountId, tagsOf(l), shares[i]!));
+  add(defaultRevenueAccountId, NO_TAGS, excess);
   const description = `Credit note ${creditNoteNumber}`;
   const allocations: CreditNoteAllocation[] = legs
-    .map((l, i) => ({ journalLineId: l.journalLineId ?? null, glAccountId: l.glAccountId, projectId: l.projectId,
-      costCenterId: l.costCenterId, amount: rands(shares[i]!), isExcess: false }))
+    .map((l, i) => ({ journalLineId: l.journalLineId ?? null, glAccountId: l.glAccountId, ...tagsOf(l),
+      amount: rands(shares[i]!), isExcess: false }))
     .filter((a) => a.amount !== 0);
   if (excess !== 0) {
-    allocations.push({ journalLineId: null, glAccountId: defaultRevenueAccountId, projectId: null, costCenterId: null,
+    allocations.push({ journalLineId: null, glAccountId: defaultRevenueAccountId, ...NO_TAGS,
       amount: rands(excess), isExcess: true });
   }
   return {
     lines: [...merged.values()]
-      .map((m) => leg(m.account, m.amount, 'debit', description, m.projectId, m.costCenterId))
+      .map((m) => leg(m.account, m.amount, 'debit', description, m.tags))
       .filter((l): l is JournalLineInput => l !== null),
     allocations,
   };

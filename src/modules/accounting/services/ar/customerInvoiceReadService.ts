@@ -211,9 +211,11 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
   const items = (await sql`
     SELECT cii.*,
            a.account_code AS gl_account_code, a.account_name AS gl_account_name,
-           p.project_number, p.name AS line_project_name, cc.code AS cost_center_code, cc.name AS cost_center_name,
+           p.project_number, p.name AS line_project_name,
+           c1.code AS cc1_code, c1.name AS cc1_name, c2.code AS cc2_code, c2.name AS cc2_name,
+           bu.code AS bu_code, bu.name AS bu_name,
            -- Posted invoices only: did its journal actually credit this line's account? An invoice posted
-           -- before migration 870 credited default_revenue whatever account its line names.
+           -- before migration 873 credited default_revenue whatever account its line names.
            CASE WHEN ci.gl_journal_entry_id IS NULL OR cii.gl_account_id IS NULL THEN NULL
                 ELSE EXISTS (SELECT 1 FROM gl_journal_lines jl
                              WHERE jl.journal_entry_id = ci.gl_journal_entry_id AND jl.company_id = ci.company_id
@@ -223,7 +225,9 @@ export async function getCustomerInvoiceDetail(companyId: string, invoiceId: str
     -- (refused on write, but forgeable) shows no name rather than theirs.
     LEFT JOIN gl_accounts a ON a.id = cii.gl_account_id AND a.company_id = ci.company_id
     LEFT JOIN projects p ON p.id = cii.project_id AND p.company_id = ci.company_id
-    LEFT JOIN cost_centres cc ON cc.id = cii.cost_center_id AND cc.company_id = ci.company_id
+    LEFT JOIN cost_centres c1 ON c1.id = cii.cc1_id AND c1.company_id = ci.company_id
+    LEFT JOIN cost_centres c2 ON c2.id = cii.cc2_id AND c2.company_id = ci.company_id
+    LEFT JOIN business_units bu ON bu.id = cii.bu_id AND bu.company_id = ci.company_id
     WHERE cii.invoice_id = ${invoiceId}::UUID AND ci.company_id = ${companyId} ORDER BY cii.created_at
   `) as Row[];
 

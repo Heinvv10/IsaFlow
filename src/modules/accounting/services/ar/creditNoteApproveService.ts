@@ -27,6 +27,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
 import { creditNoteRevenueJournalLines, recordCreditNoteRevenueAllocations } from './invoiceRevenuePosting';
+import { creditNoteHeaderOf, creditNoteHeaderTags } from './creditNoteHeaderTags';
 import type { CreditNoteAllocation } from './invoiceRevenueLines';
 import { ArPostingAfterWriteError } from './arErrors';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
@@ -67,10 +68,12 @@ export async function approveCreditNote(
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
+    // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
+    const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
 
     let lines: JournalLineInput[];
     let allocations: CreditNoteAllocation[] = [];
-    // The note's CC1/CC2/BU ride on its revenue/expense leg only — never AR/AP/VAT (brief §5.3).
+    // A supplier note's CC1/CC2/BU ride on its expense leg only — never AP/VAT (brief §5.3).
     const dims = {
       ...(cn.cc1_id ? { cc1Id: String(cn.cc1_id) } : {}),
       ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
@@ -85,7 +88,7 @@ export async function approveCreditNote(
 
       ({ lines, allocations } = await creditNoteRevenueJournalLines(companyId, {
         id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
-        customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null,
+        customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, tags: headerTags!,
       }, revenueAccount.id));
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing

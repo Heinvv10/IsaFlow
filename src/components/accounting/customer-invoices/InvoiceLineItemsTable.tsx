@@ -1,9 +1,12 @@
 /**
  * InvoiceLineItemsTable — the line editor shared by the new and edit customer
  * invoice pages. Each line may name the revenue account it credits (blank =
- * the company's default sales account) and, behind "Dimensions", the project
- * and cost centre its revenue belongs to (migration 870). The bill editor's
- * account column, mirrored; the pickers offer only what the save accepts.
+ * the company's default sales account) and, behind "Dimensions", the job
+ * (Project Profitability, migration 873) and the CC2 project and BU (migration
+ * 870) its revenue belongs to — labelled apart, since the job and the CC2
+ * project are two models until Hein rules. The CC1 is derived (from the CC2,
+ * or the customer's FNO), never picked. The bill editor's account column,
+ * mirrored; the pickers offer only what the save accepts.
  *
  * The page owns the lines and their total (`lineTotal`), so how a line is
  * priced stays the page's business; this table only renders and edits them.
@@ -23,8 +26,11 @@ export interface InvoiceLine {
   discount: number;
   /** '' = uncoded. */
   glAccountId: string;
+  /** The job (`projects`). */
   projectId: string;
-  costCenterId: string;
+  /** Migration 870's CC2 project and business unit. */
+  cc2Id: string;
+  buId: string;
   /** The new-invoice page's Type column; absent on the edit page. */
   incomeType?: string;
 }
@@ -38,6 +44,8 @@ interface Props {
   onRemove: (key: string) => void;
   options: InvoiceLineCodingOptions;
   showIncomeType?: boolean;
+  /** The CC2 / BU pickers show what is saved but cannot change it (the draft edit does not carry them yet). */
+  dimensionsReadOnly?: boolean;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -50,9 +58,9 @@ const UNOFFERED: Record<InvoiceLineCodingOptions['status'], string> = {
   ready: 'Unavailable — choose another',
 };
 
-export function CodingPicker({ value, options, all, empty, onChange, label }: {
+export function CodingPicker({ value, options, all, empty, onChange, label, disabled }: {
   value: string; options: CodingOption[]; all: InvoiceLineCodingOptions; empty: string;
-  onChange: (v: string) => void; label: string;
+  onChange: (v: string) => void; label: string; disabled?: boolean;
 }) {
   // A stored id the list does not offer (cancelled, deactivated, past the list's
   // cap, or written by another path) stays selected and says what it is, so
@@ -60,7 +68,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label }: {
   const offered = options.some((o) => o.id === value);
   const unoffered = value !== '' && !offered ? (all.known[value] ?? UNOFFERED[all.lookupFailed ? 'failed' : all.status]) : null;
   return (
-    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className={inp}>
+    <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={inp}>
       <option value="">{empty}</option>
       {unoffered !== null && <option value={value}>{unoffered}</option>}
       {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -68,11 +76,13 @@ export function CodingPicker({ value, options, all, empty, onChange, label }: {
   );
 }
 
-export function InvoiceLineItemsTable({ lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType }: Props) {
+export function InvoiceLineItemsTable({
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, dimensionsReadOnly,
+}: Props) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default when a line already carries a dimension, so an edit shows what it will save.
-  const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.costCenterId !== '');
+  const showDimensions = dimensionsToggled ?? lines.some((l) => l.projectId !== '' || l.cc2Id !== '' || l.buId !== '');
 
   return (
     <>
@@ -100,8 +110,9 @@ export function InvoiceLineItemsTable({ lines, currencyCode, lineTotal, onUpdate
             <th className={`${th} px-4 text-left`}>Description</th>
             {showIncomeType && <th className={`${th} text-left w-32`}>Type</th>}
             <th className={`${th} text-left w-44`}>Account</th>
-            {showDimensions && <th className={`${th} text-left w-40`}>Project</th>}
-            {showDimensions && <th className={`${th} text-left w-36`}>Cost centre</th>}
+            {showDimensions && <th className={`${th} text-left w-40`}>Job <span className="font-normal">(Project Profitability)</span></th>}
+            {showDimensions && <th className={`${th} text-left w-36`}>CC2 project</th>}
+            {showDimensions && <th className={`${th} text-left w-32`}>BU</th>}
             <th className={`${th} text-right w-20`}>Qty</th>
             <th className={`${th} text-right w-32`}>Unit Price</th>
             {showDiscount && <th className={`${th} text-right w-20`}>Disc.%</th>}
@@ -117,8 +128,9 @@ export function InvoiceLineItemsTable({ lines, currencyCode, lineTotal, onUpdate
                 <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
               </select></td>}
               <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
-              {showDimensions && <td className="px-3 py-2"><CodingPicker label="Project" value={l.projectId} options={options.projects} all={options} empty="No project" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
-              {showDimensions && <td className="px-3 py-2"><CodingPicker label="Cost centre" value={l.costCenterId} options={options.centres} all={options} empty="No cost centre" onChange={(v) => onUpdate(l.key, 'costCenterId', v)} /></td>}
+              {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
+              {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" disabled={dimensionsReadOnly} onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
+              {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" disabled={dimensionsReadOnly} onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
               <td className="px-3 py-2"><input type="number" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
               <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
               {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.1} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="0" className={`${inp} text-right`} /></td>}

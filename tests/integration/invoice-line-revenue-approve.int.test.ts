@@ -1,5 +1,5 @@
 /**
- * Migration 870, the approve side (review round 1):
+ * Migration 873, the approve side (review round 1):
  *  - an UNCODED invoice is never refused for its lines — approve and bulk
  *    finalize both post it even when its lines do not add up to the subtotal;
  *  - a CODED invoice whose lines total zero is refused before the status moves;
@@ -8,7 +8,7 @@
  *    dry run and live alike, and reads only this company's invoices;
  *  - the FOR SHARE read really locks the accounts against a concurrent change.
  *
- * Disposable databases only (migrations 869 and 870 are not on isaflow_dev).
+ * Disposable databases only (869 and 873 are not on isaflow_dev).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -50,7 +50,7 @@ const finalize = (ids: string[], dry = false) => inTx(f.fx, async () => JSON.par
 // The lines of a draft made to disagree with its own subtotal, as a legacy import can leave them.
 const skew = (id: string) => sql`UPDATE customer_invoice_items SET amount = amount + 7 WHERE invoice_id = ${id}::UUID`;
 
-describeIfDisposable('approving invoices with and without coded lines (migration 870)', () => {
+describeIfDisposable('approving invoices with and without coded lines (migration 873)', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
   afterAll(async () => { if (f) await dropLineRevenue(f); });
 
@@ -110,7 +110,7 @@ describeIfDisposable('approving invoices with and without coded lines (migration
 
   it('the read-only (lock: false) account read is company-scoped: another company\'s account is foreign to it', async () => {
     expect(await invoiceLineCodingRefusal(f.fx.companyId,
-      [{ glAccountId: f.acct.foreign, projectId: null, costCenterId: null }], { lock: false }))
+      [{ glAccountId: f.acct.foreign, projectId: null }], { lock: false }))
       .toMatch(/not in your company/);
   });
 
@@ -121,7 +121,7 @@ describeIfDisposable('approving invoices with and without coded lines (migration
     try {
       await holder.query('BEGIN');
       await runOn(f.fx, holder, () => invoiceLineCodingRefusal(f.fx.companyId,
-        [{ glAccountId: f.acct.commercials, projectId: null, costCenterId: null }]));
+        [{ glAccountId: f.acct.commercials, projectId: null }]));
       await other.query('BEGIN');
       await other.query("SET LOCAL lock_timeout = '300ms'");
       const err = await other.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [f.acct.commercials])

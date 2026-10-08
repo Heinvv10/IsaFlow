@@ -11,18 +11,26 @@ export interface CustomerInvoiceItem {
   unit_price: number;
   amount: number;
   tax_rate: number;
-  /** Migration 870: what the line posts to, named for the approver. Null when uncoded. */
+  /** Migration 873: what the line posts to, named for the approver. Null when uncoded. */
   gl_account_id?: string | null;
   /** Posted invoices: whether its journal credited the line's account (null when unposted or uncoded). */
   account_posted?: boolean | null;
   gl_account_code?: string | null;
   gl_account_name?: string | null;
+  /** The job (`projects`). */
   project_id?: string | null;
   project_number?: string | null;
   line_project_name?: string | null;
-  cost_center_id?: string | null;
-  cost_center_code?: string | null;
-  cost_center_name?: string | null;
+  /** Migration 870's dimensions: CC1 (FNO), CC2 (project), BU. */
+  cc1_id?: string | null;
+  cc1_code?: string | null;
+  cc1_name?: string | null;
+  cc2_id?: string | null;
+  cc2_code?: string | null;
+  cc2_name?: string | null;
+  bu_id?: string | null;
+  bu_code?: string | null;
+  bu_name?: string | null;
 }
 
 export interface CustomerInvoiceDetail {

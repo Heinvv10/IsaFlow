@@ -1,7 +1,8 @@
-// The REAL new and edit customer-invoice pages with the shared line table (migration 870): the account picker
-// offers only active LEAF revenue accounts; Dimensions offers projects that are not cancelled and ACTIVE cost centres
-// (fetched with ?active=true); each picker writes its own field; the header Project is display only and pre-fills
-// new lines; an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
+// The REAL new and edit customer-invoice pages with the shared line table (migration 873): the account picker
+// offers only active LEAF revenue accounts; Dimensions offers jobs that are not cancelled, ACTIVE CC2 projects and
+// business units (fetched with ?active=true) — the job and the CC2 project labelled apart; each picker writes its own
+// field; the header Job is display only and pre-fills new lines; the edit page shows a line's CC2 / BU but cannot
+// change them (the draft edit does not carry them yet); an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
 // by fetching it by id, and telling loading, failed and unavailable apart; the approver sees each line's coding.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +32,8 @@ const ACC = { commercials: 'a1000000-0000-4000-8000-000000000001', header: 'a100
   crew: 'a1000000-0000-4000-8000-000000000005' };
 const P1 = 'b1000000-0000-4000-8000-000000000001';
 const FAR = 'b1000000-0000-4000-8000-000000000250'; // past the 200-row project list
-const CC1 = 'c1000000-0000-4000-8000-000000000001';
+const CC2 = 'c1000000-0000-4000-8000-000000000001';
+const BU = 'd1000000-0000-4000-8000-000000000001';
 const account = (id: string, code: string, name: string, extra: Record<string, unknown> = {}) =>
   ({ id, accountCode: code, accountName: name, accountType: 'revenue', isActive: true, ...extra });
 
@@ -63,7 +65,8 @@ function serve(invoice?: Record<string, unknown>, opts: { failLists?: boolean; f
       return ok([{ id: P1, project_number: 'P1', name: 'Shoot', status: 'active' },
         { id: 'b1000000-0000-4000-8000-000000000003', project_number: 'P3', name: 'Dead', status: 'cancelled' }]);
     }
-    if (u.includes('cost-centres')) return ok({ items: [{ id: CC1, code: 'CC1', name: 'Studio' }] });
+    if (u.includes('cost-centres')) return ok({ items: [{ id: CC2, code: 'LAW', name: 'Lawley' }] });
+    if (u.includes('business-units')) return ok({ items: [{ id: BU, code: 'ACT', name: 'Activations' }] });
     if (u.includes('customer-invoices-detail')) return ok(invoice);
     if (u.includes('/customers')) return ok([{ id: 'cust-1', name: 'Acme' }]);
     return ok([]);
@@ -83,18 +86,20 @@ async function fillNewInvoice() {
 }
 
 describe('customer invoice line coding — new invoice', () => {
-  it('offers only active leaf revenue accounts, live projects and active cost centres', async () => {
+  it('offers only active leaf revenue accounts, live jobs, active CC2 projects and BUs', async () => {
     serve();
     render(<NewCustomerInvoicePage />);
     const picker = await screen.findByLabelText('Revenue account');
     await waitFor(() => expect(optionTexts(picker)).toEqual(['Default sales', '4100 Commercials', '4310 Studio child']));
-    expect(screen.queryByLabelText('Project')).toBeNull();
+    expect(screen.queryByLabelText('Job (Project Profitability)')).toBeNull();
     expect(dimensions().getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(dimensions());
     expect(dimensions().getAttribute('aria-expanded')).toBe('true');
-    expect(optionTexts(screen.getByLabelText('Project'))).toEqual(['No project', 'P1 Shoot']);
-    expect(optionTexts(screen.getByLabelText('Cost centre'))).toEqual(['No cost centre', 'CC1 Studio']);
-    expect(gets).toContain('/api/accounting/cost-centres?active=true');
+    expect(optionTexts(screen.getByLabelText('Job (Project Profitability)'))).toEqual(['No job', 'P1 Shoot']);
+    expect(optionTexts(screen.getByLabelText('CC2 project'))).toEqual(['No CC2 project', 'LAW Lawley']);
+    expect(optionTexts(screen.getByLabelText('BU'))).toEqual(['No BU', 'ACT Activations']);
+    expect(gets).toContain('/api/accounting/cost-centres?active=true&cc_type=cc2');
+    expect(gets).toContain('/api/accounting/business-units?active=true');
   });
 
   it('sends each picker\'s own field, and the header project — which pre-fills a line added after it', async () => {
@@ -103,19 +108,20 @@ describe('customer invoice line coding — new invoice', () => {
     await fillNewInvoice();
     fireEvent.change(screen.getByLabelText('Revenue account'), { target: { value: ACC.commercials } });
     fireEvent.click(dimensions());
-    fireEvent.change(screen.getByLabelText('Cost centre'), { target: { value: CC1 } });
-    fireEvent.change(screen.getByLabelText('Invoice project'), { target: { value: P1 } });
+    fireEvent.change(screen.getByLabelText('CC2 project'), { target: { value: CC2 } });
+    fireEvent.change(screen.getByLabelText('BU'), { target: { value: BU } });
+    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ }));
-    expect((screen.getAllByLabelText('Project')[1] as HTMLSelectElement).value).toBe(P1);
-    expect((screen.getAllByLabelText('Project')[0] as HTMLSelectElement).value).toBe(''); // existing lines untouched
+    expect((screen.getAllByLabelText('Job (Project Profitability)')[1] as HTMLSelectElement).value).toBe(P1);
+    expect((screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement).value).toBe(''); // existing lines untouched
     fireEvent.change(screen.getAllByLabelText('Description')[1]!, { target: { value: 'Edit' } });
     fireEvent.change(screen.getAllByLabelText('Unit price')[1]!, { target: { value: '200' } });
     fireEvent.click(screen.getByRole('button', { name: /Create Invoice/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]!.body.projectId).toBe(P1);
     expect(sent[0]!.body.items).toMatchObject([
-      { glAccountId: ACC.commercials, projectId: '', costCenterId: CC1 },
-      { glAccountId: '', projectId: P1, costCenterId: '' },
+      { glAccountId: ACC.commercials, projectId: '', cc2Id: CC2, buId: BU },
+      { glAccountId: '', projectId: P1, cc2Id: '', buId: '' },
     ]);
   });
 
@@ -125,19 +131,19 @@ describe('customer invoice line coding — new invoice', () => {
     await fillNewInvoice(); // the first line is now worked
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ })); // a pristine second line
     fireEvent.click(dimensions());
-    fireEvent.change(screen.getByLabelText('Invoice project'), { target: { value: P1 } });
-    const projects = screen.getAllByLabelText('Project') as HTMLSelectElement[];
+    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
+    const projects = screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[];
     expect(projects.map((p) => p.value)).toEqual(['', P1]);
   });
 
   it('scan-filled lines start on the header project', async () => {
     serve();
     render(<NewCustomerInvoicePage />);
-    await waitFor(() => expect(optionTexts(screen.getByLabelText('Invoice project'))).toContain('P1 Shoot'));
-    fireEvent.change(screen.getByLabelText('Invoice project'), { target: { value: P1 } });
+    await waitFor(() => expect(optionTexts(screen.getByLabelText('Invoice job'))).toContain('P1 Shoot'));
+    fireEvent.change(screen.getByLabelText('Invoice job'), { target: { value: P1 } });
     fireEvent.click(screen.getByRole('button', { name: 'Scan' }));
     // Dimensions opens itself: the lines now carry a project.
-    expect((screen.getAllByLabelText('Project') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+    expect((screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
   });
 
   it('says the options failed to load, rather than "unavailable"', async () => {
@@ -153,33 +159,38 @@ describe('customer invoice line coding — edit', () => {
     tax_rate: 15, currency_code: 'ZAR', project_id: projectId, items,
   });
   const item = (extra: Record<string, unknown>) =>
-    ({ description: 'Spot', quantity: 1, unit_price: 100, amount: 100, gl_account_id: null, project_id: null, cost_center_id: null, ...extra });
+    ({ description: 'Spot', quantity: 1, unit_price: 100, amount: 100, gl_account_id: null, project_id: null, cc2_id: null, bu_id: null, ...extra });
 
   it('round-trips the header project and each line\'s coding, labelling a project past the list by id', async () => {
     router.query = { invoiceId: 'inv-1' };
-    serve(invoice([item({ gl_account_id: ACC.commercials, project_id: FAR, cost_center_id: CC1 }),
+    serve(invoice([item({ gl_account_id: ACC.commercials, project_id: FAR, cc2_id: CC2, bu_id: BU }),
       item({ description: 'Old', gl_account_id: ACC.retired })], FAR));
     render(<EditCustomerInvoicePage />);
     const pickers = await screen.findAllByLabelText('Revenue account');
     await waitFor(() => expect((pickers[0] as HTMLSelectElement).value).toBe(ACC.commercials));
-    const lineProject = screen.getAllByLabelText('Project')[0] as HTMLSelectElement; // Dimensions open: a line carries one
+    const lineProject = screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement; // Dimensions open: a line carries one
     await waitFor(() => expect(lineProject.selectedOptions[0]!.textContent).toBe('P250 Long-running series'));
     expect(gets.some((u) => u.includes(`/projects?ids=${FAR}`))).toBe(true);
-    expect((screen.getByLabelText('Invoice project') as HTMLSelectElement).value).toBe(FAR);
+    expect((screen.getByLabelText('Invoice job') as HTMLSelectElement).value).toBe(FAR);
     expect((pickers[1] as HTMLSelectElement).selectedOptions[0]!.textContent).toBe('Unavailable — choose another');
+    // CC2 / BU show what is saved, read-only: the draft edit does not carry them yet.
+    const cc2 = screen.getAllByLabelText('CC2 project')[0] as HTMLSelectElement;
+    await waitFor(() => expect(cc2.selectedOptions[0]!.textContent).toBe('LAW Lawley'));
+    expect(cc2.disabled).toBe(true);
+    expect((screen.getAllByLabelText('BU')[0] as HTMLSelectElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]!.body.projectId).toBe(FAR);
     expect(sent[0]!.body.items).toMatchObject([
-      { glAccountId: ACC.commercials, projectId: FAR, costCenterId: CC1 },
-      { glAccountId: ACC.retired, projectId: null, costCenterId: null },
+      { glAccountId: ACC.commercials, projectId: FAR },
+      { glAccountId: ACC.retired, projectId: null },
     ]);
   });
 });
 
 describe('customer invoice line coding — edit, more', () => {
   const item = (extra: Record<string, unknown>) =>
-    ({ description: 'Spot', quantity: 1, unit_price: 100, amount: 100, gl_account_id: null, project_id: null, cost_center_id: null, ...extra });
+    ({ description: 'Spot', quantity: 1, unit_price: 100, amount: 100, gl_account_id: null, project_id: null, cc2_id: null, bu_id: null, ...extra });
   const invoice = (items: Record<string, unknown>[], projectId: string | null) => ({
     id: 'inv-1', status: 'draft', invoice_number: 'INV-1', client_id: 'cust-1', invoice_date: '2026-07-15',
     tax_rate: 15, currency_code: 'ZAR', project_id: projectId, items,
@@ -189,35 +200,35 @@ describe('customer invoice line coding — edit, more', () => {
     router.query = { invoiceId: 'inv-1' };
     serve(invoice([], P1));
     render(<EditCustomerInvoicePage />);
-    await waitFor(() => expect((screen.getAllByLabelText('Project')[0] as HTMLSelectElement).value).toBe(P1));
+    await waitFor(() => expect((screen.getAllByLabelText('Job (Project Profitability)')[0] as HTMLSelectElement).value).toBe(P1));
     fireEvent.click(screen.getByRole('button', { name: /Add Line/ }));
-    expect((screen.getAllByLabelText('Project') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
+    expect((screen.getAllByLabelText('Job (Project Profitability)') as HTMLSelectElement[]).map((p) => p.value)).toEqual([P1, P1]);
   });
 
   it('a failed by-id lookup reads "could not load", and Retry fetches again and names it', async () => {
     router.query = { invoiceId: 'inv-1' };
     serve(invoice([item({ project_id: FAR })], null), { failIdsOnce: true });
     render(<EditCustomerInvoicePage />);
-    const lineProject = await screen.findByLabelText('Project') as HTMLSelectElement;
+    const lineProject = await screen.findByLabelText('Job (Project Profitability)') as HTMLSelectElement;
     await waitFor(() => expect(lineProject.selectedOptions[0]!.textContent).toBe('Could not load the list — kept as saved'));
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    await waitFor(() => expect((screen.getByLabelText('Project') as HTMLSelectElement).selectedOptions[0]!.textContent)
+    await waitFor(() => expect((screen.getByLabelText('Job (Project Profitability)') as HTMLSelectElement).selectedOptions[0]!.textContent)
       .toBe('P250 Long-running series'));
   });
 });
 
 describe('the approver sees what each line posts to', () => {
-  it('names the account, project and cost centre, or the default sales account', () => {
+  it('names the account, job, CC1, CC2 project and BU — the job and the CC2 apart — or the default sales account', () => {
     const base = { id: 'i', description: 'x', quantity: 1, unit_price: 1, amount: 1, tax_rate: 15 };
     expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', project_number: 'P1',
-      line_project_name: 'Shoot', cost_center_code: 'CC1', cost_center_name: 'Studio' }))
-      .toBe('Revenue: 4100 Commercials · Project: P1 Shoot · Cost centre: CC1 Studio');
+      line_project_name: 'Shoot', cc1_code: 'FT', cc1_name: 'FibreTime', cc2_code: 'LAW', cc2_name: 'Lawley', bu_code: 'ACT', bu_name: 'Act' }))
+      .toBe('Revenue: 4100 Commercials · Job: P1 Shoot · CC1: FT FibreTime · CC2 project: LAW Lawley · BU: ACT Act');
     expect(lineCoding(base)).toBe('Revenue: default sales account');
     expect(lineCoding({ ...base, gl_account_id: 'gone' })).toBe('Revenue: unknown account');
-    expect(lineCoding({ ...base, project_id: 'gone', cost_center_id: 'gone' }))
-      .toBe('Revenue: default sales account · Project: unknown · Cost centre: unknown');
-    expect(lineCoding({ ...base, project_id: 'p', project_number: 'P1', line_project_name: 'Shoot', cost_center_id: 'gone' }))
-      .toBe('Revenue: default sales account · Project: P1 Shoot · Cost centre: unknown');
+    expect(lineCoding({ ...base, project_id: 'gone', cc1_id: 'gone', cc2_id: 'gone', bu_id: 'gone' }))
+      .toBe('Revenue: default sales account · Job: unknown · CC1: unknown · CC2 project: unknown · BU: unknown');
+    expect(lineCoding({ ...base, project_id: 'p', project_number: 'P1', line_project_name: 'Shoot', cc2_id: 'gone' }))
+      .toBe('Revenue: default sales account · Job: P1 Shoot · CC2 project: unknown');
     expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: false }))
       .toBe('Revenue: as posted — see the journal');
     expect(lineCoding({ ...base, gl_account_id: 'a', gl_account_code: '4100', gl_account_name: 'Commercials', account_posted: true }))
@@ -227,7 +238,7 @@ describe('the approver sees what each line posts to', () => {
 
 describe('a stored id the list does not offer', () => {
   const all = (status: 'loading' | 'ready' | 'failed', known: Record<string, string> = {}) =>
-    ({ accounts: [], projects: [], centres: [], known, status, error: '' });
+    ({ accounts: [], projects: [], cc2s: [], bus: [], known, status, error: '' });
   const label = (status: 'loading' | 'ready' | 'failed', known?: Record<string, string>) => {
     const { container, unmount } = render(<CodingPicker label="P" value={FAR} options={[]} all={all(status, known)} empty="None" onChange={() => undefined} />);
     const text = (container.querySelector('select') as HTMLSelectElement).selectedOptions[0]!.textContent;

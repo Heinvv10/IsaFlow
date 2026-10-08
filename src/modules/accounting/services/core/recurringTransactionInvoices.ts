@@ -48,7 +48,7 @@ export async function mintRecurringCustomerInvoice(
   // does not re-run here. Refused before the number is reserved.
   assertNonNegativeDocumentTotal(totals.totalAmount, `Recurring template ${template.id}`, 'customer');
   // The template's JSON names revenue accounts nothing re-checked, tenant
-  // included — and since migration 870 posting credits them. The AP arm's
+  // included — and since migration 873 posting credits them. The AP arm's
   // check, with the invoice line's rules; before the number is reserved.
   const accountIds = lines.map((l) => readCodingId(l.glAccountId));
   const accountRefusal = accountIds.includes(undefined)

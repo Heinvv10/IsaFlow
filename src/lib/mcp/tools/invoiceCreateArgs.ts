@@ -95,8 +95,11 @@ export const CUSTOMER_INVOICE_LINE_SCHEMA = {
     quantity: { type: 'number', exclusiveMinimum: 0 },
     unit_price: { type: 'number', minimum: 0 },
     gl_account_id: { type: 'string', description: 'Revenue account to credit (a leaf, active revenue account). Omit for the default sales account.' },
-    project_id: { type: 'string', description: 'Project (job / production) the line\'s revenue belongs to.' },
-    cost_center_id: { type: 'string', description: 'Active cost centre the line\'s revenue belongs to.' },
+    project_id: {
+      type: 'string',
+      description: 'Job (a `projects` id — what Project Profitability reads) the line\'s revenue belongs to. '
+        + 'Not the CC2 project: that is `cc2`.',
+    },
     ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'unit_price'],
@@ -224,7 +227,8 @@ export function parseSupplierInvoiceInput(
 const CUSTOMER_LINE_KEYS: ReadonlySet<string> = new Set(Object.keys(CUSTOMER_INVOICE_LINE_SCHEMA.properties));
 // A Map, not an object literal: a caller's key of "constructor" or "__proto__" must find nothing.
 const SNAKE_CASE_OF: ReadonlyMap<string, string> = new Map([
-  ['glAccountId', 'gl_account_id'], ['projectId', 'project_id'], ['costCenterId', 'cost_center_id'], ['unitPrice', 'unit_price'],
+  ['glAccountId', 'gl_account_id'], ['projectId', 'project_id'], ['unitPrice', 'unit_price'],
+  ['costCenterId', 'cc1, cc2 or bu'], ['cost_center_id', 'cc1, cc2 or bu'],
 ]);
 
 /** Parse one customer-invoice payload. Returns the refusal MESSAGE on failure. */

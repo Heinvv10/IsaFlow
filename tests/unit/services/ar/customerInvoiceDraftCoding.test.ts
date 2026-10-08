@@ -10,14 +10,12 @@ import { PutItemSchema } from '@/lib/schemas/customerInvoiceDetail';
 
 const A = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
-const C = 'cccccccc-0000-4000-8000-cccccccccccc';
-const stored = (glAccountId: string | null, projectId: string | null = null, costCenterId: string | null = null) =>
-  ({ glAccountId, projectId, costCenterId });
+const stored = (glAccountId: string | null, projectId: string | null = null) => ({ glAccountId, projectId });
 
 describe('resolveEditCodings', () => {
   it('an absent key keeps the value every stored line carries', () => {
-    expect(resolveEditCodings([{}, {}], [stored(A, B, C), stored(A, B, C)]))
-      .toEqual([stored(A, B, C), stored(A, B, C)]);
+    expect(resolveEditCodings([{}, {}], [stored(A, B), stored(A, B)]))
+      .toEqual([stored(A, B), stored(A, B)]);
   });
 
   it('an invoice with no stored lines keeps nothing', () => {
@@ -31,8 +29,8 @@ describe('resolveEditCodings', () => {
   });
 
   it('null clears, a uuid sets (lower-cased)', () => {
-    expect(resolveEditCodings([{ glAccountId: null, projectId: B.toUpperCase(), costCenterId: null }], [stored(A, null, C)]))
-      .toEqual([stored(null, B, null)]);
+    expect(resolveEditCodings([{ glAccountId: null, projectId: B.toUpperCase() }], [stored(A, null)]))
+      .toEqual([stored(null, B)]);
   });
 
   it('an empty string is refused by the schema before it reaches the resolver', () => {
