@@ -18,6 +18,8 @@ import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplie
 import { SupplierInvoiceLockTimeoutError } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierLines } from './invoiceCreateArgs';
 import { NOT_FOUND, castableArgError, ok, strArg, toolError } from './toolHelpers';
+import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
+import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const HEADER_FIELDS = {
   supplier_id: 'supplierId',
@@ -68,6 +70,7 @@ export const updateSupplierInvoiceTool: McpTool = {
             unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
             tax_rate: { type: 'number', minimum: 0, maximum: 100 },
             gl_account_id: { type: 'string', description: 'Expense GL account UUID; defaults to the company default expense account' },
+            ...DIMENSION_LINE_PROPERTIES,
           },
           required: ['description', 'quantity', 'unit_price'],
           additionalProperties: false,
@@ -81,8 +84,19 @@ export const updateSupplierInvoiceTool: McpTool = {
   handler: async (args, ctx) => {
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
-    const patch = parsePatch(args);
-    if (typeof patch === 'string') return toolError(patch);
+    const parsedPatch = parsePatch(args);
+    if (typeof parsedPatch === 'string') return toolError(parsedPatch);
+    const { patch, dimensionRefs } = parsedPatch;
+    // cc1/cc2/bu per line: resolved, CC1 derived from CC2, conflicts refused — before the lock and any write.
+    let warnings: string[] = [];
+    if (patch.items) {
+      const items = await itemsWithDimensions(ctx.companyId, patch.items, dimensionRefs, (i) => `lines[${i}]`);
+      if (typeof items === 'string') return toolError(items);
+      const cos = await dimensionWarningsOrRefusal(ctx.companyId, items, (i) => `lines[${i}]`);
+      if (typeof cos === 'string') return toolError(cos);
+      patch.items = items;
+      warnings = cos.warnings;
+    }
 
     // Planned on the LOCKED row, so no concurrent approve or allocation can
     // move what the plan decided before the apply writes.
@@ -123,13 +137,18 @@ export const updateSupplierInvoiceTool: McpTool = {
         tax_amount: l.taxAmount,
         line_total: l.lineTotal,
         gl_account_id: l.glAccountId ?? null,
+        ...(l.cc1Id || l.cc2Id || l.buId
+          ? { cc1_id: l.cc1Id ?? null, cc2_id: l.cc2Id ?? null, bu_id: l.buId ?? null } : {}),
       })),
+      ...(warnings.length > 0 ? { dimension_warnings: warnings } : {}),
     });
   },
 };
 
 /** Parse the patch before any read. Returns the refusal MESSAGE on failure. */
-function parsePatch(args: Record<string, unknown>): SupplierInvoiceDraftPatch | string {
+function parsePatch(
+  args: Record<string, unknown>,
+): { patch: SupplierInvoiceDraftPatch; dimensionRefs: (DimensionRefs | undefined)[] } | string {
   const bad = castableArgError(args, {
     uuid: ['invoice_id', 'supplier_id'],
     date: ['invoice_date', 'due_date'],
@@ -137,6 +156,7 @@ function parsePatch(args: Record<string, unknown>): SupplierInvoiceDraftPatch | 
   if (bad) return bad;
 
   const patch: SupplierInvoiceDraftPatch = {};
+  let dimensionRefs: (DimensionRefs | undefined)[] = [];
   for (const [arg, key] of Object.entries(HEADER_FIELDS)) {
     const value = strArg(args, arg);
     if (value === undefined) continue;
@@ -158,11 +178,12 @@ function parsePatch(args: Record<string, unknown>): SupplierInvoiceDraftPatch | 
     const parsed = parseSupplierLines(args.lines);
     if (typeof parsed === 'string') return parsed;
     patch.items = parsed.items;
+    dimensionRefs = parsed.dimensionRefs;
   }
 
   if (Object.keys(patch).length === 0) {
     return 'Nothing to update: send at least one of supplier_id, invoice_number, invoice_date, '
       + 'due_date, payment_terms, reference, notes or lines.';
   }
-  return patch;
+  return { patch, dimensionRefs };
 }

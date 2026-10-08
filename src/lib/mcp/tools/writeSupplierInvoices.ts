@@ -21,6 +21,7 @@ import { invoiceVatRefusals } from '@/modules/accounting/services/capture/captur
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
+import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
 import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
@@ -68,6 +69,7 @@ export const createSupplierInvoiceTool: McpTool = {
             unit_price: { type: 'number', minimum: 0, description: 'NET of VAT' },
             tax_rate: { type: 'number', minimum: 0, maximum: 100 },
             gl_account_id: { type: 'string', description: 'Expense GL account UUID; defaults to the company default expense account' },
+            ...DIMENSION_LINE_PROPERTIES,
           },
           required: ['description', 'quantity', 'unit_price'],
           additionalProperties: false,
@@ -93,6 +95,11 @@ export const createSupplierInvoiceTool: McpTool = {
     }
     const accountRefusal = await billLineAccountRefusal(ctx.companyId, parsed.accountIds);
     if (accountRefusal) return toolError(accountRefusal);
+    // cc1/cc2/bu per line: resolved, CC1 derived from CC2, conflicts refused — all pre-write.
+    const items = await itemsWithDimensions(ctx.companyId, parsed.items, parsed.dimensionRefs, (i) => `lines[${i}]`);
+    if (typeof items === 'string') return toolError(items);
+    const cos = await dimensionWarningsOrRefusal(ctx.companyId, items, (i) => `lines[${i}]`);
+    if (typeof cos === 'string') return toolError(cos);
 
     try {
       const invoice = await createSupplierInvoice(
@@ -106,7 +113,7 @@ export const createSupplierInvoiceTool: McpTool = {
           paymentTerms: parsed.paymentTerms,
           reference: parsed.reference,
           notes: parsed.notes,
-          items: parsed.items,
+          items,
         },
         ctx.userId,
         mcpPostingOpts(ctx, 'create_supplier_invoice'),
@@ -121,6 +128,7 @@ export const createSupplierInvoiceTool: McpTool = {
         tax_amount: invoice.taxAmount,
         total_amount: invoice.totalAmount,
         status: invoice.status,
+        ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
       });
     } catch (err) {
       // The service's own validation (quantity, unit price) fires before its

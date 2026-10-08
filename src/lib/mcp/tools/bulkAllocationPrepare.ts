@@ -18,6 +18,7 @@ import {
   parseAllocationLine,
   resolveTxSelectors,
 } from './allocationLine';
+import { attachLineDimensionIds } from './dimensionArgs';
 
 // Each line posts a journal inside one request transaction, so the batch size
 // bounds how long a single connection holds its locks. 500 matches the PRD and
@@ -133,6 +134,9 @@ export async function prepareAllocationLines(
   // line held the foreign id is the existence oracle the shared NOT_FOUND
   // exists to avoid.
   if (ownership) return ownership;
+  // cc1/cc2/bu resolved and CC1 derived for the whole batch, before any write (no query when none is named).
+  const dimRefusal = await attachLineDimensionIds(ctx.companyId, lines, (i) => `allocations[${i}]`);
+  if (dimRefusal) return dimRefusal;
 
   // ONE lookup for the whole batch (per distinct bank-account scope), not one
   // per line. Each line's row lock is held to the end of the request, so 500

@@ -196,6 +196,23 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 
 ## Recent changes
+
+- 2026-10-07: **CC1 / CC2 / BU dimensions (Phase 1), 10 tools (152 = 73 read + 79 write).**
+  Optional per-line `cc1` / `cc2` / `bu` (code, UUID or alias) on `allocate_bank_transaction`,
+  `bulk_allocate_bank_transactions`, `create_supplier_invoice`, `bulk_create_supplier_invoices`,
+  `update_supplier_invoice`, `create_draft_journal`, `create_draft_invoice` and
+  `bulk_create_customer_invoices` — resolved and CC1-derived pre-write by `tools/dimensionArgs.ts`;
+  a COS line with no project comes back in `dimension_warnings` (refused when
+  `companies.require_project_on_cos`). Dimensions on a supplier/customer allocation are refused
+  (a settlement carries none). New: `list_cost_centres`, `list_business_units` (reads);
+  `create_cost_centre`, `create_business_unit`, `set_gl_account_reporting_attributes`,
+  `set_customer_default_fno`, `set_bank_account_default_dimensions` (master data, free, not
+  requiresPost); `split_allocate_bank_transaction`, `tag_journal_lines`,
+  `reverse_dimension_tag_batch` (requiresPost — a split posts; tagging rewrites POSTED lines'
+  dimensions, never amounts). `tag_journal_lines` refuses ANY key that is not a dimension, at the
+  top level and per line, because the transport does not enforce `additionalProperties`. The split
+  tool REFUSES a VAT code the guard would change (as `create_draft_journal`), it does not coerce.
+  Service side: `src/modules/accounting/services/gl/dimensions/.claude.md`.
 - 2026-10-06 (DOCNUM, brk-docnum R2-F1): a raw 55P03 — since migration 858 usually the company+year number lock every journal and every credit note / receipt / supplier payment is numbered under, held by a peer past its 5 s bound — is RETRYABLE: `bulkAllocationPost` and `bulkApprovePost` (bulk allocate, bulk approve credit notes / supplier invoices, bulk finalize invoices) skip the element as "locked by another request — retry" (its savepoint rolled back), and the registry answers any other tool with `lockWaitError.lockWaitErrorText` ("nothing was written; retry in a moment") instead of GENERIC_FAILURE. Tools that can hit numbering (census 2026-10-06): create_draft_journal, post_journal (late-claim split), reverse_journal_entry, set_opening_balance, post_reclassification_batch, finalize_invoice, bulk_finalize_invoices, approve_supplier_invoice, bulk_approve_supplier_invoices, cancel_supplier_invoice, create_credit_note, approve_credit_note, bulk_approve_credit_notes, cancel_credit_note, allocate_bank_transaction, bulk_allocate_bank_transactions, apply_receipt_to_invoice / apply_payment_to_supplier_invoice (bank-line path), reverse_bank_allocation(_batch), reverse_allocations, void_receipt, void_payment, settle_by_contra, approve_pay_run, post_payroll_journal. Test: `tests/unit/mcp/numberLockTimeout.test.ts`.
 - 2026-10-04 (D12): `RECONCILIATION_COMPLETED` is a refusal code. A write that would change a COMPLETED bank reconciliation — `perform_bank_reconciliation`'s auto-match/complete into one, `cancel_bank_reconciliation` on one, `reverse_bank_allocation`/`_batch`/`reverse_allocations`/`void_payment`/`void_receipt`/`reverse_journal_entry` (round 2, dry run too) on its cash — throws `ReconciliationCompletedError` before any write; the registry rolls the savepoint back and answers its message ("… is completed — reopen it first"). Was `RECONCILED_CASH` (reversals) or a generic failure (cancel).
 - 2026-10-03 (D10): `void_payment` refuses a member of a payment batch ("reverse the batch (Batch Payments page) instead", the service's `batch_member` refusal). `reverse_bank_allocation` lets a 'provisional' line through to the service, whose typed refusal names Dismiss / approve + Unapply + Void (it throws, refusal-coded, so the registry answers its message).
