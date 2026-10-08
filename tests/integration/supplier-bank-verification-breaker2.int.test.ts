@@ -12,6 +12,7 @@ const submitEftBatch = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBatch }));
 
 import approvalRules from '../../pages/api/accounting/approval-rules';
+import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
@@ -76,6 +77,16 @@ describe('R2-1 — off/on still launders a pending change on a supplier with NO 
     const eft = await r.eft(u.a, c, batch.id);
     expect({ state: (await r.state(u.c, c, s)).state, eft: eft.state.statusCode })
       .toEqual({ state: 'unverified', eft: 409 });
+  });
+});
+
+describe('the switch preview after a first switch-on', () => {
+  it('off again, it says switching on would accept 0 — though suppliers with bank details exist', async () => {
+    const { c } = await onWithBatch();
+    expect((await r.toggle(u.b, c, false)).state.statusCode).toBe(200);
+    const res = await callRoute(approvalEnforcement, tokens[u.b]!, c, 'GET', undefined, '/api/accounting/approval-enforcement',
+      { preview: '1' });
+    expect((res.state.body as { data: { preview: Record<string, number> } }).data.preview.supplier_bank_details).toBe(0);
   });
 });
 
