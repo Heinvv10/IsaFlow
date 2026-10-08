@@ -34,6 +34,7 @@ import {
   PERIOD_END,
   withBusiestCompany,
   drain,
+  pageSizeFor,
   isDisposableFixtureTarget,
   commitConcurrentPostedLine,
   deleteConcurrentPostedLine,
@@ -67,7 +68,8 @@ describe('general-ledger line stream — real database', async () => {
 
   it.skipIf(!reachable)('pages to exhaustion returning every line exactly once', async () => {
     await withBusiestCompany(async (companyId) => {
-      const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 137 };
+      const scope = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END };
+      const base = { ...scope, limit: await pageSizeFor(scope, 50, 137) };
       const { lines, pages, lineCount } = await drain(base);
 
       // Non-vacuity: this has to have actually paged.
@@ -89,10 +91,10 @@ describe('general-ledger line stream — real database', async () => {
   it.skipIf(!reachable)('gives the same runningBalance at any page size', async () => {
     await withBusiestCompany(async (companyId) => {
       const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END };
-      // 500, not 7: the claim is that the balance does not depend on where
-      // the page cuts, and 21 pages test that as well as 1,494 do without
-      // spending a minute proving it.
-      const small = await drain({ ...base, limit: 500 });
+      // At least 500, not 7: the claim is that the balance does not depend on
+      // where the page cuts, and ~20 pages test that as well as thousands do
+      // without spending a minute proving it.
+      const small = await drain({ ...base, limit: await pageSizeFor(base, 20, 500) });
       const whole = await getGeneralLedgerLines({ ...base, limit: 100000, after: null });
 
       const byId = new Map(whole.lines.map((l) => [l.lineId, l.runningBalance]));
