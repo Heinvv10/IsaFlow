@@ -367,21 +367,25 @@ is ever written for it). Hein's decisions, 2026-10-08:
   switcher, in the enable's transaction (the 876 guard accepts a baseline only then) — except suppliers whose current
   details the switcher set (a refinement of decision 3: otherwise off → change → on verifies one's own change; the guard
   refuses such a baseline too). Enabling needs a human session and a
-  role ≥ the verifier role; disabling needs `mayWeakenAtLevel` at the verifier role.
-- **Who verifies**: role ≥ `supplierBankVerifierRole` (the strictest active `supplier_payment`/`payment_batch` rule's role,
-  else `admin`); not in `bank_details_setters`, except R-035 Q2's sole approver (no OTHER active member reaches the role),
-  recorded `self_verified` with `approval_roster_snapshot`. Cookie session only (impersonated / claim-less refused).
+  role ≥ the verifier role; disabling needs a human session and `mayWeakenAtLevel` at the verifier role.
+- **Who verifies** (`ap/supplierBankVerifiers.ts`): role ≥ `supplierBankVerifierRole` — the strictest active
+  `supplier_payment`/`payment_batch` rule's role but **never below admin** (a refinement of decision 5: a rule may only raise
+  it, or an inert low rule lowers who may verify and switch off) — falling back to admin only when nobody who did not set
+  the details holds the raised role (else a sole owner's own change under an owner-level rule is unverifiable). Not in
+  `bank_details_setters`, except R-035 Q2's sole approver judged on the **admin floor** (no OTHER active member reaches
+  admin — so a setter cannot raise the role to qualify alone), recorded `self_verified` with `approval_roster_snapshot`.
+  Own role and standing read from the database. Cookie session only (impersonated / claim-less refused).
   Verify sends the fingerprint the verifier saw; the supplier is locked FOR UPDATE and a changed fingerprint is 409.
 - **Table**: append-only (app_user SELECT+INSERT; a trigger refuses UPDATE/DELETE/TRUNCATE for every role except the FK
   cascade from a purged supplier); RLS binds tenant and `verified_by = auth.uid()`; a BEFORE INSERT guard binds the row
-  to the supplier's current fingerprint, refuses a setter's plain `verified` and any verify while the control is off.
+  to the supplier's current fingerprint, refuses a setter's plain `verified` and any verify while the control is off,
+  requires an active member at admin or above, re-reads the roster for `self_verified`, and draws `seq` itself (an
+  OVERRIDING SYSTEM VALUE cannot pin a row as "latest").
   Same boundary as N1: it binds code paths, not raw SQL run as app_user.
 - **Baseline only once per supplier**: a supplier with any verification row is never baselined again (TS filter and 876
   guard), so switching off and on cannot accept a change that is unverified now; a setter is shed only when the account
   number's DIGITS change (`bankDetailsChange`), so re-typing the same number cannot clear whoever redirected it.
-- **Known limits (review of PR #679)**: the verifier role FOLLOWS the supplier-payment rules (decision 5) — a rule demanding
-  a role below admin lowers who may verify, switch on and switch off; lowering a rule is itself governed by R-048. The
-  masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
+- **Known limits (review of PR #679)**: the masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
   (unsalted sha256 of low-entropy fields) is returned to them. The fingerprint covers the five bank columns; Netcash sends
   the supplier NAME as account holder, which it does not cover (a name change redirects nothing — the bank routes on
   account and branch). Payment and batch pages do not yet show the verification state.

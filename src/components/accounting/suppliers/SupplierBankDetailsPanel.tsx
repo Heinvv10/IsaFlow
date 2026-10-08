@@ -137,8 +137,8 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
       {view.state === 'unverified' && (
         <p className="text-xs text-amber-500">
           EFT files and Netcash submissions paying this supplier are refused until someone with the {view.verifierRole} role or
-          above confirms these details independently and verifies them here. Whoever set them may not, unless nobody else
-          has that role.
+          above confirms these details independently and verifies them here. Whoever set them may not, unless no one else
+          in the company has the admin role or above.
         </p>
       )}
       {latest && (

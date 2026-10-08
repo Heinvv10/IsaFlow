@@ -26,7 +26,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
 import { actorRank } from './approvalRank';
 import {
-  assertVerifyingSession, recordBankBaseline, SupplierBankVerificationError,
+  assertVerifyingSession, ownCompanyRole, recordBankBaseline, SupplierBankVerificationError,
 } from '../ap/supplierBankBaseline';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
@@ -183,7 +183,8 @@ export async function enableEnforcement(companyId: string, documentType: Enforce
   if (bank) {
     await assertVerifyingSession();
     const role = await supplierBankVerifierRole(companyId);
-    if (actorRank(actor.role) < requiredRank(role)) {
+    const own = await ownCompanyRole(companyId, actor.userId); // the role 876's guard checks, not the caller's word
+    if (own === null || actorRank(own) < requiredRank(role)) {
       throw new SupplierBankVerificationError('VERIFIER_ROLE_REQUIRED', 'Switching supplier bank verification on accepts '
         + `every supplier's current bank details as verified, so it needs the ${role} role or above — the role that verifies them.`);
     }

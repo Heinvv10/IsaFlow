@@ -26,12 +26,12 @@ import { SupplierBankVerificationError } from '@/modules/accounting/services/ap/
 const FINGERPRINT = /^[0-9a-f]{64}$/;
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
-  const { companyId, companyRole, user } = req;
+  const { companyId, user } = req;
 
   if (req.method === 'GET') {
     const { supplierId } = req.query;
     if (!isUuidParam(supplierId)) return apiResponse.badRequest(res, 'supplierId must be a UUID');
-    const view = await getSupplierBankVerification(companyId, supplierId, { userId: user.id, role: companyRole });
+    const view = await getSupplierBankVerification(companyId, supplierId, { userId: user.id });
     if (!view) return apiResponse.notFound(res, 'Supplier', supplierId);
     return apiResponse.success(res, view);
   }
@@ -50,7 +50,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     try {
       const done = await verifySupplierBankDetails({
-        companyId, userId: user.id, role: companyRole, email: user.email, supplierId, fingerprint, method, note,
+        companyId, userId: user.id, email: user.email, supplierId, fingerprint, method, note,
       });
       return apiResponse.success(res, done);
     } catch (err) {

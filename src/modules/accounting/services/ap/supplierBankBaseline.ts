@@ -7,6 +7,7 @@
  */
 import { sql } from '@/lib/neon';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
+import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import { suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
 
 export type SupplierBankVerificationErrorCode =
@@ -34,6 +35,21 @@ export class SupplierBankVerificationError extends Error {
  * context that cannot show it is not one (no session claims: an MCP tool, a
  * job), exactly as R-035 refuses approval decisions (assertDecidingSession).
  */
+/**
+ * The person's company role while they are a member in good standing — read
+ * from their own company_users and users rows (visible to app_user), never
+ * from the caller; null otherwise. Verifying and switching on rank on this,
+ * the role migration 876's guard checks too.
+ */
+export async function ownCompanyRole(companyId: string, userId: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT cu.role, u.is_active, u.status, u.suspended_at
+    FROM company_users cu JOIN users u ON u.id = cu.user_id
+    WHERE cu.company_id = ${companyId}::UUID AND cu.user_id = ${userId}
+  `) as { role: string; is_active: boolean | null; status: string | null; suspended_at: string | null }[];
+  return rows[0] && isActiveUserAccount(rows[0]) ? String(rows[0].role) : null;
+}
+
 /** Whether this request is a person in their own session — the hint the panel's Verify form follows. */
 export async function isVerifyingSession(): Promise<boolean> {
   return (await currentSessionActor()) === 'self';

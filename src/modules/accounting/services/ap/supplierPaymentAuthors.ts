@@ -170,3 +170,12 @@ export async function suppliersWithBankDetailsSetBy(companyId: string, userId: s
   `) as DbRow[];
   return rows.map((r) => String(r.id));
 }
+
+/** Everyone who set the supplier's CURRENT bank details (`bank_details_setters`); [] for none or no such supplier. */
+export async function bankDetailsSetters(companyId: string, supplierId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT COALESCE(bank_details_setters::TEXT[], '{}') AS setters
+    FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  return Array.isArray(rows[0]?.setters) ? (rows[0]!.setters as unknown[]).map(String) : [];
+}

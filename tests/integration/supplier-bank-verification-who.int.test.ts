@@ -81,6 +81,27 @@ describe('the setter is not shed by a formatting-only re-entry', () => {
   });
 });
 
+describe('a raised verifier role never leaves the details unverifiable', () => {
+  it('owner-level payment rule, the only owner set the details: an admin who did not set them verifies (no dead end)', async () => {
+    const { c, s } = await changed([[u.b, 'owner'], [u.c, 'admin'], [u.k, 'manager']], u.b, u.b);
+    await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
+    const self = await r.verify(u.b, c, s);
+    expect(self.state.statusCode).toBe(403);
+    expect(reasonOf(self)).toBe('SETTER_FORBIDDEN');
+    expect((await r.state(u.c, c, s)).canVerify).toBe(true);
+    expect(reasonOf(await r.verify(u.k, c, s))).toBe('VERIFIER_ROLE_REQUIRED');
+    expect((await r.verify(u.c, c, s)).state.statusCode).toBe(200);
+    expect((await verificationsOf(pool, s)).at(-1)!.kind).toBe('verified');
+  });
+
+  it('…but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused', async () => {
+    const { c, s } = await changed([[u.b, 'owner'], [u.p, 'owner'], [u.c, 'admin']], u.b, u.b);
+    await plantRule(pool, c, 'owner', { documentType: 'payment_batch', operator: 'greater_than', value: 1000000 });
+    expect(reasonOf(await r.verify(u.c, c, s))).toBe('VERIFIER_ROLE_REQUIRED');
+    expect((await r.verify(u.p, c, s)).state.statusCode).toBe(200);
+  });
+});
+
 describe('the sole-approver exception (R-035 Q2)', () => {
   it('the only member of the verifier rank set the details: they verify, recorded self_verified with the roster', async () => {
     const { c, s } = await changed([[u.b, 'owner'], [u.k, 'bookkeeper']], u.b, u.b);
@@ -131,7 +152,7 @@ describe('only a person, in their own session, in their own company', () => {
     const { c, s } = await changed([[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin']], u.b, u.a);
     const fingerprint = (await r.state(u.c, c, s)).fingerprint!;
     await expect(inRequest(pool, u.c, c, () => verifySupplierBankDetails({
-      companyId: c, userId: u.c, role: 'admin', supplierId: s, fingerprint, method: 'other', note: 'agent says so',
+      companyId: c, userId: u.c, supplierId: s, fingerprint, method: 'other', note: 'agent says so',
     }))).rejects.toMatchObject({ code: 'IMPERSONATION_FORBIDDEN' });
     expect((await verificationsOf(pool, s)).map((x) => x.kind)).toEqual(['baseline']);
   });
