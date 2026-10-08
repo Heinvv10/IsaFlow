@@ -152,11 +152,11 @@ describe('the pack page between the pack fetch and the comparator fetches', () =
     const { fireEvent, waitFor } = await import('@testing-library/react');
     // PresentDeck attaches its keydown listener in a passive effect, which can
     // land after the cover is already in the DOM — a key pressed in that gap
-    // reaches no listener and the deck stays on 1 / 2 (CI, 2026-10-08). Press
-    // until the deck moves; it clamps at the last slide, so a repeat cannot
-    // overshoot.
+    // reaches no listener and the deck stays on 1 / 2 (CI run 37726555216).
+    // Press only while the cover is still showing, so a press that landed is
+    // never repeated and the deck cannot step past the income slide.
     await waitFor(() => {
-      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      if (screen.queryByText('Acme — Management Pack')) fireEvent.keyDown(window, { key: 'ArrowRight' });
       expect(screen.getByText(/Loading the income statement/)).toBeInTheDocument();
     });
     expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
