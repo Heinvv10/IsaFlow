@@ -35,6 +35,10 @@
 --      (fx_settlement_refusal). Temporary: PR3 replaces the UPDATE arm with
 --      the carrying-movement trigger; the INSERT arm stays (imports are ZAR).
 --   9. Grants and the owner assertion.
+--  10. Partial indexes on gl_journal_entry_id for the three document tables:
+--      postJournalEntry now asks, on EVERY post, which document links to the
+--      journal (shared/documentCurrency.assertJournalDocumentsPostable), and
+--      none of the three had an index on that column.
 --
 -- The two document triggers are SECURITY DEFINER with pg_temp last, owned by
 -- a role that bypasses RLS (712's reasons): they read companies whatever the
@@ -278,3 +282,13 @@ DO $$ BEGIN
     RAISE EXCEPTION 'migration 871: the owner of the FX gate functions must bypass RLS';
   END IF;
 END $$;
+
+-- ── 10. The journal → document lookup ──────────────────────────────────────
+-- Partial: most rows of a busy tenant are linked, but drafts and cancelled
+-- documents are not, and the lookup only ever asks for a non-NULL id.
+CREATE INDEX IF NOT EXISTS idx_customer_invoices_gl_journal_entry_id
+  ON customer_invoices (gl_journal_entry_id) WHERE gl_journal_entry_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_supplier_invoices_gl_journal_entry_id
+  ON supplier_invoices (gl_journal_entry_id) WHERE gl_journal_entry_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_credit_notes_gl_journal_entry_id
+  ON credit_notes (gl_journal_entry_id) WHERE gl_journal_entry_id IS NOT NULL;

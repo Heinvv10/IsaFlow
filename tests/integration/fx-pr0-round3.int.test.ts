@@ -127,6 +127,43 @@ describe('postJournalEntry refuses a journal any foreign document links to', () 
     expect(await statusOf(je)).toBe('posted');
   });
 
+  it('a bill foreign ONLY in currency_code (legacy `currency` still ZAR)', async () => {
+    const c = await company();
+    const bill = await plantBill(pool, c, owner, { currencyCode: 'USD', exchangeRate: 18.5 });
+    const je = await draftJournal(c, 'auto_supplier_invoice');
+    await link('supplier_invoices', bill.id, je);
+    await off(c);
+    await expect(post(c, je)).rejects.toThrow(/USD bills are not enabled/);
+    expect(await statusOf(je)).toBe('draft');
+  });
+
+  it("company scope holds on the bill and credit-note legs too", async () => {
+    const a = await company();
+    const b = await company();
+    const je = await draftJournal(a, 'manual');
+    const bill = await plantBill(pool, b, owner, { currencyCode: 'USD', exchangeRate: 18.5 });
+    const note = await plantNote(pool, b, owner, 'customer');
+    await pool.query("UPDATE credit_notes SET currency = 'USD' WHERE id = $1", [note.id]);
+    await link('supplier_invoices', bill.id, je);
+    await link('credit_notes', note.id, je);
+    await off(a);
+    await off(b);
+    await post(a, je);
+    expect(await statusOf(je)).toBe('posted');
+  });
+
+  it('every linked document is checked, not only the first: a ZAR invoice and a USD bill on one journal', async () => {
+    const c = await company();
+    const zar = await plantInvoice(pool, c, owner, { status: 'approved' });
+    const usd = await plantBill(pool, c, owner, { currencyCode: 'USD', exchangeRate: 18.5 });
+    const je = await draftJournal(c, 'manual');
+    await link('customer_invoices', zar.id, je);
+    await link('supplier_invoices', usd.id, je);
+    await off(c);
+    await expect(post(c, je)).rejects.toThrow(/USD bills are not enabled/);
+    expect(await statusOf(je)).toBe('draft');
+  });
+
   it('a ZAR document linked to the journal posts as before', async () => {
     const c = await company();
     const invoice = await plantInvoice(pool, c, owner, { status: 'approved' });
