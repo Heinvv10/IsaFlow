@@ -75,6 +75,22 @@ export async function drain(
 }
 
 /**
+ * A page size that drains the scope in about `pages` pages, never below
+ * `floor`, and odd so the boundaries do not fall on round numbers. The Demo
+ * company gains lines on every golden-paths run, so a fixed page size made the
+ * drain's page count (and run time) grow without bound: 257 pages at ~150 ms
+ * each for 35,073 lines, past the 60 s timeout under load (2026-10-08).
+ */
+export async function pageSizeFor(
+  scope: Omit<GeneralLedgerQuery, 'after' | 'limit'>,
+  pages: number,
+  floor: number,
+): Promise<number> {
+  const { lineCount } = await getGeneralLedgerLines({ ...scope, limit: 1, after: null });
+  return Math.max(floor, Math.ceil(lineCount / pages)) | 1;
+}
+
+/**
  * ALLOWLIST, not a denylist of known-unsafe names: `isaflow_staging` is a
  * full prod copy on the same cluster (see memory project_isaflow_staging_copy),
  * so refusing only "isaflow_dev"/"isaflow" would fail OPEN for it and any
