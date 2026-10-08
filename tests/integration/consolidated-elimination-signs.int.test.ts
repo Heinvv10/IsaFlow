@@ -23,7 +23,7 @@
 //
 // getConsolidatedBalanceSheet signs member balances and eliminations by the
 // line's SECTION (assets debit − credit, liabilities/equity credit − debit);
-// see sectionSigned and tests/unit/services/consolidatedBalanceSheetContraAccounts.
+// see gl/balanceByAccountType and tests/unit/services/consolidatedBalanceSheetContraAccounts.
 //
 // Consolidation is dormant in production (no group_accounts, no posted
 // consolidation_adjustments), so this is latent rather than live — but it is

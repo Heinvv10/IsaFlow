@@ -38,7 +38,6 @@ function row(over: Record<string, unknown>) {
     account_name: 'Trade Debtors Control',
     account_subtype: 'receivable',
     account_type: 'asset',
-    normal_balance: 'debit',
     is_active: true,
     total_debit: '0',
     total_credit: '0',
@@ -89,13 +88,12 @@ describe('getControlAccountBalances', () => {
     }
   });
 
-  it('signs the balance in the account normal direction', async () => {
+  it('signs the balance by account type: an asset debit less credit, a liability credit less debit', async () => {
     sqlFn.mockResolvedValueOnce([
-      row({ normal_balance: 'debit', total_debit: '100', total_credit: '30' }),
+      row({ total_debit: '100', total_credit: '30' }),
       row({
         id: '44444444-4444-4444-8444-444444444444',
         account_code: '2001',
-        normal_balance: 'credit',
         account_type: 'liability',
         account_subtype: 'payable',
         total_debit: '30',
@@ -106,6 +104,50 @@ describe('getControlAccountBalances', () => {
     const accounts = await getControlAccountBalances(COMPANY, 'ap', '2026-09-03');
     expect(accounts[0]!.balance).toBe(70);
     expect(accounts[1]!.balance).toBe(70);
+  });
+
+  // `normal_balance` is user-set and is NOT the sign. These rows carry a
+  // mis-set one ONLY to prove it is ignored: signed by it, the receivable would
+  // read −100 and the payable −50, and the aging tie-out would compare the
+  // subledger against a control balance pointing the wrong way.
+  it('ignores a mis-set normal_balance — the account type decides the sign', async () => {
+    sqlFn.mockResolvedValueOnce([
+      row({ normal_balance: 'credit', total_debit: '100', total_credit: '0' }),
+      row({
+        id: '55555555-5555-4555-8555-555555555555',
+        account_code: '2002',
+        normal_balance: 'debit',
+        account_type: 'liability',
+        account_subtype: 'payable',
+        total_debit: '0',
+        total_credit: '50',
+      }),
+    ]);
+
+    const accounts = await getControlAccountBalances(COMPANY, 'ap', '2026-09-03');
+    expect(accounts[0]!.balance).toBe(100);
+    expect(accounts[1]!.balance).toBe(50);
+  });
+
+  it('leaves the vat role unchanged for normally configured accounts', async () => {
+    // Input VAT is a debit-normal asset, output VAT a credit-normal liability:
+    // by type and by normal_balance they read the same. Netting the two is the
+    // reconciler's business (subledgerReconciliationService), not this one's.
+    sqlFn.mockResolvedValueOnce([
+      row({ account_subtype: 'vat_input', normal_balance: 'debit', total_debit: '100', total_credit: '0' }),
+      row({
+        id: '66666666-6666-4666-8666-666666666666',
+        account_code: '2200',
+        account_subtype: 'vat_output',
+        normal_balance: 'credit',
+        account_type: 'liability',
+        total_debit: '20',
+        total_credit: '170',
+      }),
+    ]);
+
+    const accounts = await getControlAccountBalances(COMPANY, 'vat', '2026-09-03');
+    expect(accounts.map((a) => a.balance)).toEqual([100, 150]);
   });
 
   it('keeps a DEACTIVATED account that carries a balance', async () => {

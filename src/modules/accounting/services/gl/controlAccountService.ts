@@ -51,6 +51,7 @@ import {
   RECEIVABLE_SUBTYPES,
   rawSubtypesFor,
 } from './accountSubtypes';
+import { balanceByAccountType } from './balanceByAccountType';
 
 /** The subledgers `reconcile_subledger` accepts. Order is the tool's enum order. */
 export const SUBLEDGER_ROLES = ['ar', 'ap', 'bank', 'vat', 'payroll', 'inventory'] as const;
@@ -64,7 +65,7 @@ export interface ControlAccountBalance {
   accountSubtype: string | null;
   /** Reported, never filtered on. A dormant account with a balance is a finding. */
   isActive: boolean;
-  /** Balance as at the date, signed in the account's normal direction. */
+  /** Balance as at the date, signed by account type (asset debit less credit, else credit less debit). */
   balance: number;
   /**
    * How this account came to be a candidate. Always 'subtype' since the posting
@@ -93,10 +94,6 @@ export function subtypesForRole(role: SubledgerRole): string[] {
   }
 }
 
-function signedBalance(normalBalance: string, debit: number, credit: number): number {
-  return normalBalance === 'credit' ? credit - debit : debit - credit;
-}
-
 /**
  * Every control account for `role`, with its balance as at `asAtDate` (a
  * 'YYYY-MM-DD' string — never a Date; this repo has a live UTC-rollback defect
@@ -118,8 +115,7 @@ export async function getControlAccountBalances(
       SELECT ga.id, ga.account_code, ga.account_name, ga.account_type,
              ga.account_subtype, ga.is_active,
              COALESCE(SUM(jl.debit), 0)  AS total_debit,
-             COALESCE(SUM(jl.credit), 0) AS total_credit,
-             ga.normal_balance
+             COALESCE(SUM(jl.credit), 0) AS total_credit
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl
         ON jl.gl_account_id = ga.id
@@ -133,7 +129,7 @@ export async function getControlAccountBalances(
       WHERE ga.company_id = ${companyId}::UUID
         AND COALESCE(ga.account_subtype, '') = ANY(${subtypes}::text[])
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type,
-               ga.account_subtype, ga.is_active, ga.normal_balance
+               ga.account_subtype, ga.is_active
       ORDER BY ga.account_code
     `) as DbRow[];
 
@@ -146,10 +142,10 @@ export async function getControlAccountBalances(
         ? null
         : String(r.account_subtype),
       isActive: r.is_active !== false,
-      balance: signedBalance(
-        String(r.normal_balance ?? 'debit'),
-        Number(r.total_debit ?? 0),
-        Number(r.total_credit ?? 0),
+      // By account type, never the user-set normal_balance (balanceByAccountType).
+      balance: balanceByAccountType(
+        String(r.account_type ?? ''),
+        Number(r.total_debit ?? 0) - Number(r.total_credit ?? 0),
       ),
       foundBy: 'subtype' as const,
     }));

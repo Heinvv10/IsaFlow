@@ -56,14 +56,14 @@ export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
 
 export interface MappingEntry {
   groupAccountId: string; groupAccountCode: string; groupAccountName: string;
-  groupAccountType: string; groupNormalBalance: string; companyAccountId: string;
+  groupAccountType: string; companyAccountId: string;
 }
 
 export async function getCoaMappings(groupId: string, companyId: string): Promise<Map<string, MappingEntry>> {
   const rows = (await sql`
     SELECT gcm.company_account_id, gcm.group_account_id, gcm.company_id,
            ga.account_code AS group_account_code, ga.account_name AS group_account_name,
-           ga.account_type AS group_account_type, ga.normal_balance AS group_normal_balance
+           ga.account_type AS group_account_type
     FROM group_coa_mappings gcm
     JOIN group_accounts ga ON ga.id = gcm.group_account_id
     WHERE gcm.group_id = ${groupId}::UUID AND gcm.company_id = ${companyId}::UUID
@@ -73,7 +73,7 @@ export async function getCoaMappings(groupId: string, companyId: string): Promis
     map.set(String(r.company_account_id), {
       groupAccountId: String(r.group_account_id), groupAccountCode: String(r.group_account_code),
       groupAccountName: String(r.group_account_name), groupAccountType: String(r.group_account_type),
-      groupNormalBalance: String(r.group_normal_balance), companyAccountId: String(r.company_account_id),
+      companyAccountId: String(r.company_account_id),
     });
   }
   return map;
@@ -92,7 +92,7 @@ export async function getCoaMappingsForCompanies(
   const rows = (await sql`
     SELECT gcm.company_account_id, gcm.group_account_id, gcm.company_id,
            ga.account_code AS group_account_code, ga.account_name AS group_account_name,
-           ga.account_type AS group_account_type, ga.normal_balance AS group_normal_balance
+           ga.account_type AS group_account_type
     FROM group_coa_mappings gcm
     JOIN group_accounts ga ON ga.id = gcm.group_account_id
     WHERE gcm.group_id = ${groupId}::UUID
@@ -106,7 +106,7 @@ export async function getCoaMappingsForCompanies(
     result.get(cid)!.set(String(r.company_account_id), {
       groupAccountId: String(r.group_account_id), groupAccountCode: String(r.group_account_code),
       groupAccountName: String(r.group_account_name), groupAccountType: String(r.group_account_type),
-      groupNormalBalance: String(r.group_normal_balance), companyAccountId: String(r.company_account_id),
+      companyAccountId: String(r.company_account_id),
     });
   }
   return result;

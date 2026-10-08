@@ -77,7 +77,7 @@ describe('getMonthlyMovements', () => {
 describe('getMonthlyBalances', () => {
   it('carries a balance forward through months with no posting', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: '2025-11', amount: 400 },
+      { account_code: '1100', account_type: 'asset', month_key: '2025-11', amount: 400 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toEqual([
@@ -87,8 +87,8 @@ describe('getMonthlyBalances', () => {
 
   it('seeds the first month from the balance at the window open', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: 'opening', amount: 1000 },
-      { account_code: '1100', month_key: '2026-03', amount: -250 },
+      { account_code: '1100', account_type: 'asset', month_key: 'opening', amount: 1000 },
+      { account_code: '1100', account_type: 'asset', month_key: '2026-03', amount: -250 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toEqual([
@@ -98,7 +98,7 @@ describe('getMonthlyBalances', () => {
 
   it('keeps a series for an account whose only activity predates the window', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: 'opening', amount: '750.25' },
+      { account_code: '1100', account_type: 'asset', month_key: 'opening', amount: '750.25' },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toEqual(new Array(12).fill(750.25));
@@ -106,8 +106,8 @@ describe('getMonthlyBalances', () => {
 
   it('a balance that genuinely returns to zero reads zero, not the month before', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: '2025-10', amount: 500 },
-      { account_code: '1100', month_key: '2025-12', amount: -500 },
+      { account_code: '1100', account_type: 'asset', month_key: '2025-10', amount: 500 },
+      { account_code: '1100', account_type: 'asset', month_key: '2025-12', amount: -500 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toEqual([
@@ -117,8 +117,8 @@ describe('getMonthlyBalances', () => {
 
   it('does not let one account’s balance leak into another’s series', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: 'opening', amount: 1000 },
-      { account_code: '2100', month_key: '2026-02', amount: 300 },
+      { account_code: '1100', account_type: 'asset', month_key: 'opening', amount: 1000 },
+      { account_code: '2100', account_type: 'liability', month_key: '2026-02', amount: -300 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toEqual(new Array(12).fill(1000));
@@ -126,9 +126,54 @@ describe('getMonthlyBalances', () => {
   });
 });
 
+/**
+ * A balance row arrives as DEBIT LESS CREDIT with its account type; the series
+ * is signed as the balance sheet prints the line — by account type, never by
+ * `normal_balance`. Signed by normal_balance, Sample Trading's debit-normal
+ * Dividends Declared drew +R2.5m of equity beside a statement that (once
+ * fixed) prints it negative.
+ */
+describe('getMonthlyBalances — signed by account type, as the balance sheet', () => {
+  it('draws a liability and an equity account credit less debit', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { account_code: '2100', account_type: 'liability', month_key: 'opening', amount: -5000 },
+      { account_code: '3000', account_type: 'equity', month_key: 'opening', amount: -4000 },
+    ]);
+    const t = await getMonthlyBalances('c1', AS_OF);
+    expect(t.byAccountCode['2100']![11]).toBe(5000);
+    expect(t.byAccountCode['3000']![11]).toBe(4000);
+  });
+
+  it('draws a debit-normal equity account (Dividends Declared) below zero', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { account_code: '3400', account_type: 'equity', month_key: 'opening', amount: 1000 },
+      { account_code: '3400', account_type: 'equity', month_key: '2026-06', amount: 500 },
+    ]);
+    const t = await getMonthlyBalances('c1', AS_OF);
+    expect(t.byAccountCode['3400']![0]).toBe(-1000);
+    expect(t.byAccountCode['3400']![11]).toBe(-1500);
+  });
+
+  it('draws a debit-normal liability below zero', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { account_code: '2900', account_type: 'liability', month_key: '2026-01', amount: 500 },
+    ]);
+    const t = await getMonthlyBalances('c1', AS_OF);
+    expect(t.byAccountCode['2900']![11]).toBe(-500);
+  });
+
+  it('still draws a contra-asset (Accumulated Depreciation) below zero', async () => {
+    sqlMock.mockResolvedValueOnce([
+      { account_code: '1230', account_type: 'asset', month_key: 'opening', amount: -2000 },
+    ]);
+    const t = await getMonthlyBalances('c1', AS_OF);
+    expect(t.byAccountCode['1230']![11]).toBe(-2000);
+  });
+});
+
 describe('accounts with no series', () => {
   it('leaves an account with no ledger activity out of byAccountCode entirely', async () => {
-    sqlMock.mockResolvedValueOnce([{ account_code: '1100', month_key: '2026-02', amount: 300 }]);
+    sqlMock.mockResolvedValueOnce([{ account_code: '1100', account_type: 'asset', month_key: '2026-02', amount: 300 }]);
     const balances = await getMonthlyBalances('c1', AS_OF);
     expect(Object.keys(balances.byAccountCode)).toEqual(['1100']);
     expect(balances.byAccountCode['1200']).toBeUndefined();
@@ -141,8 +186,8 @@ describe('accounts with no series', () => {
 
   it('drops a balance series that never reaches a cent, as the balance sheet does', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: '2025-10', amount: 0.004 },
-      { account_code: '1200', month_key: '2025-10', amount: 0.02 },
+      { account_code: '1100', account_type: 'asset', month_key: '2025-10', amount: 0.004 },
+      { account_code: '1200', account_type: 'asset', month_key: '2025-10', amount: 0.02 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']).toBeUndefined();
@@ -151,8 +196,8 @@ describe('accounts with no series', () => {
 
   it('keeps a series that is under a cent in some months but not all', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '1100', month_key: '2025-10', amount: 0.001 },
-      { account_code: '1100', month_key: '2026-03', amount: 500 },
+      { account_code: '1100', account_type: 'asset', month_key: '2025-10', amount: 0.001 },
+      { account_code: '1100', account_type: 'asset', month_key: '2026-03', amount: 500 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['1100']![0]).toBe(0);
@@ -163,8 +208,8 @@ describe('accounts with no series', () => {
 describe('retained earnings', () => {
   it('returns no series for it, and says why', async () => {
     sqlMock.mockResolvedValueOnce([
-      { account_code: '3200', month_key: 'opening', amount: 900000 },
-      { account_code: '1100', month_key: '2026-02', amount: 300 },
+      { account_code: '3200', account_type: 'equity', month_key: 'opening', amount: -900000 },
+      { account_code: '1100', account_type: 'asset', month_key: '2026-02', amount: 300 },
     ]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.byAccountCode['3200']).toBeUndefined();
@@ -173,7 +218,7 @@ describe('retained earnings', () => {
   });
 
   it('flags it even when the account has no posted lines at all', async () => {
-    sqlMock.mockResolvedValueOnce([{ account_code: '1100', month_key: '2026-02', amount: 300 }]);
+    sqlMock.mockResolvedValueOnce([{ account_code: '1100', account_type: 'asset', month_key: '2026-02', amount: 300 }]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.unavailable['3200']).toBe('derived on the balance sheet');
   });
@@ -182,7 +227,7 @@ describe('retained earnings', () => {
     systemAccountMock.mockRejectedValue(
       new MissingSystemAccountError('retained_earnings', 'c1', 'no_claimant', []),
     );
-    sqlMock.mockResolvedValueOnce([{ account_code: '1100', month_key: '2026-02', amount: 300 }]);
+    sqlMock.mockResolvedValueOnce([{ account_code: '1100', account_type: 'asset', month_key: '2026-02', amount: 300 }]);
     const t = await getMonthlyBalances('c1', AS_OF);
     expect(t.unavailable).toEqual({});
     expect(t.byAccountCode['1100']).toBeDefined();
@@ -190,7 +235,7 @@ describe('retained earnings', () => {
 
   it('lets an unrelated resolver failure through rather than guessing', async () => {
     systemAccountMock.mockRejectedValue(new Error('connection terminated'));
-    sqlMock.mockResolvedValueOnce([{ account_code: '1100', month_key: '2026-02', amount: 300 }]);
+    sqlMock.mockResolvedValueOnce([{ account_code: '1100', account_type: 'asset', month_key: '2026-02', amount: 300 }]);
     await expect(getMonthlyBalances('c1', AS_OF)).rejects.toThrow('connection terminated');
   });
 
