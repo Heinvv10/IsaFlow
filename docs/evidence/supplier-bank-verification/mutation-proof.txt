@@ -127,3 +127,26 @@ UI (component tests, tests/unit/components/supplierBankDetailsPanel.test.tsx), p
 === MUTANT UI-M2 response shape check removed -> 1 failed (a body without the expected shape is an error message, not a crash)
 === MUTANT UI-M3 no reload after a refused verify -> 2 failed
 === MUTANT UI-M4 UTC date instead of SAST -> 1 failed
+
+Review round 2 fixes (2026-10-08T16:32:13Z) — same method:
+=== MUTANT M25-no-fallback-dead-end (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × owner-level payment rule, the only owner set the details: an admin who did not set them verifies (no dead end) 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 11 passed (12)
+=== MUTANT M26-fallback-always-floor (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × follows the strictest supplier-payment rule: an owner-level payment_batch rule refuses an admin who set nothing 59ms
+     × …but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused 52ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 10 passed (12)
+=== MUTANT M27-sole-approver-on-required-role (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × an owner who set the details may not self-verify while an admin could have verified them 192ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M28-guard-seq-not-drawn (migration 876, fixture DB)
+     × a row inserted with an overriding huge seq is not "latest for ever": a later verification still decides 141ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+=== MUTANT M29-guard-standing-dropped (migration 876, fixture DB)
+     × refuses a row by an admin whose account is deactivated (standing, not only role) 124ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
