@@ -66,10 +66,10 @@ const POSTED_VAT_LATERAL = `
 // tightening: "the sibling of the matched line" is only the destination when the
 // matched line is THIS transaction's own bank leg. The allocate / split /
 // rule-auto-post paths all write that leg, but `matchTransaction` (the
-// `journal_line` branch of bank-match-confirm) writes whatever line the user
-// picked from `fetchJournalLineCandidates`, which offers EVERY posted line in the
-// company ranked by amount — no account filter at all. Match a transaction against
-// the expense leg of a supplier invoice and the ungated sibling is Accounts
+// `journal_line` branch of bank-match-confirm) writes whatever line the request
+// names: `fetchJournalLineCandidates` now offers only this bank's lines in this
+// line's direction, but the route does not re-check a hand-crafted id. Match a
+// transaction against the expense leg of a supplier invoice and the ungated sibling is Accounts
 // Payable, which this column would then present as where the money went. Those
 // rows resolve to nothing here and fall back to the honest "Allocated", exactly as
 // before. A user who picks the bank's OWN leg still resolves, and now names the
