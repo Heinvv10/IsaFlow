@@ -241,17 +241,17 @@ export async function allocateTransaction(
   let counterpartyAccountId: string | null = null;
 
   if (allocType === 'transfer') {
-    if (!contraAccountId) throw new Error('contraAccountId is required for transfer allocation (counterparty bank account)');
-    if (contraAccountId === bankAccountId) throw new Error('Transfer source and destination bank accounts must differ');
+    if (!contraAccountId) throw new BankAllocationRefusal('contraAccountId is required for transfer allocation (counterparty bank account)');
+    if (contraAccountId === bankAccountId) throw new BankAllocationRefusal('Transfer source and destination bank accounts must differ');
 
     const cpRows = (await sql`
       SELECT account_code, account_name, account_subtype FROM gl_accounts
       WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
     `) as Row[];
-    if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
+    if (cpRows.length === 0) throw new BankAllocationRefusal('Counterparty bank account not found');
     const cp = cpRows[0]!;
     if (!isBankSubtype(cp.account_subtype == null ? null : String(cp.account_subtype))) {
-      throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
+      throw new BankAllocationRefusal('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
     // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.

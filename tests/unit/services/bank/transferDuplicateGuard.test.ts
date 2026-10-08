@@ -46,12 +46,12 @@ describe('assertNoDuplicateTransfer', () => {
       expect(values(1)).toContain(1000);
     });
 
-  // brk-nrfa round 3: only a TYPED journal (reference set) counts, within five days, and a journal an ordinary match
+  // brk-nrfa round 3: only a TYPED journal (reference set) counts, within ten days (round 10 L2), and a journal an ordinary match
   // already tied to a line on this bank is linked.
-  it('asks only for typed journals within five days, and treats an ordinary match as linked', async () => {
+  it('asks only for typed journals within ten days, and treats an ordinary match as linked', async () => {
     await assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20', true);
     expect(text(1)).toMatch(/je\.reference IS NOT NULL/);
-    expect(text(1)).toMatch(/INTERVAL '5 days'/);
+    expect(text(1)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
     expect(text(1)).toMatch(/ml\.id = bt\.matched_journal_line_id/);
   });
 
@@ -66,7 +66,8 @@ describe('assertNoDuplicateTransfer', () => {
       expect(consumption(n)).toContain(`ml.id = ${t}.matched_journal_line_id`);
       expect(consumption(n)).toContain(`ml.gl_account_id = ${t}.bank_account_id`);
       // ...a leg of THIS journal: any line matched anywhere else on the bank would otherwise switch the guard off.
-      expect(consumption(n)).toContain(n === 0 ? 'WHERE r.id = bank_transactions.transfer_journal_entry_id'
+      // Arm 1 walks from the chain ROOT of the counterparty line's pointer (brk-nrfa round 10 K1).
+      expect(consumption(n)).toContain(n === 0 ? 'WHERE r.id = rt.root_id'
         : 'WHERE r.id = je.id');
       expect(consumption(n)).toContain(`(CASE WHEN ${t}.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(${t}.amount)`);
     }
@@ -79,7 +80,7 @@ describe('assertNoDuplicateTransfer', () => {
     expect(outer).toMatch(/AND status IN \('allocated', 'matched', 'reconciled'\)/);
     expect(outer).toContain('tl.id = bank_transactions.matched_journal_line_id');
     // sec-nrfa round 6: "not reversed" is read from the chain (an even count of posted reversals stands), and a pairing
-    // line is of the same movement — within five days.
+    // line is of the same movement — within ten days.
     expect(outer).toMatch(/tj\.reversed_at IS NULL OR \(SELECT MAX\(ch\.d\) % 2 = 0[\s\S]*WITH RECURSIVE/);
     expect(text(1)).toMatch(/je\.reversed_at IS NULL OR \(SELECT MAX\(ch\.d\) % 2 = 0[\s\S]*WITH RECURSIVE/);
     expect(consumption(0)).toContain("own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '10 days')");
@@ -88,7 +89,7 @@ describe('assertNoDuplicateTransfer', () => {
     expect(consumption(0)).toMatch(/ml\.journal_entry_id IN \(WITH RECURSIVE[\s\S]*WHERE d % 2 = 0\)/);
     expect(consumption(1)).toMatch(/ml\.journal_entry_id IN \(WITH RECURSIVE[\s\S]*WHERE d % 2 = 0\)/);
     // sec-nrfa round 7 L1: in arm 1 a hand-keyed line pairs only a journal no statement created.
-    expect(consumption(0)).toMatch(/NOT \?::BOOLEAN AND EXISTS \(SELECT 1 FROM gl_journal_entries pj[\s\S]*pj\.reference IS NOT NULL/);
+    expect(consumption(0)).toMatch(/NOT \?::BOOLEAN AND EXISTS \(SELECT 1 FROM gl_journal_entries pj[\s\S]*pj\.id = rt\.root_id[\s\S]*pj\.reference IS NOT NULL/);
   });
 
   // brk-nrfa round 7 M2: a hand-keyed line (petty cash) is paired by hand-keyed lines too; an evidenced one is not.
@@ -113,7 +114,7 @@ describe('findTransferRecordedFromStatement', () => {
     expect(text(0)).toMatch(/bt\.status IN \('allocated', 'matched', 'reconciled'\) AND bt\.feed_state = 'posted'/);
     // Only a journal the statement created (no reference); a typed one, even matched, never blocks another typed one.
     expect(text(0)).toMatch(/je\.reference IS NULL/);
-    expect(text(0)).toMatch(/INTERVAL '5 days'/);
+    expect(text(0)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
   });
 
   // sec-nrfa round 4 M1, brk-nrfa round 5 F3: evidence is an imported or feed line MATCHED to the journal's leg.
