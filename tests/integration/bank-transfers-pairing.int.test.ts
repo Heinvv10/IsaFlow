@@ -338,10 +338,11 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     expect((await allocTransfer(await bankLine(bankB, '2029-07-03', 7221, 'LC B IN TUE'), bankA)).statusCode).toBe(200);
   }, 600000);
 
-  // brk-nrfa round 16 L1: the residual's remedy is "match the statement line to the journal". The match screen keeps
-  // the 20 unmatched posted lines nearest the amount; with many ordinary lines of that amount, the nearest in DATE
-  // must win the tie, or the transfer journal's legs are never offered.
-  it('the match screen offers a transfer journal\'s leg among many same-amount lines (nearest date wins the tie)', async () => {
+  // brk-nrfa rounds 16-17: the residual's remedy is "match the statement line to the journal". The match screen keeps
+  // the 20 unmatched posted lines nearest the amount; among many lines of that amount the statement line's OWN BANK
+  // wins the tie — however old the journal (a cheque clearing weeks later), even when 25 ordinary lines of the amount
+  // are dated nearer the statement line.
+  it('the match screen offers a transfer journal\'s bank leg among many nearer same-amount lines', async () => {
     const prepaid = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
       normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '1400', 'PAIR Prepaid', 'asset', 'debit', true)
       RETURNING id`) as Row[])[0]!.id);
@@ -352,9 +353,20 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
       await postJournalEntry(c.fx.companyId, je.id, c.fx.userId);
       return String(je.id);
     });
-    for (let i = 0; i < 25; i++) await post(`2029-09-${String(1 + i).padStart(2, '0')}`, prepaid, c.expense, `top-up ${i}`);
-    const transfer = await post('2029-11-02', bankB, bankA, 'Transfer A -> B (Journal Entries)');
-    const offered = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN')).map((x) => x.id);
+    const transfer = await post('2029-10-06', bankB, bankA, 'Transfer A -> B (Journal Entries)');
+    for (let i = 0; i < 25; i++) await post('2029-11-03', prepaid, c.expense, `top-up ${i}`); // all nearer the line
+    const offered = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB))
+      .map((x) => x.id);
     expect(offered).toContain(await lineOf(transfer, bankB));
+    // sec-nrfa round 16: a journal dated 'infinity' (forged: every writer refuses it) sorts last, not a failed query.
+    // (The numbering trigger refuses it on INSERT; a forged row gets there by an UPDATE of a posted journal.)
+    const inf = await post('2029-11-03', prepaid, c.expense, 'PAIR forged infinity');
+    try {
+      await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${inf}::UUID`;
+      const again = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB)).map((x) => x.id);
+      expect(again).toContain(await lineOf(transfer, bankB));
+    } finally {
+      await sql`UPDATE gl_journal_entries SET entry_date = '2029-11-03' WHERE id = ${inf}::UUID`;
+    }
   }, 300000);
 });

@@ -184,7 +184,7 @@ export async function getMatchCandidates(
   const candidateSets = await Promise.all([
     isReceipt ? [] : fetchSupplierInvoiceCandidates(...args),
     isReceipt ? [] : fetchPurchaseOrderCandidates(...args),
-    fetchJournalLineCandidates(companyId, txAmount, txDate, txDesc),
+    fetchJournalLineCandidates(companyId, txAmount, txDate, txDesc, tx.bankAccountId),
   ]);
 
   const candidates = [...arCandidates, ...candidateSets.flat()].sort((a, b) => b.score - a.score);
