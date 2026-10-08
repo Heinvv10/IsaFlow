@@ -53,6 +53,9 @@ export default function ApprovalsPage() {
   // Every rules load takes a number; only the latest may set the list, so a slow
   // reload from an earlier write cannot overwrite a newer one (review round 1).
   const rulesSeq = useRef(0);
+  // The same for the page's own load (requests, its error and the spinner): a
+  // slow load from an earlier tab or decision must not land over a newer one.
+  const loadSeq = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deciding, setDeciding] = useState<string | null>(null);
@@ -60,6 +63,7 @@ export default function ApprovalsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
+    const load = ++loadSeq.current;
     const seq = ++rulesSeq.current;
     try {
       const [reqRes, rulesRes] = await Promise.all([
@@ -70,18 +74,20 @@ export default function ApprovalsPage() {
       await assertOk(rulesRes, 'Could not load the approval rules - try again');
       const reqJson = await reqRes.json();
       const rulesJson = await rulesRes.json();
-      setRequests(reqJson.data?.items ?? []);
+      if (load === loadSeq.current) setRequests(reqJson.data?.items ?? []);
       if (seq === rulesSeq.current) {
         setRules(rulesJson.data?.items ?? []);
         setActorRole(typeof rulesJson.data?.actorRole === 'string' ? rulesJson.data.actorRole : null);
         setRulesLoaded(true);
       }
     } catch (err) {
-      setRequests([]);
       if (seq === rulesSeq.current) { setRules([]); setActorRole(null); setRulesLoaded(false); }
-      setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
+      if (load === loadSeq.current) {
+        setRequests([]);
+        setError(apiErrorMessage(err, 'Could not load the approvals - try again'));
+      }
     } finally {
-      setLoading(false);
+      if (load === loadSeq.current) setLoading(false);
     }
   }, [tab]);
 

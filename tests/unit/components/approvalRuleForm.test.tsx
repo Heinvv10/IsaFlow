@@ -100,12 +100,12 @@ describe('create', () => {
   });
 });
 
-it('refuses an amount beyond 9 999 999 999 999.99 (numeric(15,2)) without sending it', async () => {
+it.each(['10000000000000', '1000.005'])('refuses amount %s (beyond numeric(15,2), or below a cent) without sending it', async (value) => {
   const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
   fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: 'Huge' } });
-  fireEvent.change(within(dialog).getByLabelText('Amount (R)'), { target: { value: '10000000000000' } });
+  fireEvent.change(within(dialog).getByLabelText('Amount (R)'), { target: { value } });
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
-  expect(await within(dialog).findByText('Enter an amount from 0 to 9,999,999,999,999.99.')).toBeDefined();
+  expect(await within(dialog).findByText('Enter an amount from 0 to 9,999,999,999,999.99, in rand and cents.')).toBeDefined();
   expect(sent).toEqual([]);
 });
 

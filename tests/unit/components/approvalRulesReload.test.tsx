@@ -74,3 +74,70 @@ it('a late reload from an earlier write does not overwrite a newer one', async (
   expect(screen.getByText('Rule A (new)')).toBeDefined();
   expect(screen.queryByText('Rule A')).toBeNull();
 });
+
+// Review round 2 (blind LOW 1): the page's own load (fetchData) is sequenced too —
+// a slow load from an earlier tab must not overwrite the rules, the requests or
+// the error of a newer one.
+const request = (id: string, reference: string, status = 'pending') => ({
+  id, documentType: 'supplier_invoice', documentId: `doc-${id}`, documentReference: reference, amount: 100,
+  documentDigest: null, status, requestedByName: 'R', requestedAt: '2026-10-01T00:00:00Z', decidedAt: null, decisionNotes: null,
+});
+
+/** The first page load (both its GETs) answers only when `release` is called; every later load answers at once. */
+function serveSlowFirstLoad(first: { requests: () => Response; rules: () => Response }, later: { requests: unknown[]; rules: unknown[] }) {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => { release = r; });
+  const seen = { requests: 0, rules: 0 };
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
+    const path = String(url);
+    if ((init?.method ?? 'GET') !== 'GET') return json({ success: true, data: {} });
+    for (const kind of ['requests', 'rules'] as const) {
+      if (!path.startsWith(`/api/accounting/approval-${kind}`)) continue;
+      seen[kind] += 1;
+      if (seen[kind] === 1) { await gate; return first[kind](); }
+      return json({ success: true, data: { items: later[kind], actorRole: 'owner' } });
+    }
+    if (path.startsWith('/api/accounting/approval-enforcement')) return json({ success: true, data: { items: [], enforceable: [], preview: {} } });
+    return json({ success: true, data: { items: [] } });
+  });
+  return () => release();
+}
+
+it('a slow first load does not overwrite the newer requests list (pending → history)', async () => {
+  const release = serveSlowFirstLoad(
+    { requests: () => json({ success: true, data: { items: [request('o', 'OLD-PENDING')] } }), rules: () => list([]) },
+    { requests: [request('n', 'NEW-HISTORY', 'approved')], rules: [] });
+  render(<ApprovalsPage />);
+  fireEvent.click(screen.getByRole('button', { name: /^history$/i }));
+  expect(await screen.findByText('NEW-HISTORY')).toBeDefined();
+  await act(async () => { release(); });
+  await act(async () => {});
+  expect(screen.queryByText('OLD-PENDING')).toBeNull();
+  expect(screen.getByText('NEW-HISTORY')).toBeDefined();
+});
+
+it('a slow first load that fails does not show its error over the newer load', async () => {
+  const release = serveSlowFirstLoad(
+    { requests: () => refusal(503, 'The old load failed'), rules: () => list([]) },
+    { requests: [request('n', 'NEW-HISTORY', 'approved')], rules: [] });
+  render(<ApprovalsPage />);
+  fireEvent.click(screen.getByRole('button', { name: /^history$/i }));
+  expect(await screen.findByText('NEW-HISTORY')).toBeDefined();
+  await act(async () => { release(); });
+  await act(async () => {});
+  expect(screen.queryByText('The old load failed')).toBeNull();
+  expect(screen.getByText('NEW-HISTORY')).toBeDefined();
+});
+
+it('a slow first load does not overwrite the newer rules list (pending → rules)', async () => {
+  const release = serveSlowFirstLoad(
+    { requests: () => json({ success: true, data: { items: [] } }), rules: () => list([rule({ id: 'o', name: 'Rule from the old load' })]) },
+    { requests: [], rules: [rule({ id: 'n', name: 'Rule from the new load' })] });
+  render(<ApprovalsPage />);
+  fireEvent.click(screen.getByRole('button', { name: /^rules$/i }));
+  expect(await screen.findByText('Rule from the new load')).toBeDefined();
+  await act(async () => { release(); });
+  await act(async () => {});
+  expect(screen.queryByText('Rule from the old load')).toBeNull();
+  expect(screen.getByText('Rule from the new load')).toBeDefined();
+});

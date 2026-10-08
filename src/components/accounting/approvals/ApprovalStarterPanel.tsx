@@ -54,7 +54,7 @@ export function ApprovalStarterPanel({ actorRole, rules, onCreated, onClose }: P
       if (!row.include) continue;
       if (t.conditionOperator === 'any') { out.push({ documentType: t.documentType, approverRole: row.role }); continue; }
       const value = parseAmount(row.amount);
-      if (value === null) return `Enter an amount ${AMOUNT_RANGE} for ${docTypeLabel(t.documentType)}.`;
+      if (value === null) return `Enter an amount for ${docTypeLabel(t.documentType)} ${AMOUNT_RANGE}.`;
       out.push({ documentType: t.documentType, conditionValue: value, approverRole: row.role });
     }
     return out.length > 0 ? out : 'Tick at least one rule to create.';

@@ -43,7 +43,7 @@ export function formatCurrency(amount: number): string {
 }
 
 /** MAX_RULE_AMOUNT (approval_rules.condition_value is NUMERIC(15,2)) as a person reads it. */
-export const AMOUNT_RANGE = 'from 0 to 9,999,999,999,999.99';
+export const AMOUNT_RANGE = 'from 0 to 9,999,999,999,999.99, in rand and cents';
 
 /** A form's amount field as a number, or null when it is not one a rule may hold (isRuleAmount). */
 export function parseAmount(text: string): number | null {
