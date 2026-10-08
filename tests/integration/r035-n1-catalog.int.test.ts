@@ -24,13 +24,24 @@
  *    a raise fires — with its SECURITY DEFINER flag and volatility — and the
  *    pinned set is checked to be closed over the calls in those bodies;
  *  - no other function body names the table in a write: INSERT, UPDATE,
- *    DELETE, TRUNCATE or MERGE, schema-qualified or quoted.
+ *    DELETE, TRUNCATE or MERGE, schema-qualified or quoted;
+ *  - the triggers on approval_requests are exactly the 862 insert guard
+ *    (BEFORE INSERT, FOR EACH ROW, enabled), and audit_log has none — a
+ *    trigger rewriting NEW runs inside the definers' writes and calls nothing
+ *    the closure check would see.
  *
  * EXCEPTION: approval_document_digest is NOT body-pinned. It is redefined by
  * design on other branches (873 dimensions, 874 line revenue) as documents
- * gain hashed columns; its digest only binds an approval to content (a change
- * makes approvals stale, never wider), and the decide re-reads it live. Its
- * shape is asserted instead: not DEFINER, STABLE, pg_temp last, text result.
+ * gain hashed columns, and the decide re-reads it live. A legitimate change
+ * (more hashed columns) only makes approvals stale; a weakened digest (fewer
+ * columns, or a constant) would WIDEN what an approval vouches for, and passes
+ * this suite — review round 5 ran such a constant digest here: 46/46 green.
+ * The controls are the review of each migration that redefines it, those
+ * migrations' own "existing digests unchanged" RAISE guards, and the digest
+ * behaviour suites on the disposable fixture (r035-n1-decide, -parity, -raise,
+ * r035-approval-digest, r035-pr3-digest), which went red on that constant
+ * digest. Its shape is asserted here: not DEFINER, STABLE, pg_temp last, text
+ * result, owner bypasses RLS.
  *
  * LIMIT, by decision (review round 3): a function that builds its statement at
  * run time (`EXECUTE 'UPDATE public.approval_' || 'requests …'`) names no table
@@ -155,6 +166,19 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
     expect(rows, NOT_APPLIED).toHaveLength(1);
     expect(rows[0]).toEqual({ result: 'text', definer: false, volatility: 's',
       last_config: expect.stringMatching(/^search_path=.*pg_temp$/), owner_bypasses: true });
+  });
+
+  it('the triggers on approval_requests are exactly the insert guard, enabled, BEFORE INSERT FOR EACH ROW; audit_log has none', async () => {
+    const { rows } = await pool.query(`
+      SELECT t.tgrelid::regclass::text AS tbl, t.tgname, t.tgfoid::regprocedure::text AS fn, t.tgenabled, t.tgtype
+      FROM pg_trigger t
+      WHERE t.tgrelid IN ('public.approval_requests'::regclass, 'public.audit_log'::regclass) AND NOT t.tgisinternal
+      ORDER BY 1, 2`);
+    // tgtype 7 = ROW (1) | BEFORE (2) | INSERT (4); tgenabled 'O' = fires in origin (normal) mode.
+    expect(rows, 'a trigger on approval_requests or audit_log changed — re-review N1').toEqual([
+      { tbl: 'approval_requests', tgname: 'trg_approval_request_insert_guard', fn: 'approval_request_insert_guard()',
+        tgenabled: 'O', tgtype: 7 },
+    ]);
   });
 
   it('the pinned set is closed: every function a writer or pinned helper calls is pinned (or the digest)', async () => {
