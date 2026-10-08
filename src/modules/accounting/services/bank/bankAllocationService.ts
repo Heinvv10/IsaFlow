@@ -37,6 +37,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 
 
@@ -228,26 +229,8 @@ export async function allocateTransaction(
       throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
-    // Guard: if the opposite bank's feed already has an allocated transfer
-    // matching this amount/date, the user is double-posting. Matching the
-    // existing JE is the correct path.
-    const dupRows = (await sql`
-      SELECT id FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID
-        AND bank_account_id = ${contraAccountId}::UUID
-        AND counterparty_account_id = ${bankAccountId}::UUID
-        AND transfer_journal_entry_id IS NOT NULL
-        AND amount = ${-Number(tx.amount)}
-        AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
-                                 AND (${txDate}::DATE + INTERVAL '2 days')
-      LIMIT 1
-    `) as Row[];
-    if (dupRows.length > 0) {
-      throw new Error(
-        'A matching transfer already exists on the counterparty bank for this amount and date. ' +
-        'Match the existing journal entry instead of posting a new one.',
-      );
-    }
+    // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.
+    await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate);
 
     counterpartyAccountId = contraAccountId;
     allocEntityName = `${String(cp.account_code)} ${String(cp.account_name)}`;

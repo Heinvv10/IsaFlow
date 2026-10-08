@@ -154,8 +154,10 @@ export async function getUnusualJournals(
       je.source,
       je.created_at,
       COALESCE(SUM(jl.debit), 0) AS amount,
-      -- A transfer journal is the bank line's amount only when a line points at it (journalSourceKinds).
-      (tl.transfer_journal_entry_id IS NOT NULL) AS bank_line_backed
+      -- A transfer journal carries a bank line's amount only when a LIVE line points at it with that amount; a
+      -- reversal, when a line (any status) pointed at its original with that amount. The pointer alone is not
+      -- evidence: a match can link any line and an unmatch leaves it set (journalSourceKinds, brk-nrfa M2/L3).
+      (COALESCE(SUM(jl.debit), 0) = ANY(tl.amounts) OR COALESCE(SUM(jl.debit), 0) = ANY(tr.amounts)) AS bank_line_backed
     FROM gl_journal_entries je
     -- THE LINES ARE SCOPED TOO, not only the entry they hang off. The FK
     -- makes it redundant today and the root CLAUDE.md rule is "ALWAYS add
@@ -167,13 +169,20 @@ export async function getUnusualJournals(
       ON jl.journal_entry_id = je.id
      AND jl.company_id = ${companyId}::UUID
     LEFT JOIN (
-      SELECT DISTINCT transfer_journal_entry_id FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL
+      SELECT transfer_journal_entry_id, array_agg(DISTINCT ABS(amount)) AS amounts FROM bank_transactions
+      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL AND feed_state = 'posted'
+        AND status IN ('allocated', 'matched', 'reconciled')
+      GROUP BY transfer_journal_entry_id
     ) tl ON tl.transfer_journal_entry_id = je.id
+    LEFT JOIN (
+      SELECT transfer_journal_entry_id, array_agg(DISTINCT ABS(amount)) AS amounts FROM bank_transactions
+      WHERE company_id = ${companyId}::UUID AND transfer_journal_entry_id IS NOT NULL AND feed_state = 'posted'
+      GROUP BY transfer_journal_entry_id
+    ) tr ON tr.transfer_journal_entry_id = je.reversal_of_id
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
-    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, tl.transfer_journal_entry_id
+    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, tl.amounts, tr.amounts
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
