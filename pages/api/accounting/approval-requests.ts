@@ -24,6 +24,7 @@ import {
 import {
   ApprovalDocumentChangedError, ApprovalExpectedDigestRequiredError,
 } from '@/modules/accounting/services/gl/approvalDecideDocument';
+import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/approvalDocumentErrors';
 import { isUuidParam } from '@/lib/validation';
 
 const DOCUMENT_TYPES = new Set<DocumentType>([
@@ -106,6 +107,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (error instanceof ApprovalNotRequiredError || error instanceof ApprovalRuleNotFoundError
             || error instanceof ApprovalDocumentNotFoundError) {
           return apiResponse.badRequest(res, error.message);
+        }
+        // The rules or the document moved under the raise twice running
+        // (R-035 N1): nothing was written; submitting again is the answer.
+        if (error instanceof ApprovalRequestStaleError) {
+          return apiResponse.conflict(res, error.message, { reason: error.code });
         }
         throw error;
       }

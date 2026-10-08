@@ -109,8 +109,9 @@ describe('the approvers', () => {
     const insert = (status: string, requestedBy: string) => asAppUser(pool, u.a, f.c, (client) => client.query(
       `INSERT INTO approval_requests(company_id,document_type,document_id,amount,requested_by,status)
        VALUES($1,'manual_journal',$2,1500,$3,$4)`, [f.c, id, requestedBy, status]));
-    await expect(insert('approved', u.a)).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
-    await expect(insert('pending', u.b)).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
+    // R-035 N1 (migration 872): app_user holds no INSERT on approval_requests.
+    await expect(insert('approved', u.a)).rejects.toThrow(/permission denied for table approval_requests/);
+    await expect(insert('pending', u.b)).rejects.toThrow(/permission denied for table approval_requests/);
   });
 });
 

@@ -105,13 +105,15 @@ describe('the request insert guard', () => {
     '%s: an approved row, or a pending one naming another requester, is refused; the session user\'s own pending row is not',
     async (type) => {
       const { company: c, bank } = await company();
-      await plantRule(pool, c, 'owner', { documentType: type });
+      const rule = await plantRule(pool, c, 'owner', { documentType: type });
       await enforcePay(pool, c, type, u.owner);
       const id = type === 'supplier_payment'
         ? (await plantPayment(pool, c, u.admin, bank)).id : (await plantBatch(pool, c, u.admin, bank)).id;
-      await expect(asAppUser(pool, u.admin, c, insert(type, c, id, u.admin, 'approved'))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
-      await expect(asAppUser(pool, u.manager, c, insert(type, c, id, u.admin, 'pending'))).rejects.toThrow(/R035_APPROVAL_REQUEST_FORGED/);
-      await asAppUser(pool, u.admin, c, insert(type, c, id, u.admin, 'pending'));
+      // R-035 N1 (migration 872): app_user holds no INSERT; its own raise goes through approval_request_raise.
+      await expect(asAppUser(pool, u.admin, c, insert(type, c, id, u.admin, 'approved'))).rejects.toThrow(/permission denied for table approval_requests/);
+      await expect(asAppUser(pool, u.manager, c, insert(type, c, id, u.admin, 'pending'))).rejects.toThrow(/permission denied for table approval_requests/);
+      await asAppUser(pool, u.admin, c, (cl) => cl.query('SELECT * FROM approval_request_raise($1, $2, $3, $4, $5)',
+        [c, type, id, rule, u.admin]));
       expect((await pool.query('SELECT status FROM approval_requests WHERE document_id = $1', [id])).rows).toEqual([{ status: 'pending' }]);
     });
 });

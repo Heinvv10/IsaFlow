@@ -4,7 +4,7 @@
  * through the real assertOk; this proves the server's own message is what the user sees.
  */
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
@@ -54,6 +54,17 @@ const loadOnMount: Array<[string, () => Promise<{ default: () => React.ReactElem
   ['caseware-export', () => import('../../../pages/accounting/reports/caseware-export'), 'account-mappings', 500],
   ['my-reports', () => import('../../../pages/accounting/reports/my-reports'), 'custom-reports', 500],
 ];
+
+// Each page pulls in a large module graph. On a loaded CI runner the first import
+// of balance-sheet and management-accounts outlasted the 5 s test timeout, and the
+// page then rendered against the NEXT test's mocks and crashed (CI, 2026-10-08).
+// Load every page here, under its own budget, so each test imports from the cache.
+beforeAll(async () => {
+  await Promise.all([
+    ...loadOnMount.map(([, load]) => load()),
+    import('../../../pages/accounting/reports/bank-transactions'),
+  ]);
+}, 60_000);
 
 describe('report pages show the server message when the load is refused', () => {
   for (const [name, loader, failUrl, status] of loadOnMount) {
