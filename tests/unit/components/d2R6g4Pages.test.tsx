@@ -129,7 +129,10 @@ describe('stale rows after a failed load', () => {
     });
     render(<CostCentresPage />);
     expect((await screen.findAllByText('D2 Centre')).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: /cc2/i }));
+    fireEvent.click(screen.getByRole('button', { name: /new cc1/i }));
+    fireEvent.change(screen.getByPlaceholderText('Code (e.g. CC-001) *'), { target: { value: 'D2NEW' } });
+    fireEvent.change(screen.getByPlaceholderText('Name *'), { target: { value: 'D2 New' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
     expect(await screen.findByText('Could not load cost centres - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2 Centre')).toBeNull());
     noRaw();
