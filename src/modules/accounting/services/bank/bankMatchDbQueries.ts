@@ -208,10 +208,14 @@ export async function fetchJournalLineCandidates(
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
     SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source,
-      (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL AND orig.reversal_of_id IS NULL)) AS undone
+      (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL
+        AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL))) AS undone,
+      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE AS own_bank
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
+    -- Three or more steps down the chain is never read as the live movement (an odd step is a reversal; fails closed).
+    LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
@@ -234,7 +238,8 @@ export async function fetchJournalLineCandidates(
     const label = String(row.description ?? 'Journal line');
     const candDate = fmtDate(row.entry_date);
     // A reversed transfer, or the reversal undoing one, is not a movement the statement line can be the other leg of.
-    const isTransfer = String(row.source || '') === 'auto_bank_transfer' && row.undone !== true;
+    // Only the leg on the statement line's own bank: the other bank's leg is that bank's movement, not this line's.
+    const isTransfer = String(row.source || '') === 'auto_bank_transfer' && row.undone !== true && row.own_bank === true;
     let score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
     let matchReason: string | undefined = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
     // Only a transfer journal of the same movement (the transfer guard's ten days) is "the existing transfer": an old
