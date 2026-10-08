@@ -69,12 +69,13 @@ describeIfDb('bank reconciliation — allocated lines are their own match', () =
       await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [co, name]);
     }
     await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
-    for (const [id, co, name, s, e] of [
-      [apr, company, 'SM Apr', '2025-04-01', '2025-04-30'], [may, company, 'SM May', '2025-05-01', '2025-05-31'],
-      [aprB, other, 'SM Apr B', '2025-04-01', '2025-04-30']]) {
+    // One period number per company and year (uq_fiscal_periods_company_year_period): May is period 2.
+    for (const [id, co, name, n, s, e] of [
+      [apr, company, 'SM Apr', 1, '2025-04-01', '2025-04-30'], [may, company, 'SM May', 2, '2025-05-01', '2025-05-31'],
+      [aprB, other, 'SM Apr B', 1, '2025-04-01', '2025-04-30']]) {
       await pool.query(
         `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-         VALUES($1,$2,$3,1,2025,$4::DATE,$5::DATE,'open')`, [id, co, name, s, e]);
+         VALUES($1,$2,$3,$4,2025,$5::DATE,$6::DATE,'open')`, [id, co, name, n, s, e]);
     }
     await pool.query(
       `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)

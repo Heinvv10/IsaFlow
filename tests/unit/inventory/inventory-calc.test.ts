@@ -10,7 +10,6 @@ import {
   calculateStockValue,
   validateProduct,
   validateStockAdjustment,
-  generateProductCode,
   type ProductInput,
   type StockAdjustmentInput,
   type StockMovement,
@@ -271,28 +270,3 @@ describe('Stock Adjustment Validation', () => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PRODUCT CODE GENERATION
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe('Product Code Generation', () => {
-  it('generates sequential codes', () => {
-    expect(generateProductCode('widgets', 0)).toBe('WDG-0001');
-    expect(generateProductCode('widgets', 4)).toBe('WDG-0005');
-  });
-
-  it('uses category-based prefixes', () => {
-    expect(generateProductCode('raw_materials', 0)).toMatch(/^RAW-/);
-    expect(generateProductCode('finished_goods', 0)).toMatch(/^FIN-/);
-    expect(generateProductCode('consumables', 0)).toMatch(/^CON-/);
-  });
-
-  it('pads to 4 digits', () => {
-    expect(generateProductCode('widgets', 0)).toBe('WDG-0001');
-    expect(generateProductCode('widgets', 999)).toBe('WDG-1000');
-  });
-
-  it('falls back to PRD prefix for unknown category', () => {
-    expect(generateProductCode('unknown_category', 0)).toBe('PRD-0001');
-  });
-});

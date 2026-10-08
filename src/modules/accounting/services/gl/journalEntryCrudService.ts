@@ -295,7 +295,7 @@ async function createJournalEntryInTransaction(
           description, project_id, cost_center_id, cc1_id, cc2_id, bu_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
-          ${line.debit}, ${line.credit},
+          ${line.debit ?? 0}, ${line.credit ?? 0},
           ${line.description || null},
           ${line.projectId || null},
           ${line.costCenterId || null},
