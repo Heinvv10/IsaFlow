@@ -229,6 +229,9 @@ export async function fetchJournalLineCandidates(
         SELECT matched_journal_line_id FROM bank_transactions
         WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
       )
+      -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409).
+      AND NOT EXISTS (SELECT 1 FROM bank_transactions bp
+        WHERE bp.provisional_je_id = je.id AND bp.company_id = ${companyId}::UUID)
     -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
     -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
     -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
