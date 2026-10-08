@@ -647,7 +647,9 @@ BEGIN
   LOOP
     FOR v_grantee IN
       SELECT DISTINCT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(r.rolname) END
-      FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) a
+      -- A function never granted has a NULL ACL, which means the default
+      -- (EXECUTE for PUBLIC): read it as that, or PUBLIC would be missed.
+      FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
       LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
       WHERE p.oid = v_fn AND a.grantee <> p.proowner
         AND NOT (COALESCE(r.rolname, 'PUBLIC') = 'app_user'
