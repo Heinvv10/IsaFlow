@@ -12,6 +12,7 @@ import { billLineAccountRefusal } from './billLineAccountGuard';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -33,6 +34,8 @@ export class SupplierInvoiceDraftUpdateRefusal extends Error {
  * the replacement cannot express — a purchase-order line link, a project or
  * cost centre, or a VAT classification other than the rate's default (an
  * exempt 0% line would silently become zero-rated). Dropping those is data loss.
+ * CC1 / CC2 / BU a line leaves out keep the value every stored line shares, and
+ * are refused when the stored lines differ (dimensionKeepStored).
  */
 export async function planLines(
   companyId: string,
@@ -53,9 +56,9 @@ export async function planLines(
            po_item_id, project_id, cost_center_id, vat_classification, cc1_id, cc2_id, bu_id
     FROM supplier_invoice_items
     WHERE supplier_invoice_id = ${invoiceId}::UUID`) as DbRow[];
-  const computed = computeSupplierInvoiceTotals(items, taxRate, false);
   let totals: SupplierInvoiceTotals;
   try {
+    const computed = computeSupplierInvoiceTotals(keepStoredDimensions(items, kept), taxRate, false);
     // CC1 derived from each line's CC2; a conflicting CC1 is refused (no query without a CC2).
     totals = { ...computed, items: await deriveLineDimensions(companyId, computed.items) };
     await assertDocumentDimensions(companyId, totals.items);
