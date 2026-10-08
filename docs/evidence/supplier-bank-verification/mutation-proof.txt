@@ -1,0 +1,208 @@
+Mutation proof — supplier bank verification (fixture DB isaflow_schema_fixture, 2026-10-08T15:10:54Z). Each mutant applied alone, suite run, code/DB restored.
+=== MUTANT M1-eft-gate-removed (pages/api/accounting/eft-generate.ts)
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 472ms
+     × A changes the account: unverified; EFT and Netcash (batch) refuse 409 naming the supplier; nothing is sent or recorded 458ms
+     × a bank edit racing the EFT file: the file waits, then refuses 409 for the new details 574ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed | 10 passed (13)
+=== MUTANT M2-netcash-batch-gate-removed (pages/api/accounting/netcash/submit.ts)
+     × A changes the account: unverified; EFT and Netcash (batch) refuse 409 naming the supplier; nothing is sent or recorded 1758ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 12 passed (13)
+=== MUTANT M3-netcash-raw-gate-removed (pages/api/accounting/netcash/submit.ts)
+     × a raw Netcash payments[] list is refused (403) whenever the control is on — no payment approval is enforced 129ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 12 passed (13)
+=== MUTANT M4-baseline-skipped (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × records a baseline, by the switcher, at the current fingerprint, for every supplier with bank details — and none without 77ms
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 123ms
+     × a baselined batch is sendable: EFT file and Netcash submission go out 83ms
+     × A changes the account: unverified; EFT and Netcash (batch) refuse 409 naming the supplier; nothing is sent or recorded 108ms
+     × the setter may not verify (403); another permitted user verifies with method and note; the file then generates 125ms
+     × an edit that changes no bank column leaves it verified; a formatting-only change of the account number too 160ms
+     × a stale fingerprint (the details changed after the verifier looked) is refused 409, and nothing is recorded 147ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  7 failed | 6 passed (13)
+=== MUTANT M5-setter-check-dropped-ts (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 143ms
+     × the setter may not verify (403); another permitted user verifies with method and note; the file then generates 83ms
+     × the only member of the verifier rank set the details: they verify, recorded self_verified with the roster 62ms
+     × not while another member of the rank exists — even one who also set the details 61ms
+     × a suspended second admin does not count: the sole active approver may self-verify 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed | 17 passed (22)
+=== MUTANT M6-rank-check-dropped (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × with no supplier-payment rule the default is admin: a manager is refused 403, a bookkeeper too (no write access) 210ms
+     × follows the strictest supplier-payment rule: an owner-level payment_batch rule refuses an admin who set nothing 126ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 7 passed (9)
+=== MUTANT M7-session-check-dropped (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × an impersonated session is refused 403 — verify and switching on alike 58ms
+     × outside a cookie session (an MCP or job context: no session claims) the service refuses 50ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 7 passed (9)
+=== MUTANT M8-gate-ignores-file-fingerprint (src/modules/accounting/services/ap/supplierBankVerificationGate.ts)
+     × the file read details replaced — and the replacement verified — before its lock: refused, the file is not built from them 1056ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M9-fingerprint-ignores-account-number (migration 876, fixture DB)
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 137ms
+     × A changes the account: unverified; EFT and Netcash (batch) refuse 409 naming the supplier; nothing is sent or recorded 93ms
+     × the setter may not verify (403); another permitted user verifies with method and note; the file then generates 109ms
+     × a stale fingerprint (the details changed after the verifier looked) is refused 409, and nothing is recorded 118ms
+     × a verify racing a bank edit: the edit holds the supplier, the verify waits, then refuses 409 stale 638ms
+     × the file read details replaced — and the replacement verified — before its lock: refused, the file is not built from them 639ms
+     × a bank edit racing the EFT file: the file waits, then refuses 409 for the new details 624ms
+     × every column counts, and a NULL is not an empty-string accident of a neighbour 6ms
+     × refuses a fingerprint that is not the supplier's current one 86ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed | 19 passed (28)
+=== MUTANT M10-db-setter-check-dropped (migration 876, fixture DB)
+     × refuses a setter's plain verified, and a baseline outside the switch-on 79ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M11-rls-actor-binding-dropped (migration 876, fixture DB)
+     × refuses a row naming someone other than the session user 99ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M12-append-only-trigger-dropped (migration 876, fixture DB)
+     × the append-only trigger refuses UPDATE, DELETE and TRUNCATE even from the owner role 70ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M13-app-user-granted-update-delete (migration 876, fixture DB)
+     × no role but the owner holds UPDATE, DELETE or TRUNCATE; app_user holds only SELECT and INSERT 7ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+
+Review round 1 fixes (2026-10-08T16:12:42Z) — same method:
+=== MUTANT M14-verifier-floor-removed (src/modules/accounting/services/gl/approvalEnforcement.ts)
+     × switching off stays refused to the admin (default verifier role admin => owner only) 134ms
+     × a manager must not become a bank-detail verifier through an inert rule an admin planted 97ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 8 passed (10)
+=== MUTANT M15-sole-approver-on-verifier-role (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × an owner who set the details may not self-verify while an admin could have verified them 266ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M16-disable-session-check-removed (src/modules/accounting/services/gl/approvalEnforcement.ts)
+     × switching off is refused to "login as", like switching on 101ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M17-baseline-history-filter-removed (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × the switcher's own changes are not baselined: off, change, on again leaves that supplier unverified 138ms
+     × off and on again does not baseline someone else's pending change: a supplier with history keeps its derived state 118ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 13 passed (15)
+=== MUTANT M18-repoint-on-raw-string (src/modules/accounting/services/ap/supplierPaymentAuthors.ts)
+     × A redirects the account, C re-types the same digits with spaces: A is still a setter and may not verify 80ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M19-outbound-digits-removed (pages/api/accounting/eft-generate.ts)
+     × separators in the account number leave the file line unchanged (digits only) 137ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M20-eft-type-case-sensitive (pages/api/accounting/eft-generate.ts)
+     × a case-only account-type edit leaves the ACB account-type code unchanged 169ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M21-db-role-floor-dropped (migration 876, fixture DB)
+     × a bookkeeper (below the verifier floor) cannot write a plain verified row 98ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 24 passed (25)
+=== MUTANT M22-db-self-verified-roster-and-sole-check-dropped (migration 876, fixture DB)
+     × a setter self_verifies with an invented roster while another admin exists, pinned latest by OVERRIDING SYSTEM VALUE 109ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M23-db-history-guard-dropped (migration 876, fixture DB)
+     × refuses a baseline for a supplier that already has verification history 97ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M24-latest-by-seq-only (migration 876, fixture DB)
+     × a row inserted with an overriding huge seq is not "latest for ever": a later verification still decides 125ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 15 passed (16)
+
+UI (component tests, tests/unit/components/supplierBankDetailsPanel.test.tsx), panel committed before mutating:
+=== MUTANT UI-M1 fingerprint not sent -> 1 failed
+=== MUTANT UI-M2 response shape check removed -> 1 failed (a body without the expected shape is an error message, not a crash)
+=== MUTANT UI-M3 no reload after a refused verify -> 2 failed
+=== MUTANT UI-M4 UTC date instead of SAST -> 1 failed
+
+Review round 2 fixes (2026-10-08T16:32:13Z) — same method:
+=== MUTANT M25-no-fallback-dead-end (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × owner-level payment rule, the only owner set the details: an admin who did not set them verifies (no dead end) 61ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 11 passed (12)
+=== MUTANT M26-fallback-always-floor (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × follows the strictest supplier-payment rule: an owner-level payment_batch rule refuses an admin who set nothing 59ms
+     × …but while an owner who did NOT set them exists, the owner-level rule still binds: the admin is refused 52ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 10 passed (12)
+=== MUTANT M27-sole-approver-on-required-role (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × an owner who set the details may not self-verify while an admin could have verified them 192ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 9 passed (10)
+=== MUTANT M28-guard-seq-not-drawn (migration 876, fixture DB)
+     × a row inserted with an overriding huge seq is not "latest for ever": a later verification still decides 141ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+=== MUTANT M29-guard-standing-dropped (migration 876, fixture DB)
+     × refuses a row by an admin whose account is deactivated (standing, not only role) 124ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 16 passed (17)
+
+Review round 3 fixes (2026-10-08T16:36:22Z) — same method:
+=== MUTANT M30-ever-on-check-removed (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × a supplier the admin CREATES (with bank details) while the control is on stays unverified across the owner's off/on 247ms
+     × a supplier that had NO bank details at the first switch-on, given details by the admin later, stays unverified across off/on 152ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 2 passed (4)
+=== MUTANT M31-db-first-switch-on-guard-dropped (migration 876, fixture DB)
+     × refuses any baseline once the company was switched on before — even for a supplier with no history 77ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+=== MUTANT M32-preview-ignores-ever-on (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × off again, it says switching on would accept 0 — though suppliers with bank details exist 131ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 4 passed (5)
+
+Review round 3 (blind LOWs) fixes (2026-10-08T16:51:20Z) — same method:
+=== MUTANT M33-loosen-regardless-of-destination (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …only for the owner's OWN destination: an admin's redirect the owner merely touched still needs the owner level 96ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M34-message-ignores-setters (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × when every other admin-or-above member also set the details, the refusal says so (no false "another member must") 88ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+=== MUTANT M35-panel-hint-ignores-session (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × an impersonated session is refused 403 — verify and switching on alike 90ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 13 passed (14)
+
+Breaker round 3 residual fix (2026-10-08T16:52:20Z) — same method:
+=== MUTANT M36-loosen-on-first-setter-only (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 59ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M37-loosen-when-any-setter-holds (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …only for the owner's OWN destination: an admin's redirect the owner merely touched still needs the owner level 63ms
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 55ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 13 passed (15)
+
+Blind re-confirmation LOW fix (2026-10-08T17:05:00Z) — same method:
+=== MUTANT M38-message-on-floor-not-required (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 72ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+
+Final wording LOW (2026-10-08T17:48:59Z) — same method:
+=== MUTANT M39-rule-clause-always (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × when every other admin-or-above member also set the details, the refusal says so (no false "another member must") 86ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)
+=== MUTANT M40-rule-clause-never (src/modules/accounting/services/ap/supplierBankVerifiers.ts)
+     × …nor when the owner created the account and an admin later changed another bank column (every setter must hold the role) 114ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 14 passed (15)

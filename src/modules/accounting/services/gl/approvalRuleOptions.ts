@@ -75,6 +75,18 @@ export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
 ];
 
 /**
+ * Supplier bank-detail verification (forensic-controls step 1, migration 876)
+ * shares the one switchboard, `approval_enforcement`, but is no approval
+ * DOCUMENT type: no rule is written for it — who may verify follows the
+ * supplier-payment rules — so it never reaches the rule form.
+ */
+export const SUPPLIER_BANK_DETAILS = 'supplier_bank_details' as const;
+export type EnforcementType = DocumentType | typeof SUPPLIER_BANK_DETAILS;
+
+/** Every type an Enforce switch can turn on: the document types, then supplier bank details. */
+export const ENFORCEABLE_TYPES: readonly EnforcementType[] = [...ENFORCEABLE_DOCUMENT_TYPES, SUPPLIER_BANK_DETAILS];
+
+/**
  * The types the New rule form offers: the enforceable ones, and supplier
  * invoices whatever that list says (goal §3). Never a legacy type — those are
  * refused for new rules (approvalDocumentTypes.ts).

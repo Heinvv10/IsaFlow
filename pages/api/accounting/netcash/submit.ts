@@ -15,6 +15,9 @@ import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/servic
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
+import {
+  assertRawPaymentListAllowed, assertSuppliersBankVerified, respondIfBankDetailsUnverified,
+} from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
 type Row = Record<string, unknown>;
 
@@ -70,10 +73,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     batchReference = String(batch[0].batch_number ?? batchPaymentId);
 
     // total_amount: `amount` is no column, so this mode failed (500) for every batch (R-035 PR5 round 1 LOW e).
+    // bank_fingerprint: of the five bank columns as read here (account and branch sent as digits, as it normalises them).
+    // The account holder sent is the supplier name, which it does not cover.
     const rows = await sql`
-      SELECT sp.total_amount AS amount, sp.reference,
+      SELECT sp.total_amount AS amount, sp.reference, sp.supplier_id,
              s.name as account_holder, s.bank_branch_code as bank_code,
-             s.bank_account_number as account_number
+             s.bank_account_number as account_number,
+             supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type,
+                                       s.bank_account_holder) AS bank_fingerprint
       FROM supplier_payments sp
       JOIN suppliers s ON sp.supplier_id = s.id
       WHERE sp.batch_id = ${batchPaymentId} AND sp.company_id = ${companyId}::UUID
@@ -81,11 +88,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     ` as Row[];
 
     if (rows.length === 0) return apiResponse.badRequest(res, 'No payments found in batch');
+    // Supplier bank verification: every payee's details as read above must be
+    // verified now, payees share-locked (ap/supplierBankVerificationGate). 409
+    // naming the suppliers, before anything is sent or recorded. Off: unchanged.
+    try {
+      await assertSuppliersBankVerified(companyId, rows.map((r) => ({
+        supplierId: String(r.supplier_id), fingerprint: String(r.bank_fingerprint),
+      })));
+    } catch (err) {
+      if (respondIfBankDetailsUnverified(res, err)) return;
+      throw err;
+    }
 
     payments = rows.map(r => ({
       accountHolder: String(r.account_holder ?? ''),
-      bankCode: String(r.bank_code ?? ''),
-      accountNumber: String(r.account_number ?? ''),
+      // Digits only — the account and branch the fingerprint verified.
+      bankCode: String(r.bank_code ?? '').replace(/\D/g, ''),
+      accountNumber: String(r.account_number ?? '').replace(/\D/g, ''),
       amount: Math.round(Number(r.amount ?? 0) * 100),   // rands → cents
       reference: String(r.reference ?? ''),
     }));
@@ -97,6 +116,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.error(res, ErrorCode.FORBIDDEN,
         'Supplier payment approvals are enforced, and a raw payment list cannot be approved — submit an approved batch.',
         { reason: 'APPROVAL_REQUIRED' });
+    }
+    // …and under supplier bank verification, whether or not payments are approved (decision 8): 403.
+    try {
+      await assertRawPaymentListAllowed(companyId);
+    } catch (err) {
+      if (respondIfBankDetailsUnverified(res, err)) return;
+      throw err;
     }
     payments = rawPayments;
   } else {

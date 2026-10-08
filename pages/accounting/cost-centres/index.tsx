@@ -1,7 +1,12 @@
 /**
  * Cost Centres (Analysis Codes) Page
  * Phase 5: Custom reporting dimensions for GL entries
- * CC1 = Client-level, CC2 = Project-level
+ * CC1 = Client-level (FNO), CC2 = Project-level (parent = its CC1 or a programme CC2)
+ *
+ * Create, edit, deactivate and delete go through the dimension master rules:
+ * the API refuses a parent loop, an alias used elsewhere, deactivating a node
+ * with active children, a project move to another FNO while anything carries
+ * it, and a delete while anything references it — and the refusal is shown.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -14,8 +19,14 @@ type CcType = 'cc1' | 'cc2';
 
 interface CostCentre {
   id: string; code: string; name: string;
-  description?: string; department?: string; ccType: CcType; isActive: boolean;
+  description?: string | null; department?: string | null; ccType: CcType; isActive: boolean;
+  parentCode?: string | null; fnoCode?: string | null; aliases?: string[];
 }
+
+const EMPTY_FORM = { code: '', name: '', description: '', department: '', parent: '', aliases: '' };
+
+/** "Ben Farms, Phalaborwa" -> ['Ben Farms', 'Phalaborwa'] */
+const splitAliases = (text: string): string[] => text.split(',').map(a => a.trim()).filter(Boolean);
 
 const TAB_META: Record<CcType, { label: string; description: string }> = {
   cc1: { label: 'CC1 — Client', description: 'Client-level cost centres' },
@@ -24,64 +35,73 @@ const TAB_META: Record<CcType, { label: string; description: string }> = {
 
 export default function CostCentresPage() {
   const [activeTab, setActiveTab] = useState<CcType>('cc1');
-  const [items, setItems] = useState<CostCentre[]>([]);
+  const [all, setAll] = useState<CostCentre[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ code: '', name: '', description: '', department: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/cost-centres?cc_type=${activeTab}`, { credentials: 'include' });
+      // Both types at once: the CC2 form picks its parent from the CC1s and programmes.
+      const res = await apiFetch('/api/accounting/cost-centres?detail=dimensions', { credentials: 'include' });
       await assertOk(res, 'Could not load cost centres - try again');
       const json = await res.json();
-      setItems(json.data?.items || []);
+      setAll(json.data?.items || []);
     } catch (err) {
-      setItems([]);
+      setAll([]);
       setError(apiErrorMessage(err, 'Could not load cost centres - try again'));
     } finally { setLoading(false); }
-  }, [activeTab]);
+  }, []);
+  const items = all.filter(cc => (cc.ccType || 'cc1') === activeTab);
+  const parentOptions = all.filter(cc => cc.isActive && cc.id !== editId && (cc.ccType === 'cc1' || !!cc.fnoCode));
 
   useEffect(() => { void load(); }, [load]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(''); setBusy('save');
+    const { aliases, parent, ...fields } = form;
+    const body = { ...fields, aliases: splitAliases(aliases), ...(activeTab === 'cc2' ? { parent } : {}) };
     try {
       if (editId) {
         const res = await apiFetch('/api/accounting/cost-centres-action', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ action: 'update', id: editId, ...form }),
+          body: JSON.stringify({ action: 'update', id: editId, ...body }),
         });
         await assertOk(res, 'Could not save the cost centre - try again');
       } else {
         const res = await apiFetch('/api/accounting/cost-centres', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ ...form, ccType: activeTab }),
+          body: JSON.stringify({ ...body, ccType: activeTab }),
         });
         await assertOk(res, 'Could not save the cost centre - try again');
       }
       setShowForm(false); setEditId(null);
-      setForm({ code: '', name: '', description: '', department: '' });
+      setForm(EMPTY_FORM);
       await load();
     } catch (err) { setError(apiErrorMessage(err, 'Could not save the cost centre - try again')); }
     finally { setBusy(''); }
   };
 
   const startEdit = (cc: CostCentre) => {
-    setForm({ code: cc.code, name: cc.name, description: cc.description || '', department: cc.department || '' });
+    setForm({
+      code: cc.code, name: cc.name, description: cc.description || '', department: cc.department || '',
+      parent: cc.parentCode || '', aliases: (cc.aliases || []).join(', '),
+    });
     setEditId(cc.id); setShowForm(true);
   };
 
   const lowerSearch = search.toLowerCase();
   const filteredItems = items.filter(cc =>
-    !search || cc.code.toLowerCase().includes(lowerSearch) || cc.name.toLowerCase().includes(lowerSearch) || (cc.department || '').toLowerCase().includes(lowerSearch)
+    !search || cc.code.toLowerCase().includes(lowerSearch) || cc.name.toLowerCase().includes(lowerSearch)
+      || (cc.department || '').toLowerCase().includes(lowerSearch) || (cc.aliases || []).some(a => a.toLowerCase().includes(lowerSearch))
   );
 
   const doAction = async (action: string, id: string, extra?: Record<string, unknown>) => {
@@ -121,7 +141,7 @@ export default function CostCentresPage() {
             <div className="flex items-center gap-2">
               <ExportCSVButton endpoint="/api/accounting/cost-centres-export" filenamePrefix="cost-centres" label="Export CSV" />
               <button
-                onClick={() => { setEditId(null); setForm({ code: '', name: '', description: '', department: '' }); setShowForm(!showForm); }}
+                onClick={() => { setEditId(null); setForm(EMPTY_FORM); setShowForm(!showForm); }}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> New {TAB_META[activeTab].label.split(' — ')[0]}
               </button>
@@ -153,7 +173,7 @@ export default function CostCentresPage() {
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search code, name..."
+              placeholder="Search code, name, alias..."
               className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm w-72"
             />
             <span className="text-sm text-[var(--ff-text-secondary)]">{filteredItems.length} {TAB_META[activeTab].description}</span>
@@ -169,6 +189,15 @@ export default function CostCentresPage() {
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="ff-input" placeholder="Name *" required />
                 <input value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className="ff-input" placeholder="Department (optional)" />
                 <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="ff-input" placeholder="Description (optional)" />
+                {activeTab === 'cc2' && (
+                  <select value={form.parent} onChange={e => setForm(f => ({ ...f, parent: e.target.value }))} className="ff-input" aria-label="Parent">
+                    <option value="">No parent (no FNO)</option>
+                    {parentOptions.map(p => (
+                      <option key={p.id} value={p.code}>{p.code} — {p.name}{p.ccType === 'cc2' ? ` (programme, ${p.fnoCode})` : ''}</option>
+                    ))}
+                  </select>
+                )}
+                <input value={form.aliases} onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))} className="ff-input" placeholder="Aliases, comma-separated (optional)" />
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => { setShowForm(false); setEditId(null); }} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
@@ -183,13 +212,15 @@ export default function CostCentresPage() {
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Code</th><th className="px-4 py-3">Name</th>
+                {activeTab === 'cc2' && <><th className="px-4 py-3">Parent</th><th className="px-4 py-3">FNO</th></>}
+                <th className="px-4 py-3">Aliases</th>
                 <th className="px-4 py-3">Department</th><th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
                 {!loading && filteredItems.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
                     {search ? 'No matching cost centres' : `No ${TAB_META[activeTab].description}. Create one above.`}
                   </td></tr>
                 )}
@@ -197,6 +228,11 @@ export default function CostCentresPage() {
                   <tr key={cc.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 font-mono text-purple-400 font-medium">{cc.code}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{cc.name}</td>
+                    {activeTab === 'cc2' && <>
+                      <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.parentCode || '—'}</td>
+                      <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{cc.fnoCode || '—'}</td>
+                    </>}
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{(cc.aliases || []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{cc.department || '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${cc.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>

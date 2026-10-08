@@ -739,6 +739,10 @@ describe('write-tool manifest invariants', () => {
       // service call; behaviour in tests/unit/mcp/dimension*.test.ts.
       create_cost_centre: { ...KEY },
       create_business_unit: { ...KEY },
+      update_cost_centre: { ...KEY },
+      delete_cost_centre: { ...KEY },
+      update_business_unit: { ...KEY },
+      delete_business_unit: { ...KEY },
       set_gl_account_reporting_attributes: { ...KEY },
       set_customer_default_fno: { ...KEY },
       set_bank_account_default_dimensions: { ...KEY },
