@@ -32,6 +32,8 @@ describe('approvals page', () => {
   const base: Route[] = [on('GET', 'approval-requests', () => ok({ items: [REQ] })), on('GET', 'approval-rules', () => ok({ items: [RULE] }))];
   const toRules = async () => { render(<ApprovalsPage />); await screen.findByText(/Pending \(1\)/); fireEvent.click(screen.getByText('rules')); await screen.findByText('D2 Big Spend Rule'); };
   const trash = () => document.querySelector('button.text-red-400') as HTMLButtonElement;
+  // R-035 PR A review r1: delete now asks first; confirm it.
+  const confirmDelete = async () => fireEvent.click(await screen.findByRole('button', { name: 'Delete rule' }));
 
   it('load: refusal -> server message and no rows; empty-body 500 -> plain sentence', async () => {
     serve(on('GET', 'approval-requests', () => refuse()), ...base);
@@ -67,10 +69,12 @@ describe('approvals page', () => {
     serve(on('DELETE', 'approval-rules', () => refuse()), ...base);
     await toRules();
     fireEvent.click(trash());
+    await confirmDelete();
     expect(await screen.findByText(MSG)).toBeDefined();
     expect(screen.getByText('D2 Big Spend Rule')).toBeDefined();
     serve(on('DELETE', 'approval-rules', empty500), ...base);
     fireEvent.click(trash());
+    await confirmDelete();
     expect(await screen.findByText('Could not delete the rule - try again')).toBeDefined();
     expectNoJargon();
   });
@@ -79,6 +83,7 @@ describe('approvals page', () => {
     serve(...afterWrite('DELETE', 'approval-rules', 'approval-rules'), ...base);
     await toRules();
     fireEvent.click(trash());
+    await confirmDelete();
     expect(await screen.findByText(MSG)).toBeDefined();
     expect(screen.queryByText('D2 Big Spend Rule')).toBeNull();
   });

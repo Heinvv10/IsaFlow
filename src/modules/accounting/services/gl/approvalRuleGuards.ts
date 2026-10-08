@@ -31,6 +31,7 @@
 
 import { sql } from '@/lib/neon';
 import { actorRank, requiredRank, APPROVER_RANK } from './approvalAuthority';
+import { mayDemandRole } from './approvalRank';
 import { logAuditOrThrow, type AuditFieldChange } from '../core/auditTrailService';
 
 /** Who is editing, as withAuth established it — never as the caller claimed it. */
@@ -146,7 +147,8 @@ function fieldChanges(
  */
 export function assertMayDemand(actor: RuleActor, ruleRole: string | undefined): void {
   if (ruleRole === undefined) return;
-  if (actorRank(actor.role) < requiredRank(ruleRole)) {
+  // mayDemandRole is also what the rule form offers roles by (approvalRank.ts).
+  if (!mayDemandRole(actor.role, ruleRole)) {
     throw new ApprovalRuleAuthorityError(ruleRole);
   }
 }
