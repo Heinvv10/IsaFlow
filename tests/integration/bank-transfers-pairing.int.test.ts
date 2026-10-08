@@ -249,4 +249,25 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     }
     expect(await glMovement(bankB, '2029-03-01', '2029-03-31')).toBe(5000);
   }, 120000);
+
+  // brk-nrfa round 11 M1: a transfer J1 bounced — reversed in the GL (R1) — and each bank's bounce line arrives. One
+  // bounce is matched to R1's leg (the match screen offers it first); the other, allocated as a transfer, is the same
+  // reversed movement and is refused. A pointer at a reversal (an odd step) never lends it J1's pairing.
+  it('a bounce matched to a reversal does not pair the original for the other bounce (both sides)', async () => {
+    for (const [date, amt, firstBank] of [['2029-04-02', 5100, 'A'], ['2029-04-09', 5200, 'B']] as const) {
+      const aOut = await bankLine(bankA, date, -amt, `O1 A OUT ${date}`);
+      await bankLine(bankB, date, amt, `O1 B IN ${date}`); // auto-linked by the allocation below
+      expect((await allocTransfer(aOut, bankB)).statusCode).toBe(200);
+      const r1 = await glReverse(String((await lineState(aOut))!.ptr));
+      const next = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
+      const aBack = await bankLine(bankA, next, amt, `O1 A IN ${next}`);
+      const bBack = await bankLine(bankB, next, -amt, `O1 B OUT ${next}`);
+      const [matched, matchedBank, other, contra] = firstBank === 'A'
+        ? [aBack, bankA, bBack, bankA] : [bBack, bankB, aBack, bankB];
+      expect((await confirm(matched, await lineOf(r1, matchedBank))).statusCode).toBe(200);
+      expect((await allocTransfer(other, contra)).statusCode).toBe(400);
+      // Only J1 itself: the refused bounce posted no second transfer.
+      expect((await transferJournals(date, next)).filter((j) => j.reversal_of_id === null)).toHaveLength(1);
+    }
+  }, 180000);
 });
