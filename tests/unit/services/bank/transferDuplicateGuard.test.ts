@@ -65,6 +65,9 @@ describe('assertNoDuplicateTransfer', () => {
     for (const [n, t] of [[0, 'own'], [1, 'bt']] as const) {
       expect(consumption(n)).toContain(`ml.id = ${t}.matched_journal_line_id`);
       expect(consumption(n)).toContain(`ml.gl_account_id = ${t}.bank_account_id`);
+      // ...a leg of THIS journal: any line matched anywhere else on the bank would otherwise switch the guard off.
+      expect(consumption(n)).toContain(n === 0 ? 'ml.journal_entry_id = bank_transactions.transfer_journal_entry_id'
+        : 'ml.journal_entry_id = je.id');
       expect(consumption(n)).toContain(`(CASE WHEN ${t}.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(${t}.amount)`);
     }
     // brk-nrfa round 6 M1: only an imported or feed line on this bank pairs the journal, never a hand-keyed one.
