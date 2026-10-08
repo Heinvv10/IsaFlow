@@ -64,7 +64,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
     const MSG = 'D2 server says no: accounts are in a closed period';
     script((u, m) => (u.endsWith('/bank-transfers') && m === 'POST' ? refuse(MSG, 422) : undefined), {
       '/chart-of-accounts': [
-        { id: 'a1', accountCode: '1000', accountName: 'Cheque' }, { id: 'a2', accountCode: '1100', accountName: 'Savings' }],
+        { id: 'a1', accountCode: '1000', accountName: 'Cheque', accountSubtype: 'bank' }, { id: 'a2', accountCode: '1100', accountName: 'Savings', accountSubtype: 'bank' }],
     });
     render(<BankTransfersPage />);
     await screen.findAllByRole('option', { name: /Cheque/ });

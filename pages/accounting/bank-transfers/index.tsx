@@ -9,12 +9,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 
-/** The chart-of-accounts GET answers its accounts camelCased, as a plain array when filtered by subtype. */
+/** The chart-of-accounts GET answers its accounts camelCased, as a plain array. */
 interface BankAccount {
   id: string;
   accountCode: string;
   accountName: string;
+  accountSubtype?: string;
 }
 
 export default function BankTransfersPage() {
@@ -31,10 +33,12 @@ export default function BankTransfersPage() {
   const loadBankAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+      // Every bank spelling the transfer route accepts (isBankSubtype: 'bank', 'bank_account', …), not only 'bank'.
+      const res = await apiFetch('/api/accounting/chart-of-accounts');
       await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
-      setBankAccounts(Array.isArray(json.data) ? json.data : []);
+      const accounts: BankAccount[] = Array.isArray(json.data) ? json.data : [];
+      setBankAccounts(accounts.filter(a => isBankSubtype(a.accountSubtype)));
     } catch (err) {
       setBankAccounts([]);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
