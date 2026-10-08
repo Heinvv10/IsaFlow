@@ -89,8 +89,9 @@ export async function assertDecidingSession(): Promise<void> {
  * first and reads only the request id.
  *
  * Returns a SoleApproverSelfApproval when the decider is approving their OWN
- * request and that is allowed only because nobody else could (decision Q2);
- * the caller must audit it as such.
+ * request and that is allowed only because nobody else could (decision Q2).
+ * approval_request_decide (migration 872) writes the audit row for it;
+ * decideRequest logs the classification.
  *
  * `decision` is required rather than defaulted: only `approve` is the controlled
  * act, and a caller that forgets to say which one it is must not silently get
