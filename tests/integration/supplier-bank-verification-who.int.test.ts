@@ -154,6 +154,7 @@ describe('the sole-approver exception (R-035 Q2)', () => {
     const res = await r.verify(u.c, c, s);
     expect(reasonOf(res)).toBe('SETTER_FORBIDDEN');
     expect(messageOf(res)).toMatch(/no other member who did not set them holds the admin role or above/);
+    expect(messageOf(res)).not.toMatch(/relax the supplier-payment rule/); // no rule raised the role here
   });
 
   it('a suspended second admin does not count: the sole active approver may self-verify', async () => {
