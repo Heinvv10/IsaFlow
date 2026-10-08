@@ -80,7 +80,9 @@ describe('journal lines refuse non-finite amounts', () => {
   });
 
   // rev-nrfd round 5 LOW: a zero mantissa with a huge exponent padded that many zeros (RangeError -> 500).
-  it.each(['0e600000000', '0.000e999999999', '-0E100000000'])('%s is a zero amount, answered at once', (debit) => {
+  // brk-nrfd round 6: a non-zero mantissa far below a cent ('1e-600000000') padded too — pins `point < -3`.
+  it.each(['0e600000000', '0.000e999999999', '-0E100000000', '1e-600000000', '-1e-999999999999', `1e-${'9'.repeat(400)}`])(
+    '%s is a zero amount, answered at once', (debit) => {
     const started = Date.now();
     expect(validateJournalLine(line(debit, 0)).valid).toBe(false);
     expect(Date.now() - started).toBeLessThan(200);
