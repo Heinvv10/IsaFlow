@@ -73,7 +73,10 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
     try {
       const res = await apiFetch(`/api/accounting/supplier-bank-verification?supplierId=${encodeURIComponent(supplierId)}`);
       await assertOk(res, 'Could not load the bank details - try again');
-      setView(((await res.json()) as { data: View }).data);
+      const data = ((await res.json()) as { data?: View }).data;
+      // A body without the expected shape is a failure to say so, not a panel to render.
+      if (!data?.bank || typeof data.state !== 'string') throw new Error('Could not load the bank details - try again');
+      setView(data);
       setError('');
     } catch (err) {
       setView(null);
@@ -97,9 +100,10 @@ export function SupplierBankDetailsPanel({ supplierId }: { supplierId: string })
       setNote('');
     } catch (err) {
       notify.error(apiErrorMessage(err, 'Could not verify the bank details - try again'));
+    } finally {
+      await load(); // shows the details now on file, whichever way the verify went
+      setSaving(false);
     }
-    await load(); // shows the details now on file, whichever way the verify went
-    setSaving(false);
   };
 
   if (!view) return error ? <p className="text-sm text-red-500">{error}</p> : null;
