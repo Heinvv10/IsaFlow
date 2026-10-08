@@ -7,14 +7,18 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
   getCashFlowDirect: vi.fn(),
 }));
+// The bank balance and indirect closing are cash.balance.v1 (K-091g).
+vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
+  getCashBalance: vi.fn(),
+}));
 
-import { sql } from '@/lib/neon';
 import { getCashFlowDirect } from '@/modules/accounting/services/afs/cashFlowDirectService';
+import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getCashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 
-type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
-const mockSql = sql as unknown as SqlFn;
 const mockGetDirect = getCashFlowDirect as MockedFunction<typeof getCashFlowDirect>;
+const mockGetCash = getCashBalance as MockedFunction<typeof getCashBalance>;
+const cash = (total: number) => ({ asAt: '2026-12-31', total, accounts: [], deactivatedWithBalance: [], postedThrough: null });
 
 const COMPANY_ID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 const PERIOD_START = '2026-01-01';
@@ -39,9 +43,7 @@ describe('cashFlowReconciliationService', () => {
 
   it('marks isReconciled true when all three figures agree', async () => {
     mockGetDirect.mockResolvedValueOnce(DIRECT_REPORT);
-    mockSql
-      .mockResolvedValueOnce([{ closing_cash: 22000 }])
-      .mockResolvedValueOnce([{ balance: 22000 }]);
+    mockGetCash.mockResolvedValue(cash(22000));
 
     const result = await getCashFlowReconciliation(COMPANY_ID, PERIOD_START, PERIOD_END);
 
@@ -55,9 +57,7 @@ describe('cashFlowReconciliationService', () => {
   it('marks isReconciled false and reports variance when figures differ', async () => {
     const offDirect = { ...DIRECT_REPORT, closingCash: 21950 };
     mockGetDirect.mockResolvedValueOnce(offDirect);
-    mockSql
-      .mockResolvedValueOnce([{ closing_cash: 22000 }])
-      .mockResolvedValueOnce([{ balance: 22000 }]);
+    mockGetCash.mockResolvedValue(cash(22000));
 
     const result = await getCashFlowReconciliation(COMPANY_ID, PERIOD_START, PERIOD_END);
 

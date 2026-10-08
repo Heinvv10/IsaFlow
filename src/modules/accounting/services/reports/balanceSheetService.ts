@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { balanceByAccountType } from '../gl/balanceByAccountType';
 import type { BalanceSheetReport } from '../../types/gl.types';
 
 type Row = DbRow;
@@ -119,7 +120,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
   // Include leaf accounts at any level (level >= 3 for standard CoA hierarchy,
   // plus level = 1 accounts that have no children, as used by Sage-imported accounts).
   const rows = (await sql`
-    SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
+    SELECT ga.account_code, ga.account_name, ga.account_type,
       COALESCE(SUM(jl.debit), 0) AS total_debit,
       COALESCE(SUM(jl.credit), 0) AS total_credit
     FROM gl_journal_lines jl
@@ -141,7 +142,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
       AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
         OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
       AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
-    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
+    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
     ORDER BY ga.account_code
   `) as Row[];
 
@@ -151,18 +152,14 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
 
   for (const r of rows) {
     const type = String(r.account_type);
-    const normalBal = String(r.normal_balance);
-    const debit = Number(r.total_debit);
-    const credit = Number(r.total_credit);
-    const balance = normalBal === 'debit' ? debit - credit : credit - debit;
+    // By account type, never normal_balance: a contra account (Accumulated
+    // Depreciation, Dividends Declared, Drawings) reduces its own section.
+    // Signed by normal_balance, Sample Trading's equity was overstated by twice
+    // its dividends declared (isaflow_dev 2026-10-07: R5,069,731.70).
+    const balance = balanceByAccountType(type, Number(r.total_debit) - Number(r.total_credit));
     if (Math.abs(balance) < 0.01) continue;
 
-    // Report by SECTION, not by the account's own normal side: assets as debit − credit, liabilities and
-    // equity as credit − debit. A contra account then subtracts from its section: accumulated depreciation
-    // (credit-normal asset), and Dividends Declared / Drawings (debit-normal equity), which were added to
-    // equity and overstated it by twice their balance (isaflow_dev 2026-10-07: R5,069,731.70).
-    const reportBalance = type === 'asset' ? debit - credit : credit - debit;
-    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance: reportBalance };
+    const item: BSLineItem = { accountCode: String(r.account_code), accountName: String(r.account_name), balance };
     if (type === 'asset') assets.push(item);
     else if (type === 'liability') liabilities.push(item);
     else if (type === 'equity') equity.push(item);
