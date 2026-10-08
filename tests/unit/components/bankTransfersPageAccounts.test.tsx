@@ -48,4 +48,32 @@ describe('BankTransfersPage', () => {
     expect(JSON.parse(String((call[1] as RequestInit).body))).toMatchObject({ fromAccountId: FROM, toAccountId: TO, amount: 125.5 });
     expect(await screen.findByText(/Transfer completed/)).toBeTruthy();
   });
+
+  // brk-nrfa round 3 M2: a possible duplicate is a 428 the person can confirm, not a dead end.
+  it('on a 428 it offers to post anyway, and resends with confirmDuplicate', async () => {
+    let posts = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('chart-of-accounts')) return json(banks);
+      posts += 1;
+      if (posts === 1) {
+        return new Response(JSON.stringify({ success: false, error: { code: 'PRECONDITION_REQUIRED',
+          message: 'A transfer like this is already in the ledger as JE-2026-00042' } }), { status: 428 });
+      }
+      return json({ journalEntry: { id: 'je2' }, message: 'ok' });
+    });
+    render(<BankTransfersPage />);
+    await screen.findAllByRole('option', { name: '1000 — Current Account' });
+    const [fromSelect, toSelect] = screen.getAllByRole('combobox');
+    fireEvent.change(fromSelect!, { target: { value: FROM } });
+    fireEvent.change(toSelect!, { target: { value: TO } });
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    expect(await screen.findByText(/already in the ledger as JE-2026-00042/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /post it anyway/i }));
+    expect(await screen.findByText(/Transfer completed/)).toBeTruthy();
+    const bodies = vi.mocked(apiFetch).mock.calls.filter(([u]) => u === '/api/accounting/bank-transfers')
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+    expect(bodies[0].confirmDuplicate).toBeUndefined();
+    expect(bodies[1].confirmDuplicate).toBe(true);
+  });
 });
