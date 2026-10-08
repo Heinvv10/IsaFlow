@@ -262,4 +262,54 @@ describeIfDb('a transfer pointer left behind by an unmatch is not evidence', () 
       { bankTransactionId: may, candidateType: 'bank_transfer', candidateId: await lineOf(t, bankB) })).statusCode).toBe(200);
     expect((await allocTransfer(await bankLine(bankB, '2027-11-16', 9100, 'RR5 NOV IN'), bankA)).statusCode).toBe(400);
   }, 90000);
+
+  // brk-nrfa round 7 M1: reversed from Banking, then that reversal reversed in the GL — the movement is back on the
+  // books, so re-allocating the freed line (either leg) is refused, not posted a second time.
+  it('a bank reversal re-reversed in the GL holds the movement for either leg', async () => {
+    for (const [leg, date, amt] of [['A', '2028-01-03', 2400], ['B', '2028-02-07', 2500]] as const) {
+      const aLine = await bankLine(bankA, date, -amt, `G1 ${leg} OUT`);
+      const bLine = await bankLine(bankB, date, amt, `G1 ${leg} IN`);
+      const [mine, contra] = leg === 'A' ? [aLine, bankB] : [bLine, bankA];
+      expect((await allocTransfer(mine, contra)).statusCode).toBe(200);
+      const j1 = String((await lineState(mine))!.ptr);
+      expect((await callRoute(c.fx, token, bankTxAction, { action: 'reverse', bankTransactionId: mine })).statusCode).toBe(200);
+      const r1 = String(((await sql`SELECT id FROM gl_journal_entries WHERE company_id = ${c.fx.companyId}::UUID
+        AND reversal_of_id = ${j1}::UUID`) as Row[])[0]!.id);
+      await glReverse(r1);
+      expect((await allocTransfer(mine, contra)).statusCode).toBe(400);
+      expect(await glMovement(bankB, date, date)).toBe(amt);
+    }
+  }, 90000);
+
+  // brk-nrfa round 7 M2: a bank with no statement (petty cash) banked by hand twice in a week posts twice — two
+  // hand-keyed movements, each paired by its own hand-keyed line.
+  it('hand-keyed petty-cash bankings of the same amount in one week both post', async () => {
+    const petty = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
+      account_subtype, normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '1030', 'STALE Petty', 'asset', 'bank',
+      'debit', true) RETURNING id`) as Row[])[0]!.id);
+    const spend = (date: string, amount: number) => callRoute(c.fx, token, bankTxManual, { type: 'spend',
+      bankAccountId: petty, date, amount, description: `G2 banking ${date} ${c.fx.tag}`, allocationType: 'transfer',
+      contraAccountId: bankA });
+    expect((await spend('2028-03-06', 500)).statusCode).toBe(201);
+    expect((await spend('2028-03-09', 500)).statusCode).toBe(201);
+    await bankLine(bankA, '2028-03-20', 700, 'G2b IN MON'); // A's statement line, auto-linked by the first
+    expect((await spend('2028-03-20', 700)).statusCode).toBe(201);
+    await bankLine(bankA, '2028-03-21', 700, 'G2b IN TUE');
+    expect((await spend('2028-03-21', 700)).statusCode).toBe(201);
+    expect(await glMovement(petty, '2028-03-01', '2028-03-31')).toBe(-2400);
+  }, 90000);
+
+  // brk-nrfa round 7 L2: a hand-keyed transfer the ledger already holds is a 400 the person can act on, and the line
+  // the route inserted first is rolled back, not committed (R-060).
+  it('a duplicate hand-keyed transfer answers 400 and leaves no line behind', async () => {
+    const a = await bankLine(bankA, '2028-04-03', -3300, 'L2 OUT');
+    expect((await allocTransfer(a, bankB)).statusCode).toBe(200);
+    const r = await callRoute(c.fx, token, bankTxManual, { type: 'receive', bankAccountId: bankB, date: '2028-04-03',
+      amount: 3300, description: `L2 hk ${c.fx.tag}`, allocationType: 'transfer', contraAccountId: bankA });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(/Match the existing journal entry/);
+    expect(((await sql`SELECT COUNT(*)::int AS n FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID
+      AND description = ${`L2 hk ${c.fx.tag}`}`) as Row[])[0]!.n).toBe(0);
+    expect(await glMovement(bankB, '2028-04-01', '2028-04-30')).toBe(3300);
+  }, 90000);
 });

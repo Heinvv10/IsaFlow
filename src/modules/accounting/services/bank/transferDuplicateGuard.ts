@@ -34,8 +34,20 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
+/** The ledger already holds the movement: match the line to the existing journal instead (a 400, not a fault). */
+export class DuplicateTransferError extends Error {
+  constructor() {
+    super('A matching transfer already exists on the counterparty bank for this amount and date. ' +
+      'Match the existing journal entry instead of posting a new one.');
+    this.name = 'DuplicateTransferError';
+  }
+}
+
+/** `lineEvidenced`: the line being allocated came from a statement or a feed. A hand-keyed one (petty cash, a bank with
+ * no statement) is paired by hand-keyed lines too — only an evidenced line is held to evidenced pairs (brk-nrfa r7 M2). */
 export async function assertNoDuplicateTransfer(
   companyId: string, bankAccountId: string, counterpartyAccountId: string, lineAmount: number, txDate: string,
+  lineEvidenced: boolean,
 ): Promise<void> {
   const amount = Math.abs(lineAmount);
   // Money into this bank (a positive line) debits it; out of it credits it.
@@ -76,7 +88,8 @@ export async function assertNoDuplicateTransfer(
                         WHERE own.company_id = bank_transactions.company_id
                         AND own.bank_account_id = ${bankAccountId}::UUID
                         AND own.status IN ('allocated', 'matched', 'reconciled')
-                        AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL)
+                        AND (own.import_batch_id IS NOT NULL OR own.bank_feed_connection_id IS NOT NULL
+                             OR NOT ${lineEvidenced}::BOOLEAN)
                         AND own.transaction_date BETWEEN (bank_transactions.transaction_date - INTERVAL '5 days')
                                                      AND (bank_transactions.transaction_date + INTERVAL '5 days'))
     LIMIT 1
@@ -103,16 +116,12 @@ export async function assertNoDuplicateTransfer(
                         WHERE bt.company_id = je.company_id
                         AND bt.bank_account_id = ${bankAccountId}::UUID
                         AND bt.status IN ('allocated', 'matched', 'reconciled')
-                        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL)
+                        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL
+                             OR NOT ${lineEvidenced}::BOOLEAN)
                         AND bt.transaction_date BETWEEN (je.entry_date - INTERVAL '5 days') AND (je.entry_date + INTERVAL '5 days'))
     LIMIT 1
   `) as DbRow[];
-  if (lines.length > 0 || journals.length > 0) {
-    throw new Error(
-      'A matching transfer already exists on the counterparty bank for this amount and date. ' +
-      'Match the existing journal entry instead of posting a new one.',
-    );
-  }
+  if (lines.length > 0 || journals.length > 0) throw new DuplicateTransferError();
 }
 
 /**
