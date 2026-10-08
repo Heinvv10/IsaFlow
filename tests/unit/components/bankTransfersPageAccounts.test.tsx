@@ -1,5 +1,6 @@
-// Banking > Transfers: the account lists come from GET chart-of-accounts?subtype=bank, which answers a plain
-// camelCased array. The page read `data.accounts` and snake_case names, so both lists were always empty (2026-10-08).
+// Banking > Transfers: the account lists come from GET chart-of-accounts, which answers a plain camelCased array,
+// filtered with isBankSubtype (the transfer route's own rule). The page read `data.accounts` and snake_case names, so
+// both lists were always empty (2026-10-08).
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,9 +18,12 @@ afterEach(() => { vi.mocked(apiFetch).mockReset(); });
 
 const FROM = '10000000-0000-4000-8000-000000000001';
 const TO = '10000000-0000-4000-8000-000000000002';
+// The whole chart: both bank spellings the route accepts are offered, other accounts are not.
 const banks = [
   { id: FROM, accountCode: '1000', accountName: 'Current Account', accountSubtype: 'bank' },
-  { id: TO, accountCode: '1010', accountName: 'Savings', accountSubtype: 'bank' },
+  { id: TO, accountCode: '1010', accountName: 'Savings', accountSubtype: 'bank_account' },
+  { id: 'v1', accountCode: '1140', accountName: 'VAT Input', accountSubtype: 'vat_input' },
+  { id: 'x1', accountCode: '6000', accountName: 'Expenses', accountSubtype: null },
 ];
 
 describe('BankTransfersPage', () => {
@@ -31,6 +35,7 @@ describe('BankTransfersPage', () => {
     render(<BankTransfersPage />);
     expect(await screen.findAllByRole('option', { name: '1000 — Current Account' })).toHaveLength(2);
     expect(screen.getAllByRole('option', { name: '1010 — Savings' })).toHaveLength(2);
+    expect(screen.queryByRole('option', { name: /VAT Input|Expenses/ })).toBeNull();
 
     const [fromSelect, toSelect] = screen.getAllByRole('combobox');
     fireEvent.change(fromSelect!, { target: { value: FROM } });

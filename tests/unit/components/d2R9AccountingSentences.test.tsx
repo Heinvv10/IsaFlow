@@ -273,7 +273,7 @@ describe('an empty 5xx on a write names what could not be done', () => {
 describe('bank transfer', () => {
   it('an empty 500 says the transfer could not be recorded', async () => {
     // GET chart-of-accounts?subtype=bank answers a plain camelCased array.
-    const ACCTS = [{ id: 'a1', accountCode: '1000', accountName: 'Cheque' }, { id: 'a2', accountCode: '1010', accountName: 'Savings' }];
+    const ACCTS = [{ id: 'a1', accountCode: '1000', accountName: 'Cheque', accountSubtype: 'bank' }, { id: 'a2', accountCode: '1010', accountName: 'Savings', accountSubtype: 'bank' }];
     serve(on('POST', 'bank-transfers', empty500), on('GET', 'chart-of-accounts', () => ok(ACCTS)));
     render(<BankTransfersPage />);
     await screen.findAllByText(/1000 — Cheque/);

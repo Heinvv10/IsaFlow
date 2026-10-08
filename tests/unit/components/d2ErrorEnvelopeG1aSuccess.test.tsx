@@ -46,7 +46,7 @@ describe('D2 success envelope is honoured (group 1a)', () => {
 
   it('success: bank transfers completes', async () => {
     answer({ '/chart-of-accounts': [
-      { id: 'a1', accountCode: '1000', accountName: 'Cheque' }, { id: 'a2', accountCode: '1100', accountName: 'Savings' }] });
+      { id: 'a1', accountCode: '1000', accountName: 'Cheque', accountSubtype: 'bank' }, { id: 'a2', accountCode: '1100', accountName: 'Savings', accountSubtype: 'bank' }] });
     render(<BankTransfersPage />);
     await screen.findAllByRole('option', { name: /Cheque/ });
     const [from, to] = screen.getAllByRole('combobox');
