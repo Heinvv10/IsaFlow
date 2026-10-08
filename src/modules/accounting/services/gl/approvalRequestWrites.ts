@@ -13,8 +13,11 @@
  *
  * A refusal from SQL carries an RA0xx SQLSTATE and is mapped back onto the
  * error the TypeScript path throws for the same case, so a route answers the
- * same status. RA009 (forged: actor, company or rule binding) has no
- * TypeScript twin — the app never sends one — and surfaces as a 500.
+ * same status. RA008 (a role withWriteAccess refuses) on a decide is the 403
+ * the route would give; on a raise it cannot arise through a route. RA009
+ * (forged: actor, company or rule type) has no TypeScript twin — the app
+ * never sends one — and surfaces as a 500. RA010 (a stricter rule governs
+ * now) is ApprovalRequestStaleError, which requestApproval retries once.
  *
  * tests/unit/services/gl/approvalRequestWriteCensus.test.ts fails when any
  * other file writes the table or calls these functions.
@@ -25,6 +28,7 @@ import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalDecisionError, ApprovalNotRequiredError } from './approvalAuthority';
 import {
   ApprovalDocumentChangedError, ApprovalDocumentNotFoundError, ApprovalExpectedDigestRequiredError,
+  ApprovalRequestStaleError,
 } from './approvalDocumentErrors';
 
 type Row = Record<string, unknown>;
@@ -34,12 +38,13 @@ const sqlStateOf = (error: unknown): unknown =>
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** RA003 / RA006 / RA007 from raise or rebind, as requestApproval throws them; anything else unchanged. */
+/** RA003 / RA006 / RA007 / RA010 from raise or rebind, as requestApproval throws them; anything else unchanged. */
 export function raiseRefusal(error: unknown, documentType: string, documentId: string): unknown {
   switch (sqlStateOf(error)) {
     case 'RA003': return new ImpersonationForbiddenError();
     case 'RA006': return new ApprovalDocumentNotFoundError(documentType, documentId);
     case 'RA007': return new ApprovalNotRequiredError(documentType, documentId);
+    case 'RA010': return new ApprovalRequestStaleError(documentType, documentId);
     default: return error;
   }
 }
@@ -48,7 +53,8 @@ export function raiseRefusal(error: unknown, documentType: string, documentId: s
 export function decideRefusal(error: unknown, requestId: string): unknown {
   switch (sqlStateOf(error)) {
     case 'RA001': return new ApprovalDecisionError('SELF_APPROVAL_FORBIDDEN', messageOf(error));
-    case 'RA002': return new ApprovalDecisionError('APPROVER_ROLE_REQUIRED', messageOf(error));
+    case 'RA002':
+    case 'RA008': return new ApprovalDecisionError('APPROVER_ROLE_REQUIRED', messageOf(error));
     case 'RA003': return new ApprovalDecisionError('IMPERSONATION_FORBIDDEN', messageOf(error));
     case 'RA004': return new ApprovalDocumentChangedError(requestId);
     case 'RA005': return new ApprovalExpectedDigestRequiredError(requestId);

@@ -11,7 +11,6 @@
 
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
-import { logAuditOrThrow } from '../core/auditTrailService';
 
 /** Returned by assertMayDecide when the decision is a sole-approver self-approval. */
 export interface SoleApproverSelfApproval {
@@ -70,34 +69,9 @@ export async function soleApproverFacts(companyId: string, requestId: string, us
 
 type MemberRow = { role: string; is_active: boolean | null; status: string | null; suspended_at: string | null };
 
-/**
- * The distinct marker: an `approve` audit row on the request whose metadata
- * says it was the requester's own, allowed because nobody else could. Written
- * with logAuditOrThrow — an unrecorded self-approval must not stand.
+/*
+ * The distinct marker — an `approve` audit row on the request whose metadata
+ * says it was the requester's own, allowed because nobody else could — is
+ * written by approval_request_decide (migration 872), in the same transaction
+ * as the decision, so an unrecorded self-approval cannot stand.
  */
-export async function auditSoleApproverSelfApproval(
-  companyId: string,
-  userId: string,
-  request: Record<string, unknown>,
-  approval: SoleApproverSelfApproval,
-): Promise<void> {
-  await logAuditOrThrow({
-    companyId,
-    userId,
-    action: 'approve',
-    entityType: 'approval_request',
-    entityId: String(request.id),
-    entityRef: request.document_reference != null ? String(request.document_reference) : undefined,
-    changes: {
-      fields: [],
-      metadata: {
-        selfApproval: approval.selfApproval,
-        requiredRole: approval.requiredRole,
-        approverRoster: JSON.stringify(approval.approverRoster),
-        documentType: String(request.document_type),
-        documentId: String(request.document_id),
-        ...(request.document_digest != null ? { documentDigest: String(request.document_digest) } : {}),
-      },
-    },
-  });
-}

@@ -28,7 +28,10 @@
 --   RA001 SELF_APPROVAL_FORBIDDEN   RA002 APPROVER_ROLE_REQUIRED
 --   RA003 IMPERSONATION_FORBIDDEN   RA004 DOCUMENT_CHANGED
 --   RA005 EXPECTED_DIGEST_REQUIRED  RA006 document not found
---   RA007 no rule requires approval RA009 forged (no TS twin: a 500)
+--   RA007 no rule requires approval RA008 role may not write (withWriteAccess)
+--   RA009 forged actor/company/rule type (no TS twin: a 500)
+--   RA010 the rule set or the document moved between the TypeScript's
+--         choice and the write — requestApproval retries once, then 409
 --
 -- BOUNDARY (state it, do not oversell it): the actor checks read
 -- request.jwt.claims, an ordinary GUC, and the app logs in as a superuser and
@@ -148,6 +151,42 @@ AS $$
     WHERE cu.company_id = p_company_id AND pg_catalog.lower(cu.user_id) = pg_catalog.lower(auth.uid()))
 $$;
 
+-- withWriteAccess's DEFAULT_WRITE_ROLES (src/lib/auth/writeRoles.ts): every
+-- route that raises, re-binds or decides a request is wrapped in
+-- withWriteAccess with the default list, so a role outside it never reaches
+-- requestApproval or decideRequest (census in the PR). r035-n1-roles binds
+-- this list to writeRoles.ts.
+CREATE OR REPLACE FUNCTION public.approval_request_may_write(p_role pg_catalog.text)
+RETURNS pg_catalog.bool
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE(p_role = ANY (ARRAY['owner', 'admin', 'manager']::pg_catalog.text[]), false)
+$$;
+
+-- The actor's company role passes withWriteAccess, as the route checked it
+-- (company_users.role of the JWT subject, compared exactly as withAuth reads it).
+-- p_allow_bypass: 862's exemption for a caller that bypasses RLS.
+CREATE OR REPLACE FUNCTION public.approval_request_assert_write_role(
+  p_company_id pg_catalog.uuid, p_actor pg_catalog.text, p_allow_bypass pg_catalog.bool
+) RETURNS void
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_role pg_catalog.text;
+BEGIN
+  IF p_allow_bypass AND public.approval_request_caller_bypasses() THEN
+    RETURN;
+  END IF;
+  SELECT cu.role::pg_catalog.text INTO v_role FROM public.company_users cu
+  WHERE cu.company_id = p_company_id AND cu.user_id = p_actor;
+  IF NOT public.approval_request_may_write(v_role) THEN
+    RAISE EXCEPTION 'Your role (%) does not allow this action.', COALESCE(v_role, 'none') USING ERRCODE = 'RA008';
+  END IF;
+END
+$$;
+
 -- findDocument (gl/approvalDocuments.ts) in SQL, statement for statement: the
 -- amount a rule is matched on, the reference, the digest. No row: no such
 -- document of that type in this company.
@@ -244,10 +283,16 @@ BEGIN
       USING ERRCODE = 'RA007';
   END IF;
   IF NOT (v_rule.document_type = p_document_type
-          OR (p_document_type = 'payment_batch' AND v_rule.document_type = 'supplier_payment'))
-     OR public.approval_required_rank(v_rule.approver_role) <> v_strictest THEN
-    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a request must be bound to the strictest rule governing the document'
+          OR (p_document_type = 'payment_batch' AND v_rule.document_type = 'supplier_payment')) THEN
+    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a request must be bound to a rule of its document''s type'
       USING ERRCODE = 'RA009';
+  END IF;
+  -- Not the strictest NOW: a rule was added or edited, or the amount moved,
+  -- since the TypeScript chose it (or a caller chose a laxer one) — refused,
+  -- and retryable: requestApproval re-reads and raises again.
+  IF public.approval_required_rank(v_rule.approver_role) <> v_strictest THEN
+    RAISE EXCEPTION 'R035_APPROVAL_REQUEST_STALE: the document or its approval rules changed while the request was being raised'
+      USING ERRCODE = 'RA010';
   END IF;
   RETURN v_rule;
 END
@@ -280,6 +325,7 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'No % % exists for this company', p_document_type, p_document_id USING ERRCODE = 'RA006';
   END IF;
+  PERFORM public.approval_request_assert_write_role(p_company_id, p_requested_by, true);
   v_rule := public.approval_request_bindable_rule(p_company_id, p_document_type, p_document_id, v_doc.amount, p_rule_id);
   IF v_rule.id IS NULL THEN
     RETURN;
@@ -301,7 +347,7 @@ $$;
 -- may only move the request UPWARDS from what it demands now (669's ratchet).
 -- The content always follows the document; when its digest moved the request
 -- is re-stamped as raised by p_requested_by. No row: nothing pending to
--- re-bind, or the rule went inactive — nothing written.
+-- re-bind — nothing written. A rule gone inactive keeps the binding.
 CREATE OR REPLACE FUNCTION public.approval_request_rebind(
   p_company_id pg_catalog.uuid, p_request_id pg_catalog.uuid, p_rule_id pg_catalog.uuid, p_requested_by pg_catalog.text
 ) RETURNS SETOF public.approval_requests
@@ -323,6 +369,7 @@ BEGIN
   IF NOT public.approval_request_caller_sees(p_company_id) THEN
     RETURN;
   END IF;
+  PERFORM public.approval_request_assert_write_role(p_company_id, p_requested_by, true);
   SELECT ar.* INTO v_row FROM public.approval_requests ar
   WHERE ar.id = p_request_id AND ar.company_id = p_company_id AND ar.status = 'pending'
   FOR UPDATE;
@@ -334,10 +381,12 @@ BEGIN
     RAISE EXCEPTION 'No % % exists for this company', v_row.document_type, v_row.document_id USING ERRCODE = 'RA006';
   END IF;
   IF p_rule_id IS NOT NULL THEN
+    -- A rule deactivated since the TypeScript chose it binds nothing: the
+    -- request keeps its binding and its content is still re-stamped, as the
+    -- direct UPDATE did (COALESCE below keeps rule_id and required_role).
     v_rule := public.approval_request_bindable_rule(p_company_id, v_row.document_type, v_row.document_id, v_doc.amount, p_rule_id);
-    IF v_rule.id IS NULL THEN
-      RETURN;
-    END IF;
+  END IF;
+  IF v_rule.id IS NOT NULL THEN
     SELECT COALESCE(v_row.required_role, rl.approver_role, 'admin') INTO v_current
     FROM (SELECT 1) one
     LEFT JOIN public.approval_rules rl ON rl.id = v_row.rule_id AND rl.company_id = v_row.company_id;
@@ -384,9 +433,12 @@ BEGIN
     RAISE EXCEPTION 'R035_APPROVAL_REQUEST_FORGED: a request may only be locked for the request''s own company'
       USING ERRCODE = 'RA009';
   END IF;
+  IF NOT public.approval_request_caller_sees(p_company_id) THEN
+    RETURN;
+  END IF;
+  PERFORM public.approval_request_assert_write_role(p_company_id, auth.uid(), true);
   PERFORM 1 FROM public.approval_requests ar
   WHERE ar.id = p_request_id AND ar.company_id = p_company_id AND ar.status = 'pending'
-    AND public.approval_request_caller_sees(p_company_id)
   FOR UPDATE;
 END
 $$;
@@ -395,7 +447,9 @@ $$;
 -- assertDocumentUnchanged repeated in their order (gl/approvalAuthority.ts,
 -- approvalAuthors.ts, approvalSelfApproval.ts, approvalDecideDocument.ts).
 -- Identities are compared as TEXT where the TypeScript compares strings.
--- The sole-approver audit row stays the TypeScript's (logAuditOrThrow).
+-- A sole-approver self-approval (Q2) writes its audit row here, in the same
+-- shape auditSoleApproverSelfApproval wrote it — an unrecorded self-approval
+-- must not stand, so a direct call cannot skip it.
 -- No row: the request is gone, foreign or already decided (404, as before).
 CREATE OR REPLACE FUNCTION public.approval_request_decide(
   p_company_id pg_catalog.uuid, p_request_id pg_catalog.uuid, p_decision pg_catalog.text,
@@ -432,6 +486,8 @@ BEGIN
   IF NOT public.approval_request_caller_sees(p_company_id) THEN
     RETURN;
   END IF;
+  -- withWriteAccess gates approve AND reject (a withdrawal included).
+  PERFORM public.approval_request_assert_write_role(p_company_id, p_decided_by, false);
 
   SELECT ar.* INTO v_row FROM public.approval_requests ar
   WHERE ar.id = p_request_id AND ar.company_id = p_company_id AND ar.status = 'pending'
@@ -523,14 +579,29 @@ BEGIN
     END IF;
   END IF;
 
-  RETURN QUERY
-    UPDATE public.approval_requests ar SET
-      status = p_decision,
-      decided_by = p_decided_by::pg_catalog.uuid,
-      decided_at = pg_catalog.now(),
-      decision_notes = p_notes
-    WHERE ar.id = p_request_id AND ar.company_id = p_company_id AND ar.status = 'pending'
-    RETURNING ar.*;
+  UPDATE public.approval_requests ar SET
+    status = p_decision,
+    decided_by = p_decided_by::pg_catalog.uuid,
+    decided_at = pg_catalog.now(),
+    decision_notes = p_notes
+  WHERE ar.id = p_request_id AND ar.company_id = p_company_id AND ar.status = 'pending'
+  RETURNING ar.* INTO v_row;
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+  IF v_is_self AND p_decision = 'approved' THEN
+    INSERT INTO public.audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes)
+    VALUES (p_company_id, p_decided_by, 'approve', 'approval_request', v_row.id, v_row.document_reference,
+      pg_catalog.jsonb_build_object('fields', '[]'::pg_catalog.jsonb, 'metadata',
+        pg_catalog.jsonb_build_object(
+          'selfApproval', 'sole_approver', 'requiredRole', v_demanded,
+          'approverRoster', COALESCE(v_row.approver_roster::pg_catalog.text, 'null'),
+          'documentType', v_row.document_type, 'documentId', v_row.document_id::pg_catalog.text)
+        || CASE WHEN v_row.document_digest IS NOT NULL
+                THEN pg_catalog.jsonb_build_object('documentDigest', v_row.document_digest)
+                ELSE '{}'::pg_catalog.jsonb END));
+  END IF;
+  RETURN NEXT v_row;
 END
 $$;
 
@@ -542,6 +613,8 @@ REVOKE ALL ON FUNCTION public.approval_request_subject() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_session_actor() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_assert_caller(pg_catalog.uuid, pg_catalog.text, pg_catalog.bool) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_caller_sees(pg_catalog.uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.approval_request_may_write(pg_catalog.text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.approval_request_assert_write_role(pg_catalog.uuid, pg_catalog.text, pg_catalog.bool) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_document_facts(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_bindable_rule(pg_catalog.uuid, pg_catalog.text, pg_catalog.uuid, pg_catalog.numeric, pg_catalog.uuid) FROM PUBLIC;
 -- Writers: app_user only.
@@ -574,7 +647,7 @@ BEGIN
       FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) a
       LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
       WHERE p.oid = v_fn AND a.grantee <> p.proowner
-        AND NOT (r.rolname = 'app_user'
+        AND NOT (COALESCE(r.rolname, 'PUBLIC') = 'app_user'
                  AND p.proname IN ('approval_request_raise', 'approval_request_rebind',
                                    'approval_request_lock', 'approval_request_decide'))
     LOOP

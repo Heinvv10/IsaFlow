@@ -130,6 +130,29 @@ describe('approval_request_decide decides', () => {
     expect(row).toMatchObject({ status: 'approved', decided_by: u.a, requested_by: u.a });
   });
 
+  it('Q2 by a direct call writes the sole-approver audit row itself, in the TypeScript row shape (blind LOW 4)', async () => {
+    const f = await pendingBill(pool, tokens, u, companies,
+      { members: [[u.a, 'owner'], [u.m, 'manager']], creator: u.a, requester: u.a });
+    const roster = (await pool.query('SELECT approver_roster FROM approval_requests WHERE id = $1', [f.requestId])).rows[0].approver_roster;
+    await decide(f.c, f.requestId, u.a);
+    const { rows } = await pool.query(
+      "SELECT user_id, action, entity_ref, changes FROM audit_log WHERE entity_type = 'approval_request' AND entity_id = $1",
+      [f.requestId]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ user_id: u.a, action: 'approve', changes: { fields: [], metadata: {
+      selfApproval: 'sole_approver', requiredRole: 'owner', documentType: 'supplier_invoice', documentId: f.bill.id,
+      documentDigest: await digestOf(f.requestId) } } });
+    expect(rows[0].entity_ref).toMatch(/^R035-/);
+    expect(JSON.parse(rows[0].changes.metadata.approverRoster)).toEqual(roster);
+  });
+
+  it('an ordinary approval writes no sole-approver row', async () => {
+    const f = await pendingBill(pool, tokens, u, companies, { creator: u.m });
+    await decide(f.c, f.requestId, u.a);
+    const { rows } = await pool.query("SELECT 1 FROM audit_log WHERE entity_type = 'approval_request' AND entity_id = $1", [f.requestId]);
+    expect(rows).toEqual([]);
+  });
+
   it('Q2 is refused once the roster moved since the request', async () => {
     const f = await pendingBill(pool, tokens, u, companies,
       { members: [[u.a, 'owner'], [u.m, 'manager']], creator: u.a, requester: u.a });
