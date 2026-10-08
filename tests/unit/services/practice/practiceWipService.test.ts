@@ -41,8 +41,9 @@ beforeEach(() => vi.clearAllMocks());
  * in for the pooled one: SET LOCAL / SAVEPOINT never reach the `sql` mock, so
  * the queued response order is unchanged.
  */
+// It answers as pg does: reserveNextDocumentNumber reads the caller's lock_timeout from the result.
 const inTx = <T>(fn: () => Promise<T>): Promise<T> =>
-  als.run({ client: { query: vi.fn() } } as never, fn);
+  als.run({ client: { query: vi.fn().mockResolvedValue({ rows: [{ prev: '0' }] }) } } as never, fn);
 
 describe('getWipByClient', () => {
   it('groups approved unbilled entries by practice_client_id', async () => {
