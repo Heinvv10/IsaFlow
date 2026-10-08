@@ -12,7 +12,9 @@ import bankTransfers from '../../pages/api/accounting/bank-transfers';
 import bankTxManual from '../../pages/api/accounting/bank-transactions-manual';
 import journalEntriesAction from '../../pages/api/accounting/journal-entries-action';
 import { assertLocalFixtureDbUrl } from './fixtureDbGuard';
-import { dropFixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx } from './helpers/l1FifoFixture';
+import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { fetchJournalLineCandidates } from '@/modules/accounting/services/bank/bankMatchDbQueries';
 import { callRoute, dropRouteUser, seedRouteUser } from './helpers/vatLateClaimRoutes';
 import { seedDateFixture, type DateFixture } from './helpers/numraceDateFixture';
 
@@ -335,4 +337,24 @@ describeIfDb('which line pairs a transfer, and what the manual route refuses', (
     await bankLine(bankA, '2029-07-03', -7221, 'LC A OUT TUE');
     expect((await allocTransfer(await bankLine(bankB, '2029-07-03', 7221, 'LC B IN TUE'), bankA)).statusCode).toBe(200);
   }, 600000);
+
+  // brk-nrfa round 16 L1: the residual's remedy is "match the statement line to the journal". The match screen keeps
+  // the 20 unmatched posted lines nearest the amount; with many ordinary lines of that amount, the nearest in DATE
+  // must win the tie, or the transfer journal's legs are never offered.
+  it('the match screen offers a transfer journal\'s leg among many same-amount lines (nearest date wins the tie)', async () => {
+    const prepaid = String(((await sql`INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
+      normal_balance, is_active) VALUES (${c.fx.companyId}::UUID, '1400', 'PAIR Prepaid', 'asset', 'debit', true)
+      RETURNING id`) as Row[])[0]!.id);
+    const post = (date: string, dr: string, cr: string, description: string) => inTx(c.fx, async () => {
+      const je = await createJournalEntry(c.fx.companyId, { entryDate: date, description, source: 'manual', lines: [
+        { glAccountId: dr, debit: 150, credit: 0, description: 'dr' },
+        { glAccountId: cr, debit: 0, credit: 150, description: 'cr' }] } as never, c.fx.userId);
+      await postJournalEntry(c.fx.companyId, je.id, c.fx.userId);
+      return String(je.id);
+    });
+    for (let i = 0; i < 25; i++) await post(`2029-09-${String(1 + i).padStart(2, '0')}`, prepaid, c.expense, `top-up ${i}`);
+    const transfer = await post('2029-11-02', bankB, bankA, 'Transfer A -> B (Journal Entries)');
+    const offered = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN')).map((x) => x.id);
+    expect(offered).toContain(await lineOf(transfer, bankB));
+  }, 300000);
 });

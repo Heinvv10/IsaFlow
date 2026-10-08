@@ -22,7 +22,10 @@
  * bank/journalReversalState does: an even count of posted reversals below a journal puts it back on the books, though
  * its `reversed_at` stays set (sec-nrfa round 6 M1). Every walk here goes 64 steps (a real chain of reversals can pass
  * 20: brk-nrfa round 14 L1); journalReversalState and autoPostHandOffset still stop at 20, so for a chain 21-64 deep
- * this guard and the auto-post undo can read it differently — theirs is outside this guard (rev-nrfa round 14 LOW-3). A pairing line is of the same movement: within TEN days of the
+ * this guard and the auto-post undo can read it differently — theirs is outside this guard (rev-nrfa round 14 LOW-3).
+ * Residual, stated (brk-nrfa round 16 L2): past 64 steps a walk is cut off and read as unresolved, so a reversed
+ * transfer more than 64 reversals deep still refuses a real transfer of its amount (fails closed; match remedy).
+ * A pairing line is of the same movement: within TEN days of the
  * counterparty line (arm 1) or of the journal's date (arm 2) — sec-nrfa round 6 L1, widened from five so a real second
  * transfer whose first one cleared a week later still posts (brk-nrfa round 8 L1). A pairing match to a live re-reversal
  * of the journal counts like one to the journal (round 8 L2: the match screen offers both). A hand-keyed line pairs only
