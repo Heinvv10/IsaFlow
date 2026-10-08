@@ -17,11 +17,12 @@
  * with a weaker body, and `ALTER FUNCTION … SECURITY INVOKER` all slip past
  * it. tests/integration/r035-n1-catalog reads the live catalogue for those
  * (prosecdef, search_path, owner, EXECUTE, every role's privileges, the
- * writers' pinned bodies, statically named writes) against whatever
+ * pinned bodies of the writers and everything they call, statically named
+ * writes) against whatever
  * DATABASE_URL names (local `bun run ci` with a database; GitHub runs none).
  * A NEW writer built from run-time SQL is beyond both (migration review is
- * the control); the four existing writers are pinned by body and covered by
- * the fixture behaviour suites.
+ * the control); the four existing writers and their helpers are pinned by
+ * body and covered by the fixture behaviour suites.
  */
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
