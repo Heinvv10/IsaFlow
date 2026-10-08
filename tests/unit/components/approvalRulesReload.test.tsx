@@ -141,3 +141,29 @@ it('a slow first load does not overwrite the newer rules list (pending → rules
   expect(screen.queryByText('Rule from the old load')).toBeNull();
   expect(screen.getByText('Rule from the new load')).toBeDefined();
 });
+
+it('review r3: an older load finishing first keeps the spinner up while the newer load is in flight', async () => {
+  const gates: (() => void)[] = [];
+  let n = 0;
+  vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+    const path = String(url);
+    if (path.startsWith('/api/accounting/approval-requests')) {
+      const mine = n; n += 1;
+      await new Promise<void>((r) => { gates[mine] = r; });
+      return json({ success: true, data: { items: mine === 1 ? [request('n', 'NEW-HISTORY', 'approved')] : [] } });
+    }
+    if (path.startsWith('/api/accounting/approval-rules')) return list([]);
+    if (path.startsWith('/api/accounting/approval-enforcement')) return json({ success: true, data: { items: [], enforceable: [], preview: {} } });
+    return json({ success: true, data: { items: [] } });
+  });
+  const { container } = render(<ApprovalsPage />);
+  fireEvent.click(screen.getByRole('button', { name: /^history$/i }));
+  await waitFor(() => expect(gates.length).toBe(2));
+  await act(async () => { gates[0]!(); });
+  await act(async () => {});
+  expect(container.querySelector('.animate-spin')).not.toBeNull();
+  expect(screen.queryByText('No approval history')).toBeNull();
+  await act(async () => { gates[1]!(); });
+  expect(await screen.findByText('NEW-HISTORY')).toBeDefined();
+  expect(container.querySelector('.animate-spin')).toBeNull();
+});

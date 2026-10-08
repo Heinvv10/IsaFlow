@@ -109,6 +109,17 @@ it.each(['10000000000000', '1000.005'])('refuses amount %s (beyond numeric(15,2)
   expect(sent).toEqual([]);
 });
 
+it.each([
+  ['over 100 characters (audit_log.entity_ref is VARCHAR(100))', 'x'.repeat(101), 'Enter a name of at most 100 characters.'],
+  ['a zero-width space only (review r3, REPRO D)', '\u200b', 'Enter a name for the rule.'],
+])('refuses a name %s without sending it', async (_l, name, message) => {
+  const { sent, dialog } = await openNewRule({ rules: [], actorRole: 'owner' });
+  fireEvent.change(within(dialog).getByLabelText('Rule name'), { target: { value: name } });
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save rule' })); });
+  expect(await within(dialog).findByText(message)).toBeDefined();
+  expect(sent).toEqual([]);
+});
+
 describe('edit', () => {
   it('opens the same form on the rule and sends a PUT with only what changed', async () => {
     const sent = await openRules({ rules: [rule()], actorRole: 'admin' });
