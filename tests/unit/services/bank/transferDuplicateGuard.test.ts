@@ -78,10 +78,10 @@ describe('assertNoDuplicateTransfer', () => {
     // brk-nrfa round 6 L1: arm 1's counterparty line is live and matched to its leg of a journal that stands.
     const outer = text(0).slice(0, text(0).indexOf('NOT EXISTS'));
     // sec-nrfa round 10 L1/L2, brk-nrfa round 11 M1: the root walk is bounded and takes its deepest EVEN-step member.
-    expect(text(0)).toMatch(/WITH RECURSIVE up AS \([\s\S]*up\.d < 20 AND p\.id <> ALL \(up\.path\)\)/);
+    expect(text(0)).toMatch(/WITH RECURSIVE up AS \([\s\S]*up\.d < 64 AND p\.id <> ALL \(up\.path\)\)/);
     // sec-nrfa round 11 L1: a looping chain has no root — the pointer anchors at its own journal.
-    expect(consumption(0)).toContain('AND w.d < 20 AND NOT rt.cyc)');
-    expect(text(0)).toMatch(/WHEN EXISTS \(SELECT 1 FROM up c WHERE c\.reversal_of_id = ANY \(c\.path\)\s+OR \(c\.d = 20 AND c\.reversal_of_id IS NOT NULL\)\) THEN up\.d = 0\s+ELSE up\.d % 2 = 0 END\s+ORDER BY up\.d DESC LIMIT 1\) rt/);
+    expect(consumption(0)).toContain('AND w.d < 64 AND NOT rt.cyc)');
+    expect(text(0)).toMatch(/WHEN EXISTS \(SELECT 1 FROM up c WHERE c\.reversal_of_id = ANY \(c\.path\)\s+OR \(c\.d = 64 AND c\.reversal_of_id IS NOT NULL\)\) THEN up\.d = 0\s+ELSE up\.d % 2 = 0 END\s+ORDER BY up\.d DESC LIMIT 1\) rt/);
     expect(outer).toMatch(/AND status IN \('allocated', 'matched', 'reconciled'\)/);
     expect(outer).toContain('tl.id = bank_transactions.matched_journal_line_id');
     // sec-nrfa round 6: "not reversed" is read from the chain (an even count of posted reversals stands), and a pairing

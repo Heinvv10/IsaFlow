@@ -68,17 +68,18 @@ export async function assertNoDuplicateTransfer(
     -- pairing: brk-nrfa round 11 M1), within this company and bounded like every walk here, so a forged cross-tenant or
     -- looping reversal_of_id neither drops the line nor hangs the allocation (sec-nrfa round 10 L1/L2). A chain that
     -- loops (forged rows only) has no root: the pointer anchors at its own journal (sec-nrfa round 11 L1). So does one the
-    -- walk's bound cut off with a parent still to go — a loop longer than 21 never repeats inside it (brk-nrfa r13 L1).
+    -- walk's bound (64 steps — a real chain of reversals can pass 20: brk-nrfa r14 L1) cut off with a parent still to go — a
+    -- loop longer than the bound never repeats inside it (brk-nrfa r13 L1).
     CROSS JOIN LATERAL (WITH RECURSIVE up AS (
             SELECT u.id, u.reversal_of_id, 0 AS d, ARRAY[u.id] AS path FROM gl_journal_entries u
               WHERE u.id = bank_transactions.transfer_journal_entry_id AND u.company_id = bank_transactions.company_id
             UNION ALL SELECT p.id, p.reversal_of_id, up.d + 1, up.path || p.id FROM gl_journal_entries p
               JOIN up ON p.id = up.reversal_of_id
-              WHERE p.company_id = bank_transactions.company_id AND up.d < 20 AND p.id <> ALL (up.path))
+              WHERE p.company_id = bank_transactions.company_id AND up.d < 64 AND p.id <> ALL (up.path))
           SELECT up.id AS root_id, EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)
-                                                OR (c.d = 20 AND c.reversal_of_id IS NOT NULL)) AS cyc FROM up
+                                                OR (c.d = 64 AND c.reversal_of_id IS NOT NULL)) AS cyc FROM up
           WHERE CASE WHEN EXISTS (SELECT 1 FROM up c WHERE c.reversal_of_id = ANY (c.path)
-                                     OR (c.d = 20 AND c.reversal_of_id IS NOT NULL)) THEN up.d = 0
+                                     OR (c.d = 64 AND c.reversal_of_id IS NOT NULL)) THEN up.d = 0
                      ELSE up.d % 2 = 0 END
           ORDER BY up.d DESC LIMIT 1) rt
     WHERE bank_transactions.company_id = ${companyId}::UUID
@@ -100,7 +101,7 @@ export async function assertNoDuplicateTransfer(
                       AND (tj.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = tj.id AND r.company_id = tj.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
-            WHERE n.company_id = tj.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch)))
+            WHERE n.company_id = tj.company_id AND n.status = 'posted' AND w.d < 64) SELECT d FROM w) ch)))
       -- Already paired: a live line on THIS bank is MATCHED to a line of that transfer journal, so this line is
       -- another movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2). The
       -- transfer pointer is not a match: an unmatch leaves it set (brk-nrfa round 5 F1). The match must be to this
@@ -113,7 +114,7 @@ export async function assertNoDuplicateTransfer(
             SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = rt.root_id AND r.company_id = bank_transactions.company_id
             UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
               -- A looping chain pairs only the pointer's own journal (sec-nrfa round 11 L1).
-              WHERE n.company_id = bank_transactions.company_id AND n.status = 'posted' AND w.d < 20 AND NOT rt.cyc)
+              WHERE n.company_id = bank_transactions.company_id AND n.status = 'posted' AND w.d < 64 AND NOT rt.cyc)
             SELECT id FROM w WHERE d % 2 = 0)
                           AND ml.gl_account_id = own.bank_account_id
                           AND (CASE WHEN own.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(own.amount)
@@ -132,11 +133,11 @@ export async function assertNoDuplicateTransfer(
   const journals = lines.length > 0 ? [] : (await sql`
     SELECT je.id FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.source = 'auto_bank_transfer' AND je.status = 'posted' AND je.reference IS NOT NULL
+      AND je.status = 'posted' AND ((je.source = 'auto_bank_transfer' AND je.reference IS NOT NULL) OR je.source = 'manual')
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
-            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch))
+            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 64) SELECT d FROM w) ch))
       AND je.entry_date BETWEEN (${txDate}::DATE - INTERVAL '10 days') AND (${txDate}::DATE + INTERVAL '10 days')
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${bankAccountId}::UUID
@@ -149,7 +150,7 @@ export async function assertNoDuplicateTransfer(
                           AND ml.journal_entry_id IN (WITH RECURSIVE w AS (
             SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
             UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
-              WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT id FROM w WHERE d % 2 = 0)
+              WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 64) SELECT id FROM w WHERE d % 2 = 0)
                           AND ml.gl_account_id = bt.bank_account_id
                           AND (CASE WHEN bt.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(bt.amount)
                         WHERE bt.company_id = je.company_id
@@ -182,7 +183,7 @@ export async function findTransferRecordedFromStatement(
       AND je.reversal_of_id IS NULL AND (je.reversed_at IS NULL OR (SELECT MAX(ch.d) % 2 = 0 FROM (WITH RECURSIVE w AS (
           SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
           UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
-            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT d FROM w) ch))
+            WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 64) SELECT d FROM w) ch))
       AND je.entry_date BETWEEN (${date}::DATE - INTERVAL '10 days') AND (${date}::DATE + INTERVAL '10 days')
       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
                     AND jl.gl_account_id = ${toAccountId}::UUID AND jl.debit = ${amount})
@@ -193,7 +194,7 @@ export async function findTransferRecordedFromStatement(
                       AND bl.journal_entry_id IN (WITH RECURSIVE w AS (
             SELECT r.id, 0 AS d FROM gl_journal_entries r WHERE r.id = je.id AND r.company_id = je.company_id
             UNION ALL SELECT n.id, w.d + 1 FROM gl_journal_entries n JOIN w ON n.reversal_of_id = w.id
-              WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 20) SELECT id FROM w WHERE d % 2 = 0)
+              WHERE n.company_id = je.company_id AND n.status = 'posted' AND w.d < 64) SELECT id FROM w WHERE d % 2 = 0)
                       AND bl.gl_account_id = bt.bank_account_id AND bl.id = bt.matched_journal_line_id
                       AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
                     WHERE bt.company_id = je.company_id
