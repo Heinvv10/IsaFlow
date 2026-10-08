@@ -33,16 +33,34 @@ export const isRuleAmount = (value: unknown): value is number =>
 export const RULE_NAME_MAX = 100;
 
 /**
- * Whether `text` shows anything: `trim` leaves format characters (Unicode Cf —
- * a zero-width space, a word joiner), so a name of only those rendered blank in
- * the table and in the audit row (review round 3).
+ * Whether `text` holds a control character (Unicode Cc). Refused anywhere in a
+ * name once trimmed: NUL reached Postgres as a 500 carrying the raw pg message,
+ * and the rest (BEL, TAB, …) have no place in one-line display text.
  */
-export const hasVisibleCharacter = (text: string): boolean => /[^\s\p{Cf}]/u.test(text);
+export const hasControlCharacter = (text: string): boolean => /\p{Cc}/u.test(text);
 
-/** A rule name every write path accepts: text of 1 to RULE_NAME_MAX characters once trimmed, with one visible. */
+/**
+ * Whether `text` has at least one character outside whitespace, control (Cc),
+ * format (Cf — zero-width space, word joiner), combining marks (M — the
+ * grapheme joiner, variation selectors) and the blank-looking fillers U+115F,
+ * U+1160, U+3164, U+FFA0 and U+2800 (reviews r3, r4).
+ *
+ * "Visible" is BEST-EFFORT and rendering-dependent: a font can still draw some
+ * other code point as nothing. A rule name is display text only — rules are
+ * identified by id and matched by type and amount — so this is a guard against
+ * a name that shows as blank, not a security boundary. Do not extend it into an
+ * arms race; its job is a readable table and audit row.
+ */
+export const hasVisibleCharacter = (text: string): boolean =>
+  /[^\s\p{Cc}\p{Cf}\p{M}\u115F\u1160\u3164\uFFA0\u2800]/u.test(text);
+
+/**
+ * A rule name every write path accepts: text of 1 to RULE_NAME_MAX characters
+ * once trimmed, with no control character and at least one visible character.
+ */
 export const isRuleName = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0 && value.trim().length <= RULE_NAME_MAX
-  && hasVisibleCharacter(value);
+  && !hasControlCharacter(value.trim()) && hasVisibleCharacter(value);
 
 /**
  * The types whose posting paths consult the approval gate — the only types an
