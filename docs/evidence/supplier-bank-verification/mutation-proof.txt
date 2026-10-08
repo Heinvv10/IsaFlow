@@ -150,3 +150,18 @@ Review round 2 fixes (2026-10-08T16:32:13Z) — same method:
      × refuses a row by an admin whose account is deactivated (standing, not only role) 124ms
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
       Tests  1 failed | 16 passed (17)
+
+Review round 3 fixes (2026-10-08T16:36:22Z) — same method:
+=== MUTANT M30-ever-on-check-removed (src/modules/accounting/services/ap/supplierBankBaseline.ts)
+     × a supplier the admin CREATES (with bank details) while the control is on stays unverified across the owner's off/on 247ms
+     × a supplier that had NO bank details at the first switch-on, given details by the admin later, stays unverified across off/on 152ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 2 passed (4)
+=== MUTANT M31-db-first-switch-on-guard-dropped (migration 876, fixture DB)
+     × refuses any baseline once the company was switched on before — even for a supplier with no history 77ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 17 passed (18)
+=== MUTANT M32-preview-ignores-ever-on (src/modules/accounting/services/ap/supplierBankVerification.ts)
+     × off again, it says switching on would accept 0 — though suppliers with bank details exist 131ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 4 passed (5)
