@@ -160,3 +160,20 @@ it("restores the caller's value when the type has no number config (the refusal 
     await endTx(client);
   }
 });
+
+// brk-nrfd LOW-3: two reservations in flight on one connection share one budget, so the caller's value comes back.
+it.each([['0', '0'], ['1s', '1s']])("two concurrent reservations on one connection restore the caller's %s", async (set, shown) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL lock_timeout = '${set}'`);
+    await als.run(ctxFor(client), () => Promise.all([
+      reserveNextDocumentNumber(company, 'customer_invoice'),
+      reserveNextDocumentNumber(company, 'customer_invoice'),
+      reserveNextDocumentNumber(company, 'supplier_invoice'),
+    ]));
+    expect((await client.query('SHOW lock_timeout')).rows[0].lock_timeout).toBe(shown);
+  } finally {
+    await endTx(client);
+  }
+});

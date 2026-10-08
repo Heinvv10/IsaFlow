@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { als, assertTxUsable } from '@/lib/als';
+import { enterNumberLockBudget, NO_BUDGET } from './documentNumberLockBudget';
 
 // ── Document Numbers ──────────────────────────────────────────────────────────
 
@@ -143,16 +144,8 @@ export async function reserveNextDocumentNumber(
   // unbounded (0) or looser, a tighter one kept; and it is the CALLER'S value
   // that is put back afterwards — DEFAULT would unbound a request that set one.
   const client = als.getStore()?.client;
-  let restore: () => Promise<unknown> = async () => undefined;
-  if (client) {
-    assertTxUsable();
-    const { rows } = await client.query<{ prev: string }>(
-      `SELECT s.prev, set_config('lock_timeout', CASE WHEN s.prev::interval = interval '0'
-         OR s.prev::interval > interval '5s' THEN '5s' ELSE s.prev END, true)
-       FROM (SELECT current_setting('lock_timeout') AS prev) s`);
-    const prev = rows[0]!.prev;
-    restore = () => client.query(`SELECT set_config('lock_timeout', $1, true)`, [prev]);
-  }
+  if (client) assertTxUsable();
+  const { restore, leave } = client ? await enterNumberLockBudget(client) : NO_BUDGET;
   try {
     return await reserveNextDocumentNumberInner(companyId, documentType, restore);
   } catch (err) {
@@ -161,6 +154,10 @@ export async function reserveNextDocumentNumber(
       throw new DocumentNumberLockTimeoutError(documentType);
     }
     throw err;
+  } finally {
+    // A path that did not restore (a lock timeout: the transaction is aborted and its rollback restores the
+    // setting) still leaves, or the pooled connection would carry a stale budget into its next request.
+    leave();
   }
 }
 
