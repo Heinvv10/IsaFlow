@@ -230,6 +230,7 @@ export async function readReportPackInput(
     accountsReceivable: data.accountsReceivable,
     accountsPayable: data.accountsPayable,
     inventory: data.inventory,
+    periodDays: data.periodDays,
     ...cashFlows,
     ...ratioInputs,
     // `.board`, NOT `.message`: these two strings reach a board pack's basis

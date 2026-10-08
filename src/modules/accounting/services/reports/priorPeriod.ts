@@ -77,6 +77,28 @@ function fromDayNumber(days: number): string {
   return iso(m <= 2 ? y + 1 : y, m, d);
 }
 
+/**
+ * The days in a window, counting both ends: 1 March to 31 August is 184.
+ *
+ * What the ratio engine's day counts multiply by (`FinancialData.periodDays`)
+ * and what the board pack's basis page prints for each window, so the two
+ * cannot count differently. Off the ISO parts through `Date.UTC` rather than
+ * `new Date(iso)`: this host is UTC+2 and a local-midnight parse is a day
+ * short of the window it is measuring.
+ *
+ * A MALFORMED DATE IS NOT A DAY COUNT. `Number('xx')` is NaN and `Date.UTC`
+ * carries it through, which once printed "NaN days" on the basis page. Null
+ * here, and the caller says nothing rather than something false.
+ */
+export function inclusiveDays(start: string, end: string): number | null {
+  const utc = (date: string): number => {
+    const [y, m, d] = date.split('-').map(Number);
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1);
+  };
+  const days = Math.round((utc(end) - utc(start)) / 86_400_000) + 1;
+  return Number.isFinite(days) ? days : null;
+}
+
 /** True when the window is exactly N whole calendar months. */
 function wholeMonths(start: string, end: string): number | null {
   const s = parts(start);

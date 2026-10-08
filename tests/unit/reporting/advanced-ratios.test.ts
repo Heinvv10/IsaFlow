@@ -10,6 +10,7 @@ import {
 } from '@/modules/accounting/services/reports/reportingEngineService';
 
 const sampleData: FinancialData = {
+  periodDays: 365,
   revenue: 1000000,
   costOfSales: 600000,
   operatingExpenses: 200000,
@@ -121,6 +122,7 @@ describe('Extended Financial Ratios', () => {
 
   it('handles zero denominators', () => {
     const zeroData: FinancialData = {
+      periodDays: 365,
       revenue: 0, costOfSales: 0, operatingExpenses: 0, netProfit: 0,
       totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
       currentAssets: 0, currentLiabilities: 0,
@@ -145,6 +147,7 @@ describe('Extended Financial Ratios', () => {
 
   it('handles missing optional fields', () => {
     const minimal: FinancialData = {
+      periodDays: 365,
       revenue: 500000, costOfSales: 300000, operatingExpenses: 100000,
       netProfit: 100000, totalAssets: 1000000, totalLiabilities: 400000,
       totalEquity: 600000, currentAssets: 300000, currentLiabilities: 200000,

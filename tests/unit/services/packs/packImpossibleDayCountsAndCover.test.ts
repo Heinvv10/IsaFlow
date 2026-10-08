@@ -24,6 +24,7 @@ import { demoSet, figures } from './fixtures/boardPackInputs';
 /** Velocity Fibre's comparative period (1 April – 31 December 2025), as its
  *  page 6 and page 7 printed it. */
 const velocityPrior = figures({
+  periodDays: 275,
   revenue: 13_163_000,
   costOfSales: 51_512_000,
   operatingExpenses: 13_820_000,
@@ -70,9 +71,11 @@ describe('the same reads still state the figures they can', () => {
   it('a positive receivables balance, operating profit and payables print as figures', () => {
     const healthy = figures({ ...velocityPrior, accountsReceivable: 1_097_000, operatingProfit: 52_169_000 });
     const s = set(healthy);
-    expect(rowOf(s, 'Debtor days').prior!.value).toBeCloseTo(30.42, 1);
+    // On the comparative's own 275 days: 1 097 / 13 163 × 275 and
+    // 9 423 / 51 512 × 275 (30.42 and 66.77 on 365).
+    expect(rowOf(s, 'Debtor days').prior!.value).toBeCloseTo(22.92, 1);
     expect(rowOf(s, 'Interest cover').prior!.value).toBeCloseTo(805.29, 1);
-    expect(rowOf(s, 'Creditor days').prior!.value).toBeCloseTo(66.77, 1);
+    expect(rowOf(s, 'Creditor days').prior!.value).toBeCloseTo(50.3, 1);
   });
 
   it('nil receivables are a measured nil day count, not n/m', () => {

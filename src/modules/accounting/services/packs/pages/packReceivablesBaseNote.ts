@@ -18,9 +18,9 @@ export const RECEIVABLES_BASE_HEADING = 'What debtor days is measured on';
  * PACK SAID NOTHING.
  *
  * Page 7's memorandum prints trade receivables of 59 on the live demo pack
- * and pages 3 and 9 derive debtor days of 213 from it — 59 over 101 times
- * 365, a division a director can take off the paper and a figure they can
- * act on. That 59 is the trade-receivable CONTROL ACCOUNT, and the open
+ * and pages 3 and 9 derive debtor days from it — 59 over revenue of 101
+ * times the period's days, a division a director can take off the paper and
+ * a figure they can act on. That 59 is the trade-receivable CONTROL ACCOUNT, and the open
  * subledger for the same company on the same date is 10 724: the ratio is
  * computed on a base holding half a per cent of what the books say customers
  * owe. Nothing in twelve sheets said which of the two numbers "trade
@@ -28,8 +28,8 @@ export const RECEIVABLES_BASE_HEADING = 'What debtor days is measured on';
  *
  * This is the debtors defect one step downstream, and it is the more
  * dangerous half: page 11's contradiction is at least VISIBLE — two figures
- * on facing sheets — while 213 days looks like an ordinary measurement and
- * reads as one.
+ * on facing sheets — while a day count looks like an ordinary measurement
+ * and reads as one.
  *
  * IT DISCLOSES THE BASE AND DOES NOT REPRICE THE RATIO. Recomputing debtor
  * days off the subledger would change a printed figure on a judgement about

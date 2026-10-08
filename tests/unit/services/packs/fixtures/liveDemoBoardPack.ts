@@ -44,6 +44,7 @@ const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored t
 export const liveDemoSet: PackFigureSet = {
   current: figures({
     ...NO_LEDGER_RATIO_INPUTS,
+    periodDays: 250,
     revenue: 98_800,
     costOfSales: 1_430_581,
     operatingExpenses: 225_571,
@@ -84,6 +85,7 @@ export const liveDemoSet: PackFigureSet = {
   // doubled the height of pages 5 to 8 on the first proof.
   prior: figures({
     ...NO_LEDGER_RATIO_INPUTS,
+    periodDays: 250,
     revenue: 0,
     costOfSales: 805_000,
     operatingExpenses: 112_000,

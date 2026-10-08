@@ -9,6 +9,13 @@
  * posting and rollback in writeBankBulkAllocate.posting.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// The COS-without-project check (dimensions Phase 1) reads the database; this
+// file does not, so it answers "no warnings" — its behaviour is in dimensionPolicy.test.ts.
+vi.mock('@/modules/accounting/services/gl/dimensions/dimensionPolicy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/dimensions/dimensionPolicy')>()),
+  cosProjectWarnings: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-035 PR6: reads Postgres; proven in r035-pr6-bank.int
   handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
 }));

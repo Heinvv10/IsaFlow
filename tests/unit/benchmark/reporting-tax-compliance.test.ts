@@ -275,7 +275,7 @@ describe('getFieldDef', () => {
     expect(def).toBeDefined();
     expect(def?.label).toBe('Debit');
     expect(def?.type).toBe('currency');
-    expect(def?.sqlExpr).toBe('jl.debit_amount');
+    expect(def?.sqlExpr).toBe('jl.debit'); // gl_journal_lines.debit — there is no debit_amount column
   });
 
   it('returns undefined for a field that does not exist in the data source', () => {
