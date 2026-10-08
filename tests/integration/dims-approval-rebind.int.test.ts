@@ -105,6 +105,10 @@ describe('migration 873', () => {
   it('re-binds only an untagged document approved before 870; a tag on any column, a post-870 approval, stale and rejected ones stay', async () => {
     await rolledBack(async (client) => {
       await client.query(digest869('public.approval_document_digest'));
+      // The test owns its precondition: 870 applied an hour ago, whatever the fixture's schema_migrations holds.
+      await client.query("DELETE FROM schema_migrations WHERE name IN ('870_dimensions_cc_bu_capture.sql', '870_dimensions_cc_bu_capture')");
+      await client.query(
+        "INSERT INTO schema_migrations(name, version, applied_at) VALUES('870_dimensions_cc_bu_capture.sql', '870', now() - INTERVAL '1 hour')");
       const plain = await plantAll(client, null);
       const tagged = await Promise.all((['cc1_id', 'cc2_id', 'bu_id'] as const).map((col) => plantAll(client, col)));
       const docs = (f: typeof plain) => ([
