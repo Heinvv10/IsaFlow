@@ -74,12 +74,14 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
   });
 
   // Pentest H11: impersonation_start is a CRITICAL_ACTION. The handler runs in
-  // withPlatformAdmin's transaction, which COMMITs after the handler returns
-  // (a 500 answered by withErrorHandler included). The response is held until
-  // COMMIT (deferredEnd), and an answer replaced after a rollback drops these
-  // cookies. The audit INSERT is still awaited BEFORE cookies are set, so a
-  // failed audit never sets them and impersonation never starts. On failure we
-  // also remove the freshly-stashed admin tokens so no orphan row remains.
+  // withPlatformAdmin's transaction, which COMMITs after the handler returns —
+  // unless it answered 5xx (a throw below, answered 500 by withErrorHandler):
+  // then the transaction, this row included, rolls back, the cookies set below
+  // are dropped from the answer, and withPlatformAdmin records the attempt as an
+  // admin_request_failed row on its own connection. The response is held until
+  // COMMIT (deferredEnd). The audit INSERT is still awaited BEFORE cookies are
+  // set, so a failed audit never sets them and impersonation never starts. On
+  // failure we also remove the freshly-stashed admin tokens so no orphan row remains.
   try {
     await sql`
       INSERT INTO admin_audit_log (admin_user_id, action, target_type, target_id, details)
@@ -119,8 +121,9 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     // R-032: the proof and stash cookies can be deleted by this browser; this
     // row cannot. It is what refuses approval decisions from this session, so
     // it is committed on its own connection before any cookie is set. A failure
-    // here leaves this transaction usable: the stash cleanup below runs, and
-    // the impersonation_start row above records the refused attempt.
+    // here leaves this transaction usable: the stash cleanup below runs, and the
+    // rethrow answers 500, so the impersonation_start row above rolls back and
+    // withPlatformAdmin's admin_request_failed row records the refused attempt.
     await registerImpersonationSession({
       sessionId: targetClaims.session_id, actorUserId: req.user.id, targetUserId: target.userId,
     });

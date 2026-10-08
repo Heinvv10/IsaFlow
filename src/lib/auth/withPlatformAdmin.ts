@@ -14,6 +14,7 @@ import { deferEnd, answerThrow, replayEnd, answerCommitFailed, answerInstead, ty
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
+import { auditFailedAdminRequest, type AdminFailureReason } from './adminFailureAudit';
 
 export interface PlatformAdminRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -29,7 +30,12 @@ type Handler = (req: any, res: NextApiResponse<any>) => any;
  *   2. Short tx on app pool as app_user — read users.role via users_self_read
  *      RLS policy. 403 if not super_admin.
  *   3. Second tx on platform_admin pool (BYPASSRLS) — bind client via ALS,
- *      run handler, commit.
+ *      run handler, commit. A 5xx answer (withErrorHandler, inside withAdmin,
+ *      caught a throw) or a rollback-only request rolls back instead, and the
+ *      route's Set-Cookie/Location are dropped, as in withAuth (Hein,
+ *      2026-10-08). Every rolled-back mutating request leaves one
+ *      admin_request_failed audit row, written after the rollback on its own
+ *      connection (adminFailureAudit.ts).
  *
  * If step 2 errors or skips, step 3 never runs — the handler never engages
  * BYPASSRLS until super-admin is confirmed.
@@ -119,6 +125,8 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     const adminClient = await getPlatformAdminPool().connect();
     let unusable = false;
     let deferred: DeferredEnd | null = null;
+    // Set on every path that rolls the action back; recorded after the answer, in finally.
+    let failure: { status: number; reason: AdminFailureReason } | null = null;
     // The connection authenticates as the platform_admin Postgres role
     // (BYPASSRLS). DO NOT add SET LOCAL ROLE app_user here — that would
     // drop BYPASSRLS and re-apply RLS policies, defeating the purpose of
@@ -179,14 +187,18 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
           success: false,
           error: { code: 'AUDIT_WRITE_FAILED', message: 'Action aborted: audit log could not be written.' },
         });
+        failure = { status: 500, reason: 'audit_write_failed' };
         return;
       }
 
       const finalizeCtx = { source: 'withPlatformAdmin', userId: claims!.sub };
-      // als.rollbackOnly (lib/apiJournalDate): this request must not commit, whatever it answered. A <5xx answer
-      // would claim a write that did not land, so it becomes the commit-failed 500, as in withAuth.
-      if (ctx.rollbackOnly) {
+      // A 5xx means the action failed (withErrorHandler, inside withAdmin, caught a throw and answered 500): its
+      // partial writes must not commit, and its Set-Cookie/Location must not go out (impersonate: the target's
+      // session behind a 500). als.rollbackOnly (lib/apiJournalDate): this request must not commit, whatever it
+      // answered; a <5xx answer would claim a write that did not land, so it becomes the commit-failed 500.
+      if (res.statusCode >= 500 || ctx.rollbackOnly) {
         unusable = await rollbackFailed(adminClient, 'withPlatformAdmin');
+        failure = { status: Math.max(res.statusCode, 500), reason: res.statusCode >= 500 ? 'rolled_back' : 'rollback_only' };
         if (res.statusCode < 500) answerCommitFailed(res, flush); else replayEnd(res, flush, finalizeCtx, true);
         return;
       }
@@ -199,8 +211,13 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
       unusable = failed || unusable;
       // R-159: answered here, not rethrown — a rethrow would leave res.end deferred and the client hanging.
       answerThrow(req, res, deferred, err, { source: 'withPlatformAdmin', userId: claims!.sub, rolledBack: !failed });
+      failure = { status: 500, reason: 'threw' };
     } finally {
+      // After the rollback and the answer; never resurrects the action, never changes the answer. On this connection
+      // when its ROLLBACK succeeded (autocommit now, nothing to queue for); on the pool once it is destroyed.
+      if (failure && !unusable) await auditFailedAdminRequest(req, claims!.sub, failure.status, failure.reason, adminClient);
       adminClient.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+      if (failure && unusable) await auditFailedAdminRequest(req, claims!.sub, failure.status, failure.reason);
       const ms = Date.now() - startedAt;
       if (ms > 200) log.info('withPlatformAdmin slow request', { ms, url: req.url }, 'Auth');
       if (process.env.SENTRY_ENABLED === 'true') {

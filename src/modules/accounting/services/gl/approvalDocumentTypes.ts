@@ -38,6 +38,10 @@ export class ApprovalRuleLegacyTypeError extends Error {
   }
 }
 
-export function assertRuleDocumentTypeCreatable(documentType: string): void {
-  if (Object.hasOwn(LEGACY_TYPES, documentType)) throw new ApprovalRuleLegacyTypeError(documentType);
+export function assertRuleDocumentTypeCreatable(documentType: unknown): void {
+  // Strings only: hasOwn coerces its key, so ['credit_note'] read as the legacy
+  // name. A non-string is not a type at all, and gets the allow-list refusal.
+  if (typeof documentType === 'string' && Object.hasOwn(LEGACY_TYPES, documentType)) {
+    throw new ApprovalRuleLegacyTypeError(documentType);
+  }
 }
