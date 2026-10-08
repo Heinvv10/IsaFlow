@@ -33,7 +33,7 @@ import type { JournalEntry } from '../../types/gl.types';
 export class PossibleDuplicateTransferError extends Error {
   constructor(readonly existingEntryNumber: string) {
     super(`A transfer like this is already in the ledger as ${existingEntryNumber}, recorded from the bank statement `
-      + 'within five days. Nothing was posted. If this is a separate transfer, post it again and confirm.');
+      + 'within ten days. Nothing was posted. If this is a separate transfer, post it again and confirm.');
     this.name = 'PossibleDuplicateTransferError';
   }
 }
