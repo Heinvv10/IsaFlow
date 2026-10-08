@@ -9,52 +9,20 @@
  * caller and the timestamp is the database's NOW(), and approved_text,
  * approved_by and approved_at are written together in one statement so the 611
  * CHECK constraint can never observe a half-approved row.
+ *
+ * Approval — including the approver's own wording and the pack-wide budget — lives
+ * in `commentaryApprove.ts`, re-exported here so callers keep one import.
  */
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { nextStatus, type CommentaryStatus } from './commentaryState';
+import { nextStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { toRow, currentRow, type CommentaryResult, type CommentaryRow } from './commentaryRow';
 
-export interface CommentaryRow {
-  id: string;
-  sectionRef: string;
-  rowRef: string;
-  draftText: string;
-  approvedText: string | null;
-  status: CommentaryStatus;
-  approvedBy: string | null;
-  approvedAt: string | null;
-  /** Set when a `replace` regeneration withdrew an approval. The approval
-   *  columns beside these are the approval that was withdrawn, not a live one —
-   *  `status` is what says whether the text is published. */
-  withdrawnBy: string | null;
-  withdrawnAt: string | null;
-}
-
-/** `not_found` is a 404, `empty_draft` a 400, `invalid_state` a 409. The route
- *  must not collapse them: an id that is not this company's is not the same
- *  answer as a draft that has already been approved. */
-export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'invalid_state';
-export type CommentaryResult =
-  | { ok: true; row: CommentaryRow }
-  | { ok: false; code: CommentaryFailureCode; reason: string };
-
-function toRow(r: DbRow): CommentaryRow {
-  return {
-    id: String(r.id),
-    sectionRef: String(r.section_ref),
-    rowRef: String(r.row_ref),
-    draftText: String(r.draft_text),
-    approvedText: r.approved_text === null || r.approved_text === undefined ? null : String(r.approved_text),
-    status: String(r.status) as CommentaryStatus,
-    approvedBy: r.approved_by ? String(r.approved_by) : null,
-    approvedAt: r.approved_at ? new Date(r.approved_at).toISOString() : null,
-    withdrawnBy: r.withdrawn_by ? String(r.withdrawn_by) : null,
-    withdrawnAt: r.withdrawn_at ? new Date(r.withdrawn_at).toISOString() : null,
-  };
-}
+export type { CommentaryRow, CommentaryFailureCode, CommentaryResult } from './commentaryRow';
+export { approveCommentary } from './commentaryApprove';
 
 export async function listCommentary(companyId: string, params: SharePackParams): Promise<CommentaryRow[]> {
   const rows = (await sql`
@@ -143,49 +111,6 @@ export async function generateDrafts(input: {
     companyId: input.companyId, userId: input.userId, written, skipped: skipped.length,
   }, 'commentary');
   return { written, skipped };
-}
-
-async function currentRow(
-  companyId: string, id: string,
-): Promise<{ status: CommentaryStatus; draftText: string } | null> {
-  const rows = (await sql`
-    SELECT status, draft_text FROM report_commentary
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid LIMIT 1
-  `) as DbRow[];
-  const r = rows[0];
-  return r ? { status: String(r.status) as CommentaryStatus, draftText: String(r.draft_text ?? '') } : null;
-}
-
-export async function approveCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
-  await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  const row = await currentRow(companyId, id);
-  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
-  // An approval is a person putting their name to a sentence. There is no
-  // sentence here, so there is nothing to put a name to — and the 611 CHECK
-  // would happily store the blank.
-  if (row.draftText.trim().length === 0) {
-    return { ok: false, code: 'empty_draft', reason: 'There is no draft text to approve.' };
-  }
-
-  const t = nextStatus(row.status, 'approve');
-  if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
-
-  // One statement: status, text, approver and timestamp together, so the CHECK
-  // constraint never sees a partially approved row. `status = 'draft'` and the
-  // non-empty test are in the WHERE, not only in the branches above: two
-  // approvals racing must not both write, and the second finds no row.
-  const rows = (await sql`
-    UPDATE report_commentary
-    SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
-        approved_at = NOW(), updated_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      AND status = 'draft' AND btrim(draft_text) <> ''
-    RETURNING *
-  `) as DbRow[];
-  if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
-
-  log.info('Commentary approved', { companyId, userId, commentaryId: id }, 'commentary');
-  return { ok: true, row: toRow(rows[0]) };
 }
 
 export async function rejectCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {

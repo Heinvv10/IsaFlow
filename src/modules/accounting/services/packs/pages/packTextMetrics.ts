@@ -191,7 +191,7 @@ function textEms(text: string): number {
 export const WIDTH_SAFETY = 1.12;
 
 /** The ems of `pt`-sized text one `widthMm` line holds. */
-function emsPerLine(pt: number, widthMm: number): number {
+export function emsPerLine(pt: number, widthMm: number): number {
   return (widthMm / (pt * PT_MM)) / WIDTH_SAFETY;
 }
 
@@ -219,7 +219,9 @@ export function wrappedLines(text: string, pt: number, widthMm: number): number 
  */
 const BREAKABLE = /[^\S\u00a0\u202f]+/;
 
-function wrapEms(text: string, perLine: number): number {
+/** Lines `text` takes on a line of `perLine` ems — `wrappedLines` without the
+ *  millimetre conversion, for a caller that already holds the measure in ems. */
+export function wrapEms(text: string, perLine: number): number {
   let count = 1;
   let used = 0;
   for (const word of text.split(BREAKABLE)) {
