@@ -25,6 +25,7 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { classifyBankMatchRefusal } from '@/modules/accounting/services/bank/bankMatchRefusalStatus';
 import { sql } from '@/lib/neon';
+import { BankMatchTargetError } from '@/modules/accounting/services/bank/bankTxStatusMutations';
 import {
   allocateTransaction,
   matchTransaction,
@@ -253,6 +254,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule, refused from the locked row pre-write.
     if (respondIfApprovalRequired(res, err)) return;
+    // The match-only arms: `matchTransaction` is their first write, so its target refusal (a reversed journal, a
+    // claimed or missing line) is decided before anything is written.
+    if (err instanceof BankMatchTargetError && (candidateType === 'journal_line' || candidateType === 'bank_transfer')) {
+      return err.code === 'LINE_CLAIMED' ? apiResponse.conflict(res, err.message) : apiResponse.badRequest(res, err.message);
+    }
     const refusal = classifyBankMatchRefusal(err);
     if (refusal) {
       if (refusal.contended) {
