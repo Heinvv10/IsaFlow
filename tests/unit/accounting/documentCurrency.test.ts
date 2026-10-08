@@ -79,6 +79,13 @@ describe('assertPostableCurrency (approve / post / edit of a stored document)', 
     expect(() => assertPostableCurrency(off, ['ZAR', 'eur'], 'bill')).toThrow(/EUR bills are not enabled/);
   });
 
+  it('a stored blank or padded code is the functional currency (storedCode)', () => {
+    for (const code of [' ', '   ', '', ' zar ', 'ZAR']) {
+      expect(() => assertPostableCurrency(off, [code], 'bill'), JSON.stringify(code)).not.toThrow();
+    }
+    expect(() => assertPostableCurrency(off, [' usd '], 'bill')).toThrow(/USD bills are not enabled/);
+  });
+
   it('passes the functional currency, NULL and blank, and anything once enabled', () => {
     assertPostableCurrency(off, ['ZAR', null, undefined, '', ' ', 'zar'], 'bill');
     assertPostableCurrency(on, ['USD', 'EUR'], 'bill');

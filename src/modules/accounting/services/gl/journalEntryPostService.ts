@@ -67,9 +67,9 @@ async function postJournalEntryInner(
     // journal unbalanced, and the refusal has to land before the UPDATE so the
     // surrounding transaction commits nothing (the 400-after-write class).
     await assertNoInactiveAccountLines(companyId, id);
-    // FX PR0: a draft document journal linked to a foreign document, posted by
-    // hand while the company has not enabled them. Before the UPDATE, too.
-    await assertJournalDocumentsPostable(companyId, id, entry.source);
+    // FX PR0: a draft journal a foreign document links to, posted by hand
+    // while the company has not enabled them. Before the UPDATE, too.
+    await assertJournalDocumentsPostable(companyId, id);
 
     const markPosted = async (): Promise<JournalEntry> => {
       const safePostUserId = await resolveUserUuid(userId);

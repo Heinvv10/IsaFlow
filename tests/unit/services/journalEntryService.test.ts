@@ -15,6 +15,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // here it is a no-op, and the error class stays real.
 // createJournalEntry asks whether a line is on the late-claim clearing account
 // (gl/lateClaimClearingGuard); none is here, and the positional sql queue must not see it.
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/modules/accounting/services/gl/lateClaimClearingGuard', () => ({
   assertNoLateClaimClearingLines: vi.fn(async () => undefined),
 }));

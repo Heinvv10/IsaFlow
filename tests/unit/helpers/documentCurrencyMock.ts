@@ -14,6 +14,7 @@ export function documentCurrencyMock(original: DocumentCurrencyModule): Document
     loadCompanyCurrency: async () => ({ functionalCurrency: 'ZAR', fxDocumentsEnabled: false }),
     assertDocumentPostable: async () => undefined,
     assertStoredDocumentPostable: async () => undefined,
+    assertJournalDocumentsPostable: async () => undefined,
     invoiceForeignCurrencySql: (() => 'false') as unknown as DocumentCurrencyModule['invoiceForeignCurrencySql'],
     billForeignCurrencySql: (() => 'false') as unknown as DocumentCurrencyModule['billForeignCurrencySql'],
   };

@@ -154,15 +154,15 @@ export async function assertStoredDocumentPostable(
 
 /**
  * The journal half of {@link assertStoredDocumentPostable}: posting a DRAFT
- * document journal (auto_invoice, auto_supplier_invoice, auto_credit_note)
- * that is already linked to a foreign document while the company has not
- * enabled them — through `post_journal` or the journal screen rather than the
- * document's own approve — books that document's foreign figures as rands.
- * A journal no document links to yet (the approve paths link after posting)
- * passes; those paths check the document themselves.
+ * journal that a foreign document already links to (gl_journal_entry_id),
+ * while the company has not enabled them — through `post_journal` or the
+ * journal screen rather than the document's own approve — books that
+ * document's foreign figures as rands. Whatever the journal's source: a link
+ * is a link (round-3 probe B3, a manual-source journal). Only this company's
+ * documents count. A journal no document links to yet (the approve paths link
+ * after posting) passes; those paths check the document themselves.
  */
-export async function assertJournalDocumentsPostable(companyId: string, journalId: string, source: string | null | undefined): Promise<void> {
-  if (!source || !['auto_invoice', 'auto_supplier_invoice', 'auto_credit_note'].includes(source)) return;
+export async function assertJournalDocumentsPostable(companyId: string, journalId: string): Promise<void> {
   const rows = (await sql`
     SELECT 'invoice' AS noun, currency_code AS a, NULL::TEXT AS b FROM customer_invoices
      WHERE gl_journal_entry_id = ${journalId}::UUID AND company_id = ${companyId}::UUID

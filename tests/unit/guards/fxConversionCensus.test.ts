@@ -30,8 +30,15 @@
  *     initialised from one in the same file (a parameter, an import, a
  *     field of an object built elsewhere);
  *   - an object spread or a destructured PARAMETER;
- *   - SQL assembled by concatenating separate literals;
+ *   - SQL assembled by concatenating separate literals, or with the rate
+ *     interpolated (`sql\`... total * ${rate} ...\``: the literal holds only `*`);
+ *   - camelCase rate names the pattern does not know (`zarRate`, `spotRate`,
+ *     `conversionRate`): `\brate\b` matches a whole word only;
+ *   - `Decimal.mul` / `.times` on a WRAPPED rate (`new Decimal(rate)`, a call result);
+ *   - unary `+` coercion (`total * +row.exchange_rate`: the `+` is not unwrapped);
+ *   - BigInt products (`BigInt(a) * BigInt(r)`, as toFunctional itself does);
  *   - anything outside src/ and pages/.
+ * The census stops here; PR1a's GENERATED functional_total is the guarantee.
  * Files with no rate-like token at all are not parsed (they cannot contain a
  * site), which is what keeps this under a few seconds. Read from disk, not
  * git ls-files, so an untracked file is scanned.
