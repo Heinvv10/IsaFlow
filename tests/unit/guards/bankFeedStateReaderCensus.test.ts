@@ -105,6 +105,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/bank/bankAllocationService.ts': 'exempt: writer (Task 3) — write + post-write re-read',
   'src/modules/accounting/services/bank/transferDuplicateGuard.ts': 'exempt: writer pre-check (Task 3) — transfer_journal_entry_id and allocated/matched/reconciled exist only on posted rows',
   'src/modules/accounting/services/reports/unusualJournalsService.ts': 'filtered',
+  'src/modules/accounting/services/bank/bankSplitDimensions.ts': "exempt: writer pre-check — reads one row's bank_account_id by id to resolve card default dimensions for a split allocation; the post itself goes through splitAllocateTransaction (Task 3 gate)",
   'src/modules/accounting/services/bank/bankAutoMatchService.ts': 'exempt: writer (Task 3)',
   'src/modules/accounting/services/bank/bankCoverageDirections.ts': 'filtered',
   'src/modules/accounting/services/bank/bankCoverageQueries.ts': 'filtered',

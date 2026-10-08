@@ -51,22 +51,19 @@ export interface PeriodCounterpart {
   /**
    * HOW THE PERIOD FIGURE IS ARRIVED AT, on the page that prints it.
    *
-   * Required on every entry rather than defaulted, because the one measure
-   * where it is not "the period totals" is the one where the reader is most
+   * Required on every entry rather than defaulted, because a measure whose
+   * basis is not "the period totals" is the one where the reader is most
    * likely to be misled, and a default is what an author forgets. Debtor days
-   * is ANNUALISED: 59 over 101 times 365 is the 213 the scorecard prints,
-   * over a reporting period of 250 days — on the period's own day count the
-   * same book is 146 days. A director reads 213 against a 30-day target and
-   * a third of that gap is the multiplier, which page 12 discloses and page 9
-   * did not.
+   * WAS one: annualised on 365, 59 over 101 printed 213 days over a reporting
+   * period of 250, where the period's own day count gives 146 — and a
+   * director read 213 against a 30-day target. The engine multiplies by the
+   * period's own days now, so its entry says that instead.
    *
    * The clause is spent out of the sentence it replaces, not added to it:
    * page 9 composes at 253.29mm in a 255mm box, so a second line of footnote
    * costs 3.88mm the sheet does not have and `fitPageToBox` answers by
-   * dropping the whole note. "annualised on 365 days whatever the period's
-   * own length" is shorter than "measured on the period totals" plus the
-   * 30 characters of slack the wrapped pair had left, and the page does not
-   * move.
+   * dropping the whole note. "over the period's own days" is shorter than
+   * the 365 clause it replaced, so the page does not move.
    */
   wholePeriodBasis: string;
 }
@@ -94,11 +91,10 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
     measure: 'debtor days',
     printsAgainstComparative: true,
     page: 'scorecard page',
-    // "whatever the period's length", not "whatever the period's OWN length",
-    // and "a month at a time" rather than "one month at a time" in the frame
-    // below: six characters, which is what carries the base caveat onto the
-    // row that prints a red MISS without this note taking a third line.
-    wholePeriodBasis: 'annualised on 365 days whatever its length',
+    // Its own days, as the trends page's months are theirs: the window is
+    // the only difference between the two, and the note says so. Shorter
+    // than the 365 clause it replaces, on a sheet that has no slack.
+    wholePeriodBasis: 'over the period\'s own days',
   },
 };
 

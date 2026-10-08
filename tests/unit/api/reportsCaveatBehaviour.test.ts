@@ -96,7 +96,10 @@ describe('ai-commentary caveat reaches the narrative', () => {
 });
 
 describe('reports-ratios defaults "today" from the local calendar', () => {
-  afterEach(() => vi.useRealTimers());
+  // ON SAST, WHATEVER THE HOST. GitHub runs on UTC, where 22:30Z is the 14th
+  // on both calendars and the assertion below could never hold.
+  beforeEach(() => { vi.stubEnv('TZ', 'Africa/Johannesburg'); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 
   it('does not roll back a day just after midnight SAST', async () => {
     // 00:30 on 15 March SAST is still 14 March in UTC.

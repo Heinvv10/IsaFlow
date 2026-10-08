@@ -23,6 +23,7 @@ import {
 
 describe('Financial Ratios', () => {
   const sampleData: FinancialData = {
+    periodDays: 365,
     revenue: 1000000,
     costOfSales: 600000,
     operatingExpenses: 200000,

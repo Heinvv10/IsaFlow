@@ -19,11 +19,17 @@ interface SplitLineState {
   amount: string; // string to allow free-form input
   vatCode: VatCode;
   description: string;
+  /** Project (CC2) and business unit; the FNO is derived from the project server-side. */
+  cc2Id: string;
+  buId: string;
 }
 
 interface Props {
   transaction: BankTx;
   glAccounts: SelectOption[];
+  /** When given, each line offers a project (CC2) and BU picker for its cost line. */
+  cc2Options?: SelectOption[];
+  buOptions?: SelectOption[];
   onClose: () => void;
   onSplit: () => void;
 }
@@ -40,10 +46,12 @@ function newLine(amount = ''): SplitLineState {
     amount,
     vatCode: 'none',
     description: '',
+    cc2Id: '',
+    buId: '',
   };
 }
 
-export function SplitTransactionModal({ transaction, glAccounts, onClose, onSplit }: Props) {
+export function SplitTransactionModal({ transaction, glAccounts, cc2Options = [], buOptions = [], onClose, onSplit }: Props) {
   const total = Math.abs(transaction.amount);
   const [lines, setLines] = useState<SplitLineState[]>([newLine(total.toFixed(2))]);
   const [submitting, setSubmitting] = useState(false);
@@ -97,6 +105,8 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
           amount: parseFloat(l.amount),
           vatCode: l.vatCode,
           description: l.description || undefined,
+          cc2Id: l.cc2Id || undefined,
+          buId: l.buId || undefined,
         })),
       };
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
@@ -230,6 +240,23 @@ export function SplitTransactionModal({ transaction, glAccounts, onClose, onSpli
                 onChange={e => updateLine(line.id, { description: e.target.value })}
                 className="mt-2 w-full text-xs px-2 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
               />
+
+              {(cc2Options.length > 0 || buOptions.length > 0) && (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <select value={line.cc2Id} aria-label={`Line ${idx + 1} project`}
+                    onChange={e => updateLine(line.id, { cc2Id: e.target.value })}
+                    className="text-xs px-1 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none">
+                    <option value="">Project (none)</option>
+                    {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
+                  </select>
+                  <select value={line.buId} aria-label={`Line ${idx + 1} business unit`}
+                    onChange={e => updateLine(line.id, { buId: e.target.value })}
+                    className="text-xs px-1 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none">
+                    <option value="">Business unit (none)</option>
+                    {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
           ))}
 

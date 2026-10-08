@@ -39,6 +39,7 @@ Most files below exist only for the 300-line cap and are re-exported from the or
 - `kpiTileHeight` charges the delta line for the text the tile prints, wrapped at `KPI_DELTA_MEASURE_MM` (38mm), calibrated on 28 lines rendered through Chromium and pinned in `packKpiTileDeltaHeight.test.ts`. Re-render before changing the tile's wording, its basis or the formatter.
 - Every printed money/percentage figure is a `PackFigure` recorded in the provenance map with a unique source; one source printed twice must print the same value.
 - Prose claims about another page are derived from what that page drew (`packTrendCrossReference`, `packWindowFootnotes`, `packDisownedBases`, `packPrintsComparative`); never hard-code a pointer or an enumeration. Lists of checks render from `MATTER_SOURCES`.
+- Debtor/creditor days and the cycle are on the period's own days (2026-10-07), as the trends page's months are on theirs; page 12's definitions, `PERIOD_COUNTERPARTS['trend-debtor-days'].wholePeriodBasis` and `trendWindowNote` say so and claim no second difference. `packFiguresToFinancialData` must carry `periodDays`.
 - A sentence that states a relation takes its result as an input (`narrative/statedRelation.ts`).
 - `anchorRow`/`anchorColumn` throw when nothing matches: a footnote with no anchor is a defect.
 - Render each chart SVG at `svgBoxFor`'s plot box and pass that same measure to the stylesheet (`--pack-chart-plot-mm`); an SVG whose viewBox mismatches its box is letterboxed (`preserveAspectRatio` meet) and the chart silently shrinks.

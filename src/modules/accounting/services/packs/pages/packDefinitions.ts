@@ -26,19 +26,18 @@
  * The rest are ratios and formulas rather than adjusted measures, so none
  * carries a `reconciliation`: there is nothing to bridge from an IFRS figure
  * to an adjusted one. What they need is a definition, because "debtor days"
- * is not a term with one meaning — receivables over revenue times 365 and
- * receivables over revenue times the days in the month are both called that,
- * and this pack prints both, on two different pages.
+ * is not a term with one meaning — receivables over revenue times the
+ * period's days and times the month's days are both called that, and this
+ * pack prints both, on two different pages.
  *
  * WHICH IS WHY THE DAY COUNT IS STATED. The definitions said "times the days
  * in the period" while `calculateExtendedRatios` multiplied by 365, so the
  * one measure a director is most likely to query was the one the pack could
- * not explain: creditor days of 1 035 on cost of sales of 805 implies trade
- * payables of 3 401 under the printed definition, against total liabilities
- * of 2 281. Impossible — and ÷ 365 gives 2 283, which ties. The computation
- * is the annualised convention every ratio in this repo uses (AFS KPIs, the
- * scorecard, the ratio trends); it is the prose that was wrong, and the prose
- * is what moved.
+ * not explain. The prose was moved to 365 then, and that was the wrong half
+ * to move: 365 over a six-month window's revenue reads six months of sales
+ * as a year's and doubles the count (the AFS KPIs never did it — they take
+ * the period's days). The engine now multiplies by the window's own days
+ * (`FinancialData.periodDays`), and the definitions say so again.
  */
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';

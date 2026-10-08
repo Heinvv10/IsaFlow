@@ -371,6 +371,7 @@ export default function BankTransactionsPage() {
 
       <BankTxModals
         transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} customers={customers}
+        cc2Options={cc2Options} buOptions={buOptions}
         bankAccounts={transferTargets}
         selectedBank={selectedBank} rowSelections={rowSelections} splitTxId={splitTxId}
         excludingTxId={excludingTxId} findMatchTxId={findMatchTxId} attachmentsTxId={attachmentsTxId}

@@ -49,6 +49,11 @@ export function buildExpenseLines(
       description: item.description,
       projectId: item.projectId || invoice.projectId,
       costCenterId: item.costCenterId || invoice.costCenterId,
+      // The canonical analysis dimensions ride on the EXPENSE leg only; the
+      // AP and VAT legs the workflow adds carry none (brief §5.3).
+      ...(item.cc1Id ? { cc1Id: item.cc1Id } : {}),
+      ...(item.cc2Id ? { cc2Id: item.cc2Id } : {}),
+      ...(item.buId ? { buId: item.buId } : {}),
     });
   });
 

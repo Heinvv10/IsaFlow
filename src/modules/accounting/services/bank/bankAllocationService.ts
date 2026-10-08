@@ -39,6 +39,8 @@ import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
+import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
+import { planSplitDimensions } from './bankSplitDimensions';
 
 
 type Row = DbRow;
@@ -66,6 +68,10 @@ export interface SplitLine {
   amount: number;
   description?: string;
   vatCode?: string;
+  /** Stamped on this line's contra (cost/revenue) line only — never on bank or VAT. */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
 }
 
 // ── Allocate ──────────────────────────────────────────────────────────────────
@@ -164,10 +170,15 @@ export async function allocateTransaction(
   // silently overriding a user who was shown a warning and chose anyway.
   //
   // The account row is still read up front because the branch below needs it.
+  // The same read also brings the contra's subtype and the bank account's (card's) default dimensions.
   const contraRows = (allocType === 'account' && contraAccountId)
     ? (await sql`
-        SELECT account_code, account_name FROM gl_accounts
-        WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
+        SELECT a.account_code, a.account_name, a.account_subtype,
+               b.default_cc1_id::TEXT AS bank_cc1_id, b.default_cc2_id::TEXT AS bank_cc2_id,
+               b.default_bu_id::TEXT AS bank_bu_id
+        FROM gl_accounts a
+        LEFT JOIN gl_accounts b ON b.id = ${bankAccountId}::UUID AND b.company_id = ${companyId}::UUID
+        WHERE a.id = ${contraAccountId}::UUID AND a.company_id = ${companyId}::UUID
       `) as Row[]
     : [];
   const effectiveVatCode = vatCode;
@@ -189,6 +200,20 @@ export async function allocateTransaction(
       'accounting',
     );
   }
+
+  // Brief §5.3: settlements and control-account lines carry no dimensions; card defaults fill the rest.
+  // Decided here, from reads only, before the first write (bankAllocationDimensions.ts).
+  const contraRow = contraRows[0];
+  const allocationDims = planAllocationDimensions({
+    settlement: isSettlement || allocType === 'transfer',
+    contraIsControl: contraRow ? isControlSubtype(contraRow.account_subtype == null ? null : String(contraRow.account_subtype)) : false,
+    explicit: { cc1Id, cc2Id, buId },
+    bankDefaults: {
+      cc1Id: contraRow?.bank_cc1_id ? String(contraRow.bank_cc1_id) : undefined,
+      cc2Id: contraRow?.bank_cc2_id ? String(contraRow.bank_cc2_id) : undefined,
+      buId: contraRow?.bank_bu_id ? String(contraRow.bank_bu_id) : undefined,
+    },
+  });
 
   const hasVat = effectiveVatCode === 'standard' && !isSettlement;
   const { vatRate, netAmount, vatAmount } = vatInclusiveSplit(totalAmount, hasVat);
@@ -356,10 +381,7 @@ export async function allocateTransaction(
     }
   }
 
-  const linesWithDims = lines.map(l =>
-    l.glAccountId === bankAccountId ? l : { ...l, costCenterId: cc1Id || l.costCenterId,
-      cc1Id: cc1Id || l.cc1Id, cc2Id: cc2Id || l.cc2Id, buId: buId || l.buId }
-  );
+  const linesWithDims = stampContraDimensions(lines, allocType === 'account' ? contraAccountId : null, allocationDims);
 
   // Carry forward source_document_id from the invoice when allocating against a known entity
   let invoiceSourceDocId: string | null = null;
@@ -439,8 +461,8 @@ export async function allocateTransaction(
             allocation_rule_id = NULL, allocation_rule_name = NULL,
             counterparty_account_id = ${counterpartyAccountId}::UUID,
             transfer_journal_entry_id = ${allocType === 'transfer' ? je.id : null}::UUID,
-            cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
-            bu_id = ${buId || null}::UUID, updated_at = NOW(),
+            cc1_id = ${allocationDims.cc1Id || null}::UUID, cc2_id = ${allocationDims.cc2Id || null}::UUID,
+            bu_id = ${allocationDims.buId || null}::UUID, updated_at = NOW(),
             -- A fresh allocation is NOT part of whatever batch previously
             -- owned this row. Left set, reverse_bank_allocation_batch would
             -- reverse a journal its batch never posted (PR #263 review).
@@ -622,8 +644,13 @@ export async function allocateTransaction(
 
 export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
-  opts?: { allowLateInputClaim?: boolean }, // a USER's split only — see allocateTransaction
-): Promise<{ journalEntryId: string; bankTransaction: BankTransaction; lateClaim?: LateClaimInfo }> {
+  // allowLateInputClaim: a USER's split only — see allocateTransaction. The actor fields stamp an MCP split.
+  opts?: PostingActorOpts & { allowLateInputClaim?: boolean },
+): Promise<{
+  journalEntryId: string; bankTransaction: BankTransaction; lateClaim?: LateClaimInfo;
+  /** COS split lines with no project (CC2), when the company does not block them. */
+  dimensionWarnings?: string[];
+}> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   // Same two pre-write refusals as `allocateTransaction`, and the same class:
   // both are decided from the locked row before anything is written, so a
@@ -656,8 +683,11 @@ export async function splitAllocateTransaction(
   const isSpent = Number(tx.amount) < 0;
   const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];
+  // Reads only: refusals (dimensions on a control account, COS with no project where required) precede every write.
+  const dimensionPlan = await planSplitDimensions(companyId, bankAccountId, lines);
 
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
+    const lineDims = dimensionPlan.dims[lineIndex] ?? {};
     const lineAmount = Number(line.amount);
     // Attended path, same as allocateTransaction: the split modal warned, the
     // user chose. Not coerced here.
@@ -672,13 +702,13 @@ export async function splitAllocateTransaction(
       : lineVatCode === 'zero_rated' ? 'zero_rated' as const
       : lineVatCode === 'exempt' ? 'exempt' as const : undefined;
     if (isSpent) {
-      journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType });
+      journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType, ...lineDims });
       if (hasVat) {
         const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: 'VAT @ 15%', vatType: 'standard' });
       }
     } else {
-      journalLines.push({ glAccountId: line.contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType });
+      journalLines.push({ glAccountId: line.contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType, ...lineDims });
       if (hasVat) {
         const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: 'VAT @ 15%', vatType: 'standard' });
@@ -692,7 +722,11 @@ export async function splitAllocateTransaction(
     journalLines.unshift({ glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc });
   }
 
-  const splitMeta: JournalEntryMeta = { postingAgent: 'system:bank-allocation:v1' };
+  const splitMeta: JournalEntryMeta = {
+    postingAgent: opts?.postingAgent ?? 'system:bank-allocation:v1',
+    ...(opts?.actorType === undefined ? {} : { actorType: opts.actorType }),
+    ...(opts?.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
+  };
   const je = await createJournalEntry(companyId, {
     entryDate: txDate, description: entryDesc, source: 'auto_bank_recon', lines: journalLines,
   }, userId, splitMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
@@ -719,7 +753,10 @@ export async function splitAllocateTransaction(
 
   log.info('Split-allocated bank transaction', { bankTxId, journalEntryId: je.id, lineCount: lines.length }, 'accounting');
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  return { journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!), ...(lateClaim ? { lateClaim } : {}) };
+  return {
+    journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!), ...(lateClaim ? { lateClaim } : {}),
+    ...(dimensionPlan.warnings.length > 0 ? { dimensionWarnings: dimensionPlan.warnings } : {}),
+  };
 }
 
 // ── Reverse Reconciled ────────────────────────────────────────────────────────

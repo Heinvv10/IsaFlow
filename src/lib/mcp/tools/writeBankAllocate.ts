@@ -24,6 +24,7 @@ import {
   resolveTxId,
 } from './allocationLine';
 import { mcpPostingOpts } from '../mcpActor';
+import { attachLineDimensionIds, dimensionWarningsOrRefusal } from './dimensionArgs';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 export const allocateBankTransactionTool: McpTool = {
@@ -65,6 +66,8 @@ export const allocateBankTransactionTool: McpTool = {
 
     const ownership = await checkLinesOwnership(ctx.companyId, [line]);
     if (ownership) return toolError(ownership);
+    const dimRefusal = await attachLineDimensionIds(ctx.companyId, [line], () => 'allocation');
+    if (dimRefusal) return toolError(dimRefusal);
 
     // Resolved LAST: a malformed call must be refused before it costs a query,
     // and an ambiguity message is only useful once the rest of the args are sane.
@@ -84,6 +87,13 @@ export const allocateBankTransactionTool: McpTool = {
     if (status !== 'imported') {
       return toolError(`Transaction already ${status} — cannot allocate`);
     }
+
+    // A cost-of-sales line with no project: a warning, or a refusal where the company requires one. Pre-write.
+    const cos = line.allocType === 'account' && line.contraAccountId
+      ? await dimensionWarningsOrRefusal(ctx.companyId,
+        [{ glAccountId: line.contraAccountId, cc2Id: line.dimIds?.cc2Id ?? null }], () => 'allocation')
+      : { warnings: [] };
+    if (typeof cos === 'string') return toolError(cos);
 
     // No try/catch below this line, deliberately. Anything the service throws
     // must reach the registry's savepoint, which rolls the partial write back
@@ -116,6 +126,7 @@ export const allocateBankTransactionTool: McpTool = {
       // overruled teaches it nothing, and it is the caller that will allocate
       // the next hundred lines.
       ...(result.vatCoerced ? { vat_coerced: result.vatCoerced } : {}),
+      ...(cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {}),
     });
   },
 };

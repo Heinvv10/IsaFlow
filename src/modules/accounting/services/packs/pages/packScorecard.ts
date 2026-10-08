@@ -77,6 +77,9 @@ export function packFiguresToFinancialData(f: ReportPackFigures): FinancialData 
     employeeCount: f.employeeCount,
     taxExpense: f.taxExpense,
     ledgerInputsNotRead: f.ratioInputsUnavailable,
+    // THE WINDOW'S DAYS, NOT A YEAR'S: debtor days on a six-month pack was
+    // twice the book's, and page 9 scored it MISSED against a 30-day target.
+    periodDays: f.periodDays,
   };
 }
 

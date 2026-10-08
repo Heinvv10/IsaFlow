@@ -13,6 +13,9 @@ export interface RatioTrendPoint {
   period: string;
   /** null where the ratio could not be stated in that period. */
   value: number | null;
+  /** A stub — the current month, to date. Drawn, but not an end of the
+   *  trend's direction. */
+  partial: boolean;
 }
 
 export interface RatioTrendResult {
@@ -61,10 +64,16 @@ const TRACKED_RATIOS: (keyof ExtendedRatioResult)[] = [
 
 /**
  * Calculate ratio trends across multiple periods.
+ *
+ * `partial` marks a period that is a stub — the current month, a few days
+ * old. It is still returned as a point, but the direction is read between the
+ * first and last WHOLE periods, as the board pack's `wholeMonthsOf` does: a
+ * two-day month against a whole one is mostly the calendar.
  */
 export function calculateRatioTrends(
   periodsData: FinancialData[],
   periodLabels: string[],
+  partial: readonly boolean[] = [],
 ): RatioTrendResult[] {
   if (periodsData.length === 0) return [];
 
@@ -75,13 +84,16 @@ export function calculateRatioTrends(
     const values: RatioTrendPoint[] = allRatios.map((r, i) => ({
       period: periodLabels[i] || `Period ${i + 1}`,
       value: r[ratioName] as number | null,
+      partial: partial[i] === true,
     }));
 
     // Calculate overall change from first to last. A ratio the engine could
     // not state at either end has no change to report: reading its null as 0
     // printed "stable, 0%" for a margin that did not exist.
-    const first = values[0]?.value ?? null;
-    const last = values[values.length - 1]?.value ?? null;
+    const whole = values.filter((point) => !point.partial);
+    const ends = whole.length > 0 ? whole : values;
+    const first = ends[0]?.value ?? null;
+    const last = ends[ends.length - 1]?.value ?? null;
     if (first === null || last === null) {
       return { ratioName, values, trend: 'not_meaningful' as const, changePercent: null };
     }

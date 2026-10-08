@@ -33,6 +33,10 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
   return {
     companyName: 'ISAFlow Demo (Pty) Ltd',
     period: '2026-03-01 to 2026-08-31',
+    // The window's days, both ends counted, as `getReportPackInput` carries
+    // them: the day ratios multiply by this, not by 365. A set on another
+    // window states its own.
+    periodDays: 184,
     revenue: 4_200_000,
     costOfSales: 2_310_000,
     operatingExpenses: 1_180_000,
@@ -168,6 +172,7 @@ export const demoSet: PackFigureSet = {
   current: figures({}),
   currentWindow: { start: '2026-03-01', end: '2026-08-31' },
   prior: figures({
+    periodDays: 181,
     interestExpense: 52_000,
     interestIncome: 4_000,
     taxExpense: 135_000,
@@ -403,6 +408,7 @@ export const brightspherePriorSet: PackFigureSet = {
   ...brightsphereSet,
   prior: figures({
     ...NO_LEDGER_RATIO_INPUTS,
+    periodDays: 181,
     companyName: 'Brightsphere (Pty) Ltd',
     revenue: -2_100_000,
     costOfSales: 0,
@@ -452,6 +458,7 @@ export const brightspherePriorInput: BoardPackInput = {
  */
 export const denseSet: PackFigureSet = {
   current: figures({
+    periodDays: 250,
     revenue: 98_800,
     costOfSales: 1_430_581,
     operatingExpenses: 225_571,
@@ -477,6 +484,7 @@ export const denseSet: PackFigureSet = {
   // state a percentage change — which is exactly the case that fills the
   // change column with prose.
   prior: figures({
+    periodDays: 250,
     revenue: 0,
     costOfSales: 805_000,
     operatingExpenses: 112_000,
@@ -601,6 +609,7 @@ export const brightsphereLiveSet: PackFigureSet = {
     ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere Technologies (Pty) Ltd',
     period: '2026-01-01 to 2026-09-07',
+    periodDays: 250,
     revenue: -5_535_000,
     costOfSales: 0,
     operatingExpenses: -3_717_000,
@@ -634,6 +643,7 @@ export const brightsphereLiveSet: PackFigureSet = {
     ...NO_LEDGER_RATIO_INPUTS,
     companyName: 'Brightsphere Technologies (Pty) Ltd',
     period: '2025-04-26 to 2025-12-31',
+    periodDays: 250,
     revenue: 0,
     costOfSales: 0,
     operatingExpenses: 0,

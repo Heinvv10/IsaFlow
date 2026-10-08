@@ -9,6 +9,9 @@ import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import type { SupplierInvoiceItemInput } from '../../types/ap.types';
 import { billLineAccountRefusal } from './billLineAccountGuard';
+import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
+import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -47,21 +50,35 @@ export async function planLines(
   if (accountRefusal) throw new SupplierInvoiceDraftUpdateRefusal(accountRefusal);
   const kept = (await sql`
     SELECT description, quantity, unit_price, tax_rate, tax_amount, line_total, gl_account_id,
-           po_item_id, project_id, cost_center_id, vat_classification
+           po_item_id, project_id, cost_center_id, vat_classification, cc1_id, cc2_id, bu_id
     FROM supplier_invoice_items
     WHERE supplier_invoice_id = ${invoiceId}::UUID`) as DbRow[];
-  const totals = computeSupplierInvoiceTotals(items, taxRate, false);
+  const computed = computeSupplierInvoiceTotals(items, taxRate, false);
+  let totals: SupplierInvoiceTotals;
+  try {
+    // CC1 derived from each line's CC2; a conflicting CC1 is refused (no query without a CC2).
+    totals = { ...computed, items: await deriveLineDimensions(companyId, computed.items) };
+    await assertDocumentDimensions(companyId, totals.items);
+  } catch (err) {
+    if (isDimensionRefusal(err)) throw new SupplierInvoiceDraftUpdateRefusal(err.message);
+    throw err;
+  }
   // Lines resent exactly as stored: nothing to replace, and nothing to drop.
   // Structural, not a joined string: description is free text and may carry
   // any separator, so a joined form lets one sent line equal two stored ones.
   const key = (l: Pick<ComputedSupplierInvoiceItem,
-    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'>) =>
+    'description' | 'quantity' | 'unitPrice' | 'taxRate' | 'taxAmount' | 'lineTotal' | 'glAccountId'
+    | 'cc1Id' | 'cc2Id' | 'buId'>) =>
     JSON.stringify([l.description, l.quantity.toFixed(4), l.unitPrice.toFixed(2), l.taxRate.toFixed(2),
-      l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? null]);
+      l.taxAmount.toFixed(2), l.lineTotal.toFixed(2), l.glAccountId ?? null,
+      l.cc1Id?.toLowerCase() ?? null, l.cc2Id?.toLowerCase() ?? null, l.buId?.toLowerCase() ?? null]);
   const stored = kept.map((l) => key({
     description: String(l.description), quantity: Number(l.quantity), unitPrice: Number(l.unit_price),
     taxRate: Number(l.tax_rate), taxAmount: Number(l.tax_amount), lineTotal: Number(l.line_total),
     glAccountId: l.gl_account_id ? String(l.gl_account_id) : undefined,
+    cc1Id: l.cc1_id ? String(l.cc1_id) : undefined,
+    cc2Id: l.cc2_id ? String(l.cc2_id) : undefined,
+    buId: l.bu_id ? String(l.bu_id) : undefined,
   })).sort();
   const sent = totals.items.map(key).sort();
   if (stored.length === sent.length && stored.every((k, i) => k === sent[i])) return null;

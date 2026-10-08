@@ -79,9 +79,12 @@ export function buildBankTxActions(deps: ActionDeps) {
       const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
       if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
       else body.entityId = sel.entityId;
-      if (sel.cc1Id) body.cc1Id = sel.cc1Id;
-      if (sel.cc2Id) body.cc2Id = sel.cc2Id;
-      if (sel.buId) body.buId = sel.buId;
+      // Dimensions belong on the cost line only: a supplier payment, receipt or transfer carries none (the server refuses them).
+      if (sel.type === 'account') {
+        if (sel.cc1Id) body.cc1Id = sel.cc1Id;
+        if (sel.cc2Id) body.cc2Id = sel.cc2Id;
+        if (sel.buId) body.buId = sel.buId;
+      }
       const allocated = await callAction(body);
       notify.success(sel.type === 'transfer' ? 'Transfer posted' : 'Transaction allocated');
       notifyLateClaims(allocated); // VAT claimed in a later period (s16(3))
@@ -151,9 +154,12 @@ export function buildBankTxActions(deps: ActionDeps) {
         const body: Record<string, string> = { action: 'allocate', bankTransactionId: txId, allocationType: sel.type, vatCode: sel.vatCode || 'none', autoApply: 'fifo' };
         if (sel.type === 'account' || sel.type === 'transfer') body.contraAccountId = sel.entityId;
         else body.entityId = sel.entityId;
-        if (sel.cc1Id) body.cc1Id = sel.cc1Id;
-        if (sel.cc2Id) body.cc2Id = sel.cc2Id;
-        if (sel.buId) body.buId = sel.buId;
+        // Dimensions belong on the cost line only: a supplier payment, receipt or transfer carries none (the server refuses them).
+        if (sel.type === 'account') {
+          if (sel.cc1Id) body.cc1Id = sel.cc1Id;
+          if (sel.cc2Id) body.cc2Id = sel.cc2Id;
+          if (sel.buId) body.buId = sel.buId;
+        }
         late.push((await callAction(body))?.data?.lateClaim); ok++;
       } catch (e) { fail++; firstReason ||= apiErrorMessage(e, 'Could not allocate the transaction - try again'); }
     }

@@ -47,12 +47,12 @@ export function buildScorecardSheet(
   // the panel it reciprocates is not drawn on every pack.
   // AND THE ROW THAT CARRIES A RED MISS CARRIES THE BASE CAVEAT WITH IT.
   //
-  // Page 9 prints `Debtor days · 213 days · target 30 days · MISSED` in red,
+  // Page 9 prints `Debtor days · <n> days · target 30 days · MISSED` in red,
   // and page 4 says the ratio is taken on trade receivables of 59 — the
   // control account — against an open customer subledger of 10 724, and to
   // "read the day count as a measure of the control account, not of what
   // customers owe". The pack scored a red miss against a base it disowns one
-  // page earlier, and this row's only footnote was about annualisation. The
+  // page earlier, and this row's only footnote was about its window. The
   // cross-reference ran one way.
   //
   // Fired on the SAME condition page 4's block is, by asking that builder, so
