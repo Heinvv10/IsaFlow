@@ -46,10 +46,13 @@ export const hasControlCharacter = (text: string): boolean => /\p{Cc}/u.test(tex
  * U+1160, U+3164, U+FFA0 and U+2800 (reviews r3, r4).
  *
  * "Visible" is BEST-EFFORT and rendering-dependent: a font can still draw some
- * other code point as nothing. A rule name is display text only — rules are
- * identified by id and matched by type and amount — so this is a guard against
- * a name that shows as blank, not a security boundary. Do not extend it into an
- * arms race; its job is a readable table and audit row.
+ * other code point as nothing. A rule name is display text, not a security
+ * boundary: a rule is identified by id and the gate matches it by type and
+ * amount. The name does carry one meaning — the starter's duplicate check
+ * matches an active rule by (document_type, name) — and that compares the
+ * trimmed text exactly, whatever it renders as. So this guards against a name
+ * that shows as blank; do not extend it into an arms race. Its job is a
+ * readable table and audit row.
  */
 export const hasVisibleCharacter = (text: string): boolean =>
   /[^\s\p{Cc}\p{Cf}\p{M}\u115F\u1160\u3164\uFFA0\u2800]/u.test(text);

@@ -155,7 +155,7 @@ describe('names: fillers, marks and control characters (review round 4)', () => 
         : { id: await plantRule(pool, c, 'admin', { operator: 'greater_than', value: 5 }), name };
       const res = await call(u.owner, c, method, body);
       expect(status(res), JSON.stringify(res.state.body)).toBe(400);
-      expect(msg(res)).toBe('name must be text of 1 to 100 characters');
+      expect(msg(res)).toBe('name must be 1 to 100 characters of visible text, with no control characters');
     });
 
   it.each([['a visible letter beside a filler', 'Billsㅤ'], ['a decomposed é', 'Café bills'], ['an emoji', '\u{1F4B0} bills']])(

@@ -93,7 +93,7 @@ export class ApprovalActiveFlagInvalidError extends Error {
 
 export class ApprovalNameInvalidError extends Error {
   constructor() {
-    super(`name must be text of 1 to ${RULE_NAME_MAX} characters`);
+    super(`name must be 1 to ${RULE_NAME_MAX} characters of visible text, with no control characters`);
     this.name = 'ApprovalNameInvalidError';
   }
 }
