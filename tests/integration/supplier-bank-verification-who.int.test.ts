@@ -17,8 +17,9 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBat
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 import { verifySupplierBankDetails } from '@/modules/accounting/services/ap/supplierBankVerification';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantRule, reasonOf } from './r035-approval.helpers';
-import { impersonationToken, messageOf } from './r035-pr2.helpers';
+import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
+import { dataOf, impersonationToken, messageOf } from './r035-pr2.helpers';
+import supplierBankVerification from '../../pages/api/accounting/supplier-bank-verification';
 import { cleanupPr5, inRequest, payRoutes, plantBatch, plantPayment, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes, verificationsOf } from './supplier-bank-verification.helpers';
 
@@ -157,6 +158,11 @@ describe('only a person, in their own session, in their own company', () => {
   it('an impersonated session is refused 403 — verify and switching on alike', async () => {
     const { c, s } = await changed([[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin']], u.b, u.a);
     const token = await impersonationToken(pool, u.c, u.p);
+    // The panel's hint agrees: the same person may verify in their own session, not under "login as".
+    expect((await r.state(u.c, c, s)).canVerify).toBe(true);
+    const hint = await callRoute(supplierBankVerification, token, c, 'GET', undefined, '/api/accounting/supplier-bank-verification',
+      { supplierId: s });
+    expect(dataOf<{ canVerify: boolean }>(hint).canVerify).toBe(false);
     const res = await r.verify(u.c, c, s, {}, token);
     expect(res.state.statusCode).toBe(403);
     expect(reasonOf(res)).toBe('IMPERSONATION_FORBIDDEN');
