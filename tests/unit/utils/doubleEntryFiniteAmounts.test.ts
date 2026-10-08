@@ -44,4 +44,24 @@ describe('journal lines refuse non-finite amounts', () => {
   it.each([[10, 0], [0, 10], ['10', 0], [' 10.50 ', 0], ['1e3', 0], [10, undefined], [10, null]])('debit %j credit %j still passes', (debit, credit) => {
     expect(validateJournalLine(line(debit, credit)).valid).toBe(true);
   });
+
+  // rev-nrfd round 3 LOW / brk-nrfd round 3 LOW-1: a line with no amount passed (the checks read raw values).
+  it.each([[null, null], [undefined, undefined], ['0', '0'], ['0.00', '-0'], [0.004, 0], ['0.001', 0], [1e-7, 0]])(
+    'debit %j credit %j has no amount once stored in cents: refused', (debit, credit) => {
+      expect(validateJournalLine(line(debit, credit))).toEqual(
+        { valid: false, error: 'A line must have a non-zero debit or credit amount' });
+    });
+
+  // brk-nrfd round 3 LOW-2: numeric(15,2) rounds each line half away from zero; the check now agrees with it.
+  it.each([
+    [[0.005, 0.005], 0.01, 0.02], [['1.005', '1.005'], 2.01, 2.02], [[1.005, 1.005], 2.01, 2.02],
+  ])('debits %j against %j are stored as %j: unbalanced', (debits, credit, stored) => {
+    const r = validateJournalEntry([...debits.map((d) => line(d, 0)), { glAccountId: B, debit: 0, credit } as never]);
+    expect(r.totalDebit).toBe(stored);
+    expect(r.valid).toBe(false);
+  });
+
+  it('a stored-balanced entry with float noise still passes', () => {
+    expect(validateJournalEntry([line(0.1 + 0.2, 0), { glAccountId: B, debit: 0, credit: 0.3 } as never]).valid).toBe(true);
+  });
 });

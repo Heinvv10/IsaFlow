@@ -26,15 +26,19 @@ export function validateJournalLine(line: JournalLineInput): LineValidationResul
     return { valid: false, error: 'Debit and credit must be numbers' };
   }
 
-  if (line.debit < 0 || line.credit < 0) {
+  // Judged as stored: numeric(15,2) rounds each line to cents, so a 0.004 line is a 0.00 line (brk-nrfd round 3).
+  const debit = storedCents(line.debit);
+  const credit = storedCents(line.credit);
+
+  if (debit < 0 || credit < 0) {
     return { valid: false, error: 'Debit and credit amounts cannot be negative' };
   }
 
-  if (line.debit > 0 && line.credit > 0) {
+  if (debit > 0 && credit > 0) {
     return { valid: false, error: 'A line must have either debit or credit, not both. One must be zero.' };
   }
 
-  if (line.debit === 0 && line.credit === 0) {
+  if (debit === 0 && credit === 0) {
     return { valid: false, error: 'A line must have a non-zero debit or credit amount' };
   }
 
@@ -51,9 +55,23 @@ function isFiniteAmount(v: unknown): boolean {
   return typeof v === 'string' && DECIMAL_TEXT.test(v) && Number.isFinite(Number(v));
 }
 
-/** A line amount as a number: absent is zero. Text is summed as a number, never concatenated ('0.10' + '0.20'). */
-function amountOf(v: unknown): number {
-  return v === null || v === undefined ? 0 : Number(v);
+/**
+ * A line amount in whole cents as numeric(15,2) stores it: absent is zero; otherwise the decimal text the pg driver
+ * sends (String(n) for a number) rounded half away from zero, read from its digits — n * 100 is binary
+ * (1.005 * 100 = 100.49999…). Text is never concatenated ('0.10' + '0.20'). Only for amounts isFiniteAmount accepted.
+ */
+function storedCents(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  const text = String(v).trim();
+  if (/e/i.test(text)) {
+    const n = Number(text);
+    return Math.sign(n) * Math.round(Math.abs(n) * 100);
+  }
+  const negative = text.startsWith('-');
+  const [whole = '', fraction = ''] = text.replace(/^[+-]/, '').split('.');
+  const digits = `${fraction}000`;
+  const cents = Number(whole || '0') * 100 + Number(digits.slice(0, 2)) + (Number(digits[2]) >= 5 ? 1 : 0);
+  return negative ? -cents : cents;
 }
 
 /**
@@ -89,11 +107,12 @@ export function validateJournalEntry(lines: JournalLineInput[]): JournalValidati
   }
 
   // Calculate totals using fixed-point arithmetic to avoid floating-point issues
+  // Summed as the lines are stored (whole cents), so the check agrees with trg_gl_je_balanced at post.
   const totalDebit = roundToCents(
-    lines.reduce((sum, line) => sum + amountOf(line.debit), 0)
+    lines.reduce((sum, line) => sum + (isFiniteAmount(line.debit) ? storedCents(line.debit) : NaN), 0) / 100
   );
   const totalCredit = roundToCents(
-    lines.reduce((sum, line) => sum + amountOf(line.credit), 0)
+    lines.reduce((sum, line) => sum + (isFiniteAmount(line.credit) ? storedCents(line.credit) : NaN), 0) / 100
   );
   const difference = roundToCents(Math.abs(totalDebit - totalCredit));
 
