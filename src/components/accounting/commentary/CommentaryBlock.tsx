@@ -21,7 +21,11 @@
  * down. The share page now passes its server-side approved rows through here.
  *
  * The internal arm takes the full row and adds the draft, the badge and the
- * approve/reject controls.
+ * approve/reject controls. With a `sectionRef` it shows that section only; with
+ * none it shows EVERY section of the pack, a labelled heading before each run of
+ * rows. The grouping is by adjacency, so it relies on the rows arriving sorted by
+ * `section_ref` as `listCommentary` returns them; unsorted rows would repeat a
+ * heading, never lose a row.
  */
 import { Fragment, useEffect, useRef, useState } from 'react';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
@@ -104,7 +108,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
     <div className="mt-3 space-y-2" data-commentary="internal">
       {mine.map((r, i) => {
         const heading = sectionRef === undefined && (i === 0 || mine[i - 1]!.sectionRef !== r.sectionRef)
-          ? <h4 key={`h-${r.sectionRef}`} className="pt-1 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)]">{sectionLabel(r.sectionRef)}</h4>
+          ? <h4 className="pt-1 text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)]">{sectionLabel(r.sectionRef)}</h4>
           : null;
         const approved = r.status === 'approved' && r.approvedText !== null;
         if (!approved && onApprove && editingId === r.id) {
