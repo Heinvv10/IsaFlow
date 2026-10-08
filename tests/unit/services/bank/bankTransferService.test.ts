@@ -4,14 +4,16 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sql, createJournalEntry, postJournalEntry, newManualJournalRefusal, assertNotImpersonating } = vi.hoisted(() => ({
-  sql: vi.fn(), createJournalEntry: vi.fn(), postJournalEntry: vi.fn(), newManualJournalRefusal: vi.fn(),
-  assertNotImpersonating: vi.fn(),
-}));
+const { sql, createJournalEntry, postJournalEntry, newManualJournalRefusal, assertNotImpersonating, findRecorded } =
+  vi.hoisted(() => ({
+    sql: vi.fn(), createJournalEntry: vi.fn(), postJournalEntry: vi.fn(), newManualJournalRefusal: vi.fn(),
+    assertNotImpersonating: vi.fn(), findRecorded: vi.fn(),
+  }));
 vi.mock('@/lib/neon', () => ({ sql }));
 vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({ createJournalEntry, postJournalEntry }));
 vi.mock('@/modules/accounting/services/gl/manualJournalApproval', () => ({ newManualJournalRefusal }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating }));
+vi.mock('@/modules/accounting/services/bank/transferDuplicateGuard', () => ({ findTransferRecordedFromStatement: findRecorded }));
 
 import { BankTransferRefusedError, postBankTransfer } from '@/modules/accounting/services/bank/bankTransferService';
 
@@ -28,6 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   sql.mockResolvedValue(accounts());
   assertNotImpersonating.mockResolvedValue(undefined);
+  findRecorded.mockResolvedValue(null);
   newManualJournalRefusal.mockResolvedValue(null);
   createJournalEntry.mockResolvedValue({ id: 'draft1' });
   postJournalEntry.mockResolvedValue({ id: 'draft1', status: 'posted', entryNumber: 'JE-2026-00001' });
@@ -84,6 +87,17 @@ describe('postBankTransfer', () => {
     assertNotImpersonating.mockRejectedValueOnce(refused);
     await expect(postBankTransfer(CO, input, 'u1')).rejects.toBe(refused);
     expect(sql).not.toHaveBeenCalled();
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  // rev-nrfa LOW-1: the statement already recorded this movement as a transfer — typing it again would double it.
+  it('a movement already recorded from the statement is refused before the gate and before any journal', async () => {
+    findRecorded.mockResolvedValueOnce('JE-2026-00042');
+    const err = await postBankTransfer(CO, input, 'u1').then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(BankTransferRefusedError);
+    expect(String((err as Error).message)).toMatch(/already in the ledger as JE-2026-00042/);
+    expect(findRecorded).toHaveBeenCalledWith(CO, FROM, TO, 250.5, '2026-03-10');
+    expect(newManualJournalRefusal).not.toHaveBeenCalled();
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 });

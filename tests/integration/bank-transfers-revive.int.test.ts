@@ -229,4 +229,32 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     expect(flagged).not.toContain(je);
     expect(flagged).not.toContain((reversal as { id: string }).id);
   }, 60000);
+
+  // rev-nrfa LOW-1: the other order — the statement recorded the transfer first; typing it on the page is refused.
+  it('a movement already recorded from the statement is refused on the Transfers page, nothing written', async () => {
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-07-01', -777,
+      'BTXF stmt out', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF stmt transfer', 'transfer'));
+    const n = await journalCount();
+    const out = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 777, transferDate: '2026-07-02' });
+    expect(out.statusCode, JSON.stringify(out.body)).toBe(400);
+    expect(JSON.stringify(out.body)).toMatch(/already in the ledger as JE-2026-/);
+    expect(await journalCount()).toBe(n);
+    // The opposite direction is a different movement: posted.
+    const back = await post({ fromAccountId: bank2, toAccountId: c.fx.bankAccountId, amount: 777, transferDate: '2026-07-02' });
+    expect(back.statusCode, JSON.stringify(back.body)).toBe(200);
+  }, 60000);
+
+  // rev-nrfa LOW-2: a typed B -> A transfer does not block a statement line moving A -> B.
+  it('a typed transfer in the other direction does not refuse a bank-line transfer', async () => {
+    const typed = await post({ fromAccountId: bank2, toAccountId: c.fx.bankAccountId, amount: 555, transferDate: '2026-07-10' });
+    expect(typed.statusCode, JSON.stringify(typed.body)).toBe(200);
+    const line = String(((await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount,
+      description, status) VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, '2026-07-10', -555,
+      'BTXF stmt out 2', 'imported') RETURNING id`) as Row[])[0]!.id);
+    await inTx(c.fx, () => allocateTransaction(c.fx.companyId, line, bank2, c.fx.userId, 'BTXF out A to B', 'transfer'));
+    const after = ((await sql`SELECT status FROM bank_transactions WHERE id = ${line}::UUID`) as Row[])[0]!;
+    expect(after.status).toBe('allocated');
+  }, 60000);
 });
