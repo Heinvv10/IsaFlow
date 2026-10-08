@@ -231,14 +231,16 @@ export async function fetchJournalLineCandidates(
       )
       -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
       -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
-      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here.
-      AND NOT EXISTS (SELECT 1 FROM bank_transactions bp
-        WHERE bp.company_id = ${companyId}::UUID AND bp.provisional_je_id IN (
+      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The walk is the outer side and
+      -- joins bank lines by provisional_je_id (indexed): inside bp.provisional_je_id IN (...) it re-ran per bank line
+      -- of the company, 6 s at 200k lines (sec-nrfa round 24 M1).
+      AND NOT EXISTS (
           WITH RECURSIVE up AS (
             SELECT je.id AS id, je.reversal_of_id AS parent, 0 AS d
             UNION ALL SELECT p.id, p.reversal_of_id, up.d + 1 FROM gl_journal_entries p JOIN up ON p.id = up.parent
               WHERE p.company_id = je.company_id AND up.d < 64)
-          SELECT id FROM up))
+          SELECT 1 FROM up JOIN bank_transactions bp
+            ON bp.provisional_je_id = up.id AND bp.company_id = ${companyId}::UUID)
     -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
     -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
     -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
