@@ -13,6 +13,7 @@
  * check, any dimension), so a journal without dimensions costs nothing extra.
  */
 import { sql } from '@/lib/neon';
+import { isValidUUID } from '@/lib/validation';
 import { DimensionRefusal, type DimensionIds } from './dimensionTypes';
 
 export interface CostCentreNode { id: string; code: string; parentId: string | null; ccType: string | null }
@@ -39,7 +40,10 @@ export async function loadCostCentreChains(
   companyId: string,
   ids: readonly string[],
 ): Promise<Map<string, CostCentreNode>> {
-  const unique = [...new Set(ids.map((id) => id.toLowerCase()))];
+  // A malformed id names no cost centre, so it has no chain to walk. Leave it
+  // out of the ::UUID[] cast — which would throw a raw Postgres error — and let
+  // the line validator refuse it with the slot's own message.
+  const unique = [...new Set(ids.filter(isValidUUID).map((id) => id.toLowerCase()))];
   if (unique.length === 0) return new Map();
   const rows = (await sql`
     WITH RECURSIVE chain AS (
