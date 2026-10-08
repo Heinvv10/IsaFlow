@@ -382,8 +382,9 @@ is ever written for it). Hein's decisions, 2026-10-08:
   requires an active member at admin or above, re-reads the roster for `self_verified`, and draws `seq` itself (an
   OVERRIDING SYSTEM VALUE cannot pin a row as "latest").
   Same boundary as N1: it binds code paths, not raw SQL run as app_user.
-- **Baseline only once per supplier**: a supplier with any verification row is never baselined again (TS filter and 876
-  guard), so switching off and on cannot accept a change that is unverified now; a setter is shed only when the account
+- **Baseline only on the company's first switch-on** (`bankVerificationEverOn`; the 876 guard refuses a baseline once the
+  company has any row from an earlier transaction), so switching off and on cannot accept anything — a pending change, a
+  supplier created or given details meanwhile; a setter is shed only when the account
   number's DIGITS change (`bankDetailsChange`), so re-typing the same number cannot clear whoever redirected it.
 - **Known limits (review of PR #679)**: the masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
   (unsalted sha256 of low-entropy fields) is returned to them. The fingerprint covers the five bank columns; Netcash sends

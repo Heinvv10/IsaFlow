@@ -64,6 +64,24 @@ export async function assertVerifyingSession(): Promise<void> {
 }
 
 /**
+ * Whether supplier bank verification was ever switched on for the company
+ * before: any verification row, or an earlier enable in the audit log. Only
+ * the FIRST switch-on writes a baseline (review of PR #679, R2-1): after it,
+ * every supplier created, given details or changed — even while the control
+ * was later off — needs a person's verify; switching off and on again
+ * accepts nothing. (audit_log is app_user-writable — the N1 boundary; the 876
+ * guard independently refuses a baseline once the company has any row.)
+ */
+export async function bankVerificationEverOn(companyId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT EXISTS (SELECT 1 FROM supplier_bank_verifications WHERE company_id = ${companyId}::UUID)
+        OR EXISTS (SELECT 1 FROM audit_log WHERE company_id = ${companyId}::UUID AND entity_type = 'approval_enforcement'
+                     AND entity_ref = 'supplier_bank_details' AND action = 'create') AS on_before
+  `) as { on_before: boolean }[];
+  return rows[0]?.on_before === true;
+}
+
+/**
  * Decision 3: switching the control on accepts every supplier's CURRENT bank
  * details, recorded as a `baseline` by the person who switched it on, at the
  * current fingerprint. Called by enableEnforcement in the transaction that
@@ -76,9 +94,11 @@ export async function assertVerifyingSession(): Promise<void> {
  * derived state, so switching off and on again cannot accept a change that
  * is unverified now; and suppliers whose current details the switcher set.
  * The 876 guard refuses both of the latter baselines too. Returns how many
- * were baselined.
+ * were baselined. Only the company's first switch-on baselines at all
+ * (bankVerificationEverOn); a later one writes nothing.
  */
 export async function recordBankBaseline(companyId: string, userId: string): Promise<number> {
+  if (await bankVerificationEverOn(companyId)) return 0;
   await sql`SELECT id FROM suppliers WHERE company_id = ${companyId}::UUID ORDER BY id FOR SHARE`;
   const own = await suppliersWithBankDetailsSetBy(companyId, userId);
   const rows = await sql`

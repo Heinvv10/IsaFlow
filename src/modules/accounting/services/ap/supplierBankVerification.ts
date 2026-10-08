@@ -18,7 +18,7 @@ import { log } from '@/lib/logger';
 import { isEnforced, supplierBankVerifierRole } from '../gl/approvalEnforcement';
 import { SUPPLIER_BANK_DETAILS } from '../gl/approvalRuleOptions';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { assertVerifyingSession, SupplierBankVerificationError } from './supplierBankBaseline';
+import { assertVerifyingSession, bankVerificationEverOn, SupplierBankVerificationError } from './supplierBankBaseline';
 import { suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
 import { assertMayVerify, mayVerify, requiredVerifierRole } from './supplierBankVerifiers';
 
@@ -174,11 +174,13 @@ export async function verifySupplierBankDetails(input: VerifyInput): Promise<{ i
 /**
  * The count beside the switch, for `viewerId`: while on, suppliers (not
  * soft-deleted) with bank details that are unverified now; while off,
- * exactly those switching on would accept as the baseline — no verification
- * history (recordBankBaseline) and details the viewer did not set.
+ * exactly those switching on would accept as the baseline — none once it was
+ * ever on, else no verification history (recordBankBaseline) and details the
+ * viewer did not set.
  */
 export async function bankDetailsPreview(companyId: string, viewerId: string): Promise<number> {
   const enforced = await isEnforced(companyId, SUPPLIER_BANK_DETAILS);
+  if (!enforced && await bankVerificationEverOn(companyId)) return 0;
   const own = enforced ? [] : await suppliersWithBankDetailsSetBy(companyId, viewerId);
   const rows = (await sql`
     SELECT count(*)::INT AS n FROM suppliers s

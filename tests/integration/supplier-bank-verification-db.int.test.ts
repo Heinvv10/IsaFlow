@@ -175,7 +175,17 @@ describe('supplier_bank_verifications as app_user', () => {
     await expect(asApp(u.b, c, async (db) => {
       await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.b]);
       await insert(db, c, s, await current(s), u.b, 'baseline');
-    })).rejects.toThrow(/history/);
+    })).rejects.toThrow(/switched on before|history/);
+  });
+
+  it('refuses any baseline once the company was switched on before — even for a supplier with no history', async () => {
+    const { c } = await enforced();
+    const fresh = await plantSupplier(pool, c);
+    await pool.query("DELETE FROM approval_enforcement WHERE company_id = $1 AND document_type = 'supplier_bank_details'", [c]);
+    await expect(asApp(u.b, c, async (db) => {
+      await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.b]);
+      await insert(db, c, fresh, await current(fresh), u.b, 'baseline');
+    })).rejects.toThrow(/switched on before/);
   });
 
   it('refuses a verify while the control is off', async () => {

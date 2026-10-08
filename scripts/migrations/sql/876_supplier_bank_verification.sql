@@ -16,8 +16,8 @@
 --   2. supplier_bank_verifications: append-only evidence — who, when, how
 --      (method + note), and for a sole-approver self-verification the roster
 --      it was allowed on. Kinds: `baseline` (written by switching on, for every
---      supplier with details the switcher did not set and no verification
---      history, by the switcher),
+--      supplier with details the switcher did not set, on the company's
+--      first switch-on only, by the switcher),
 --      `verified`, `self_verified`.
 --   3. What the table refuses, whoever writes (memory: a control table must
 --      refuse rows the code never writes): RLS binds the tenant AND the actor
@@ -193,9 +193,17 @@ BEGIN
       RAISE EXCEPTION 'supplier_bank_verifications: a baseline is written only by switching the control on'
         USING ERRCODE = '23514';
     END IF;
-    -- Only a supplier with no verification history: switching off and on
-    -- again must not accept a change that is pending (unverified) now — a
-    -- supplier with history keeps its derived state.
+    -- Only the company's FIRST switch-on baselines: once it has any row from
+    -- an earlier transaction, switching off and on again accepts nothing —
+    -- not a pending change, nor a supplier created or given details since.
+    IF EXISTS (
+      SELECT 1 FROM public.supplier_bank_verifications v
+      WHERE v.company_id = NEW.company_id AND NOT (v.kind = 'baseline' AND v.verified_at = pg_catalog.now())
+    ) THEN
+      RAISE EXCEPTION 'supplier_bank_verifications: verification was switched on before in this company; no new baseline'
+        USING ERRCODE = '23514';
+    END IF;
+    -- …and never twice for one supplier.
     IF EXISTS (
       SELECT 1 FROM public.supplier_bank_verifications v
       WHERE v.company_id = NEW.company_id AND v.supplier_id = NEW.supplier_id

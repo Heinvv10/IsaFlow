@@ -66,8 +66,8 @@ function bankRow(on: boolean, n: number): { label: string; count: string; note: 
     note: on
       ? 'A change to a supplier\'s bank details blocks EFT files and Netcash submissions paying it until someone '
         + 'who did not make the change verifies it on the supplier\'s page. Raw Netcash payment lists are refused.'
-      : 'Switching on accepts suppliers\' current bank details as verified, recorded in your name — not details you set '
-        + 'yourself, nor a supplier verified before (its later changes stay unverified), which someone else must verify.',
+      : 'The first switch-on accepts suppliers\' current bank details as verified, recorded in your name — not details you '
+        + 'set yourself. Switching on again accepts nothing: whatever changed meanwhile needs someone to verify it.',
   };
 }
 
