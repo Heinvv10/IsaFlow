@@ -52,7 +52,21 @@ describe('assertNoDuplicateTransfer', () => {
     await assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20');
     expect(text(1)).toMatch(/je\.reference IS NOT NULL/);
     expect(text(1)).toMatch(/INTERVAL '5 days'/);
-    expect(text(1)).toMatch(/bt\.matched_journal_line_id IN \(/);
+    expect(text(1)).toMatch(/ml\.id = bt\.matched_journal_line_id/);
+  });
+
+  // brk-nrfa round 5 F1: a line's transfer pointer survives an unmatch, so neither arm's consumption test may read it.
+  it('counts a line on this bank as pairing the journal only by its match, never by its transfer pointer', async () => {
+    await assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20');
+    const consumption = (n: number) => text(n).slice(text(n).indexOf('NOT EXISTS'));
+    expect(consumption(0)).not.toMatch(/own\.transfer_journal_entry_id/);
+    expect(consumption(1)).not.toMatch(/bt\.transfer_journal_entry_id/);
+    // sec-nrfa round 5 L1: matched to this bank's own leg, on its sign's side, for its amount — not any leg at all.
+    for (const [n, t] of [[0, 'own'], [1, 'bt']] as const) {
+      expect(consumption(n)).toContain(`ml.id = ${t}.matched_journal_line_id`);
+      expect(consumption(n)).toContain(`ml.gl_account_id = ${t}.bank_account_id`);
+      expect(consumption(n)).toContain(`(CASE WHEN ${t}.amount > 0 THEN ml.debit ELSE ml.credit END) = ABS(${t}.amount)`);
+    }
   });
 });
 
@@ -68,5 +82,12 @@ describe('findTransferRecordedFromStatement', () => {
     // Only a journal the statement created (no reference); a typed one, even matched, never blocks another typed one.
     expect(text(0)).toMatch(/je\.reference IS NULL/);
     expect(text(0)).toMatch(/INTERVAL '5 days'/);
+  });
+
+  // sec-nrfa round 4 M1, brk-nrfa round 5 F3: evidence is an imported or feed line MATCHED to the journal's leg.
+  it('asks for an imported or feed line matched to the leg, not one merely pointing at the journal', async () => {
+    await findTransferRecordedFromStatement(CO, A, B, 1000, '2026-04-20');
+    expect(text(0)).toMatch(/bl\.id = bt\.matched_journal_line_id/);
+    expect(text(0)).toMatch(/bt\.import_batch_id IS NOT NULL OR bt\.bank_feed_connection_id IS NOT NULL/);
   });
 });
