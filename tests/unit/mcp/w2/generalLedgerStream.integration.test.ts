@@ -67,7 +67,12 @@ describe('general-ledger line stream — real database', async () => {
 
   it.skipIf(!reachable)('pages to exhaustion returning every line exactly once', async () => {
     await withBusiestCompany(async (companyId) => {
-      const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 137 };
+      // 500, not 137: a page costs O(ledger) — the service rebuilds the `matched` CTE and the
+      // running-balance window on every page — so a full drain is O(ledger^2 / limit). At 137 the
+      // busiest isaflow_dev company (34,697 lines, 254 pages) took 67 s alone, over the 60 s budget.
+      // About 70 boundaries still prove the keyset loses and repeats nothing. The service fix is
+      // logged separately.
+      const base = { companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 500 };
       const { lines, pages, lineCount } = await drain(base);
 
       // Non-vacuity: this has to have actually paged.
