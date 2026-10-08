@@ -16,11 +16,20 @@
 --    manual_journal already hashes its lines' cc1/cc2/bu: those arms are
 --    unchanged, and a guard below proves it.
 -- 2. Re-binding: extending an array moves EVERY digest of those four types,
---    dimensions or not. A pending or approved request whose stored digest is
---    the document's digest as 869 computed it vouched for exactly this content
---    — the dimensions included, since they could not have moved without the
---    rest of the array — so it is re-bound to the new digest and keeps
---    clearing. A request already stale (stored digest differs) stays stale.
+--    dimensions or not. Only a document that carries NO dimension — every
+--    cc1_id / cc2_id / bu_id NULL on its header and every line — is known to
+--    post what was approved: the columns did not exist before 870, and an
+--    approval of such a document covered everything it posts. A pending or
+--    approved request of one, whose stored digest is the document's digest as
+--    869 computed it, is re-bound to the new digest and keeps clearing. A
+--    document carrying ANY dimension may have been tagged after it was
+--    approved — the defect this migration closes, which 869's digest cannot
+--    tell apart from a tag approved with it — so its requests are left stale
+--    and it needs re-approval. A request already stale stays stale.
+--    The document tables and approval_requests are locked first (SHARE /
+--    SHARE ROW EXCLUSIVE), so no edit or request can commit between the
+--    "before" snapshot and the re-bind: an edit landing in that window would
+--    otherwise be re-bound as if it had been approved.
 --
 -- Re-runnable: on a second run the "before" digest is already 873's, so no
 -- stored digest differs from the new one and nothing is re-bound.
@@ -44,6 +53,14 @@ BEGIN
   END IF;
 END $$;
 
+-- ── Hold every writer of what the snapshot reads, until COMMIT ───────────────
+-- SHARE lets readers through and stops writers; approval_requests takes SHARE
+-- ROW EXCLUSIVE, which this transaction's own UPDATE below can join without
+-- upgrading against a peer's SHARE. The 5 s lock_timeout bounds the wait.
+LOCK TABLE public.customer_invoices, public.customer_invoice_items, public.supplier_invoices,
+           public.supplier_invoice_items, public.credit_notes IN SHARE MODE;
+LOCK TABLE public.approval_requests IN SHARE ROW EXCLUSIVE MODE;
+
 -- ── Before: every request a re-bind could keep, and every unchanged arm ─────
 DROP TABLE IF EXISTS pg_temp.r873_bound;
 CREATE TEMP TABLE r873_bound ON COMMIT DROP AS
@@ -52,7 +69,23 @@ CREATE TEMP TABLE r873_bound ON COMMIT DROP AS
   FROM public.approval_requests ar
   WHERE ar.status IN ('pending', 'approved')
     AND ar.document_type IN ('customer_invoice', 'supplier_invoice', 'customer_credit_note', 'supplier_credit_note')
-    AND ar.company_id IS NOT NULL AND ar.document_digest IS NOT NULL;
+    AND ar.company_id IS NOT NULL AND ar.document_digest IS NOT NULL
+    -- No dimension anywhere on the document (see 2. above).
+    AND NOT EXISTS (
+      SELECT 1 FROM public.customer_invoice_items cii
+      JOIN public.customer_invoices ci ON ci.id = cii.invoice_id AND ci.company_id = ar.company_id
+      WHERE ar.document_type = 'customer_invoice' AND cii.invoice_id = ar.document_id
+        AND (cii.cc1_id IS NOT NULL OR cii.cc2_id IS NOT NULL OR cii.bu_id IS NOT NULL))
+    AND NOT EXISTS (
+      SELECT 1 FROM public.supplier_invoice_items sii
+      JOIN public.supplier_invoices si ON si.id = sii.supplier_invoice_id AND si.company_id = ar.company_id
+      WHERE ar.document_type = 'supplier_invoice' AND sii.supplier_invoice_id = ar.document_id
+        AND (sii.cc1_id IS NOT NULL OR sii.cc2_id IS NOT NULL OR sii.bu_id IS NOT NULL))
+    AND NOT EXISTS (
+      SELECT 1 FROM public.credit_notes cn
+      WHERE ar.document_type IN ('customer_credit_note', 'supplier_credit_note')
+        AND cn.id = ar.document_id AND cn.company_id = ar.company_id
+        AND (cn.cc1_id IS NOT NULL OR cn.cc2_id IS NOT NULL OR cn.bu_id IS NOT NULL));
 
 DROP TABLE IF EXISTS pg_temp.r873_unchanged;
 CREATE TEMP TABLE r873_unchanged ON COMMIT DROP AS
@@ -196,7 +229,7 @@ AS $$
   END
 $$;
 
--- ── 2. Re-bind what vouched for identical content ───────────────────────────
+-- ── 2. Re-bind what vouched for an untagged document's identical content ────
 UPDATE public.approval_requests ar
 SET document_digest = public.approval_document_digest(ar.company_id, ar.document_type, ar.document_id)
 FROM pg_temp.r873_bound b
