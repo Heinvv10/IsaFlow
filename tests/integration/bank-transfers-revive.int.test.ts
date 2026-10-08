@@ -163,6 +163,8 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     process.stdout.write(`BTXF gated ${JSON.stringify(held)}\n`);
     expect(held.statusCode, JSON.stringify(held.body)).toBe(409);
     expect(JSON.stringify(held.body)).toMatch(/needs admin approval/);
+    // The residual's remedy, in the refusal itself (brk-nrfa round 15, rev-nrfa round 15 LOW-1).
+    expect(JSON.stringify(held.body)).toMatch(/match the statement line to that journal rather than allocating it as a transfer/);
     expect(await journalCount()).toBe(n);
     const ok = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 9, transferDate: '2026-03-14' });
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);

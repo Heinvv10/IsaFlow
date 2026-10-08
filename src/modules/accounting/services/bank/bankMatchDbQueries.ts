@@ -215,7 +215,7 @@ export async function fetchJournalLineCandidates(
         SELECT matched_journal_line_id FROM bank_transactions
         WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
       )
-    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC
+    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC, ABS(je.entry_date - ${txDate}::DATE) ASC
     LIMIT 20
   `) as DbRow[];
 
