@@ -50,7 +50,8 @@ export default function BankTransfersPage() {
   }, []);
 
   useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
-  // The confirmation covers the transfer the person was warned about, not an edited one (brk-nrfa round 4 LOW-2).
+  // The confirmation covers the transfer the person was warned about, not an edited one (brk-nrfa round 4 LOW-2); the
+  // fields are disabled while a POST is pending, so no edit lands under the answer to the earlier body (round 5 F2).
   useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
   const handleTransfer = async (confirmDuplicate = false) => {
@@ -117,6 +118,7 @@ export default function BankTransfersPage() {
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">From Account</label>
                   <select
                     value={fromAccount}
+                    disabled={isSubmitting}
                     onChange={(e) => setFromAccount(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
@@ -135,6 +137,7 @@ export default function BankTransfersPage() {
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">To Account</label>
                   <select
                     value={toAccount}
+                    disabled={isSubmitting}
                     onChange={(e) => setToAccount(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
@@ -153,6 +156,7 @@ export default function BankTransfersPage() {
                       step="0.01"
                       min="0"
                       value={amount}
+                      disabled={isSubmitting}
                       onChange={(e) => setAmount(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                       placeholder="0.00"
@@ -163,6 +167,7 @@ export default function BankTransfersPage() {
                     <input
                       type="date"
                       value={transferDate}
+                      disabled={isSubmitting}
                       onChange={(e) => setTransferDate(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                     />
@@ -174,6 +179,7 @@ export default function BankTransfersPage() {
                   <input
                     type="text"
                     value={reference}
+                    disabled={isSubmitting}
                     onChange={(e) => setReference(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                     placeholder="e.g. Inter-account transfer"

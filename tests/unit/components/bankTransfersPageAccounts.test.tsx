@@ -83,4 +83,29 @@ describe('BankTransfersPage', () => {
     expect(bodies[1].confirmDuplicate).toBeUndefined();
     expect(bodies[2].confirmDuplicate).toBe(true);
   });
+
+  // brk-nrfa round 5 F2: an edit made while the checked POST is pending would land under the 428 that answers the
+  // earlier body, and "post it anyway" would confirm a transfer nobody was warned about. The fields are disabled.
+  it('disables every field while a transfer is being checked, and frees them when the answer lands', async () => {
+    let release: (r: Response) => void = () => {};
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('chart-of-accounts')) return json(banks);
+      return new Promise<Response>((r) => { release = r; });
+    });
+    render(<BankTransfersPage />);
+    await screen.findAllByRole('option', { name: '1000 — Current Account' });
+    const [fromSelect, toSelect] = screen.getAllByRole('combobox');
+    fireEvent.change(fromSelect!, { target: { value: FROM } });
+    fireEvent.change(toSelect!, { target: { value: TO } });
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } });
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    const fields = () => [...screen.getAllByRole('combobox'), screen.getByRole('spinbutton'), screen.getByRole('textbox'),
+      document.querySelector('input[type="date"]') as HTMLInputElement] as (HTMLInputElement | HTMLSelectElement)[];
+    await waitFor(() => expect(fields().every((f) => f.disabled)).toBe(true));
+    expect(fields()).toHaveLength(5);
+    release(new Response(JSON.stringify({ success: false, error: { code: 'PRECONDITION_REQUIRED',
+      message: 'A transfer like this is already in the ledger as JE-2026-00042' } }), { status: 428 }));
+    expect(await screen.findByRole('button', { name: /post it anyway/i })).toBeTruthy();
+    expect(fields().some((f) => f.disabled)).toBe(false);
+  });
 });
