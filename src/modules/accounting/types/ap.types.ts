@@ -88,6 +88,10 @@ export interface SupplierInvoiceItem {
   glAccountId?: string;
   projectId?: string;
   costCenterId?: string;
+  /** CC1 (FNO) / CC2 (project) / BU, posted onto this line's expense leg (migration 870). */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
   createdAt: string;
 }
 
@@ -144,6 +148,9 @@ export interface SupplierInvoiceItemInput {
   glAccountId?: string;
   projectId?: string;
   costCenterId?: string;
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
 }
 
 // ── 3-Way Match ──────────────────────────────────────────────────────────────

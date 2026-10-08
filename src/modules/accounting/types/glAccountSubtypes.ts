@@ -24,17 +24,24 @@ import type { GLAccountSubtype, GLAccountType } from './gl.types';
  */
 export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
   asset: [
-    'bank', 'receivable', 'inventory', 'fixed_asset', 'accumulated_depreciation',
+    'bank', 'cash', 'receivable', 'inventory', 'fixed_asset', 'accumulated_depreciation',
     'vat_input', 'vat_input_late_claim', 'other_current_asset', 'other',
   ],
+  // payroll_liability (2140-2175), current_liability (2215) and
+  // long_term_liability (BL1024) are carried by system accounts and are
+  // canonical in accountSubtypeVocabulary; leaving them out made
+  // chart_of_accounts_health report those accounts as subtype_does_not_fit_type
+  // and settle_by_contra refuse them as unclassifiable.
   liability: [
-    'payable', 'tax', 'vat_output', 'other_current_liability', 'other',
+    'payable', 'tax', 'vat_output', 'payroll_liability', 'current_liability',
+    'other_current_liability', 'long_term_liability', 'other',
   ],
   equity: ['equity', 'retained_earnings', 'opening_balance_equity', 'other'],
   revenue: ['revenue', 'default_revenue', 'other_income', 'disposal_profit_loss', 'other'],
+  // finance_cost: interest and bank charges (5810), banded below operating profit.
   expense: [
     'cost_of_sales', 'operating_expense', 'default_expense', 'admin_expense',
-    'depreciation_expense', 'disposal_profit_loss', 'other',
+    'depreciation_expense', 'finance_cost', 'disposal_profit_loss', 'other',
   ],
 } as const satisfies Record<GLAccountType, readonly GLAccountSubtype[]>;
 

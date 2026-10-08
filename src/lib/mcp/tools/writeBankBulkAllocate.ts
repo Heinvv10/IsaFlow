@@ -46,6 +46,7 @@ import { postPreparedLines } from './bulkAllocationPost';
 import { PREVIEW_CAVEATS, previewBatchApplications } from './bulkAutoApplyPreview';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ok, strArg, toolError } from './toolHelpers';
+import { dimensionWarningsOrRefusal } from './dimensionArgs';
 
 const BULK_TOOL = 'bulk_allocate_bank_transactions';
 
@@ -127,6 +128,15 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // know which stage refused which line.
     const skipped = [...prepared.skipped, ...stateSkipped]
       .sort((a, b) => a.index - b.index);
+    // COS lines with no project: warned, or refused where the company requires one — one query, pre-write.
+    const accountLines = postable.filter((p) => p.line.allocType === 'account' && p.line.contraAccountId);
+    const cos = accountLines.length > 0
+      ? await dimensionWarningsOrRefusal(ctx.companyId,
+        accountLines.map((p) => ({ glAccountId: p.line.contraAccountId, cc2Id: p.line.dimIds?.cc2Id ?? null })),
+        (i) => `allocations[${accountLines[i]!.index}]`)
+      : { warnings: [] };
+    if (typeof cos === 'string') return toolError(cos);
+    const dimensionWarnings = cos.warnings.length > 0 ? { dimension_warnings: cos.warnings } : {};
 
     if (args.dry_run === true) {
       // SIMULATED, not planned line by line: two lines against one supplier
@@ -142,6 +152,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
         posted: 0,
         would_post: postable.length,
         skipped,
+        ...dimensionWarnings,
         // Only when something was actually previewed as applied: a caveat about
         // applications on a batch that plans none tells the agent nothing.
         ...(applications.size > 0 ? { preview_caveats: [...PREVIEW_CAVEATS] } : {}),
@@ -155,6 +166,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
             invoice_id: line.invoiceId ?? null,
             vat_code: line.vatCode ?? null,
             description: line.description ?? null,
+            ...(line.dimIds ? { cc1_id: line.dimIds.cc1Id ?? null, cc2_id: line.dimIds.cc2Id ?? null, bu_id: line.dimIds.buId ?? null } : {}),
             // Absent for a line that settles nothing by construction — a GL
             // line, a refund, a line that already names its invoice.
             ...(applied
@@ -249,6 +261,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       journal_entry_ids: lines.map((l) => l.journal_entry_id),
       lines,
       skipped: allSkipped,
+      ...dimensionWarnings,
       // Only when something was actually dropped. Surfaced at batch level as
       // well as per line: a caller reading the summary of a 500-line run would
       // otherwise never see that 40 of them posted gross.

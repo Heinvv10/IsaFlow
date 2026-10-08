@@ -85,6 +85,10 @@ export interface CreditNote {
   status: CreditNoteStatus;
   glJournalEntryId?: string;
   projectId?: string;
+  /** CC1 / CC2 / BU of the note's one revenue/expense leg (no line table; migration 870). */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
   createdBy: string;
   approvedBy?: string;
   approvedAt?: string;
@@ -98,6 +102,10 @@ export interface CreditNote {
 
 export interface CreditNoteCreateInput {
   type: CreditNoteType;
+  /** CC1 / CC2 / BU stamped on the revenue (customer) or expense (supplier) leg at approval. */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
   clientId?: string;
   customerInvoiceId?: string;
   supplierId?: string;

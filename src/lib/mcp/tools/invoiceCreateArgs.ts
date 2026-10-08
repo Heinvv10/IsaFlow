@@ -13,6 +13,8 @@
  */
 import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
 import { castableArgError, strArg } from './toolHelpers';
+import { parseDimensionRefs } from './dimensionArgs';
+import type { DimensionRefs } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /** More lines than this on one invoice is a mistake, not a bill. */
 export const MAX_LINES = 200;
@@ -56,6 +58,8 @@ export interface ParsedSupplierInvoice {
   items: SupplierInvoiceItemInput[];
   /** Every `gl_account_id` named by a line, for one batched ownership check. */
   accountIds: string[];
+  /** Per line, the cc1/cc2/bu as typed (undefined where none); resolved pre-write by the tool. */
+  dimensionRefs: (DimensionRefs | undefined)[];
 }
 
 export interface ParsedCustomerInvoiceLine {
@@ -71,6 +75,8 @@ export interface ParsedCustomerInvoice {
   dueDate: string | undefined;
   taxRate: number | undefined;
   notes: string | undefined;
+  /** Per item, the cc1/cc2/bu as typed (undefined where none). */
+  dimensionRefs: (DimensionRefs | undefined)[];
 }
 
 /**
@@ -85,7 +91,7 @@ export interface ParsedCustomerInvoice {
  */
 export function parseSupplierLines(
   raw: unknown,
-): { items: SupplierInvoiceItemInput[]; accountIds: string[] } | string {
+): { items: SupplierInvoiceItemInput[]; accountIds: string[]; dimensionRefs: (DimensionRefs | undefined)[] } | string {
   if (!Array.isArray(raw) || raw.length === 0) {
     return 'lines must be a non-empty array of {description, quantity, unit_price}';
   }
@@ -95,6 +101,7 @@ export function parseSupplierLines(
 
   const items: SupplierInvoiceItemInput[] = [];
   const accountIds: string[] = [];
+  const dimensionRefs: (DimensionRefs | undefined)[] = [];
   for (let i = 0; i < raw.length; i++) {
     const line = raw[i];
     if (typeof line !== 'object' || line === null || Array.isArray(line)) {
@@ -133,10 +140,14 @@ export function parseSupplierLines(
       accountIds.push(value);
     }
 
+    const dims = parseDimensionRefs(o, `lines[${i}]`);
+    if (typeof dims === 'string') return dims;
+    dimensionRefs.push(dims);
+
     items.push({ description, quantity, unitPrice, taxRate, glAccountId });
   }
 
-  return { items, accountIds };
+  return { items, accountIds, dimensionRefs };
 }
 
 /** Parse one supplier-invoice payload. Returns the refusal MESSAGE on failure. */
@@ -181,6 +192,7 @@ export function parseSupplierInvoiceInput(
     notes: strArg(args, 'notes'),
     items: parsed.items,
     accountIds: parsed.accountIds,
+    dimensionRefs: parsed.dimensionRefs,
   };
 }
 
@@ -206,6 +218,7 @@ export function parseCustomerInvoiceInput(
   }
 
   const items: ParsedCustomerInvoiceLine[] = [];
+  const dimensionRefs: (DimensionRefs | undefined)[] = [];
   for (let i = 0; i < raw.length; i++) {
     const line = raw[i];
     if (typeof line !== 'object' || line === null || Array.isArray(line)) {
@@ -229,6 +242,9 @@ export function parseCustomerInvoiceInput(
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return `items[${i}].quantity must be a positive number`;
     }
+    const dims = parseDimensionRefs(o, `items[${i}]`);
+    if (typeof dims === 'string') return dims;
+    dimensionRefs.push(dims);
     items.push({ description, unitPrice, quantity });
   }
 
@@ -245,5 +261,6 @@ export function parseCustomerInvoiceInput(
     dueDate: strArg(args, 'due_date'),
     taxRate,
     notes: strArg(args, 'notes'),
+    dimensionRefs,
   };
 }
