@@ -50,6 +50,8 @@ export default function BankTransfersPage() {
   }, []);
 
   useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
+  // The confirmation covers the transfer the person was warned about, not an edited one (brk-nrfa round 4 LOW-2).
+  useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
   const handleTransfer = async (confirmDuplicate = false) => {
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {

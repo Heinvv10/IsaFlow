@@ -3,14 +3,14 @@
  *
  * Two shapes of the same movement:
  *   1. the other bank's line, already allocated as the transfer back to this bank (a bank_transactions row that
- *      points at its transfer journal) — the original guard;
+ *      points at its transfer journal) within two days, whose journal no live line on THIS bank is linked to yet —
+ *      the original guard, now with that consumption test (identical daily sweeps were refused);
  *   2. a TYPED Banking > Transfers journal (bank/bankTransferService: `reference` set; a statement allocation writes
  *      none), moving this amount in the SAME direction between the two banks (money into this bank: DR this bank /
  *      CR the other), dated within FIVE days (a Friday transfer clears on Monday or later), that no live line on THIS
  *      bank is linked to — by its transfer pointer or by an ordinary match of one of its lines. Without (2) a
  *      transfer typed on the Transfers page and then allocated from the statement posted twice (brk-nrfa M1). A
- *      statement-created journal never counts here: a daily sweep of identical transfers is not a duplicate
- *      (brk-nrfa round 3 M2).
+ *      statement-created journal is arm 1's business, not this arm's.
  * The remedy in both cases is to match the line to the existing journal.
  *
  * The other order — the statement first, then the same movement typed on the Transfers page — is caught by
@@ -38,6 +38,15 @@ export async function assertNoDuplicateTransfer(
       AND transfer_journal_entry_id IS NOT NULL
       AND amount = ${-lineAmount}
       AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days') AND (${txDate}::DATE + INTERVAL '2 days')
+      -- Already paired: a live line on THIS bank is linked to that transfer journal, so this line is another
+      -- movement (a daily sweep of identical transfers — brk-nrfa rounds 3-4, rev-nrfa round 4 LOW-2).
+      AND NOT EXISTS (SELECT 1 FROM bank_transactions own WHERE own.company_id = bank_transactions.company_id
+                        AND own.bank_account_id = ${bankAccountId}::UUID
+                        AND own.status IN ('allocated', 'matched', 'reconciled')
+                        AND (own.transfer_journal_entry_id = bank_transactions.transfer_journal_entry_id
+                          OR own.matched_journal_line_id IN (SELECT ml.id FROM gl_journal_lines ml
+                            WHERE ml.journal_entry_id = bank_transactions.transfer_journal_entry_id
+                              AND ml.company_id = bank_transactions.company_id)))
     LIMIT 1
   `) as DbRow[];
   const journals = lines.length > 0 ? [] : (await sql`
