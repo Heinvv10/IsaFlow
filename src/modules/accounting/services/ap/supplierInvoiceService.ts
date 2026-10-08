@@ -27,6 +27,8 @@ import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaul
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
+import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -96,8 +98,11 @@ export async function createSupplierInvoice(
     assertSupplierInvoiceLines(input.items || [], trustSourceTax);
     await assertBillLineAccounts(companyId, (input.items || []).map((i) => i.glAccountId));
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
-    const { items: computedItems, subtotal, totalTax, totalAmount } =
+    const { items: totalledItems, subtotal, totalTax, totalAmount } =
       computeSupplierInvoiceTotals(input.items, invoiceTaxRate, trustSourceTax);
+    // CC1 derived from each line's CC2, a conflicting CC1 refused — before any write (no query without a CC2).
+    const computedItems = await deriveLineDimensions(companyId, totalledItems);
+    await assertDocumentDimensions(companyId, computedItems); // tenant + slot + active; no query when none named
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
@@ -142,14 +147,16 @@ export async function createSupplierInvoice(
           INSERT INTO supplier_invoice_items (
             supplier_invoice_id, po_item_id, description, quantity,
             unit_price, tax_rate, tax_amount, line_total,
-            gl_account_id, project_id, cost_center_id, vat_classification
+            gl_account_id, project_id, cost_center_id, vat_classification,
+            cc1_id, cc2_id, bu_id
           ) VALUES (
             ${invoiceId}::UUID, ${item.poItemId || null}, ${item.description},
             ${item.quantity}, ${item.unitPrice}, ${item.taxRate},
             ${item.taxAmount}, ${item.lineTotal},
             ${item.glAccountId || null}, ${item.projectId || null},
             ${item.costCenterId || null},
-            ${item.vatClassification || defaultVatClassification(item.taxRate)}
+            ${item.vatClassification || defaultVatClassification(item.taxRate)},
+            ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
           )
         `;
       }
@@ -207,6 +214,9 @@ function mapItemRow(row: Row): SupplierInvoiceItem {
     glAccountId: row.gl_account_id ? String(row.gl_account_id) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,
     costCenterId: row.cost_center_id ? String(row.cost_center_id) : undefined,
+    cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
+    cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
+    buId: row.bu_id ? String(row.bu_id) : undefined,
     vatClassification: row.vat_classification ? String(row.vat_classification) as VatType : undefined,
     createdAt: String(row.created_at),
   };

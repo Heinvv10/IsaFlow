@@ -16,6 +16,9 @@ import { assertCustomerInCompany } from '@/modules/accounting/services/core/cont
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
+import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
+import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 
 type Row = DbRow;
 
@@ -23,6 +26,10 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
+  /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
+  cc1Id?: string;
+  cc2Id?: string;
+  buId?: string;
 }
 
 export interface DraftInvoiceInput {
@@ -54,13 +61,21 @@ export async function createDraftCustomerInvoice(
 ): Promise<{ id: string; invoiceNumber: string }> {
   const {
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, notes, items, currencyCode, exchangeRate,
+    taxRate, notes, currencyCode, exchangeRate,
   } = input;
 
   // R-067: the tenant fence, BEFORE the first write. insertWithReservedNumber
   // below UPDATEs the company's counter, and withAuth COMMITs a 4xx returned
   // after a write — so this must precede it, not follow it.
   await assertCustomerInCompany(companyId, clientId);
+  // Brief §5.4/§5.5: CC1 from the line's CC2, defaulting to the customer's FNO; a
+  // conflict is refused here, before the first write. No query when no line names a dimension.
+  const items = await deriveRevenueDimensions(companyId, clientId, input.items, (i) => `Line ${i + 1}`)
+    .then(async (derived) => { await assertDocumentDimensions(companyId, derived); return derived; })
+    .catch((err: unknown) => {
+      if (isDimensionRefusal(err)) throw new InvoiceLineValidationError(err.message);
+      throw err;
+    });
 
   // W1 (P2.1): server-side line validation — the July-4 audit created a
   // -R115.00 invoice through this handler (no client OR server guard).
@@ -157,10 +172,12 @@ export async function createDraftCustomerInvoice(
     const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
     await sql`
       INSERT INTO customer_invoice_items (
-        invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code
+        invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
+        cc1_id, cc2_id, bu_id
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
-        ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode}
+        ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
+        ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
       )
     `;
   }

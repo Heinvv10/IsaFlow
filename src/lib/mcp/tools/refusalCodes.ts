@@ -64,6 +64,11 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CURRENCY_CODE_INVALID',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
+  // CC1/CC2/BU refusals (gl/dimensions): an unknown reference, a project whose
+  // FNO conflicts, dimensions on a settlement, a COS line with no project where
+  // required. Names only the caller's own references and its masters' codes;
+  // raised before any write.
+  'DIMENSION_REFUSED',
   // R-035: approve on a request whose document changed since it was raised.
   // Names only the request id the caller passed; nothing is written.
   'DOCUMENT_CHANGED',

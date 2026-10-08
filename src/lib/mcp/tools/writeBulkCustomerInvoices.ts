@@ -26,6 +26,7 @@ import {
 } from './invoiceCreateArgs';
 import { MAX_INVOICES, elementError, parseBatch } from './writeBulkInvoices';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
+import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
 
 const CUSTOMER_LINE_SCHEMA = {
@@ -34,6 +35,7 @@ const CUSTOMER_LINE_SCHEMA = {
     description: { type: 'string' },
     quantity: { type: 'number', exclusiveMinimum: 0 },
     unit_price: { type: 'number', minimum: 0 },
+    ...DIMENSION_LINE_PROPERTIES,
   },
   required: ['description', 'unit_price'],
   additionalProperties: false,
@@ -91,6 +93,14 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
     for (const customerId of customerIds) {
       if (!(await customerBelongsToCompany(ctx.companyId, customerId))) return toolError(NOT_FOUND);
     }
+    // cc1/cc2/bu per item, resolved before the first write; the customer-FNO rule runs in the service.
+    const itemsByElement: ParsedCustomerInvoice['items'][] = [];
+    for (let i = 0; i < parsed.length; i++) {
+      const p = parsed[i]!;
+      const items = await itemsWithDimensions(ctx.companyId, p.items, p.dimensionRefs, (j) => `invoices[${i}].items[${j}]`);
+      if (typeof items === 'string') return toolError(items);
+      itemsByElement.push(items);
+    }
 
     const created: Record<string, unknown>[] = [];
     for (let i = 0; i < parsed.length; i++) {
@@ -98,7 +108,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
       try {
         const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
           clientId: p.customerId,
-          items: p.items,
+          items: itemsByElement[i]!,
           invoiceDate: p.invoiceDate,
           dueDate: p.dueDate,
           taxRate: p.taxRate,

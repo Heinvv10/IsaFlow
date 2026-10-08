@@ -13,6 +13,8 @@ import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../
 import { validateCreditNoteLinks } from './creditNoteLinkService';
 import { mapRow } from './creditNoteMapper';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
+import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -117,6 +119,9 @@ export async function createCreditNote(companyId: string,
     // before any write rather than a generic failure.)
     const linkError = await validateCreditNoteLinks(companyId, input);
     if (linkError) throw new CreditNoteLinkError(linkError);
+    // CC1 from CC2 (conflict refused), then tenant/slot/active — no query when none is named.
+    const [dims] = await deriveLineDimensions(companyId, [{ cc1Id: input.cc1Id, cc2Id: input.cc2Id, buId: input.buId }]);
+    await assertDocumentDimensions(companyId, [dims!]);
 
     const taxRate = input.taxRate ?? 15;
     const taxAmount = input.taxAmount != null
@@ -135,7 +140,7 @@ export async function createCreditNote(companyId: string,
         company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
-        project_id, created_by, actor_type, actor_token_jti
+        project_id, created_by, actor_type, actor_token_jti, cc1_id, cc2_id, bu_id
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
@@ -144,7 +149,8 @@ export async function createCreditNote(companyId: string,
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
         ${input.projectId || null}, ${userId}::UUID,
-        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
+        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
+        ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID
       ) RETURNING *
     `) as Record<string, unknown>[];
 
