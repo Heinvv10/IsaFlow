@@ -77,8 +77,8 @@ describe('assertNoDuplicateTransfer', () => {
     }
     // brk-nrfa round 6 L1: arm 1's counterparty line is live and matched to its leg of a journal that stands.
     const outer = text(0).slice(0, text(0).indexOf('NOT EXISTS'));
-    // sec-nrfa round 10 L1/L2: the root walk is bounded and takes its deepest member, never "the one with no parent".
-    expect(text(0)).toMatch(/WITH RECURSIVE up AS \([\s\S]*up\.d < 20\)[\s\S]*ORDER BY up\.d DESC LIMIT 1\) rt/);
+    // sec-nrfa round 10 L1/L2, brk-nrfa round 11 M1: the root walk is bounded and takes its deepest EVEN-step member.
+    expect(text(0)).toMatch(/WITH RECURSIVE up AS \([\s\S]*up\.d < 20\)[\s\S]*WHERE up\.d % 2 = 0 ORDER BY up\.d DESC LIMIT 1\) rt/);
     expect(outer).toMatch(/AND status IN \('allocated', 'matched', 'reconciled'\)/);
     expect(outer).toContain('tl.id = bank_transactions.matched_journal_line_id');
     // sec-nrfa round 6: "not reversed" is read from the chain (an even count of posted reversals stands), and a pairing
