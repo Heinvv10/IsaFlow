@@ -5,11 +5,15 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+
+/** Under manual-journal enforcement a transfer a rule matches is held: a draft journal and an approval request (202). */
+interface HeldTransfer { journalId: string; message: string }
 
 /** The chart-of-accounts GET answers its accounts camelCased, as a plain array. */
 interface BankAccount {
@@ -31,6 +35,7 @@ export default function BankTransfersPage() {
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
+  const [held, setHeld] = useState<HeldTransfer | null>(null);
 
   const loadBankAccounts = useCallback(async () => {
     setIsLoading(true);
@@ -62,6 +67,7 @@ export default function BankTransfersPage() {
     setIsSubmitting(true);
     setNeedsConfirm(false);
     setMessage({ type: '', text: '' });
+    setHeld(null);
     try {
       const res = await apiFetch('/api/accounting/bank-transfers', {
         method: 'POST',
@@ -76,7 +82,12 @@ export default function BankTransfersPage() {
         }),
       });
       await assertOk(res, 'Could not record the transfer - try again');
-      setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
+      const json = (await res.json()) as { data?: { status?: string; journalId?: string }; message?: string };
+      if (json.data?.status === 'awaiting_approval' && json.data.journalId) {
+        setHeld({ journalId: json.data.journalId, message: json.message ?? 'Transfer saved as a draft journal awaiting approval' });
+      } else {
+        setMessage({ type: 'success', text: 'Transfer completed — journal entry created' });
+      }
       setAmount('');
       setReference('');
     } catch (err) {
@@ -192,6 +203,19 @@ export default function BankTransfersPage() {
                   }`}>
                     <AlertCircle className="h-4 w-4" />
                     {message.text}
+                  </div>
+                )}
+
+                {held && (
+                  <div className="p-3 rounded-lg text-sm bg-amber-500/10 text-amber-400 space-y-2" role="status">
+                    <div className="flex items-center gap-2 font-medium">
+                      <AlertCircle className="h-4 w-4" /> Awaiting approval
+                    </div>
+                    <p>{held.message}</p>
+                    <div className="flex gap-4">
+                      <Link href={`/accounting/journal-entries/${held.journalId}`} className="underline">View the journal</Link>
+                      <Link href="/accounting/approvals" className="underline">Go to Approvals</Link>
+                    </div>
                   </div>
                 )}
 
