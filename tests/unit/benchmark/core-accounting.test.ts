@@ -471,10 +471,11 @@ describe('validatePaymentAllocations', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('findMatchCandidates', () => {
+  // The bank account's own legs: money in debits it, so deposits pair with these debit legs.
   const glLines = [
-    { id: 'line-001', debit: 0, credit: 23450, description: 'INV-2025-042 payment', entryDate: '2025-03-15', entryNumber: 'JE-2025-00042' },
-    { id: 'line-002', debit: 0, credit: 5750,  description: 'Monthly retainer',     entryDate: '2025-03-10', entryNumber: 'JE-2025-00035' },
-    { id: 'line-003', debit: 0, credit: 12000, description: 'Equipment purchase',   entryDate: '2025-01-01', entryNumber: 'JE-2025-00001' },
+    { id: 'line-001', debit: 23450, credit: 0, description: 'INV-2025-042 payment', entryDate: '2025-03-15', entryNumber: 'JE-2025-00042' },
+    { id: 'line-002', debit: 5750,  credit: 0, description: 'Monthly retainer',     entryDate: '2025-03-10', entryNumber: 'JE-2025-00035' },
+    { id: 'line-003', debit: 12000, credit: 0, description: 'Equipment purchase',   entryDate: '2025-01-01', entryNumber: 'JE-2025-00001' },
   ];
 
   it('matches by reference with confidence 1.0', () => {
@@ -535,25 +536,25 @@ describe('findMatchCandidates', () => {
     expect(candidates.every(c => c.confidence >= 0.95)).toBe(true);
   });
 
-  it('matches withdrawal (negative amount) against debit lines', () => {
-    const debitLines = [
-      { id: 'line-debit', debit: 8500, credit: 0, description: 'Vendor payment', entryDate: '2025-03-20', entryNumber: 'JE-2025-00050' },
+  it('matches withdrawal (negative amount) against credit lines', () => {
+    const creditLines = [
+      { id: 'line-credit', debit: 0, credit: 8500, description: 'Vendor payment', entryDate: '2025-03-20', entryNumber: 'JE-2025-00050' },
     ];
     const bankTx = {
       id: 'tx-006',
       amount: -8500, // withdrawal
       transactionDate: '2025-03-20',
     };
-    const candidates = findMatchCandidates(bankTx, debitLines);
+    const candidates = findMatchCandidates(bankTx, creditLines);
     expect(candidates.length).toBeGreaterThan(0);
-    expect(candidates[0]!.journalLineId).toBe('line-debit');
+    expect(candidates[0]!.journalLineId).toBe('line-credit');
   });
 });
 
 describe('runAutoMatch', () => {
   const glLines = [
-    { id: 'gl-a', debit: 0, credit: 11500, description: 'INV-001', entryDate: '2025-04-01', entryNumber: 'JE-2025-00100' },
-    { id: 'gl-b', debit: 0, credit: 5750,  description: 'INV-002', entryDate: '2025-04-05', entryNumber: 'JE-2025-00101' },
+    { id: 'gl-a', debit: 11500, credit: 0, description: 'INV-001', entryDate: '2025-04-01', entryNumber: 'JE-2025-00100' },
+    { id: 'gl-b', debit: 5750,  credit: 0, description: 'INV-002', entryDate: '2025-04-05', entryNumber: 'JE-2025-00101' },
   ];
 
   it('matches all bank transactions when GL lines are available', () => {
@@ -573,6 +574,7 @@ describe('runAutoMatch', () => {
       { id: 'tx-d', amount: 11500, transactionDate: '2025-04-01' },
     ];
     const { matches } = runAutoMatch(bankTxs, glLines);
+    expect(matches).toHaveLength(1);
     const usedGlLines = matches.map(m => m.journalLineId);
     const unique = new Set(usedGlLines);
     expect(unique.size).toBe(usedGlLines.length);

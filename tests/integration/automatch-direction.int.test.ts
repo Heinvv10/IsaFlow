@@ -89,7 +89,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('auto-matc
       idempotency_key: randomUUID() };
     const ctx = { userId: c.fx.userId, companyId: c.fx.companyId, scopes: ['write:bank-tx'], tokenJti: null, oauthAppId: null };
     const res = await inTx(c.fx, () => performBankReconciliationTool.handler(args as never, ctx as never));
-    expect(JSON.stringify(res)).toContain('"auto_matched":3');
+    const text = (res as { content: { text: string }[] }).content[0]!.text;
+    expect(JSON.parse(text)).toMatchObject({ auto_matched: 3, still_unmatched: 0 });
     await expectOwnDirection(s);
   }, 60000);
 });
