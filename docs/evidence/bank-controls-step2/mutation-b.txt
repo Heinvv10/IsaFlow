@@ -152,3 +152,15 @@ D10 the FK clears only its column — 877's narrowed FK put back to 489's plain 
     I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "keeps running and only loses the supplier"
     RED: purging a supplier a rule names > a rule that posts nothing, or any rule with the switch off, keeps running and only loses the supplier
          AssertionError: expected +0 to be 1   (the cascade's company_id = NULL refused; nothing purged)
+
+── Round 3: blind review N2 — seeding under bank_rule with auto-post on ──
+
+M15 seeded rules held, not inserted — bankRuleChangeControl.seedRules: `toHold = classified.filter(held)` -> `[]` (every row inserted)
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "each seeded rule is held"
+    RED: seeding rules while auto-post is on (blind review N2) > each seeded rule is held as its own pending creation, reported as held; another member approves one and it applies
+         AssertionError: {…"message":"bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200
+
+M16 a re-seed skips patterns already pending — bank-rules-seed: pendingCreationPatterns(companyId) contributes nothing
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "each seeded rule is held"
+    RED: (same test)
+         AssertionError: expected { created: +0, held: 1, …(3) } to match object { created: +0, held: +0, skipped: 2 }
