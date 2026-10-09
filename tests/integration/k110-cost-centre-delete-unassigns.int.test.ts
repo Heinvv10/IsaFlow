@@ -6,10 +6,13 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import costCentresAction from '../../pages/api/accounting/cost-centres-action';
 import { deleteCostCentre } from '../../src/modules/accounting/services/core/costCentreService';
+import { inCompanyTx } from './dims-678.helpers';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// deleteCostCentre takes the dimension-master lock, which needs a request transaction.
+const del = (companyId: string, id: string) => inCompanyTx(pool, companyId, 'k110', () => deleteCostCentre(companyId, id));
 const company = crypto.randomUUID();
 const user = crypto.randomUUID();
 const centre = crypto.randomUUID();
@@ -60,5 +63,5 @@ it('refuses to delete a cost centre that payroll employees are assigned to', asy
   }).toEqual({ status: 400, centreRows: 1, employeeCentre: centre });
   // The counted message is what distinguishes the guard's payroll branch from
   // the FK catching the same delete: both end at 400, only the guard says why.
-  await expect(deleteCostCentre(company, centre)).rejects.toThrow('1 employee(s)');
+  await expect(del(company, centre)).rejects.toThrow('1 employee(s)');
 });

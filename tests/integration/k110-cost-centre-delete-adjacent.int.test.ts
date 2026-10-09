@@ -6,10 +6,13 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import costCentresAction from '../../pages/api/accounting/cost-centres-action';
 import { deleteCostCentre } from '../../src/modules/accounting/services/core/costCentreService';
+import { inCompanyTx } from './dims-678.helpers';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// deleteCostCentre takes the dimension-master lock, which needs a request transaction.
+const del = (companyId: string, id: string) => inCompanyTx(pool, companyId, 'k110', () => deleteCostCentre(companyId, id));
 const company = crypto.randomUUID();
 const other = crypto.randomUUID();
 const user = crypto.randomUUID();
@@ -63,7 +66,7 @@ afterAll(async () => {
 });
 
 it('refuses a centre that only fixed assets reference, and names the count', async () => {
-  await expect(deleteCostCentre(company, assetCentre)).rejects.toThrow('1 asset(s)');
+  await expect(del(company, assetCentre)).rejects.toThrow('1 asset(s)');
   const result = await callDelete(assetCentre);
   const rows = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [assetCentre]);
   const asset = await pool.query('SELECT cost_centre_id FROM assets WHERE company_id=$1', [company]);

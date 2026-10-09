@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { aliasKey, resolveDimensionRefs } from './dimensionRefResolver';
 import { deriveFnoId, type CostCentreNode } from './dimensionDerivation';
 import { DimensionRefusal, isDimensionRefusal } from './dimensionTypes';
+import { lockDimensionMasters } from '../../core/dimensionMasterLock';
 
 /** A reference that names nothing in this slot is a miss; anything else (a driver error) propagates. */
 function missAsNull(err: unknown): null {
@@ -39,12 +40,13 @@ export interface DimensionCostCentre {
   aliases: string[];
   description: string | null;
   department: string | null;
+  notes: string | null;
 }
 
 interface CcRow {
   id: string; code: string; name: string; cc_type: string | null; is_active: boolean | null;
   parent_id: string | null; parent_code: string | null; aliases: string[] | null;
-  description: string | null; department: string | null;
+  description: string | null; department: string | null; notes: string | null;
 }
 
 export async function listDimensionCostCentres(
@@ -52,7 +54,7 @@ export async function listDimensionCostCentres(
   opts: { ccType?: DimensionCcType; includeInactive?: boolean } = {},
 ): Promise<DimensionCostCentre[]> {
   const rows = (await sql`
-    SELECT cc.id::TEXT AS id, cc.code, cc.name, cc.cc_type, cc.is_active, cc.description, cc.department,
+    SELECT cc.id::TEXT AS id, cc.code, cc.name, cc.cc_type, cc.is_active, cc.description, cc.department, cc.notes,
            cc.parent_id::TEXT AS parent_id, p.code AS parent_code,
            COALESCE((SELECT array_agg(a.alias ORDER BY a.alias) FROM cost_centre_aliases a
                       WHERE a.cost_centre_id = cc.id AND a.company_id = cc.company_id), '{}') AS aliases
@@ -73,7 +75,7 @@ export async function listDimensionCostCentres(
         id: r.id, code: String(r.code), name: String(r.name), ccType: String(r.cc_type ?? 'cc1'),
         isActive: r.is_active === true, parentId: r.parent_id, parentCode: r.parent_code ?? null,
         fnoCode: fnoId ? (nodes.get(fnoId)?.code ?? null) : null, aliases: r.aliases ?? [],
-        description: r.description ?? null, department: r.department ?? null,
+        description: r.description ?? null, department: r.department ?? null, notes: r.notes ?? null,
       };
     });
 }
@@ -87,6 +89,7 @@ export interface CreateDimensionCostCentreInput {
   aliases?: string[];
   description?: string;
   department?: string;
+  notes?: string;
 }
 
 export interface CreateDimensionCostCentrePlan {
@@ -102,6 +105,7 @@ export async function planCreateDimensionCostCentre(
   companyId: string,
   input: CreateDimensionCostCentreInput,
 ): Promise<CreateDimensionCostCentrePlan> {
+  await lockDimensionMasters(companyId);
   const code = input.code.trim();
   const name = input.name.trim();
   if (!code || code.length > 20) throw new DimensionRefusal('code is required and at most 20 characters');
@@ -166,9 +170,10 @@ export async function applyCreateDimensionCostCentre(
   userId: string,
 ): Promise<{ id: string }> {
   const [row] = (await sql`
-    INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id, description, department)
+    INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id, description, department, notes, created_by)
     VALUES (${companyId}::UUID, ${plan.input.code}, ${plan.input.name}, ${plan.input.ccType}, ${plan.parentId}::UUID,
-            ${plan.input.description?.trim() || null}, ${plan.input.department?.trim() || null})
+            ${plan.input.description?.trim() || null}, ${plan.input.department?.trim() || null},
+            ${plan.input.notes?.trim() || null}, ${userId})
     RETURNING id::TEXT AS id
   `) as { id: string }[];
   for (const a of plan.aliases) {
