@@ -10,42 +10,72 @@
 -- "in use" refusal.
 --
 -- NOT VALID: existing rows are not checked here, so an orphan already in the
--- data cannot fail the deploy. New and updated rows are checked from now on.
--- VALIDATE CONSTRAINT is a separate, later step once the orphan counts are 0:
+-- data cannot fail the deploy, and no table is scanned. New and updated rows
+-- are checked from now on. VALIDATE CONSTRAINT is a separate, later step once
+-- the orphan counts are 0:
 --   SELECT count(*) FROM gl_journal_lines t WHERE t.cc1_id IS NOT NULL
 --     AND NOT EXISTS (SELECT 1 FROM cost_centres c WHERE c.id = t.cc1_id);   -- per column
 --
--- The partial indexes on bank_transactions serve the FK's own lookup on every
--- master delete (gl_journal_lines has them since 285: idx_jl_cc1/cc2/bu).
+-- LOCKS. ADD FOREIGN KEY ... NOT VALID takes SHARE ROW EXCLUSIVE on the table
+-- and on the master it references (it blocks writes, not reads, and does no
+-- scan), held to COMMIT because apply-migrations.ts runs each file in one
+-- transaction. Nothing is dropped, so nothing takes ACCESS EXCLUSIVE. Each
+-- constraint is added only when pg_constraint does not already hold it, so a
+-- rerun touches nothing it already did.
+-- ORDER: bank_transactions before gl_journal_lines — the order a bank
+-- allocation takes them at runtime (the bank row, then the journal lines it
+-- posts). The reverse order would let this file hold gl_journal_lines while
+-- waiting on an allocation that holds its bank row and next writes a journal
+-- line: a deadlock that kills one side.
 --
--- Rollback: ALTER TABLE ... DROP CONSTRAINT IF EXISTS for each of the six;
--- DROP INDEX IF EXISTS for the three indexes.
+-- If lock_timeout trips (a long writer held one of these tables for more than
+-- 5 s), the whole file rolls back and nothing is recorded: RERUN the migration.
+-- It is idempotent.
+--
+-- The indexes the bank FKs' delete-time lookups want are migration 879.
+--
+-- Rollback: ALTER TABLE ... DROP CONSTRAINT IF EXISTS for each of the six.
 SET LOCAL lock_timeout = '5s';
 
-ALTER TABLE gl_journal_lines DROP CONSTRAINT IF EXISTS gl_journal_lines_cc1_id_fkey;
-ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_cc1_id_fkey
-  FOREIGN KEY (cc1_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE gl_journal_lines DROP CONSTRAINT IF EXISTS gl_journal_lines_cc2_id_fkey;
-ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_cc2_id_fkey
-  FOREIGN KEY (cc2_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE gl_journal_lines DROP CONSTRAINT IF EXISTS gl_journal_lines_bu_id_fkey;
-ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_bu_id_fkey
-  FOREIGN KEY (bu_id) REFERENCES business_units(id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE bank_transactions DROP CONSTRAINT IF EXISTS bank_transactions_cc1_id_fkey;
-ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_cc1_id_fkey
-  FOREIGN KEY (cc1_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE bank_transactions DROP CONSTRAINT IF EXISTS bank_transactions_cc2_id_fkey;
-ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_cc2_id_fkey
-  FOREIGN KEY (cc2_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
-
-ALTER TABLE bank_transactions DROP CONSTRAINT IF EXISTS bank_transactions_bu_id_fkey;
-ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_bu_id_fkey
-  FOREIGN KEY (bu_id) REFERENCES business_units(id) ON DELETE RESTRICT NOT VALID;
-
-CREATE INDEX IF NOT EXISTS idx_bank_tx_cc1 ON bank_transactions (cc1_id) WHERE cc1_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_bank_tx_cc2 ON bank_transactions (cc2_id) WHERE cc2_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_bank_tx_bu  ON bank_transactions (bu_id)  WHERE bu_id IS NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_transactions_cc1_id_fkey' AND conrelid = 'bank_transactions'::regclass) THEN
+    ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_cc1_id_fkey
+      FOREIGN KEY (cc1_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_transactions_cc2_id_fkey' AND conrelid = 'bank_transactions'::regclass) THEN
+    ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_cc2_id_fkey
+      FOREIGN KEY (cc2_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_transactions_bu_id_fkey' AND conrelid = 'bank_transactions'::regclass) THEN
+    ALTER TABLE bank_transactions ADD CONSTRAINT bank_transactions_bu_id_fkey
+      FOREIGN KEY (bu_id) REFERENCES business_units(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gl_journal_lines_cc1_id_fkey' AND conrelid = 'gl_journal_lines'::regclass) THEN
+    ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_cc1_id_fkey
+      FOREIGN KEY (cc1_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gl_journal_lines_cc2_id_fkey' AND conrelid = 'gl_journal_lines'::regclass) THEN
+    ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_cc2_id_fkey
+      FOREIGN KEY (cc2_id) REFERENCES cost_centres(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gl_journal_lines_bu_id_fkey' AND conrelid = 'gl_journal_lines'::regclass) THEN
+    ALTER TABLE gl_journal_lines ADD CONSTRAINT gl_journal_lines_bu_id_fkey
+      FOREIGN KEY (bu_id) REFERENCES business_units(id) ON DELETE RESTRICT NOT VALID;
+  END IF;
+END $$;
