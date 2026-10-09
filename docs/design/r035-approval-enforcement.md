@@ -535,6 +535,22 @@ posts as before.
 - Disputed, with reasons in the PR: the importer check has no amount threshold (decision 2 sets none; a hand-keyed
   line below a manual-journal rule's threshold is R-035 PR6's design), and extension lines are feed lines (decision 2).
 
+**Review round 2 (PR #684 at bf371012), changes:**
+- **Auto-match acts for whoever ran it:** `autoMatchTransactions(…, triggeredBy)` is required and fails closed. It skips, and counts, a pair where that person imported the line and also created the journal or payment.
+- **The match gate judges the arm of what the line is matched to** (`allocationFacts`, shared with the reversal gate): a supplier payment or batch leg is `supplier_payment`; a plain journal or a customer refund is `manual_journal`.
+- **Reversing a matched document is a reversal:**
+  - voiding a supplier payment, cancelling a customer refund, or reversing a batch whose bank leg a statement line is matched to runs `assertMayReverse` for each matched line before any write, and audits it;
+  - the R-127 settlement undo (voiding a fully unapplied settlement payment) is gated and audited like Dismiss.
+- **Seeding under `bank_rule`:** seeded rules that would post money (auto-post on) are held, one pending creation each; the rest apply as before.
+- **A line's provenance is fixed:** `import_batch_id` and `bank_feed_connection_id` cannot change in either direction (877).
+- **Switching auto-post on under `bank_rule`** is refused with 409 `AUTO_POST_RULES_UNREVIEWED` before any write. The refusal names each affected rule, who changed it and when. The way out: disable the rule and re-activate it through approval, or put the change back. It fires when an active rule meets both conditions:
+  - its state now, compared with its state at the cutoff, would have needed approval with auto-post on;
+  - someone other than the person switching it on made an unapproved applied change to it in that span.
+  How it is built:
+  - The cutoff is the later of `bank_rule`'s `enabled_at` and `bank_auto_post_settings.disabled_at`. `disabled_at` is set only by a trigger on an on → off change; a delete and re-insert can only move it earlier.
+  - Rule writers take a per-company advisory lock shared, and the settings writer takes it exclusive, before anything else (`bank/bankRuleAutoPostLock.ts`), so a concurrent rule change waits and is then held.
+  - The owner switching auto-post off, editing and switching it back on alone is an accepted risk (breaker round 2). It needs exactly the authority that switches `bank_rule` itself off, and every step is audited.
+
 **Known limits.**
 - Browser-extension ingest lines carry `bank_feed_connection_id`, so they are feed lines and exempt from
   importer ≠ allocator (decision 2). The extension reads the bank's page in the user's own browser.
