@@ -31,7 +31,7 @@ vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
 
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
-type Line = { description: string; unitPrice: number; glAccountId?: string; projectId?: string };
+type Line = { description: string; unitPrice: number; glAccountId?: string; projectId?: string; cc2Id?: string };
 
 const draft = async (items: Line[]) => (await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
   clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, items,
@@ -79,6 +79,23 @@ describeIfDisposable('approving invoices with and without coded lines (migration
     expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
     expect((err as Error).message).toMatch(/total zero or less/);
     expect(await status(id)).toEqual({ status: 'draft', gl_journal_entry_id: null });
+  });
+
+  it('a CC2 retired since the draft was saved is refused BEFORE the status moves, by approve and bulk finalize alike', async () => {
+    // Pre-write, as the line coding is: posting would refuse it too (dimensionStoredPosting), but only past the
+    // status UPDATE, where a caller without the route's savepoint would be left with an approved invoice.
+    const id = await draft([{ description: 'Job', unitPrice: 80, glAccountId: f.acct.commercials, cc2Id: f.dim.cc2 }]);
+    await sql`UPDATE cost_centres SET is_active = false WHERE id = ${f.dim.cc2}::UUID`;
+    try {
+      const err = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+      expect((err as Error).message).toMatch(/CC2 must name an active CC2 cost centre/);
+      expect(await status(id)).toEqual({ status: 'draft', gl_journal_entry_id: null });
+      const out = await finalize([id], true);
+      expect(out.skipped).toEqual([{ index: 0, document_id: id, reason: expect.stringMatching(/CC2 must name an active/) }]);
+    } finally {
+      await sql`UPDATE cost_centres SET is_active = true WHERE id = ${f.dim.cc2}::UUID`;
+    }
   });
 
   it('bulk finalize skips a refused invoice with approve\'s reason, in the dry run and live alike', async () => {

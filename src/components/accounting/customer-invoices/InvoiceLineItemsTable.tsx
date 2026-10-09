@@ -44,8 +44,6 @@ interface Props {
   onRemove: (key: string) => void;
   options: InvoiceLineCodingOptions;
   showIncomeType?: boolean;
-  /** The CC2 / BU pickers show what is saved but cannot change it (the draft edit does not carry them yet). */
-  dimensionsReadOnly?: boolean;
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
@@ -77,7 +75,7 @@ export function CodingPicker({ value, options, all, empty, onChange, label, disa
 }
 
 export function InvoiceLineItemsTable({
-  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType, dimensionsReadOnly,
+  lines, currencyCode, lineTotal, onUpdate, onAdd, onRemove, options, showIncomeType,
 }: Props) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
@@ -129,8 +127,8 @@ export function InvoiceLineItemsTable({
               </select></td>}
               <td className="px-3 py-2"><CodingPicker label="Revenue account" value={l.glAccountId} options={options.accounts} all={options} empty="Default sales" onChange={(v) => onUpdate(l.key, 'glAccountId', v)} /></td>
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="Job (Project Profitability)" value={l.projectId} options={options.projects} all={options} empty="No job" onChange={(v) => onUpdate(l.key, 'projectId', v)} /></td>}
-              {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" disabled={dimensionsReadOnly} onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
-              {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" disabled={dimensionsReadOnly} onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
+              {showDimensions && <td className="px-3 py-2"><CodingPicker label="CC2 project" value={l.cc2Id} options={options.cc2s} all={options} empty="No CC2 project" onChange={(v) => onUpdate(l.key, 'cc2Id', v)} /></td>}
+              {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
               <td className="px-3 py-2"><input type="number" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
               <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
               {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.1} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="0" className={`${inp} text-right`} /></td>}

@@ -1,8 +1,8 @@
 // The REAL new and edit customer-invoice pages with the shared line table (migration 874): the account picker
 // offers only active LEAF revenue accounts; Dimensions offers jobs that are not cancelled, ACTIVE CC2 projects and
 // business units (fetched with ?active=true) — the job and the CC2 project labelled apart; each picker writes its own
-// field; the header Job is display only and pre-fills new lines; the edit page shows a line's CC2 / BU but cannot
-// change them (the draft edit does not carry them yet); an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
+// field; the header Job is display only and pre-fills new lines; the edit page edits a line's CC2 / BU and re-sends
+// its CC1 only while its CC2 is the one it loaded with (CC1 follows CC2); an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
 // by fetching it by id, and telling loading, failed and unavailable apart; the approver sees each line's coding.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -163,7 +163,7 @@ describe('customer invoice line coding — edit', () => {
 
   it('round-trips the header project and each line\'s coding, labelling a project past the list by id', async () => {
     router.query = { invoiceId: 'inv-1' };
-    serve(invoice([item({ gl_account_id: ACC.commercials, project_id: FAR, cc2_id: CC2, bu_id: BU }),
+    serve(invoice([item({ gl_account_id: ACC.commercials, project_id: FAR, cc1_id: 'fno-1', cc2_id: CC2, bu_id: BU }),
       item({ description: 'Old', gl_account_id: ACC.retired })], FAR));
     render(<EditCustomerInvoicePage />);
     const pickers = await screen.findAllByLabelText('Revenue account');
@@ -173,18 +173,34 @@ describe('customer invoice line coding — edit', () => {
     expect(gets.some((u) => u.includes(`/projects?ids=${FAR}`))).toBe(true);
     expect((screen.getByLabelText('Invoice job') as HTMLSelectElement).value).toBe(FAR);
     expect((pickers[1] as HTMLSelectElement).selectedOptions[0]!.textContent).toBe('Unavailable — choose another');
-    // CC2 / BU show what is saved, read-only: the draft edit does not carry them yet.
+    // CC2 / BU show what is saved and are editable; CC1 is not shown and follows its CC2.
     const cc2 = screen.getAllByLabelText('CC2 project')[0] as HTMLSelectElement;
     await waitFor(() => expect(cc2.selectedOptions[0]!.textContent).toBe('LAW Lawley'));
-    expect(cc2.disabled).toBe(true);
-    expect((screen.getAllByLabelText('BU')[0] as HTMLSelectElement).disabled).toBe(true);
+    expect(cc2.disabled).toBe(false);
+    expect((screen.getAllByLabelText('BU')[0] as HTMLSelectElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]!.body.projectId).toBe(FAR);
     expect(sent[0]!.body.items).toMatchObject([
-      { glAccountId: ACC.commercials, projectId: FAR },
-      { glAccountId: ACC.retired, projectId: null },
+      { glAccountId: ACC.commercials, projectId: FAR, cc2Id: CC2, buId: BU, cc1Id: 'fno-1' },
+      { glAccountId: ACC.retired, projectId: null, cc2Id: null, buId: null },
     ]);
+    expect('cc1Id' in (sent[0]!.body.items as Record<string, unknown>[])[1]!).toBe(false);
+  });
+
+  it("changing a line's CC2 (or clearing it, or its BU) sends the new values and leaves its CC1 to derivation", async () => {
+    router.query = { invoiceId: 'inv-1' };
+    serve(invoice([item({ cc1_id: 'fno-1', cc2_id: CC2, bu_id: BU })]));
+    render(<EditCustomerInvoicePage />);
+    const cc2 = (await screen.findAllByLabelText('CC2 project'))[0] as HTMLSelectElement;
+    await waitFor(() => expect(cc2.value).toBe(CC2));
+    fireEvent.change(cc2, { target: { value: '' } });
+    fireEvent.change(screen.getAllByLabelText('BU')[0] as HTMLSelectElement, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const [line] = sent[0]!.body.items as Record<string, unknown>[];
+    expect(line).toMatchObject({ cc2Id: null, buId: null });
+    expect('cc1Id' in line!).toBe(false);
   });
 });
 

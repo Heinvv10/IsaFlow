@@ -195,7 +195,9 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     if (column === 'cc2_id') await sql`UPDATE customer_invoice_items SET cc2_id = ${value()}::UUID WHERE invoice_id = ${id}::UUID`;
     const before = await journalCount();
     const err = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+    // Past draft an invoice posts its CC1 / CC2 / BU as stored (#675), so another company's CC2 is refused by
+    // the journal writer's own cost-centre check (journalCostCentreValidation) — still before any journal row.
+    expect(column === 'cc2_id' ? err instanceof Error : err instanceof InvoiceLineCodingRefusal, String(err)).toBe(true);
     expect((err as Error).message).toMatch(message);
     expect(await journalCount()).toBe(before);
   });
@@ -221,16 +223,13 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     }
   });
 
-  it('approve refuses a line whose FNO is not the customer\'s (set since), before the status moves', async () => {
+  it("approve posts the CC1 the line stored at save, not the customer's FNO set since (#675: what was saved and approved posts)", async () => {
     const id = await draft([{ description: 'Job', unitPrice: 100, cc2Id: f.dim.cc2 }]);
     await sql`UPDATE customers SET default_cc1_id = ${f.dim.otherFno}::UUID WHERE id = ${f.fx.customerId}::UUID`;
     try {
-      const before = await journalCount();
-      const err = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
-      expect((err as Error).message).toMatch(/differs from the customer's FNO/);
-      expect(await journalCount()).toBe(before);
-      expect(((await sql`SELECT status FROM customer_invoices WHERE id = ${id}::UUID`) as { status: string }[])[0]!.status).toBe('draft');
+      const r = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
+      expect((await legs(r.glJournalEntryId!)).filter((l) => l.code === '4000'))
+        .toEqual([L('4000', 0, 100, { cc1: f.dim.fno, cc2: f.dim.cc2 })]);
     } finally {
       await sql`UPDATE customers SET default_cc1_id = NULL WHERE id = ${f.fx.customerId}::UUID`;
     }

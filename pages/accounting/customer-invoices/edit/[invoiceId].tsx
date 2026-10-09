@@ -254,7 +254,7 @@ export default function EditCustomerInvoicePage() {
 
               <div className={`${card} overflow-hidden`}>
                 <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
-                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} dimensionsReadOnly />
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
               </div>
 
               <div className={`${card} p-5`}>
