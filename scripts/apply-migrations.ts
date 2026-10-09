@@ -18,6 +18,7 @@ import {
   computeChecksum,
   loadMigrationFiles,
   parseVersionFromFilename,
+  toDirectUrl,
   type MigrationFile,
   type TrackingRow,
 } from './lib/migrationFiles';
@@ -105,10 +106,7 @@ async function main(): Promise<void> {
   }
 
   // Strip Neon pooler + channel_binding for stable session connection (mirrors src/lib/neon.ts getDirectUrl).
-  const directUrl = url
-    .replace('-pooler.', '.')
-    .replace('&channel_binding=require', '')
-    .replace('?channel_binding=require', '?');
+  const directUrl = toDirectUrl(url);
 
   const pool = new pg.Pool({
     connectionString: directUrl,

@@ -33,6 +33,14 @@ export function parseVersionFromFilename(filename: string): string {
   return match[1]!;
 }
 
+/** Strip Neon pooler + channel_binding for a stable session connection (mirrors src/lib/neon.ts getDirectUrl). */
+export function toDirectUrl(url: string): string {
+  return url
+    .replace('-pooler.', '.')
+    .replace('&channel_binding=require', '')
+    .replace('?channel_binding=require', '?');
+}
+
 export function computeChecksum(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
