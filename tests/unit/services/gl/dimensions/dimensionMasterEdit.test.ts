@@ -5,17 +5,20 @@
  */
 import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()) }));
+vi.mock('@/modules/accounting/services/core/dimensionMasterLock', () => ({ lockDimensionMasters: vi.fn(async () => undefined) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/dimensions/dimensionMasterService', () => ({ listDimensionCostCentres: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/costCentreUsageGuard', () => ({
   countCc2Carriers: vi.fn(async () => 0), assertCostCentreUnused: vi.fn(async () => undefined),
+  costCentreDefaultUsage: vi.fn(async () => ''),
 }));
 vi.mock('@/modules/accounting/services/core/costCentreService', () => ({ deleteCostCentre: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 import { listDimensionCostCentres, type DimensionCostCentre } from '@/modules/accounting/services/gl/dimensions/dimensionMasterService';
-import { assertCostCentreUnused, countCc2Carriers } from '@/modules/accounting/services/core/costCentreUsageGuard';
+import { assertCostCentreUnused, costCentreDefaultUsage, countCc2Carriers } from '@/modules/accounting/services/core/costCentreUsageGuard';
+import { lockDimensionMasters } from '@/modules/accounting/services/core/dimensionMasterLock';
 import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
 import {
   applyDeleteDimensionCostCentre, applyUpdateDimensionCostCentre, planDeleteDimensionCostCentre, planUpdateDimensionCostCentre,
@@ -44,12 +47,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(listDimensionCostCentres).mockResolvedValue(MASTER.map((m) => ({ ...m, aliases: [...m.aliases] })));
   vi.mocked(countCc2Carriers).mockResolvedValue(0);
+  vi.mocked(costCentreDefaultUsage).mockResolvedValue('');
 });
 
 describe('planUpdateDimensionCostCentre — refusals (reads only)', () => {
   it.each([
     ['an unknown cost centre', 'NOPE', {}, /does not exist/],
-    ['nothing to change', 'FT-LAW', { name: 'FT-LAW' }, /Nothing to change/],
     ['a code that is another centre\'s code', 'FT-LAW', { code: 'ht001' }, /already the code or an alias of HT001/],
     ['a code that is another centre\'s alias', 'FT-LAW', { code: 'Ben Farms' }, /alias of HT-PHA-BNF/],
     ['a parent on a CC1', 'FT001', { parent: 'HT001' }, /takes no parent/],
@@ -129,5 +132,74 @@ describe('apply / delete', () => {
     expect(assertCostCentreUnused).toHaveBeenLastCalledWith(C, 'law');
     await applyDeleteDimensionCostCentre(C, target, 'user-1');
     expect(deleteCostCentre).toHaveBeenCalledWith(C, 'law');
+  });
+});
+
+describe('#678 review', () => {
+  it('takes the master lock before its first read, on every plan (M1)', async () => {
+    const order: string[] = [];
+    vi.mocked(lockDimensionMasters).mockImplementation(async () => { order.push('lock'); });
+    vi.mocked(listDimensionCostCentres).mockImplementation(async () => { order.push('read'); return MASTER; });
+    await planUpdateDimensionCostCentre(C, 'FT-LAW', { name: 'x' });
+    await planDeleteDimensionCostCentre(C, 'FT-LAW');
+    expect(order).toEqual(['lock', 'read', 'lock', 'read']);
+    expect(lockDimensionMasters).toHaveBeenCalledWith(C);
+  });
+
+  it('an edit that changes nothing plans an empty change set and apply writes nothing (M4)', async () => {
+    const plan = await planUpdateDimensionCostCentre(C, 'FT-LAW', { name: 'FT-LAW', isActive: true });
+    expect(plan.changed).toEqual([]);
+    await applyUpdateDimensionCostCentre(C, plan, 'user-1');
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unchanged parent that is inactive or reaches no FNO, and checks only a new one (M3)', async () => {
+    vi.mocked(listDimensionCostCentres).mockResolvedValue(MASTER.map((m) => (
+      m.id === 'ht' || m.id === 'pha' || m.id === 'bnf' ? { ...m, isActive: false, ...(m.id !== 'ht' ? { fnoCode: null } : {}) } : m)));
+    const kept = await planUpdateDimensionCostCentre(C, 'HT-PHA-BNF', { parent: 'pha', name: 'Ben' });
+    expect(kept.after).toMatchObject({ parentId: 'pha', name: 'Ben' });
+    expect(kept.changed).toEqual(['name']);
+    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'pha' })).rejects.toThrow(/active CC1 or CC2/);
+  });
+
+  it('edits an active node under an inactive parent without reactivation checks (M3)', async () => {
+    vi.mocked(listDimensionCostCentres).mockResolvedValue(MASTER.map((m) => (m.id === 'ft' ? { ...m, isActive: false } : m)));
+    const plan = await planUpdateDimensionCostCentre(C, 'FT-LAW', { name: 'Lawley 2' });
+    expect(plan.changed).toEqual(['name']);
+  });
+
+  it('refuses deactivating a centre a default names, with the counts (L3)', async () => {
+    vi.mocked(costCentreDefaultUsage).mockResolvedValueOnce('2 customer(s), 1 account(s)');
+    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { isActive: false }))
+      .rejects.toThrow('FT-LAW is the default on 2 customer(s), 1 account(s) — clear those defaults before deactivating it');
+    expect(costCentreDefaultUsage).toHaveBeenCalledWith(C, 'law');
+  });
+
+  it('refuses a code matching more than one centre ignoring case — even with an exact match — and checks a case-only rename (L2)', async () => {
+    vi.mocked(listDimensionCostCentres).mockResolvedValue([...MASTER, cc({ id: 'law2', code: 'ft-law', parentId: 'ft', fnoCode: 'FT001' })]);
+    await expect(planUpdateDimensionCostCentre(C, 'ft-law', { name: 'n' })).rejects.toThrow(/matches 2 cost centres .* send its id, or its cc_type/);
+    await expect(planUpdateDimensionCostCentre(C, 'Ft-Law', { name: 'n' })).rejects.toThrow(/matches 2 cost centres/);
+    expect((await planUpdateDimensionCostCentre(C, 'law2', { name: 'n' })).before.id).toBe('law2');
+    await expect(planUpdateDimensionCostCentre(C, 'law2', { code: 'FT-LAW' })).rejects.toThrow(/already the code or an alias of FT-LAW/);
+  });
+
+  it('refuses a code shared across cc_type, and the cc_type picks one (#683 round 2)', async () => {
+    vi.mocked(listDimensionCostCentres).mockResolvedValue([...MASTER, cc({ id: 'abc1', code: 'ABC', ccType: 'cc1', fnoCode: 'ABC' }),
+      cc({ id: 'abc2', code: 'abc', parentId: 'ft', fnoCode: 'FT001' })]);
+    await expect(planUpdateDimensionCostCentre(C, 'ABC', { name: 'n' })).rejects.toThrow('"ABC" matches 2 cost centres (ABC cc1, abc cc2) — send its id, or its cc_type');
+    await expect(planDeleteDimensionCostCentre(C, 'abc')).rejects.toThrow(/matches 2 cost centres/);
+    expect((await planUpdateDimensionCostCentre(C, 'ABC', { name: 'n' }, 'cc2')).before.id).toBe('abc2');
+    expect((await planDeleteDimensionCostCentre(C, 'abc', 'cc1')).id).toBe('abc1');
+    // A parent named by such a code is refused too — and told to send the parent's id: cc_type narrows the
+    // centre being edited, not its parent (#683 round 3).
+    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'Abc' }, 'cc2'))
+      .rejects.toThrow('parent "Abc" matches 2 cost centres (ABC cc1, abc cc2) — send the parent\'s id');
+    expect((await planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'abc2' })).after.parentId).toBe('abc2');
+  });
+
+  it('a 23505 inside apply comes out as a refusal (L1)', async () => {
+    const plan = await planUpdateDimensionCostCentre(C, 'FT-LAW', { addAliases: ['New'] });
+    mockSql.mockResolvedValueOnce([]).mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' }));
+    await expect(applyUpdateDimensionCostCentre(C, plan, 'u')).rejects.toMatchObject({ code: 'DIMENSION_REFUSED', message: /just taken/ });
   });
 });
