@@ -18,6 +18,7 @@ import {
   BatchNotApprovableError,
 } from '@/modules/accounting/services/ap/batchPaymentService';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { BatchAlreadyReversedError, reverseBatch } from '@/modules/accounting/services/ap/batchPaymentReversal';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import {
@@ -67,6 +68,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // R-035 PR5: approve and process refuse an ungated batch under its row
     // lock, before any write — 409 with the reason; withAuth commits nothing.
     if (respondIfApprovalRequired(res, err)) return;
+    // Step 2: reversing a batch a statement line is matched to, by its maker, an agent or "login as" — 403, pre-write.
+    if (respondIfBankControlRefused(res, err)) return;
     log.error('Batch payment action failed', { error: err }, 'accounting-api');
     // Only the refusals raised BEFORE the first posting or write may be answered
     // with a 4xx: withAuth COMMITs anything below 500, so a blanket
