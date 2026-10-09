@@ -189,6 +189,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // caller's own; raised before an import writes anything.
   'IMPORT_APPROVAL_AUTHORITY_REQUIRED',
   'IMPORTER_MAY_NOT_ALLOCATE',
+  // Step 2: a bank allocation's journal reversed through the GL under enforcement — reverse it from the bank line.
+  'REVERSE_FROM_BANK_LINE',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,
