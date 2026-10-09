@@ -107,6 +107,20 @@ describe('payroll routes go through the master rules (H1)', () => {
   });
 });
 
+describe('payroll PATCH / DELETE on an id that is not this company\'s', () => {
+  it.each(['PATCH', 'DELETE'])('%s answers 404 for an unknown id and for another company\'s, and changes nothing', async (method) => {
+    const theirs = await costCentre(pool, other, `R-THEIRS-${method}`);
+    for (const id of [crypto.randomUUID(), theirs]) {
+      const out = await call(payrollEdit as Route, method, `/api/payroll/cost-centres/${id}`, id,
+        method === 'PATCH' ? { body: { name: 'Hijacked' } } : {});
+      expect(out.statusCode, JSON.stringify(out.body)).toBe(404);
+      expect(out.body.error?.message).toBe('Cost centre not found');
+    }
+    expect((await pool.query('SELECT name, is_active FROM cost_centres WHERE id = $1', [theirs])).rows[0])
+      .toEqual({ name: `R-THEIRS-${method}`, is_active: true });
+  });
+});
+
 describe('accounting action route (M4)', () => {
   it('a toggle to the current state is a 200, not "Nothing to change"', async () => {
     const cc = await costCentre(pool, company, 'R-TOG');

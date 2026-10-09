@@ -113,7 +113,8 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
   carried by a line committed during a move is still possible (the move counts carriers from a snapshot).
 - **The payroll routes are the same writer.** `/api/payroll/cost-centres` POST and `[id]` PATCH / DELETE go
   through `planCreate` / `planUpdateDimensionCostCentre` (parentId is a UUID; a centre with a parent is created
-  as a CC2). There is no other writer of `cost_centres` in `src/`.
+  as a CC2; PATCH / DELETE on an id that is not this company's is a 404). There is no other writer of
+  `cost_centres` in `src/`.
 - A plan that changes nothing returns `changed: []` and apply writes nothing; routes answer 200 (an idempotent
   toggle), the MCP tools refuse "Nothing to change".
 - A parent re-sent unchanged is kept as it is (inactive, or reaching no FNO); only a NEW parent is checked. The
@@ -123,6 +124,6 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
 - References: id, EXACT code, then code ignoring case — two codes differing only in case refuse the reference;
   then alias. A rename is clash-checked whenever the code changes at all (a case-only rename too).
 - Applies write inside their own savepoint and turn a 23505 into the refusal; deletes run the DELETE in a
-  savepoint and turn the 23503 into "used by other records". Migration 880 gives the journal and bank
+  savepoint and turn the 23503 into "used by other records". Migration 878 gives the journal and bank
   cc1/cc2/bu columns RESTRICT FKs (NOT VALID). The delete guard also counts `payroll_employee_history`
   cost_centre_id values (TEXT, no FK).
