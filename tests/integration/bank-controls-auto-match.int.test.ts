@@ -11,12 +11,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { performBankReconciliationTool } from '../../src/lib/mcp/tools/writeBankReconciliation';
+import { autoMatchTransactions } from '../../src/modules/accounting/services/bank/bankAutoMatchService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
 import { journalRoutes, plantJournal } from './r035-pr6.helpers';
 import { dataOf } from './r035-pr2.helpers';
 import {
-  actionRoute, bankCompany, cleanupBankControlsA, enforce, lineStatus, mcpCaller, plantBatch, plantLine, refusalOf, type BankCompany,
+  actionRoute, asToken, bankCompany, cleanupBankControlsA, enforce, lineStatus, mcpCaller, plantBatch, plantLine, refusalOf, type BankCompany,
 } from './bank-controls-a.helpers';
 
 assertDisposable();
@@ -78,6 +79,13 @@ describe('auto_match acts for the person who ran it', () => {
     });
     expect(res.isError, res.content[0]!.text).toBeFalsy();
     expect(JSON.parse(res.content[0]!.text)).toMatchObject({ auto_matched: 0, skipped_importer: 1 });
+    expect(await lineStatus(pool, line)).toBe('imported');
+  });
+
+  it('a run that names no person is refused before it reads anything (fails closed)', async () => {
+    const { f, line } = await pair(a);
+    await expect(asToken(pool, a, f.c, () => autoMatchTransactions(f.c, f.bank, undefined, undefined as unknown as string)))
+      .rejects.toThrow(/the person who ran it \(triggeredBy\) is required/);
     expect(await lineStatus(pool, line)).toBe('imported');
   });
 });

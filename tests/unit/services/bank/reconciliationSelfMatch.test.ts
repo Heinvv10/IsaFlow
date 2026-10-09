@@ -13,6 +13,8 @@
  * tests/integration/bank-recon-self-match.int.test.ts (needs DATABASE_URL).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
 
 interface Rendered { text: string; values: unknown[] }
 
@@ -214,7 +216,7 @@ describe('completeReconciliation', () => {
 
 describe('autoMatchTransactions — unallocated lines keep auto-match', () => {
   it('reads only imported lines, bounded to the session and its statement date', async () => {
-    await autoMatchTransactions(CO, BANK, REC);
+    await autoMatchTransactions(CO, BANK, REC, 'user-1');
     const q = one('SELECT id, amount, transaction_date').text;
     expect(q).toContain("status = 'imported'");
     expect(q).not.toContain("'allocated'");
@@ -224,7 +226,7 @@ describe('autoMatchTransactions — unallocated lines keep auto-match', () => {
   });
 
   it('without a session it is unbounded, as before', async () => {
-    await autoMatchTransactions(CO, BANK);
+    await autoMatchTransactions(CO, BANK, undefined, 'user-1');
     const q = one('SELECT id, amount, transaction_date');
     expect(q.text).toContain('<null>::UUID IS NULL');
   });
@@ -233,7 +235,7 @@ describe('autoMatchTransactions — unallocated lines keep auto-match', () => {
     fake.setResponder((q) => (q.text.includes('SELECT id, amount, transaction_date')
       ? [{ id: 't1', amount: -100, transaction_date: '2025-04-10', reference: null, description: 'X' }]
       : []));
-    await autoMatchTransactions(CO, BANK, REC);
+    await autoMatchTransactions(CO, BANK, REC, 'user-1');
     const gl = one('FROM gl_journal_lines jl').text;
     expect(gl).toContain('je.entry_date <= (SELECT r.statement_date');
   });

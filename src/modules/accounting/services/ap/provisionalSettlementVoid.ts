@@ -31,6 +31,7 @@ import { reverseJournalEntry } from '../gl/journalEntryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { VatLockRoll } from '../gl/journalEntryReversalVatRoll';
 import { lockBankTransactionForUpdate } from '../bank/bankTxLock';
+import { assertMayReverse, auditedReversal, type ReversalClearance } from '../bank/bankReversalGate';
 import { reconciliationLockOf, refuseLockedCash } from '../bank/reconciledCash';
 import type { VoidPaymentResult } from '../core/paymentVoidService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
@@ -76,6 +77,7 @@ export async function voidProvisionalSettlement(
       WHERE provisional_je_id = ${payment.settlesProvisionalJeId}::UUID AND company_id = ${companyId}::UUID
     `) as DbRow[];
     const bankTransactionId = line ? String(line.id) : null;
+    let clearance: ReversalClearance | null = null;
     if (bankTransactionId) {
       const tx = await lockBankTransactionForUpdate(companyId, bankTransactionId);
       const lock = tx ? await reconciliationLockOf(companyId, tx) : null;
@@ -86,6 +88,9 @@ export async function voidProvisionalSettlement(
           + 'here. Take the line out of its reconciliation first.',
         );
       }
+      // Step 2 (decision 4), as Dismiss: undoing the settlement reverses the provisional bank allocation — not by its
+      // allocator (bar the sole approver), an agent or "login as" under enforcement; under the line lock, pre-write.
+      if (tx) clearance = await assertMayReverse(companyId, tx, payment.settlesProvisionalJeId, userId);
     }
 
     const cancelled = (await sql`
@@ -110,6 +115,7 @@ export async function voidProvisionalSettlement(
         WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}::UUID
       `;
     }
+    if (bankTransactionId) await auditedReversal(companyId, bankTransactionId, userId, clearance, null);
     log.info('Bank-first settlement undone', {
       companyId, paymentId: payment.id, reclassJournalId,
       provisionalJournalId: payment.settlesProvisionalJeId, bankTransactionId,

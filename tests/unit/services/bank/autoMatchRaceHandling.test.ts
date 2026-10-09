@@ -14,6 +14,8 @@
  * concurrent allocation deadlocks on the pair.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
 
 const { sqlMock, matchMock, sp } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn(() => '') }),
@@ -88,7 +90,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     const attempted = matchMock.mock.calls.map((c) => c[1]);
     expect(attempted).toEqual([TX(1), TX(2), TX(3)]);   // in id order, and all three tried
@@ -99,7 +101,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
   it('locks in transaction-id order regardless of query order', async () => {
     matchMock.mockResolvedValue({} as never);
 
-    await autoMatchTransactions(COMPANY, BANK_GL);
+    await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     const attempted = matchMock.mock.calls.map((c) => c[1]);
     expect(attempted).toEqual([...attempted].sort());
@@ -117,7 +119,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
@@ -135,7 +137,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
@@ -149,7 +151,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) throw Object.assign(new Error('deadlock detected'), { code: '40P01' });
       return { id: txId };
     });
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
     expect(result.matched).toBe(2);
     expect(result.skippedRaced).toBe(1);
   });
@@ -161,7 +163,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(1)) throw new BankTransactionLockTimeoutError(txId);
       return { id: txId };
     });
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
     expect(insideSavepoint, 'every matchTransaction ran inside a savepoint').toEqual([true, true, true]);
     expect(sp.names.filter((n) => n === 'auto_match_row')).toHaveLength(3);
     expect(sp.names[0]).toBe('auto_match_run');
@@ -175,7 +177,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) throw new BankAllocationRefusal('This bank line is booked by provisional journal JE-1');
       return { id: txId };
     });
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
     expect(result.matched).toBe(2);
     expect(result.skippedRefused).toBe(1);
   });
@@ -190,7 +192,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
     sqlMock.mockReset();
     sqlMock.mockResolvedValueOnce([{ id: 'r', status: 'in_progress' }] as never);
     queueCandidates();
-    await expect(autoMatchTransactions(COMPANY, BANK_GL, 'r')).rejects.toBe(err);
+    await expect(autoMatchTransactions(COMPANY, BANK_GL, 'r', 'user-1')).rejects.toBe(err);
     expect(sp.rolledBack, 'the run savepoint rolled back (the earlier match is discarded)').toBeGreaterThanOrEqual(1);
     expect(sp.names).toContain('auto_match_run');
   });
@@ -198,7 +200,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
   it('re-throws when EVERY attempted candidate was held', async () => {
     const err = new BankTransactionLockTimeoutError(TX(1));
     matchMock.mockImplementation(async () => { throw err; });
-    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toBe(err);
+    await expect(autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1')).rejects.toBe(err);
   });
 
   it('does not re-throw when only some were held and the others were raced or matched', async () => {
@@ -207,7 +209,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) throw new BankTransactionAllocatedError(txId, 'allocated');
       return { id: txId };
     });
-    expect((await autoMatchTransactions(COMPANY, BANK_GL)).matched).toBe(1);
+    expect((await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1')).matched).toBe(1);
   });
 
   // A locked TABLE is skipped like a race — the run must not lose the matches
@@ -220,7 +222,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
@@ -237,7 +239,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
 
     expect(result.matched).toBe(1);
     expect(result.skippedRaced).toBe(1);
@@ -251,7 +253,7 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       if (txId === TX(2)) throw new BankMatchTargetError(code, `Journal line jl-2: ${code}`);
       return { id: txId };
     });
-    const result = await autoMatchTransactions(COMPANY, BANK_GL);
+    const result = await autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1');
     expect(matchMock.mock.calls.map((c) => c[1])).toEqual([TX(1), TX(2), TX(3)]);
     expect(result.matched).toBe(2);
     expect(result.skippedRefused).toBe(1);
@@ -264,6 +266,6 @@ describe('autoMatchTransactions — one raced row must not abort the run', () =>
       return { id: txId };
     });
 
-    await expect(autoMatchTransactions(COMPANY, BANK_GL)).rejects.toThrow('FK violation');
+    await expect(autoMatchTransactions(COMPANY, BANK_GL, undefined, 'user-1')).rejects.toThrow('FK violation');
   });
 });

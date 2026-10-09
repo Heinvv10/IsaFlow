@@ -22,6 +22,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { BankControlError, isSoleAtFloor } from './bankControlRefusal';
 import { coupledTypes, isEnforced } from '../gl/approvalEnforcement';
+import { findJournalChainRoot } from '../shared/journalChainHead';
 
 /** The approval type an allocation (or its reversal) is judged under. */
 export type BankArm = 'manual_journal' | 'supplier_payment';
@@ -109,46 +110,94 @@ export async function assertImporterMayAllocateAs(
 }
 
 /**
- * Matching a statement line to a journal books the line's cash to that
- * journal's accounts — the same ledger result as allocating it. So under
- * manual_journal enforcement the importer may not match their own batch's line
- * to a journal THEY created (case-insensitive), sole approver excepted; a
- * journal someone else created stays matchable. Unlocked reads: a line's
- * provenance and a journal's creator never change. Throws the 403.
+ * The arm of the allocation behind `line` (its journal's chain root `rootId`) and who made it — the journal's,
+ * the payment document's and the auto-post run's creator (the zero uuid is nobody); null when ungated (money in).
+ * Shared by the reversal gate and the match gate, so both judge one allocation alike.
  */
-export async function assertImporterMayMatch(
-  companyId: string, bankTxId: string, journalLineId: string, actorUserId: string,
-): Promise<void> {
+export async function allocationFacts(companyId: string, line: DbRow, rootId: string | null): Promise<{ arm: BankArm; allocators: string[] } | null> {
+  if (!rootId) return null;
   const [row] = (await sql`
-    SELECT bt.import_batch_id, bt.bank_feed_connection_id, je.created_by::TEXT AS journal_by
-    FROM bank_transactions bt
-    LEFT JOIN gl_journal_lines jl ON jl.id = ${journalLineId}::UUID AND jl.company_id = bt.company_id
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = bt.company_id
-    WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
+    SELECT (SELECT created_by::TEXT FROM gl_journal_entries WHERE id = ${rootId}::UUID AND company_id = ${companyId}::UUID) AS journal_by,
+           (SELECT created_by::TEXT FROM bank_auto_post_runs
+             WHERE id = ${line.auto_post_run_id == null ? null : String(line.auto_post_run_id)}::UUID
+               AND company_id = ${companyId}::UUID) AS run_by,
+           doc.kind, doc.created_by AS doc_by
+    FROM (SELECT 1) one
+    LEFT JOIN LATERAL (
+      SELECT 'supplier' AS kind, created_by::TEXT AS created_by FROM supplier_payment_batches
+        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
+      UNION ALL SELECT 'supplier', created_by::TEXT FROM supplier_payments
+        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
+      UNION ALL SELECT 'customer', created_by::TEXT FROM customer_payments
+        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
+      LIMIT 1
+    ) doc ON true
   `) as DbRow[];
-  if (row?.journal_by == null || !sameUser(row.journal_by, actorUserId)) return;
-  await assertImporterMayAllocate(companyId, row, actorUserId, 'manual_journal');
+  // The allocation side's one mapping: a document is a contact; a plain journal is the account arm.
+  const arm = row?.kind ? importerArmOf(String(row.kind), 'document', Number(line.amount)) : 'manual_journal';
+  if (!arm) return null; // money in: a receipt, a supplier refund
+  const allocators = [...new Set([row?.journal_by, row?.doc_by, row?.run_by]
+    .filter((id): id is string => typeof id === 'string' && id !== NOBODY))];
+  return { arm, allocators };
 }
 
 /**
- * Auto-match's twin of assertImporterMayMatch: the run acts for the person who
- * triggered it (A3), so under manual_journal enforcement the bank lines among
- * `pairs` that person imported AND whose journal they created are held —
- * skipped and counted, never matched; sole approver excepted. One read per run.
+ * Matching a statement line to a journal books the line's cash to what that
+ * journal is — the same ledger result as allocating it. So the importer may
+ * not match their own batch's line to an allocation THEY made (they created
+ * the journal or its payment document, case-insensitively), on that
+ * allocation's arm (allocationFacts: a supplier payment or batch leg is
+ * supplier_payment, a customer refund or plain journal manual_journal, money
+ * in ungated), under its enforcement; sole approver excepted. Someone else's
+ * journal stays matchable. Unlocked reads: provenance and creators never change.
+ */
+export async function importerMatchRefusal(
+  companyId: string, bankTxId: string, journalLineId: string, actorUserId: string,
+): Promise<BankControlError | null> {
+  const [row] = (await sql`
+    SELECT bt.import_batch_id, bt.bank_feed_connection_id, bt.amount, jl.journal_entry_id::TEXT AS journal_id
+    FROM bank_transactions bt
+    LEFT JOIN gl_journal_lines jl ON jl.id = ${journalLineId}::UUID AND jl.company_id = bt.company_id
+    WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (row?.journal_id == null || row.import_batch_id == null) return null;
+  const rootId = (await findJournalChainRoot(companyId, String(row.journal_id))) ?? String(row.journal_id);
+  const facts = await allocationFacts(companyId, { amount: row.amount, auto_post_run_id: null }, rootId);
+  if (!facts || !facts.allocators.some((id) => sameUser(id, actorUserId))) return null;
+  return importerAllocationRefusal(companyId, row, actorUserId, facts.arm);
+}
+
+/** importerMatchRefusal, thrown (403) — the explicit match routes, before matchTransaction. */
+export async function assertImporterMayMatch(
+  companyId: string, bankTxId: string, journalLineId: string, actorUserId: string,
+): Promise<void> {
+  const refused = await importerMatchRefusal(companyId, bankTxId, journalLineId, actorUserId);
+  if (refused) throw refused;
+}
+
+/**
+ * Auto-match's twin: the run acts for the person who triggered it (A3), so
+ * the pairs importerMatchRefusal would refuse that person are held — skipped
+ * and counted, never matched. One read of the run's lines that person
+ * imported; only those pairs are judged.
  */
 export async function importerHeldMatchPairs(companyId: string, actorUserId: string,
   pairs: readonly { bankTransactionId: string; journalLineId: string }[]): Promise<Set<string>> {
-  if (pairs.length === 0 || !(await armEnforced(companyId, 'manual_journal'))) return new Set();
-  const own = new Set(((await sql`
-    SELECT bt.id FROM unnest(${pairs.map((p) => p.bankTransactionId)}::UUID[], ${pairs.map((p) => p.journalLineId)}::UUID[]) AS p(tx, jl)
-    JOIN bank_transactions bt ON bt.id = p.tx AND bt.company_id = ${companyId}::UUID
+  const held = new Set<string>();
+  if (pairs.length === 0) return held;
+  if (!(await armEnforced(companyId, 'manual_journal')) && !(await armEnforced(companyId, 'supplier_payment'))) return held;
+  const mine = new Set(((await sql`
+    SELECT bt.id FROM bank_transactions bt
     JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
-    JOIN gl_journal_lines jl ON jl.id = p.jl AND jl.company_id = bt.company_id
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = bt.company_id
-    WHERE bt.bank_feed_connection_id IS NULL
-      AND lower(b.imported_by) = lower(${actorUserId}) AND lower(je.created_by::TEXT) = lower(${actorUserId})
+    WHERE bt.company_id = ${companyId}::UUID AND bt.id = ANY(${pairs.map((p) => p.bankTransactionId)}::UUID[])
+      AND bt.bank_feed_connection_id IS NULL AND lower(b.imported_by) = lower(${actorUserId})
   `) as DbRow[]).map((r) => String(r.id)));
-  return own.size === 0 || await isSoleAsCaller(companyId, actorUserId) ? new Set() : own;
+  for (const p of pairs) {
+    if (mine.has(p.bankTransactionId) && await importerMatchRefusal(companyId, p.bankTransactionId, p.journalLineId, actorUserId)) {
+      held.add(p.bankTransactionId);
+    }
+  }
+  return held;
 }
 
 /** importerAllocationRefusal for a line by id, company-scoped (an MCP pre-check, unlocked); null when there is no such line. */
