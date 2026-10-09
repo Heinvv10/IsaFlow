@@ -1,0 +1,23 @@
+Migration 877 on a prod-topology copy (2026-10-09)
+
+Prod's role graph (memory: prod_deploy_role_not_superuser): tables owned by the non-superuser
+`migration_admin`; the deploy role `postgres` is a NON-superuser member of `migration_admin` and
+`app_user`. Every fixture's `postgres` is a superuser, so this was rebuilt in a disposable DB:
+
+  isaflow_prodtopo (container isaflow-fixture-bankctl): master's schema at 876, then
+  - every table/view in public/app/auth and every routine there reassigned to migration_admin;
+  - migration_admin made BYPASSRLS (as on prod), NOSUPERUSER;
+  - login role prodtopo_deployer: NOSUPERUSER BYPASSRLS, member of migration_admin and app_user.
+
+Applied AS prodtopo_deployer:
+  psql -h 127.0.0.1 -U prodtopo_deployer -d isaflow_prodtopo -1 -v ON_ERROR_STOP=1 -f 877_bank_controls_step2.sql
+  -> applied, no error (only "does not exist, skipping" NOTICEs from DROP TRIGGER IF EXISTS).
+
+Resulting ACLs (owner = the applying role, as on prod; app_user only SELECT+INSERT, view SELECT):
+  bank_rule_change_decisions | prodtopo_deployer | {prodtopo_deployer=arwdDxt/..., app_user=ar/...}
+  bank_rule_change_states    | prodtopo_deployer | {prodtopo_deployer=arwdDxt/..., app_user=r/...}
+  bank_rule_changes          | prodtopo_deployer | {prodtopo_deployer=arwdDxt/..., app_user=ar/...}
+
+877 contains no privilege ASSERTION (the 872 failure class); its REVOKE loop exempts the table's
+owner only, whichever role that is. ALTER TABLE / CREATE TRIGGER on migration_admin-owned tables
+(bank_import_batches, bank_categorisation_rules, approval_enforcement) succeed through membership.
