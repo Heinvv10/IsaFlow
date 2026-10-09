@@ -66,8 +66,10 @@ export async function approveCreditNote(
     // FX PR0, before any write: the note itself, and the invoice approving it
     // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
     await assertStoredDocumentPostable(companyId, 'credit_note', id);
-    const linked = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
-    if (linked) await assertStoredDocumentPostable(companyId, String(cn.type) === 'customer' ? 'customer_invoice' : 'supplier_invoice', String(linked));
+    const [linkedType, linked] = String(cn.type) === 'customer'
+      ? ['customer_invoice', cn.customer_invoice_id] as const
+      : ['supplier_invoice', cn.supplier_invoice_id] as const;
+    if (linked) await assertStoredDocumentPostable(companyId, linkedType, String(linked));
 
     let lines: JournalLineInput[];
     // The note's CC1/CC2/BU ride on its revenue/expense leg only — never AR/AP/VAT (brief §5.3).
