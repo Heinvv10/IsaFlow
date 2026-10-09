@@ -48,15 +48,28 @@
 -- last-owner rule today, and keeps none here (it takes the lock, so an app
 -- demotion racing it is still judged after it). LIMIT: a transaction that
 -- demotes two owners while another demotes them in the other order can
--- deadlock (40P01) — the row lock is taken before the trigger; no app path
--- edits two members in one transaction.
+-- deadlock (40P01) — the row lock is taken before the trigger. No app route
+-- edits two members in one transaction; the portal's delete-user and
+-- reset-onboarding delete one user's rows across companies in one statement
+-- (one lock per company where they are owner), so two of them running at once
+-- over overlapping companies in opposite order could.
 --
 -- Precondition (section 0): owner invitations an admin sent or rewrote
 -- BEFORE this migration — the route and RLS allowed it until now — would
 -- stay live, their token the admin's, and `invited_by` cannot tell them
 -- apart (it was writable too). 883 refuses to apply while ANY unaccepted,
--- unexpired owner invitation exists: cancel them first, and an owner
--- re-issues them afterwards (the query is in the R-035 N1b handoff).
+-- unexpired owner invitation exists (role compared trimmed and lower-cased:
+-- the accept routes copy an `Owner ` verbatim). Cancel them first, on dev
+-- AND prod (the deploy's parity gate applies this to dev before CI), and an
+-- owner re-issues them afterwards. Read-only, before deploying:
+--   SELECT id, company_id, created_at FROM public.company_invitations
+--   WHERE pg_catalog.lower(pg_catalog.btrim(role)) = 'owner'
+--     AND accepted_at IS NULL AND expires_at > now();
+-- The count reads with row_security off, so a migration role that RLS would
+-- filter (not superuser, not BYPASSRLS) fails here instead of seeing none.
+-- LIMIT: owner MEMBERSHIPS an admin granted, and owner invitations already
+-- accepted, before 883 cannot be told apart from legitimate ones and are not
+-- touched; list owners per company and review them by hand if in doubt.
 --
 -- Refusals (SQLSTATE): RC001 not an owner/admin of the company · RC002 role
 -- outside the allow-list · RC003 only an owner grants owner · RC004 a column
@@ -68,13 +81,23 @@
 DO $$
 DECLARE
   v_n pg_catalog.int8;
+  v_ids pg_catalog.text;
 BEGIN
+  -- No new owner invitation between this count and the triggers below.
+  LOCK TABLE public.company_invitations IN SHARE ROW EXCLUSIVE MODE;
+  -- FORCE RLS applies to the owner: unless this role bypasses it, the count
+  -- would see no rows and pass. With row_security off it raises instead.
+  PERFORM pg_catalog.set_config('row_security', 'off', true);
   -- Every live one, whoever it names as sender: before 883 an admin could
   -- write any `invited_by` by raw SQL, so the column proves nothing.
-  SELECT pg_catalog.count(*) INTO v_n FROM public.company_invitations ci
-  WHERE ci.role = 'owner' AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now();
+  SELECT pg_catalog.count(*), pg_catalog.string_agg(ci.id::pg_catalog.text || ' (company ' || ci.company_id::pg_catalog.text || ')', ', ' ORDER BY ci.id)
+  INTO v_n, v_ids FROM public.company_invitations ci
+  WHERE pg_catalog.lower(pg_catalog.btrim(ci.role)) = 'owner'
+    AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now();
+  PERFORM pg_catalog.set_config('row_security', 'on', true);
   IF v_n > 0 THEN
-    RAISE EXCEPTION 'migration 883: % pending owner invitation(s) exist and may have been sent or rewritten by a non-owner — cancel them before applying; an owner re-issues them afterwards', v_n;
+    RAISE EXCEPTION 'migration 883: % pending owner invitation(s) exist and may have been sent or rewritten by a non-owner — cancel them before applying; an owner re-issues them afterwards: %', v_n, v_ids
+      USING HINT = 'Cancel with: DELETE FROM public.company_invitations WHERE id IN (<the ids above>); run the same check on dev and prod before deploying.';
   END IF;
 END $$;
 
