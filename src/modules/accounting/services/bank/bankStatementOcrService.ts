@@ -189,6 +189,21 @@ export async function commitImport(
   const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
+  // Step 2 provenance: the batch the lines name (its id is this import's), recording the committing user as the
+  // importer — who may then not allocate these lines under enforcement — and the uploaded document's SHA-256.
+  if (nonDupes.length > 0) {
+    await sql`
+      INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, transaction_count,
+        source_filename, imported_by, import_channel, file_sha256)
+      SELECT si.id, si.company_id, si.bank_account_id, COALESCE(si.period_end, ${nonDupes.map((r) => r.date).sort().at(-1)!}::DATE),
+             ${nonDupes.length}, cd.file_name, ${userId}, 'statement_ocr',
+             CASE WHEN cd.raw_bytes_sha256 ~ '^[0-9a-f]{64}$' THEN cd.raw_bytes_sha256 END
+      FROM bank_statement_imports si
+      LEFT JOIN captured_documents cd ON cd.id = si.source_document_id AND cd.company_id = si.company_id
+      WHERE si.id = ${importId}::uuid AND si.company_id = ${companyId}::uuid
+    `;
+  }
+
   let insertedCount = 0;
   for (const row of nonDupes) {
     await sql`

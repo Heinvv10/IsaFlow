@@ -11,6 +11,7 @@ import { parseStatement, type StatementFileType } from './bankStatementParseServ
 import { withLedgerDays } from './bankStatementLedgerDays';
 import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
+import type { ImportProvenance } from './importProvenance';
 
 /**
  * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
@@ -112,9 +113,9 @@ export async function importParsedTransactions(
   parsed: BankCsvParseResult,
   bankAccountId: string,
   statementDate: string,
-  options: {
+  // importedBy / importChannel / fileSha256: the batch's provenance (importProvenance.ts), fixed once written.
+  options: ImportProvenance & {
     sourceFilename?: string;
-    importedBy?: string;
     bulkContext?: BulkImportContext;
     /**
      * Insert the batch and its rows, then stop — skip every post-insert side
@@ -155,12 +156,12 @@ export async function importParsedTransactions(
         INSERT INTO bank_import_batches (
           id, company_id, bank_account_id, statement_date, bank_format,
           transaction_count, source_filename, imported_by,
-          bulk_import_id, bulk_sequence, source_file_size_bytes
+          bulk_import_id, bulk_sequence, source_file_size_bytes, import_channel, file_sha256
         ) VALUES (
           ${batchId}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID,
           ${statementDate}::DATE, ${bankFormat},
           ${parseResult.transactions.length}, ${sourceFilename}, ${importedBy},
-          ${bulkImportId}, ${bulkSequence}, ${sourceFileSizeBytes}
+          ${bulkImportId}, ${bulkSequence}, ${sourceFileSizeBytes}, ${options.importChannel ?? null}, ${options.fileSha256 ?? null}
         )
       `;
       for (const txRow of parseResult.transactions) {
@@ -231,8 +232,9 @@ export async function importParsedTransactions(
             AND status = 'imported'
         `) as { id: string }[];
         if (outflowIds.length > 0) {
+          // Posted as the system user, as ever; run FOR the importer, whose own lines it skips under enforcement (step 2).
           const systemUser = '00000000-0000-0000-0000-000000000000';
-          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser);
         }
       });
     } catch (provErr) {

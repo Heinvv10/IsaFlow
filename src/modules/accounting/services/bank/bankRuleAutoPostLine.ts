@@ -22,6 +22,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from './bankFeedStateGuard';
 import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
+import { importerAllocationRefusal } from './bankLineImporterGate';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -35,7 +36,8 @@ export type AutoPostOutcome =
   | { kind: 'no_period' }
   /** Its journal moves a VAT figure and its date is inside a locked (filed) VAT period. */
   | { kind: 'vat_period_locked' }
-  /** A hand-keyed line would pay a supplier past an enforced supplier_payment rule (R-035 PR5, D2). */
+  /** A hand-keyed line would pay a supplier past an enforced supplier_payment rule (R-035 PR5, D2), or post to an
+   *  account past a manual_journal one (PR6 H2) — or the sweep's own user imported the line (step 2). */
   | { kind: 'approval_required' };
 
 export interface AutoPostLineInput {
@@ -128,6 +130,11 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(companyId, totalAmount)) {
     return { kind: 'approval_required' };
   }
+  // Step 2 (Hein, decision 2): the sweep is the person who ran it (the session user), and under the arm's enforced
+  // type they may not allocate a line of a statement they imported — skipped (counted) the same way, from the locked row.
+  const importerArm = allocType === 'account' ? 'manual_journal' as const
+    : allocType === 'supplier' && supplierId && !isDeposit ? 'supplier_payment' as const : null;
+  if (importerArm && await importerAllocationRefusal(companyId, locked, userId, importerArm)) return { kind: 'approval_required' };
   const entryDesc = rule.description_template
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))

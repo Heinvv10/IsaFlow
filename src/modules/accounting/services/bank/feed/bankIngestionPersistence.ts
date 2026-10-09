@@ -79,9 +79,9 @@ export async function createImportBatch(
 ): Promise<void> {
   await sql`
     INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, bank_format,
-      transaction_count, source_filename, imported_by)
+      transaction_count, source_filename, imported_by, import_channel)
     VALUES (${id}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE, ${bankFormat},
-      ${count}, ${sourceLabel}, ${userId})`;
+      ${count}, ${sourceLabel}, ${userId}, 'extension')`; // step 2 provenance: the extension token's user, no file
 }
 
 /** Existing provider-identified rows, locked for the rest of the request. */
