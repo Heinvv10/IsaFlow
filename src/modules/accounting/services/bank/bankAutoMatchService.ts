@@ -29,6 +29,8 @@ export async function autoMatchTransactions(
   /** The person who ran it (step 2, A3): their own statement line paired with their own journal is skipped, counted. */
   triggeredBy: string,
 ): Promise<AutoMatchResult> {
+  // Fails closed: a run for nobody could not tell the person's own pairs apart (step 2) — refused before any read.
+  if (!triggeredBy) throw new Error('autoMatchTransactions: the person who ran it (triggeredBy) is required');
   try {
     // Inside a session, only what that session may reconcile: lines dated on or
     // before its statement date that are unclaimed or its own, against GL lines

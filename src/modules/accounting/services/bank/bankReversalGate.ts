@@ -28,7 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
-import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, sameUser, type BankArm } from './bankLineImporterGate';
+import { allocationFacts, armEnforced, armLabel, isSoleAsCaller, sameUser, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
 import { refuseJournalCashOfCompletedReconciliation } from './reconciledCash';
 import { findJournalChainRoot } from '../shared/journalChainHead';
@@ -39,34 +39,6 @@ const ACTION = 'reverse a bank allocation while approval is on';
 /** What a permitted reversal under enforcement records. */
 export interface ReversalClearance { arm: BankArm; allocators: string[]; soleApprover: boolean }
 
-/** The arm of the allocation behind `line` (matched to chain root `rootId`) and who made it; null when ungated. */
-async function reversalFacts(companyId: string, line: DbRow, rootId: string | null): Promise<{ arm: BankArm; allocators: string[] } | null> {
-  if (!rootId) return null;
-  const [row] = (await sql`
-    SELECT (SELECT created_by::TEXT FROM gl_journal_entries WHERE id = ${rootId}::UUID AND company_id = ${companyId}::UUID) AS journal_by,
-           (SELECT created_by::TEXT FROM bank_auto_post_runs
-             WHERE id = ${line.auto_post_run_id == null ? null : String(line.auto_post_run_id)}::UUID
-               AND company_id = ${companyId}::UUID) AS run_by,
-           doc.kind, doc.created_by AS doc_by
-    FROM (SELECT 1) one
-    LEFT JOIN LATERAL (
-      SELECT 'supplier' AS kind, created_by::TEXT AS created_by FROM supplier_payment_batches
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      UNION ALL SELECT 'supplier', created_by::TEXT FROM supplier_payments
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      UNION ALL SELECT 'customer', created_by::TEXT FROM customer_payments
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      LIMIT 1
-    ) doc ON true
-  `) as DbRow[];
-  // The allocation side's one mapping: a document is a contact; a plain journal is the account arm.
-  const arm = row?.kind ? importerArmOf(String(row.kind), 'document', Number(line.amount)) : 'manual_journal';
-  if (!arm) return null; // money in: a receipt, a supplier refund
-  const allocators = [...new Set([row?.journal_by, row?.doc_by, row?.run_by]
-    .filter((id): id is string => typeof id === 'string' && id !== NOBODY))];
-  return { arm, allocators };
-}
-
 /**
  * The choke point's check (reverseReconciledTransaction): `line` locked, its
  * own refusals passed, nothing written yet. Null when the arm is ungated or not
@@ -76,7 +48,7 @@ async function reversalFacts(companyId: string, line: DbRow, rootId: string | nu
 export async function assertMayReverse(
   companyId: string, line: DbRow, rootId: string | null, actorUserId: string,
 ): Promise<ReversalClearance | null> {
-  const facts = await reversalFacts(companyId, line, rootId);
+  const facts = await allocationFacts(companyId, line, rootId);
   if (!facts || !(await armEnforced(companyId, facts.arm))) return null;
   await assertHumanSession(ACTION);
   const own = facts.allocators.some((id) => sameUser(id, actorUserId));
@@ -127,7 +99,7 @@ export async function lockJournalCashForGlReversal(companyId: string, journalEnt
     WHERE id = ANY(${locked}::UUID[]) AND company_id = ${companyId}::UUID
   `) as DbRow[];
   for (const line of lines) {
-    const facts = await reversalFacts(companyId, line, rootId);
+    const facts = await allocationFacts(companyId, line, rootId);
     if (facts && await armEnforced(companyId, facts.arm)) {
       throw new BankControlError('REVERSE_FROM_BANK_LINE',
         `This journal is a bank allocation, and while ${armLabel(facts.arm)} approval is on it is reversed from its bank `
@@ -187,7 +159,7 @@ export async function agentReversalRefusal(companyId: string, bankTxIds: readonl
       SELECT amount, auto_post_run_id FROM bank_transactions WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
     `) as DbRow[];
     const chain = line ? await peekLineChain(companyId, id) : null;
-    const facts = line ? await reversalFacts(companyId, line, chain?.rootId ?? null) : null;
+    const facts = line ? await allocationFacts(companyId, line, chain?.rootId ?? null) : null;
     if (facts && enforced[facts.arm]) return refusal;
   }
   return null;
