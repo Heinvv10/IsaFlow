@@ -112,20 +112,26 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
   it would block every journal insert's FK key-share check. Journal posting does not take the lock, so a CC2
   carried by a line committed during a move is still possible (the move counts carriers from a snapshot).
   That race is DETECTED, not locked (Hein): the `project_fno_mismatch` integrity check
-  (`gl/integrityChecks/dimensionChecks.ts`, MCP `data_integrity_checks`) flags every such line.
+  (`gl/integrityChecks/dimensionChecks.ts`, MCP `data_integrity_checks`) flags such a carrier: posted journal
+  lines, un-allocated bank lines, issued invoice lines and credit notes (see its header for exactly what).
 - **The payroll routes are the same writer.** `/api/payroll/cost-centres` POST and `[id]` PATCH / DELETE go
   through `planCreate` / `planUpdateDimensionCostCentre` (parentId is a UUID; a centre with a parent is created
   as a CC2; PATCH / DELETE on an id that is not this company's is a 404). There is no other writer of
   `cost_centres` in `src/`.
-- A plan that changes nothing returns `changed: []` and apply writes nothing; routes answer 200 (an idempotent
-  toggle), the MCP tools refuse "Nothing to change".
+- A plan that changes nothing returns `changed: []` and apply writes nothing; routes and MCP tools both answer
+  success (an idempotent toggle; MCP `nothing_changed: true`, not billed).
 - A parent re-sent unchanged is kept as it is (inactive, or reaching no FNO); only a NEW parent is checked. The
   "under an inactive parent" check applies to a reactivation only.
 - Deactivation is refused while `customers.default_cc1_id`, `gl_accounts.default_cc1/cc2_id`,
   `supplier_coding_rules.default_cost_centre_id` (BU: `gl_accounts.default_bu_id`) name it, with the counts.
-- References: id, EXACT code, then code ignoring case — two codes differing only in case refuse the reference;
-  then alias. A rename is clash-checked whenever the code changes at all (a case-only rename too).
+- References: id, then code ignoring case, then alias. A code that matches MORE than one centre — two case
+  variants, or a CC1 and a CC2 — is refused even when one matches exactly: send the id, or the `cc_type`
+  (update / delete plans and `update_cost_centre` / `delete_cost_centre` take it). BUs: send the id. A rename
+  is clash-checked whenever the code changes at all (a case-only rename too). (#683 round 2)
 - Applies write inside their own savepoint and turn a 23505 into the refusal; deletes run the DELETE in a
   savepoint and turn the 23503 into "used by other records". Migration 878 gives the journal and bank
-  cc1/cc2/bu columns RESTRICT FKs (NOT VALID). The delete guard also counts `payroll_employee_history`
-  cost_centre_id values (TEXT, no FK).
+  cc1/cc2/bu columns RESTRICT FKs (NOT VALID; added without a DROP, bank before journal); 879 indexes the
+  bank columns. `payroll_employee_history` is NOT counted by the delete guard: display-only text, and counting
+  it made any ever-assigned centre undeletable. MCP delete dry_run runs the real DELETE in a savepoint that is
+  always rolled back (`core/rolledBackSavepoint`), so it meets the same FKs; a no-op MCP update succeeds
+  (`nothing_changed`), as the routes do.
