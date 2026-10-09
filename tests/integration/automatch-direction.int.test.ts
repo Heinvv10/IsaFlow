@@ -37,18 +37,22 @@ async function statementLine(date: string, amount: number, tag: string): Promise
 }
 /** The N8 shape: a receipt and a payment of 650, a payment of 660; statement lines +650, -650 and -660. */
 async function seedN8(date: string) {
-  // The payment leg is inserted BEFORE the receipt leg: a direction-blind matcher takes the first 650 leg it reads for
-  // the +650 deposit (heap order), so only the direction rule can hand the deposit the receipt.
-  const payment650 = await bankJournal(date, 'payment 650', 0, 650);
+  // DATES, not row order, fix what a direction-blind matcher would do: the +650 deposit (day D) is read before the -650
+  // line (D+1), and the 650 payment leg (D) before the 650 receipt leg (D+1); every leg is within the 3-day window
+  // (0.9). So a matcher that ignores direction hands the deposit the payment's leg. Rows are inserted in the reverse
+  // order, so heap order cannot rescue that matcher either.
+  const next = new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
+  const receipt650 = await bankJournal(next, 'receipt 650', 650, 0);
   const legs = {
-    receipt650: await bankJournal(date, 'receipt 650', 650, 0),
-    payment650,
-    payment660: await bankJournal(date, 'payment 660', 0, 660),
+    receipt650,
+    payment650: await bankJournal(date, 'payment 650', 0, 650),
+    payment660: await bankJournal(next, 'payment 660', 0, 660),
   };
+  const payment650Line = await statementLine(next, -650, 'payment 650');
   const lines = {
     deposit650: await statementLine(date, 650, 'deposit 650'),
-    payment650: await statementLine(date, -650, 'payment 650'),
-    payment660: await statementLine(date, -660, 'payment 660'),
+    payment650: payment650Line,
+    payment660: await statementLine(next, -660, 'payment 660'),
   };
   return { legs, lines };
 }
