@@ -12,6 +12,7 @@
  * one, and only a throw rolls it back.
  */
 import type { McpTool } from '../types';
+import { agentReversalRefusal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   clearAllocationBatch,
@@ -100,6 +101,11 @@ export const reverseBankAllocationBatchTool: McpTool = {
       // (or a second agent) is harmless rather than looking like a failure.
       return ok({ batch_id: batchId, reversed: 0, transaction_ids: [], skipped });
     }
+
+    // Step 2 (Hein, decision 4): no agent reverses an allocation whose arm's type is enforced — the whole batch is
+    // refused before any write, rather than unwound by the first line's refusal.
+    const agentRefusal = await agentReversalRefusal(ctx.companyId, toReverse.map((l) => l.transactionId));
+    if (agentRefusal) return toolError(agentRefusal.message);
 
     // Same deterministic lock order as the allocate handler: reversal locks the
     // same rows, so an unsorted loop deadlocks against a concurrent batch.

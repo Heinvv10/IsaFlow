@@ -38,6 +38,7 @@ import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateSt
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 import { assertImporterMayAllocate, importerArmOf } from './bankLineImporterGate';
+import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
@@ -810,7 +811,13 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
-  if (chain?.doc) return reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts);
+  // Step 2 (Hein, decision 4): under the arm's enforced type, no agent, and not the allocator (bar the sole approver);
+  // refused here, before any write — a permitted reversal is audited once it is done.
+  const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId);
+  if (chain?.doc) {
+    return auditedReversal(companyId, bankTxId, userId, clearance,
+      await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
+  }
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
   // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
   const journalEntryId = chain?.rootId ?? null;
@@ -873,6 +880,7 @@ async function reverseReconciledInner(
     return result;
   });
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
+  await auditedReversal(companyId, bankTxId, userId, clearance, null);
   // Reported rather than discarded: `void_receipt` delegates to this function
   // and previously had to answer "0 invoices reopened" for the branch that does
   // the MOST work, because the counts were computed here and thrown away. An
