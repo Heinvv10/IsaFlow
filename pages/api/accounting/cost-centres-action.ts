@@ -19,6 +19,7 @@ import {
   type UpdateDimensionCostCentreInput,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { UUID_RE } from '@/lib/validation';
 
 /** The form's fields: absent = unchanged, '' = clear (parent detaches). */
 function updateInput(data: Record<string, unknown>): UpdateDimensionCostCentreInput {
@@ -38,6 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const { action, id, ...data } = req.body;
   if (!id) return apiResponse.badRequest(res, 'id required');
+  if (!UUID_RE.test(String(id))) return apiResponse.badRequest(res, 'id must be a cost centre UUID');
 
   try {
     switch (action) {

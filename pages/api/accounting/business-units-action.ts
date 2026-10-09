@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import {
   applyUpdateBusinessUnit, BusinessUnitActionError, deleteBusinessUnit, planUpdateBusinessUnit, type BusinessUnitUpdate,
 } from '@/modules/accounting/services/core/businessUnitService';
+import { UUID_RE } from '@/lib/validation';
 
 /** The form's fields: absent = unchanged, '' = clear (division / description). */
 function text(data: Record<string, unknown>, key: string): string | undefined {
@@ -26,6 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const { action, id, ...data } = req.body;
   if (!action || !id) return apiResponse.badRequest(res, 'action and id required');
+  if (!UUID_RE.test(String(id))) return apiResponse.badRequest(res, 'id must be a business unit UUID');
 
   try {
     const update = async (input: BusinessUnitUpdate) =>

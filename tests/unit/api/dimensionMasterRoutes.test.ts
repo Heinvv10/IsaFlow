@@ -42,6 +42,8 @@ import { CostCentreActionError } from '@/modules/accounting/services/core/costCe
 import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 type Handler = (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>;
+const CC = '11111111-1111-4111-8111-111111111111';
+const BU = '22222222-2222-4222-8222-222222222222';
 async function call(handler: unknown, method: string, body: Record<string, unknown> = {}, query: Record<string, string> = {}) {
   const req = { method, query, body, companyId: 'co-1', user: { id: 'user-1' } } as unknown as NextApiRequest;
   const res = {
@@ -54,43 +56,43 @@ async function call(handler: unknown, method: string, body: Record<string, unkno
   return { status: res.statusCode, data: sent?.data, message: sent?.error?.message };
 }
 
-const PLAN = { before: { id: 'cc-1' }, after: { code: 'C' }, changed: [] as string[], warnings: [] };
+const PLAN = { before: { id: CC }, after: { code: 'C' }, changed: [] as string[], warnings: [] };
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue(PLAN as never);
-  vi.mocked(planUpdateBusinessUnit).mockResolvedValue({ before: { id: 'bu-1' }, changed: [] } as never);
-  vi.mocked(applyUpdateBusinessUnit).mockResolvedValue({ id: 'bu-1' } as never);
+  vi.mocked(planUpdateBusinessUnit).mockResolvedValue({ before: { id: BU }, changed: [] } as never);
+  vi.mocked(applyUpdateBusinessUnit).mockResolvedValue({ id: BU } as never);
 });
 
 describe('cost-centres-action', () => {
   it('update: absent stays absent, \'\' clears the parent, a value sets it; aliases pass as a list', async () => {
-    await call(costCentresAction, 'POST', { action: 'update', id: 'cc-1', name: 'N' });
+    await call(costCentresAction, 'POST', { action: 'update', id: CC, name: 'N' });
     const first = vi.mocked(planUpdateDimensionCostCentre).mock.calls[0]![2];
     expect(first).toEqual({ code: undefined, name: 'N', description: undefined, department: undefined });
     expect('parent' in first).toBe(false);
-    await call(costCentresAction, 'POST', { action: 'update', id: 'cc-1', parent: '  ', description: '', aliases: ['A', 3] });
+    await call(costCentresAction, 'POST', { action: 'update', id: CC, parent: '  ', description: '', aliases: ['A', 3] });
     expect(vi.mocked(planUpdateDimensionCostCentre).mock.calls[1]![2]).toMatchObject({ parent: null, description: '', aliases: ['A'] });
-    await call(costCentresAction, 'POST', { action: 'update', id: 'cc-1', parent: 'FT001' });
+    await call(costCentresAction, 'POST', { action: 'update', id: CC, parent: 'FT001' });
     expect(vi.mocked(planUpdateDimensionCostCentre).mock.calls[2]![2]).toMatchObject({ parent: 'FT001' });
   });
 
   it('toggle: a toggle to the current state (no change) is a 200 (M4); isActive false deactivates, absent activates', async () => {
-    const r = await call(costCentresAction, 'POST', { action: 'toggle', id: 'cc-1', isActive: true });
+    const r = await call(costCentresAction, 'POST', { action: 'toggle', id: CC, isActive: true });
     expect(r.status).toBe(200);
     expect(r.data).toEqual({ toggled: true });
-    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', 'cc-1', { isActive: true });
-    await call(costCentresAction, 'POST', { action: 'toggle', id: 'cc-1', isActive: false });
-    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', 'cc-1', { isActive: false });
-    await call(costCentresAction, 'POST', { action: 'toggle', id: 'cc-1' });
-    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', 'cc-1', { isActive: true });
+    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', CC, { isActive: true });
+    await call(costCentresAction, 'POST', { action: 'toggle', id: CC, isActive: false });
+    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', CC, { isActive: false });
+    await call(costCentresAction, 'POST', { action: 'toggle', id: CC });
+    expect(planUpdateDimensionCostCentre).toHaveBeenLastCalledWith('co-1', CC, { isActive: true });
   });
 
   it('delete plans (counted guard), then applies', async () => {
-    vi.mocked(planDeleteDimensionCostCentre).mockResolvedValue({ id: 'cc-1' } as never);
-    const r = await call(costCentresAction, 'POST', { action: 'delete', id: 'cc-1' });
+    vi.mocked(planDeleteDimensionCostCentre).mockResolvedValue({ id: CC } as never);
+    const r = await call(costCentresAction, 'POST', { action: 'delete', id: CC });
     expect(r.status).toBe(200);
-    expect(applyDeleteDimensionCostCentre).toHaveBeenCalledWith('co-1', { id: 'cc-1' }, 'user-1');
+    expect(applyDeleteDimensionCostCentre).toHaveBeenCalledWith('co-1', { id: CC }, 'user-1');
   });
 
   it.each([
@@ -98,7 +100,7 @@ describe('cost-centres-action', () => {
     ['a usage refusal', new CostCentreActionError('Cannot delete cost centre that is used by 2 journal line(s). Deactivate instead.')],
   ])('%s is a 400 with its message, logged as a warning (L5)', async (_l, err) => {
     vi.mocked(planDeleteDimensionCostCentre).mockRejectedValueOnce(err);
-    const r = await call(costCentresAction, 'POST', { action: 'delete', id: 'cc-1' });
+    const r = await call(costCentresAction, 'POST', { action: 'delete', id: CC });
     expect(r).toMatchObject({ status: 400, message: err.message });
     expect(log.warn).toHaveBeenCalledWith('Cost centre action refused', expect.anything(), 'accounting-api');
     expect(log.error).not.toHaveBeenCalled();
@@ -106,7 +108,7 @@ describe('cost-centres-action', () => {
 
   it('an unexpected error stays generic and is logged as an error', async () => {
     vi.mocked(applyUpdateDimensionCostCentre).mockRejectedValueOnce(new Error('relation "x" does not exist'));
-    const r = await call(costCentresAction, 'POST', { action: 'update', id: 'cc-1', name: 'N' });
+    const r = await call(costCentresAction, 'POST', { action: 'update', id: CC, name: 'N' });
     expect(r).toMatchObject({ status: 400, message: 'Action failed' });
     expect(log.error).toHaveBeenCalledWith('Cost centre action failed', expect.anything(), 'accounting-api');
   });
@@ -129,21 +131,21 @@ describe('cost-centres', () => {
 
 describe('business-units-action', () => {
   it('update: absent stays absent, \'\' clears division and description', async () => {
-    await call(businessUnitsAction, 'POST', { action: 'update', id: 'bu-1', name: 'Ops', division: '', description: 7 });
-    expect(planUpdateBusinessUnit).toHaveBeenCalledWith('co-1', 'bu-1',
+    await call(businessUnitsAction, 'POST', { action: 'update', id: BU, name: 'Ops', division: '', description: 7 });
+    expect(planUpdateBusinessUnit).toHaveBeenCalledWith('co-1', BU,
       { code: undefined, name: 'Ops', description: undefined, division: '' });
   });
 
   it('toggle goes through the plan (defaults, clash) and a toggle to the current state is a 200', async () => {
-    const r = await call(businessUnitsAction, 'POST', { action: 'toggle', id: 'bu-1', isActive: false });
+    const r = await call(businessUnitsAction, 'POST', { action: 'toggle', id: BU, isActive: false });
     expect(r.status).toBe(200);
-    expect(planUpdateBusinessUnit).toHaveBeenCalledWith('co-1', 'bu-1', { isActive: false });
+    expect(planUpdateBusinessUnit).toHaveBeenCalledWith('co-1', BU, { isActive: false });
     expect(applyUpdateBusinessUnit).toHaveBeenCalled();
   });
 
   it('a refusal is a 400 with its message, logged as a warning; delete goes to the counted service', async () => {
     vi.mocked(deleteBusinessUnit).mockRejectedValueOnce(new BusinessUnitActionError('Cannot delete business unit that is used by 3 journal line(s). Deactivate instead.'));
-    const r = await call(businessUnitsAction, 'POST', { action: 'delete', id: 'bu-1' });
+    const r = await call(businessUnitsAction, 'POST', { action: 'delete', id: BU });
     expect(r).toMatchObject({ status: 400, message: 'Cannot delete business unit that is used by 3 journal line(s). Deactivate instead.' });
     expect(log.warn).toHaveBeenCalled();
     expect(log.error).not.toHaveBeenCalled();
@@ -162,5 +164,21 @@ describe('business-units', () => {
     const r = await call(businessUnits, 'POST', { name: 'Ops' });
     expect(r.status).toBe(400);
     expect(createBusinessUnit).not.toHaveBeenCalled();
+  });
+});
+
+describe('a non-UUID id is a 400 before any service call (#683 round 2)', () => {
+  it.each([
+    ['cost-centres-action', costCentresAction, 'id must be a cost centre UUID'],
+    ['business-units-action', businessUnitsAction, 'id must be a business unit UUID'],
+  ])('%s', async (_n, handler, message) => {
+    for (const action of ['update', 'toggle', 'delete']) {
+      const r = await call(handler, 'POST', { action, id: 'FT001' });
+      expect(r).toMatchObject({ status: 400, message });
+    }
+    expect(planUpdateDimensionCostCentre).not.toHaveBeenCalled();
+    expect(planDeleteDimensionCostCentre).not.toHaveBeenCalled();
+    expect(planUpdateBusinessUnit).not.toHaveBeenCalled();
+    expect(deleteBusinessUnit).not.toHaveBeenCalled();
   });
 });
