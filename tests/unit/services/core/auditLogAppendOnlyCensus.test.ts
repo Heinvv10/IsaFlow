@@ -2,138 +2,154 @@
  * R-035 N1b (A, migration 880): audit_log is append-only.
  *
  * After 880 no role but the table's owner may UPDATE, DELETE, TRUNCATE or
- * lock (`FOR UPDATE` / `FOR SHARE` need UPDATE) audit_log, so any app path
- * that did would 500 at runtime with 42501. This census finds one before it
- * ships: it enumerates BY TABLE — every statement that names the table and
- * erases, rewrites or locks it — over the source tree on DISK (not
- * `git ls-files`, which would pass an untracked new writer). INSERT is
- * untouched by 880 and is not counted.
+ * lock (`FOR UPDATE` / `FOR SHARE` need UPDATE) audit_log, nor INSERT … ON
+ * CONFLICT DO UPDATE (needs UPDATE), so any app path that did would 500 at
+ * runtime with 42501. This census finds one before it ships, BY TABLE, over
+ * the source tree on disk (tests/unit/helpers/sourceCensus.ts: what is read,
+ * and how comments are stripped without hiding a statement in a string).
  *
- * Migrations run as the owner and may still write the table; a LATER
- * migration that hands an erase privilege back, grants app_user or
- * platform_admin a role, moves the table's owner, or itself rewrites or
- * deletes audit rows undoes 880's point, so those are refused too (a real
- * data repair, as 293 once was, has to change this census on purpose).
+ * Migrations run as the owner and may still write the table, so they are
+ * judged differently: EVERY migration file but 880 — whatever its number, so
+ * an 877–879 merged after 880, or an `880b_`, is judged too (blind review M1,
+ * M2) — is checked for anything that would hand the erase back or route
+ * around it: a write grant on the table, `ALL TABLES IN SCHEMA public`, a role
+ * grant to app_user or platform_admin, an owner move, an erase or rewrite of
+ * rows, an ALTER, a trigger, a rule, a view, a drop or re-create of the table
+ * (adversarial review REPRO 4 and 5). The ones that predate 880 are pinned by
+ * name, each read; a new one fails until someone reads it and pins it.
  *
- * It is a TEXT check with the limits of approvalRequestWriteCensus: a grant
- * or statement built at run time slips past it. The live catalogue is read by
- * tests/integration/r035-n1b-audit-catalog against DATABASE_URL.
+ * It is a TEXT check; tests/integration/r035-n1b-audit-catalog reads the live
+ * catalogue (grants, views, function bodies) against DATABASE_URL.
  */
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { migrationNumber, sourceFiles, stripComments, type SourceFile } from '../../helpers/sourceCensus';
 
-const ROOT = path.resolve(__dirname, '../../../..');
-const ROOTS = ['src', 'pages', 'scripts', 'lib'];
-const SOURCE = /\.(ts|tsx|js|mjs|cjs|sql)$/;
 const MIGRATIONS = 'scripts/migrations/sql/';
-const APPEND_ONLY_FROM = 880;
-
-function walk(dir: string, out: string[]): void {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, out);
-    else if (SOURCE.test(entry.name)) out.push(full);
-  }
-}
-
-function sourceFiles(): { file: string; text: string }[] {
-  const files: string[] = [];
-  for (const root of ROOTS) walk(path.join(ROOT, root), files);
-  return files.map((f) => ({ file: path.relative(ROOT, f), text: readFileSync(f, 'utf8') }));
-}
-
-/** Comments out: a comment naming the table is not a statement. */
-const stripComments = (text: string): string =>
-  text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\w])\/\/[^\n]*/g, '$1').replace(/--[^\n]*/g, ' ');
-
+const OWN = '880_audit_log_append_only.sql';
 const TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?audit_log"?\b`;
-const ERASE = new RegExp(String.raw`\b(?:update|delete\s+from|truncate(?:\s+table)?|merge\s+into)\s+${TABLE}`, 'i');
+const ERASE = [
+  new RegExp(String.raw`\b(?:update|delete\s+from|merge\s+into)\s+${TABLE}`, 'i'),
+  // TRUNCATE takes a list: `TRUNCATE companies, audit_log` (REPRO 3, E1).
+  /\btruncate\b[^;]*?\baudit_log\b/i,
+];
 const LOCK = /\bfor\s+(?:no\s+key\s+update|key\s+share|update|share)\b/i;
+const UPSERT = /\bon\s+conflict\b[^;]*?\bdo\s+update\b/i;
 /** A quoted table name is how a dynamic `DELETE FROM ${table}` would reach it. */
 const QUOTED = /['"`]audit_log['"`]/;
 
 /** Every reason `text` breaks the census (empty: none). */
-export function violations(text: string): string[] {
-  const code = stripComments(text);
+export function violations(text: string, file = 'x.ts'): string[] {
+  const code = stripComments(text, file);
   const out: string[] = [];
-  if (ERASE.test(code)) out.push('updates, deletes or truncates audit_log');
+  if (ERASE.some((re) => re.test(code))) out.push('updates, deletes or truncates audit_log');
   if (QUOTED.test(code)) out.push('names audit_log as a string');
-  // A statement is a template literal or a quoted string: a lock clause in one
-  // that names the table locks it.
+  // A statement is a template literal or a quoted string: a lock clause or an
+  // upsert's DO UPDATE in one that names the table needs UPDATE on it.
   for (const chunk of code.split(/`/)) {
-    if (/\baudit_log\b/i.test(chunk) && LOCK.test(chunk)) out.push('locks audit_log');
+    if (!/\baudit_log\b/i.test(chunk)) continue;
+    if (LOCK.test(chunk)) out.push('locks audit_log');
+    if (UPSERT.test(chunk) && /\binsert\s+into\s+(?:"?public"?\s*\.\s*)?"?audit_log\b/i.test(chunk)) out.push('upserts audit_log');
   }
+  return [...new Set(out)];
+}
+
+const GRANTED = [
+  /\bgrant\b[^;]*\b(?:update|delete|truncate|trigger|all)\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:"?public"?\.)?"?audit_log\b/i,
+  /\bgrant\b[^;]*\bon\s+all\s+tables\s+in\s+schema\s+"?public"?/i,
+  // A ROLE grant (no ON clause) to a runtime role: membership in the owner,
+  // pg_write_all_data or any role holding the erase hands it back.
+  /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\b(?:app_user|platform_admin)\b/i,
+];
+const DDL = [
+  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\.)?"?audit_log"?\b/i,
+  /\bcreate\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger\b[^;]*\bon\s+(?:"?public"?\.)?"?audit_log\b/i,
+  /\bcreate\s+(?:or\s+replace\s+)?rule\b[^;]*\bto\s+(?:"?public"?\.)?"?audit_log\b/i,
+  /\bcreate\s+(?:or\s+replace\s+)?(?:materialized\s+)?view\b[^;]*\baudit_log\b/i,
+  /\b(?:drop|create)\s+table\b[^;]*?\baudit_log\b/i,
+];
+
+/** Why a migration (not 880) needs reading. */
+export function migrationViolations(text: string): string[] {
+  const code = stripComments(text, 'm.sql');
+  const out: string[] = [];
+  if (GRANTED.some((re) => re.test(code))) out.push('grants');
+  if (ERASE.some((re) => re.test(code))) out.push('erases');
+  if (DDL.some((re) => re.test(code))) out.push('ddl');
   return out;
 }
 
 /**
- * The string mentions on master, each read and found not to be a statement:
- * the export route's own audit entity type, and the CI lint's list of tables
- * whose user id is text. A new one is a new reason to look.
+ * The string mentions in app code, each read and found not to be a
+ * statement: the export route's own audit entity type, and the CI lint's list
+ * of tables whose user id is text.
  */
 const KNOWN_STRINGS = [
   'pages/api/accounting/audit-log-export.ts: names audit_log as a string',
   'scripts/ci/userIdCastRules.ts: names audit_log as a string',
 ];
 
-const REGRANT = [
-  /\bgrant\b[^;]*\b(?:update|delete|truncate|trigger|all)\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:public\.)?"?audit_log\b/i,
-  /\bgrant\b[^;]*\bon\s+all\s+tables\s+in\s+schema\s+public\b/i,
-  // A ROLE grant (no ON clause) to a runtime role: membership in the owner,
-  // pg_write_all_data or any role holding the erase hands it back.
-  /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\b(?:app_user|platform_admin)\b/i,
-  // A new owner of the table changes who may erase it.
-  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?audit_log"?\s+owner\b/i,
-];
-const migrationNumber = (file: string): number => Number(/(\d{3})[a-z]?_/.exec(path.basename(file))?.[1] ?? '999');
-const laterMigrations = () => sourceFiles()
-  .filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > APPEND_ONLY_FROM);
+/**
+ * Migrations before 880 that match, each read: 267 creates the table; 293 is
+ * the one-off user-id repair (ran as the owner, before 880 existed); 348 and
+ * 352 are the blanket grants 880 exists to take back. Re-read this list when
+ * it changes.
+ */
+const KNOWN_MIGRATIONS: Record<string, string[]> = {
+  '267_audit_trail.sql': ['ddl'],
+  '293_fix_admin_user_uuid.sql': ['erases'],
+  '348_rls_and_auth_helpers.sql': ['grants'],
+  '352_platform_admin_role.sql': ['grants'],
+};
+
+const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
+const isMigration = (file: string) => file.startsWith(MIGRATIONS) && file.endsWith('.sql');
 
 describe('audit_log is append-only (census by table)', () => {
-  it('no source file updates, deletes, truncates, locks or (beyond the known two) names the table', () => {
-    const found = sourceFiles()
-      .filter(({ file }) => !file.startsWith(MIGRATIONS))
-      .flatMap(({ file, text }) => violations(text).map((why) => `${file}: ${why}`));
+  it('reads what it claims: every root, every extension, and the one INSERT site', () => {
+    const files = all();
+    expect(files.length).toBeGreaterThan(3000);
+    const exts = new Set(files.map((f) => path.extname(f.file)));
+    for (const ext of ['.ts', '.tsx', '.js', '.mjs', '.sql', '.sh']) expect(exts.has(ext), ext).toBe(true);
+    for (const known of ['middleware.ts', 'src/modules/accounting/services/core/auditTrailService.ts', `${MIGRATIONS}${OWN}`]) {
+      expect(files.some((f) => f.file === known), known).toBe(true);
+    }
+    const insert = files.find((f) => f.file.endsWith('core/auditTrailService.ts'))!;
+    expect(stripComments(insert.text, insert.file)).toMatch(/\binsert\s+into\s+audit_log\b/i);
+  });
+
+  it('no app source updates, deletes, truncates, upserts, locks or (beyond the known two) names the table', () => {
+    const found = all()
+      .filter(({ file }) => !isMigration(file))
+      .flatMap(({ file, text }) => violations(text, file).map((why) => `${file}: ${why}`));
     expect(found).toEqual(KNOWN_STRINGS);
   });
 
-  it('the append-only migration exists (this census is anchored to it)', () => {
-    const own = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) === APPEND_ONLY_FROM);
-    expect(own.map(({ file }) => path.basename(file))).toEqual(['880_audit_log_append_only.sql']);
-  });
-
-  it('no migration after 880 hands an erase privilege back, grants a runtime role a role, or moves the owner', () => {
-    const found = laterMigrations()
-      .filter(({ text }) => REGRANT.some((re) => re.test(stripComments(text))))
-      .map(({ file }) => file);
-    expect(found).toEqual([]);
-  });
-
-  it('no migration after 880 rewrites or deletes audit rows', () => {
-    const found = laterMigrations().filter(({ text }) => ERASE.test(stripComments(text))).map(({ file }) => file);
-    expect(found).toEqual([]);
+  it('no migration but 880 and the pinned pre-880 ones grants, erases, alters, triggers, views, drops or re-creates it', () => {
+    const found = Object.fromEntries(all()
+      .filter(({ file }) => isMigration(file) && path.basename(file) !== OWN)
+      .map(({ file, text }) => [path.basename(file), migrationViolations(text)] as const)
+      .filter(([, why]) => why.length > 0));
+    expect(found).toEqual(KNOWN_MIGRATIONS);
+    for (const name of Object.keys(KNOWN_MIGRATIONS)) expect(migrationNumber(name), name).toBeLessThan(880);
   });
 });
 
 describe('the census detects (counterexamples)', () => {
   it.each([
     ['an UPDATE', 'await sql`UPDATE audit_log SET user_id = ${u} WHERE id = ${id}`'],
+    ['an UPDATE ONLY, quoted and schema-qualified', 'sql`UPDATE ONLY "public"."audit_log" SET action = ${a}`'],
     ['a schema-qualified DELETE', "client.query('DELETE FROM public.audit_log WHERE id = $1')"],
-    ['a quoted DELETE', 'sql`DELETE FROM "audit_log" WHERE id = 1`'],
     ['a TRUNCATE', "pool.query('TRUNCATE TABLE audit_log')"],
+    ['a TRUNCATE of a list (E1)', "pool.query('TRUNCATE companies, audit_log CASCADE')"],
     ['a MERGE', 'sql`MERGE INTO audit_log a USING x ON true WHEN MATCHED THEN DELETE`'],
+    ['an upsert (E2)', 'sql`INSERT INTO audit_log (id) VALUES (${i}) ON CONFLICT (id) DO UPDATE SET action = ${a}`'],
     ['a row lock', 'sql`SELECT id FROM audit_log a WHERE a.id = ${id} FOR UPDATE`'],
-    ['a FOR SHARE in a join', 'sql`SELECT 1 FROM companies c JOIN audit_log a ON true FOR SHARE`'],
+    ['a FOR KEY SHARE in a join', 'sql`SELECT 1 FROM companies c JOIN audit_log a ON true FOR KEY SHARE`'],
     ['a dynamic table name', "for (const t of ['bills', 'audit_log']) await sql.unsafe(`DELETE FROM ${t}`)"],
+    ['a statement after a "/*" in a string (E3)', "const g = 'src/*'; await sql`DELETE FROM audit_log`; /* end */"],
+    ['a statement after a "--" in a string (E5)', "const sep = '--'; await sql`DELETE FROM audit_log`;"],
+    ['a statement after a "//" in a string', "const u = 'https://x'; await sql`DELETE FROM audit_log`;"],
   ])('%s', (_label, text) => {
     expect(violations(text)).not.toEqual([]);
   });
@@ -141,30 +157,47 @@ describe('the census detects (counterexamples)', () => {
   it.each([
     ['a read', 'sql`SELECT * FROM audit_log WHERE company_id = ${c}`'],
     ['the INSERT', 'sql`INSERT INTO audit_log (company_id, user_id) VALUES (${c}, ${u})`'],
-    ['a comment', '// DELETE FROM audit_log — refused since migration 880'],
+    ['an upsert of another table beside a read of this one', 'sql`INSERT INTO x SELECT 1 FROM audit_log ON CONFLICT DO UPDATE SET y = 1`'],
+    ['a line comment', '// DELETE FROM audit_log — refused since migration 880'],
+    ['a block comment', '/* UPDATE audit_log SET x = 1 */'],
     ['a lock on another table', 'sql`SELECT id FROM supplier_invoices WHERE id = ${id} FOR UPDATE`'],
     ['a different table', 'sql`DELETE FROM admin_audit_log WHERE id = ${id}`'],
   ])('and passes %s', (_label, text) => {
     expect(violations(text)).toEqual([]);
   });
 
+  it('strips SQL comments in a migration, but not a "--" inside an SQL string', () => {
+    expect(migrationViolations('-- DELETE FROM audit_log\nSELECT 1;')).toEqual([]);
+    expect(migrationViolations("SELECT '--'; DELETE FROM audit_log;")).toEqual(['erases']);
+  });
+
   it.each([
     'GRANT UPDATE ON audit_log TO app_user;',
     'GRANT DELETE ON TABLE public.audit_log TO platform_admin;',
+    'GRANT TRIGGER ON public.audit_log TO app_user;',
     'GRANT ALL ON public.approval_rules, public.audit_log TO app_user;',
     'GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO app_user;',
+    'GRANT ALL ON ALL TABLES IN SCHEMA "public" TO app_user;',
     'GRANT migration_admin TO app_user;',
     'GRANT pg_write_all_data TO platform_admin;',
     'ALTER TABLE public.audit_log OWNER TO app_user;',
-  ])('a re-grant or ownership change in a later migration: %s', (stmt) => {
-    expect(REGRANT.some((re) => re.test(stmt))).toBe(true);
+    'ALTER TABLE audit_log DISABLE ROW LEVEL SECURITY;',
+    'ALTER TABLE audit_log RENAME TO audit_log_old;',
+    'CREATE TRIGGER t BEFORE INSERT ON public.audit_log FOR EACH ROW EXECUTE FUNCTION f();',
+    'CREATE RULE r AS ON INSERT TO audit_log DO INSTEAD NOTHING;',
+    'CREATE VIEW v AS SELECT * FROM audit_log; GRANT UPDATE ON v TO app_user;',
+    'DROP TABLE audit_log; CREATE TABLE audit_log (id uuid);',
+    'DELETE FROM audit_log WHERE created_at < now();',
+  ])('a later migration: %s', (stmt) => {
+    expect(migrationViolations(stmt)).not.toEqual([]);
   });
 
   it.each([
     'GRANT INSERT, SELECT ON audit_log TO app_user;',
     'GRANT SELECT ON admin_audit_log TO platform_admin;',
     'GRANT USAGE ON SCHEMA app TO app_user;',
+    "INSERT INTO public.audit_log (company_id, user_id, action, entity_type, entity_id) VALUES ('x', 'y', 'create', 'z', 'w');",
   ])('and passes %s', (stmt) => {
-    expect(REGRANT.some((re) => re.test(stmt))).toBe(false);
+    expect(migrationViolations(stmt)).toEqual([]);
   });
 });

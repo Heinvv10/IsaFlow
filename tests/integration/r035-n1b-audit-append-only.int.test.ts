@@ -63,7 +63,7 @@ describe.each(['app_user', 'platform_admin'] as const)('as %s, raw SQL cannot', 
     expect(await rowNow(q.row.id)).toEqual(q.row);
   });
 
-  it('TRUNCATE the table', async () => {
+  it('TRUNCATE the table (already refused before 880 — the grant was arwd; pinned so it stays refused)', async () => {
     const q = await q2Row();
     expect(await outcome(asRole(pool, role, q.c, { sub: u.a }, (cl) => cl.query('TRUNCATE audit_log')))).toBe(DENIED);
     expect(await rowNow(q.row.id)).toEqual(q.row);
@@ -75,7 +75,7 @@ describe.each(['app_user', 'platform_admin'] as const)('as %s, raw SQL cannot', 
       'SELECT id FROM audit_log WHERE id = $1 FOR UPDATE', [q.row.id])))).toBe(DENIED);
   });
 
-  it('attach a trigger (it would run inside every later insert)', async () => {
+  it('attach a trigger (already refused before 880; pinned — a trigger would run inside every later insert)', async () => {
     const q = await q2Row();
     expect(await outcome(asRole(pool, role, q.c, { sub: u.a }, (cl) => cl.query(
       `CREATE TRIGGER n1b_forged BEFORE INSERT ON audit_log
@@ -98,10 +98,12 @@ describe('append-only, not read-only', () => {
   it('platform_admin still logs and reads', async () => {
     const c = await newCompany(pool, [[u.a, 'owner']], companies);
     const entity = crypto.randomUUID();
-    expect(await outcome(asRole(pool, 'platform_admin', c, { sub: u.a }, (cl) => cl.query(
-      `INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id)
-       VALUES ($1, $2, 'update', 'n1b_probe', $3)`, [c, u.a, entity]), true))).toBe('ok');
-    expect((await pool.query('SELECT count(*)::INT AS n FROM audit_log WHERE entity_id = $1', [entity])).rows[0].n).toBe(1);
+    const read = await asRole(pool, 'platform_admin', c, { sub: u.a }, async (cl) => {
+      await cl.query(`INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id)
+        VALUES ($1, $2, 'update', 'n1b_probe', $3)`, [c, u.a, entity]);
+      return (await cl.query('SELECT action FROM audit_log WHERE entity_id = $1', [entity])).rows;
+    }, true);
+    expect(read).toEqual([{ action: 'update' }]);
   });
 
   it('ACCEPTED LIMIT: a member can still INSERT a forged extra row (append-only is not authenticated)', async () => {

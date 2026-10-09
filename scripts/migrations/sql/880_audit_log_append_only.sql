@@ -15,9 +15,13 @@
 --
 -- Who still writes: the owner (migration_admin on production, postgres on the
 -- classic fixture) and superusers — migrations and the definers' owners —
--- and, through the owner, the deploy role that runs migrations (see 4). A
--- company delete still removes its rows: the FK's ON DELETE CASCADE runs as
--- the table's owner, not as the deleting role.
+-- and, through the owner, the deploy role that runs migrations (see 2). That
+-- role is also the app's login role: the app drops to app_user with
+-- `SET LOCAL ROLE`, so a connection that never does (a script, a cron pool),
+-- or SQL that can `RESET ROLE`, still holds the owner's rights — the N1
+-- boundary (N3), not closed here. A company delete still removes its rows:
+-- the FK's ON DELETE CASCADE runs as the table's owner, not as the deleting
+-- role (platform_admin may delete a company).
 
 -- ── 1. Revoke ─────────────────────────────────────────────────────────────
 -- Every UPDATE, DELETE, TRUNCATE and TRIGGER privilege of every role but the
@@ -85,6 +89,28 @@ BEGIN
       RAISE EXCEPTION 'migration 880: % still holds column UPDATE on audit_log', v_role;
     END IF;
   END LOOP;
+  -- A view over audit_log owned by a role that may erase it (the owner) would
+  -- erase through it for anyone granted UPDATE, DELETE or TRUNCATE on the
+  -- view (an auto-updatable view checks its OWNER's rights on the table; the
+  -- owner bypasses RLS) — adversarial review of PR #689, REPRO 4. None may.
+  FOR v_role, v_priv IN
+    SELECT r.rolname || ' on ' || v.oid::pg_catalog.regclass::pg_catalog.text, p.priv
+    FROM pg_catalog.pg_depend d
+    JOIN pg_catalog.pg_rewrite w ON w.oid = d.objid
+    JOIN pg_catalog.pg_class v ON v.oid = w.ev_class
+    CROSS JOIN (VALUES ('UPDATE'), ('DELETE'), ('TRUNCATE')) p(priv)
+    CROSS JOIN pg_catalog.pg_roles r
+    WHERE d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
+      AND d.refobjid = 'public.audit_log'::pg_catalog.regclass
+      AND v.oid <> 'public.audit_log'::pg_catalog.regclass
+      AND pg_catalog.has_table_privilege(v.relowner, 'public.audit_log', p.priv)
+      AND NOT r.rolsuper AND r.oid <> v.relowner AND r.oid <> v_owner AND r.rolname !~ '^pg_'
+      AND NOT (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, v_owner, 'USAGE'))
+      AND pg_catalog.has_table_privilege(r.oid, v.oid, p.priv)
+  LOOP
+    RAISE EXCEPTION 'migration 880: % may % audit_log through a view', v_role, v_priv;
+  END LOOP;
+
   -- Append-only, not read-only: the roles that log and read keep doing so.
   FOREACH v_role IN ARRAY ARRAY['app_user', 'platform_admin'] LOOP
     FOREACH v_priv IN ARRAY ARRAY['INSERT', 'SELECT'] LOOP
