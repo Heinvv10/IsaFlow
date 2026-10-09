@@ -90,7 +90,8 @@ describe('approval_rules / approval_enforcement writers (census by table)', () =
 
   it('no migration after 881 hands a write privilege back, grants a runtime role a role, or moves an owner', () => {
     const found = sourceFiles()
-      .filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > DEFINERS_FROM)
+      // NaN (a file with no NNN_ prefix) counts as after 881: unknown is judged, not skipped.
+      .filter(({ file }) => file.startsWith(MIGRATIONS) && !(migrationNumber(file) <= DEFINERS_FROM))
       .filter(({ file, text }) => regrants(file, text))
       .map(({ file }) => file);
     expect(found).toEqual([]);
@@ -115,8 +116,17 @@ describe('the census detects (counterexamples)', () => {
     ['a FOR SHARE in a join', 'sql`SELECT 1 FROM approval_enforcement e JOIN companies c ON true FOR SHARE`'],
     ['a dynamic table name', "for (const t of ['bills', 'approval_rules']) await sql.unsafe(`DELETE FROM ${t}`)"],
     ['a direct call of a writer', 'sql`SELECT * FROM approval_enforcement_set(${c}, ${t}, false, ${u})`'],
+    ['an SQL comment between the verb and the table', 'sql`DELETE FROM /* x */ approval_rules WHERE id = ${id}`'],
   ])('%s', (_label, text) => {
     expect(violations(text)).not.toEqual([]);
+  });
+
+  it.each([
+    ['config/x.sh', 'psql -c "DELETE FROM approval_rules WHERE true"'],
+    ['scripts/x.py', 'cur.execute("UPDATE approval_enforcement SET company_id = %s", (c,))'],
+    ['x.sql', 'TRUNCATE approval_rules; -- the comment is stripped, the statement is not'],
+  ])('and judges a %s file by its language', (file, text) => {
+    expect(violations(text, file)).toContain('writes approval_rules or approval_enforcement');
   });
 
   it.each([

@@ -100,9 +100,9 @@ function lowerBound(operator: string, value: number): { from: number; inclusive:
  * or matching an amount set that no longer covers every amount it covered.
  * Judged on the fields even when the rule is inactive — a pending row raised
  * before migration 669 has no snapshot and still reads the bound rule's role.
+ * Exported only so r035-n1b-rules-parity can hold it against its SQL twin
+ * (approval_rule_weakens, migration 881) value by value.
  */
-// Exported only so r035-n1b-rules-parity can hold it against its SQL twin
-// (approval_rule_weakens, migration 881) value by value.
 export function weakensRule(before: Record<string, unknown>, change: RuleChange): boolean {
   if (change === 'delete') return true;
   const ruleRole = before.approver_role != null ? String(before.approver_role) : 'admin';
