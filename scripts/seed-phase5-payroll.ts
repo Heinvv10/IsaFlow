@@ -20,6 +20,7 @@
  */
 
 import { createSql, closeSql } from './_pg';
+import { wipePhase5CostCentres } from './seed-phase5-wipe';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -54,14 +55,9 @@ async function main(): Promise<void> {
   await sql`DELETE FROM pay_packages WHERE company_id = ${COMPANY_ID}::uuid`;
   await sql`UPDATE payroll_employees SET pay_scale_id = NULL, occupational_level_id = NULL, is_foreign_national = false, payment_method = 'eft' WHERE company_id = ${COMPANY_ID}::uuid`;
   await sql`DELETE FROM pay_scales WHERE company_id = ${COMPANY_ID}::uuid`;
-  // Cost centres may already exist from older Phase 4 seed; wipe for clean state
-  await sql`UPDATE payroll_employees SET cost_centre_id = NULL WHERE company_id = ${COMPANY_ID}::uuid`;
-  // Journal and bank lines RESTRICT the centres they name (migrations 878, 882). Clear
-  // the tags rather than delete the lines: a deleted posted line would leave its
-  // journal unbalanced, and the tag moves no figure.
-  await sql`UPDATE gl_journal_lines SET cc1_id = NULL, cc2_id = NULL WHERE company_id = ${COMPANY_ID}::uuid AND (cc1_id IS NOT NULL OR cc2_id IS NOT NULL)`;
-  await sql`UPDATE bank_transactions SET cc1_id = NULL, cc2_id = NULL WHERE company_id = ${COMPANY_ID}::uuid AND (cc1_id IS NOT NULL OR cc2_id IS NOT NULL)`;
-  await sql`DELETE FROM cost_centres WHERE company_id = ${COMPANY_ID}::uuid`;
+  // Cost centres may already exist from older Phase 4 seed; wipe for clean state.
+  // Every RESTRICT reference is cleared first, scoped to this company (seed-phase5-wipe).
+  await wipePhase5CostCentres(sql, COMPANY_ID);
   console.log('[clean] prior Phase 5 rows removed');
 
   // ── Cost centres ──────────────────────────────────────────────────────
