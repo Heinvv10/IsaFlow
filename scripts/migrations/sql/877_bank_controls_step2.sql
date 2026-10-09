@@ -160,26 +160,6 @@ CREATE TABLE IF NOT EXISTS bank_rule_change_decisions (
     AND (decision <> 'superseded' OR (note IS NULL AND roster_snapshot IS NULL)))
 );
 
--- Re-applied over an earlier draft of this file (fixtures only): the FKs cascade.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_changes_company_id_fkey' AND confdeltype <> 'c') THEN
-    ALTER TABLE bank_rule_changes DROP CONSTRAINT bank_rule_changes_company_id_fkey;
-    ALTER TABLE bank_rule_changes ADD CONSTRAINT bank_rule_changes_company_id_fkey
-      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_change_decisions_company_id_fkey' AND confdeltype <> 'c') THEN
-    ALTER TABLE bank_rule_change_decisions DROP CONSTRAINT bank_rule_change_decisions_company_id_fkey;
-    ALTER TABLE bank_rule_change_decisions ADD CONSTRAINT bank_rule_change_decisions_company_id_fkey
-      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_change_decisions_change_fk' AND confdeltype <> 'c') THEN
-    ALTER TABLE bank_rule_change_decisions DROP CONSTRAINT bank_rule_change_decisions_change_fk;
-    ALTER TABLE bank_rule_change_decisions ADD CONSTRAINT bank_rule_change_decisions_change_fk
-      FOREIGN KEY (change_id, company_id) REFERENCES bank_rule_changes(id, company_id) ON DELETE CASCADE;
-  END IF;
-END $$;
-
 -- The derived state of every change: applied, pending, or its decision.
 CREATE OR REPLACE VIEW bank_rule_change_states WITH (security_invoker = true) AS
   SELECT c.id, c.seq, c.company_id, COALESCE(c.rule_id, d.rule_id) AS rule_id, c.kind, c.before, c.after,
