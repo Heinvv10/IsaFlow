@@ -2,12 +2,14 @@
 -- 2026-10-09). Builds on the R-035 switchboard (approval_enforcement) and
 -- step 1's pattern (876): append-only evidence, RLS binding the tenant AND the
 -- actor, a BEFORE INSERT guard, and WHO-may-approve decided in TypeScript on
--- the R-035 rank ladder (bank/bankRuleApprovers.ts).
+-- the R-035 rank ladder (bank/bankRuleApprovers.ts) — and re-checked here on
+-- the same ladder (bank_control_rank), the raised approver role included.
 --
 --   1. Import provenance: bank_import_batches gains file_sha256 and
 --      import_channel; imported_by, file_sha256 and import_channel never
 --      change once set (the importer is who may NOT allocate the batch's
---      lines under enforcement — bank/bankLineImporterGate.ts).
+--      lines under enforcement — bank/bankLineImporterGate.ts); a batch row a
+--      line names cannot be deleted, and a line's batch cannot move.
 --   2. Bank rule history: bank_rule_changes, one row per change to a rule in
 --      bank_categorisation_rules — written by a trigger on the rules table
 --      itself for every write that lands (UI, MCP, seed, merge, raw SQL), and
@@ -21,8 +23,9 @@
 --      row carries the decider, the time, the note and the sole-approver
 --      roster, and a UNIQUE (change_id) makes a second decision impossible.
 --   4. The backstop on the rules table: under the `bank_rule` switch, a write
---      that makes a rule auto-post, or changes anything but its cosmetic
---      columns while it auto-posts, is refused unless it applies a change a
+--      that makes a rule post money (bank_rule_posts_money: auto-posting, or
+--      any active rule while auto-post is on), or changes anything but its
+--      cosmetic columns while it does, is refused unless it applies a change a
 --      person approved in this same transaction.
 --   5. approval_enforcement accepts 'bank_rule'.
 --
@@ -71,6 +74,45 @@ CREATE TRIGGER bank_import_batch_provenance_fixed
   BEFORE UPDATE ON bank_import_batches
   FOR EACH ROW EXECUTE FUNCTION public.bank_import_batch_provenance_fixed();
 
+-- Nor can provenance be shed (breaker #684 REPRO 5): a line whose batch row is
+-- gone, or whose import_batch_id moved, names no importer. A batch row goes
+-- only once no line names it (MCP undo_bank_import deletes the lines, never
+-- the batch) or with its company; a line's batch, once set, never changes.
+CREATE OR REPLACE FUNCTION public.bank_import_batch_kept() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.companies c WHERE c.id = OLD.company_id)
+     AND EXISTS (SELECT 1 FROM public.bank_transactions t WHERE t.import_batch_id = OLD.id) THEN
+    RAISE EXCEPTION 'bank_import_batches: batch % cannot be deleted while a bank line still names it', OLD.id
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN OLD;
+END
+$$;
+
+DROP TRIGGER IF EXISTS bank_import_batch_kept ON bank_import_batches;
+CREATE TRIGGER bank_import_batch_kept
+  BEFORE DELETE ON bank_import_batches
+  FOR EACH ROW EXECUTE FUNCTION public.bank_import_batch_kept();
+
+CREATE OR REPLACE FUNCTION public.bank_transaction_batch_fixed() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  RAISE EXCEPTION 'bank_transactions: line %''s import batch is its provenance and cannot change', OLD.id
+    USING ERRCODE = '42501';
+END
+$$;
+
+DROP TRIGGER IF EXISTS bank_transaction_batch_fixed ON bank_transactions;
+CREATE TRIGGER bank_transaction_batch_fixed
+  BEFORE UPDATE OF import_batch_id ON bank_transactions
+  FOR EACH ROW WHEN (OLD.import_batch_id IS NOT NULL AND NEW.import_batch_id IS DISTINCT FROM OLD.import_batch_id)
+  EXECUTE FUNCTION public.bank_transaction_batch_fixed();
+
 -- ── 2. What a rule is, and when a change to it needs approval ─────────────
 -- A rule's projection: every column but its identity and bookkeeping. Read by
 -- the triggers below and by the TypeScript (the stale check), never
@@ -83,30 +125,41 @@ AS $$
   SELECT p_row - ARRAY['id', 'company_id', 'created_by', 'created_at', 'updated_at']::pg_catalog.text[]
 $$;
 
--- Whether a rule (as projected) posts money unattended: an active rule with
--- auto_create_entry (bankRulesMatchingService posts a journal per matched
--- line). auto_apply ('fifo'/'none') is not a switch here: it says how a
--- supplier rule's cash is applied, so it is a posting target (gated below).
-CREATE OR REPLACE FUNCTION public.bank_rule_auto_posts(p pg_catalog.jsonb) RETURNS pg_catalog.bool
-LANGUAGE sql IMMUTABLE PARALLEL SAFE
-SET search_path = pg_catalog, pg_temp
+-- Whether a rule (as projected) POSTS MONEY unattended in its company: an
+-- active rule that either auto-posts itself (auto_create_entry:
+-- bankRulesMatchingService posts a journal per matched line) or whose
+-- company has auto-post on — smart-categorize matches every active rule (at
+-- 0.95) and autoPostGateService.sweep posts the suggestion unattended
+-- (breaker #684 REPRO 4). auto_apply ('fifo'/'none') is not a switch: it says
+-- how a supplier rule's cash is applied, so it is a posting target (gated below).
+-- Replaces 877's first, company-blind bank_rule_auto_posts(jsonb).
+DROP FUNCTION IF EXISTS public.bank_rule_auto_posts(pg_catalog.jsonb);
+CREATE OR REPLACE FUNCTION public.bank_rule_posts_money(p_company_id pg_catalog.uuid, p pg_catalog.jsonb)
+RETURNS pg_catalog.bool
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT p IS NOT NULL AND (p ->> 'is_active') = 'true' AND (p ->> 'auto_create_entry') = 'true'
+  SELECT p IS NOT NULL AND (p ->> 'is_active') = 'true'
+    AND ((p ->> 'auto_create_entry') = 'true'
+         OR EXISTS (SELECT 1 FROM public.bank_auto_post_settings s WHERE s.company_id = p_company_id AND s.enabled))
 $$;
 
 -- Hein's decision 3: a change needs a different person's approval (under the
--- `bank_rule` switch) when afterwards the rule auto-posts and either it did
--- not before (created auto-posting, auto_create_entry or is_active turned on)
--- or anything but a cosmetic column moved — what it matches, where it posts
+-- `bank_rule` switch) when afterwards the rule posts money and either it did
+-- not before (created posting, auto_create_entry or is_active turned on) or
+-- anything but a cosmetic column moved — what it matches, where it posts
 -- (account, supplier, customer, VAT code, auto_apply), its priority. Turning
--- auto-post off, disabling, deleting, and suggestion-only rules never do.
-CREATE OR REPLACE FUNCTION public.bank_rule_change_needs_approval(p_before pg_catalog.jsonb, p_after pg_catalog.jsonb)
+-- auto-post off, disabling and deleting never do; nor does any change to a
+-- rule that posts nothing (inactive, or suggest-only with auto-post off).
+DROP FUNCTION IF EXISTS public.bank_rule_change_needs_approval(pg_catalog.jsonb, pg_catalog.jsonb);
+CREATE OR REPLACE FUNCTION public.bank_rule_change_needs_approval(p_company_id pg_catalog.uuid, p_before pg_catalog.jsonb,
+  p_after pg_catalog.jsonb)
 RETURNS pg_catalog.bool
-LANGUAGE sql IMMUTABLE PARALLEL SAFE
+LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT public.bank_rule_auto_posts(p_after) AND (
-    NOT public.bank_rule_auto_posts(p_before)
+  SELECT public.bank_rule_posts_money(p_company_id, p_after) AND (
+    NOT public.bank_rule_posts_money(p_company_id, p_before)
     OR (p_before - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[])
        IS DISTINCT FROM (p_after - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[]))
 $$;
@@ -217,19 +270,45 @@ BEGIN
     pg_catalog.pg_get_serial_sequence('public.bank_rule_changes', 'seq'));
 END $$;
 
--- Whether `p_user` is an active member of the company at the admin floor or
--- above. The rank ladder lives in TypeScript (APPROVER_RANK); these are its
--- roles at or above admin, pinned by bankRuleChangeCensus as 876's are.
-CREATE OR REPLACE FUNCTION public.bank_control_member_at_floor(p_company_id pg_catalog.uuid, p_user pg_catalog.text)
-RETURNS pg_catalog.bool
+-- The R-035 rank ladder (APPROVER_RANK in gl/approvalRank.ts, pinned equal by
+-- bankRuleChangeCensus). NULL for a role not on it: a rule's unknown role
+-- ranks as admin (requiredRank), a member's as nothing (actorRank).
+CREATE OR REPLACE FUNCTION public.bank_control_rank(p_role pg_catalog.text) RETURNS pg_catalog.int4
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT CASE p_role
+    WHEN 'super_admin' THEN 8 WHEN 'owner' THEN 7 WHEN 'system' THEN 6 WHEN 'admin' THEN 5 WHEN 'manager' THEN 4
+    WHEN 'accountant' THEN 3 WHEN 'bookkeeper' THEN 2 WHEN 'storeman' THEN 1 WHEN 'technician' THEN 1 WHEN 'user' THEN 1
+    WHEN 'viewer' THEN 0 END
+$$;
+
+-- `p_user`'s rank in the company, -1 unless an active member in good standing.
+-- Replaces 877's first bank_control_member_at_floor (the admin floor only).
+DROP FUNCTION IF EXISTS public.bank_control_member_at_floor(pg_catalog.uuid, pg_catalog.text);
+CREATE OR REPLACE FUNCTION public.bank_control_member_rank(p_company_id pg_catalog.uuid, p_user pg_catalog.text)
+RETURNS pg_catalog.int4
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.company_users cu JOIN public.users u ON u.id = cu.user_id
+  SELECT COALESCE((
+    SELECT COALESCE(public.bank_control_rank(cu.role::pg_catalog.text), 0)
+    FROM public.company_users cu JOIN public.users u ON u.id = cu.user_id
     WHERE cu.company_id = p_company_id AND cu.user_id = p_user
-      AND cu.role IN ('super_admin', 'owner', 'system', 'admin')
-      AND u.is_active IS TRUE AND u.suspended_at IS NULL AND COALESCE(pg_catalog.lower(u.status), 'active') = 'active')
+      AND u.is_active IS TRUE AND u.suspended_at IS NULL AND COALESCE(pg_catalog.lower(u.status), 'active') = 'active'), -1)
+$$;
+
+-- Who approves a held bank-rule change (bankRuleApproverRole): the strictest
+-- ACTIVE manual_journal rule's role, never below admin — a rule only raises it.
+CREATE OR REPLACE FUNCTION public.bank_rule_approver_role(p_company_id pg_catalog.uuid) RETURNS pg_catalog.text
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE((
+    SELECT ar.approver_role FROM public.approval_rules ar
+    WHERE ar.company_id = p_company_id AND ar.document_type = 'manual_journal' AND ar.is_active
+      AND public.bank_control_rank(ar.approver_role) > public.bank_control_rank('admin')
+    ORDER BY public.bank_control_rank(ar.approver_role) DESC LIMIT 1), 'admin')
 $$;
 
 -- R-035 Q2 on the admin floor: no OTHER active member of the company reaches
@@ -238,11 +317,11 @@ $$;
 -- user and company).
 CREATE OR REPLACE FUNCTION public.bank_control_sole_at_floor(p_roster pg_catalog.jsonb) RETURNS pg_catalog.bool
 LANGUAGE sql IMMUTABLE
-SET search_path = pg_catalog, pg_temp
+SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT NOT EXISTS (
     SELECT 1 FROM pg_catalog.jsonb_array_elements(COALESCE(p_roster -> 'others', '[]'::pg_catalog.jsonb)) e
-    WHERE e ->> 'role' IN ('super_admin', 'owner', 'system', 'admin')
+    WHERE COALESCE(public.bank_control_rank(e ->> 'role'), 0) >= public.bank_control_rank('admin')
       AND (e ->> 'is_active') = 'true'
       AND COALESCE(e ->> 'suspended', 'false') = 'false'
       AND COALESCE(pg_catalog.lower(e ->> 'status'), 'active') = 'active')
@@ -284,7 +363,7 @@ BEGIN
                  WHERE ae.company_id = NEW.company_id AND ae.document_type = 'bank_rule') THEN
     RAISE EXCEPTION 'bank_rule_changes: bank rule approval is not enforced for this company' USING ERRCODE = '23514';
   END IF;
-  IF NOT public.bank_rule_change_needs_approval(NEW.before, NEW.after) THEN
+  IF NOT public.bank_rule_change_needs_approval(NEW.company_id, NEW.before, NEW.after) THEN
     RAISE EXCEPTION 'bank_rule_changes: this change does not need approval; apply it' USING ERRCODE = '23514';
   END IF;
   IF NEW.kind <> 'create' AND NEW.before IS DISTINCT FROM public.bank_rule_current(NEW.company_id, NEW.rule_id) THEN
@@ -347,6 +426,9 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   ch RECORD;
+  required pg_catalog.text;
+  own_rank pg_catalog.int4;
+  only_proposer pg_catalog.bool;
 BEGIN
   NEW.decided_at := pg_catalog.now();
   SELECT c.* INTO ch FROM public.bank_rule_changes c WHERE c.id = NEW.change_id AND c.company_id = NEW.company_id;
@@ -371,11 +453,27 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  -- Approve or reject: a person at the admin floor or above, in good standing
-  -- (a rule can raise the role, judged in TypeScript).
-  IF NOT public.bank_control_member_at_floor(NEW.company_id, NEW.decided_by) THEN
-    RAISE EXCEPTION 'bank_rule_change_decisions: % does not hold the admin role or above, in good standing, in this company',
-      NEW.decided_by USING ERRCODE = '23514';
+  -- Approve or reject: a person in good standing holding the approver role
+  -- (bank_rule_approver_role, raised by a manual_journal rule) — or, when only
+  -- the proposer holds a raised role, the admin floor (bankRuleApprovers.ts's
+  -- fallback: otherwise the change could never be decided). The roster is
+  -- approval_company_other_members, which answers only for the caller.
+  required := public.bank_rule_approver_role(NEW.company_id);
+  own_rank := public.bank_control_member_rank(NEW.company_id, NEW.decided_by);
+  IF public.bank_control_rank(required) > public.bank_control_rank('admin') THEN
+    WITH everyone AS (
+      SELECT m.user_id, COALESCE(public.bank_control_rank(m.role), 0) AS rank
+      FROM public.approval_company_other_members(NEW.company_id, NEW.decided_by) m
+      WHERE m.is_active IS TRUE AND m.suspended_at IS NULL AND COALESCE(pg_catalog.lower(m.status), 'active') = 'active'
+      UNION ALL SELECT NEW.decided_by, own_rank)
+    SELECT NOT EXISTS (SELECT 1 FROM everyone e WHERE e.user_id <> ch.proposed_by AND e.rank >= public.bank_control_rank(required))
+       AND EXISTS (SELECT 1 FROM everyone e WHERE e.user_id = ch.proposed_by AND e.rank >= public.bank_control_rank(required))
+      INTO only_proposer;
+    IF only_proposer THEN required := 'admin'; END IF;
+  END IF;
+  IF own_rank < public.bank_control_rank(required) THEN
+    RAISE EXCEPTION 'bank_rule_change_decisions: % does not hold the % role or above, in good standing, in this company',
+      NEW.decided_by, required USING ERRCODE = '23514';
   END IF;
   -- Not the proposer — except as the sole approver, recorded with the roster.
   IF NEW.decided_by = ch.proposed_by THEN
@@ -499,7 +597,7 @@ BEGIN
     END IF;
     before_p := public.bank_rule_projection(pg_catalog.to_jsonb(OLD));
   END IF;
-  IF public.bank_rule_change_needs_approval(before_p, after_p)
+  IF public.bank_rule_change_needs_approval(NEW.company_id, before_p, after_p)
      AND EXISTS (SELECT 1 FROM public.approval_enforcement ae
                  WHERE ae.company_id = NEW.company_id AND ae.document_type = 'bank_rule')
      AND NOT public.bank_rule_write_approved(NEW.company_id, NEW.id, after_p) THEN

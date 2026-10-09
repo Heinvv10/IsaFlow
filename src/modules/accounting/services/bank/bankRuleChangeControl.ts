@@ -49,7 +49,7 @@ const RULE_DEFAULTS = { is_active: true, auto_approve: false, category: null, ta
 async function classify(companyId: string, before: RuleProjection | null, proposed: RuleProjection) {
   const rows = (await sql`
     SELECT n.after,
-           public.bank_rule_change_needs_approval(${json(before)}::jsonb, n.after)
+           public.bank_rule_change_needs_approval(${companyId}::UUID, ${json(before)}::jsonb, n.after)
              AND EXISTS (SELECT 1 FROM approval_enforcement ae
                          WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${BANK_RULE}) AS held,
            (${json(before)}::jsonb - 'is_active') = (n.after - 'is_active') AS toggle_only
@@ -166,14 +166,14 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
 
 /**
  * A customer merge's re-point of the rules naming the source (customerMergeService),
- * recorded as `merge`. Under `bank_rule`, an AUTO-POSTING rule naming the
+ * recorded as `merge`. Under `bank_rule`, a rule naming the source that POSTS MONEY (877's bank_rule_posts_money)
  * source refuses the merge (409) before this or any other write of the merge
  * — re-pointing where it posts needs approval, and the table would otherwise
  * refuse it mid-merge. Called before the merge's first write.
  */
 export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId: string, targetId: string): Promise<void> {
   const rules = (await tx`
-    SELECT r.rule_name, public.bank_rule_auto_posts(public.bank_rule_projection(to_jsonb(r))) AS auto_posts
+    SELECT r.rule_name, public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
     FROM bank_categorisation_rules r
     WHERE r.company_id = ${companyId}::UUID AND r.client_id = ${sourceId}::UUID
     ORDER BY r.id FOR UPDATE
@@ -181,9 +181,9 @@ export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId
   if (rules.length === 0) return;
   const posting = rules.filter((r) => r.auto_posts).map((r) => `"${r.rule_name}"`);
   if (posting.length > 0 && await isEnforced(companyId, BANK_RULE)) {
-    throw new BankControlError('RULE_MERGE_HELD', `Bank rule ${posting.join(', ')} auto-posts for this customer, and moving it `
-      + 'to another customer needs a second person\'s approval. Turn auto-post off on that rule first, merge, then propose '
-      + 'turning it back on. Nothing was merged.');
+    throw new BankControlError('RULE_MERGE_HELD', `Bank rule ${posting.join(', ')} posts money for this customer unattended, and `
+      + 'moving it to another customer needs a second person\'s approval. Turn auto-post off on that rule (or disable it) first, '
+      + 'merge, then propose turning it back on. Nothing was merged.');
   }
   await tx`SELECT set_config('isaflow.bank_rule_change_kind', 'merge', true)`;
   await tx`UPDATE bank_categorisation_rules SET client_id = ${targetId}::UUID WHERE client_id = ${sourceId}::UUID AND company_id = ${companyId}::UUID`;
