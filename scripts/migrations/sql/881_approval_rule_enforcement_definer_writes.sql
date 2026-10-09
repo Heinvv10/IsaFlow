@@ -594,16 +594,36 @@ $$;
 
 -- ── 4. Function privileges ────────────────────────────────────────────────
 -- Strip EXECUTE from every grantee but the owner (PUBLIC's default, and any
--- default-ACL grant an environment adds), then grant the five writers to
--- app_user only. Helpers: nobody but the owner.
+-- default-ACL grant an environment adds) on EXACTLY the functions this
+-- migration creates — named, never matched by prefix: approval_rule_matches
+-- and approval_rule_strictest_rank (648/708) share the prefix, and the app
+-- calls them as app_user. Then grant the five writers to app_user only.
 DO $$
 DECLARE
   v_fn pg_catalog.regprocedure;
   v_grantee pg_catalog.text;
 BEGIN
-  FOR v_fn IN
-    SELECT p.oid::pg_catalog.regprocedure FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND (p.proname LIKE 'approval\_rule\_%' OR p.proname LIKE 'approval\_enforcement\_%')
+  FOREACH v_fn IN ARRAY ARRAY[
+    'public.approval_rule_assert_caller(pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_rule_actor_role(pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_rule_may_weaken(pg_catalog.text,pg_catalog.text)',
+    'public.approval_rule_js_trim(pg_catalog.text)',
+    'public.approval_rule_name_ok(pg_catalog.text)',
+    'public.approval_rule_amount_ok(pg_catalog.numeric)',
+    'public.approval_rule_assert_input(pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric)',
+    'public.approval_rule_assert_may_demand(pg_catalog.text,pg_catalog.text)',
+    'public.approval_rule_weakens(public.approval_rules,pg_catalog.bool,pg_catalog.text,pg_catalog.bool,pg_catalog.text,pg_catalog.numeric)',
+    'public.approval_rule_audit_fields(public.approval_rules,public.approval_rules)',
+    'public.approval_rule_actor_email()',
+    'public.approval_rule_audit(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid,public.approval_rules,public.approval_rules)',
+    'public.approval_rule_lock(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_rule_create(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric,pg_catalog.text)',
+    'public.approval_rule_update(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric,pg_catalog.text,pg_catalog.bool)',
+    'public.approval_rule_delete(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_enforcement_strictest_role(pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_enforcement_bank_verifier_role(pg_catalog.uuid)',
+    'public.approval_enforcement_bank_baseline(pg_catalog.uuid,pg_catalog.text)',
+    'public.approval_enforcement_set(pg_catalog.uuid,pg_catalog.text,pg_catalog.bool,pg_catalog.text)']::pg_catalog.regprocedure[]
   LOOP
     EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', v_fn);
     FOR v_grantee IN
@@ -703,9 +723,29 @@ BEGIN
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     CROSS JOIN (SELECT rolname, oid FROM pg_catalog.pg_roles WHERE NOT rolsuper AND rolname !~ '^pg_'
                 UNION ALL SELECT 'public', 0) r
-    WHERE n.nspname = 'public' AND r.oid <> p.proowner
+    WHERE p.oid = ANY (ARRAY[
+        'public.approval_rule_assert_caller(pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_rule_actor_role(pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_rule_may_weaken(pg_catalog.text,pg_catalog.text)',
+        'public.approval_rule_js_trim(pg_catalog.text)',
+        'public.approval_rule_name_ok(pg_catalog.text)',
+        'public.approval_rule_amount_ok(pg_catalog.numeric)',
+        'public.approval_rule_assert_input(pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric)',
+        'public.approval_rule_assert_may_demand(pg_catalog.text,pg_catalog.text)',
+        'public.approval_rule_weakens(public.approval_rules,pg_catalog.bool,pg_catalog.text,pg_catalog.bool,pg_catalog.text,pg_catalog.numeric)',
+        'public.approval_rule_audit_fields(public.approval_rules,public.approval_rules)',
+        'public.approval_rule_actor_email()',
+        'public.approval_rule_audit(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.uuid,public.approval_rules,public.approval_rules)',
+        'public.approval_rule_lock(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_rule_create(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric,pg_catalog.text)',
+        'public.approval_rule_update(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.text,pg_catalog.numeric,pg_catalog.text,pg_catalog.bool)',
+        'public.approval_rule_delete(pg_catalog.uuid,pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_enforcement_strictest_role(pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_enforcement_bank_verifier_role(pg_catalog.uuid)',
+        'public.approval_enforcement_bank_baseline(pg_catalog.uuid,pg_catalog.text)',
+        'public.approval_enforcement_set(pg_catalog.uuid,pg_catalog.text,pg_catalog.bool,pg_catalog.text)']::pg_catalog.regprocedure[]::pg_catalog.oid[])
+      AND r.oid <> p.proowner
       AND NOT (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, p.proowner, 'USAGE'))
-      AND (p.proname LIKE 'approval\_rule\_%' OR p.proname LIKE 'approval\_enforcement\_%')
       AND NOT ((r.rolname = 'app_user' OR (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, 'app_user', 'USAGE')))
                AND p.proname IN ('approval_rule_lock', 'approval_rule_create', 'approval_rule_update',
                                  'approval_rule_delete', 'approval_enforcement_set'))
@@ -739,6 +779,15 @@ BEGIN
     IF pg_catalog.has_function_privilege('public', v_fn, 'EXECUTE')
        OR NOT pg_catalog.has_function_privilege('app_user', v_fn, 'EXECUTE') THEN
       RAISE EXCEPTION 'migration 881: % must be executable by app_user and not by PUBLIC', v_fn;
+    END IF;
+  END LOOP;
+
+  -- The functions that only SHARE the prefix keep what they had: the app
+  -- matches rules through them as app_user.
+  FOREACH v_fn IN ARRAY ARRAY['public.approval_rule_matches(pg_catalog.uuid,pg_catalog.text,pg_catalog.numeric)',
+                               'public.approval_rule_strictest_rank(pg_catalog.uuid,pg_catalog.text,pg_catalog.numeric)'] LOOP
+    IF NOT pg_catalog.has_function_privilege('app_user', v_fn, 'EXECUTE') THEN
+      RAISE EXCEPTION 'migration 881: app_user lost EXECUTE on %', v_fn;
     END IF;
   END LOOP;
 END $$;
