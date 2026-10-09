@@ -565,6 +565,17 @@ posts as before.
 - **The batch reversal route** answers `BankControlError` 403. The census's list of throwers was re-derived from the call graph.
 - **Accepted, stated:** whoever may switch auto-post on is not blocked by their OWN unapproved rule changes, in any company. That authority already switches `bank_rule` off, and both acts are recorded.
 
+**After #690 (R-035 N1b, migration 881) merged into this branch:**
+- 881 writes every switch through the SECURITY DEFINER `approval_enforcement_set`, and app_user lost its direct writes on `approval_enforcement`. Its list of types does not include `bank_rule`.
+- **Migration 885** redefines the function from 881's own text, adding only the `bank_rule` branch:
+  - a person in their own session (RB012);
+  - switching on: the actor's own role ≥ `bank_rule_approver_role` (RB014), then the per-company rule-writer advisory lock is taken EXCLUSIVE before the insert;
+  - switching off: `approval_rule_may_weaken` at that role (RB011);
+  - 881's audit path.
+- Every other branch is byte-identical. 885 re-asserts 881's catalogue checks, and the n1b md5 pins are updated.
+- The TypeScript keeps the same checks first, for the typed refusal.
+- Verified on a prod-topology copy (`docs/evidence/bank-controls-step2/prod-topology-877.txt`).
+
 **Known limits.**
 - Browser-extension ingest lines carry `bank_feed_connection_id`, so they are feed lines and exempt from
   importer ≠ allocator (decision 2). The extension reads the bank's page in the user's own browser.
