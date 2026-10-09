@@ -22,6 +22,7 @@ import {
   CONDITION_OPERATORS, ENFORCEABLE_TYPES, RULE_FORM_DOCUMENT_TYPES, isRuleName,
 } from '../../src/modules/accounting/services/gl/approvalRuleOptions';
 import { CONDITION_FIELDS } from '../../src/modules/accounting/services/gl/approvalRuleInput';
+import { coupledTypes } from '../../src/modules/accounting/services/gl/approvalEnforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanup, createUser, newCompany } from './r035-approval.helpers';
 import { asRole, outcome } from './r035-n1.helpers';
@@ -82,11 +83,12 @@ describe('each allow-list is the TypeScript one', () => {
 });
 
 describe('each SQL list, read from the function body, is exactly its TypeScript constant (adversarial R2-1)', () => {
-  /** Every `ARRAY['a', 'b']` literal in `fn`'s body, each as a sorted list. */
+  /** Every `ARRAY['a', 'b']` literal in `fn`'s body, each as a sorted list (`ARRAY[p_x]`, no literal, is not a list). */
   const arraysIn = async (fn: string) => {
     const { rows: [f] } = await pool.query('SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure($1)', [fn]);
     return [...String(f.prosrc).matchAll(/ARRAY\[([^\]]*)\]/g)]
-      .map((m) => [...m[1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]!).sort());
+      .map((m) => [...m[1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]!).sort())
+      .filter((list) => list.length > 0);
   };
   const sorted = (xs: readonly string[]) => [...xs].sort();
 
@@ -101,9 +103,9 @@ describe('each SQL list, read from the function body, is exactly its TypeScript 
       .toEqual([sorted(RULE_FORM_DOCUMENT_TYPES)]);
   });
 
-  it('approval_enforcement_set: the enforceable types (and the coupled payment pair)', async () => {
-    expect(await arraysIn('public.approval_enforcement_set(uuid,text,boolean,text)'))
-      .toEqual(expect.arrayContaining([sorted(ENFORCEABLE_TYPES), sorted(['supplier_payment', 'payment_batch'])]));
+  it('approval_enforcement_set: the enforceable types and the coupled payment pair, and no other list', async () => {
+    expect((await arraysIn('public.approval_enforcement_set(uuid,text,boolean,text)')).sort())
+      .toEqual([sorted(ENFORCEABLE_TYPES), sorted(coupledTypes('supplier_payment'))].sort());
   });
 });
 
