@@ -7,6 +7,8 @@
  * no carried CC2 moved to another FNO, no code / alias clash, no deactivation
  * with active children or while a default names it. A refusal is a 400 with its
  * message; an edit that changes nothing (deactivating an inactive centre) succeeds.
+ * An id that is not one of this company's cost centres is a 404, whether it
+ * exists elsewhere or not.
  */
 
 import type { NextApiResponse } from 'next';
@@ -25,6 +27,7 @@ import {
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { UUID_RE } from '@/lib/validation';
+import { getPayrollCostCentre } from '@/modules/accounting/services/core/costCentreService';
 
 const PatchBody = z
   .object({
@@ -53,6 +56,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PATCH', 'DELETE']);
   }
 
+  if (!(await getPayrollCostCentre(companyId, id))) return apiResponse.notFound(res, 'Cost centre');
   try {
     const plan = await planUpdateDimensionCostCentre(companyId, id, input);
     await applyUpdateDimensionCostCentre(companyId, plan, user.id);
