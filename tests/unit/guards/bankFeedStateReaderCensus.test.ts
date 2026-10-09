@@ -167,6 +167,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/reports/consolidatedReportingService.ts': 'filtered',
   'src/modules/accounting/services/reports/customReportFieldDefs.ts': "filtered (the FROM clause text lives here in getBaseQuery; the predicate is applied by the sibling customReportRunner.ts's whereParts)",
   'src/modules/accounting/services/reports/kpiChartsService.ts': 'filtered',
+  'src/modules/accounting/services/reports/glLineExportService.ts': "exempt: joins only on matched_journal_line_id to label a journal's bank reference/payee, which non-posted rows cannot carry (trigger 675); no total is computed from bank_transactions",
   'src/modules/accounting/services/reports/kpiDashboardService.ts': 'filtered',
   'src/modules/accounting/services/reports/vatAllocationMismatchService.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/reports/vatInputSupportQuery.ts': "exempt: joins only on matched_journal_line_id, which non-posted rows cannot carry (trigger 675) — the bank_transactions read moved here when vatInputSupport.ts split into query + classification (2026-09-25)",
