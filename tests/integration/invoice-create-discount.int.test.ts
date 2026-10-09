@@ -138,4 +138,22 @@ describeIfDisposable('creating a customer invoice with a line discount', () => {
     expect(r).toEqual({ kind: 'bad_amount', message: 'The invoice total is too large' });
     expect(await stored(id)).toEqual(before);
   });
+
+  it('a new exchange rate alone that would overflow functional_total is refused too, and writes nothing', async () => {
+    await sql`UPDATE companies SET fx_documents_enabled = true WHERE id = ${f.fx.companyId}::UUID`;
+    try {
+      const { id } = await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+        clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 0, currencyCode: 'USD', exchangeRate: 1,
+        items: [{ description: 'Large', unitPrice: 8e12, quantity: 1 }],
+      }));
+      const before = await stored(id);
+      const r = await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, notes: 'changed', exchangeRate: 1000 }));
+      expect(r).toEqual({ kind: 'bad_amount', message: 'The invoice total is too large' });
+      expect(await stored(id)).toEqual(before);
+      const [n] = (await sql`SELECT notes FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${f.fx.companyId}::UUID`) as { notes: string | null }[];
+      expect(n!.notes).toBeNull();
+    } finally {
+      await sql`UPDATE companies SET fx_documents_enabled = false WHERE id = ${f.fx.companyId}::UUID`;
+    }
+  });
 });

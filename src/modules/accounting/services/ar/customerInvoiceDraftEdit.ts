@@ -69,7 +69,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate, project_id, COALESCE(client_id, customer_id) AS customer_id,
+      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -208,10 +208,12 @@ export async function editDraftCustomerInvoice(
       const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
       const rate = taxRate ?? existingTaxRate;
       computed = { ...invoiceTotals(lineAmounts, rate), rate };
-      // numeric(15,2), as create checks it: the total and functional_total = fx_functional(total, rate).
-      if (computed.total >= 1e13 || toFunctional(computed.total, fxRateOverride ?? (existingRate || 1)) >= 1e13) {
-        return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
-      }
+    }
+    // numeric(15,2), as create checks it: the total and functional_total = fx_functional(total, rate) the
+    // UPDATE below writes — a new rate alone re-derives it from the stored total. Before the first write.
+    const nextTotal = computed?.total ?? Number(ownedRows[0]!.total_amount ?? 0);
+    if (nextTotal >= 1e13 || toFunctional(nextTotal, fxRateOverride ?? (existingRate || 1)) >= 1e13) {
+      return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
     }
 
     await tx`
