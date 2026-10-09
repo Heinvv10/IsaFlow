@@ -13,6 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
+import { invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 
 /**
@@ -24,12 +25,13 @@ export function portalAppUrl(): string | null {
   return !appUrl || /localhost|127\.0\.0\.1|\[::1\]/.test(appUrl) ? null : appUrl;
 }
 
-export type StandingLinkRefusal = 'invoice_not_found' | 'invoice_unapproved' | 'no_customer' | 'nothing_owed';
+export type StandingLinkRefusal = 'invoice_not_found' | 'invoice_unapproved' | 'foreign_currency' | 'no_customer' | 'nothing_owed';
 
 interface InvoiceRow {
   status: string;
   customer_id: string | null;
   owes: boolean | null;
+  foreign_currency: boolean;
 }
 
 export async function ensureStandingLink(
@@ -41,7 +43,7 @@ export async function ensureStandingLink(
   // NaN balance owes nothing (NaN sorts above every number, so `> 0` alone would let it through).
   const rows = await withCustomerInvoiceLock('ensureStandingLink', 'This invoice', async () => (await sql`
     SELECT ci.status, COALESCE(ci.client_id, ci.customer_id) AS customer_id,
-           (b.balance > 0 AND b.balance <> 'NaN') AS owes
+           (b.balance > 0 AND b.balance <> 'NaN') AS owes, ${invoiceForeignCurrencySql()} AS foreign_currency
     FROM customer_invoices ci
     CROSS JOIN LATERAL (SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance) b
     WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
@@ -52,6 +54,8 @@ export async function ensureStandingLink(
   if (!invoice) return { ok: false, reason: 'invoice_not_found' };
   // R-180: a draft or an invoice awaiting approval is not yet a claim on the customer (R-082's rule).
   if (!documentInPopulation(invoice.status)) return { ok: false, reason: 'invoice_unapproved' };
+  // FX PR0: a link charges rands, so a foreign-currency invoice gets none (permanent).
+  if (invoice.foreign_currency) return { ok: false, reason: 'foreign_currency' };
   if (!invoice.customer_id) return { ok: false, reason: 'no_customer' };
   if (invoice.owes !== true) return { ok: false, reason: 'nothing_owed' };
 

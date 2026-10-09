@@ -14,6 +14,9 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), getPoolForTests: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 // The locking read bounds its wait with SET LOCAL lock_timeout, which needs the

@@ -18,6 +18,7 @@ import { isUuidParam } from '@/lib/validation';
 import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
 import { log } from '@/lib/logger';
 import { resolveLinkCharge } from '@/modules/accounting/services/ar/portalLinkCharge';
+import { FOREIGN_INVOICE_ONLINE_PAYMENT, invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 type Row = Record<string, unknown>;
 
 /** A body amount as text: plain decimal, at most cents (no '0x10', '1e3', ' 7 ', 12.345). */
@@ -35,6 +36,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
     // that is cancelled or deleted is not found.
     const resolved = await resolveLinkCharge(token);
     if (!resolved.ok) {
+      if (resolved.reason === 'invoice_foreign_currency') return apiResponse.badRequest(res, FOREIGN_INVOICE_ONLINE_PAYMENT);
       return resolved.reason === 'nothing_owed'
         ? apiResponse.badRequest(res, 'This invoice has no outstanding balance')
         : apiResponse.notFound(res, 'Payment link');
@@ -97,7 +99,7 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
       SELECT COALESCE(ci.client_id, ci.customer_id) AS customer_id, ci.status,
              b.balance::text AS balance,
              (b.balance = 'NaN' OR ${amountNum}::numeric > b.balance) AS over_balance,
-             (b.balance > 0 AND b.balance <> 'NaN') AS owes
+             (b.balance > 0 AND b.balance <> 'NaN') AS owes, ${invoiceForeignCurrencySql()} AS foreign_currency
       FROM customer_invoices ci
       CROSS JOIN LATERAL (
         SELECT ci.total_amount - GREATEST(ci.amount_paid, 0) AS balance
@@ -110,6 +112,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     if (!documentInPopulation(invoice[0]!.status as string | null)) {
       return apiResponse.badRequest(res, 'an invoice that is not approved cannot have a payment link; approve it first');
     }
+    // FX PR0 (permanent): a link charges rands; the balance of a foreign invoice is not rands.
+    if (invoice[0]!.foreign_currency !== false) return apiResponse.badRequest(res, FOREIGN_INVOICE_ONLINE_PAYMENT);
     // A link pays THIS invoice, so it is for this invoice's customer only.
     if (clientId.toLowerCase() !== String(invoice[0]!.customer_id).toLowerCase()) {
       return apiResponse.badRequest(res, "clientId is not this invoice's customer");

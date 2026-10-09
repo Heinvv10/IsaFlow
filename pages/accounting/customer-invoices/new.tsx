@@ -12,6 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface Client { id: string; name: string }
@@ -55,7 +56,8 @@ export default function NewCustomerInvoicePage() {
   const tax = subtotal * (form.taxRate / 100);
   const total = subtotal + tax;
   const isFx = form.currencyCode !== 'ZAR';
-  const zarTotal = Math.round(total * form.exchangeRate * 100) / 100;
+  // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
+  const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
 
   function handleExtracted(data: ExtractedDocument) {
     const updates: Partial<typeof form> = {};

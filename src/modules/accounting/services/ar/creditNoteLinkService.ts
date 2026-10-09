@@ -18,6 +18,7 @@
 
 import { sql } from '@/lib/neon';
 import type { CreditNoteCreateInput } from '../../types/ar.types';
+import { assertPostableCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 
 type Row = Record<string, unknown>;
 
@@ -59,6 +60,22 @@ function invoiceStatusRefusal(status: string): string | null {
   return null;
 }
 
+/**
+ * FX PR0: a note is in the functional currency (creation takes no currency),
+ * so linking it to a foreign invoice would, on approve, add rands to that
+ * invoice's foreign amount_paid. Refused at create, while the company has not
+ * enabled foreign-currency documents.
+ */
+async function foreignInvoiceRefusal(companyId: string, codes: unknown[], noun: string): Promise<string | null> {
+  try {
+    assertPostableCurrency(await loadCompanyCurrency(companyId), codes, noun);
+    return null;
+  } catch (err) {
+    if (err instanceof DocumentCurrencyError) return `The linked ${noun} cannot be credited: ${err.message}`;
+    throw err;
+  }
+}
+
 async function validateCustomerLinks(
   companyId: string,
   clientId?: string,
@@ -78,7 +95,7 @@ async function validateCustomerLinks(
   // COALESCE(client_id, customer_id): both columns exist on customer_invoices
   // and older rows populate only the second (see CLAUDE.md).
   const invoice = (await sql`
-    SELECT COALESCE(client_id, customer_id) AS owner_id, status
+    SELECT COALESCE(client_id, customer_id) AS owner_id, status, currency_code
     FROM customer_invoices
     WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
@@ -86,7 +103,8 @@ async function validateCustomerLinks(
   if (String(invoice[0]!.owner_id) !== clientId) {
     return 'customer_invoice_id belongs to a different customer than client_id';
   }
-  return invoiceStatusRefusal(String(invoice[0]!.status));
+  return invoiceStatusRefusal(String(invoice[0]!.status))
+    ?? await foreignInvoiceRefusal(companyId, [invoice[0]!.currency_code], 'invoice');
 }
 
 async function validateSupplierLinks(
@@ -106,14 +124,15 @@ async function validateSupplierLinks(
   if (!supplierInvoiceId) return null;
 
   const invoice = (await sql`
-    SELECT supplier_id, status FROM supplier_invoices
+    SELECT supplier_id, status, currency_code, currency FROM supplier_invoices
     WHERE id = ${supplierInvoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (invoice.length === 0) return 'Not found';
   if (String(invoice[0]!.supplier_id) !== supplierId) {
     return 'supplier_invoice_id belongs to a different supplier than supplier_id';
   }
-  return invoiceStatusRefusal(String(invoice[0]!.status));
+  return invoiceStatusRefusal(String(invoice[0]!.status))
+    ?? await foreignInvoiceRefusal(companyId, [invoice[0]!.currency_code, invoice[0]!.currency], 'bill');
 }
 
 /**

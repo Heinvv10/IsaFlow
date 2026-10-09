@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser, plantBill, plantRule, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, enableFxDocuments, plantBill, plantRule, reasonOf } from './r035-approval.helpers';
 import { billState, cleanupPr2, dataOf, enforce, postableCompany, routes } from './r035-pr2.helpers';
 
 assertDisposable();
@@ -126,6 +126,7 @@ describe('the approval binds to content, rank and enforcement epoch', () => {
 
   it('a USD bill under the ZAR threshold in its own currency is still gated (test 10)', async () => {
     const c = await company();
+    await enableFxDocuments(pool, c); // FX PR0
     await plantRule(pool, c, 'owner', { operator: 'greater_than', value: 50000 });
     await enforce(pool, c, u.b);
     const bill = await plantBill(pool, c, u.a, { total: 1150, functionalTotal: 92500, currencyCode: 'USD', exchangeRate: 80.43 });

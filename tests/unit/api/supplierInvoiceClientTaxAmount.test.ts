@@ -35,6 +35,11 @@ vi.mock('@/modules/billing/services/flowOperationCatalog', () => ({ getFlowCost:
 vi.mock('@/modules/accounting/services/core/companyService', () => ({
   reserveNextDocumentNumber: vi.fn(async () => 'SIV-1'),
 }));
+// FX PR0: the currency rule reads the company row; it has its own tests (documentCurrency, fx-pr0-creators).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/documentCurrency')>()),
+  resolveDocumentCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceStatusCounts: vi.fn(),

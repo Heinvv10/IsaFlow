@@ -21,7 +21,7 @@ import { resolveApprovalDocument } from '../../src/modules/accounting/services/g
 import { checkApproval } from '../../src/modules/accounting/services/gl/approvalMatching';
 import { getSupplierInvoiceById } from '../../src/modules/accounting/services/ap/supplierInvoiceService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { newCompany, plantBill, plantRule, type Bill } from './r035-approval.helpers';
+import { enableFxDocuments, newCompany, plantBill, plantRule, type Bill } from './r035-approval.helpers';
 
 assertDisposable();
 const USER = '00000000-0000-0000-0000-00000000a035';
@@ -34,6 +34,7 @@ async function inTx(fn: (c: PoolClient, company: string, bill: Bill) => Promise<
   try {
     await client.query('BEGIN');
     const company = await newCompany(client, []);
+    await enableFxDocuments(client, company); // the digest covers both currency columns
     const bill = await plantBill(client, company, USER);
     const ctx = { client, userId: USER, companyId: company, claims: {} } as unknown as Ctx;
     await als.run(ctx, () => fn(client, company, bill));

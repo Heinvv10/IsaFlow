@@ -26,7 +26,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
-import { resolveBillCurrency } from './supplierInvoiceCurrency';
+import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import {
@@ -106,9 +106,8 @@ export async function createSupplierInvoice(
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
-    // Currency fields — default to ZAR / 1.0; the company's own currency at exactly 1 (R-035).
-    const { currencyCode, exchangeRate } = await resolveBillCurrency(companyId, input.currencyCode, input.exchangeRate);
-    const functionalTotal = Math.round(totalAmount * exchangeRate * 100) / 100;
+    // The company's own currency at exactly 1 (R-035), a foreign one only once enabled (FX PR0).
+    const { currencyCode, exchangeRate } = await resolveDocumentCurrency(companyId, input.currencyCode, input.exchangeRate, 'bill');
 
     // Fetch supplier VAT number for duplicate fingerprint
     const [supplierVatRow] = (await sql`
@@ -135,7 +134,7 @@ export async function createSupplierInvoice(
           ${input.paymentTerms || null}, ${input.reference || null},
           ${input.projectId || null}, ${input.costCenterId || null},
           ${input.notes || null}, ${userId}::UUID,
-          ${currencyCode}, ${exchangeRate}, ${functionalTotal},
+          ${currencyCode}, ${exchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${exchangeRate}::NUMERIC(18,6)),
           ${fingerprint},
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING *

@@ -64,6 +64,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
   'CREDIT_NOTE_LOCK_TIMEOUT',
+  // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
+  'CURRENCY_CODE_INVALID',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
   // CC1/CC2/BU refusals (gl/dimensions): an unknown reference, a project whose
@@ -78,11 +80,17 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
-  // R-035 review HIGH-1 (ap/supplierInvoiceCurrency): names the currency and
-  // the rate the caller sent; raised before any write.
+  // R-035 review HIGH-1, invoices and bills since FX PR0 (shared/documentCurrency):
+  // names the currency and the rate the caller sent; raised before any write.
   'EXCHANGE_RATE_INVALID',
   // R-035: approve without the digest the approver was shown. Names only the request id.
   'EXPECTED_DIGEST_REQUIRED',
+  // FX PR0 (shared/documentCurrency): a foreign-currency document while the company has not
+  // enabled them. Names the caller's currency and the functional one; raised before any write.
+  'FOREIGN_CURRENCY_DISABLED',
+  // FX PR0 (shared/documentCurrency): settling a foreign-currency document, whatever the switch.
+  // Names the document's currency; raised before any write.
+  'FOREIGN_CURRENCY_SETTLEMENT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,

@@ -28,13 +28,15 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
 import { invoiceReview } from './gatewaySettlementReview';
+import { invoiceForeignCurrencySql } from '../shared/documentCurrency';
 
 
 export interface GatewayAllocation {
   allocated: number;
   /**
    * Why the invoice takes none of it: `invoice_<status>` / `invoice_deleted` when the
-   * invoice is outside the ledger, or the caller's own hold (`unapplied_currency`).
+   * invoice is outside the ledger, the caller's own hold (`unapplied_currency`), or
+   * `invoice_foreign_currency` (FX PR0: rands never settle a foreign invoice).
    */
   invoiceBlock: string | null;
   /** The invoice's customer as read under the lock: a merge may have moved it since. */
@@ -86,14 +88,15 @@ export async function decideGatewayAllocation(
 ): Promise<GatewayAllocation> {
   const locked = await withCustomerInvoiceLock('recordGatewayInvoiceReceipt', `Invoice ${invoiceId}`, () => sql<{
     locked_total: string; amount_paid: string | null; status: string | null; deleted_at: string | null;
-    client_id: string | null;
+    client_id: string | null; foreign_currency: boolean;
   }>`
-    SELECT total_amount::text AS locked_total, amount_paid::text AS amount_paid,
-           status, deleted_at::text AS deleted_at,
-           COALESCE(client_id, customer_id)::text AS client_id
-    FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
-    FOR UPDATE
+    SELECT ci.total_amount::text AS locked_total, ci.amount_paid::text AS amount_paid,
+           ci.status, ci.deleted_at::text AS deleted_at,
+           COALESCE(ci.client_id, ci.customer_id)::text AS client_id,
+           ${invoiceForeignCurrencySql()} AS foreign_currency
+    FROM customer_invoices ci
+    WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
+    FOR UPDATE OF ci
   `);
   const invoice = locked[0];
   if (!invoice) throw new Error(`Gateway receipt: invoice ${invoiceId} not found for company ${companyId}`);
@@ -114,7 +117,9 @@ export async function decideGatewayAllocation(
 
   const { allocated, invoiceBlock, overpaid } = allocationPlan({
     totalAmount: invoice.locked_total, amountPaid: invoice.amount_paid, pending, amountRand,
-    status: invoice.status, deletedAt: invoice.deleted_at, hold,
+    status: invoice.status, deletedAt: invoice.deleted_at,
+    // The money is in the bank either way (Hein); a foreign invoice is held, never allocated.
+    hold: hold ?? (invoice.foreign_currency ? 'invoice_foreign_currency' : null),
   });
   if (overpaid) {
     log.warn(

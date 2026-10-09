@@ -19,7 +19,7 @@
  */
 
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-import { assertBillAllocatable, toCents } from './billAllocatable';
+import { assertBillAllocatable, billsPayable, toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
@@ -186,7 +186,7 @@ async function lockBillCandidates(
            si.supplier_id,
            si.total_amount,
            si.amount_paid,
-           si.status,
+           si.status, si.currency, si.currency_code,
            si.deleted_at,
            COALESCE((
              SELECT SUM(pa.amount_allocated)
@@ -201,7 +201,7 @@ async function lockBillCandidates(
     ORDER BY si.id
     FOR UPDATE OF si
   `) as BillCandidate[];
-  return new Map(rows.map((r) => [String(r.id), r]));
+  return new Map((await billsPayable(companyId, rows)).map((r) => [String(r.id), r]));
 }
 
 export function buildLine(

@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import customerInvoicesDetail from '../../pages/api/accounting/customer-invoices-detail';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, cleanup, createUser, newCompany } from './r035-approval.helpers';
+import { callRoute, cleanup, createUser, enableFxDocuments, newCompany } from './r035-approval.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -28,6 +28,7 @@ const items = [{ description: 'Consulting', quantity: 1, unitPrice: 1000 }];
 
 async function plantDraft(): Promise<{ company: string; id: string }> {
   const company = await newCompany(pool, [[owner, 'owner']], companies);
+  await enableFxDocuments(pool, company); // FX PR0: the cases below re-label a draft USD
   const customer = crypto.randomUUID();
   const id = crypto.randomUUID();
   await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customer, company, 'r035 ci']);
