@@ -14,18 +14,13 @@ vi.mock('@/lib/neon', () => {
   });
   return { sql: sqlMock, withTransaction: vi.fn(), withSavepoint: (_n: string, f: () => unknown) => f(), fmtDate: (d: unknown) => String(d) };
 });
-vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
-  logAuditOrThrow: vi.fn().mockResolvedValue(undefined),
-}));
 
 import { sql } from '@/lib/neon';
-import { logAuditOrThrow } from '@/modules/accounting/services/core/auditTrailService';
 import {
-  assertMayEditRule, auditRuleChange, ApprovalRuleAuthorityError, type RuleActor,
+  assertMayEditRule, ApprovalRuleAuthorityError, type RuleActor,
 } from '@/modules/accounting/services/gl/approvalRuleGuards';
 
 const sqlMock = sql as unknown as MockedFunction<() => Promise<unknown[]>>;
-const auditMock = logAuditOrThrow as unknown as MockedFunction<(p: unknown) => Promise<void>>;
 
 const COMPANY = 'company-1';
 const RULE = 'rule-1';
@@ -38,7 +33,6 @@ const ruleRow = (approverRole: unknown) => {
 
 beforeEach(() => {
   sqlMock.mockReset();
-  auditMock.mockClear();
 });
 
 describe('assertMayEditRule', () => {
@@ -97,30 +91,6 @@ describe('assertMayEditRule', () => {
   });
 });
 
-describe('auditRuleChange', () => {
-  it('records only the columns that actually changed', async () => {
-    await auditRuleChange(COMPANY, actor('owner'), 'update', RULE,
-      { name: 'a rule', approver_role: 'owner', is_active: true },
-      { name: 'a rule', approver_role: 'manager', is_active: true });
-    const params = auditMock.mock.calls[0]![0] as {
-      action: string; entityType: string; entityRef: string;
-      changes: { fields: { field: string; old: string | null; new: string | null }[] };
-    };
-    expect(params).toMatchObject({ action: 'update', entityType: 'approval_rule', entityRef: 'a rule' });
-    expect(params.changes.fields).toEqual([{ field: 'approver_role', old: 'owner', new: 'manager', label: 'approver_role' }]);
-  });
-
-  it('records a delete as every field going to null', async () => {
-    await auditRuleChange(COMPANY, actor('owner'), 'delete', RULE,
-      { name: 'a rule', approver_role: 'owner' }, null);
-    const params = auditMock.mock.calls[0]![0] as { changes: { fields: { field: string; new: string | null }[] } };
-    expect(params.changes.fields.map(f => f.field).sort()).toEqual(['approver_role', 'name']);
-    expect(params.changes.fields.every(f => f.new === null)).toBe(true);
-  });
-
-  it('throws when the audit row cannot be written, so an unrecorded change fails', async () => {
-    auditMock.mockRejectedValueOnce(new Error('audit down'));
-    await expect(auditRuleChange(COMPANY, actor('owner'), 'create', RULE, null, { name: 'x' }))
-      .rejects.toThrow('audit down');
-  });
-});
+// The audit row a rule change writes is written by the rule definers since
+// migration 881 (R-035 N1b B) — its shape is pinned on real Postgres by
+// tests/integration/r035-n1b-rules-audit.int.test.ts.
