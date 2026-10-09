@@ -35,7 +35,7 @@ import { DimensionRefusal } from './dimensionTypes';
  * of them matches exactly: the caller sends the id, or the cc_type.
  */
 export function findDimensionCostCentre(
-  all: DimensionCostCentre[], ref: string, ccType?: DimensionCcType,
+  all: DimensionCostCentre[], ref: string, ccType?: DimensionCcType, role: 'centre' | 'parent' = 'centre',
 ): DimensionCostCentre | undefined {
   const text = ref.trim();
   const byId = all.find((c) => c.id === text.toLowerCase());
@@ -43,9 +43,11 @@ export function findDimensionCostCentre(
   const pool = ccType ? all.filter((c) => c.ccType === ccType) : all;
   const byCode = pool.filter((c) => c.code.toLowerCase() === text.toLowerCase());
   if (byCode.length > 1) {
+    // A parent can only be pinned by its id: cc_type narrows the centre being edited, not its parent.
+    const ask = role === 'parent' ? 'send the parent\'s id' : 'send its id, or its cc_type';
     throw new DimensionRefusal(
-      `"${ref}" matches ${byCode.length} cost centres (${byCode.map((c) => `${c.code} ${c.ccType}`).join(', ')}) — `
-      + 'send its id, or its cc_type',
+      `${role === 'parent' ? 'parent ' : ''}"${ref}" matches ${byCode.length} cost centres `
+      + `(${byCode.map((c) => `${c.code} ${c.ccType}`).join(', ')}) — ${ask}`,
     );
   }
   const key = aliasKey(ref);
@@ -140,7 +142,7 @@ export async function planUpdateDimensionCostCentre(
     if (input.parent === null) {
       parentId = null; parentCode = null; fnoCode = before.ccType === 'cc1' ? code : null;
     } else {
-      const parent = findDimensionCostCentre(all, input.parent);
+      const parent = findDimensionCostCentre(all, input.parent, undefined, 'parent');
       // The form re-sends the parent it was given: that one is kept as it is,
       // even inactive or with no FNO above it. Only a NEW parent is checked.
       if (!parent || parent.id !== before.parentId) {
