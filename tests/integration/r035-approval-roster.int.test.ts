@@ -141,23 +141,35 @@ describe('fails closed, and is shaped so it cannot silently stop seeing', () => 
   });
 });
 
+// R-035 N1b B (migration 881): app_user writes the switch only through
+// approval_enforcement_set. These two cases pinned the raw INSERT open (own
+// company allowed, another refused by RLS WITH CHECK); they now pin it shut
+// and the legitimate switch-on through the definer.
 describe('approval_enforcement under RLS (review LOW-4)', () => {
   const insert = (c: PoolClient, company: string, by: string) => c.query(
     "INSERT INTO public.approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_invoice',$2)", [company, by]);
+  const set = (c: PoolClient, company: string, by: string) => c.query(
+    "SELECT document_type FROM public.approval_enforcement_set($1,'supplier_invoice',true,$2)", [company, by]);
 
-  it('lets app_user switch on its OWN company', async () => {
+  it('lets app_user switch on its OWN company — through the definer; a raw INSERT is refused', async () => {
     await inTx(async ({ c, me, company }) => {
       await asRequest(c, me, company);
-      await insert(c, company, me);
+      await c.query('SAVEPOINT raw');
+      await expect(insert(c, company, me)).rejects.toThrow(/permission denied for table approval_enforcement/);
+      await c.query('ROLLBACK TO SAVEPOINT raw');
+      expect((await set(c, company, me)).rows).toEqual([{ document_type: 'supplier_invoice' }]);
       const { rows } = await c.query('SELECT company_id FROM public.approval_enforcement');
       expect(rows.map((r) => r.company_id)).toEqual([company]);
     });
   });
 
-  it("refuses app_user writing ANOTHER company's row — the WITH CHECK", async () => {
+  it("refuses app_user writing ANOTHER company's row — by privilege, and the definer as forged (RB020)", async () => {
     await inTx(async ({ c, me, company, foreign }) => {
       await asRequest(c, me, company);
-      await expect(insert(c, foreign, me)).rejects.toThrow(/row-level security/);
+      await c.query('SAVEPOINT raw');
+      await expect(insert(c, foreign, me)).rejects.toThrow(/permission denied for table approval_enforcement/);
+      await c.query('ROLLBACK TO SAVEPOINT raw');
+      await expect(set(c, foreign, me)).rejects.toMatchObject({ code: 'RB020' });
     });
   });
 });

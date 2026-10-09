@@ -15,6 +15,12 @@
  * predicate rule edits use (R-048): a rank strictly above that rule, or owner
  * at owner level — and is audited. Otherwise an admin switches enforcement off
  * to post their own bill, the round-3 bypass by another lever.
+ *
+ * The switch row is written only by approval_enforcement_set (migration 881,
+ * R-035 N1b B): app_user can no longer delete it by raw SQL. The function
+ * repeats every check below in SQL, writes the audit rows and the supplier
+ * bank-detail baseline itself; the checks here still run first, with their
+ * error types and messages, and a SQL refusal maps back onto the same ones.
  */
 
 import { sql } from '@/lib/neon';
@@ -22,12 +28,10 @@ import { log } from '@/lib/logger';
 import type { DocumentType } from './approvalService';
 import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
-import { logAuditOrThrow } from '../core/auditTrailService';
 import { ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
 import { actorRank } from './approvalRank';
-import {
-  assertVerifyingSession, ownCompanyRole, recordBankBaseline, SupplierBankVerificationError,
-} from '../ap/supplierBankBaseline';
+import { assertVerifyingSession, ownCompanyRole, SupplierBankVerificationError } from '../ap/supplierBankBaseline';
+import { setEnforcementRows, sqlRefusal } from './approvalRuleWrites';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
 // offers the same types); re-exported for every existing import site.
@@ -121,18 +125,22 @@ export async function isEnforced(companyId: string, documentType: EnforcementTyp
   return rows.length > 0;
 }
 
-async function auditEnforcement(companyId: string, actor: RuleActor, action: 'create' | 'delete',
-  row: Row, metadata: Record<string, string> = {}): Promise<void> {
-  await logAuditOrThrow({
-    companyId,
-    userId: actor.userId,
-    userEmail: actor.email,
-    action,
-    entityType: 'approval_enforcement',
-    entityId: String(row.id),
-    entityRef: String(row.document_type),
-    changes: { fields: [], metadata: { actorRole: actor.role, enforcementId: String(row.id), ...metadata } },
-  });
+/**
+ * Writes the switch through approval_enforcement_set, re-raising a SQL refusal
+ * as the error the same TypeScript check raises (RB010-RB013, migration 881).
+ */
+async function writeSwitch(companyId: string, documentType: EnforcementType, enabled: boolean,
+  actor: RuleActor): Promise<Row[]> {
+  try {
+    return await setEnforcementRows(companyId, documentType, enabled, actor);
+  } catch (error) {
+    const refusal = sqlRefusal(error, ['RB010', 'RB011', 'RB012', 'RB013']);
+    if (!refusal) throw error;
+    if (refusal.code === 'RB010') throw new ApprovalEnforcementUnavailableError(documentType);
+    if (refusal.code === 'RB011') throw new ApprovalEnforcementAuthorityError(documentType, refusal.detail);
+    throw new SupplierBankVerificationError(
+      refusal.code === 'RB012' ? 'IMPERSONATION_FORBIDDEN' : 'VERIFIER_ROLE_REQUIRED', refusal.message);
+  }
 }
 
 /**
@@ -189,17 +197,11 @@ export async function enableEnforcement(companyId: string, documentType: Enforce
         + `every supplier's current bank details as verified, so it needs the ${role} role or above — the role that verifies them.`);
     }
   }
-  for (const type of coupledTypes(documentType)) {
-    const rows = (await sql`
-      INSERT INTO approval_enforcement (company_id, document_type, enabled_by)
-      VALUES (${companyId}::UUID, ${type}, ${actor.userId})
-      ON CONFLICT (company_id, document_type) DO NOTHING
-      RETURNING *
-    `) as Row[];
-    if (!rows[0]) continue;
-    const baseline = bank ? { baselineSuppliers: String(await recordBankBaseline(companyId, actor.userId)) } : undefined;
-    await auditEnforcement(companyId, actor, 'create', rows[0], baseline);
-    log.info('Approval enforcement enabled', { companyId, documentType: type, ...baseline }, 'accounting');
+  // Every coupled type, each new row audited and — for supplier bank details
+  // — the baseline recorded, inside approval_enforcement_set (881).
+  for (const row of await writeSwitch(companyId, documentType, true, actor)) {
+    const baseline = bank ? { baselineSuppliers: String(row.baseline_suppliers) } : undefined;
+    log.info('Approval enforcement enabled', { companyId, documentType: String(row.document_type), ...baseline }, 'accounting');
   }
 }
 
@@ -244,13 +246,7 @@ export async function disableEnforcement(companyId: string, documentType: Enforc
     }, 'accounting');
     throw new ApprovalEnforcementAuthorityError(documentType, strictest);
   }
-  for (const type of types) {
-    const rows = (await sql`
-      DELETE FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${type}
-      RETURNING *
-    `) as Row[];
-    if (!rows[0]) continue;
-    await auditEnforcement(companyId, actor, 'delete', rows[0], strictest ? { strictestRuleRole: strictest } : {});
-    log.info('Approval enforcement disabled', { companyId, documentType: type }, 'accounting');
+  for (const row of await writeSwitch(companyId, documentType, false, actor)) {
+    log.info('Approval enforcement disabled', { companyId, documentType: String(row.document_type) }, 'accounting');
   }
 }
