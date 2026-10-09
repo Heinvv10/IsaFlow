@@ -132,14 +132,15 @@ const SHAPE_ONLY = 'public.approval_document_digest(uuid,text,uuid)';
 const NOT_APPLIED = 'migration 872 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 
 /** Every role that is neither superuser, predefined (pg_*), the object's owner, nor app_user or one of its members; and PUBLIC. */
-// A role that IS the owner by membership holds the owner's rights by
-// inheritance — on production the deploy/login role `postgres` is a member of
-// the owner `migration_admin` — and is exempt like the owner and superusers,
-// as migration 872's own assertions exempt it (the N1 boundary).
+// The session's own role, when it is a member of the owner, holds the owner's
+// rights by inheritance — on production the deploy/login role `postgres` is a
+// member of the owner `migration_admin` — and is exempt like the owner and
+// superusers, exactly as migration 872's own assertions exempt it (the N1
+// boundary). Any OTHER member of the owner is reported.
 const OTHERS = `
   SELECT r.rolname AS who FROM pg_roles r
   WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> $1::oid
-    AND NOT pg_has_role(r.oid, $1::oid, 'USAGE')
+    AND NOT (r.rolname = session_user AND pg_has_role(r.oid, $1::oid, 'USAGE'))
     AND NOT ($2::bool AND pg_has_role(r.oid, 'app_user', 'MEMBER'))
   UNION ALL SELECT 'public'`;
 
@@ -235,6 +236,7 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
     const { rows } = await pool.query(`
       SELECT p.proname, x.who FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
         LATERAL (SELECT r.rolname AS who FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> p.proowner
+                   AND NOT (r.rolname = session_user AND pg_has_role(r.oid, p.proowner, 'USAGE'))
                  UNION ALL SELECT 'public') x
       WHERE n.nspname = 'public' AND (p.proname LIKE 'approval\\_request\\_%' OR p.proname = 'approval_actor_rank')
         AND p.proname NOT IN ('approval_request_insert_guard', 'approval_request_raise', 'approval_request_rebind',

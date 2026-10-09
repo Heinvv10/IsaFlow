@@ -706,18 +706,21 @@ DECLARE
   v_priv pg_catalog.text;
   v_fn pg_catalog.text;
 BEGIN
-  -- No role but the owner, a role that IS the owner by membership, and
-  -- superusers may write, by grant or by column. A member of the owning role
-  -- holds the owner's rights by inheritance, not by a grant this migration can
-  -- revoke: on production the deploy/login role `postgres` is such a member of
-  -- the owner `migration_admin` (it must be, to migrate), exactly as the app's
-  -- login role sits above app_user — the N1 boundary (raw SQL that can RESET
-  -- ROLE is not stopped). It is exempt here like a superuser; any OTHER
-  -- inherited write path (pg_write_all_data, say) still refuses the migration.
+  -- No role but the owner, superusers, and the role RUNNING this migration
+  -- when it is a member of the owner may write, by grant or by column. On
+  -- production the deploy/login role `postgres` is a non-superuser member of
+  -- the owner `migration_admin` (it must be, to migrate) — it holds the
+  -- owner's rights by inheritance, not by a grant this migration can revoke,
+  -- exactly as the app's login role sits above app_user (the N1 boundary: raw
+  -- SQL that can RESET ROLE is not stopped). Only that one role (session_user)
+  -- is exempt: ANY OTHER role that inherits the owner, or holds another
+  -- inherited write path (pg_write_all_data, say), still refuses the migration.
+  -- (A NOINHERIT member that could SET ROLE to the owner is not detected — a
+  -- pre-existing limit of has_table_privilege.)
   FOR v_role IN
     SELECT r.rolname FROM pg_catalog.pg_roles r
     WHERE NOT r.rolsuper AND r.oid <> v_owner AND r.rolname !~ '^pg_'
-      AND NOT pg_catalog.pg_has_role(r.oid, v_owner, 'USAGE')
+      AND NOT (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, v_owner, 'USAGE'))
     UNION ALL SELECT 'public'
   LOOP
     FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER'] LOOP
@@ -743,12 +746,12 @@ BEGIN
     CROSS JOIN (SELECT rolname, oid FROM pg_catalog.pg_roles WHERE NOT rolsuper AND rolname !~ '^pg_'
                 UNION ALL SELECT 'public', 0) r
     WHERE n.nspname = 'public' AND r.oid <> p.proowner
-      AND NOT (r.oid <> 0 AND pg_catalog.pg_has_role(r.oid, p.proowner, 'USAGE'))  -- the owner by membership, as above
+      AND NOT (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, p.proowner, 'USAGE'))  -- the deploy role, as above
       AND (p.proname LIKE 'approval\_request\_%' OR p.proname = 'approval_actor_rank')
       AND p.proname <> 'approval_request_insert_guard'
-      AND NOT ((r.rolname = 'app_user' OR (r.oid <> 0 AND pg_catalog.pg_has_role(r.oid, 'app_user', 'USAGE')))
+      AND NOT ((r.rolname = 'app_user' OR (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, 'app_user', 'USAGE')))
                AND p.proname IN ('approval_request_raise', 'approval_request_rebind',
-                                 'approval_request_lock', 'approval_request_decide'))  -- app_user, or a role that inherits it
+                                 'approval_request_lock', 'approval_request_decide'))  -- app_user, or the deploy role through it
   LOOP
     IF pg_catalog.has_function_privilege(v_role, v_fn, 'EXECUTE') THEN
       RAISE EXCEPTION 'migration 872: % may still execute %', v_role, v_fn;
