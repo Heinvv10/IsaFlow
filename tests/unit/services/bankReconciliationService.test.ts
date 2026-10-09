@@ -432,9 +432,9 @@ describe('autoMatchTransactions', () => {
     expect(result.unmatched).toBe(1);
   });
 
-  it('auto-matches a deposit when bank amount matches GL credit line on same date', async () => {
+  it('auto-matches a deposit when bank amount matches the bank account\'s GL debit line on same date', async () => {
     // bank tx: +5000 (deposit received — isDeposit = true)
-    // Algorithm checks line.credit for deposits
+    // Money in debits the bank account: the algorithm checks line.debit for deposits
     vi.mocked(sql).mockResolvedValueOnce([
       {
         id: TX_ID,
@@ -444,12 +444,12 @@ describe('autoMatchTransactions', () => {
         description: 'CUSTOMER PAYMENT INV-2026-0042',
       },
     ] as never);
-    // GL line: credit 5000 on same date — reference matches (confidence 1.0)
+    // GL line: debit 5000 on same date — reference matches (confidence 1.0)
     vi.mocked(sql).mockResolvedValueOnce([
       {
         id: JL_ID,
-        debit: 0,
-        credit: 5000,
+        debit: 5000,
+        credit: 0,
         description: 'Customer payment: INV-2026-0042',
         entry_date: '2026-03-10',
         entry_number: 'JE-2026-00001',
@@ -475,9 +475,9 @@ describe('autoMatchTransactions', () => {
     expect(result.unmatched).toBe(0);
   });
 
-  it('auto-matches a withdrawal when bank debit matches GL debit line on same date', async () => {
+  it('auto-matches a withdrawal when bank amount matches the bank account\'s GL credit line on same date', async () => {
     // bank tx: -2500 (payment out — isDeposit = false)
-    // Algorithm checks line.debit for withdrawals
+    // Money out credits the bank account: the algorithm checks line.credit for withdrawals
     vi.mocked(sql).mockResolvedValueOnce([
       {
         id: TX_ID,
@@ -487,12 +487,12 @@ describe('autoMatchTransactions', () => {
         description: 'LEASE PAYMENT MARCH',
       },
     ] as never);
-    // GL line: debit 2500 on same date, amount + date = Tier 2 confidence 0.9
+    // GL line: credit 2500 on same date, amount + date = Tier 2 confidence 0.9
     vi.mocked(sql).mockResolvedValueOnce([
       {
         id: JL_ID,
-        debit: 2500,
-        credit: 0,
+        debit: 0,
+        credit: 2500,
         description: 'Rent expense',
         entry_date: '2026-03-12',
         entry_number: 'JE-2026-00002',
@@ -539,9 +539,9 @@ describe('autoMatchTransactions', () => {
 
     const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
-    // Transaction appears either as a candidate or unmatched — not auto-committed
-    const totalAccountedFor = result.candidates.length + result.unmatched;
-    expect(totalAccountedFor).toBeGreaterThan(0);
+    // The own-direction credit leg (money out) is an amount-only candidate (0.7) — offered, not auto-committed
+    expect(result.candidates.map((cand) => cand.journalLineId)).toEqual([JL_ID]);
+    expect(result.unmatched).toBe(0);
     // Confirm no matchTransaction UPDATE was issued
     expect(vi.mocked(sql).mock.calls.length).toBe(2); // only bank txs + GL lines queries
   });

@@ -70,9 +70,9 @@ function queueCandidates(): void {
         { id: TX(2), amount: 100, transaction_date: '2026-03-10', reference: 'R2', description: 'R2' },
       ] as never)
       .mockResolvedValueOnce([
-        { id: 'jl-3', debit: 0, credit: 100, description: 'R3', entry_date: '2026-03-10', entry_number: 'JE-3', source_document_id: null },
-        { id: 'jl-1', debit: 0, credit: 100, description: 'R1', entry_date: '2026-03-10', entry_number: 'JE-1', source_document_id: null },
-        { id: 'jl-2', debit: 0, credit: 100, description: 'R2', entry_date: '2026-03-10', entry_number: 'JE-2', source_document_id: null },
+        { id: 'jl-3', debit: 100, credit: 0, description: 'R3', entry_date: '2026-03-10', entry_number: 'JE-3', source_document_id: null },
+        { id: 'jl-1', debit: 100, credit: 0, description: 'R1', entry_date: '2026-03-10', entry_number: 'JE-1', source_document_id: null },
+        { id: 'jl-2', debit: 100, credit: 0, description: 'R2', entry_date: '2026-03-10', entry_number: 'JE-2', source_document_id: null },
       ] as never)
       .mockResolvedValue([] as never);
 }

@@ -32,8 +32,8 @@ async function seedPair(amount: number, date: string, tag: string) {
   const [je] = (await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, created_by)
     VALUES (${c.fx.companyId}::UUID, ${date}::DATE, ${`D11 AM ${tag}`}, 'posted', ${c.fx.userId}::UUID) RETURNING id`) as Row[];
   await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
-    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.acct.expense}::UUID, 0, ${amount}, ${`D11 AM ${tag}`}),
-           (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.fx.bankAccountId}::UUID, ${amount}, 0, ${`D11 AM ${tag}`})`;
+    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.acct.expense}::UUID, ${amount}, 0, ${`D11 AM ${tag}`}),
+           (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.fx.bankAccountId}::UUID, 0, ${amount}, ${`D11 AM ${tag}`})`;
   const [bt] = (await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
     VALUES (${c.fx.companyId}::UUID, ${c.fx.bankAccountId}::UUID, ${date}::DATE, ${-amount}, ${`D11 AM ${tag}`}, 'imported')
     RETURNING id`) as Row[];

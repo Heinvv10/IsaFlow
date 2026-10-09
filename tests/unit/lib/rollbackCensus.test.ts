@@ -46,7 +46,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
     reason: 'two ROLLBACK paths (dry run and catch) whose results the release census cannot tell apart, in a script no test can drive, so a conversion could not be proved; '
       + RUNS_SQL_FILE + ' (R-176 fix.md)',
   },
-  'scripts/apply-migrations.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
+  'scripts/lib/migrationFiles.ts': {
+    rollbacks: 1, unreadable: 1,
+    reason: `${IN_A_HELPER} (apply-migrations: pool ended with the run; check-migration-parity: a dedicated Client ended in its finally, which also releases the session; migrations themselves are bounded by APPLY_STATEMENT_TIMEOUT_MS (15 min), the ROLLBACK itself is not separately bounded); ${RUNS_SQL_FILE}`,
+  },
   'scripts/migrations/resolve-checksum-conflicts.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/_pg.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/query.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },

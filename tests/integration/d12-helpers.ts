@@ -44,17 +44,17 @@ export async function newBank(c: Ctx): Promise<string> {
 }
 
 /**
- * A posted journal (bank DR `amount`, expense CR) and an imported statement line of `-amount` on `bank` — the sign
- * pairing `utils/autoMatch` pairs (a withdrawal against a DEBIT line), as d11-r5 seeds it.
+ * A posted payment journal (expense DR, bank CR `amount`) and an imported statement line of `-amount` on `bank` — the
+ * pairing `utils/autoMatch` makes: money out credits the bank account, so a withdrawal takes the bank CREDIT leg.
  */
 export async function seedPair(c: Ctx, bank: string, amount: number, date = '2026-06-10') {
   const tag = `D12 ${++c.seq}`;
   const [je] = (await sql`INSERT INTO gl_journal_entries (company_id, entry_date, description, status, created_by)
     VALUES (${c.fx.companyId}::UUID, ${date}::DATE, ${tag}, 'posted', ${c.fx.userId}::UUID) RETURNING id`) as Row[];
   const [jl] = (await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
-    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${bank}::UUID, ${amount}, 0, ${tag}) RETURNING id`) as Row[];
+    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${bank}::UUID, 0, ${amount}, ${tag}) RETURNING id`) as Row[];
   await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
-    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.acct.expense}::UUID, 0, ${amount}, ${tag})`;
+    VALUES (${c.fx.companyId}::UUID, ${je!.id}::UUID, ${c.acct.expense}::UUID, ${amount}, 0, ${tag})`;
   const [bt] = (await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
     VALUES (${c.fx.companyId}::UUID, ${bank}::UUID, ${date}::DATE, ${-amount}, ${tag}, 'imported') RETURNING id`) as Row[];
   return { bt: String(bt!.id), je: String(je!.id), jl: String(jl!.id) };

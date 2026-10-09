@@ -98,7 +98,8 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
 
   it('R4-2 auto_match (T\'s head, then the stale line) racing the reversal gate (line, then head): no 40P01', async () => {
     const s = await transferTie({ unmatch: true, lbId: `ffffffff-ffff-4fff-bfff-${randomUUID().slice(-12)}`, lbAmount: -77 });
-    await insLine(`00000000-0000-4000-8000-${randomUUID().slice(-12)}`, s.bankB, -100, '2026-06-05');
+    // +100: money in on B, the direction auto-match pairs with T's bank-B DEBIT leg (T's head).
+    await insLine(`00000000-0000-4000-8000-${randomUUID().slice(-12)}`, s.bankB, 100, '2026-06-05');
     await seedJournal(c, s.bankB, 77, '2026-06-06');
     const dl0 = await deadlocks();
     const cl: PoolClient = await c.fx.pool.connect();
@@ -117,6 +118,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     expect(locked, 'the gate holds only the transfer\'s own line').toEqual([s.sa.toLowerCase()]);
     expect(m.status, m.body).toBe(200);
     expect(m.body).not.toMatch(/"skippedRaced":[1-9]/);
+    expect(m.body, 'both lines matched: T\'s head and the stale line').toMatch(/"matched":2/);
     // The reversal met the match auto_match made meanwhile on T (outside its locked set): a typed retry, or it passed.
     if (aErr) expect((aErr as { code?: string }).code, String(aErr)).toMatch(/LOCK_TIMEOUT$/);
   }, 60000);
