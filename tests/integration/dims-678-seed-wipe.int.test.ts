@@ -2,8 +2,9 @@
  * #683 round 3 item 5: the phase-5 seed's cost-centre wipe, run alone against
  * the fixture. With a centre named from every RESTRICT column (journal and bank
  * lines, document lines, a credit note, customer / account defaults, a coding
- * rule, an asset, a child centre), the wipe deletes the company's centres
- * without a 23503, keeps every line it untagged, and touches no other company.
+ * rule, an asset, an employee, a cost allocation, a child centre), the wipe
+ * deletes the company's centres without a 23503, keeps every line it untagged,
+ * and touches no other company.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -26,6 +27,7 @@ beforeAll(async () => {
   b = await seedBase(pool, company, user);
   ob = await seedBase(pool, other, user);
   ids.fno = await costCentre(pool, company, 'W-F1');
+  ids.otherCc = await costCentre(pool, other, 'W-F1');
   ids.proj = await costCentre(pool, company, 'W-P1', 'cc2', ids.fno);
   ids.line = await journalLine(pool, b, 'cc2_id', ids.proj);
   await q('UPDATE gl_journal_lines SET cc1_id = $2 WHERE id = $1', [ids.line, ids.fno]);
@@ -42,8 +44,12 @@ beforeAll(async () => {
   await q(`INSERT INTO assets(company_id, asset_number, name, purchase_date, purchase_price, useful_life_years, cost_centre_id)
            VALUES($1, 'W-A1', 'Van', '2026-01-01', 1000, 5, $2)`, [company, ids.fno]);
   await q('UPDATE payroll_employees SET cost_centre_id = $2 WHERE id = $1', [b.employee, ids.proj]);
+  // An allocation: cost_centre_id NOT NULL + RESTRICT (451) — the wipe has to delete it, not clear it.
+  await q('INSERT INTO payroll_employee_cost_allocations(company_id, employee_id, cost_centre_id, percentage) VALUES($1, $2, $3, 100)',
+    [company, b.employee, ids.fno]);
+  await q('INSERT INTO payroll_employee_cost_allocations(company_id, employee_id, cost_centre_id, percentage) VALUES($1, $2, $3, 100)',
+    [other, ob.employee, ids.otherCc]);
   // The other company: its own centre on its own line — the wipe must not see it.
-  ids.otherCc = await costCentre(pool, other, 'W-F1');
   ids.otherLine = await journalLine(pool, ob, 'cc1_id', ids.otherCc);
 }, 60000);
 afterAll(async () => {
@@ -68,4 +74,6 @@ it('deletes the company\'s centres with no 23503, untags what named them, and le
   // The other company's centre and its tag are untouched.
   expect((await q('SELECT count(*)::int AS n FROM cost_centres WHERE id = $1', [ids.otherCc])).rows[0].n).toBe(1);
   expect((await q('SELECT cc1_id FROM gl_journal_lines WHERE id = $1', [ids.otherLine])).rows[0].cc1_id).toBe(ids.otherCc);
+  expect((await q('SELECT count(*)::int AS n FROM payroll_employee_cost_allocations WHERE company_id = ANY($1)', [[company, other]])).rows[0].n)
+    .toBe(1); // this company's allocation is gone, the other company's stays
 });
