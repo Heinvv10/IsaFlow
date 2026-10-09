@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import bankAutoPost from '../../pages/api/accounting/bank-auto-post';
+import bankRulesSeed from '../../pages/api/accounting/bank-rules-seed';
 import smartCategorize from '../../pages/api/accounting/smart-categorize';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -90,6 +91,36 @@ describe('with auto-post enabled, a suggestion-only rule posts money', () => {
     const f = await fixture({ autoPost: false });
     const rule = await plantBankRule(pool, f.c, f.expA);
     expect(statusOf(await r.action(u.a, f.c, { action: 'update', id: rule, glAccountId: f.expB }))).toBe('applied');
+  });
+});
+
+describe('seeding rules while auto-post is on (blind review N2)', () => {
+  const seed = (c: string, codes: string[]) => callRoute(bankRulesSeed as never, tokens[u.a]!, c, 'POST',
+    { entries: codes.map((glCode, i) => ({ originalCategory: `BRC SEED ${i}`, standardCategory: `Seeded ${i}`, glCode })) },
+    '/api/accounting/bank-rules-seed');
+  const codeOf = async (id: string) => (await pool.query('SELECT account_code FROM gl_accounts WHERE id = $1', [id])).rows[0].account_code;
+
+  it('each seeded rule is held as its own pending creation, reported as held; another member approves one and it applies', async () => {
+    const f = await fixture({ autoPost: true });
+    const res = await seed(f.c, [await codeOf(f.expA), await codeOf(f.expB)]);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(dataOf<{ created: number; held: number; message: string }>(res)).toMatchObject({
+      created: 0, held: 2, message: expect.stringMatching(/2 rules held for approval/) });
+    expect(Number((await pool.query('SELECT count(*) FROM bank_categorisation_rules WHERE company_id = $1', [f.c])).rows[0].count)).toBe(0);
+    const pending = await r.changes(u.b, f.c);
+    expect(pending.map((p) => [p.kind, p.ruleName, p.canDecide]).sort()).toEqual([['create', 'Seeded 0', true], ['create', 'Seeded 1', true]]);
+    const approved = await r.decide(u.b, f.c, pending[0]!.id, 'approve');
+    expect(approved.state.statusCode, JSON.stringify(approved.state.body)).toBe(200);
+    const ruleId = dataOf<{ ruleId: string }>(approved).ruleId;
+    expect(await ruleOf(pool, ruleId)).toMatchObject({ is_active: true, auto_create_entry: false, priority: 100, match_type: 'contains' });
+    // Seeding the same categories again: one is a rule now, the other is still pending — both skipped, no second pending change.
+    expect(dataOf<{ created: number; held: number; skipped: number }>(await seed(f.c, [await codeOf(f.expA), await codeOf(f.expB)])))
+      .toMatchObject({ created: 0, held: 0, skipped: 2 });
+  });
+
+  it('with auto-post off the seed applies at once, as before', async () => {
+    const f = await fixture({ autoPost: false });
+    expect(dataOf<{ created: number; held: number }>(await seed(f.c, [await codeOf(f.expA)]))).toMatchObject({ created: 1, held: 0 });
   });
 });
 
