@@ -47,6 +47,7 @@ I did not connect to prod `isaflow` or to `isaflow_dev`, and I did not open any 
    - Their only guard is the `tenant_isolation` RLS policy, and neither table has a trigger (fixture catalog).
    - The 712 backstop returns as soon as no switch row is found (`712_…:149`).
    - So `DELETE FROM approval_enforcement …`, or deactivating or raising a rule, turns enforcement off with no forged claims and no GUC. The app paths audit these changes (`approvalRuleGuards.ts:198`, `auditRuleChange`); raw SQL does not.
+   - **Since migration 881 (N1b B):** neither table is writable by any non-owner role; the definers re-check every guard and write the audit rows (option (f1), below).
 8. **The two GUCs the controls trust are ordinary settings.**
    - `request.jwt.claims` is what `auth.uid()` reads (`348_rls_and_auth_helpers.sql:51-54`).
    - `isaflow.approval_gate_exempt` is the import and bank-feed exemption.
@@ -347,6 +348,8 @@ That is defensible only if Hein judges the injection surface small (§1) and tre
 **Does not close:** T1, T2.
 
 **Cost:** (f1) 2 to 3 days; (f2) 1 day on top of (d).
+
+**As built (R-035 N1b B, migration 881, 2026-10-09): (f1) without (b).** The five definers (`approval_rule_lock` / `_create` / `_update` / `_delete`, `approval_enforcement_set`) take the actor from `auth.uid()` and the company from `app.current_company_id()`, as 872 does, and every non-owner write privilege on both tables (TRUNCATE and TRIGGER included; `platform_admin`, and `migration_admin` wherever it is a plain grantee rather than the owner, as on the classic fixture) is revoked. The rank the definers judge is `company_users.role`, which an admin could rewrite by raw SQL until N1b C (migration 883) — so (f1) is only as strong as that table. So T6 is closed for application code and for `app_user`/`platform_admin` SQL; it stays open to anything that can forge the claims GUC or `RESET ROLE` (T3/T5), until an anchor exists. (f2) is not built.
 
 **Rollout risk: medium.** The rules UI (PR A) and the enforcement API must move to the functions in the same release.
 
