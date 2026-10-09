@@ -131,6 +131,46 @@ describe('under manual-journal enforcement, a transfer a rule matches', () => {
   });
 });
 
+// While a held transfer waits, the bank statement may show the same movement. Allocating that line as a transfer
+// would post the movement a second time, and the draft would post it again on approval: the allocation guard sees a
+// Transfers-page draft awaiting approval (or approved, not yet posted) as it sees a posted one, and refuses.
+describe('while a held transfer is a draft, the statement line of the same movement', () => {
+  const statementLine = async (f: Company, bank: string, amount: number) => String((await pool.query(
+    `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status, import_batch_id)
+     VALUES($1,$2,DATE '2026-09-03',$3,'R035 stmt','imported',gen_random_uuid()) RETURNING id`, [f.c, bank, amount])).rows[0].id);
+  const allocate = (f: Company, line: string, counterparty: string) =>
+    inRequest(pool, a, f.c, () => allocateTransaction(f.c, line, counterparty, a, 'R035 stmt', 'transfer'));
+  const lineStatus = async (line: string) => (await pool.query('SELECT status FROM bank_transactions WHERE id = $1', [line])).rows[0].status;
+
+  it('is refused as a transfer on either bank, naming the draft; nothing is written', async () => {
+    const f = await fixture();
+    const held = dataOf<Held>(await transfer(f));
+    const { rows: [je] } = await pool.query('SELECT entry_number FROM gl_journal_entries WHERE id = $1', [held.journalId]);
+    for (const [bank, amount, counterparty] of [[f.bank, -1500, f.bank2], [f.bank2, 1500, f.bank]] as const) {
+      const line = await statementLine(f, bank, amount);
+      await expect(allocate(f, line, counterparty)).rejects.toMatchObject({
+        name: 'DuplicateTransferError', message: expect.stringContaining(`${je.entry_number}, a draft journal awaiting approval`),
+      });
+      expect(await lineStatus(line)).toBe('imported');
+    }
+    expect((await journals(f.c)).map((j) => j.status)).toEqual(['draft']);
+  });
+
+  it('still refused once the draft is approved and not yet posted; a rejected draft no longer counts', async () => {
+    const f = await fixture();
+    const held = dataOf<Held>(await transfer(f));
+    expect(status(await routes.decide(pool, b, f.c, held.requestId))).toBe(200);
+    const line = await statementLine(f, f.bank, -1500);
+    await expect(allocate(f, line, f.bank2)).rejects.toMatchObject({ name: 'DuplicateTransferError' });
+    const other = await fixture();
+    const rejected = dataOf<Held>(await transfer(other));
+    expect(status(await routes.decide(pool, b, other.c, rejected.requestId, 'reject'))).toBe(200);
+    const free = await statementLine(other, other.bank, -1500);
+    await allocate(other, free, other.bank2);
+    expect(await lineStatus(free)).not.toBe('imported');
+  });
+});
+
 describe('otherwise the transfer posts at once, as before', () => {
   it('enforcement off: one posted journal, no request', async () => {
     const f = await fixture({ enforced: false });
