@@ -22,7 +22,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from './bankFeedStateGuard';
 import { isBankEvidenced, manualLinePaymentRefusal } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
-import { importerAllocationRefusal } from './bankLineImporterGate';
+import { importerAllocationRefusal, importerArmOf } from './bankLineImporterGate';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -132,8 +132,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   }
   // Step 2 (Hein, decision 2): the sweep is the person who ran it (the session user), and under the arm's enforced
   // type they may not allocate a line of a statement they imported — skipped (counted) the same way, from the locked row.
-  const importerArm = allocType === 'account' ? 'manual_journal' as const
-    : allocType === 'supplier' && supplierId && !isDeposit ? 'supplier_payment' as const : null;
+  const ruleContact = allocType === 'supplier' ? supplierId : allocType === 'customer' && rule.client_id ? String(rule.client_id) : null;
+  const importerArm = importerArmOf(allocType, ruleContact, Number(tx.amount)); // the one mapping (bankLineImporterGate)
   if (importerArm && await importerAllocationRefusal(companyId, locked, userId, importerArm)) return { kind: 'approval_required' };
   const entryDesc = rule.description_template
     ? String(rule.description_template)

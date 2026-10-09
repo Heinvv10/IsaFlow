@@ -22,8 +22,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { BankControlError, isSoleAtFloor } from './bankControlRefusal';
 import { coupledTypes, isEnforced } from '../gl/approvalEnforcement';
-import { isBankEvidenced } from '../ap/bankLinePaymentGate';
-import { handKeyedLineJournalRefusal } from './bankLineJournalGate';
 
 /** The approval type an allocation (or its reversal) is judged under. */
 export type BankArm = 'manual_journal' | 'supplier_payment';
@@ -40,14 +38,24 @@ export async function armEnforced(companyId: string, arm: BankArm): Promise<bool
 }
 
 /**
- * The arm an allocation posts on: account and transfer (and a supplier/customer
- * call naming no contact, which allocateTransaction posts to the account) are a
- * journal; a supplier outflow is a payment; money in, and a customer, neither.
+ * The arm an allocation posts on — the ONE mapping every importer check uses
+ * (the service, the rule sweep, the provisional poster, the MCP classifier).
+ * Account and transfer, and a supplier/customer allocation naming no contact
+ * (allocateTransaction posts it to the account; a rule, to the control
+ * account), are a journal. Money in with a contact (a receipt, a supplier
+ * refund) is ungated. Money OUT with a contact is a payment: to a supplier,
+ * `supplier_payment`; to a customer (a refund) no payment type exists, so it
+ * is the journal a person composed — `manual_journal`, failing closed.
  */
 export function importerArmOf(allocType: string, entityId: string | null | undefined, signedAmount: number): BankArm | null {
   if (allocType === 'account' || allocType === 'transfer' || !entityId) return 'manual_journal';
-  return allocType === 'supplier' && signedAmount < 0 ? 'supplier_payment' : null;
+  if (signedAmount >= 0) return null;
+  return allocType === 'supplier' ? 'supplier_payment' : 'manual_journal';
 }
+
+/** The system user: a sweep run for nobody (bankImportService's poster). */
+const NOBODY = '00000000-0000-0000-0000-000000000000';
+const sameUser = (x: unknown, y: string) => String(x).toLowerCase() === y.toLowerCase();
 
 /**
  * R-035 Q2 on the admin floor, asked only on the request's own behalf:
@@ -57,7 +65,8 @@ export function importerArmOf(allocType: string, entityId: string | null | undef
  */
 export async function isSoleAsCaller(companyId: string, actorUserId: string): Promise<boolean> {
   const [row] = (await sql`SELECT auth.uid()::TEXT AS uid`) as DbRow[];
-  return row?.uid === actorUserId && isSoleAtFloor(companyId, actorUserId);
+  if (row?.uid == null || !sameUser(row.uid, actorUserId)) return false;
+  return isSoleAtFloor(companyId, String(row.uid));
 }
 
 function refusal(arm: BankArm): BankControlError {
@@ -76,7 +85,9 @@ export async function importerAllocationRefusal(
     SELECT imported_by FROM bank_import_batches
     WHERE id = ${String(line.import_batch_id)}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  if (batch?.imported_by == null || String(batch.imported_by) !== actorUserId) return null;
+  if (batch?.imported_by == null || String(batch.imported_by).startsWith('mcp:')) return null; // no person on record
+  // An actor of nobody (a sweep that named no person) cannot show it was not run for the importer: held, failing closed.
+  if (actorUserId !== NOBODY && !sameUser(batch.imported_by, actorUserId)) return null;
   return (await isSoleAsCaller(companyId, actorUserId)) ? null : refusal(arm);
 }
 
@@ -115,21 +126,10 @@ export async function importerHeldLineSkips(companyId: string, actorUserId: stri
     SELECT bt.id FROM bank_transactions bt
     JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
     WHERE bt.company_id = ${companyId}::UUID AND bt.id = ANY(${gated.map((l) => l.txId)}::UUID[])
-      AND bt.bank_feed_connection_id IS NULL AND b.imported_by = ${actorUserId}
+      AND bt.bank_feed_connection_id IS NULL AND b.imported_by IS NOT NULL AND b.imported_by NOT LIKE 'mcp:%'
+      AND (lower(b.imported_by) = lower(${actorUserId}) OR ${actorUserId === NOBODY}::BOOLEAN)
   `) as DbRow[]).map((r) => String(r.id)));
   if (own.size === 0 || await isSoleAsCaller(companyId, actorUserId)) return skips;
   for (const line of gated) if (own.has(line.txId)) skips.set(line.txId, `approval_required: ${refusal(line.arm).message}`);
   return skips;
-}
-
-/**
- * The provisional poster's one question (an unattended DR account / CR bank):
- * is posting `line` held — keyed by hand past a matching manual-journal rule
- * (R-035 PR6 H2), or allocated for the person who imported it? Reads only.
- */
-export async function provisionalPostingHeld(
-  companyId: string, line: DbRow, actorUserId: string, amount: number,
-): Promise<boolean> {
-  if (!isBankEvidenced(line) && await handKeyedLineJournalRefusal(companyId, amount)) return true;
-  return (await importerAllocationRefusal(companyId, line, actorUserId, 'manual_journal')) !== null;
 }

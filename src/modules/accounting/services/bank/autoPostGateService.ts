@@ -139,7 +139,7 @@ export async function sweep(
   companyId: string,
   txIds: string[],
   source: AutoPostSource,
-  userId: string, triggeredBy = userId, // who ran it — an import's importer; skipped on their own lines (step 2)
+  userId: string, triggeredBy: string, // who ran it — an import's importer; skipped on their own lines (step 2)
 ): Promise<SweepResult> {
   const settings = await getAutoPostSettings(companyId);
   if ((!settings.enabled && !settings.llmEnabled) || txIds.length === 0) {

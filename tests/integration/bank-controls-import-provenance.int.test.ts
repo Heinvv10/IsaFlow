@@ -8,8 +8,9 @@
  *     undo_bank_import still reaches only agent imports (channel or legacy);
  *   - extension: feed ingestion (the extension token's user; no file);
  *   - classified: bank-transactions-import-classified (a batch row now exists);
- *   - statement_ocr: bank-statements/[id]/commit (the committing user; the
- *     uploaded document's hash).
+ *   - statement_ocr: bank-statements/[id]/commit (the person who UPLOADED the
+ *     statement, whose file it is — not the colleague who commits it; the
+ *     uploaded document's hash), committed once only.
  */
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -29,6 +30,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
 let a = '';
+let b = '';
 let f: BankCompany;
 const mcp = mcpCaller(pool, [importBankStatementTool, undoBankImportTool]);
 const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -40,11 +42,12 @@ beforeAll(async () => {
   // the disposable fixture only, so the batch-row provenance can be proven through the real route.
   await pool.query('ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS suggested_cost_centre TEXT');
   a = await createUser(pool, tokens);
-  f = await bankCompany(pool, [[a, 'admin']], companies);
+  b = await createUser(pool, tokens);
+  f = await bankCompany(pool, [[a, 'admin'], [b, 'admin']], companies);
 });
 afterAll(async () => {
   await pool.query('DELETE FROM bank_feed_sync_logs WHERE company_id = ANY($1)', [companies]);
-  await cleanupBankControlsA(pool, companies, [a]);
+  await cleanupBankControlsA(pool, companies, [a, b]);
 });
 
 type Batch = { imported_by: string | null; import_channel: string | null; file_sha256: string | null; lines: number };
@@ -122,21 +125,24 @@ describe('every import path records the importer', () => {
     expect(row).toEqual({ d: '2026-09-06', transaction_count: 2, bank_account_id: f.bank });
   });
 
-  it('statement_ocr (bank-statements commit): the committing user, and the uploaded document\'s hash', async () => {
+  it('statement_ocr (bank-statements commit): the UPLOADER, not the committer, and the uploaded document\'s hash; once only', async () => {
     const hash = sha(`bc-ocr-${f.c}`);
     const doc = (await pool.query(
-      `INSERT INTO captured_documents(company_id, file_name, file_type, document_type, raw_bytes_sha256)
-       VALUES($1,'sept.pdf','pdf','statement',$2) RETURNING id`, [f.c, hash])).rows[0].id as string;
+      `INSERT INTO captured_documents(company_id, file_name, file_type, document_type, raw_bytes_sha256, uploaded_by)
+       VALUES($1,'sept.pdf','pdf','statement',$2,$3) RETURNING id`, [f.c, hash, b])).rows[0].id as string;
     const rows = [{ date: '2026-09-07', description: 'BC OCR', reference: null, amount: -55, runningBalance: null,
       isDuplicate: false, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 }];
     const imp = (await pool.query(
       `INSERT INTO bank_statement_imports(company_id, bank_account_id, source_document_id, period_start, period_end, row_count,
          extraction_summary, created_by)
        VALUES($1,$2,$3,DATE '2026-09-01',DATE '2026-09-30',1,$4::jsonb,$5) RETURNING id`,
-      [f.c, f.bank, doc, JSON.stringify({ rows }), a])).rows[0].id as string;
-    const res = await callRoute(ocrCommit as never, tokens[a]!, f.c, 'POST', undefined, `/api/accounting/bank-statements/${imp}/commit`, { id: imp });
+      [f.c, f.bank, doc, JSON.stringify({ rows }), b])).rows[0].id as string;
+    const commit = () => callRoute(ocrCommit as never, tokens[a]!, f.c, 'POST', undefined, `/api/accounting/bank-statements/${imp}/commit`, { id: imp });
+    const res = await commit(); // b uploaded the file; a commits it
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    expect(await batch(imp)).toEqual({ imported_by: a, import_channel: 'statement_ocr', file_sha256: hash, lines: 1 });
+    expect(await batch(imp)).toEqual({ imported_by: b, import_channel: 'statement_ocr', file_sha256: hash, lines: 1 });
+    expect((await commit()).state.statusCode).toBeGreaterThanOrEqual(400); // refused: already committed
+    expect(await batch(imp)).toEqual({ imported_by: b, import_channel: 'statement_ocr', file_sha256: hash, lines: 1 });
   });
 
   it('after all of them, no line of the company points at a batch that names nobody', async () => {

@@ -8,7 +8,9 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from '../bank/bankFeedStateGuard';
-import { provisionalPostingHeld } from '../bank/bankLineImporterGate';
+import { isBankEvidenced } from '../ap/bankLinePaymentGate';
+import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
+import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 
 type Row = DbRow;
 
@@ -191,8 +193,11 @@ export async function postProvisional(
 
   // R-035 PR6 (H2, round 5): DR <predicted account> / CR bank from a HAND-KEYED outflow is a manual journal nobody
   // decides — skipped before any write under an enforced rule; the route and the auto-post gate report the reason.
+  if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(companyId, Math.abs(amount))) {
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'approval_required' };
+  }
   // Step 2: so is one run for the person who imported the line (unlocked: a line's provenance never changes, 877).
-  if (await provisionalPostingHeld(companyId, tx, opts.triggeredBy ?? userId, Math.abs(amount))) {
+  if (await importerAllocationRefusal(companyId, tx, opts.triggeredBy ?? userId, importerArmOf('account', null, amount)!)) {
     return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'approval_required' };
   }
 
