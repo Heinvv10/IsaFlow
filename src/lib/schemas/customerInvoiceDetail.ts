@@ -14,6 +14,10 @@ export const PutItemSchema = z.object({
   unitPrice: z.number().nonnegative(),
   taxRate: z.number().min(0).max(100).optional(),
   discount: z.number().min(0).max(100).optional(),
+  // Migration 874: the account the line credits and its job. Shape only —
+  // ownership and the revenue-account rules are invoiceLineCodingGuard's.
+  glAccountId: UUID.nullable().optional(),
+  projectId: UUID.nullable().optional(),
   // CC1 / CC2 / BU (migration 870): left out keeps the value every stored line
   // shares; null clears it (gl/dimensions/dimensionKeepStored).
   cc1Id: UUID.nullable().optional(),
@@ -35,6 +39,8 @@ export const PutBodySchema = z.object({
   currencyCode: z.string().min(1).max(8).optional(),
   exchangeRate: z.number().positive().optional(),
   items: z.array(PutItemSchema).min(1).optional(),
+  // The invoice's own project: display only (only line dimensions post). Absent keeps it, null clears it.
+  projectId: UUID.nullable().optional(),
 });
 
 export const PostBodySchema = z.object({
