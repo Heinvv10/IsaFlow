@@ -1,4 +1,6 @@
 // WORKING: pure computation — no DB, no side effects
+import { toFunctional } from '../shared/functionalAmounts';
+
 export interface ExchangeRateInput {
   fromCurrency: string;
   toCurrency: string;
@@ -53,7 +55,8 @@ export function convertAmount(
   if (fromCurrency === toCurrency) {
     return amount;
   }
-  return Math.round(amount * rate * 100) / 100;
+  // Exact decimal, as public.fx_functional rounds (FX PR0) — not float.
+  return toFunctional(amount, rate);
 }
 
 /**

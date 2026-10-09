@@ -17,6 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { invoiceForeignCurrencySql } from '../shared/documentCurrency';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { MatchCandidate, ReceiptMatchSignals } from '@/modules/accounting/types/bank-match.types';
@@ -128,6 +129,7 @@ async function fetchCandidatePool(
     JOIN customers c ON c.id = ci.customer_id
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      AND NOT ${invoiceForeignCurrencySql()}
       AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0.01
     ORDER BY ABS((ci.total_amount - COALESCE(ci.amount_paid, 0)) - ${absAmount}::NUMERIC) ASC
     LIMIT 50

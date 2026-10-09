@@ -15,6 +15,9 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // buggy code pass these tests silently.
 process.env.TZ = 'Africa/Johannesburg';
 
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/neon', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(vi.fn().mockResolvedValue([]), {

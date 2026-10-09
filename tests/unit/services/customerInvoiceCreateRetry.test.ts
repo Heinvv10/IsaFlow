@@ -58,6 +58,11 @@ vi.mock('@/lib/apiResponse', () => ({
 // pin behaviour AFTER that check, so it is stubbed here; the fence itself is
 // covered by tests/unit/services/assertCustomerInCompany.test.ts and
 // tests/unit/services/customerOwnershipFence.test.ts.
+// FX PR0: the currency rule reads the company row; it has its own tests (documentCurrency, fx-pr0-creators).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/shared/documentCurrency')>()),
+  resolveDocumentCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
+}));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertCustomerInCompany: vi.fn(async () => undefined),
   CustomerNotInCompanyError: class CustomerNotInCompanyError extends Error {},

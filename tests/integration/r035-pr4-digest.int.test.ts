@@ -17,7 +17,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantBill } from './r035-approval.helpers';
+import { createUser, enableFxDocuments, plantBill } from './r035-approval.helpers';
 import { plantNote } from './r035-pr3.helpers';
 import { cleanupPr4, digestOf, invoiceCompany, plantInvoice } from './r035-pr4.helpers';
 
@@ -62,6 +62,7 @@ describe('the customer invoice digest', () => {
 
   it('moves with every hashed header column', async () => {
     const c = await company();
+    await enableFxDocuments(pool, c); // FX PR0: `currency_code` is one of the columns
     const inv = await plantInvoice(pool, c, user);
     const base = await digestOf(pool, c, inv.id);
     const otherCustomer = (await plantInvoice(pool, c, user)).customerId;

@@ -30,6 +30,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/neon', () => ({
   sql: Object.assign((...a: unknown[]) => sqlMock(...a), { unsafe: (s: string) => s }),
   withSavepoint: vi.fn((_n: string, fn: () => unknown) => fn()),

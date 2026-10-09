@@ -16,6 +16,7 @@ import {
   getCreditNotes,
   getCreditNoteById,
   createCreditNote,
+  CreditNoteLinkError,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
@@ -82,6 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       // The credit-note number is minted under the company+year number lock (migration 858): held past its 5 s
       // bound it is a 55P03, which is contention (503 + Retry-After), not a server fault.
       if (respondIfLockTimeout(res, err)) return;
+      // Before any write: a counterparty or invoice the note may not name (FX PR0 adds a foreign invoice).
+      if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create credit note');
     }

@@ -23,6 +23,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { ensureStandingLink, portalAppUrl } from '@/modules/accounting/services/ar/standingPaymentLink';
+import { FOREIGN_INVOICE_ONLINE_PAYMENT } from '@/modules/accounting/services/shared/documentCurrency';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -57,6 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     switch (link.reason) {
       case 'invoice_not_found': return apiResponse.notFound(res, 'Invoice');
       case 'invoice_unapproved': return apiResponse.badRequest(res, 'An invoice that is not approved cannot be paid online. Approve it first.');
+      case 'foreign_currency': return apiResponse.badRequest(res, FOREIGN_INVOICE_ONLINE_PAYMENT);
       case 'no_customer': return apiResponse.badRequest(res, 'Invoice has no linked customer');
       case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice has no outstanding balance');
     }

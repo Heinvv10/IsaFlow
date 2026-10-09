@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
+import { FOREIGN_INVOICE_ONLINE_PAYMENT } from '@/modules/accounting/services/shared/documentCurrency';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import {
@@ -45,6 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     case 'link_expired': return apiResponse.badRequest(res, 'Payment link expired');
     case 'invoice_gone': return apiResponse.notFound(res, 'Invoice');
     case 'invoice_unapproved': return apiResponse.badRequest(res, 'This invoice has not been issued yet');
+    case 'invoice_foreign_currency': return apiResponse.badRequest(res, FOREIGN_INVOICE_ONLINE_PAYMENT);
     case 'nothing_owed': return apiResponse.badRequest(res, 'Invoice already paid');
     case 'starting': return apiResponse.conflict(res, 'Your payment is being set up. Please retry in a moment.');
     case 'reuse': return apiResponse.success(res, { checkoutUrl: claim.checkoutUrl, reference: claim.reference });

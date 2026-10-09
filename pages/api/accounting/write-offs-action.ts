@@ -17,6 +17,7 @@ import {
   cancelWriteOff,
   WriteOffNotApprovableError,
 } from '@/modules/accounting/services/ar/writeOffService';
+import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 
 const WriteOffActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('approve'), id: UUID }),
@@ -57,6 +58,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof WriteOffNotApprovableError) {
       return apiResponse.conflict(res, err.message);
     }
+    // FX PR0: a foreign invoice, refused before the claim.
+    if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
     if (err instanceof Error && /^Write-off not found/.test(err.message)) {
       return apiResponse.notFound(res, 'Write-off');
     }

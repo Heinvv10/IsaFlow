@@ -21,9 +21,9 @@ import {
   withCustomerInvoiceLock,
   CustomerInvoiceLockTimeoutError,
 } from './customerInvoiceLock';
-import { sql } from '@/lib/neon';
+import { sql, type DbRow } from '@/lib/neon';
 import { isLockContention } from '../core/lockContention';
-import type { DbRow } from '@/lib/neon';
+import { invoicesPayable } from './invoicesPayable';
 
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
@@ -195,7 +195,7 @@ async function fetchInvoiceCandidates(
                COALESCE(ci.client_id, ci.customer_id) AS owner_id,
                ci.total_amount,
                ci.amount_paid,
-               ci.status,
+               ci.status, ci.currency_code,
                COALESCE((
                  SELECT SUM(cpa.amount_allocated)
                  FROM customer_payment_allocations cpa
@@ -209,7 +209,7 @@ async function fetchInvoiceCandidates(
         FOR UPDATE OF ci
       `) as InvoiceCandidate[],
     );
-    return new Map(rows.map((r) => [String(r.id), r]));
+    return new Map((await invoicesPayable(companyId, rows)).map((r) => [String(r.id), r]));
   } catch (err) {
     // `retryable`: the ONE refusal on this path that is not the caller's fault.
     // Without the flag the confirm arm cannot tell it from "this invoice is
