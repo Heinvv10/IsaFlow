@@ -29,6 +29,7 @@ import {
   assertVerifyingSession, ownCompanyRole, recordBankBaseline, SupplierBankVerificationError,
 } from '../ap/supplierBankBaseline';
 import { assertHumanSession, BANK_CONTROL_FLOOR, BankControlError } from '../bank/bankControlRefusal';
+import { lockOutRuleWriters } from '../bank/bankRuleAutoPostLock';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
 // offers the same types); re-exported for every existing import site.
@@ -207,6 +208,8 @@ export async function enableEnforcement(companyId: string, documentType: Enforce
       throw new BankControlError('APPROVER_ROLE_REQUIRED', `Switching bank-rule approval on needs the ${role} role or above — `
         + 'the role that approves bank-rule changes.');
     }
+    // Its enabled_at is a cutoff for switching auto-post on: no rule change records across it (bankRuleAutoPostLock).
+    await lockOutRuleWriters(companyId);
   }
   if (bank) {
     await assertVerifyingSession();

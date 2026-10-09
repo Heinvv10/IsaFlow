@@ -200,3 +200,17 @@ D14 R2-3, provenance fixed both ways — 877's line trigger put back to `UPDATE 
     I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "R2-3"
     RED: REPRO 5 … > R2-3: a hand-keyed line cannot be GIVEN a batch, nor any line re-pointed to a feed; the gates still refuse
          AssertionError: expected 'ok' to match /^42501: .*feed connection are its pro…/
+
+── Round 4: breaker R3-1 — changes placed by when they were recorded ──
+
+D15 recorded_at orders a change against the cutoff — 877 bank_rule_unreviewed_changes: `COALESCE(s.recorded_at, s.proposed_at)` -> `s.proposed_at`
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "R3-1"
+    RED (both): R3-1 … > an edit begun before auto-post was switched off, and applied after, still blocks switching it on
+                R3-1 … > an edit begun before bank_rule was switched on, and applied after, is counted too
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 409
+
+Not distinguishable by a test (recorded, reasoned in 877 / bankRuleAutoPostLock):
+  - disabled_at now() vs clock_timestamp(): with changes placed by recorded_at (clock, after the shared lock), a change recorded
+    after the switch-off committed is counted either way; clock_timestamp() is kept so both sides of the comparison use one clock.
+  - the exclusive lock in enableEnforcement(BANK_RULE): enabled_at is the enable's transaction start, so a change recorded
+    after it is counted with or without the lock; the lock is defence in depth, pinned by bankRuleChangeCensus.

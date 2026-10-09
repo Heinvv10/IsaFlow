@@ -100,7 +100,7 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
 
   it('exactly the control takes the shared lock, exactly the settings writer the exclusive one', () => {
     expect(matching(/\blockForRuleWrite\(/)).toEqual([LOCK, CONTROL]);
-    expect(matching(/\blockForAutoPostSettings\(/)).toEqual([SETTINGS, LOCK]);
+    expect(matching(/\blockOutRuleWriters\(/)).toEqual([SETTINGS, LOCK, 'src/modules/accounting/services/gl/approvalEnforcement.ts']);
     expect(matching(/bank_rule_unreviewed_changes/)).toEqual([LOCK]);
   });
 
@@ -115,10 +115,17 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
     }
   });
 
+  it('switching bank_rule on takes the exclusive lock before it inserts the switch (its enabled_at is a cutoff)', () => {
+    const b = body('src/modules/accounting/services/gl/approvalEnforcement.ts', 'enableEnforcement');
+    const lock = b.indexOf('await lockOutRuleWriters(companyId)');
+    expect(lock).toBeGreaterThan(b.indexOf('if (documentType === BANK_RULE)'));
+    expect(lock).toBeLessThan(b.indexOf('INSERT INTO approval_enforcement'));
+  });
+
   it('the settings writer takes the exclusive lock before the row lock, and checks before it writes', () => {
     const b = body(SETTINGS, 'applyOnce');
-    expect(b.indexOf('await lockForAutoPostSettings(companyId)')).toBeGreaterThan(0);
-    expect(b.indexOf('await lockForAutoPostSettings(companyId)')).toBeLessThan(b.indexOf('FOR UPDATE'));
+    expect(b.indexOf('await lockOutRuleWriters(companyId)')).toBeGreaterThan(0);
+    expect(b.indexOf('await lockOutRuleWriters(companyId)')).toBeLessThan(b.indexOf('FOR UPDATE'));
     expect(b.indexOf('assertNoUnreviewedRuleChanges(')).toBeLessThan(b.indexOf('UPDATE bank_auto_post_settings'));
   });
 });
