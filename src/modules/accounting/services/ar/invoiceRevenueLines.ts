@@ -81,17 +81,35 @@ const money = (c: number): string => rands(c).toFixed(2);
 
 /**
  * `total` (an integer, cents) split in proportion to `weights`, each share
- * rounded to the cent; the rounding residual goes to the weight largest in
- * magnitude (the first, on a tie), so the shares always sum to `total`.
- * Weights must sum to more than zero.
+ * rounded to the cent; the rounding residual is then placed one cent at a
+ * time, largest weight first (the first on a tie), so no share moves more than
+ * a cent from its rounded value — the whole residual on one share turned a 1c
+ * credit into a 49c debit (100 tiny lines that do not foot, review #685). The
+ * shares always sum to `total`. Weights must sum to more than zero.
  */
 export function allocateByWeight(total: number, weights: readonly number[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);
   const shares = weights.map((w) => Math.round((total * w) / sum));
-  let largest = 0;
-  weights.forEach((w, i) => { if (Math.abs(w) > Math.abs(weights[largest]!)) largest = i; });
-  shares[largest] = shares[largest]! + (total - shares.reduce((a, b) => a + b, 0));
+  const order = weights.map((_, i) => i).sort((a, b) => Math.abs(weights[b]!) - Math.abs(weights[a]!) || a - b);
+  let residual = total - shares.reduce((a, b) => a + b, 0);
+  for (let k = 0; residual !== 0; k++) {
+    const i = order[k % order.length]!;
+    const step = Math.sign(residual);
+    shares[i] = shares[i]! + step;
+    residual -= step;
+  }
   return shares;
+}
+
+/**
+ * Whether the split depends on the lines: one names an account or a job, or
+ * they fall in more than one (CC1, CC2, BU) group. A single dimension group —
+ * every line on the customer's FNO, say — takes the whole credit as master
+ * posted it, whatever the line amounts say (review #685).
+ */
+export function revenueSplitDependsOnLines(lines: readonly StoredRevenueLine[]): boolean {
+  if (lines.some(isCoded)) return true;
+  return new Set(lines.map((l) => tagKey('', tagsOf(l)))).size > 1;
 }
 
 /** Why these lines cannot stand behind this subtotal, or null. One cent of rounding per line either way. */
@@ -142,6 +160,13 @@ export function buildInvoiceRevenueLines(input: {
   credit: number;
   lines: readonly StoredRevenueLine[];
   defaultRevenueAccountId: string;
+  /**
+   * Approving (the default): lines that cannot stand behind the subtotal are
+   * refused. Past draft (`false`) the invoice posts as stored, refusing nothing
+   * (#675): lines that do not foot still split by weight, and weights that sum
+   * to nothing post one default leg keeping the CC1 every line shares.
+   */
+  strict?: boolean;
 }): JournalLineInput[] {
   const { invoiceNumber, documentSubtotal, credit, defaultRevenueAccountId } = input;
   const description = `Revenue: ${invoiceNumber}`;
@@ -149,9 +174,17 @@ export function buildInvoiceRevenueLines(input: {
     return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description }];
   }
   const lines = input.lines;
+  if (!revenueSplitDependsOnLines(lines)) {
+    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description, ...dims(tagsOf(lines[0]!)) }];
+  }
 
   const problem = revenueLinesProblem(lines, documentSubtotal);
-  if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
+  if (problem && input.strict !== false) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);
+  if (lines.reduce((s, l) => s + cents(l.amount), 0) <= 0) {
+    const cc1s = new Set(lines.map((l) => l.cc1Id?.toLowerCase() ?? null));
+    const shared = cc1s.size === 1 ? [...cc1s][0] : null;
+    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description, ...(shared ? { cc1Id: shared } : {}) }];
+  }
 
   const groups = new Map<string, { glAccountId: string; tags: LegTags; weight: number }>();
   for (const l of lines) {

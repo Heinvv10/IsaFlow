@@ -10,7 +10,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseCustomerInvoiceInput, parseSupplierInvoiceInput } from '@/lib/mcp/tools/invoiceCreateArgs';
+import { parseSupplierInvoiceInput } from '@/lib/mcp/tools/invoiceCreateArgs';
+import { parseCustomerInvoiceInput } from '@/lib/mcp/tools/customerInvoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from '@/lib/mcp/tools/bulkInvoiceDuplicateSkip';
 
 const SUPPLIER = '11111111-1111-4111-8111-111111111111';

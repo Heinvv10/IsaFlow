@@ -55,7 +55,7 @@ export async function mintRecurringCustomerInvoice(
   const accountRefusal = accountIds.includes(undefined)
     ? 'a line names an account id that is not a UUID.'
     : await invoiceLineCodingRefusal(companyId, accountIds.map((glAccountId) => (
-      { glAccountId: glAccountId ?? null, projectId: null, costCenterId: null })));
+      { glAccountId: glAccountId ?? null, projectId: null })));
   if (accountRefusal) {
     throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${accountRefusal}`);
   }

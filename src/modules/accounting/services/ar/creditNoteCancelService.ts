@@ -30,6 +30,8 @@ import {
 import { lockInvoicesForUpdate, UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
 import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
+import { creditNoteHeaderOf } from './creditNoteHeaderTags';
+import { recordCreditNoteRevenueAllocations } from './invoiceRevenuePosting';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { underFlowLockBudget } from '../core/rowLockBudget';
@@ -274,6 +276,19 @@ export async function applyCreditNoteToInvoice(
   `) as Record<string, unknown>[];
   const updated = appliedRows[0];
   if (!updated) throw new Error(`Credit note ${creditNoteId} vanished while being applied.`);
+  // A note linked here only now, which recorded nothing, debited default_revenue at its own approval
+  // and took nothing from this invoice's legs: one excess row says so, or it would be REPLAYED against
+  // them as a pre-874 note and crowd the next note off its legs (review #685).
+  if (String(cn.customer_invoice_id ?? '').toLowerCase() !== invoiceId.toLowerCase()) {
+    const recorded = (await sql`SELECT 1 FROM credit_note_revenue_allocations
+      WHERE company_id = ${companyId}::UUID AND credit_note_id = ${creditNoteId}::UUID LIMIT 1`) as Record<string, unknown>[];
+    if (recorded.length === 0) {
+      const { projectId, cc1Id, cc2Id, buId } = creditNoteHeaderOf(cn);
+      const revenue = await getSystemAccount('default_revenue', companyId);
+      await recordCreditNoteRevenueAllocations(companyId, creditNoteId, invoiceId, [{ journalLineId: null,
+        glAccountId: revenue.id, projectId, cc1Id, cc2Id, buId, amount: Number(cn.subtotal), isExcess: true }]);
+    }
+  }
 
   log.info('Applied credit note to invoice', { creditNoteId, invoiceId, applyAmount, userId }, 'accounting');
   return mapRow(updated);

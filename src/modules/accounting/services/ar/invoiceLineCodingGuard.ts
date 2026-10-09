@@ -27,8 +27,8 @@ import { sql } from '@/lib/neon';
 import {
   InvoiceLineAccountLockError, InvoiceLineCodingRefusal, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
-import { isRevenueCoded, revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
-import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { isRevenueCoded, revenueLinesProblem, revenueSplitDependsOnLines, type StoredRevenueLine } from './invoiceRevenueLines';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 
 export const FOREIGN_LINE_CODING = 'One or more invoice lines name an account or job that is not in your company.';
@@ -91,19 +91,23 @@ async function lockedAccountRows(companyId: string, ids: string[]): Promise<Reve
 /**
  * Why these line codings cannot be accepted, or null. `lock: false` is for a
  * read-only pass that only decides what to skip (bulk finalize and its dry
- * run); the posting path re-checks under lock.
+ * run); the posting path re-checks under lock. `posting`: an invoice past
+ * draft posts its coding as stored (#675), so only what the journal itself
+ * would refuse is refused, before it is written — an account or job of
+ * another company, or a deactivated account; a header or non-revenue account
+ * and a cancelled job post as stored.
  */
 export async function invoiceLineCodingRefusal(
   companyId: string,
   codings: readonly InvoiceLineCoding[],
-  opts: { lock?: boolean } = {},
+  opts: { lock?: boolean; posting?: boolean } = {},
 ): Promise<string | null> {
   const accounts = present(codings.map((c) => c.glAccountId));
   if (accounts.length > 0) {
     const rows = await accountRows(companyId, accounts, opts.lock ?? true);
     if (rows.length !== accounts.length) return FOREIGN_LINE_CODING;
     for (const row of [...rows].sort((x, y) => x.account_code.localeCompare(y.account_code))) {
-      const problem = revenueLineAccountProblem(row);
+      const problem = opts.posting ? (row.is_active ? null : 'is inactive') : revenueLineAccountProblem(row);
       if (problem) return `An invoice line cannot be coded to ${row.account_code} ${row.account_name}: it ${problem}.`;
     }
   }
@@ -115,7 +119,7 @@ export async function invoiceLineCodingRefusal(
       WHERE company_id = ${companyId}::UUID AND id = ANY(${projects}::UUID[])
     `) as { project_number: string; name: string; status: string }[];
     if (rows.length !== projects.length) return FOREIGN_LINE_CODING;
-    const cancelled = rows.find((p) => p.status === 'cancelled');
+    const cancelled = opts.posting ? undefined : rows.find((p) => p.status === 'cancelled');
     if (cancelled) return `An invoice line cannot be tagged to job ${cancelled.project_number} ${cancelled.name}: it is cancelled.`;
   }
   return null;
@@ -193,27 +197,32 @@ export async function storedInvoiceLinesRefusal(
 }
 
 /**
- * The same over lines already read. `approving`: the CC1 / CC2 / BU are checked
- * against the masters too — an invoice past draft posts the dimensions it
- * stores, refusing none (#675, dimensionStoredPosting).
+ * The same over lines already read. `approving` (approve and bulk finalize,
+ * before the status moves): every refusal posting would raise after it —
+ * #675's stored-dimension rules (a line its customer's or project's FNO would
+ * add to, a dimension no longer an active master; coded or not), the coding
+ * rules, and lines that cannot stand behind the subtotal where the split
+ * depends on them. Past draft: only what the journal itself would refuse
+ * (invoiceLineCodingRefusal's `posting`); the invoice posts as stored.
  */
 export async function storedLinesRefusal(
   companyId: string,
   stored: StoredInvoiceLines | null,
   opts: { lock?: boolean; approving?: boolean } = {},
 ): Promise<string | null> {
-  if (!stored || !stored.lines.some(isRevenueCoded)) return null;
-  const coding = await invoiceLineCodingRefusal(companyId, stored.lines, opts);
-  if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
+  if (!stored) return null;
   if (opts.approving) {
     try {
-      // As stored (#675): the customer's FNO is on the lines from their save, never filled here.
-      await assertDocumentDimensions(companyId, stored.lines);
+      await assertPostsStoredDimensions(companyId, 'draft', stored.lines, (i) => `line ${i + 1}`, stored.customerFnoId);
     } catch (err) {
       if (isDimensionRefusal(err)) return `Invoice ${stored.invoiceNumber}: ${err.message}${POSTING_HINT}`;
       throw err;
     }
   }
+  if (!stored.lines.some(isRevenueCoded)) return null;
+  const coding = await invoiceLineCodingRefusal(companyId, stored.lines, { lock: opts.lock, posting: !opts.approving });
+  if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
+  if (!opts.approving || !revenueSplitDependsOnLines(stored.lines)) return null;
   const problem = revenueLinesProblem(stored.lines, stored.subtotal);
   return problem ? `Invoice ${stored.invoiceNumber}: ${problem}` : null;
 }

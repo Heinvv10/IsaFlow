@@ -133,22 +133,26 @@ export async function editDraftCustomerInvoice(
     // absent key keeps the stored coding — customerInvoiceDraftCoding) and the
     // header's display project, under the row lock and before the first write.
     let codings: InvoiceLineCoding[] = [];
+    // A value the draft already stores is not re-checked at save (an account deactivated, or a job
+    // cancelled, since): every save would refuse until it was recoded. Approve refuses it, pre-write.
+    let unchanged = (_c: InvoiceLineCoding): InvoiceLineCoding => _c;
     if (items) {
-      const stored = (await tx`
+      const stored = ((await tx`
         SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
-      `) as Row[];
-      const resolved = resolveEditCodings(items, stored.map((r) => ({
-        glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id),
-      })));
+      `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
+      const resolved = resolveEditCodings(items, stored);
       if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
       codings = resolved;
+      const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };
+      unchanged = (c) => ({ glAccountId: had.glAccountId.has(c.glAccountId) ? null : c.glAccountId,
+        projectId: had.projectId.has(c.projectId) ? null : c.projectId });
     }
     if (items || projectId) {
       // The header project is display only: re-sending the one it already has
       // (cancelled since it was set) must not refuse every save of the draft.
       const changed = projectId && projectId.toLowerCase() !== idOrNull(ownedRows[0]!.project_id);
       const header = changed ? [{ glAccountId: null, projectId: projectId.toLowerCase() }] : [];
-      const refusal = await invoiceLineCodingRefusal(companyId, [...codings, ...header]);
+      const refusal = await invoiceLineCodingRefusal(companyId, [...codings.map(unchanged), ...header]);
       if (refusal) return { kind: 'bad_line' as const, message: refusal };
     }
 

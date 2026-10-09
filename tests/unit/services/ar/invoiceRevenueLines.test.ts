@@ -255,14 +255,15 @@ describe('prorateRevenueLegs — a credit note reverses where the invoice posted
       .toEqual([{ glAccountId: DEFAULT, debit: 1500, credit: 0, description: 'Credit note CN-1', projectId: undefined, cc2Id: undefined }]);
   });
 
-  it('clamps the rounding cent that would push a leg past what it carries, and posts it untagged', () => {
-    // Found by search: unclamped, the second leg (0.29 left) would take 0.30.
+  it('never takes a leg past what it carries, the rounding cents included', () => {
+    // Found by search when the whole residual went to one leg: the second (0.29 left) took 0.30 and the clamp
+    // sent a cent to default_revenue. Placed a cent at a time (review #685), no leg reaches past its carry.
     const carries = [17, 29, 29, 18, 20, 29, 28, 18, 26, 14];
     const out = prorate(carries.map((c, i) => ({ glAccountId: `acct-${i}`, projectId: null, cc1Id: null, cc2Id: null, buId: null, net: c / 100 })), 2.21);
     const taken = carries.map((_c, i) => Math.round((out.find((l) => l.glAccountId === `acct-${i}`)?.debit ?? 0) * 100));
     taken.forEach((t, i) => expect(t).toBeLessThanOrEqual(carries[i]!));
     expect(Math.round(out.reduce((s, l) => s + l.debit, 0) * 100)).toBe(221);
-    expect(out.find((l) => l.glAccountId === DEFAULT)?.debit).toBe(0.01);
+    expect(out.find((l) => l.glAccountId === DEFAULT)).toBeUndefined();
   });
 
   it('a leg the invoice posted as a debit (a discount) is credited back pro rata', () => {

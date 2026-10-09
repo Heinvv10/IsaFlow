@@ -20,12 +20,10 @@ import {
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { mcpPostingOpts } from '../mcpActor';
+import { MAX_LINES } from './invoiceCreateArgs';
 import {
-  CUSTOMER_INVOICE_LINE_SCHEMA,
-  MAX_LINES,
-  parseCustomerInvoiceInput,
-  type ParsedCustomerInvoice,
-} from './invoiceCreateArgs';
+  CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput, type ParsedCustomerInvoice,
+} from './customerInvoiceCreateArgs';
 import { MAX_INVOICES, elementError, parseBatch } from './writeBulkInvoices';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
 import { itemsWithDimensions } from './dimensionArgs';

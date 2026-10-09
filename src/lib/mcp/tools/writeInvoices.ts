@@ -19,7 +19,7 @@ import { createQuote, LineValidationError } from '@/modules/accounting/services/
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
-import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './invoiceCreateArgs';
+import { CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput } from './customerInvoiceCreateArgs';
 import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
 
 interface LineIn {

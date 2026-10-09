@@ -185,7 +185,6 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     ['another company\'s account', 'gl_account_id', () => f.acct.foreign, /not in your company/],
     ['another company\'s project', 'project_id', () => f.project.foreign, /not in your company/],
     ['another company\'s CC2 project', 'cc2_id', () => f.dim.foreignCc2, /CC2 must name an active CC2 cost centre in this company/],
-    ['an expense account', 'gl_account_id', () => f.acct.expense, /6100 Crew.*not a revenue account/],
   ])('Post to GL refuses a stored line naming %s, before any journal is written', async (_label, column, value, message) => {
     const id = await draft([{ description: 'Forged later', unitPrice: 100 }]);
     // A row no write path accepts — forged as the database would allow it.
@@ -202,12 +201,19 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     expect(await journalCount()).toBe(before);
   });
 
-  it('Post to GL refuses coded lines that no longer add up to the subtotal', async () => {
+  it('past draft, Post to GL posts as stored (#675): coded lines that no longer add up split by weight', async () => {
     const id = await draft([{ description: 'Split', unitPrice: 100, glAccountId: f.acct.commercials }]);
     await sql`UPDATE customer_invoices SET status = 'approved', subtotal = 150, total_amount = 172.5, tax_amount = 22.5 WHERE id = ${id}::UUID`;
-    const err = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
-    expect((err as Error).message).toMatch(/100\.00.*150\.00/);
+    const je = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId));
+    expect((await legs(je)).filter((l) => l.code === '4100')).toEqual([L('4100', 0, 150)]);
+  });
+
+  it('past draft, a line on an expense account posts as stored; only what the journal refuses is refused first', async () => {
+    const id = await draft([{ description: 'Recoded later', unitPrice: 100 }]);
+    await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
+    await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.expense}::UUID WHERE invoice_id = ${id}::UUID`;
+    const je = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId));
+    expect((await legs(je)).filter((l) => l.code === '6100')).toEqual([L('6100', 0, 100)]);
   });
 
   it('an FNO is read from the invoice\'s customer in THIS company only (a forged foreign client carries none)', async () => {
