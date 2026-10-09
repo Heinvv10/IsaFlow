@@ -115,7 +115,9 @@ $$;
 CREATE TABLE IF NOT EXISTS bank_rule_changes (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   seq         BIGINT GENERATED ALWAYS AS IDENTITY,
-  company_id  UUID NOT NULL REFERENCES companies(id),
+  -- The history goes with its company: a purged company's rows cascade
+  -- (the one delete the append-only trigger lets through).
+  company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   -- NULL only for a creation held for approval (the rule does not exist yet;
   -- its approval names the id it is created with).
   rule_id     UUID,
@@ -138,7 +140,7 @@ CREATE INDEX IF NOT EXISTS bank_rule_changes_pending_idx ON bank_rule_changes (c
 
 CREATE TABLE IF NOT EXISTS bank_rule_change_decisions (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id      UUID NOT NULL REFERENCES companies(id),
+  company_id      UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
   change_id       UUID NOT NULL,
   decision        TEXT NOT NULL CHECK (decision IN ('approved', 'rejected', 'superseded')),
   decided_by      TEXT NOT NULL,
@@ -152,11 +154,31 @@ CREATE TABLE IF NOT EXISTS bank_rule_change_decisions (
   rule_id         UUID,
   CONSTRAINT bank_rule_change_decisions_one UNIQUE (change_id),
   CONSTRAINT bank_rule_change_decisions_change_fk FOREIGN KEY (change_id, company_id)
-    REFERENCES bank_rule_changes(id, company_id),
+    REFERENCES bank_rule_changes(id, company_id) ON DELETE CASCADE,
   CONSTRAINT bank_rule_change_decisions_shape_ck CHECK (
     (decision = 'approved') = (rule_id IS NOT NULL)
     AND (decision <> 'superseded' OR (note IS NULL AND roster_snapshot IS NULL)))
 );
+
+-- Re-applied over an earlier draft of this file (fixtures only): the FKs cascade.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_changes_company_id_fkey' AND confdeltype <> 'c') THEN
+    ALTER TABLE bank_rule_changes DROP CONSTRAINT bank_rule_changes_company_id_fkey;
+    ALTER TABLE bank_rule_changes ADD CONSTRAINT bank_rule_changes_company_id_fkey
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_change_decisions_company_id_fkey' AND confdeltype <> 'c') THEN
+    ALTER TABLE bank_rule_change_decisions DROP CONSTRAINT bank_rule_change_decisions_company_id_fkey;
+    ALTER TABLE bank_rule_change_decisions ADD CONSTRAINT bank_rule_change_decisions_company_id_fkey
+      FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'bank_rule_change_decisions_change_fk' AND confdeltype <> 'c') THEN
+    ALTER TABLE bank_rule_change_decisions DROP CONSTRAINT bank_rule_change_decisions_change_fk;
+    ALTER TABLE bank_rule_change_decisions ADD CONSTRAINT bank_rule_change_decisions_change_fk
+      FOREIGN KEY (change_id, company_id) REFERENCES bank_rule_changes(id, company_id) ON DELETE CASCADE;
+  END IF;
+END $$;
 
 -- The derived state of every change: applied, pending, or its decision.
 CREATE OR REPLACE VIEW bank_rule_change_states WITH (security_invoker = true) AS
@@ -432,12 +454,19 @@ CREATE TRIGGER bank_rule_decision_after_insert
   AFTER INSERT ON bank_rule_change_decisions
   FOR EACH ROW EXECUTE FUNCTION public.bank_rule_decision_after_insert();
 
--- Append-only for every role, the owner included.
+-- Append-only for every role, the owner included. The one exception is the
+-- cascade from a purged company (876's recipe): by then the company row is gone.
 CREATE OR REPLACE FUNCTION public.bank_rule_history_append_only() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
+  -- Nested, not AND: a TRUNCATE has no OLD row to read.
+  IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = OLD.company_id) THEN
+      RETURN OLD;
+    END IF;
+  END IF;
   RAISE EXCEPTION '% is append-only (% refused)', TG_TABLE_NAME, TG_OP USING ERRCODE = '42501';
 END
 $$;
