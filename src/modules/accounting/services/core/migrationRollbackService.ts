@@ -17,6 +17,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { boundedRowWait, lockSystemRoleWrites } from '../gl/systemRoleWriteLock';
 import { MAX_ROLLBACK_LOOP_ACCOUNTS } from './migrationRowCaps';
+import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -71,11 +72,19 @@ async function rollbackUnderLock(
     // account inside the request transaction — 1,200 of them on a 400-account
     // chart. One 23503 here rolls its own savepoint back and nothing else, so
     // the loop is paid for only when it is actually needed.
-    const bulk = candidates.length === 0 ? [] : await withSavepoint('mig_rb_bulk', async () => (await sql`
-      DELETE FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND is_system_account IS NOT TRUE
-      RETURNING id
-    `) as DbRow[]).catch((err: unknown) => {
+    // Each DELETE's savepoint first disables the bank rules that post money
+    // through the account (bank_rule; disableRulesLosingTarget): the FK clears
+    // their account, a change the table would otherwise refuse. A delete that
+    // fails rolls its disabling back with it.
+    const deletable = candidates.filter((r) => r.is_system_account !== true).map((r) => String(r.id));
+    const bulk = candidates.length === 0 ? [] : await withSavepoint('mig_rb_bulk', async () => {
+      await disableRulesLosingTarget(companyId, 'gl_account_id', deletable);
+      return (await sql`
+        DELETE FROM gl_accounts
+        WHERE company_id = ${companyId}::UUID AND imported_from = ${source} AND is_system_account IS NOT TRUE
+        RETURNING id
+      `) as DbRow[];
+    }).catch((err: unknown) => {
       if (!isFkViolation(err)) throw err;
       return null;
     });
@@ -104,11 +113,14 @@ async function rollbackUnderLock(
           // RETURNING, not the absence of a throw: a candidate the SELECT saw
           // can be gone by now, or invisible to an RLS USING clause, and
           // neither is a deletion this rollback performed.
-          const gone = await withSavepoint(`mig_rb_${i}`, async () => (await sql`
-            DELETE FROM gl_accounts
-            WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-            RETURNING id
-          `) as DbRow[]);
+          const gone = await withSavepoint(`mig_rb_${i}`, async () => {
+            await disableRulesLosingTarget(companyId, 'gl_account_id', [id]);
+            return (await sql`
+              DELETE FROM gl_accounts
+              WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+              RETURNING id
+            `) as DbRow[];
+          });
           if (gone.length > 0) { deleted += 1; } else { retained.push({ id, code }); }
         } catch (err) {
           // A deadlock or a lock timeout is not a retention decision — rethrow.

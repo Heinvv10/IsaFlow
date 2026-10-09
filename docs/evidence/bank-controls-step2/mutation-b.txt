@@ -130,3 +130,25 @@ C3  census — a stray `DELETE FROM bank_import_batches` added to bankStatementI
     U tests/unit/services/bank/bankImportProvenanceCensus.test.ts -t "nothing UPDATEs a batch"
     RED: 1. every import path records the importer > nothing UPDATEs a batch: … (877)
          AssertionError: expected [ Array(1) ] to deeply equal []
+
+── Round 2b: blind review LOW — deleting a supplier / GL account a rule names ──
+
+M12 purge disables first — softDeleteService.purgeSuppliers: `await disableRulesLosingTarget(companyId, 'supplier_id', ids);` removed
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "an auto-posting rule is disabled first"
+    RED: purging a supplier a rule names > under bank_rule: an auto-posting rule is disabled first, then loses the supplier; the purge completes
+         AssertionError: expected +0 to be 1   (the supplier DELETE refused by 877's write guard; nothing purged)
+
+M13 migration rollback disables first — migrationRollbackService bulk savepoint: the disableRulesLosingTarget call removed
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "the rule is disabled and loses the account"
+    RED: rolling back a migration that imported an account a rule posts to > under bank_rule: the rule is disabled and loses the account; the account is deleted
+         error: bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval
+
+M14 one savepoint per purged table — softDeleteService.purgeExpiredDeletes: `await withSavepoint(`purge_${entityType}`, fn)` -> `await fn()`
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "skipped in its own savepoint"
+    RED: purging a supplier a rule names > a table that cannot be purged is skipped in its own savepoint; the rest of the purge runs on a live transaction
+         error: current transaction is aborted, commands ignored until end of transaction block
+
+D10 the FK clears only its column — 877's narrowed FK put back to 489's plain `ON DELETE SET NULL` (nulls company_id too)
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "keeps running and only loses the supplier"
+    RED: purging a supplier a rule names > a rule that posts nothing, or any rule with the switch off, keeps running and only loses the supplier
+         AssertionError: expected +0 to be 1   (the cascade's company_id = NULL refused; nothing purged)

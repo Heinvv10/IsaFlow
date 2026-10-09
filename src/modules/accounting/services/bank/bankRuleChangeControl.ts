@@ -189,3 +189,34 @@ export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId
   await tx`UPDATE bank_categorisation_rules SET client_id = ${targetId}::UUID WHERE client_id = ${sourceId}::UUID AND company_id = ${companyId}::UUID`;
   await tx`SELECT set_config('isaflow.bank_rule_change_kind', '', true)`;
 }
+
+/**
+ * Before a supplier or GL account is hard-deleted, in the caller's savepoint
+ * with that DELETE: its FK sets the column NULL on every rule naming it (877
+ * narrows the action to that one column). A rule that posts money and loses
+ * where it posts is re-pointed — a supplier rule becomes an account rule, an
+ * account rule posts to nothing — which needs approval under `bank_rule`, so
+ * the table would refuse the cascade and fail the delete. Each such rule is
+ * DISABLED first instead: a safe change, applied at once and recorded by the
+ * history trigger; re-activating it later is held for approval like any
+ * change that makes a rule post money. Returns the rules disabled.
+ */
+export async function disableRulesLosingTarget(companyId: string, column: 'supplier_id' | 'gl_account_id',
+  ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0 || !(await isEnforced(companyId, BANK_RULE))) return [];
+  const rows = (column === 'supplier_id'
+    ? await sql`
+        UPDATE bank_categorisation_rules r SET is_active = false
+        WHERE r.company_id = ${companyId}::UUID AND r.supplier_id = ANY(${ids}::UUID[])
+          AND public.bank_rule_change_needs_approval(r.company_id, public.bank_rule_projection(to_jsonb(r)),
+                public.bank_rule_projection(to_jsonb(r)) || jsonb_build_object('supplier_id', NULL))
+        RETURNING r.id`
+    : await sql`
+        UPDATE bank_categorisation_rules r SET is_active = false
+        WHERE r.company_id = ${companyId}::UUID AND r.gl_account_id = ANY(${ids}::UUID[])
+          AND public.bank_rule_change_needs_approval(r.company_id, public.bank_rule_projection(to_jsonb(r)),
+                public.bank_rule_projection(to_jsonb(r)) || jsonb_build_object('gl_account_id', NULL))
+        RETURNING r.id`) as { id: string }[];
+  if (rows.length > 0) log.info('Bank rules disabled: their target is being deleted', { companyId, column, rules: rows.length }, 'accounting');
+  return rows.map((r) => String(r.id));
+}

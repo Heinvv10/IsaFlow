@@ -33,7 +33,7 @@ export async function enforceRules(db: Db, company: string, by: string): Promise
  * refuse it), as if it predated the switch.
  */
 export async function plantBankRule(pool: Pool, company: string, glAccountId: string, opts: {
-  autoPost?: boolean; active?: boolean; pattern?: string; name?: string; clientId?: string | null;
+  autoPost?: boolean; active?: boolean; pattern?: string; name?: string; clientId?: string | null; supplierId?: string | null;
 } = {}): Promise<string> {
   const db = await pool.connect();
   try {
@@ -42,10 +42,10 @@ export async function plantBankRule(pool: Pool, company: string, glAccountId: st
       "DELETE FROM approval_enforcement WHERE company_id = $1 AND document_type = 'bank_rule' RETURNING *", [company]);
     const { rows: [r] } = await db.query(
       `INSERT INTO bank_categorisation_rules(company_id, rule_name, match_field, match_type, match_pattern, gl_account_id,
-         auto_create_entry, is_active, client_id, priority)
-       VALUES($1,$2,'description','contains',$3,$4,$5,$6,$7,100) RETURNING id`,
+         auto_create_entry, is_active, client_id, supplier_id, priority)
+       VALUES($1,$2,'description','contains',$3,$4,$5,$6,$7,$8,100) RETURNING id`,
       [company, opts.name ?? 'BRC rule', opts.pattern ?? 'BRCMATCH', glAccountId, opts.autoPost ?? false, opts.active ?? true,
-        opts.clientId ?? null]);
+        opts.clientId ?? null, opts.supplierId ?? null]);
     for (const e of lifted) {
       await db.query('INSERT INTO approval_enforcement(company_id, document_type, enabled_by, enabled_at) VALUES($1,$2,$3,$4)',
         [e.company_id, e.document_type, e.enabled_by, e.enabled_at]);
