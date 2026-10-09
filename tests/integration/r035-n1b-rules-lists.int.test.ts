@@ -8,6 +8,11 @@
  * list, and every other value either side might know, is put to the SQL and
  * the answer compared with the TypeScript's.
  *
+ * The lists are also read out of the function bodies (adversarial R2-1): a
+ * changed `ARRAY['…']` literal fails here. LIMIT (R3-2): any other widening —
+ * `|| 'foo'`, a `'{…}'::text[]` literal, an extra `<> 'foo' AND` — is the md5
+ * pin's to catch (r035-n1b-rules-catalog); this is not a parser.
+ *
  * And the rule-name check over the whole Basic Multilingual Plane (L1): SQL
  * and TypeScript agree on every one-character name, except where 881 names
  * its limit: SQL approximates combining marks (\p{M}) by whole blocks, so a

@@ -23,6 +23,12 @@
 -- admin could raise their own role there by raw SQL (cu_admin_write) and then
 -- pass these checks as an owner (adversarial review of PR #690, REPRO 1).
 --
+-- The supplier-bank switch-on baseline runs once per company: it reads the
+-- switch's own `create` audit row to know the control was ever on. That is
+-- only as strong as audit_log, which is append-only since 880 (N1b A, which
+-- runs first); without 880 a member could erase that row and get a second
+-- baseline (adversarial review of PR #690, REPRO 6, R3-5).
+--
 -- Refusals (SQLSTATE; MESSAGE; DETAIL carries the value the TS message names):
 --   RB001 rank below the rule (DETAIL: the rule's role)       → ApprovalRuleAuthorityError
 --   RB002 weakening needs a higher rank (DETAIL: rule's role) → ApprovalRuleAuthorityError(weakening)

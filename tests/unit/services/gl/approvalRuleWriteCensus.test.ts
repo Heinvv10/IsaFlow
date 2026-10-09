@@ -59,6 +59,8 @@ const REGRANT = [
   /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\b(?:app_user|platform_admin)\b/i,
   /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?approval_(?:rules|enforcement)"?\s+owner\b/i,
   /\balter\s+function\s+(?:public\.)?approval_(?:rule|enforcement)_\w+\s*\([^)]*\)\s+owner\b/i,
+  // A view over either table is written through with its OWNER's rights (R3-1).
+  /\bcreate\s+(?:or\s+replace\s+)?(?:(?:temp|temporary|recursive|materialized)\s+)*view\b[^;]*\bapproval_(?:rules|enforcement)\b/i,
 ];
 /**
  * Migrations before 881 that match a re-grant pattern: the schema-wide grants
@@ -145,6 +147,8 @@ describe('the census detects (counterexamples)', () => {
     'GRANT migration_admin TO app_user;',
     'ALTER TABLE public.approval_enforcement OWNER TO app_user;',
     'ALTER FUNCTION public.approval_rule_update(uuid) OWNER TO app_user;',
+    'CREATE VIEW zz_ar AS SELECT * FROM approval_rules;',
+    'CREATE OR REPLACE VIEW public.zz AS SELECT e.* FROM public.approval_enforcement e;',
   ])('a re-grant or ownership change in a later migration: %s', (stmt) => {
     expect(REGRANT.some((re) => re.test(stmt))).toBe(true);
   });
