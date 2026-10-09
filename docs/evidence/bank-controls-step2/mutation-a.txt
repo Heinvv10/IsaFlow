@@ -2,7 +2,7 @@ Bank controls step 2 — slice a (importer != allocator; reversal gating): mutat
 Each guard was neutralised in place (one textual change), the named test run against the disposable
 fixture (127.0.0.1:55996, .fixture/env.sh), the failure recorded, and the file restored. Never committed mutated.
 Branch feat/bank-controls-step2-a. Harness: a python driver applying exactly the 'mutation' line shown.
-Run 2026-10-09. All 34 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684).
+Run 2026-10-09. All 35 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684, 1 TOCTOU).
 
 ## 0. importer check: service throw (allocateTransaction)
 mutation: src/modules/accounting/services/bank/bankAllocationService.ts: `await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);` -> `if (false) await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);`
@@ -256,3 +256,16 @@ command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-
 result: Tests  1 failed | 2 skipped (3)
 failing: FAIL  tests/integration/bank-controls-route-refusals.int.test.ts > the allocator is recognised whatever the letter case of the id > reverseReconciledTransaction and undoRun refuse the allocator named in upper case
 assertion: AssertionError: promise resolved "{ reversed: +0, skipped: 1, …(4) }" instead of rejecting
+
+# Security review of abcba178f (TOCTOU in the GL entrance), run 2026-10-09
+
+## 35. TOCTOU: the GL entrance judges the LOCKED set (mutant: an unlocked read first, the lock after)
+mutation: src/modules/accounting/services/bank/bankReversalGate.ts: `const locked = await refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId);
+  if (locked.length === 0) return locked;` -> `const locked = await (await import('./chainBankLines')).findChainCashLines(companyId, journalEntryId);
+  if (locked.length === 0) return ref`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-gl-reverse-race.int.test.ts -t "is seen"
+result: Tests  1 failed (1)
+failing: FAIL  tests/integration/bank-controls-gl-reverse-race.int.test.ts > a statement line matched to the journal while its GL reversal is being decided > is seen: the reversal is refused (a retry, under the claim), nothing reversed; the retry is refused 409
+assertion: AssertionError: expected 'reversed' to match object { code: 'ROW_LOCK_TIMEOUT' }
+note: the mutant is the pre-fix shape (an unlocked check, the lock taken after it): the colleague's match lands in
+      between and the GL reversal goes through ('reversed'). Fixed, it is refused under the claim (ROW_LOCK_TIMEOUT), then 409.
