@@ -35,12 +35,25 @@ beforeAll(async () => {
   f = await journalCompany(pool, [[u.a, 'admin']], companies);
   other = await journalCompany(pool, [[u.b, 'admin']], companies);
 });
-afterAll(() => cleanupPr6(pool, companies, Object.values(u)));
+afterAll(async () => {
+  // Lines go first (cleanupPr6), then the masters they named; business_units does not cascade from companies.
+  await pool.query('UPDATE gl_journal_lines SET cc1_id = NULL, cc2_id = NULL, bu_id = NULL WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM business_units WHERE company_id = ANY($1)', [companies]);
+  await cleanupPr6(pool, companies, Object.values(u));
+});
 
 const header = (id: string, set: string, value: unknown) =>
   pool.query(`UPDATE gl_journal_entries SET ${set} = $2 WHERE id = $1`, [id, value]);
 const lines = (id: string, set: string, value: unknown) =>
   pool.query(`UPDATE gl_journal_lines SET ${set} = $2 WHERE journal_entry_id = $1 AND debit > 0`, [id, value]);
+
+const master = async (table: 'cost_centres' | 'business_units', ccType?: string): Promise<string> => {
+  const code = `D-${crypto.randomUUID().slice(0, 8)}`;
+  return (await pool.query(ccType
+    ? 'INSERT INTO cost_centres(company_id, code, name, cc_type) VALUES($1, $2, $2, $3) RETURNING id'
+    : `INSERT INTO ${table}(company_id, code, name) VALUES($1, $2, $2) RETURNING id`,
+  ccType ? [f.c, code, ccType] : [f.c, code])).rows[0].id as string;
+};
 
 /** Apply `change`, then expect the digest to have moved (or not). */
 async function moves(id: string, change: () => Promise<unknown>, expected: boolean) {
@@ -67,14 +80,15 @@ describe('the manual_journal digest', () => {
 
   const lineCases: [string, () => unknown][] = [
     ['gl_account_id', () => f.expB], ['debit', () => 1500.01], ['description', () => 'changed'],
-    ['vat_type', () => 'standard'], ['cc1_id', () => crypto.randomUUID()], ['cc2_id', () => crypto.randomUUID()],
-    ['bu_id', () => crypto.randomUUID()], ['project_id', () => crypto.randomUUID()],
+    // Real master rows: the dimension columns carry RESTRICT FKs since migration 880.
+    ['vat_type', () => 'standard'], ['cc1_id', () => master('cost_centres', 'cc1')], ['cc2_id', () => master('cost_centres', 'cc2')],
+    ['bu_id', () => master('business_units')], ['project_id', () => crypto.randomUUID()],
     ['cost_center_id', () => crypto.randomUUID()],
   ];
   for (const [column, value] of lineCases) {
     it(`moves with a line's ${column}`, async () => {
       const id = await plantJournal(pool, f, u.a);
-      await moves(id, () => lines(id, column, value()), true);
+      await moves(id, async () => lines(id, column, await value()), true);
     });
   }
 

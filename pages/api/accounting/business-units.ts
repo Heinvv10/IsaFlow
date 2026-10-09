@@ -7,14 +7,13 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { getBusinessUnits, createBusinessUnit } from '@/modules/accounting/services/core/businessUnitService';
+import { BusinessUnitActionError, getBusinessUnits, createBusinessUnit } from '@/modules/accounting/services/core/businessUnitService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
-  const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   if (req.method === 'GET') {
     const activeOnly = req.query.active === 'true';
@@ -25,13 +24,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const { code, name, description, division } = req.body;
     if (!code || !name) return apiResponse.badRequest(res, 'code and name are required');
+    const text = (v: unknown) => (typeof v === 'string' ? v : undefined);
     try {
-      const taken = (await getBusinessUnits(companyId, false))
-        .find((b) => b.code.toLowerCase() === String(code).trim().toLowerCase());
-      if (taken) return apiResponse.badRequest(res, `A business unit with code ${taken.code} already exists`);
-      const bu = await createBusinessUnit(companyId, { code: String(code).trim(), name: String(name).trim(), description, division }, userId);
+      // Lengths and the case-insensitive duplicate check live in the service (shared with MCP).
+      const bu = await createBusinessUnit(companyId, {
+        code: String(code), name: String(name), description: text(description), division: text(division),
+      });
       return apiResponse.success(res, bu);
     } catch (err) {
+      if (err instanceof BusinessUnitActionError) return apiResponse.badRequest(res, err.message);
       log.error('Failed to create business unit', { error: err }, 'accounting-api');
       return apiResponse.badRequestFromError(res, err, 'Failed');
     }

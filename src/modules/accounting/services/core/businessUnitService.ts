@@ -1,11 +1,15 @@
 /**
  * Business Unit Service
- * CRUD operations for the business_units table
+ * CRUD operations for the business_units table. Every write plans from reads
+ * (refusals are BusinessUnitActionError, raised before the first write) under
+ * the company's dimension-master lock.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { countedParts } from './costCentreUsageGuard';
+import { lockDimensionMasters } from './dimensionMasterLock';
 
 
 export interface BusinessUnit {
@@ -34,16 +38,6 @@ export async function getBusinessUnits(companyId: string, activeOnly = false): P
   return rows.map(mapRow);
 }
 
-export async function createBusinessUnit(companyId: string, input: BusinessUnitInput, _userId: string): Promise<BusinessUnit> {
-  const rows = (await sql`
-    INSERT INTO business_units (company_id, code, name, description, division)
-    VALUES (${companyId}, ${input.code}, ${input.name}, ${input.description || null}, ${input.division || null})
-    RETURNING *
-  `) as Record<string, unknown>[];
-  log.info('Created business unit', { id: rows[0]!.id, code: input.code }, 'accounting');
-  return mapRow(rows[0]!);
-}
-
 /**
  * A refusal written for the operator (the action route and the MCP tools pass
  * its message through); anything else stays a generic failure.
@@ -56,15 +50,62 @@ export class BusinessUnitActionError extends Error {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UNIQUE_VIOLATION = '23505';
 
-/** A business unit by UUID or code (case-insensitive), active or not. */
+/** Another BU's code equal to `code` ignoring case, or undefined. */
+async function codeTakenBy(companyId: string, code: string, exceptId: string | null): Promise<string | undefined> {
+  const taken = (await sql`
+    SELECT code FROM business_units
+    WHERE company_id = ${companyId} AND lower(code) = ${code.toLowerCase()} AND id IS DISTINCT FROM ${exceptId}::UUID
+  `) as { code: string }[];
+  return taken[0] ? String(taken[0].code) : undefined;
+}
+
+/** Trimmed and checked; refuses a bad length or a code another BU has (ignoring case). */
+export async function planCreateBusinessUnit(companyId: string, input: BusinessUnitInput): Promise<BusinessUnitInput> {
+  await lockDimensionMasters(companyId);
+  const code = input.code.trim();
+  const name = input.name.trim();
+  if (!code || code.length > 20) throw new BusinessUnitActionError('code is required and at most 20 characters');
+  if (!name || name.length > 255) throw new BusinessUnitActionError('name is required and at most 255 characters');
+  const division = input.division?.trim() || undefined;
+  if (division && division.length > 120) throw new BusinessUnitActionError('division is at most 120 characters');
+  const taken = await codeTakenBy(companyId, code, null);
+  if (taken) throw new BusinessUnitActionError(`A business unit with code ${taken} already exists`);
+  return { code, name, description: input.description?.trim() || undefined, division };
+}
+
+export async function applyCreateBusinessUnit(companyId: string, plan: BusinessUnitInput): Promise<BusinessUnit> {
+  const rows = (await sql`
+    INSERT INTO business_units (company_id, code, name, description, division)
+    VALUES (${companyId}, ${plan.code}, ${plan.name}, ${plan.description ?? null}, ${plan.division ?? null})
+    RETURNING *
+  `) as Record<string, unknown>[];
+  log.info('Created business unit', { id: rows[0]!.id, code: plan.code }, 'accounting');
+  return mapRow(rows[0]!);
+}
+
+export async function createBusinessUnit(companyId: string, input: BusinessUnitInput): Promise<BusinessUnit> {
+  return applyCreateBusinessUnit(companyId, await planCreateBusinessUnit(companyId, input));
+}
+
+/**
+ * A business unit by UUID, exact code or code ignoring case — active or not.
+ * Codes are unique only as typed, so a reference matching two codes that differ
+ * only in case names neither and is refused.
+ */
 export async function findBusinessUnit(companyId: string, ref: string): Promise<BusinessUnit> {
   const key = ref.trim();
   const rows = UUID_RE.test(key)
     ? ((await sql`SELECT * FROM business_units WHERE company_id = ${companyId} AND id = ${key}::UUID`) as DbRow[])
-    : ((await sql`SELECT * FROM business_units WHERE company_id = ${companyId} AND lower(code) = ${key.toLowerCase()}`) as DbRow[]);
-  if (!rows[0]) throw new BusinessUnitActionError(`Business unit not found: ${ref}`);
-  return mapRow(rows[0]);
+    : ((await sql`SELECT * FROM business_units WHERE company_id = ${companyId} AND lower(code) = ${key.toLowerCase()} ORDER BY code`) as DbRow[]);
+  const exact = rows.find((r) => String(r.code) === key);
+  if (!exact && rows.length > 1) {
+    throw new BusinessUnitActionError(`"${ref}" matches the codes ${rows.map((r) => String(r.code)).join(', ')}, which differ only in case — use the exact code`);
+  }
+  const row = exact ?? rows[0];
+  if (!row) throw new BusinessUnitActionError(`Business unit not found: ${ref}`);
+  return mapRow(row);
 }
 
 /**
@@ -82,11 +123,13 @@ export interface BusinessUnitUpdate {
 export interface BusinessUnitUpdatePlan {
   before: BusinessUnit;
   after: { code: string; name: string; description: string | null; division: string | null; isActive: boolean };
+  /** Empty when the input changes nothing; the caller decides whether that is a refusal. */
   changed: string[];
 }
 
 /** Every refusal, from reads only. */
 export async function planUpdateBusinessUnit(companyId: string, ref: string, input: BusinessUnitUpdate): Promise<BusinessUnitUpdatePlan> {
+  await lockDimensionMasters(companyId);
   const before = await findBusinessUnit(companyId, ref);
   const code = input.code === undefined ? before.code : input.code.trim();
   const name = input.name === undefined ? before.name : input.name.trim();
@@ -97,49 +140,59 @@ export async function planUpdateBusinessUnit(companyId: string, ref: string, inp
   const description = clear(input.description, before.description);
   const division = clear(input.division, before.division);
   if (division && division.length > 120) throw new BusinessUnitActionError('division is at most 120 characters');
-  if (code.toLowerCase() !== before.code.toLowerCase()) {
-    const taken = (await sql`
-      SELECT code FROM business_units WHERE company_id = ${companyId} AND lower(code) = ${code.toLowerCase()} AND id <> ${before.id}::UUID
-    `) as { code: string }[];
-    if (taken[0]) throw new BusinessUnitActionError(`A business unit with code ${String(taken[0].code)} already exists`);
+  // Exact, not folded: a case-only rename onto another code must be refused too.
+  if (code !== before.code) {
+    const taken = await codeTakenBy(companyId, code, before.id);
+    if (taken) throw new BusinessUnitActionError(`A business unit with code ${taken} already exists`);
   }
   const after = { code, name, description, division, isActive: input.isActive ?? before.isActive };
+  if (!after.isActive && before.isActive) {
+    const [row] = (await sql`
+      SELECT COUNT(*) AS accounts FROM gl_accounts
+      WHERE default_bu_id = ${before.id}::UUID AND company_id = ${companyId}::UUID
+    `) as Record<string, unknown>[];
+    const defaults = countedParts(row, [['accounts', 'account(s)']]);
+    if (defaults) throw new BusinessUnitActionError(`${before.code} is the default on ${defaults} — clear those defaults before deactivating it`);
+  }
   const changed = [
     after.code !== before.code ? 'code' : '', after.name !== before.name ? 'name' : '',
     after.description !== (before.description ?? null) ? 'description' : '',
     after.division !== (before.division ?? null) ? 'division' : '',
     after.isActive !== before.isActive ? 'is_active' : '',
   ].filter(Boolean);
-  if (changed.length === 0) throw new BusinessUnitActionError('Nothing to change');
   return { before, after, changed };
 }
 
+/**
+ * Write the plan (nothing, when it changes nothing). The UPDATE runs in its own
+ * savepoint, so a 23505 from a writer outside the master lock leaves the
+ * request transaction usable and comes out as a refusal.
+ */
 export async function applyUpdateBusinessUnit(companyId: string, plan: BusinessUnitUpdatePlan): Promise<BusinessUnit> {
+  if (plan.changed.length === 0) return plan.before;
   const a = plan.after;
-  const rows = (await sql`
-    UPDATE business_units SET
-      code = ${a.code}, name = ${a.name}, description = ${a.description}, division = ${a.division},
-      is_active = ${a.isActive}, updated_at = NOW()
-    WHERE id = ${plan.before.id}::UUID AND company_id = ${companyId} RETURNING *
-  `) as Record<string, unknown>[];
+  let rows: Record<string, unknown>[];
+  try {
+    rows = await withSavepoint('business_unit_update', async () => (await sql`
+      UPDATE business_units SET
+        code = ${a.code}, name = ${a.name}, description = ${a.description}, division = ${a.division},
+        is_active = ${a.isActive}, updated_at = NOW()
+      WHERE id = ${plan.before.id}::UUID AND company_id = ${companyId} RETURNING *
+    `) as Record<string, unknown>[]);
+  } catch (err) {
+    if ((err as { code?: string }).code === UNIQUE_VIOLATION) throw new BusinessUnitActionError(`A business unit with code ${a.code} already exists`);
+    throw err;
+  }
   if (!rows[0]) throw new BusinessUnitActionError(`Business unit not found: ${plan.before.id}`);
   log.info('Updated business unit', { id: plan.before.id, changed: plan.changed }, 'accounting');
   return mapRow(rows[0]);
 }
 
-export async function updateBusinessUnit(companyId: string, id: string, input: BusinessUnitUpdate): Promise<BusinessUnit> {
-  return applyUpdateBusinessUnit(companyId, await planUpdateBusinessUnit(companyId, id, input));
-}
-
-export async function toggleBusinessUnit(companyId: string, id: string, isActive: boolean): Promise<void> {
-  const result = (await sql`UPDATE business_units SET is_active = ${isActive}, updated_at = NOW() WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
-  if (result.length === 0) throw new BusinessUnitActionError(`Business unit not found: ${id}`);
-}
-
 /**
  * Throws a counted refusal when anything still carries the BU. The document and
- * default columns (migration 870) have RESTRICT FKs; the journal, bank and
- * tag-history columns have none, so only this count protects them.
+ * default columns (migration 870) and the journal and bank columns (880, NOT
+ * VALID) have RESTRICT FKs; the tag-history columns have none, so only this
+ * count protects them.
  */
 export async function assertBusinessUnitUnused(companyId: string, id: string): Promise<void> {
   const [row] = (await sql`
@@ -179,13 +232,25 @@ export async function assertBusinessUnitUnused(companyId: string, id: string): P
   }
 }
 
+/** The BU a delete would remove; refuses (counted) while anything carries it. */
+export async function planDeleteBusinessUnit(companyId: string, ref: string): Promise<BusinessUnit> {
+  await lockDimensionMasters(companyId);
+  const bu = await findBusinessUnit(companyId, ref);
+  await assertBusinessUnitUnused(companyId, bu.id);
+  return bu;
+}
+
 export async function deleteBusinessUnit(companyId: string, id: string): Promise<void> {
+  await lockDimensionMasters(companyId);
   await assertBusinessUnitUnused(companyId, id);
   let deleted: Record<string, unknown>[];
   try {
-    deleted = (await sql`DELETE FROM business_units WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
+    // Its own savepoint: a 23503 would otherwise abort the request transaction.
+    deleted = await withSavepoint('business_unit_delete', async () =>
+      (await sql`DELETE FROM business_units WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[]);
   } catch (err) {
-    // The count is tenant-scoped, the RESTRICT FKs are not.
+    // The count is tenant-scoped, the RESTRICT FKs are not (and since migration
+    // 880 they also hold a journal or bank line written after the count).
     if ((err as { code?: string }).code === '23503') {
       throw new BusinessUnitActionError('Cannot delete business unit that is used by other records. Deactivate instead.');
     }

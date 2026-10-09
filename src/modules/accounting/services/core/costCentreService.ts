@@ -8,11 +8,12 @@
  * groups a run's payroll_run_lines by it. Delete eligibility: costCentreUsageGuard.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { recordEmployeeChange } from '../payroll/payrollEmployeeHistoryService';
 import { assertCostCentreUnused, cannotDeleteMessage, CostCentreActionError, FK_VIOLATION } from './costCentreUsageGuard';
+import { lockDimensionMasters } from './dimensionMasterLock';
 
 // ── GL / Accounting cost centre types ─────────────────────────────────────────
 
@@ -30,14 +31,6 @@ export interface CostCentre {
   updatedAt: string;
 }
 
-export interface CostCentreInput {
-  code: string;
-  name: string;
-  description?: string;
-  department?: string;
-  ccType?: CcType;
-}
-
 export async function getCostCentres(companyId: string, activeOnly = false, ccType?: CcType): Promise<CostCentre[]> {
   let rows: DbRow[];
   if (ccType && activeOnly) {
@@ -52,47 +45,24 @@ export async function getCostCentres(companyId: string, activeOnly = false, ccTy
   return rows.map(mapGlRow);
 }
 
-export async function createGlCostCentre(companyId: string, input: CostCentreInput, _userId: string): Promise<CostCentre> {
-  const rows = (await sql`
-    INSERT INTO cost_centres (company_id, code, name, description, department, cc_type)
-    VALUES (${companyId}, ${input.code}, ${input.name}, ${input.description || null}, ${input.department || null}, ${input.ccType || 'cc1'})
-    RETURNING *
-  `) as Record<string, unknown>[];
-  log.info('Created cost centre', { id: rows[0]!.id, code: input.code }, 'accounting');
-  return mapGlRow(rows[0]!);
-}
-
-export async function updateGlCostCentre(companyId: string, id: string, input: Partial<CostCentreInput>): Promise<CostCentre> {
-  const rows = (await sql`
-    UPDATE cost_centres SET
-      code = COALESCE(${input.code || null}, code),
-      name = COALESCE(${input.name || null}, name),
-      description = COALESCE(${input.description || null}, description),
-      department = COALESCE(${input.department || null}, department)
-    WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
-  `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error(`Cost centre ${id} not found`);
-  return mapGlRow(rows[0]);
-}
-
-export async function toggleCostCentre(companyId: string, id: string, isActive: boolean): Promise<void> {
-  const result = (await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
-  if (result.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
-}
-
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
+  await lockDimensionMasters(companyId);
   await assertCostCentreUnused(companyId, id);
   let deleted: Record<string, unknown>[];
   try {
-    deleted = (await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
+    // Its own savepoint: a 23503 here would otherwise abort the request
+    // transaction, and the refusal below could not be answered or audited.
+    deleted = await withSavepoint('cost_centre_delete', async () =>
+      (await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[]);
   } catch (err) {
     // Guard is tenant-scoped, the RESTRICT FKs are not: another company's row
-    // is invisible above and reaches us as a 23503.
+    // is invisible above and reaches us as a 23503 — as does a line written
+    // between the count and the DELETE (migration 880).
     if ((err as { code?: string }).code === FK_VIOLATION) throw new CostCentreActionError(cannotDeleteMessage([]));
     throw err;
   }
   // A scoped DELETE that matched nothing is another tenant's id, or an id that
-  // is already gone; either way reporting success is a lie. Mirrors toggleCostCentre.
+  // is already gone; either way reporting success is a lie.
   if (deleted.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
 }
 
@@ -151,39 +121,6 @@ function mapPayrollRow(r: Record<string, unknown>): PayrollCostCentre {
   };
 }
 
-export interface CreatePayrollCostCentreInput {
-  companyId: string;
-  code: string;
-  name: string;
-  parentId?: string | null;
-  notes?: string;
-  userId: string;
-}
-
-export async function createCostCentre(input: CreatePayrollCostCentreInput): Promise<PayrollCostCentre> {
-  const code = input.code.trim();
-  const name = input.name.trim();
-  if (!code) throw new Error('code is required');
-  if (!name) throw new Error('name is required');
-
-  log.info('Creating cost centre', { companyId: input.companyId, code }, 'costCentreService');
-
-  const rows = (await sql`
-    INSERT INTO cost_centres (company_id, code, name, parent_id, notes, created_by)
-    VALUES (
-      ${input.companyId}::uuid,
-      ${code},
-      ${name},
-      ${input.parentId ?? null},
-      ${input.notes ?? null},
-      ${input.userId}
-    )
-    RETURNING *
-  `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error('INSERT returned no row');
-  return mapPayrollRow(rows[0]);
-}
-
 export interface ListCostCentresOptions {
   activeOnly?: boolean;
 }
@@ -227,43 +164,12 @@ async function assertEmployeeInCompany(companyId: string, employeeId: string): P
   if (rows.length === 0) throw new Error(`Employee ${employeeId} not in company`);
 }
 
-export interface UpdateCostCentreInput {
-  code?: string;
-  name?: string;
-  parentId?: string | null;
-  notes?: string | null;
-  isActive?: boolean;
-}
-
-export async function updateCostCentre(
-  companyId: string,
-  costCentreId: string,
-  input: UpdateCostCentreInput,
-): Promise<void> {
-  await assertCostCentreInCompany(companyId, costCentreId);
-
-  const code = input.code !== undefined ? input.code.trim() : null;
-  const name = input.name !== undefined ? input.name.trim() : null;
-
-  await sql`
-    UPDATE cost_centres
-       SET code       = COALESCE(${code}, code),
-           name       = COALESCE(${name}, name),
-           parent_id  = COALESCE(${input.parentId ?? null}::uuid, parent_id),
-           notes      = COALESCE(${input.notes ?? null}, notes),
-           is_active  = COALESCE(${input.isActive ?? null}::boolean, is_active),
-           updated_at = NOW()
-     WHERE id = ${costCentreId}::uuid AND company_id = ${companyId}::uuid
-  `;
-}
-
-export async function deactivateCostCentre(companyId: string, costCentreId: string): Promise<void> {
-  await assertCostCentreInCompany(companyId, costCentreId);
-  await sql`
-    UPDATE cost_centres
-       SET is_active = ${false}, updated_at = NOW()
-     WHERE id = ${costCentreId}::uuid AND company_id = ${companyId}::uuid
-  `;
+/** One cost centre in the payroll shape; null when it is not this company's. */
+export async function getPayrollCostCentre(companyId: string, id: string): Promise<PayrollCostCentre | null> {
+  const rows = (await sql`
+    SELECT * FROM cost_centres WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+  `) as Record<string, unknown>[];
+  return rows[0] ? mapPayrollRow(rows[0]) : null;
 }
 
 export async function assignEmployeeCostCentre(
