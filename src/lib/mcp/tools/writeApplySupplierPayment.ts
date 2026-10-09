@@ -30,6 +30,7 @@ import {
   validateBankSupplierPayment,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import { bankLineIsEvidenced, manualLinePaymentRefusal } from '@/modules/accounting/services/ap/bankLinePaymentGate';
+import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { mcpPostingAgent } from '../postingAgent';
 import { allocationsSchema, parseAllocations } from './cashApplicationArgs';
 import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
@@ -173,6 +174,9 @@ async function applyFromBankLine(
     const refusal = await manualLinePaymentRefusal(companyId, validation.paymentAmount);
     if (refusal) return toolError(refusal.message);
   }
+  // Step 2: nor may the token's user pay out a line of a statement they imported (asked before the dry run, as above).
+  const importerRefusal = await importerRefusalForLineId(companyId, bankTxId, userId, 'supplier_payment');
+  if (importerRefusal) return toolError(importerRefusal.message);
 
   if (dryRun) {
     return dryRunResult({

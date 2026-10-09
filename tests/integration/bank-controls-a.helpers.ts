@@ -95,7 +95,7 @@ export function mcpCaller(pool: Pool, tools: McpTool[]) {
       await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
       const out = await als.run({ client, userId: user, companyId: company, claims } as never, () => registry.call(name, args,
-        { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:ap'], tokenJti: 'bc-a', oauthAppId: null }));
+        { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:invoices'], tokenJti: 'bc-a', oauthAppId: null }));
       await client.query('COMMIT');
       return out as McpReply;
     } catch (error) {
