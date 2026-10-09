@@ -160,6 +160,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/gl/continuousCloseQueryService.ts': 'filtered',
   'src/modules/accounting/services/gl/integrityChecks/bankChecks.ts':
     "filtered (duplicateBankReferences; staleSuggestedTransactions as of round 2 — its suggestion columns are NOT trigger-guarded, round 1 wrongly assumed they were); exempt: journalDateDiffersFromBankDate keys off matched_journal_line_id (trigger 675)",
+  'src/modules/accounting/services/gl/integrityChecks/dimensionChecks.ts': "filtered (projectFnoMismatch: feed_state <> 'removed' and un-allocated only; pending rows stay in — their CC1/CC2 selection is what allocation stamps on the journal)",
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/items/assetBankLinksService.ts': "exempt: reads only lines carrying an asset / fleet link (mig 853), and setBankLineLink writes a link only on a posted line, which never leaves posted (trigger 675); an annotation list, no total or queue scope",
   'src/modules/accounting/services/items/fleetRecordsService.ts': "exempt: counts the lines linked to a fleet record (the delete refusal and bankLinkCount) — a link is written only on a posted line (setBankLineLink), which never leaves posted (trigger 675); no total or queue scope",
