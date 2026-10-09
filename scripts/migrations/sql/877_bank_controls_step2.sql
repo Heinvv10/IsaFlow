@@ -767,16 +767,25 @@ $$;
 -- someone other than the person switching it on made a change in between
 -- that nobody approved.
 --
+-- The switcher's OWN unapproved changes are skipped, in every company — not
+-- only where they are the sole approver. So whoever holds the authority to
+-- switch auto-post on (above the bank-rule approver role, or the owner at
+-- owner level) can stage rule changes of their own and then switch it on.
+-- That is no more than the same person may do by switching `bank_rule` off,
+-- which needs the same authority; and both leave a record (the rule history
+-- names who changed each rule, the settings change is audited).
+--
 -- The cutoff is the later of when `bank_rule` was switched on and when
 -- auto-post was last switched OFF. Changes are placed by recorded_at (R3-1).
--- bank_rule's enabled_at is its transaction's start (the column default), and
--- switching it on takes bankRuleAutoPostLock exclusively: a rule change
--- recorded after that start is counted even if its own transaction began
--- earlier, and one recorded before it was made before the switch existed. That second time is kept by the table
--- itself: bank_auto_post_settings.disabled_at, set only by this trigger, only
--- on an on→off transition (a fresh row records none, so deleting and
--- re-inserting the row can only move the cutoff EARLIER). The settings audit
--- rows are not used: app_user can write those (the N1 boundary).
+--  - bank_rule's enabled_at is its transaction's start (the column default),
+--    and switching it on takes bankRuleAutoPostLock exclusively: a rule change
+--    recorded after that start is counted even if its own transaction began
+--    earlier; one recorded before it was made before the switch existed.
+--  - auto-post's switch-off time is kept by the table itself:
+--    bank_auto_post_settings.disabled_at, set only by this trigger, only on an
+--    on→off transition (a fresh row records none, so deleting and re-inserting
+--    the row can only move the cutoff EARLIER). The settings audit rows are not
+--    used: app_user can write those (the N1 boundary).
 ALTER TABLE bank_auto_post_settings ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
 
 CREATE OR REPLACE FUNCTION public.bank_auto_post_disabled_at() RETURNS trigger
@@ -820,8 +829,9 @@ $$;
 -- before it — else the `before` of the first after it (a rule older than its
 -- history) — else nothing (created since: a re-created rule is a creation).
 -- The whole span is judged, not the latest change, so a re-point followed by
--- a rename still counts. Changes that landed: `applied` at proposed_at,
--- `approved` at decided_at; only `applied` ones are unreviewed.
+-- a rename still counts. Changes that landed: `applied` at recorded_at (else
+-- proposed_at, for rows older than that column), `approved` at decided_at;
+-- only `applied` ones are unreviewed, and the switcher's own are skipped.
 CREATE OR REPLACE FUNCTION public.bank_rule_unreviewed_changes(p_company_id pg_catalog.uuid, p_enabler pg_catalog.text)
 RETURNS TABLE (rule_id pg_catalog.uuid, rule_name pg_catalog.text, changed_by pg_catalog.text[], last_changed_at pg_catalog.timestamptz)
 LANGUAGE sql STABLE

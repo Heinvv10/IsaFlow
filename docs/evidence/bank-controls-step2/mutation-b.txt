@@ -214,3 +214,8 @@ Not distinguishable by a test (recorded, reasoned in 877 / bankRuleAutoPostLock)
     after the switch-off committed is counted either way; clock_timestamp() is kept so both sides of the comparison use one clock.
   - the exclusive lock in enableEnforcement(BANK_RULE): enabled_at is the enable's transaction start, so a change recorded
     after it is counted with or without the lock; the lock is defence in depth, pinned by bankRuleChangeCensus.
+
+C4  lock order — a statement inserted before `await lockForRuleWrite(companyId)` in writeNewRule
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "first of all"
+    RED: rule writers and switching auto-post on serialise (bankRuleAutoPostLock) > create, change and seed take the shared lock first of all; …
+         AssertionError: writeNewRule: expected 103 to be 126

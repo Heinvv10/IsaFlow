@@ -5,14 +5,20 @@
  * a change, made by someone else and never approved, would then post money
  * (877's bank_rule_unreviewed_changes judges it, from the cutoff on).
  *
- * The two serialise on one per-company advisory lock, ALWAYS taken first:
+ * The two serialise on one per-company advisory lock:
  *   rule writers (bankRuleChangeControl: create, change, seed, merge re-point)
- *     → shared, before they read or lock a rule;
+ *     → shared, before they read or lock a RULE. Create, change and seed take
+ *     it first of all; the customer merge takes it after its own row locks
+ *     (settlement rows, then the two customers — customerMergeService's order,
+ *     which it cannot reorder), but still before it touches a rule;
  *   the auto-post settings writer (autoPostSettingsService.applyOnce)
- *     → exclusive, before it locks the settings row;
+ *     → exclusive, first of all (before the settings row);
  *   switching `bank_rule` on (approvalEnforcement.enableEnforcement)
  *     → exclusive, before it inserts the switch (its enabled_at is a cutoff too).
- * So a rule change either commits before the switch-on reads the history (and
+ * Cycle-free: the exclusive holders lock nothing but the settings row and the
+ * switch, which no shared holder waits on; shared holders never wait on each
+ * other. So the merge's later acquisition can wait, never deadlock.
+ * A rule change either commits before the switch-on reads the history (and
  * is judged), or classifies after the switch-on committed (and sees auto-post
  * on, so it is held). The history places each change by recorded_at, the
  * moment it was written under the lock — not its transaction's start (R3-1).
@@ -38,7 +44,10 @@ type Unreviewed = { rule_id: string; rule_name: string; changed_by: string[]; ch
  * Refuses (409 AUTO_POST_RULES_UNREVIEWED), before any write, to switch
  * auto-post on under `bank_rule` while active rules carry changes nobody
  * approved that would then post money. The switcher's own changes do not
- * count (the accepted owner-alone case). Lists them in the message and the log.
+ * count, in any company: whoever may switch auto-post on (above the bank-rule
+ * approver role, or the owner at owner level) can stage their own — no more
+ * than switching `bank_rule` off, which needs the same authority; both are on
+ * record (the rule history, the settings audit). Lists them in the message and the log.
  */
 export async function assertNoUnreviewedRuleChanges(companyId: string, enablerId: string): Promise<void> {
   const rows = (await sql`

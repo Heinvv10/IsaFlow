@@ -104,6 +104,19 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
     expect(matching(/bank_rule_unreviewed_changes/)).toEqual([LOCK]);
   });
 
+  it('create, change and seed take the shared lock first of all; the merge after its own row locks (never deadlocks: see the module)', () => {
+    for (const fn of ['writeNewRule', 'writeRuleChange', 'seedRules']) {
+      const b = body(CONTROL, fn);
+      expect(b.indexOf('await '), fn).toBe(b.indexOf('await lockForRuleWrite(companyId)'));
+    }
+    // The merge locks settlement rows and both customers first (customerMergeService), then the rules through the control.
+    const merge = files.find((x) => x.file === 'src/modules/accounting/services/ar/customerMergeService.ts')!.text;
+    expect(merge.indexOf('await moveRulesToCustomer(')).toBeGreaterThan(merge.indexOf('await refuseOrLock('));
+    // The exclusive holders take it first and then lock only the settings row / insert the switch.
+    const settings = body(SETTINGS, 'applyOnce');
+    expect(settings.indexOf('await ')).toBe(settings.indexOf('await lockOutRuleWriters(companyId)'));
+  });
+
   it('each writer that can apply a change takes the shared lock before it reads or locks a rule', () => {
     for (const fn of ['writeNewRule', 'writeRuleChange', 'seedRules', 'moveRulesToCustomer']) {
       const b = body(CONTROL, fn);
