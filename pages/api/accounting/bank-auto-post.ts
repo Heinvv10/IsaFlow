@@ -28,6 +28,7 @@ import {
 } from '@/modules/accounting/services/bank/autoPostHandCorrection';
 import { isUuidParam } from '@/lib/validation';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 type Row = Record<string, unknown>;
 
@@ -65,6 +66,7 @@ async function handDecision(req: CompanyAuthedRequest, res: NextApiResponse, bod
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof HandCorrectionRefusedError) return apiResponse.badRequest(res, err.message);
+    if (respondIfBankControlRefused(res, err)) return;
     // A held row is 503 + Retry-After (D11); a retryable STATE conflict stays 409.
     if (respondIfLockTimeout(res, err)) return;
     if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
@@ -117,6 +119,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       const settings = await updateAutoPostSettings(companyId, body, userId);
       return apiResponse.success(res, { settings });
     } catch (err) {
+      if (respondIfBankControlRefused(res, err)) return;
       return apiResponse.badRequestFromError(res, err, 'Invalid auto-post settings');
     }
   }
@@ -145,6 +148,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // is a 200 carrying `skipped` and `undone: false` instead.
       // A held row (the bank line, a payment, a chain head, the bank reversal's flow budget) is 503 + Retry-After
       // (D8, D11); a retryable STATE conflict stays 409.
+      if (respondIfBankControlRefused(res, err)) return;
       if (respondIfLockTimeout(res, err)) {
         log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
         return;
