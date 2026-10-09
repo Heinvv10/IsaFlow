@@ -90,22 +90,20 @@ export async function createBusinessUnit(companyId: string, input: BusinessUnitI
 }
 
 /**
- * A business unit by UUID, exact code or code ignoring case — active or not.
- * Codes are unique only as typed, so a reference matching two codes that differ
- * only in case names neither and is refused.
+ * A business unit by UUID or code (any case), active or not. Codes are unique
+ * only as typed, so a code that matches two business units ignoring case names
+ * neither — even when one matches exactly — and is refused: send the id.
  */
 export async function findBusinessUnit(companyId: string, ref: string): Promise<BusinessUnit> {
   const key = ref.trim();
   const rows = UUID_RE.test(key)
     ? ((await sql`SELECT * FROM business_units WHERE company_id = ${companyId} AND id = ${key}::UUID`) as DbRow[])
     : ((await sql`SELECT * FROM business_units WHERE company_id = ${companyId} AND lower(code) = ${key.toLowerCase()} ORDER BY code`) as DbRow[]);
-  const exact = rows.find((r) => String(r.code) === key);
-  if (!exact && rows.length > 1) {
-    throw new BusinessUnitActionError(`"${ref}" matches the codes ${rows.map((r) => String(r.code)).join(', ')}, which differ only in case — use the exact code`);
+  if (rows.length > 1) {
+    throw new BusinessUnitActionError(`"${ref}" matches ${rows.length} business units (${rows.map((r) => String(r.code)).join(', ')}) — send its id`);
   }
-  const row = exact ?? rows[0];
-  if (!row) throw new BusinessUnitActionError(`Business unit not found: ${ref}`);
-  return mapRow(row);
+  if (!rows[0]) throw new BusinessUnitActionError(`Business unit not found: ${ref}`);
+  return mapRow(rows[0]);
 }
 
 /**
