@@ -164,3 +164,39 @@ M16 a re-seed skips patterns already pending — bank-rules-seed: pendingCreatio
     I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "each seeded rule is held"
     RED: (same test)
          AssertionError: expected { created: +0, held: 1, …(3) } to match object { created: +0, held: +0, skipped: 2 }
+
+── Round 3b: breaker round 2 R2-2b (+ holes 1–4) and R2-3 ──
+
+M17 switch-on refused over unreviewed rule changes — autoPostSettingsService.applyOnce: the assertNoUnreviewedRuleChanges call removed
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "cannot switch auto-post on over"
+    RED: R2-2b … > the owner cannot switch auto-post on over the admin's unapproved re-point; nothing posts to it; the way out works
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 409
+
+D11 hole 1, the whole span is judged — 877 bank_rule_unreviewed_changes: state at cutoff -> the `before` of the LATEST change only
+    I … -t "hole 1"
+    RED: … > hole 1: a rename after the re-point (even by the owner) does not hide it
+         AssertionError: {"success":true,…}: expected 200 to be 409
+
+D12 hole 2, a re-created rule is a creation — 877: needs_approval(COALESCE(state_at_cutoff, current), current, true) (no creation)
+    I … -t "hole 2"
+    RED: … > hole 2: deleting the rule and creating it again with a new target is a creation, and counts
+         AssertionError: {"success":true,…}: expected 200 to be 409
+
+D13 hole 3, the cutoff is kept by the table — DROP TRIGGER bank_auto_post_disabled_at ON bank_auto_post_settings
+    I … -t "cannot move the switch-off time"
+    RED: hole 3: the cutoff > app_user cannot move the switch-off time later: …
+         AssertionError: expected null not to be null   (no switch-off time recorded at all)
+
+M18 hole 4, rule writers take the shared lock — bankRuleChangeControl.writeRuleChange: `await lockForRuleWrite(companyId);` removed
+    I tests/integration/bank-rule-changes-autopost-race.int.test.ts -t "waits for the switch-on"
+    RED: switching auto-post on races a rule change > the rule change waits for the switch-on, then is held; it never lands unreviewed behind it
+         AssertionError: expected 'applied' to be 'pending_approval'
+
+M19 hole 4, the settings writer takes the exclusive lock — autoPostSettingsService.applyOnce: `await lockForAutoPostSettings(companyId);` removed
+    I (same test)
+    RED: AssertionError: expected 'applied' to be 'pending_approval'
+
+D14 R2-3, provenance fixed both ways — 877's line trigger put back to `UPDATE OF import_batch_id … WHEN (OLD.import_batch_id IS NOT NULL …)`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "R2-3"
+    RED: REPRO 5 … > R2-3: a hand-keyed line cannot be GIVEN a batch, nor any line re-pointed to a feed; the gates still refuse
+         AssertionError: expected 'ok' to match /^42501: .*feed connection are its pro…/
