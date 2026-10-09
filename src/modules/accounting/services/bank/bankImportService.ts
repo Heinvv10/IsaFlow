@@ -80,7 +80,7 @@ export async function importBankStatement(
       `) as { id: string }[];
       if (outflowIds.length > 0) {
         const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, systemUser); // legacy: no batch row, so no importer
       }
     } catch (provErr) {
       log.warn('auto-post sweep failed after import — non-fatal', { batchId, error: provErr }, 'accounting');

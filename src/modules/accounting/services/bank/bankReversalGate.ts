@@ -9,10 +9,11 @@
  *     ALLOCATOR_MAY_NOT_REVERSE, naming the way out;
  *   - every reversal permitted under enforcement is audited.
  *
- * The arm: a supplier payment or payment batch on an outflow is
- * `supplier_payment` (coupled with `payment_batch`); a customer receipt, and
- * any document on money in, is ungated; a plain journal (account, split,
- * transfer, auto-post) is `manual_journal`. The allocator: the chain ROOT
+ * The arm, by the allocation side's own mapping (importerArmOf): a supplier
+ * payment or payment batch on an outflow is `supplier_payment` (coupled with
+ * `payment_batch`); a customer receipt, and any document on money in, is
+ * ungated; a customer refund (money out) and a plain journal (account,
+ * split, transfer, auto-post) are `manual_journal`. The allocator: the chain ROOT
  * journal's `created_by`, the payment document's `created_by`, and the
  * auto-post run's `created_by` (the person who triggered the sweep) — every
  * one of them; the zero uuid (the system user) is nobody.
@@ -27,7 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
-import { armEnforced, armLabel, isSoleAsCaller, type BankArm } from './bankLineImporterGate';
+import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
 
 const NOBODY = '00000000-0000-0000-0000-000000000000';
@@ -56,8 +57,9 @@ async function reversalFacts(companyId: string, line: DbRow, rootId: string | nu
       LIMIT 1
     ) doc ON true
   `) as DbRow[];
-  if (row?.kind === 'customer' || (row?.kind === 'supplier' && Number(line.amount) >= 0)) return null; // money in
-  const arm: BankArm = row?.kind === 'supplier' ? 'supplier_payment' : 'manual_journal';
+  // The allocation side's one mapping: a document is a contact; a plain journal is the account arm.
+  const arm = row?.kind ? importerArmOf(String(row.kind), 'document', Number(line.amount)) : 'manual_journal';
+  if (!arm) return null; // money in: a receipt, a supplier refund
   const allocators = [...new Set([row?.journal_by, row?.doc_by, row?.run_by]
     .filter((id): id is string => typeof id === 'string' && id !== NOBODY))];
   return { arm, allocators };

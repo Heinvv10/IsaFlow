@@ -181,6 +181,8 @@ export async function commitImport(
   importId: string,
   userId: string,
 ): Promise<{ inserted: number; skipped: number }> {
+  // Locked first, so a concurrent commit waits here and then reads 'committed' — one batch row, one set of lines.
+  await sql`SELECT 1 FROM bank_statement_imports WHERE id = ${importId}::uuid AND company_id = ${companyId} FOR UPDATE`;
   const imp = await getImport(companyId, importId);
   if (!imp) throw new Error(`Import not found: ${importId}`);
   if (imp.status === 'committed') throw new Error('Import already committed');
@@ -189,14 +191,15 @@ export async function commitImport(
   const nonDupes = imp.rows.filter((r) => !r.isDuplicate && r.date && parsedDayWindowError(r.date) === null);
   log.info('bankStatementOcr: committing import', { importId, nonDupeCount: nonDupes.length }, 'bank-stmt-ocr');
 
-  // Step 2 provenance: the batch the lines name (its id is this import's), recording the committing user as the
-  // importer — who may then not allocate these lines under enforcement — and the uploaded document's SHA-256.
+  // Step 2 provenance: the batch the lines name (its id is this import's), recording as the importer the person who
+  // UPLOADED the statement — whose file the lines are, and who may then not allocate them under enforcement (the
+  // committer only confirms rows they cannot edit) — falling back to the committer, and the document's SHA-256.
   if (nonDupes.length > 0) {
     await sql`
       INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, transaction_count,
         source_filename, imported_by, import_channel, file_sha256)
       SELECT si.id, si.company_id, si.bank_account_id, COALESCE(si.period_end, ${nonDupes.map((r) => r.date).sort().at(-1)!}::DATE),
-             ${nonDupes.length}, cd.file_name, ${userId}, 'statement_ocr',
+             ${nonDupes.length}, cd.file_name, COALESCE(si.created_by::TEXT, cd.uploaded_by::TEXT, ${userId}), 'statement_ocr',
              CASE WHEN cd.raw_bytes_sha256 ~ '^[0-9a-f]{64}$' THEN cd.raw_bytes_sha256 END
       FROM bank_statement_imports si
       LEFT JOIN captured_documents cd ON cd.id = si.source_document_id AND cd.company_id = si.company_id
