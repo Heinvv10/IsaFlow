@@ -27,12 +27,11 @@ async function main(): Promise<number> {
   });
 }
 
-if ((import.meta as { main?: boolean }).main) {
-  main().then(
-    (code) => process.exit(code),
-    (err) => {
-      console.error(`migration parity gate error: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
-    }
-  );
-}
+// Unconditional: no import.meta.main guard, so a runtime that lacks it cannot skip the gate and exit 0.
+main().then(
+  (code) => process.exit(code),
+  (err) => {
+    console.error(`migration parity gate error: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
+);
