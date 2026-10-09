@@ -89,15 +89,28 @@ describe('migration 883 section 0', () => {
     expect(await section0(invite(role))).toMatch(REFUSED);
   });
 
-  it('names at most ten, then how many more (blind round 4, LOW-2)', async () => {
-    const message = await section0(async (c) => {
-      for (let i = 0; i < 12; i++) {
-        await c.query(`INSERT INTO ${S}.company_invitations(id,company_id,email,role,invited_by,token,expires_at)
-          VALUES(gen_random_uuid(),'00000000-0000-4000-8000-000000000001',$1,'owner','00000000-0000-4000-8000-000000000002',md5(random()::text),now() + interval '7 days')`,
-        [`x${i}@n1bc.test`]);
-      }
-    });
-    expect(message).toMatch(/^migration 883: 12 pending owner invitation\(s\) exist .*afterwards: (?:[0-9a-f-]{36} \(company [0-9a-f-]{36}\), ){9}[0-9a-f-]{36} \(company [0-9a-f-]{36}\) \(\+2 more\)$/);
+  /** `n` live owner invitations, ids …01 to …n, inserted in DESCENDING id order (so insertion order hides nothing). */
+  const many = (n: number): Setup => async (c) => {
+    for (let i = n; i >= 1; i--) {
+      await c.query(`INSERT INTO ${S}.company_invitations(id,company_id,email,role,invited_by,token,expires_at)
+        VALUES($1,'00000000-0000-4000-8000-000000000001',$2,'owner','00000000-0000-4000-8000-000000000002',md5(random()::text),now() + interval '7 days')`,
+      [`00000000-0000-4000-9000-${String(i).padStart(12, '0')}`, `x${i}@n1bc.test`]);
+    }
+  };
+  const named = (message: string) => [...message.matchAll(/([0-9a-f-]{36}) \(company/g)].map((m) => m[1]);
+  const smallest = (k: number) => Array.from({ length: k }, (_, i) => `00000000-0000-4000-9000-${String(i + 1).padStart(12, '0')}`);
+
+  it('names the ten smallest ids, then how many more (blind round 4, LOW-2; adversarial merge confirmation)', async () => {
+    const message = await section0(many(12));
+    expect(message).toMatch(/^migration 883: 12 pending owner invitation\(s\) exist .* \(\+2 more\)$/);
+    expect(named(message)).toEqual(smallest(10));
+  });
+
+  it('names all ten, with no tail, when there are exactly ten', async () => {
+    const message = await section0(many(10));
+    expect(message).toMatch(/^migration 883: 10 pending owner invitation\(s\) exist .*\)$/);
+    expect(message).not.toMatch(/more\)$/);
+    expect(named(message)).toEqual(smallest(10));
   });
 
   it('refuses one that expires in a minute — any live one counts, not only long-lived ones (adversarial round 3, L3)', async () => {
