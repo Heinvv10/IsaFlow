@@ -85,7 +85,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so a 400 raised after
     // a write commits it. `bank_transfer` and `journal_line` are absent from
     // this map deliberately — they tie a line to a journal that already exists
-    // and settle no document, so they have no direction to contradict.
+    // and settle no document. (The picker offers them only this bank's lines in this
+    // line's direction — bankMatchDbQueries — but this route does not re-check a
+    // hand-crafted id: a stated residual in bank/.claude.md.)
     const signedAmount = Number(txRows[0]!.amount);
     const settles: Partial<Record<typeof candidateType, SettlementKind>> = {
       supplier_invoice: 'supplier',
@@ -253,7 +255,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule, refused from the locked row pre-write.
     if (respondIfApprovalRequired(res, err)) return;
-    const refusal = classifyBankMatchRefusal(err);
+    const refusal = classifyBankMatchRefusal(err, candidateType);
     if (refusal) {
       if (refusal.contended) {
         log.info('Bank match confirm hit a contended row', { bankTransactionId, candidateType, candidateId }, 'accounting-api');

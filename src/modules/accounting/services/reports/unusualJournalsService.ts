@@ -153,7 +153,16 @@ export async function getUnusualJournals(
       je.description,
       je.source,
       je.created_at,
-      COALESCE(SUM(jl.debit), 0) AS amount
+      COALESCE(SUM(jl.debit), 0) AS amount,
+      -- A transfer journal carries a bank line's amount when the STATEMENT created it — a journal with no
+      -- reference that is not a reversal (bankAllocationService writes none; every Transfers-page journal carries
+      -- 'Transfer: … -> …') — or sits in a reversal chain whose root is one (a re-reversal re-posts the statement's
+      -- amount: brk-nrfa round 5 F4); a typed journal only when a LIVE line points at it with its amount on one of its
+      -- bank legs and is MATCHED to that leg (below). Pointers alone are not evidence: a match can link any line, an
+      -- unmatch leaves it set, a re-allocation moves it (journalSourceKinds; brk-nrfa M2/L3, rounds 3-5; sec-nrfa r3).
+      ((je.reference IS NULL AND je.reversal_of_id IS NULL)
+        OR (root.id IS NOT NULL AND root.reference IS NULL)
+        OR COALESCE(SUM(jl.debit), 0) = ANY(tl.amounts)) AS bank_line_backed
     FROM gl_journal_entries je
     -- THE LINES ARE SCOPED TOO, not only the entry they hang off. The FK
     -- makes it redundant today and the root CLAUDE.md rule is "ALWAYS add
@@ -164,10 +173,33 @@ export async function getUnusualJournals(
     JOIN gl_journal_lines jl
       ON jl.journal_entry_id = je.id
      AND jl.company_id = ${companyId}::UUID
+    -- A line is evidence only where the journal moved it: a leg on the line's own bank, on the side its sign says
+    -- (money in debits that bank). A match can point any line at any transfer (sec-nrfa round 3 L1).
+    LEFT JOIN (
+      SELECT bt.transfer_journal_entry_id, array_agg(DISTINCT ABS(bt.amount)) AS amounts FROM bank_transactions bt
+      JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.transfer_journal_entry_id AND bl.company_id = bt.company_id
+        AND bl.gl_account_id = bt.bank_account_id AND bl.id = bt.matched_journal_line_id -- a stale pointer is not a match
+        AND (CASE WHEN bt.amount > 0 THEN bl.debit ELSE bl.credit END) = ABS(bt.amount)
+      WHERE bt.company_id = ${companyId}::UUID AND bt.transfer_journal_entry_id IS NOT NULL AND bt.feed_state = 'posted'
+        AND (bt.import_batch_id IS NOT NULL OR bt.bank_feed_connection_id IS NOT NULL) -- statement or feed, not hand-keyed
+        AND bt.status IN ('allocated', 'matched', 'reconciled')
+      GROUP BY bt.transfer_journal_entry_id
+    ) tl ON tl.transfer_journal_entry_id = je.id
+    -- The root of je's reversal chain (je itself is not a reversal: no row).
+    LEFT JOIN LATERAL (
+      WITH RECURSIVE up AS (
+        SELECT r.id, r.reversal_of_id, r.reference, 1 AS depth FROM gl_journal_entries r
+        WHERE r.id = je.reversal_of_id AND r.company_id = je.company_id
+        UNION ALL
+        SELECT p.id, p.reversal_of_id, p.reference, up.depth + 1 FROM gl_journal_entries p
+        JOIN up ON p.id = up.reversal_of_id WHERE p.company_id = ${companyId}::UUID AND up.depth < 64)
+      SELECT up.id, up.reference FROM up WHERE up.reversal_of_id IS NULL LIMIT 1
+    ) root ON true
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
-    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at
+    GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, je.reference,
+      je.reversal_of_id, root.id, root.reference, tl.amounts
     -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
     -- BOARD READS.
     --
@@ -198,7 +230,8 @@ export async function getUnusualJournals(
       entryDate,
       amount,
       recordedOn: recorded ? recordedOn(createdAt) : '',
-      isRoundNumber: !isDocumentPosting(row.source) && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
+      isRoundNumber: !isDocumentPosting(row.source, row.bank_line_backed === true)
+        && amount >= ROUND_NUMBER_FLOOR && amount % 1000 === 0,
       isBackdated: recorded && isBackdated(entryDate, createdAt),
     };
   });

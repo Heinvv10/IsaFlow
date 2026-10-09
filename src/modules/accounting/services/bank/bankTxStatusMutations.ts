@@ -156,7 +156,11 @@ async function assertMatchTargets(companyId: string, bankTxId: string, journalLi
   // D10 (brk-d10 O-a): a bank-first provisional's own statement line holds its cash through `provisional_je_id`, not
   // `matched_journal_line_id` — on X itself or, once re-reversed, on the head that carries X again (same chain root).
   // A second line matched to that bank leg is two statement lines for one GL bank entry.
-  const root = (await findJournalChainRoot(companyId, jeId)) ?? jeId;
+  const root = await findJournalChainRoot(companyId, jeId);
+  if (!root) {
+    throw new BankMatchTargetError('LINE_REVERSED', `Journal line ${journalLineId}'s reversal chain does not reach its `
+      + 'root within the walk bound (or loops) — repair it in the GL first.');
+  }
   const [held] = (await sql`
     SELECT id FROM bank_transactions
     WHERE provisional_je_id = ${root}::UUID AND company_id = ${companyId}::UUID AND id <> ${bankTxId}::UUID
