@@ -137,6 +137,28 @@ export async function lockJournalCashForGlReversal(companyId: string, journalEnt
   return locked;
 }
 
+/**
+ * A document's own void, cancel or reversal (supplier payment void, receipt or
+ * refund cancel, batch reversal) whose journal a statement line is MATCHED to:
+ * by round 1's rule a journal a live bank line books is a bank allocation, so
+ * each matched line (`bankLineIds`, locked by the caller's leg) is judged
+ * exactly as the bank line's own reverse judges it (assertMayReverse), before
+ * the reversal writes. Returns the audit to write once it is done; a no-op when
+ * nothing is matched, the arm is ungated (money in) or not enforced.
+ */
+export async function assertMayReverseMatchedLeg(
+  companyId: string, rootId: string, bankLineIds: readonly string[], actorUserId: string,
+): Promise<() => Promise<void>> {
+  if (bankLineIds.length === 0) return async () => undefined;
+  const lines = (await sql`
+    SELECT id, amount, auto_post_run_id FROM bank_transactions
+    WHERE id = ANY(${[...bankLineIds]}::UUID[]) AND company_id = ${companyId}::UUID ORDER BY id
+  `) as DbRow[];
+  const cleared: { id: string; clearance: ReversalClearance | null }[] = [];
+  for (const line of lines) cleared.push({ id: String(line.id), clearance: await assertMayReverse(companyId, line, rootId, actorUserId) });
+  return async () => { for (const c of cleared) await auditedReversal(companyId, c.id, actorUserId, c.clearance, null); };
+}
+
 /** A refusal this request's session gets for `action`, or null: a person in their own session. */
 async function sessionRefusal(action: string): Promise<BankControlError | null> {
   try {
