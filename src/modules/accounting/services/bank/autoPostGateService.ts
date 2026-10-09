@@ -15,6 +15,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
 import { feedStateOf } from './bankFeedStateGuard';
+import { BankControlError } from './bankControlRefusal';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -138,7 +139,7 @@ export async function sweep(
   companyId: string,
   txIds: string[],
   source: AutoPostSource,
-  userId: string,
+  userId: string, triggeredBy = userId, // who ran it — an import's importer; skipped on their own lines (step 2)
 ): Promise<SweepResult> {
   const settings = await getAutoPostSettings(companyId);
   if ((!settings.enabled && !settings.llmEnabled) || txIds.length === 0) {
@@ -217,7 +218,7 @@ export async function sweep(
     try {
       const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
         if (isImport) {
-          const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence });
+          const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence, triggeredBy });
           if (!res.journalEntryId) {
             return res.skipped ?? 'no target';
           }
@@ -273,7 +274,7 @@ export async function sweep(
       // orphaned-JE case this used to report can no longer arise. It also took
       // back the `bank_auto_post_runs` row if THIS row minted it.
       runId = runIdBeforeRow;
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = err instanceof BankControlError ? `approval_required: ${err.message}` : err instanceof Error ? err.message : String(err);
       log.warn('Auto-post failed for bank transaction — skipping', { companyId, txId: row.id, reason }, 'auto-post-gate');
       skipped.push({ txId: row.id, reason });
     }
