@@ -20,6 +20,12 @@ import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
+import { DuplicateTransferError } from '@/modules/accounting/services/bank/transferDuplicateGuard';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
+import { isSupplierRefundRefusal } from '@/modules/accounting/services/ap/supplierRefundDocument';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import {
   allocateTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
@@ -49,8 +55,8 @@ const ManualTxSchema = z.object({
   // open documents, 'none' leaves the cash on account.
   autoApply: z.enum(AUTO_APPLY_MODES).optional(),
 }).refine(
-  v => !(v.allocationType === 'account' && !v.contraAccountId),
-  { message: 'contraAccountId is required when allocationType is account', path: ['contraAccountId'] },
+  v => !((v.allocationType === 'account' || v.allocationType === 'transfer') && !v.contraAccountId),
+  { message: 'contraAccountId is required when allocationType is account or transfer', path: ['contraAccountId'] },
 ).refine(
   v => !((v.allocationType === 'supplier' || v.allocationType === 'customer') && !v.entityId),
   { message: 'entityId is required when allocationType is supplier or customer', path: ['entityId'] },
@@ -115,58 +121,67 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   try {
-    // ── Step 1: Insert bank_transactions row ─────────────────────────────────
+    // The line and its allocation stand or fall together: anything thrown inside rolls the INSERT back to this
+    // savepoint, so answering it 4xx commits nothing (R-060; brk-nrfa rounds 7-8). The refusals a person can act on
+    // are answered 400 in the catch below, as the allocate action answers them.
+    const saved = await withJournalDateRefusal(res, async () => {
+      // ── Step 1: Insert bank_transactions row ─────────────────────────────────
 
-    const txRows = await sql`
-      INSERT INTO bank_transactions (
-        bank_account_id,
-        transaction_date,
-        amount,
+      const txRows = await sql`
+        INSERT INTO bank_transactions (
+          bank_account_id,
+          transaction_date,
+          amount,
+          description,
+          reference,
+          status,
+          company_id
+        ) VALUES (
+          ${bankAccountId}::UUID,
+          ${date}::DATE,
+          ${signedAmount},
+          ${description ?? null},
+          ${reference ?? null},
+          'imported',
+          ${companyId}
+        )
+        RETURNING id
+      `;
+
+      const txId = String((txRows as Record<string, unknown>[])[0]!.id);
+
+      log.info('Manual bank transaction created', {
+        txId, type, bankAccountId, amount: signedAmount, date,
+      }, 'accounting-api');
+
+      // ── Step 2: Immediately allocate the transaction ──────────────────────────
+
+      const result = await allocateTransaction(
+        companyId,
+        txId,
+        contraAccountId ?? '',
+        userId,
         description,
-        reference,
-        status,
-        company_id
-      ) VALUES (
-        ${bankAccountId}::UUID,
-        ${date}::DATE,
-        ${signedAmount},
-        ${description ?? null},
-        ${reference ?? null},
-        'imported',
-        ${companyId}
-      )
-      RETURNING id
-    `;
+        allocationType,
+        entityId,
+        vatCode,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        // The service owns the autoApply default; this route only forwards an
+        // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
+        { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
+      );
 
-    const txId = String((txRows as Record<string, unknown>[])[0]!.id);
+      log.info('Manual bank transaction allocated', {
+        txId, journalEntryId: result.journalEntryId,
+      }, 'accounting-api');
 
-    log.info('Manual bank transaction created', {
-      txId, type, bankAccountId, amount: signedAmount, date,
-    }, 'accounting-api');
-
-    // ── Step 2: Immediately allocate the transaction ──────────────────────────
-
-    const result = await allocateTransaction(
-      companyId,
-      txId,
-      contraAccountId ?? '',
-      userId,
-      description,
-      allocationType,
-      entityId,
-      vatCode,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      // The service owns the autoApply default; this route only forwards an
-      // explicit one. A person entering it: s16(3) late input-VAT claim where allowed.
-      { ...(autoApply ? { autoApply } : {}), allowLateInputClaim: true },
-    );
-
-    log.info('Manual bank transaction allocated', {
-      txId, journalEntryId: result.journalEntryId,
-    }, 'accounting-api');
+      return { txId, result };
+    });
+    if (saved === JOURNAL_DATE_REFUSED) return;
+    const { txId, result } = saved;
 
     return apiResponse.created(res, {
       bankTransactionId: txId,
@@ -175,17 +190,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ...(result.lateClaim ? { lateClaim: result.lateClaim } : {}), // VAT claimed in a later period (s16(3))
     }, 'Transaction recorded and allocated successfully');
   } catch (err) {
-    // Contention is a 409, not a 500. This route calls `allocateTransaction`,
-    // so it raises the identical events the four settlement routes answer 409 —
-    // and `internalError` replaces the service's "retry in a moment" with "An
-    // internal error occurred", which is the one wording the caller can act on.
-    // The INSERT above is NOT rolled back by the choice of status — every
-    // member of `isRetryableContention` descends from 55P03/40P01, which abort
-    // the Postgres transaction, so `withAuth`'s COMMIT on a 4xx is a no-op and
-    // the manual row is discarded either way. What changes is the wording the
-    // caller reads. A blanket catch on a route that writes BEFORE it can refuse
-    // is still a hazard for any non-aborting throw — registered as R-060.
-    // A held row is 503 + Retry-After (D11); a retryable STATE conflict keeps the 409.
+    // Whatever was thrown, the savepoint above has already discarded the inserted line, so the status chosen here
+    // decides only what the caller reads (R-060 is closed for this route). Contention is a 409, not a 500 — the
+    // same events the settlement routes answer 409 — and a held row is 503 + Retry-After (D11).
     if (respondIfLockTimeout(res, err)) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return;
@@ -193,6 +200,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (isRetryableContention(err)) {
       log.info('Manual bank transaction hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);
+    }
+    // Refusals the person can act on, answered 400 with the reason as the allocate action answers them: the ledger
+    // already holds this transfer (match it), a closed period, an inactive account, a locked VAT period, a refund
+    // over what the supplier is owed, a line refusal (brk-nrfa round 8 L3, rev-nrfa round 8 LOW 1).
+    if (err instanceof DuplicateTransferError || err instanceof ClosedFiscalPeriodError
+      || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError || isSupplierRefundRefusal(err) || isBankAllocationRefusal(err)) {
+      return apiResponse.badRequest(res, err.message);
     }
     const message = err instanceof Error ? err.message : 'Failed to record transaction';
     log.error('Manual bank transaction failed', { error: err }, 'accounting-api');

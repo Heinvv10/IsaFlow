@@ -78,8 +78,9 @@ const MUTATIONS: Array<{ name: string; run: () => Promise<unknown>; preWrite: un
   {
     name: 'matchTransaction',
     run: () => matchTransaction(COMPANY_ID, TX_ID, JL_ID),
-    // line, its journal (not reversed), claim, its chain root (D10: none -> the journal), a provisional holding it (none)
-    preWrite: [[{ id: JL_ID }], [], [], [], []],
+    // line, its journal (not reversed), claim, its chain root (an unreversed journal is its own root; none is now a
+    // refusal — brk-nrfa round 25), a provisional holding it (none)
+    preWrite: [[{ id: JL_ID }], [], [], [{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }], []],
   },
   { name: 'unmatchTransaction', run: () => unmatchTransaction(COMPANY_ID, TX_ID), preWrite: [] },
   { name: 'excludeTransaction', run: () => excludeTransaction(COMPANY_ID, TX_ID, 'dup'), preWrite: [] },
@@ -190,3 +191,28 @@ describe('bank transaction status mutations — locked and guarded', () => {
     expect(vi.mocked(sql)).toHaveBeenCalledTimes(4);
   });
 });
+
+// brk-nrfa round 25 L1 / rev-nrfa round 26: a journal whose reversal chain does not reach its root within the walk
+// bound (or loops) was read as its own root, so a held provisional's head could be claimed by a second line. It is now a
+// refusal, decided before the UPDATE.
+describe('matchTransaction — a chain with no root', () => {
+  beforeEach(() => {
+    vi.mocked(sql).mockReset();
+    enterFakeRequestCtx();
+  });
+
+  it('refuses LINE_REVERSED and never writes', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row()] as never) // the locked bank line
+      .mockResolvedValueOnce([{ id: JL_ID }] as never) // the journal line, this company's
+      .mockResolvedValueOnce([] as never) // its journal: not reversed
+      .mockResolvedValueOnce([] as never) // no other line claims it
+      .mockResolvedValueOnce([] as never); // the chain root: none within the bound
+    await expect(matchTransaction(COMPANY_ID, TX_ID, JL_ID)).rejects.toMatchObject({
+      name: 'BankMatchTargetError', code: 'LINE_REVERSED',
+    });
+    expect(vi.mocked(sql)).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(sql).mock.calls.some((_, i) => /UPDATE bank_transactions/.test(sqlTextOf(i)))).toBe(false);
+  });
+});
+

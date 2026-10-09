@@ -52,6 +52,7 @@ const GATED: Record<string, string> = {
   [`${A}bank/bankReconciliationService.ts`]: 'recon adjustment: a person names the contra and amount — refused up front (Hein H1)',
   [`${A}bank/bankAllocationService.ts`]: 'bank line to an account: evidenced lines exempt (D2); a hand-keyed one refused up front (Hein H2)',
   [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
+  [`${A}bank/bankTransferService.ts`]: 'bank transfer: a person composes it with no bank line as evidence — refused up front (Hein H2 round 4: a transfer to a bank-subtype account is a manual journal)',
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
   'src/lib/mcp/tools/writeOpeningBalance.ts': 'MCP opening balance: refused outright under enforcement — a person enters them (Hein, round 4)',
   [`${A}capture/provisionalPostingService.ts`]: 'provisional posting of a bank outflow: evidenced lines exempt (D2); a hand-keyed one skipped (Hein H2, round 5)',
@@ -93,7 +94,7 @@ describe('the callers of postJournalEntry', () => {
     const callers = filesMatching(/(?<!function )\bpostJournalEntry\(/);
     expect(callers).toEqual(Object.keys({ ...GATED, ...EXEMPT }).sort());
     const calls = SOURCES.reduce((n, s) => n + count(s.text, /(?<!function )\bpostJournalEntry\(/g), 0);
-    expect(calls).toBe(46);
+    expect(calls).toBe(47);
   });
 
   it('every gated path consults the gate before it posts', () => {
@@ -125,9 +126,8 @@ describe('the callers of postJournalEntry', () => {
 });
 
 describe('the other journal writers', () => {
-  it('only these insert a journal header directly (bank-transfers posts raw: not in decision 2, follow-up for Hein)', () => {
+  it('only these insert a journal header directly (bank-transfers now posts through createJournalEntry)', () => {
     expect(filesMatching(/INSERT INTO gl_journal_entries/)).toEqual([
-      'pages/api/accounting/bank-transfers.ts',
       `${A}gl/assetDepreciationPosting.ts`,
       `${A}gl/journalEntryCrudService.ts`,
       `${A}gl/yearEndJournalPoster.ts`,

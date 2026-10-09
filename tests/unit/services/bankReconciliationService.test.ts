@@ -401,7 +401,7 @@ describe('matchTransaction', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({ status: 'matched', matched_journal_line_id: JL_ID }),
@@ -425,7 +425,7 @@ describe('matchTransaction', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
@@ -453,7 +453,7 @@ describe('matchTransaction', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
     vi.mocked(sql).mockResolvedValueOnce([
       makeTxRow({
@@ -544,7 +544,7 @@ describe('autoMatchTransactions', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
     // matchTransaction UPDATE — called because confidence >= 0.9
     vi.mocked(sql).mockResolvedValueOnce([
@@ -587,7 +587,7 @@ describe('autoMatchTransactions', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ id: JL_ID }] as never);
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // the line's journal entry: not reversed
     vi.mocked(sql).mockResolvedValueOnce([] as never);
-    vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: its chain root (none -> the journal itself)
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never); // D10: chain root (its own)
     vi.mocked(sql).mockResolvedValueOnce([] as never);   // D10: no provisional's own line holds that bank leg
     // matchTransaction UPDATE
     vi.mocked(sql).mockResolvedValueOnce([

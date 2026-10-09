@@ -7,13 +7,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle } from 'lucide-react';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 
+/** The chart-of-accounts GET answers its accounts camelCased, as a plain array. */
 interface BankAccount {
   id: string;
-  account_code: string;
-  account_name: string;
+  accountCode: string;
+  accountName: string;
+  accountSubtype?: string;
 }
 
 export default function BankTransfersPage() {
@@ -24,18 +27,22 @@ export default function BankTransfersPage() {
   const [reference, setReference] = useState('');
   const [transferDate, setTransferDate] = useState(localISODate());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 428 from the route: the statement may already hold this transfer; posting again needs the person's confirmation.
+  const [needsConfirm, setNeedsConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   const loadBankAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?subtype=bank');
+      // Every bank spelling the transfer route accepts (isBankSubtype: 'bank', 'bank_account', …), not only 'bank'.
+      const res = await apiFetch('/api/accounting/chart-of-accounts');
       await assertOk(res, 'Could not load bank accounts - try again');
       const json = await res.json();
-      const data = json.data || json;
-      setBankAccounts(data.accounts || []);
+      const accounts: BankAccount[] = Array.isArray(json.data) ? json.data : [];
+      setBankAccounts(accounts.filter(a => isBankSubtype(a.accountSubtype)));
     } catch (err) {
+      setBankAccounts([]);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not load bank accounts - try again') });
     } finally {
       setIsLoading(false);
@@ -43,13 +50,17 @@ export default function BankTransfersPage() {
   }, []);
 
   useEffect(() => { void loadBankAccounts(); }, [loadBankAccounts]);
+  // The confirmation covers the transfer the person was warned about, not an edited one (brk-nrfa round 4 LOW-2); the
+  // fields are disabled while a POST is pending, so no edit lands under the answer to the earlier body (round 5 F2).
+  useEffect(() => { setNeedsConfirm(false); }, [fromAccount, toAccount, amount, transferDate]);
 
-  const handleTransfer = async () => {
+  const handleTransfer = async (confirmDuplicate = false) => {
     if (!fromAccount || !toAccount || !amount || fromAccount === toAccount) {
       setMessage({ type: 'error', text: 'Please fill all fields and select different accounts' });
       return;
     }
     setIsSubmitting(true);
+    setNeedsConfirm(false);
     setMessage({ type: '', text: '' });
     try {
       const res = await apiFetch('/api/accounting/bank-transfers', {
@@ -61,6 +72,7 @@ export default function BankTransfersPage() {
           amount: parseFloat(amount),
           reference,
           transferDate,
+          ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
         }),
       });
       await assertOk(res, 'Could not record the transfer - try again');
@@ -68,6 +80,7 @@ export default function BankTransfersPage() {
       setAmount('');
       setReference('');
     } catch (err) {
+      setNeedsConfirm(err instanceof ApiRequestError && err.status === 428);
       setMessage({ type: 'error', text: apiErrorMessage(err, 'Could not record the transfer - try again') });
     } finally {
       setIsSubmitting(false);
@@ -105,12 +118,13 @@ export default function BankTransfersPage() {
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">From Account</label>
                   <select
                     value={fromAccount}
+                    disabled={isSubmitting}
                     onChange={(e) => setFromAccount(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
                     <option value="">Select source account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>
@@ -123,12 +137,13 @@ export default function BankTransfersPage() {
                   <label className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">To Account</label>
                   <select
                     value={toAccount}
+                    disabled={isSubmitting}
                     onChange={(e) => setToAccount(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                   >
                     <option value="">Select destination account...</option>
                     {bankAccounts.map(a => (
-                      <option key={a.id} value={a.id}>{a.account_code} — {a.account_name}</option>
+                      <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>
                     ))}
                   </select>
                 </div>
@@ -141,6 +156,7 @@ export default function BankTransfersPage() {
                       step="0.01"
                       min="0"
                       value={amount}
+                      disabled={isSubmitting}
                       onChange={(e) => setAmount(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                       placeholder="0.00"
@@ -151,6 +167,7 @@ export default function BankTransfersPage() {
                     <input
                       type="date"
                       value={transferDate}
+                      disabled={isSubmitting}
                       onChange={(e) => setTransferDate(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                     />
@@ -162,6 +179,7 @@ export default function BankTransfersPage() {
                   <input
                     type="text"
                     value={reference}
+                    disabled={isSubmitting}
                     onChange={(e) => setReference(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)]"
                     placeholder="e.g. Inter-account transfer"
@@ -177,8 +195,18 @@ export default function BankTransfersPage() {
                   </div>
                 )}
 
+                {needsConfirm && (
+                  <button
+                    onClick={() => { void handleTransfer(true); }}
+                    disabled={isSubmitting}
+                    className="w-full px-4 py-2.5 border border-amber-500/60 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 rounded-lg text-sm font-medium"
+                  >
+                    It is a separate transfer — post it anyway
+                  </button>
+                )}
+
                 <button
-                  onClick={handleTransfer}
+                  onClick={() => { void handleTransfer(); }}
                   disabled={isSubmitting}
                   className="w-full px-4 py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 text-sm font-medium"
                 >

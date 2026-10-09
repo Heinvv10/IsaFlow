@@ -41,7 +41,7 @@ export interface BankMatchRefusal {
 /**
  * The 4xx answer for a pre-write refusal, or `null` when the throw is not one.
  */
-export function classifyBankMatchRefusal(err: unknown): BankMatchRefusal | null {
+export function classifyBankMatchRefusal(err: unknown, candidateType?: string): BankMatchRefusal | null {
   const message = err instanceof Error ? err.message : '';
 
   // CONTENTION first, and 409 — the status this codebase gives "a peer holds
@@ -79,6 +79,16 @@ export function classifyBankMatchRefusal(err: unknown): BankMatchRefusal | null 
   // the same one deliberately — so a route cannot answer one side correctly and
   // forget the other.
   if (isSupplierRefundRefusal(err)) return { status: 400, message, contended: false };
+
+  // The match-only arms (`journal_line`, `bank_transfer`): `matchTransaction` is their first write, so its target
+  // refusal — a reversed journal, a claimed or missing line — is decided before anything is written (brk-nrfa round
+  // 21 L1; it answered 500). A claimed line is a 409 like any line another request holds. Structural check, like
+  // `isSupplierRefundRefusal`: `BankMatchTargetError` lives in bankTxStatusMutations, a heavy import for this list.
+  const target = err as { name?: unknown; code?: unknown };
+  if (err instanceof Error && target.name === 'BankMatchTargetError'
+    && (candidateType === 'journal_line' || candidateType === 'bank_transfer')) {
+    return { status: target.code === 'LINE_CLAIMED' ? 409 : 400, message, contended: false };
+  }
 
   return null;
 }

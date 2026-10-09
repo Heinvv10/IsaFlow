@@ -1,9 +1,7 @@
-import { sql, withTransaction } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 /**
  * Bank Transfers API
- * POST /api/accounting/bank-transfers - Transfer between bank accounts
- * Creates a balanced journal entry: DR destination bank, CR source bank
+ * POST /api/accounting/bank-transfers - Transfer between two of the company's bank accounts
+ * Posts one journal through the journal funnel (bank/bankTransferService): DR destination bank, CR source bank.
  * Sage equivalent: Banking > Transfers
  */
 
@@ -11,28 +9,41 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { fmtDate } from '@/lib/fmtDate';
 import { UUID } from '@/lib/schemas/common';
 import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWindow';
 import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
+import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
+import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import {
+  BankTransferRefusedError, PossibleDuplicateTransferError, postBankTransfer,
+} from '@/modules/accounting/services/bank/bankTransferService';
+import { ErrorCode } from '@/lib/apiResponse.types';
 import { log } from '@/lib/logger';
-import { assertJournalVatPeriodOpen, VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+
+/** gl_journal_lines.debit / credit are numeric(15,2). */
+const MAX_AMOUNT = 9_999_999_999_999.99;
 
 const TransferSchema = z.object({
   fromAccountId: UUID,
   toAccountId: UUID,
-  amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(n => Number.isFinite(n) && n > 0, {
-    message: 'Transfer amount must be a positive number',
-  }),
+  amount: z.union([z.number(), z.string()]).transform(v => Number(v)).refine(
+    n => Number.isFinite(n) && n > 0 && n <= MAX_AMOUNT && Math.round(n * 100) / 100 === n, {
+      message: 'Transfer amount must be a positive amount in rand and cents',
+    }),
   reference: z.string().max(500).optional(),
   transferDate: z.string().max(30).optional(),
+  confirmDuplicate: z.boolean().optional(),
 }).refine(v => v.fromAccountId !== v.toAccountId, {
   message: 'Source and destination accounts must be different',
   path: ['toAccountId'],
 });
-
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -45,100 +56,43 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!parsed.success) {
     return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   }
-  const { fromAccountId, toAccountId, amount, reference, transferDate: rawDate } = parsed.data;
-  // sec-numrace S4: this route INSERTs its journal itself, not via createJournalEntry. The day Postgres stores
-  // (gl/journalDateGuard) must be a ledger date (422); empty still means today, as before.
-  const day = rawDate ? (await ledgerDaysOf([rawDate])).get(rawDate) ?? null : null;
-  const windowError = day === null ? null : journalDayWindowError(day);
+  const { fromAccountId, toAccountId, amount, reference, transferDate: rawDate, confirmDuplicate } = parsed.data;
+  // The day Postgres stores (gl/journalDateGuard) must be a ledger date: 422 before anything runs. Empty means today.
+  const day = rawDate ? (await ledgerDaysOf([rawDate])).get(rawDate) ?? null : fmtDate(new Date());
+  if (day === null) return apiResponse.validationError(res, { transferDate: ['transferDate must be a real date (YYYY-MM-DD)'] });
+  const windowError = journalDayWindowError(day);
   if (windowError) return apiResponse.validationError(res, { transferDate: [windowError] });
-  const transferDate = day ?? rawDate;
 
   try {
-    // Verify both accounts exist and are bank accounts
-    const accounts = await sql`
-      SELECT id, account_code, account_name, account_subtype
-      FROM gl_accounts
-      WHERE id IN (${fromAccountId}, ${toAccountId}) AND company_id = ${companyId}
-    `;
+    // In a savepoint: a refusal raised after the draft exists (closed period, inactive account) rolls it back.
+    const done = await withJournalDateRefusal(res, () => postBankTransfer(companyId, {
+      fromAccountId, toAccountId, amount, transferDate: day, reference, confirmDuplicate,
+    }, userId));
+    if (done === JOURNAL_DATE_REFUSED) return;
 
-    if (accounts.length !== 2) {
-      return apiResponse.badRequest(res, 'One or both accounts not found');
-    }
-
-    const fromAcct = accounts.find(a => a.id === fromAccountId);
-    const toAcct = accounts.find(a => a.id === toAccountId);
-
-    // Create journal entry + lines atomically
-    const entryRef = reference || `Transfer: ${fromAcct?.account_name} → ${toAcct?.account_name}`;
-    const txDate = transferDate || fmtDate(new Date());
-
-    // Period must COVER the transfer date (P2.2): "most recent open period"
-    // misfiled back/post-dated transfers into the wrong period.
-    const [period] = await sql`
-      SELECT id FROM fiscal_periods
-      WHERE company_id = ${companyId}
-        AND ${txDate}::DATE BETWEEN start_date AND end_date
-      ORDER BY start_date
-      LIMIT 1
-    `;
-
-    const entry = await withTransaction(async (tx) => {  
-      // This route INSERTs straight at status='posted', so it never meets
-      // postJournalEntry. Neither account is required to be a bank account, so
-      // a transfer onto a VAT control account inside a filed VAT period is
-      // refused like any other post that moves a VAT figure — on `tx`, the
-      // connection that posts, so the shared advisory key is held by it.
-      await assertJournalVatPeriodOpen(
-        companyId, txDate, [{ glAccountId: toAccountId }, { glAccountId: fromAccountId }], tx);
-
-      const entryRows = await tx`
-        INSERT INTO gl_journal_entries (
-          id, entry_number, entry_date, description,
-          source, status, fiscal_period_id,
-          total_debit, total_credit,
-          created_by, created_at, company_id
-        ) VALUES (
-          gen_random_uuid(),
-          'TXF-' || LPAD((SELECT COALESCE(MAX(CAST(SUBSTRING(entry_number FROM 5) AS INTEGER)), 0) + 1 FROM gl_journal_entries WHERE entry_number LIKE 'TXF-%' AND company_id = ${companyId})::text, 4, '0'),
-          ${txDate}, ${entryRef},
-          'bank_transfer', 'posted', ${period?.id || null},
-          ${Number(amount)}, ${Number(amount)},
-          ${userId}, NOW(), ${companyId}
-        )
-        RETURNING *
-      `;
-      const newEntry = entryRows[0] as { id: string } | undefined;
-      if (!newEntry) throw new Error('Failed to create journal entry');
-
-      // Create journal lines within same transaction: DR destination, CR source
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES
-          (gen_random_uuid(), ${newEntry.id}, ${toAccountId}, ${Number(amount)}, 0, ${`Transfer from ${fromAcct?.account_name}`}, NOW(), ${companyId}::UUID),
-          (gen_random_uuid(), ${newEntry.id}, ${fromAccountId}, 0, ${Number(amount)}, ${`Transfer to ${toAcct?.account_name}`}, NOW(), ${companyId}::UUID)
-      `;
-      return newEntry;
+    log.info('Bank transfer posted', {
+      entryId: done.entry.id, entryNumber: done.entry.entryNumber, amount, module: 'accounting',
     });
-
-    log.info('Bank transfer completed', {
-      entryId: entry.id,
-      from: fromAcct?.account_code,
-      to: toAcct?.account_code,
-      amount,
-      module: 'accounting',
-    });
-
     return apiResponse.success(res, {
-      journalEntry: entry,
-      message: `Transferred R${Number(amount).toFixed(2)} from ${fromAcct?.account_name} to ${toAcct?.account_name}`,
+      journalEntry: done.entry,
+      message: `Transferred R${amount.toFixed(2)} from ${done.fromName} to ${done.toName}`,
     });
   } catch (err) {
+    if (respondIfImpersonationForbidden(res, err)) return; // R-032 L5: 403, raised before any read
+    if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     if (respondIfLockTimeout(res, err)) return;
-    if (err instanceof VatPeriodLockedError) return apiResponse.badRequest(res, err.message);
+    // 428: resend with confirmDuplicate once the person confirms it is a separate transfer.
+    if (err instanceof PossibleDuplicateTransferError) {
+      return apiResponse.error(res, ErrorCode.PRECONDITION_REQUIRED, err.message, { existingEntry: err.existingEntryNumber });
+    }
+    if (err instanceof BankTransferRefusedError || err instanceof ClosedFiscalPeriodError
+      || err instanceof InactiveAccountError || err instanceof VatPeriodLockedError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    // Anything else is the server's: the 500 rolls the request back.
     log.error('Failed to process bank transfer', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process bank transfer');
   }
 }
 
- 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

@@ -91,7 +91,9 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
    * converted.
    *
    *   'opening_balance' — pages/api/accounting/opening-balances.ts
-   *   'bank_transfer'   — pages/api/accounting/bank-transfers.ts
+   *   'bank_transfer'   — had pages/api/accounting/bank-transfers.ts; converted
+   *                       2026-10-08 (createJournalEntry, source auto_bank_transfer),
+   *                       so 'bank_transfer' now has no writer and stays out
    *
    * Each still INSERTs its header straight to status='posted' without
    * validateJournalEntry, and trg_gl_je_balanced is BEFORE UPDATE only, so

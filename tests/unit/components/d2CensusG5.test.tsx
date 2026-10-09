@@ -35,7 +35,7 @@ const cases: Case[] = [
       email_error: null, response_action: null, response_received_at: null, response_note: null, message_token: 't' }] },
     shows: 'D2 Dunned Customer' },
   { name: 'bank transfers', Page: BankTransfersPage, url: 'chart-of-accounts', plain: /Could not load bank accounts/,
-    data: { accounts: [{ id: 'a1', account_code: '1100', account_name: 'D2 Transfer Bank' }] }, shows: 'D2 Transfer Bank' },
+    data: [{ id: 'a1', accountCode: '1100', accountName: 'D2 Transfer Bank', accountSubtype: 'bank' }], shows: 'D2 Transfer Bank' },
   { name: 'credit notes', Page: CreditNotesPage, url: 'credit-notes', plain: /Could not load credit notes/,
     data: { creditNotes: [{ id: 'c1', creditNoteNumber: 'CN-D2-555', type: 'customer', clientName: 'x', creditDate: '2026-01-01', totalAmount: 10, status: 'draft' }], total: 1 },
     shows: 'CN-D2-555' },
