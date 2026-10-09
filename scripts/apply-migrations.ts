@@ -11,27 +11,23 @@
  *
  * Uses pg_advisory_lock(73014132) to prevent concurrent runners.
  */
-import { createHash } from 'crypto';
-import { readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
 import pg from 'pg';
 import { makeNoticeListener } from './migrationNoticeListener';
+import {
+  applyOne,
+  computeChecksum,
+  loadMigrationFiles,
+  parseVersionFromFilename,
+  toDirectUrl,
+  type MigrationFile,
+  type TrackingRow,
+} from './lib/migrationFiles';
+
+// Re-exported: tests and callers import these from the runner.
+export { computeChecksum, parseVersionFromFilename };
+export type { MigrationFile, TrackingRow };
 
 const ADVISORY_LOCK_KEY = 73014132;
-const MIGRATIONS_DIR = join(process.cwd(), 'scripts', 'migrations', 'sql');
-
-export interface MigrationFile {
-  version: string;
-  name: string;
-  content: string;
-  checksum: string;
-}
-
-export interface TrackingRow {
-  version: string;
-  name: string;
-  checksum: string | null;
-}
 
 export interface ApplyPlan {
   toApply: MigrationFile[];
@@ -39,19 +35,6 @@ export interface ApplyPlan {
   /** Rows already applied but with null checksum (legacy tracking) — safe to record checksum. */
   checksumBackfills: MigrationFile[];
   conflicts: Array<{ version: string; name: string; fileChecksum: string; dbChecksum: string | null }>;
-}
-
-export function parseVersionFromFilename(filename: string): string {
-  // Accept digits optionally followed by a single lowercase letter (e.g. "244b_...").
-  const match = /^(\d+[a-z]?)_/.exec(filename);
-  if (!match) {
-    throw new Error(`Migration filename missing numeric prefix: ${filename}`);
-  }
-  return match[1]!;
-}
-
-export function computeChecksum(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
 }
 
 export function planApply(files: MigrationFile[], applied: TrackingRow[]): ApplyPlan {
@@ -97,42 +80,11 @@ export function planApply(files: MigrationFile[], applied: TrackingRow[]): Apply
   return { toApply, skipped, checksumBackfills, conflicts };
 }
 
-function loadMigrationFiles(): MigrationFile[] {
-  const entries = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  return entries.map((name) => {
-    const content = readFileSync(join(MIGRATIONS_DIR, name), 'utf8');
-    return {
-      version: parseVersionFromFilename(name),
-      name,
-      content,
-      checksum: computeChecksum(content),
-    };
-  });
-}
-
 async function fetchApplied(client: pg.PoolClient): Promise<TrackingRow[]> {
   const res = await client.query<TrackingRow>(
     'SELECT version, name, checksum FROM schema_migrations'
   );
   return res.rows;
-}
-
-async function applyOne(client: pg.PoolClient, file: MigrationFile): Promise<void> {
-  await client.query('BEGIN');
-  try {
-    await client.query(file.content);
-    await client.query(
-      `INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)
-         ON CONFLICT (name) DO UPDATE SET version = EXCLUDED.version, checksum = EXCLUDED.checksum, applied_at = now()`,
-      [file.version, file.name, file.checksum]
-    );
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  }
 }
 
 async function backfillOne(client: pg.PoolClient, file: MigrationFile): Promise<void> {
@@ -154,10 +106,7 @@ async function main(): Promise<void> {
   }
 
   // Strip Neon pooler + channel_binding for stable session connection (mirrors src/lib/neon.ts getDirectUrl).
-  const directUrl = url
-    .replace('-pooler.', '.')
-    .replace('&channel_binding=require', '')
-    .replace('?channel_binding=require', '?');
+  const directUrl = toDirectUrl(url);
 
   const pool = new pg.Pool({
     connectionString: directUrl,
