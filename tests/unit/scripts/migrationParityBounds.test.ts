@@ -36,11 +36,59 @@ describe('HISTORIC_PROD_ORPHANS is exactly the pinned 13', () => {
   );
 });
 
+// The 45 names measured read-only on dev vs prod on 2026-10-09, written out literally.
+const DEV_UNTRACKED = [
+  '524_redate_remaining_batch_dated_journals.sql',
+  '525_dedupe_system_account_subtypes.sql',
+  '526_gl_je_source_record_id.sql',
+  '527_practice_taxonomy_unique_names.sql',
+  '528_credit_note_cancellation_columns.sql',
+  '529_credit_note_applied_amount.sql',
+  '530_external_ref_and_actor_identity.sql',
+  '531_credit_note_actor_and_lock_notes.sql',
+  '532_company_relationships_audit.sql',
+  '533_afs_statement_line_totals.sql',
+  '535_credit_note_invoice_indexes.sql',
+  '540_payment_method_contra.sql',
+  '570_vat_period_locks.sql',
+  '580_document_link_lookup_index.sql',
+  '581_acting_company_on_writes.sql',
+  '605_seed_missing_system_account_roles.sql',
+  '606_backfill_system_account_roles.sql',
+  '607_fix_near_miss_system_account_roles.sql',
+  '608_backfill_income_statement_subtypes.sql',
+  '609_seed_chart_income_statement_header_subtypes.sql',
+  '615_ap_payment_document_backfill.sql',
+  '616_capture_email_address_identity.sql',
+  '617_capture_whatsapp_destination_identity.sql',
+  '618_capture_whatsapp_provider_proof.sql',
+  '619_gl_journal_entry_single_reversal.sql',
+  '620_customer_payments_card_reference_unique.sql',
+  '623_gl_je_reversal_of_index.sql',
+  '624_subscription_charges_subscription_id.sql',
+  '625_supplier_invoice_duplicate_fingerprint_lookup.sql',
+  '627_gl_je_source_year_end.sql',
+  '644_loan_gl_postings_period_once.sql',
+  '645_loan_reclass_postings.sql',
+  '646_supplier_invoice_number_unique.sql',
+  '647_approval_rules_condition_operator_check.sql',
+  '648_invite_company_name_security_definer.sql',
+  '649_cost_centre_delete_restrict.sql',
+  '659_loan_reclass_postings_backfill_rebuild.sql',
+  '660_cost_centre_parent_delete_restrict.sql',
+  '662_invite_token_encoding_retire_stale.sql',
+  '663_invite_company_name_definer_hardening.sql',
+  '664_gl_journal_lines_account_company_fk.sql',
+  '666_customer_quote_number_unique.sql',
+  '692_invoice_total_non_negative_guard.sql',
+  '694_sage_customer_invoice_link.sql',
+  '719_bank_reconciliation_reopen.sql',
+];
+
 describe('HISTORIC_DEV_UNTRACKED is a bounded, pinned list', () => {
-  it('has the 45 names measured on 2026-10-09', () => {
-    expect(HISTORIC_DEV_UNTRACKED.size).toBe(45);
-    expect(HISTORIC_DEV_UNTRACKED.has('524_redate_remaining_batch_dated_journals.sql')).toBe(true);
-    expect(HISTORIC_DEV_UNTRACKED.has('719_bank_reconciliation_reopen.sql')).toBe(true);
+  it('is exactly the 45 pinned names', () => {
+    expect(DEV_UNTRACKED).toHaveLength(45);
+    expect([...HISTORIC_DEV_UNTRACKED].sort()).toEqual([...DEV_UNTRACKED].sort());
   });
 
   it('ignores a listed name and reports it', () => {
@@ -107,7 +155,33 @@ describe('hasOwnCommit', () => {
     ['-- COMMIT; in a comment\nSELECT 1;', false],
     ['CREATE TABLE commit_log(id int);', false],
     ['SELECT 1;', false],
+    ['CREATE TABLE a();\nEND;', true],
+    ['COMMIT TRANSACTION;', true],
+    ['COMMIT AND CHAIN;', true],
+    ['CREATE TABLE a();\nCOMMIT', true],
+    ['CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql;', false],
+    ['SELECT CASE WHEN true THEN 1 END;', false],
   ])('%j -> %s', (sql, expected) => {
     expect(hasOwnCommit(sql)).toBe(expected);
+  });
+});
+
+describe('PENDING_VERSION_TAKEN', () => {
+  it('fails when a pending file reuses the prefix of a prod-tracked file, before any dev write', () => {
+    const onProd = file('872_taken.sql');
+    const mine = file('872_other.sql');
+    const r = run([onProd, mine], [row(onProd)], [row(onProd)], true);
+    expect(r.findings.filter((f) => f.severity === 'FAIL').map((f) => `${f.rule}:${f.name}`)).toEqual(['PENDING_VERSION_TAKEN:872_other.sql']);
+    expect(r.ok).toBe(false);
+  });
+
+  it('treats 872 and 872b as different prefixes', () => {
+    const onProd = file('872b_taken.sql');
+    expect(run([onProd, file('872_x.sql')], [row(onProd)], [row(onProd)]).findings.map((f) => f.rule)).not.toContain('PENDING_VERSION_TAKEN');
+  });
+
+  it('does not fire for a pending file with a fresh prefix (only DEV_MISSING)', () => {
+    const onProd = file('872_taken.sql');
+    expect(run([onProd, file('873_new.sql')], [row(onProd)], [row(onProd)]).findings.map((f) => f.rule)).toEqual(['DEV_MISSING']);
   });
 });

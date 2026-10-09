@@ -24,7 +24,8 @@ export type ParityRule =
   | 'DEV_CHECKSUM'
   | 'DEV_MISSING'
   | 'DEV_MISSING_APPLIED_ON_PROD'
-  | 'DUPLICATE_PENDING_VERSION';
+  | 'DUPLICATE_PENDING_VERSION'
+  | 'PENDING_VERSION_TAKEN';
 
 export interface ParityFinding {
   rule: ParityRule;
@@ -135,8 +136,11 @@ export const HISTORIC_DEV_UNTRACKED: ReadonlySet<string> = new Set([
 
 /** True when a migration issues its own COMMIT, so a failure after it cannot be rolled back atomically. */
 export function hasOwnCommit(sql: string): boolean {
-  const withoutComments = sql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
-  return /(^|;)\s*COMMIT\s*;/i.test(withoutComments);
+  const stripped = sql
+    .replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, '') // function / DO bodies cannot end the outer transaction
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/--[^\n]*/g, '');
+  return /(^|;)\s*(COMMIT|END)(\s+(WORK|TRANSACTION))?(\s+AND\s+(NO\s+)?CHAIN)?\s*(;|$)/i.test(stripped);
 }
 
 const DIR = 'scripts/migrations/sql';
@@ -237,6 +241,18 @@ export function classifyMigrationParity(
         fixes: [`git mv ${DIR}/${f.name} ${DIR}/<next unused prefix>_<name>.sql`],
       });
     }
+  }
+
+  const prodVersions = new Set(prodRows.map((r) => /^(\d+[a-z]?)_/.exec(r.name)?.[1]).filter((v): v is string => !!v));
+  for (const f of files) {
+    if (prod.has(f.name) || !prodVersions.has(f.version)) continue;
+    findings.push({
+      rule: 'PENDING_VERSION_TAKEN',
+      name: f.name,
+      severity: 'FAIL',
+      detail: `version prefix ${f.version} is already used by a migration tracked on prod (two branches claimed one prefix); rename to the next unused prefix`,
+      fixes: [`git mv ${DIR}/${f.name} ${DIR}/<next unused prefix>_<name>.sql`],
+    });
   }
 
   const severity = opts.applyDev ? 'FIX' : 'FAIL';
