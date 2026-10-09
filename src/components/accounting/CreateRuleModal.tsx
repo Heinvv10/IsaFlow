@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { X, BookmarkPlus, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { isHeldForApproval, notifyHeld } from './bank-rules/applyToast';
 import type { BankTx, SelectOption } from './BankTxTable';
 import { EntityPicker } from './EntityPicker';
 import { VatTreatmentField, AllocTypeField } from './RuleModalFields';
@@ -102,6 +103,11 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
       await assertOk(res, 'Could not create the rule - try again');
       const json = await res.json();
       if (json.success === false) throw new ApiEnvelopeError(json.error?.message || 'Could not create the rule - try again');
+      if (isHeldForApproval(json.data)) {
+        notifyHeld('The new auto-posting rule');
+        onCreated();
+        return;
+      }
       const rawApplied = (json as { data?: { applied?: unknown } }).data?.applied;
       const applied = typeof rawApplied === 'number' && Number.isFinite(rawApplied) ? rawApplied : 0;
       const verb = autoCreateEntry ? 'allocated' : 'matched';

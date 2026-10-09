@@ -52,7 +52,7 @@ const GATED: Record<string, string> = {
   [`${A}bank/bankReconciliationService.ts`]: 'recon adjustment: a person names the contra and amount — refused up front (Hein H1)',
   [`${A}bank/bankAllocationService.ts`]: 'bank line to an account: evidenced lines exempt (D2); a hand-keyed one refused up front (Hein H2)',
   [`${A}capture/pettyCashJournalService.ts`]: 'petty-cash capture autoPost: held as draft + request, like receipt-to-journal (Hein)',
-  [`${A}bank/bankTransferService.ts`]: 'bank transfer: a person composes it with no bank line as evidence — refused up front (Hein H2 round 4: a transfer to a bank-subtype account is a manual journal)',
+  [`${A}bank/bankTransferService.ts`]: 'bank transfer: a person composes it with no bank line as evidence (Hein H2 round 4) — held as a marked draft + request raised as the person (Hein, step-2 decision 6), posted only when the gate does not hold it',
   [`${A}bank/bankRuleAutoPostLine.ts`]: 'bank-rule sweep: evidenced lines exempt (decision 2); a hand-keyed line to an account skipped (Hein H2, round 4)',
   'src/lib/mcp/tools/writeOpeningBalance.ts': 'MCP opening balance: refused outright under enforcement — a person enters them (Hein, round 4)',
   [`${A}capture/provisionalPostingService.ts`]: 'provisional posting of a bank outflow: evidenced lines exempt (D2); a hand-keyed one skipped (Hein H2, round 5)',
@@ -114,6 +114,12 @@ describe('the callers of postJournalEntry', () => {
     before(`${A}gl/reclassification/post.ts`, 'markManualJournal(', 'postJournalEntry(');
     before(`${A}gl/closeRun/closeRunService.ts`, 'gateManualJournalPost(', 'updateProposalOutcome(companyId, proposal.id');
     before(`${A}bank/bankReconciliationService.ts`, 'newManualJournalRefusal(', 'createJournalEntry(');
+    // Transfers (Hein, step-2 decision 6): decided before the draft is written; held, it is marked and its request
+    // raised, and only an unheld one is posted.
+    before(`${A}bank/bankTransferService.ts`, 'newManualJournalGate(', 'createJournalEntry(');
+    before(`${A}bank/bankTransferService.ts`, 'if (!gate.held) {', 'postJournalEntry(');
+    before(`${A}bank/bankTransferService.ts`, 'markManualJournal(', 'requestApproval(');
+    expect(textOf(`${A}bank/bankTransferService.ts`)).not.toMatch(/newManualJournalRefusal\(/);
     before(`${A}bank/bankAllocationService.ts`, "if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(", 'createJournalEntry(');
     before(`${A}capture/provisionalPostingService.ts`, "if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');
     before(`${A}bank/bankRuleAutoPostLine.ts`, "if (allocType === 'account' && !isBankEvidenced(locked) && await handKeyedLineJournalRefusal(", 'createJournalEntry(');

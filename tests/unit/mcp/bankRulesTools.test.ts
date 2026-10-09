@@ -252,6 +252,8 @@ describe('update_bank_rule', () => {
 });
 
 describe('disable_bank_rule', () => {
+  beforeEach(() => { vi.mocked(toggleRule).mockResolvedValue({ status: 'applied' } as never); });
+
   it('disables by default and reports the new state', async () => {
     vi.mocked(getRules).mockResolvedValue([rule({ id: R1, isActive: true })]);
     const r = parseOk(await disableBankRuleTool.handler({ rule_id: R1, ...KEY }, ctx()));
