@@ -273,3 +273,13 @@ export async function findHandOffset(companyId: string, postingJeId: string, tx:
   const hit = await offsetCandidate(companyId, postingJeId, tx);
   return hit ? toHandOffset(companyId, postingJeId, tx, hit) : null;
 }
+
+/**
+ * The journal a person already offset this row's posting with (R-079), or
+ * null: the undo refuses such a row rather than reverse it on top of their
+ * correction.
+ */
+export async function handOffsetOf(companyId: string, tx: DbRow): Promise<HandOffset | null> {
+  const jeId = await postingJournalOf(companyId, tx);
+  return jeId ? findHandOffset(companyId, jeId, tx) : null;
+}

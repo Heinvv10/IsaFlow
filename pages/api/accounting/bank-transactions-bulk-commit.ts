@@ -59,7 +59,7 @@ import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql, withSavepoint } from '@/lib/neon';
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
-import { statementFileSha256 } from '@/modules/accounting/services/bank/importProvenance';
+import { uploadProvenance } from '@/modules/accounting/services/bank/importProvenance';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
@@ -275,9 +275,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       statementDate,
       {
         sourceFilename: filename,
-        importedBy: authReq.user?.id,
-        importChannel: 'upload',
-        fileSha256: statementFileSha256({ pdfBase64, csvContent }), // the uploaded bytes (step 2 provenance)
+        ...uploadProvenance(authReq.user?.id, { pdfBase64, csvContent }), // who, channel upload, the uploaded bytes' hash
         bulkContext: {
           bulkImportId,
           bulkSequence: bulkSequence as number,

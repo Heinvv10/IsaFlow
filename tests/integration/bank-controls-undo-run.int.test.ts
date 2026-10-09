@@ -5,15 +5,18 @@
  * not undo it — 403 ALLOCATOR_MAY_NOT_REVERSE, nothing written — another
  * member does, audited; the sole approver undoes their own; an import's run
  * (the zero uuid, the system user) is nobody's, so even its importer undoes
- * it; an agent or a job is refused; enforcement off undoes as before.
+ * it; an agent or a job is refused; enforcement off undoes as before. The
+ * "not the correction — undo anyway" decision (undoAnyway) is judged the same.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import bankAutoPost from '../../pages/api/accounting/bank-auto-post';
 import bulkCommit from '../../pages/api/accounting/bank-transactions-bulk-commit';
 import { undoRun } from '../../src/modules/accounting/services/bank/autoPostUndoService';
+import { undoAnyway } from '../../src/modules/accounting/services/bank/autoPostHandCorrection';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
+import { plantJournal } from './r035-pr6.helpers';
 import {
   actionRoute, asToken, bankCompany, cleanupBankControlsA, enforce, lineStatus, plantBatch, plantLine, refusalOf,
   type BankCompany,
@@ -107,3 +110,36 @@ describe("an import's run is the system user's", () => {
     expect((res.state.body as { data: { reversed: number } }).data.reversed).toBe(1);
   });
 });
+
+describe('undo anyway (a blocking journal declared unrelated) is judged at the run level too', () => {
+  /** The run plus a journal a person posted later, part-offsetting the posting's expense account, which blocks the plain undo. */
+  async function blocked() {
+    const r = await run();
+    const journal = await plantJournal(pool, r.f, b, { amount: 25 }); // DR expA / CR bank, then turned round: CR expA 25
+    await pool.query('UPDATE gl_journal_lines SET gl_account_id = $2 WHERE journal_entry_id = $1 AND gl_account_id = $3', [journal, r.f.bank2, r.f.bank]);
+    await pool.query('UPDATE gl_journal_lines SET debit = credit, credit = debit WHERE journal_entry_id = $1', [journal]);
+    await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = now() WHERE id = $1", [journal]);
+    return { ...r, journal };
+  }
+  const anyway = (user: string, r: Awaited<ReturnType<typeof blocked>>) => callRoute(bankAutoPost as never, tokens[user]!, r.f.c,
+    'POST', { action: 'undoAnyway', runId: r.runId, transactionId: r.line, offsetJournalId: r.journal }, '/api/accounting/bank-auto-post');
+  const decisions = async (c: string) => (await pool.query(
+    "SELECT count(*)::INT AS n FROM audit_log WHERE company_id = $1 AND changes->'metadata'->>'reason' = 'auto_post_offset_declared_unrelated'",
+    [c])).rows[0].n as number;
+
+  it('the run creator is refused 403 with nothing recorded; another member undoes it; an agent is refused', async () => {
+    const r = await blocked();
+    expect((await undo(b, r.f.c, r.runId)).state.body).toMatchObject({ data: { skippedBy: { offsetByHand: 1 } } }); // it does block
+    const refused = refusalOf(await anyway(a, r));
+    expect(refused).toMatchObject({ status: 403, reason: 'ALLOCATOR_MAY_NOT_REVERSE' });
+    expect([await lineStatus(pool, r.line), await decisions(r.f.c)]).toEqual(['allocated', 0]);
+    await expect(asToken(pool, b, r.f.c, () => undoAnyway(r.f.c, r.runId, r.line, r.journal, b)))
+      .rejects.toMatchObject({ code: 'AGENT_FORBIDDEN' });
+    const res = await anyway(b, r);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect((res.state.body as { data: { outcome: string } }).data.outcome).toBe('reversed');
+    expect([await lineStatus(pool, r.line), await decisions(r.f.c)]).toEqual(['imported', 1]);
+    expect((await audits(r.f.c)).map((x) => x.entity_type)).toEqual(['bank_auto_post_run', 'bank_transaction']);
+  });
+});
+

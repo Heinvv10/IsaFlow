@@ -37,7 +37,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
-import { assertImporterMayAllocate, importerArmOf } from './bankLineImporterGate';
+import { assertImporterMayAllocate, assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
@@ -150,9 +150,7 @@ export async function allocateTransaction(
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
-  // Step 2 (Hein, decision 2): under the arm's enforced type, the statement's importer may not allocate its line — 403.
-  const importerArm = importerArmOf(allocType, entityId, Number(tx.amount));
-  if (importerArm) await assertImporterMayAllocate(companyId, tx, userId, importerArm);
+  await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId); // step 2: not the statement's importer (403)
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -811,13 +809,9 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
-  // Step 2 (Hein, decision 4): under the arm's enforced type, no agent, and not the allocator (bar the sole approver);
-  // refused here, before any write — a permitted reversal is audited once it is done.
-  const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId);
-  if (chain?.doc) {
-    return auditedReversal(companyId, bankTxId, userId, clearance,
-      await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
-  }
+  const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId); // step 2: pre-write; audited after
+  if (chain?.doc) return auditedReversal(companyId, bankTxId, userId, clearance,
+    await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
   // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
   const journalEntryId = chain?.rootId ?? null;
