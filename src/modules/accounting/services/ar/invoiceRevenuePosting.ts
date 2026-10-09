@@ -5,7 +5,6 @@
  * allocates.
  */
 import { sql } from '@/lib/neon';
-import { getSystemAccount } from '../gl/systemAccountResolver';
 import { creditNoteHeaderOf } from './creditNoteHeaderTags';
 import type { JournalLineInput } from '../../types/gl.types';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
@@ -159,20 +158,27 @@ export async function recordCreditNoteRevenueAllocations(
 
 /**
  * A note unlinked until `applyCreditNoteToInvoice` links it here, which has
- * recorded nothing, debited default_revenue at its own approval and took
- * nothing from this invoice's legs: one excess row says so, or it would be
- * REPLAYED against them as a pre-874 note and crowd the next note off its
- * legs. A note already linked keeps its link and stays replayed where it took
- * from (review #685). Caller holds the note row and the invoice's credit-note
- * lock.
+ * recorded nothing, debited revenue at its own approval without touching this
+ * invoice's legs: one excess row, on the revenue account its journal debited,
+ * says so, or it would be REPLAYED against them as a pre-874 note and crowd
+ * the next note off its legs. A note that posted no revenue debit has nothing
+ * to record. A note already linked keeps its link and stays replayed where it
+ * took from (review #685). Caller holds the note row and the invoice's
+ * credit-note lock.
  */
 export async function recordLateLinkExcess(companyId: string, note: Record<string, unknown>, invoiceId: string): Promise<void> {
-  if (note.customer_invoice_id) return;
+  if (note.customer_invoice_id || !note.gl_journal_entry_id) return;
   const recorded = (await sql`SELECT 1 FROM credit_note_revenue_allocations
     WHERE company_id = ${companyId}::UUID AND credit_note_id = ${String(note.id)}::UUID LIMIT 1`) as Record<string, unknown>[];
   if (recorded.length > 0) return;
+  const debited = (await sql`
+    SELECT jl.gl_account_id FROM gl_journal_lines jl
+    JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
+    WHERE jl.journal_entry_id = ${String(note.gl_journal_entry_id)}::UUID AND jl.company_id = ${companyId}::UUID
+      AND a.account_type = 'revenue' AND jl.debit > 0
+    ORDER BY jl.created_at, jl.id LIMIT 1`) as { gl_account_id: string }[];
+  if (debited.length === 0) return;
   const { projectId, cc1Id, cc2Id, buId } = creditNoteHeaderOf(note);
-  const revenue = await getSystemAccount('default_revenue', companyId);
   await recordCreditNoteRevenueAllocations(companyId, String(note.id), invoiceId, [{ journalLineId: null,
-    glAccountId: revenue.id, projectId, cc1Id, cc2Id, buId, amount: Number(note.subtotal), isExcess: true }]);
+    glAccountId: String(debited[0]!.gl_account_id), projectId, cc1Id, cc2Id, buId, amount: Number(note.subtotal), isExcess: true }]);
 }
