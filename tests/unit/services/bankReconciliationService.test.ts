@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 
 // sql.unsafe is called inside getBankTransactions for the bankAccountId+status
 // filter branch.  Use vi.hoisted so the mock reference is available inside
@@ -411,7 +413,7 @@ describe('autoMatchTransactions', () => {
     // bank_transactions query — empty
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     expect(result.unmatched).toBe(0);
     expect(result.candidates).toHaveLength(0);
@@ -425,7 +427,7 @@ describe('autoMatchTransactions', () => {
     // gl_journal_lines — empty
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     expect(result.unmatched).toBe(1);
   });
@@ -468,7 +470,7 @@ describe('autoMatchTransactions', () => {
       makeTxRow({ amount: 5000, status: 'matched', matched_journal_line_id: JL_ID }),
     ] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(1);
     expect(result.unmatched).toBe(0);
   });
@@ -511,7 +513,7 @@ describe('autoMatchTransactions', () => {
       makeTxRow({ amount: -2500, status: 'matched', matched_journal_line_id: JL_ID }),
     ] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(1);
     expect(result.unmatched).toBe(0);
   });
@@ -535,7 +537,7 @@ describe('autoMatchTransactions', () => {
     ] as never);
     // matchTransaction should NOT be called; no further sql calls expected
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     // Transaction appears either as a candidate or unmatched — not auto-committed
     const totalAccountedFor = result.candidates.length + result.unmatched;
@@ -548,7 +550,7 @@ describe('autoMatchTransactions', () => {
     vi.mocked(sql).mockRejectedValueOnce(new Error('connection refused') as never);
 
     await expect(
-      autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID)
+      autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1')
     ).rejects.toThrow('connection refused');
   });
 
@@ -557,7 +559,7 @@ describe('autoMatchTransactions', () => {
     // just by bank_account_id, preventing cross-tenant transaction reads.
     vi.mocked(sql).mockResolvedValueOnce([] as never); // empty → early return
 
-    await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
 
     // Inspect every value passed to sql() as a tagged-template parameter.
     const allValues = sqlMock.mock.calls.flatMap((callArgs: unknown[]) => {

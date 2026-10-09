@@ -2,7 +2,7 @@ Bank controls step 2 — slice a (importer != allocator; reversal gating): mutat
 Each guard was neutralised in place (one textual change), the named test run against the disposable
 fixture (127.0.0.1:55996, .fixture/env.sh), the failure recorded, and the file restored. Never committed mutated.
 Branch feat/bank-controls-step2-a. Harness: a python driver applying exactly the 'mutation' line shown.
-Run 2026-10-09. All 35 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684, 1 TOCTOU).
+Run 2026-10-09. All 43 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684, 1 TOCTOU, 4 blind review round 3, 4 breaker round 2).
 
 ## 0. importer check: service throw (allocateTransaction)
 mutation: src/modules/accounting/services/bank/bankAllocationService.ts: `await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);` -> `if (false) await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);`
@@ -269,3 +269,63 @@ failing: FAIL  tests/integration/bank-controls-gl-reverse-race.int.test.ts > a s
 assertion: AssertionError: expected 'reversed' to match object { code: 'ROW_LOCK_TIMEOUT' }
 note: the mutant is the pre-fix shape (an unlocked check, the lock taken after it): the colleague's match lands in
       between and the GL reversal goes through ('reversed'). Fixed, it is refused under the claim (ROW_LOCK_TIMEOUT), then 409.
+
+# Blind review round 3 (bf371012d): MEDIUM-A auto-match, LOW-A matched-leg void, run 2026-10-09
+
+## 36. round 3 MEDIUM-A: auto-match skips the run's person's own pair
+mutation: src/modules/accounting/services/bank/bankAutoMatchService.ts: `if (match.confidence >= 0.9 && importerHeld.has(match.bankTransactionId)) { skippedImporter++; continue; }` -> `if (false && match.confidence >= 0.9 && importerHeld.has(match.bankTransactionId)) { skippedImporter++; continue; }`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "own line and own journal"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > the importer's own line and own journal: skipped and counted, as `match` refuses it; another member's run matches it
+assertion: AssertionError: expected { matched: 1, unmatched: +0, …(5) } to match object { matched: +0, skippedImporter: 1 }
+
+## 37. round 3 MEDIUM-A: the held-pair read itself
+mutation: src/modules/accounting/services/bank/bankLineImporterGate.ts: `return own.size === 0 || await isSoleAsCaller(companyId, actorUserId) ? new Set() : own;` -> `return new Set();`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "perform_bank_reconciliation"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > MCP perform_bank_reconciliation skips the same pair for the token's user
+assertion: AssertionError: expected { dry_run: false, …(18) } to match object { auto_matched: +0, …(1) }
+
+## 38. round 3 LOW-A: supplier void judges a matched leg
+mutation: src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts: `const auditLeg = journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;` -> `const auditLeg = null as null | (() => Promise<void>);`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-matched-void.int.test.ts -t "maker is refused"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/bank-controls-matched-void.int.test.ts > the void of a payment a statement line is matched to > the payment's maker is refused 403, nothing written; another member voids it, line freed, audited
+assertion: AssertionError: expected { Object (status, reason, ...) } to match object { status: 403, …(1) }
+
+## 39. round 3 LOW-A: supplier void audits a permitted matched-leg reversal
+mutation: src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts: `await auditLeg?.();` -> ``
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-matched-void.int.test.ts -t "maker is refused"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/bank-controls-matched-void.int.test.ts > the void of a payment a statement line is matched to > the payment's maker is refused 403, nothing written; another member voids it, line freed, audited
+assertion: AssertionError: expected [] to deeply equal [ { …(3) } ]
+
+# Breaker round 2 (bf371012d) R2-6 / R2-4, and auto-match fail-closed, run 2026-10-09
+
+## 40. breaker R2-6: the match gate judges the arm of what the line is matched to
+mutation: src/modules/accounting/services/bank/bankLineImporterGate.ts: `return importerAllocationRefusal(companyId, row, actorUserId, facts.arm);` -> `return importerAllocationRefusal(companyId, row, actorUserId, 'manual_journal');`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/brk684r2-slice-a.int.test.ts -t "R2-6"
+result: Tests  1 failed | 1 skipped (2)
+failing: FAIL  tests/integration/brk684r2-slice-a.int.test.ts > R2-6 — the match gate judges every journal on the manual-journal arm only > supplier_payment enforced: the importer may not pay a supplier from their own line, but matches it to their own payment
+assertion: AssertionError: expected { status: 200, line: 'matched' } to deeply equal { status: 403, line: 'imported' }
+
+## 41. orchestrator: auto-match without a person fails closed
+mutation: src/modules/accounting/services/bank/bankAutoMatchService.ts: `if (!triggeredBy) throw new Error('autoMatchTransactions: the person who ran it (triggeredBy) is required');` -> ``
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "names no person"
+result: Tests  1 failed | 3 skipped (4)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > a run that names no person is refused before it reads anything (fails closed)
+assertion: AssertionError: promise resolved "{ matched: 1, unmatched: +0, …(5) }" instead of rejecting
+
+## 42. breaker R2-4: the R-127 settlement undo asks assertMayReverse
+mutation: src/modules/accounting/services/ap/provisionalSettlementVoid.ts: `if (tx) clearance = await assertMayReverse(companyId, tx, payment.settlesProvisionalJeId, userId);` -> `if (false && tx) clearance = await assertMayReverse(companyId, tx, payment.settlesProvisionalJeId, userId);`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/brk684r2-settlement-void.int.test.ts -t "allocator voids it"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/brk684r2-settlement-void.int.test.ts > the R-127 settlement undo reverses a provisional bank allocation around the reversal gate > the allocator voids it through supplier-payments-action (expected 403 ALLOCATOR_MAY_NOT_REVERSE)
+assertion: AssertionError: expected { status: 200, …(2) } to deeply equal { status: 403, …(2) }
+
+## 43. breaker R2-4: the R-127 settlement undo audits a permitted reversal
+mutation: src/modules/accounting/services/ap/provisionalSettlementVoid.ts: `if (bankTransactionId) await auditedReversal(companyId, bankTransactionId, userId, clearance, null);` -> ``
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/brk684r2-settlement-void.int.test.ts -t "another member undoes it"
+result: Tests  1 failed | 2 skipped (3)
+failing: FAIL  tests/integration/brk684r2-settlement-void.int.test.ts > the R-127 settlement undo reverses a provisional bank allocation around the reversal gate > FIXED: another member undoes it — the provisional reversed, the line freed, one audit row
+assertion: AssertionError: expected { provisionalReversed: true, …(2) } to deeply equal { provisionalReversed: true, …(2) }

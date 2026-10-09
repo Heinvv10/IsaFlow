@@ -104,9 +104,12 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
 
   it('one arm mapping: no site but the gate decides supplier_payment vs manual_journal for an importer check', () => {
     for (const file of [`${B}bankRuleAutoPostLine.ts`, `${MCP}bulkAllocationSkip.ts`,
-      'src/modules/accounting/services/capture/provisionalPostingService.ts', `${B}bankReversalGate.ts`]) {
+      'src/modules/accounting/services/capture/provisionalPostingService.ts']) {
       expect(textOf(file), file).toMatch(/\bimporterArmOf\(/);
     }
+    // The reversal and match gates read one allocation's arm through allocationFacts, which maps it by importerArmOf.
+    expect(textOf(`${B}bankLineImporterGate.ts`)).toMatch(/importerArmOf\(String\(row\.kind\), 'document', Number\(line\.amount\)\)/);
+    expect(textOf(`${B}bankReversalGate.ts`)).toMatch(/\ballocationFacts\(/);
     expect(textOf(`${B}bankAllocationService.ts`)).toMatch(/\bassertImporterMayAllocateAs\(companyId, tx, userId, allocType, entityId\)/);
   });
 });
@@ -165,7 +168,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
       [`${B}provisionalDismissService.ts`]: 'Dismiss: assertMayReverse per line under the line locks, audited',
       'src/modules/accounting/services/core/paymentVoidService.ts': 'void: a bank-linked payment goes through the choke point',
       'src/modules/accounting/services/ap/batchPaymentReversal.ts': "a batch's own reversal (via the choke point when bank-linked)",
-      'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "a bill's settlement of a provisional, not the provisional's own journal",
+      'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "R-127 settlement undo: the provisional's reversal judged by assertMayReverse under the line lock, audited",
       'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': "a bill's own journal",
       'src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts': "a payment document's own reversal",
       'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': 'a receipt (money in: ungated)',
@@ -184,16 +187,48 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     expect(filesMatching(/\brefuseJournalCashOfCompletedReconciliation\(/).sort()).toEqual([`${B}bankReversalGate.ts`, `${B}reconciledCash.ts`]);
     before(`${B}provisionalDismissService.ts`, 'await assertMayReverse(companyId, line, jeId, userId)', 'reverseJournalEntry(companyId, head, userId)');
     before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
+    const settle = 'src/modules/accounting/services/ap/provisionalSettlementVoid.ts';
+    before(settle, 'await lockBankTransactionForUpdate(companyId, bankTransactionId)', 'clearance = await assertMayReverse(companyId, tx,');
+    before(settle, 'clearance = await assertMayReverse(companyId, tx,', 'UPDATE supplier_payments SET status = \'cancelled\'');
+    before(settle, 'reverseJournalEntry(companyId, provisionalHead', 'await auditedReversal(companyId, bankTransactionId, userId, clearance');
   });
 
-  it('every caller of matchTransaction asks the importer first, but the unattended auto-match', () => {
+  it('every caller of matchTransaction asks the importer first; auto-match skips for the person who ran it', () => {
     expect(filesMatching(/(?<!\.)\bmatchTransaction\(/).filter((f) => !f.endsWith('bankTxStatusMutations.ts')).sort()).toEqual([
-      'pages/api/accounting/bank-match-confirm.ts', 'pages/api/accounting/bank-transactions-action.ts',
-      `${B}bankAutoMatchService.ts`, // unattended (auto_match): no person matches; not gated (orchestrator, #684)
+      'pages/api/accounting/bank-match-confirm.ts', 'pages/api/accounting/bank-transactions-action.ts', `${B}bankAutoMatchService.ts`,
     ]);
     const confirm = textOf('pages/api/accounting/bank-match-confirm.ts');
     expect(confirm.match(/await assertImporterMayMatch\(companyId, bankTransactionId, candidateId, userId\);\s+await matchTransaction\(/g)).toHaveLength(2);
     before('pages/api/accounting/bank-transactions-action.ts', 'await assertImporterMayMatch(', 'await matchTransaction(');
+    // Blind review round 3 (MEDIUM-A): the run's pairs are judged for its person before the loop, skipped and counted.
+    before(`${B}bankAutoMatchService.ts`, 'await importerHeldMatchPairs(companyId, triggeredBy,', 'matchTransaction(companyId, match.bankTransactionId');
+    expect(textOf(`${B}bankAutoMatchService.ts`)).toMatch(/importerHeld\.has\(match\.bankTransactionId\)\) \{ skippedImporter\+\+; continue; \}/);
+    before(`${B}bankAutoMatchService.ts`, 'if (!triggeredBy) throw new Error(', 'await importerHeldMatchPairs('); // fails closed
+    // The match gate (explicit and auto) judges the arm and the creator from what the line is matched to (R2-6).
+    before(`${B}bankLineImporterGate.ts`, 'const facts = await allocationFacts(companyId, { amount: row.amount, auto_post_run_id: null }, rootId)',
+      'return importerAllocationRefusal(companyId, row, actorUserId, facts.arm)');
+    const calls = SOURCES.flatMap((x) => [...x.text.matchAll(/\bautoMatchTransactions\(([^)]*)\)/g)].map((m) => `${x.file}: ${m[1]}`))
+      .filter((c) => !c.includes('bankAutoMatchService.ts')).sort();
+    expect(calls).toEqual([
+      'pages/api/accounting/bank-transactions-action.ts: companyId, body.bankAccountId, body.reconciliationId, userId',
+      `${MCP}writeBankReconciliation.ts: ctx.companyId, bankAccountId, started.id, ctx.userId`,
+    ]);
+  });
+
+  it('every document reversal that unmatches a statement line from its journal is judged as the bank reverse is', () => {
+    const UNMATCHERS: Record<string, string | null> = {
+      [`${B}bankChainLineReversal.ts`]: null, // the choke point's document arm: assertMayReverse already ran
+      'src/modules/accounting/services/core/paymentVoidService.ts': null, // a linked line goes through the choke point; one matched since the peek is a retry
+      'src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts': 'await lockJournalAndUnmatch(companyId, journalId, leg,',
+      'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': 'await lockJournalAndUnmatch(companyId, journalId, leg, label)',
+      'src/modules/accounting/services/ap/batchPaymentReversal.ts': 'await reverseBatchWithLeg(companyId, batchId, userId, peekedJournal, leg)',
+    };
+    expect(filesMatching(/\blockJournalAndUnmatch\(|\breverseBatchWithLeg\(/)
+      .filter((f) => !f.endsWith('paymentJournalReversal.ts')).sort()).toEqual(Object.keys(UNMATCHERS).sort());
+    for (const [file, write] of Object.entries(UNMATCHERS)) {
+      if (write) before(file, 'await assertMayReverseMatchedLeg(', write);
+    }
+    before('src/modules/accounting/services/core/paymentVoidService.ts', 'await reverseReconciledTransaction(', 'await lockJournalAndUnmatch(');
   });
 });
 
