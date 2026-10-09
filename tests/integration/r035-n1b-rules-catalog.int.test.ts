@@ -41,6 +41,19 @@ const WRITERS = [
   'public.approval_enforcement_set(uuid,text,boolean,text)',
 ];
 
+/** Every helper 881 creates: EXECUTE for their owner only. */
+const HELPERS_881 = [
+  'public.approval_rule_assert_caller(uuid,text)', 'public.approval_rule_actor_role(uuid,text)',
+  'public.approval_rule_may_weaken(text,text)', 'public.approval_rule_js_trim(text)', 'public.approval_rule_name_ok(text)',
+  'public.approval_rule_amount_ok(numeric)', 'public.approval_rule_assert_input(text,text,text,text,numeric)',
+  'public.approval_rule_assert_may_demand(text,text)',
+  'public.approval_rule_weakens(approval_rules,boolean,text,boolean,text,numeric)',
+  'public.approval_rule_audit_fields(approval_rules,approval_rules)', 'public.approval_rule_actor_email()',
+  'public.approval_rule_audit(uuid,text,text,text,uuid,approval_rules,approval_rules)',
+  'public.approval_enforcement_strictest_role(uuid,text)', 'public.approval_enforcement_bank_verifier_role(uuid)',
+  'public.approval_enforcement_bank_baseline(uuid,text)',
+];
+
 /**
  * md5(prosrc) of every writer and every function they call, transitively, as
  * 881 (and 862/872 for the shared rank and session helpers) ship them. A change
@@ -110,16 +123,24 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
     expect((await pool.query("SELECT has_function_privilege('app_user', to_regprocedure($1), 'EXECUTE') AS ok", [fn])).rows[0].ok).toBe(true);
   });
 
-  it('the helpers are executable by no role but their owner', async () => {
+  it('the helpers 881 adds are executable by no role but their owner', async () => {
     const { rows } = await pool.query(`
-      SELECT p.oid::regprocedure::text AS fn, x.who FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
+      SELECT p.oid::regprocedure::text AS fn, x.who FROM pg_proc p,
         LATERAL (SELECT r.rolname AS who FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> p.proowner
                    AND NOT (r.rolname = session_user AND pg_has_role(r.oid, p.proowner, 'USAGE'))
                  UNION ALL SELECT 'public') x
-      WHERE n.nspname = 'public' AND (p.proname LIKE 'approval\\_rule\\_%' OR p.proname LIKE 'approval\\_enforcement\\_%')
-        AND p.oid::regprocedure::text <> ALL ($1::text[])
+      WHERE p.oid = ANY (SELECT to_regprocedure(h) FROM unnest($1::text[]) h)
         AND has_function_privilege(x.who, p.oid, 'EXECUTE')
-      ORDER BY 1, 2`, [WRITERS.map((w) => w.replace(/^public\./, ''))]);
+      ORDER BY 1, 2`, [HELPERS_881]);
+    expect(rows).toEqual([]);
+    const { rows: [n] } = await pool.query('SELECT count(to_regprocedure(h))::INT AS n FROM unnest($1::text[]) h', [HELPERS_881]);
+    expect(n.n, NOT_APPLIED).toBe(HELPERS_881.length);
+  });
+
+  it('the older functions that only share the prefix stay executable by app_user (the app matches rules through them)', async () => {
+    const { rows } = await pool.query(`
+      SELECT f FROM unnest($1::text[]) f WHERE NOT has_function_privilege('app_user', to_regprocedure(f), 'EXECUTE')`,
+    [['public.approval_rule_matches(uuid,text,numeric)', 'public.approval_rule_strictest_rank(uuid,text,numeric)']]);
     expect(rows).toEqual([]);
   });
 
