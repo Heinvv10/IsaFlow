@@ -190,8 +190,11 @@ describe('#678 review', () => {
     await expect(planDeleteDimensionCostCentre(C, 'abc')).rejects.toThrow(/matches 2 cost centres/);
     expect((await planUpdateDimensionCostCentre(C, 'ABC', { name: 'n' }, 'cc2')).before.id).toBe('abc2');
     expect((await planDeleteDimensionCostCentre(C, 'abc', 'cc1')).id).toBe('abc1');
-    // A parent named by such a code is refused the same way.
-    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'Abc' })).rejects.toThrow(/matches 2 cost centres/);
+    // A parent named by such a code is refused too — and told to send the parent's id: cc_type narrows the
+    // centre being edited, not its parent (#683 round 3).
+    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'Abc' }, 'cc2'))
+      .rejects.toThrow('parent "Abc" matches 2 cost centres (ABC cc1, abc cc2) — send the parent\'s id');
+    expect((await planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'abc2' })).after.parentId).toBe('abc2');
   });
 
   it('a 23505 inside apply comes out as a refusal (L1)', async () => {
