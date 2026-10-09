@@ -24,6 +24,14 @@ import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
  */
 export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ADJUSTMENT_NOT_APPROVABLE',
+  // Forensic-controls step 2 (bank/bankControlRefusal's BankControlError, whose
+  // code is a constructor argument): under enforcement an agent may not reverse a
+  // bank allocation (AGENT_FORBIDDEN), the reverser may not be its allocator
+  // (ALLOCATOR_MAY_NOT_REVERSE), nor the allocator the statement's importer
+  // (IMPORTER_MAY_NOT_ALLOCATE). Fixed messages naming no id, amount or table;
+  // raised before any write.
+  'AGENT_FORBIDDEN',
+  'ALLOCATOR_MAY_NOT_REVERSE',
   'APPROVAL_REQUEST_LOCK_TIMEOUT',
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
@@ -172,6 +180,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 review HIGH-2 (gl/approvalGateExempt): names the demanded role and the
   // caller's own; raised before an import writes anything.
   'IMPORT_APPROVAL_AUTHORITY_REQUIRED',
+  'IMPORTER_MAY_NOT_ALLOCATE',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,
