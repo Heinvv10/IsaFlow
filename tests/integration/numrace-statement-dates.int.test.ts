@@ -25,7 +25,8 @@ describe.skipIf(!DATABASE_URL)('ledger-date window: statement import and DateSty
     c = await seedDateFixture('NUMRACE-SD', DATABASE_URL!);
   }, 60000);
   afterAll(async () => {
-    await sql`UPDATE bank_transactions SET import_batch_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
+    // Lines first: a batch row a line still names cannot be deleted, nor can a line's batch move (877).
+    await sql`DELETE FROM bank_transactions WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM bank_import_batches WHERE company_id = ${c.fx.companyId}::UUID`;
     await dropFixture(c.fx);
   }, 60000);
