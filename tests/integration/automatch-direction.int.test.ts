@@ -37,9 +37,12 @@ async function statementLine(date: string, amount: number, tag: string): Promise
 }
 /** The N8 shape: a receipt and a payment of 650, a payment of 660; statement lines +650, -650 and -660. */
 async function seedN8(date: string) {
+  // The payment leg is inserted BEFORE the receipt leg: a direction-blind matcher takes the first 650 leg it reads for
+  // the +650 deposit (heap order), so only the direction rule can hand the deposit the receipt.
+  const payment650 = await bankJournal(date, 'payment 650', 0, 650);
   const legs = {
     receipt650: await bankJournal(date, 'receipt 650', 650, 0),
-    payment650: await bankJournal(date, 'payment 650', 0, 650),
+    payment650,
     payment660: await bankJournal(date, 'payment 660', 0, 660),
   };
   const lines = {
