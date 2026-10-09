@@ -174,6 +174,6 @@ describe('listing is tenant-scoped', () => {
     expect(data.items.map((i) => i.documentType)).toEqual(['credit_note']);
     // supplier_bank_details (forensic-controls step 1, mig 876) shares the switchboard.
     expect(data.enforceable).toEqual(['supplier_invoice', 'customer_credit_note', 'supplier_credit_note', 'customer_invoice',
-      'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details']);
+      'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details', 'bank_rule']);
   });
 });
