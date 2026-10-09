@@ -28,6 +28,8 @@ import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
+import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
+import { toFunctional } from '../shared/functionalAmounts';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -41,6 +43,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
   | { kind: 'bad_line'; message: string }
+  | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
 
@@ -66,7 +69,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate, project_id, COALESCE(client_id, customer_id) AS customer_id,
+      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -197,20 +200,23 @@ export async function editDraftCustomerInvoice(
     }
 
     let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
+    // Priced as create prices them (invoiceLineAmount.ts): Σ of the stored line amounts.
+    const lineAmounts = (items ?? []).map((it) => invoiceLineAmount(it.quantity, it.unitPrice, it.discount ?? 0));
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
       // recomputed totals stay correct when the caller doesn't re-send taxRate.
       const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
       const rate = taxRate ?? existingTaxRate;
-      let subtotal = 0;
-      for (const it of items) {
-        const lineNet = it.quantity * it.unitPrice * (1 - ((it.discount ?? 0) / 100));
-        subtotal += lineNet;
-      }
-      subtotal = Math.round(subtotal * 100) / 100;
-      const tax = Math.round(subtotal * (rate / 100) * 100) / 100;
-      const total = Math.round((subtotal + tax) * 100) / 100;
-      computed = { subtotal, tax, total, rate };
+      computed = { ...invoiceTotals(lineAmounts, rate), rate };
+    }
+    // numeric(15,2), as create checks it: the total, and functional_total = fx_functional(total, rate) when
+    // the UPDATE below rewrites it (new lines or a new rate — a rate alone re-derives it from the stored
+    // total). Before the first write.
+    const nextTotal = computed?.total ?? Number(ownedRows[0]!.total_amount ?? 0);
+    const rewritesFunctional = computed !== null || fxRateOverride !== null;
+    if (nextTotal >= 1e13
+      || (rewritesFunctional && toFunctional(nextTotal, fxRateOverride ?? (existingRate || 1)) >= 1e13)) {
+      return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
     }
 
     await tx`
@@ -249,7 +255,7 @@ export async function editDraftCustomerInvoice(
       const lineCurrency = nextCode ?? existingCurrency;
       for (const [i, it] of lines.entries()) {
         const qty = it.quantity;
-        const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
+        const lineAmount = lineAmounts[i]!;
         const coding = codings[i]!;
         await tx`
           INSERT INTO customer_invoice_items (

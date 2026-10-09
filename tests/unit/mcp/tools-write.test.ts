@@ -172,7 +172,7 @@ describe('create_draft_invoice', () => {
 
   it('maps InvoiceLineValidationError to a safe tool error', async () => {
     vi.mocked(createDraftCustomerInvoice).mockRejectedValue(
-      new InvoiceLineValidationError('Line unit prices cannot be negative'),
+      new InvoiceLineValidationError('Line unit prices must be numbers of zero or more'),
     );
     const r = await tool('create_draft_invoice').handler(
       { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: -1 }], ...KEY }, ctx(),
