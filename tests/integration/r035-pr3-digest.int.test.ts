@@ -129,17 +129,20 @@ describe('the supplier-invoice branches are unchanged', () => {
     return text.slice(start, end).replace(`public.${fn}(`, `pg_temp.${alias}(`);
   }
 
-  it('a bill digests and lists its authors exactly as migrations 708 and 712 defined them', async () => {
+  // 862 against 708, not against the live function: 873 deliberately extends
+  // the bill's digest with the CC1 / CC2 / BU line columns.
+  it('a bill digests as 862 left 708\'s definition, and lists its authors exactly as 712 defined them', async () => {
     const c = await company();
     const bill = await plantBill(pool, c, user);
     await pool.query('UPDATE supplier_invoices SET content_authors = ARRAY[$2::UUID] WHERE id = $1', [bill.id, other]);
     const client = await pool.connect();
     try {
       await client.query(asDefinedIn('708_approval_enforcement_infra.sql', 'approval_document_digest', 'r035_digest_708'));
+      await client.query(asDefinedIn('862_credit_note_approval_enforcement.sql', 'approval_document_digest', 'r035_digest_862'));
       await client.query(asDefinedIn('712_supplier_invoice_approval_enforcement.sql', 'approval_document_authors', 'r035_authors_712'));
       const { rows: [r] } = await client.query(
         `SELECT pg_temp.r035_digest_708($1,'supplier_invoice',$2) AS old_digest,
-                approval_document_digest($1,'supplier_invoice',$2) AS new_digest,
+                pg_temp.r035_digest_862($1,'supplier_invoice',$2) AS new_digest,
                 pg_temp.r035_authors_712($1,'supplier_invoice',$2)::TEXT AS old_authors,
                 approval_document_authors($1,'supplier_invoice',$2)::TEXT AS new_authors`, [c, bill.id]);
       expect(r.old_digest).toMatch(/^[0-9a-f]{64}$/);

@@ -28,6 +28,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
   'APPROVAL_REQUIRED',
+  // R-035 N1: the approval rules or the amount moved while a request was being
+  // raised (gl/approvalDocumentErrors). Names the caller's own document type
+  // and id; nothing is written. No MCP tool raises requests (Q6).
+  'APPROVAL_RULES_CHANGED',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
@@ -138,6 +142,11 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
   'ROW_LOCK_TIMEOUT', // D8 round 9 (core/rowLockBudget): names the document; nothing acquired, retry.
   'RULE_AUTHORITY_REQUIRED',
+  // Supplier bank verification (forensic-controls step 1): a bank file or
+  // Netcash submission paying a supplier whose bank details are unverified;
+  // names the caller's own suppliers, raised before anything is sent. Listed
+  // because every `readonly code` must be; no MCP tool sends money.
+  'SUPPLIER_BANK_DETAILS_UNVERIFIED',
   // A refund larger than the contact's on-account credit (migration 681). One fixed sentence written for the user, naming the contact, the two amounts
   // and the as-at date the caller itself supplied — no id, no table — and
   // raised BEFORE the journal posts, so there is nothing written to leak.

@@ -161,30 +161,27 @@ describeIfDb('VAT-lock refusals through the route handlers leave no journal behi
     expect(await journalCount()).toBe(before);
   });
 
-  it('bank-transfers onto a VAT account inside the lock answers 400 and writes nothing', async () => {
+  /** Since 2026-10-08 a transfer moves money between two BANK accounts only (bank/bankTransferService), so a VAT
+   *  account is refused as a destination before the journal funnel runs — and a bank-to-bank transfer moves no VAT
+   *  figure, so the VAT guard inside createJournalEntry / postJournalEntry lets it post inside a filed period. */
+  it('bank-transfers onto a VAT account answers 400 and writes nothing', async () => {
     const before = await journalCount();
     const state = await call(bankTransfers, {
       fromAccountId: fx.bankAccountId, toAccountId: acc.vatInput, amount: 50, transferDate: '2026-06-18',
     });
     expect(state.statusCode).toBe(400);
-    expect(JSON.stringify(state.body)).toMatch(/locked/);
+    expect(JSON.stringify(state.body)).toMatch(/both accounts must be bank accounts/);
     expect(await journalCount()).toBe(before);
   });
 
-  /** This route cannot post ANYTHING today, lock or no lock: its INSERT names
-   *  total_debit/total_credit (columns gl_journal_entries does not have) and
-   *  source 'bank_transfer', which migrations 509/627 deliberately keep out of
-   *  the source CHECK while the writer is unvalidated. So "allowed" is proven
-   *  as: NOT the guard's 400 — the request gets past the guard and fails later,
-   *  as a 500 that rolls back, writing nothing. */
-  it('bank-transfers between two bank accounts inside the lock gets past the VAT guard', async () => {
+  it('bank-transfers between two bank accounts inside the lock posts', async () => {
     const before = await journalCount();
     const state = await call(bankTransfers, {
       fromAccountId: fx.bankAccountId, toAccountId: acc.bank2, amount: 50, transferDate: '2026-06-18',
     });
-    expect(state.statusCode, JSON.stringify(state.body)).toBe(500);
+    expect(state.statusCode, JSON.stringify(state.body)).toBe(200);
     expect(JSON.stringify(state.body)).not.toMatch(/locked/);
-    expect(await journalCount()).toBe(before);
+    expect(await journalCount()).toBe(before + 1);
   });
 
   /** The route (capture/[id]/post-expense) cannot run on isaflow_dev: its row

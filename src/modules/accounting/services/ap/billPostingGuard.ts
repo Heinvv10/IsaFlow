@@ -23,7 +23,7 @@ export async function assertBillApprovable(companyId: string, id: string): Promi
 
 export async function assertBillPostable(
   companyId: string,
-  invoice: Pick<SupplierInvoice, 'id' | 'invoiceNumber' | 'items'>,
+  invoice: Pick<SupplierInvoice, 'id' | 'invoiceNumber' | 'items' | 'status'>,
 ): Promise<void> {
   await assertStoredDocumentPostable(companyId, 'supplier_invoice', invoice.id);
   await assertSupplierInvoiceLinesPostable(companyId, invoice);

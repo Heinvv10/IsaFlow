@@ -97,6 +97,25 @@ describe('deriveLineDimensions / deriveRevenueDimensions (queries)', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
+  it('leaves a malformed CC2 for the line validator instead of casting it', async () => {
+    // A non-UUID in the ::UUID[] cast is a raw Postgres error; skipping the
+    // query leaves the line unchanged so validation refuses it by its slot.
+    const out = await deriveLineDimensions(COMPANY, [{ cc2Id: 'not-a-uuid' }]);
+    expect(out).toEqual([{ cc2Id: 'not-a-uuid' }]);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('casts only the well-formed ids when a malformed one sits beside them', async () => {
+    mockSql.mockResolvedValueOnce([
+      { id: LAWLEY, code: 'LAWLEY', parent_id: FIBERTIME, cc_type: 'cc2' },
+      { id: FIBERTIME, code: 'FIBERTIME', parent_id: null, cc_type: 'cc1' },
+    ]);
+    const out = await deriveLineDimensions(COMPANY, [{ cc2Id: LAWLEY }, { cc2Id: 'not-a-uuid' }]);
+    expect(out[0]!.cc1Id).toBe(FIBERTIME);
+    expect(out[1]).toEqual({ cc2Id: 'not-a-uuid' });
+    expect(mockSql.mock.calls[0]!.slice(1)).not.toContainEqual(expect.arrayContaining(['not-a-uuid']));
+  });
+
   it('loads the parent chain once, company-scoped, and derives', async () => {
     mockSql.mockResolvedValueOnce([
       { id: LAWLEY, code: 'LAWLEY', parent_id: FIBERTIME, cc_type: 'cc2' },
@@ -126,8 +145,11 @@ describe('deriveLineDimensions / deriveRevenueDimensions (queries)', () => {
       .rejects.toThrow(/FNO FIBERTIME differs from the customer's FNO HEROTEL/);
   });
 
-  it('a revenue line with no dimension sends no query (the customer default is applied at posting)', async () => {
-    await deriveRevenueDimensions(COMPANY, 'cust-1', [{}]);
-    expect(mockSql).not.toHaveBeenCalled();
+  it('a revenue line with no dimension stores the customer FNO, read in ONE query (it is no longer applied at posting)', async () => {
+    mockSql.mockResolvedValueOnce([{ fno: HEROTEL }]);
+    expect(await deriveRevenueDimensions(COMPANY, 'cust-1', [{}])).toEqual([{ cc1Id: HEROTEL.toLowerCase() }]);
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    mockSql.mockResolvedValueOnce([{ fno: null }]);
+    expect(await deriveRevenueDimensions(COMPANY, 'cust-1', [{}])).toEqual([{}]);
   });
 });

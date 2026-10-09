@@ -176,11 +176,15 @@ describe('tenant isolation (test 6)', () => {
     const other = await company();
     await enforce(pool, other, u.b); // B enforces too: only company_id can keep its row off A's bill
     const digest = (await pool.query("SELECT approval_document_digest($1,'supplier_invoice',$2) AS d", [c, bill.id])).rows[0].d;
-    await asAppUser(u.b, other, (client) => client.query(
+    const forge = (db: Pool | PoolClient) => db.query(
       `INSERT INTO approval_requests(company_id, document_type, document_id, status, requested_by, required_role,
          decided_by, decided_at, document_digest)
        VALUES($1,'supplier_invoice',$2,'approved',$3,'owner',$4,now(), $5)`,
-      [other, bill.id, u.a, u.b, digest]));
+      [other, bill.id, u.a, u.b, digest]);
+    // R-035 N1 (migration 872): app_user can no longer forge it at all; the
+    // owner plants it, so the gate's own company scoping is still what is tested.
+    await expect(asAppUser(u.b, other, forge)).rejects.toThrow(/permission denied for table approval_requests/);
+    await forge(pool);
     const res = await r.approveBill(u.a, c, bill.id);
     expect(res.state.statusCode).toBe(409);
     expect(reasonOf(res)).toBe('APPROVAL_REQUIRED');

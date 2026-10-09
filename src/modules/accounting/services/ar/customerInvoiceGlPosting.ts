@@ -20,6 +20,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
 import { assertDocumentPostable } from '../shared/documentCurrency';
 import { buildRevenueLines, parseRevenueItems } from './customerInvoiceRevenueLines';
+import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 type Row = DbRow;
 
@@ -34,7 +35,8 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: PostingActorOpts & { historicalImport?: boolean },
+  // approvingFromStatus: the status approveCustomerInvoice moved the invoice FROM (it is 'approved' by now).
+  opts?: PostingActorOpts & { historicalImport?: boolean; approvingFromStatus?: string },
 ): Promise<string> {
   try {
     // The customer's FNO and the items' dimensions ride on the same read (customerInvoiceRevenueLines.ts).
@@ -78,6 +80,12 @@ export async function postCustomerInvoiceToGL(
     // FX PR0: until functional posting lands, a foreign invoice would post its
     // document figures as rands. Refused before any write; the DB gate agrees.
     await assertDocumentPostable(companyId, [inv.currency_code], 'invoice');
+    // What posts is what is stored (and approved). Approving a draft refuses a
+    // row saved before its customer's FNO, or its project's, existed; one
+    // already approved posts as stored (dimensionStoredPosting).
+    const revenueItems = parseRevenueItems(inv.dim_items);
+    await assertPostsStoredDimensions(companyId, opts?.approvingFromStatus ?? String(inv.status), revenueItems,
+      (i) => `Invoice ${String(inv.invoice_number)} line ${i + 1}`, inv.customer_fno_id ? String(inv.customer_fno_id) : null);
 
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
@@ -89,8 +97,7 @@ export async function postCustomerInvoiceToGL(
       // One revenue line per distinct CC1/CC2/BU (one line, as before, when none is named).
       ...buildRevenueLines({
         revenueAccountId: revenueAccount.id, subtotal: Number(inv.subtotal), invoiceNumber: String(inv.invoice_number),
-        items: parseRevenueItems(inv.dim_items),
-        customerFnoId: inv.customer_fno_id ? String(inv.customer_fno_id) : null,
+        items: revenueItems,
       }),
     ];
 
@@ -143,7 +150,7 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), POST_AS_STORED);
 
     if (opts?.historicalImport) {
       // Historical import diverges from the canonical path (postJournalEntry)

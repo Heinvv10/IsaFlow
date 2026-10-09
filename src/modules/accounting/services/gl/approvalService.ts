@@ -7,15 +7,16 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
-  assertDecidingSession, assertMayDecide, isApproverRole, APPROVER_ROLES,
+  assertDecidingSession, assertMayDecide,
   ApprovalRuleNotFoundError, ApprovalRequestNotFoundError,
 } from './approvalAuthority';
 import { assertDocumentUnchanged } from './approvalDecideDocument';
-import { auditSoleApproverSelfApproval } from './approvalSelfApproval';
-import { mapRule, mapRequest, isConditionOperator, CONDITION_OPERATORS } from './approvalMatching';
+import { mapRule, mapRequest } from './approvalMatching';
 import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
+import { decideRequestRow } from './approvalRequestWrites';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
+import { assertRuleDocumentTypeOffered, assertRuleInput } from './approvalRuleInput';
 
 // Re-exported so every existing import site keeps working after the
 // checkApproval/mapper split that kept this file under the 300-line ceiling.
@@ -81,70 +82,12 @@ export interface ApprovalCheckResult {
 
 // ── Rule CRUD ────────────────────────────────────────────────────────────────
 
-export class ApprovalOperatorInvalidError extends Error {
-  constructor(operator: string) {
-    super(`conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')} (got ${operator})`);
-    this.name = 'ApprovalOperatorInvalidError';
-  }
-}
-
-/**
- * The only two values `condition_field` may take.
- *
- * checkApproval matches on the resolved document amount and never reads this
- * column, so both of these name the SAME number — the field is descriptive, not
- * a selector. It was neither validated nor evaluated, which made it worse than
- * decorative: the rules page renders `${conditionField} > ${conditionValue}`, so
- * a rule authored as `vat` read as a VAT threshold while it governed the total.
- */
-export const CONDITION_FIELDS = ['total', 'amount'] as const;
-
-export class ApprovalFieldInvalidError extends Error {
-  constructor(field: string) {
-    super(`conditionField must be one of: ${CONDITION_FIELDS.join(', ')} (got ${field})`);
-    this.name = 'ApprovalFieldInvalidError';
-  }
-}
-
-export class ApprovalRoleInvalidError extends Error {
-  constructor(role: string) {
-    super(`approverRole must be one of: ${APPROVER_ROLES.join(', ')} (got ${role})`);
-    this.name = 'ApprovalRoleInvalidError';
-  }
-}
-
-/**
- * An approver_role the rank ladder does not know silently means 'admin', so a
- * typed 'Owner' would quietly weaken an owner-only rule. Refuse it at the source.
- */
-function assertApproverRole(role: string | undefined): void {
-  if (role !== undefined && !isApproverRole(role)) {
-    throw new ApprovalRoleInvalidError(role);
-  }
-}
-
-/**
- * An operator checkApproval cannot evaluate now fails CLOSED, so writing one
- * makes the rule demand approval on every document of its type. The route used
- * to be the only thing stopping that; any other caller of this module — a
- * script, an MCP tool, the `services/gl/index.ts` re-export — could still write
- * it, and on a database where the CHECK has not landed the column takes it.
- */
-function assertConditionOperator(operator: string | undefined): void {
-  if (operator !== undefined && !isConditionOperator(operator)) {
-    throw new ApprovalOperatorInvalidError(operator);
-  }
-}
-
-/**
- * Both accepted values mean the document's resolved amount; the column records
- * which word the author used, and nothing branches on it.
- */
-function assertConditionField(field: string | undefined): void {
-  if (field !== undefined && !(CONDITION_FIELDS as readonly string[]).includes(field)) {
-    throw new ApprovalFieldInvalidError(field);
-  }
-}
+// The input checks (operator, field, role, amount, isActive) live in
+// approvalRuleInput.ts (300-line ceiling); re-exported for every import site.
+export {
+  ApprovalOperatorInvalidError, ApprovalFieldInvalidError, ApprovalRoleInvalidError, ApprovalAmountInvalidError,
+  ApprovalActiveFlagInvalidError, ApprovalNameInvalidError, ApprovalDocumentTypeInvalidError, CONDITION_FIELDS,
+} from './approvalRuleInput';
 
 export async function listRules(companyId?: string): Promise<ApprovalRule[]> {
   if (!companyId) return [];
@@ -163,9 +106,8 @@ export async function createRule(companyId: string, input: {
   approverRole?: string;
 }, actor: RuleActor): Promise<ApprovalRule> {
   assertRuleDocumentTypeCreatable(input.documentType);
-  assertApproverRole(input.approverRole);
-  assertConditionOperator(input.conditionOperator);
-  assertConditionField(input.conditionField);
+  assertRuleDocumentTypeOffered(input.documentType);
+  assertRuleInput(input);
   // The rank the NEW rule will demand, defaulted the same way the INSERT does.
   // Without this an admin refused a weakening of the owner-only rule simply
   // creates a manager-level rule beside it and the control is gone.
@@ -173,7 +115,7 @@ export async function createRule(companyId: string, input: {
   const rows = (await sql`
     INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
     VALUES (
-      ${companyId}, ${input.name}, ${input.documentType},
+      ${companyId}, ${input.name.trim()}, ${input.documentType},
       ${input.conditionField || 'total'}, ${input.conditionOperator || 'greater_than'},
       ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
     ) RETURNING *
@@ -191,9 +133,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   approverRole: string;
   isActive: boolean;
 }>, actor: RuleActor): Promise<ApprovalRule> {
-  assertApproverRole(input.approverRole);
-  assertConditionOperator(input.conditionOperator);
-  assertConditionField(input.conditionField);
+  assertRuleInput(input);
   // Both ends: assertMayEditRule ranks the role the rule demands TODAY, this
   // ranks the one it is being moved to. Ranking only the current role let an
   // admin lower an admin-level rule to `viewer`.
@@ -202,7 +142,7 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   if (!before) throw new ApprovalRuleNotFoundError(id);
   const rows = (await sql`
     UPDATE approval_rules SET
-      name = COALESCE(${input.name ?? null}, name),
+      name = COALESCE(${input.name?.trim() ?? null}, name),
       condition_field = COALESCE(${input.conditionField ?? null}, condition_field),
       condition_operator = COALESCE(${input.conditionOperator ?? null}, condition_operator),
       condition_value = COALESCE(${input.conditionValue ?? null}, condition_value),
@@ -275,18 +215,14 @@ export async function decideRequest(companyId: string,
   await lockApprovalRequestForUpdate(companyId, requestId);
   const selfApproval = await assertMayDecide(companyId, requestId, decidedBy, decision);
   if (decision === 'approved') await assertDocumentUnchanged(companyId, requestId, expectedDigest);
-  const rows = (await sql`
-    UPDATE approval_requests SET
-      status = ${decision},
-      decided_by = ${decidedBy}::UUID,
-      decided_at = NOW(),
-      decision_notes = ${notes || null}
-    WHERE id = ${requestId}::UUID AND company_id = ${companyId} AND status = 'pending'
-    RETURNING *
-  `) as Record<string, unknown>[];
+  // approval_request_decide (migration 872) repeats every check above in SQL,
+  // is the only way a decision is written, and writes the sole-approver (Q2)
+  // audit row itself in the same transaction (as durable as audit_log is).
+  const rows = await decideRequestRow(companyId, requestId, decision, decidedBy, notes || null, expectedDigest);
   if (!rows[0]) throw new ApprovalRequestNotFoundError(requestId);
-  if (selfApproval) await auditSoleApproverSelfApproval(companyId, decidedBy, rows[0], selfApproval);
-  log.info('Approval decided', { id: requestId, decision }, 'accounting');
+  log.info('Approval decided', {
+    id: requestId, decision, soleApproverSelfApproval: selfApproval?.selfApproval === 'sole_approver',
+  }, 'accounting');
   return mapRequest(rows[0]);
 }
 

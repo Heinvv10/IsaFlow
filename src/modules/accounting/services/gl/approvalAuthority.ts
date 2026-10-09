@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import { soleApproverFacts, type SoleApproverSelfApproval } from './approvalSelfApproval';
 import { contentAuthorRefusal } from './approvalAuthors';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
+import { requiredRank, actorRank } from './approvalRank';
 
 export type ApprovalDecisionErrorCode =
   | 'SELF_APPROVAL_FORBIDDEN' | 'APPROVER_ROLE_REQUIRED' | 'IMPERSONATION_FORBIDDEN';
@@ -54,50 +55,10 @@ export class ApprovalRequestNotFoundError extends Error {
   }
 }
 
-// Rank ladder for approver authority. ROLE_HIERARCHY in @/lib/auth/types has no
-// entry for 'accountant', 'bookkeeper' or 'user', and its `?? 0` fallback would
-// let anybody satisfy a rule whose approver_role is 'accountant' — one of the
-// defaults seeded by migration 234. The roles a company can actually hold come
-// from two allowlists: ALLOWED_COMPANY_ROLES in adminUserActionsService and the
-// invitation route's own list. Every one of them must appear here, or the person
-// holding it can never approve anything.
-// tests/unit/services/gl/approverRankLadder.test.ts locks this ladder's ordering
-// against ROLE_HIERARCHY and its coverage against both allowlists.
-export const APPROVER_RANK: Record<string, number> = {
-  super_admin: 8,
-  owner: 7,
-  system: 6,
-  admin: 5,
-  manager: 4,
-  accountant: 3,
-  bookkeeper: 2,
-  storeman: 1,
-  technician: 1,
-  user: 1,
-  viewer: 0,
-};
-
-/** Roles a rule may demand. Anything else is a typo that would silently mean admin. */
-export const APPROVER_ROLES = Object.keys(APPROVER_RANK);
-export const isApproverRole = (value: unknown): value is string =>
-  typeof value === 'string' && Object.prototype.hasOwnProperty.call(APPROVER_RANK, value);
-
-// Both helpers go through isApproverRole rather than indexing and falling back on
-// `??`: APPROVER_RANK is a plain object, so APPROVER_RANK['toString'] is a
-// function, not undefined, and neither fallback would fire — the comparison
-// would then be NaN < NaN, which is false, and the decision would be allowed.
-
-/**
- * An unrecognised rule role falls back to 'admin', the column default in 234.
- * Exported because approvalRuleGuards ranks the same two things when deciding
- * who may EDIT a rule — one ladder, not a second copy that can drift.
- */
-export const requiredRank = (role: string): number =>
-  isApproverRole(role) ? APPROVER_RANK[role]! : APPROVER_RANK.admin!;
-
-/** An unrecognised actor role carries no authority. */
-export const actorRank = (role: string): number =>
-  isApproverRole(role) ? APPROVER_RANK[role]! : 0;
+// The rank ladder lives in approvalRank.ts, a module with no database import, so
+// the rule form can rank roles on the SAME ladder the guards do. Re-exported so
+// every existing import site keeps working.
+export { APPROVER_RANK, APPROVER_ROLES, isApproverRole, requiredRank, actorRank } from './approvalRank';
 
 /**
  * R-032: under "Login as", `decidedBy` is the TARGET's id — the admin's real
@@ -128,8 +89,9 @@ export async function assertDecidingSession(): Promise<void> {
  * first and reads only the request id.
  *
  * Returns a SoleApproverSelfApproval when the decider is approving their OWN
- * request and that is allowed only because nobody else could (decision Q2);
- * the caller must audit it as such.
+ * request and that is allowed only because nobody else could (decision Q2).
+ * approval_request_decide (migration 872) writes the audit row for it;
+ * decideRequest logs the classification.
  *
  * `decision` is required rather than defaulted: only `approve` is the controlled
  * act, and a caller that forgets to say which one it is must not silently get

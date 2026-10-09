@@ -11,7 +11,13 @@
  * neither payment type (R-035 PR5), and `legacyJournalRules`: those of the
  * legacy `journal_entry` type, which govern no journal (R-035 PR6).
  *
- * Enabling a type not in ENFORCEABLE_DOCUMENT_TYPES is a 400 NOT_ENFORCEABLE
+ * `supplier_bank_details` (forensic-controls step 1) shares the switchboard: its
+ * preview is the suppliers with bank details unverified now (or, off, those
+ * switching on would accept as the baseline for this viewer). Switching it on records that
+ * baseline and is refused 403 to an impersonated session or a role below the
+ * verifier role (SupplierBankVerificationError, nothing written).
+ *
+ * Enabling a type not in ENFORCEABLE_TYPES is a 400 NOT_ENFORCEABLE
  * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
  * active rule of the type (mayWeakenAtLevel, R-048: a rank strictly above it,
  * or the owner at owner level); otherwise 403 RULE_AUTHORITY_REQUIRED. Both
@@ -24,20 +30,23 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withSavepoint } from '@/lib/neon';
-import type { DocumentType } from '@/modules/accounting/services/gl/approvalService';
+import type { EnforcementType } from '@/modules/accounting/services/gl/approvalRuleOptions';
 import type { RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import {
-  ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_DOCUMENT_TYPES,
+  ApprovalEnforcementAuthorityError, ApprovalEnforcementUnavailableError, ENFORCEABLE_TYPES,
   countLegacyCreditNoteRules, countLegacyJournalRules, countLegacyPaymentRules, disableEnforcement, enableEnforcement,
   listEnforcement,
 } from '@/modules/accounting/services/gl/approvalEnforcement';
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
+import { SupplierBankVerificationError } from '@/modules/accounting/services/ap/supplierBankBaseline';
+import { bankDetailsPreview } from '@/modules/accounting/services/ap/supplierBankVerification';
 
-const DOCUMENT_TYPES = new Set<DocumentType>([
+const DOCUMENT_TYPES = new Set<EnforcementType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
-  'supplier_payment', 'payment_batch', 'manual_journal',
+  'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details',
 ]);
-const isDocumentType = (value: unknown): value is DocumentType => typeof value === 'string' && DOCUMENT_TYPES.has(value as DocumentType);
+const isDocumentType = (value: unknown): value is EnforcementType =>
+  typeof value === 'string' && DOCUMENT_TYPES.has(value as EnforcementType);
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
@@ -52,10 +61,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const legacyPaymentRules = await countLegacyPaymentRules(companyId);
     // …and active legacy `journal_entry` rules govern no journal (R-035 PR6).
     const legacyJournalRules = await countLegacyJournalRules(companyId);
-    const base = { items, enforceable: ENFORCEABLE_DOCUMENT_TYPES, legacyCreditNoteRules, legacyPaymentRules, legacyJournalRules };
+    const base = { items, enforceable: ENFORCEABLE_TYPES, legacyCreditNoteRules, legacyPaymentRules, legacyJournalRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
     if (req.query.preview !== '1') return apiResponse.success(res, base);
-    const preview = await previewEnforcement(companyId);
+    const preview = { ...(await previewEnforcement(companyId)), supplier_bank_details: await bankDetailsPreview(companyId, user.id) };
     return apiResponse.success(res, { ...base, preview });
   }
 
@@ -72,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (error instanceof ApprovalEnforcementUnavailableError) {
         return apiResponse.badRequest(res, error.message, { reason: error.code });
       }
-      if (error instanceof ApprovalEnforcementAuthorityError) {
+      if (error instanceof ApprovalEnforcementAuthorityError || error instanceof SupplierBankVerificationError) {
         return apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
       }
       throw error;

@@ -37,6 +37,7 @@ import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/custo
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 type Row = Record<string, unknown>;
 
 /**
@@ -100,6 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
     if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
+    if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
     return apiResponse.success(res, { updated: true });
@@ -162,6 +164,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (respondIfApprovalRequired(res, err)) return;
         // FX PR0: a foreign invoice while the company has not enabled them; also before any write.
         if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
+        // A dimension posting would add or contradict (dimensionStoredPosting), refused before the journal.
+        if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
         throw err;
       }
     }

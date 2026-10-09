@@ -23,9 +23,11 @@ import {
 export async function fetchBankTransaction(
   bankTransactionId: string,
   companyId: string,
-): Promise<{ id: string; amount: number; transactionDate: string; description: string; reference: string } | null> {
+): Promise<{
+  id: string; bankAccountId: string; amount: number; transactionDate: string; description: string; reference: string;
+} | null> {
   const txRows = (await sql`
-    SELECT id, amount, transaction_date, description, reference
+    SELECT id, bank_account_id, amount, transaction_date, description, reference
     FROM bank_transactions
     WHERE id = ${bankTransactionId}::UUID AND company_id = ${companyId}
   `) as DbRow[];
@@ -33,6 +35,7 @@ export async function fetchBankTransaction(
   const tx = txRows[0]!;
   return {
     id: String(tx.id),
+    bankAccountId: String(tx.bank_account_id),
     amount: Number(tx.amount),
     transactionDate: fmtDate(tx.transaction_date),
     description: String(tx.description ?? tx.reference ?? ''),
@@ -206,19 +209,55 @@ export async function fetchJournalLineCandidates(
   txAmount: number,
   txDate: string,
   txDesc: string,
+  bankAccountId?: string,
 ): Promise<MatchCandidate[]> {
   const jlRows = (await sql`
-    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source
+    SELECT jl.id, jl.description, jl.debit, jl.credit, je.entry_date, je.source,
+      (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL
+        AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL))) AS undone,
+      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE AS own_bank
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
+    -- Three or more steps down the chain is never read as the live movement (an odd step is a reversal; fails closed).
+    LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}
       AND jl.company_id = ${companyId}::UUID
-      AND jl.id NOT IN (
-        SELECT matched_journal_line_id FROM bank_transactions
-        WHERE matched_journal_line_id IS NOT NULL AND company_id = ${companyId}
-      )
-    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC
+      -- Only a line that can be this statement line's bank leg: on its own bank, in its direction (money in debits
+      -- the bank, money out credits it — brk-nrfa round 21).
+      AND (${bankAccountId ?? null}::UUID IS NULL OR jl.gl_account_id = ${bankAccountId ?? null}::UUID)
+      AND SIGN(jl.debit - jl.credit) = SIGN(${txAmount}::NUMERIC)
+      -- A per-line index probe, not NOT IN: past hash_mem (about 210k matched lines) a NOT IN subplan scans the whole
+      -- list per candidate and the picker does not return (sec-nrfa round 27). OFFSET 0 keeps it a probe: pulled up into
+      -- an anti join, stale stats planned it as a nested loop over the company's whole matched set (204 s, brk round 28).
+      -- The company comes from jl (pinned to it above), not a constant: against a constant, stale stats scanned the
+      -- company's statement lines per candidate instead of probing uq_bank_tx_matched_line (80 s, sec-nrfa round 29).
+      AND NOT EXISTS (SELECT 1 FROM bank_transactions mb
+                      WHERE mb.matched_journal_line_id = jl.id AND mb.company_id = jl.company_id OFFSET 0)
+      -- A bank-first provisional's journal is held by its own line through provisional_je_id (confirm answers 409) —
+      -- read through the reversal chain, as confirm does: a re-reversed provisional's live head is held too (sec-nrfa
+      -- round 23, brk-nrfa round 24). Bounded and company-scoped like every walk here. The held set is computed ONCE,
+      -- walking DOWN from every held provisional (a journal is held iff its chain reaches one), and hashed for NOT IN:
+      -- a walk correlated to each candidate re-ran per bank line (6 s at 200k lines, sec-nrfa round 24 M1) or per
+      -- leg x journal under a low estimate (139 s for a new tenant, brk-nrfa round 25 M1). DISTINCT keeps the NOT IN
+      -- hashed whatever the held set's estimate (a plain SELECT spilled past hash_mem to a linear scan per candidate:
+      -- 16-40 s with thousands of held provisionals, sec-nrfa round 26 M1). Filtered on the line, not on je: on je the
+      -- planner could pair every unheld journal with every bank leg by a join filter (3-18 s, brk-nrfa round 27).
+      AND jl.journal_entry_id NOT IN (
+          WITH RECURSIVE held AS (
+            SELECT bp.provisional_je_id AS id, 0 AS d FROM bank_transactions bp
+            WHERE bp.provisional_je_id IS NOT NULL AND bp.company_id = ${companyId}::UUID
+            UNION ALL SELECT c.id, held.d + 1 FROM gl_journal_entries c JOIN held ON c.reversal_of_id = held.id
+              WHERE c.company_id = ${companyId}::UUID AND held.d < 64)
+          SELECT DISTINCT id FROM held)
+    -- Ties on the amount: a line on the statement line's own bank first (a transfer or payment journal's bank leg —
+    -- what the transfer guard's match remedy needs, however old: brk-nrfa rounds 16-17), then the nearest date
+    -- (computed only between finite dates: an 'infinity' date sorts last instead of failing the query — sec r16).
+    ORDER BY ABS((jl.debit - jl.credit) - ${txAmount}::NUMERIC) ASC,
+      (jl.gl_account_id = ${bankAccountId ?? null}::UUID) IS TRUE DESC,
+      CASE WHEN isfinite(je.entry_date) AND isfinite(${txDate}::DATE) THEN ABS(je.entry_date - ${txDate}::DATE) END
+        ASC NULLS LAST
     LIMIT 20
   `) as DbRow[];
 
@@ -226,17 +265,28 @@ export async function fetchJournalLineCandidates(
     const lineNet = Number(row.debit) - Number(row.credit);
     const label = String(row.description ?? 'Journal line');
     const candDate = fmtDate(row.entry_date);
-    const isTransfer = String(row.source || '') === 'auto_bank_transfer';
+    // A reversed transfer, or the reversal undoing one, is not a movement the statement line can be the other leg of.
+    // Only the leg on the statement line's own bank: the other bank's leg is that bank's movement, not this line's.
+    const isTransfer = String(row.source || '') === 'auto_bank_transfer' && row.undone !== true && row.own_bank === true;
     let score = scoreAmount(txAmount, lineNet) + scoreDate(txDate, candDate) + scoreDescription(txDesc, label);
     let matchReason: string | undefined = Math.abs(lineNet - txAmount) < 0.01 ? 'Exact amount match' : undefined;
-    if (isTransfer && Math.abs(lineNet - txAmount) < 0.01) {
+    // Only a transfer journal of the same movement (the transfer guard's ten days) is "the existing transfer": an old
+    // unmatched leg of the amount on this bank is an ordinary candidate, not the top one.
+    const gapDays = Math.abs(new Date(txDate).getTime() - new Date(candDate).getTime()) / 86400000;
+    const sameMovement = gapDays <= 10;
+    if (isTransfer && !sameMovement && gapDays <= 30 && Math.abs(lineNet - txAmount) < 0.01) {
+      // Past the guard's ten days nothing refuses a second posting, so a late-clearing leg is still named, lower.
+      score += 20;
+      matchReason = `May be an existing bank transfer journal (${Math.round(gapDays)} days apart) — check it before posting a new transfer`;
+    }
+    if (isTransfer && sameMovement && Math.abs(lineNet - txAmount) < 0.01) {
       // Surface the opposite leg of an inter-account transfer at the top — no
       // new JE must be posted, user should match against this existing one.
       score += 40;
       matchReason = 'Matches existing bank transfer journal — select to reconcile without posting a new entry';
     }
     return {
-      type: isTransfer ? ('bank_transfer' as const) : ('journal_line' as const),
+      type: isTransfer && gapDays <= 30 ? ('bank_transfer' as const) : ('journal_line' as const),
       id: String(row.id), label, amount: lineNet, date: candDate, score, matchReason,
     };
   });

@@ -193,11 +193,16 @@ describe.each([
       vi.mocked(withTransaction).mockImplementationOnce((fn) => fn(sql as never) as never);
       vi.mocked(reserveNextDocumentNumber).mockRejectedValueOnce(e);
     }],
-  ['bank-transfers POST (the journal transaction)', hBankTransfers as Handler, 'POST',
+  // Since 2026-10-08 the transfer posts through the journal funnel (bank/bankTransferService).
+  ['bank-transfers POST (the journal funnel)', hBankTransfers as Handler, 'POST',
     { fromAccountId: ID, toAccountId: '77777777-7777-4777-8777-777777777777', amount: 10 }, {},
     (e: Error) => {
-      vi.mocked(sql).mockResolvedValue([{ id: ID, account_name: 'a' }, { id: '77777777-7777-4777-8777-777777777777', account_name: 'b' }] as never);
-      vi.mocked(withTransaction).mockRejectedValueOnce(e);
+      // The session actor (not impersonating), the two accounts, then approval_enforcement (no row: not enforced).
+      vi.mocked(sql).mockResolvedValueOnce([{ session_id: 's1', impersonated: false }] as never)
+        .mockResolvedValueOnce([{ id: ID, account_name: 'a', account_subtype: 'bank' },
+        { id: '77777777-7777-4777-8777-777777777777', account_name: 'b', account_subtype: 'bank' }] as never)
+        .mockResolvedValue([] as never);
+      vi.mocked(createJournalEntry).mockRejectedValueOnce(e);
     }],
   ['recurring-invoices PUT (a plain UPDATE)', hRecurringInvoices2 as Handler, 'PUT', { id: ID }, {},
     (e: Error) => vi.mocked(sql).mockRejectedValueOnce(e)],

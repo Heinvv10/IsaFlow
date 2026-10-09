@@ -44,7 +44,7 @@ export const JOURNAL_SOURCE_KINDS: Record<GLEntrySource, JournalSourceKind> = {
   auto_loan_payment: 'entered',
   auto_expense_claim: 'entered',
   auto_expense_receipt: 'document',
-  auto_bank_transfer: 'document', // the bank line's amount (bankAllocationService)
+  auto_bank_transfer: 'document', // the bank line's amount (bankAllocationService) — only WITH a bank line, below
   auto_asset_disposal: 'entered',
   auto_asset_expense: 'entered', // the asset's cost; the capitalisation threshold is per company, not a cap under the floor
   auto_gl_import: 'entered',
@@ -57,7 +57,13 @@ export const DOCUMENT_POSTING_SOURCES: ReadonlySet<string> = new Set(
 );
 
 /** True only for a known source generated from a document; anything else —
- *  unknown, missing — is treated as keyed in, and tested. */
-export function isDocumentPosting(source: unknown): boolean {
+ *  unknown, missing — is treated as keyed in, and tested.
+ *  `auto_bank_transfer` is written by two paths: a bank line allocated as a
+ *  transfer (the line's amount: a document) and Banking > Transfers
+ *  (bankTransferService: an amount a person typed, no bank line). It is a
+ *  document posting only when a bank line points at it (`bankLineBacked`,
+ *  bank_transactions.transfer_journal_entry_id) — sec-nrfa M2, 2026-10-08. */
+export function isDocumentPosting(source: unknown, bankLineBacked = false): boolean {
+  if (source === 'auto_bank_transfer' && !bankLineBacked) return false;
   return typeof source === 'string' && DOCUMENT_POSTING_SOURCES.has(source);
 }
