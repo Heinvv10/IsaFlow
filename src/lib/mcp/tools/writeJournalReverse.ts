@@ -34,6 +34,8 @@ import { isDateAutoCreatable } from '@/modules/accounting/services/gl/journalEnt
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 import { refuseJournalCashOfCompletedReconciliation } from '@/modules/accounting/services/bank/reconciledCash';
+import { assertNotBankAllocationReversal } from '@/modules/accounting/services/bank/bankReversalGate';
+import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 
 const TOOL = 'reverse_journal_entry';
 
@@ -159,6 +161,14 @@ export const reverseJournalEntryTool: McpTool = {
     if (payrollRefusal) return toolError(payrollRefusal);
     // D12: a statement line matched to this entry and IN a completed bank reconciliation — thrown (a refusal code the
     // registry answers after its savepoint rolls back), the lines locked first; the dry run refuses it too.
+    // Step 2 (decision 4): under enforcement a bank allocation's journal is reversed from its bank line, where agents
+    // are refused — refused here too, before the dry run answers.
+    try {
+      await assertNotBankAllocationReversal(ctx.companyId, id);
+    } catch (err) {
+      if (err instanceof BankControlError) return toolError(err.message);
+      throw err;
+    }
     const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(ctx.companyId, id);
 
     if (args.dry_run === true) {

@@ -14,6 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { assertImporterMayMatch } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -108,6 +109,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     switch (body.action) {
       case 'match': {
+        await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write
         const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
         return apiResponse.success(res, tx);
       }
