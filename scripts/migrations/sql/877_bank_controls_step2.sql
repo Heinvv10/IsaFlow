@@ -97,20 +97,26 @@ CREATE TRIGGER bank_import_batch_kept
   BEFORE DELETE ON bank_import_batches
   FOR EACH ROW EXECUTE FUNCTION public.bank_import_batch_kept();
 
+-- A line's provenance — its import batch and its feed connection — is what it
+-- was written with, in both directions (breaker round 2, R2-3): a hand-keyed
+-- line GIVEN a colleague's batch, or any line re-pointed to a feed, would pass
+-- as evidence and escape the hand-keyed gate. Nothing in the application
+-- changes either column after INSERT (bankImportProvenanceCensus).
 CREATE OR REPLACE FUNCTION public.bank_transaction_batch_fixed() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  RAISE EXCEPTION 'bank_transactions: line %''s import batch is its provenance and cannot change', OLD.id
+  RAISE EXCEPTION 'bank_transactions: line %''s import batch and feed connection are its provenance and cannot change', OLD.id
     USING ERRCODE = '42501';
 END
 $$;
 
 DROP TRIGGER IF EXISTS bank_transaction_batch_fixed ON bank_transactions;
 CREATE TRIGGER bank_transaction_batch_fixed
-  BEFORE UPDATE OF import_batch_id ON bank_transactions
-  FOR EACH ROW WHEN (OLD.import_batch_id IS NOT NULL AND NEW.import_batch_id IS DISTINCT FROM OLD.import_batch_id)
+  BEFORE UPDATE OF import_batch_id, bank_feed_connection_id ON bank_transactions
+  FOR EACH ROW WHEN (NEW.import_batch_id IS DISTINCT FROM OLD.import_batch_id
+                     OR NEW.bank_feed_connection_id IS DISTINCT FROM OLD.bank_feed_connection_id)
   EXECUTE FUNCTION public.bank_transaction_batch_fixed();
 
 -- ── 2. What a rule is, and when a change to it needs approval ─────────────
@@ -133,15 +139,31 @@ $$;
 -- (breaker #684 REPRO 4). auto_apply ('fifo'/'none') is not a switch: it says
 -- how a supplier rule's cash is applied, so it is a posting target (gated below).
 -- Replaces 877's first, company-blind bank_rule_auto_posts(jsonb).
+-- The 3-argument form takes auto-post as given (asking "had auto-post been
+-- on"); the 2-argument form reads the company's setting. One definition.
 DROP FUNCTION IF EXISTS public.bank_rule_auto_posts(pg_catalog.jsonb);
+CREATE OR REPLACE FUNCTION public.bank_rule_posts_money(p_company_id pg_catalog.uuid, p pg_catalog.jsonb,
+  p_auto_post_on pg_catalog.bool)
+RETURNS pg_catalog.bool
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT p IS NOT NULL AND (p ->> 'is_active') = 'true' AND ((p ->> 'auto_create_entry') = 'true' OR p_auto_post_on)
+$$;
+
+CREATE OR REPLACE FUNCTION public.bank_rule_auto_post_on(p_company_id pg_catalog.uuid) RETURNS pg_catalog.bool
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.bank_auto_post_settings s WHERE s.company_id = p_company_id AND s.enabled)
+$$;
+
 CREATE OR REPLACE FUNCTION public.bank_rule_posts_money(p_company_id pg_catalog.uuid, p pg_catalog.jsonb)
 RETURNS pg_catalog.bool
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT p IS NOT NULL AND (p ->> 'is_active') = 'true'
-    AND ((p ->> 'auto_create_entry') = 'true'
-         OR EXISTS (SELECT 1 FROM public.bank_auto_post_settings s WHERE s.company_id = p_company_id AND s.enabled))
+  SELECT public.bank_rule_posts_money(p_company_id, p, public.bank_rule_auto_post_on(p_company_id))
 $$;
 
 -- Hein's decision 3: a change needs a different person's approval (under the
@@ -153,15 +175,24 @@ $$;
 -- rule that posts nothing (inactive, or suggest-only with auto-post off).
 DROP FUNCTION IF EXISTS public.bank_rule_change_needs_approval(pg_catalog.jsonb, pg_catalog.jsonb);
 CREATE OR REPLACE FUNCTION public.bank_rule_change_needs_approval(p_company_id pg_catalog.uuid, p_before pg_catalog.jsonb,
+  p_after pg_catalog.jsonb, p_auto_post_on pg_catalog.bool)
+RETURNS pg_catalog.bool
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT public.bank_rule_posts_money(p_company_id, p_after, p_auto_post_on) AND (
+    NOT public.bank_rule_posts_money(p_company_id, p_before, p_auto_post_on)
+    OR (p_before - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[])
+       IS DISTINCT FROM (p_after - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[]))
+$$;
+
+CREATE OR REPLACE FUNCTION public.bank_rule_change_needs_approval(p_company_id pg_catalog.uuid, p_before pg_catalog.jsonb,
   p_after pg_catalog.jsonb)
 RETURNS pg_catalog.bool
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT public.bank_rule_posts_money(p_company_id, p_after) AND (
-    NOT public.bank_rule_posts_money(p_company_id, p_before)
-    OR (p_before - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[])
-       IS DISTINCT FROM (p_after - ARRAY['rule_name', 'description_template', 'notes']::pg_catalog.text[]))
+  SELECT public.bank_rule_change_needs_approval(p_company_id, p_before, p_after, public.bank_rule_auto_post_on(p_company_id))
 $$;
 
 -- ── 3. The history ────────────────────────────────────────────────────────
@@ -717,6 +748,87 @@ BEGIN
   END IF;
   RETURN d.rule_id;
 END
+$$;
+
+-- ── 4b. Switching auto-post on (breaker round 2, R2-2b) ───────────────────
+-- With auto-post off a suggest-only rule posts nothing, so changing it needs
+-- nobody; switching auto-post back on would then make every such change post
+-- money without a second person ever seeing it. So switching it on is refused
+-- (autoPostSettingsService) while an ACTIVE rule differs from its state at the
+-- CUTOFF in a way that would have needed approval had auto-post been on, and
+-- someone other than the person switching it on made a change in between
+-- that nobody approved.
+--
+-- The cutoff is the later of when `bank_rule` was switched on and when
+-- auto-post was last switched OFF. That second time is kept by the table
+-- itself: bank_auto_post_settings.disabled_at, set only by this trigger, only
+-- on an on→off transition (a fresh row records none, so deleting and
+-- re-inserting the row can only move the cutoff EARLIER). The settings audit
+-- rows are not used: app_user can write those (the N1 boundary).
+ALTER TABLE bank_auto_post_settings ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+
+CREATE OR REPLACE FUNCTION public.bank_auto_post_disabled_at() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.disabled_at := NULL;
+  ELSIF OLD.enabled AND NOT NEW.enabled THEN
+    NEW.disabled_at := pg_catalog.now();
+  ELSE
+    NEW.disabled_at := OLD.disabled_at;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+DROP TRIGGER IF EXISTS bank_auto_post_disabled_at ON bank_auto_post_settings;
+CREATE TRIGGER bank_auto_post_disabled_at
+  BEFORE INSERT OR UPDATE ON bank_auto_post_settings
+  FOR EACH ROW EXECUTE FUNCTION public.bank_auto_post_disabled_at();
+
+CREATE OR REPLACE FUNCTION public.bank_rule_auto_post_cutoff(p_company_id pg_catalog.uuid) RETURNS pg_catalog.timestamptz
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT GREATEST(ae.enabled_at,
+           (SELECT s.disabled_at FROM public.bank_auto_post_settings s WHERE s.company_id = p_company_id))
+  FROM public.approval_enforcement ae WHERE ae.company_id = p_company_id AND ae.document_type = 'bank_rule'
+$$;
+
+-- The active rules that block switching auto-post on for `p_enabler`. A
+-- rule's state at the cutoff is the `after` of the last change that landed
+-- before it — else the `before` of the first after it (a rule older than its
+-- history) — else nothing (created since: a re-created rule is a creation).
+-- The whole span is judged, not the latest change, so a re-point followed by
+-- a rename still counts. Changes that landed: `applied` at proposed_at,
+-- `approved` at decided_at; only `applied` ones are unreviewed.
+CREATE OR REPLACE FUNCTION public.bank_rule_unreviewed_changes(p_company_id pg_catalog.uuid, p_enabler pg_catalog.text)
+RETURNS TABLE (rule_id pg_catalog.uuid, rule_name pg_catalog.text, changed_by pg_catalog.text[], last_changed_at pg_catalog.timestamptz)
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH cutoff AS (SELECT public.bank_rule_auto_post_cutoff(p_company_id) AS t),
+  landed AS (
+    SELECT s.rule_id, s.seq, s.before, s.after, s.status, s.proposed_by,
+           CASE WHEN s.status = 'approved' THEN s.decided_at ELSE s.proposed_at END AS at
+    FROM public.bank_rule_change_states s
+    WHERE s.company_id = p_company_id AND s.status IN ('applied', 'approved'))
+  SELECT r.id, r.rule_name::pg_catalog.text, x.who, x.last_at
+  FROM public.bank_categorisation_rules r
+  CROSS JOIN cutoff
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(
+      (SELECT l.after FROM landed l WHERE l.rule_id = r.id AND l.at < cutoff.t ORDER BY l.at DESC, l.seq DESC LIMIT 1),
+      (SELECT l.before FROM landed l WHERE l.rule_id = r.id AND l.at >= cutoff.t ORDER BY l.at, l.seq LIMIT 1)) AS p) b
+  CROSS JOIN LATERAL (
+    SELECT pg_catalog.array_agg(DISTINCT l.proposed_by ORDER BY l.proposed_by) AS who, pg_catalog.max(l.at) AS last_at
+    FROM landed l
+    WHERE l.rule_id = r.id AND l.at >= cutoff.t AND l.status = 'applied' AND l.proposed_by IS DISTINCT FROM p_enabler) x
+  WHERE r.company_id = p_company_id AND r.is_active AND cutoff.t IS NOT NULL AND x.who IS NOT NULL
+    AND public.bank_rule_change_needs_approval(p_company_id, b.p, public.bank_rule_projection(pg_catalog.to_jsonb(r)), true)
+  ORDER BY r.rule_name, r.id
 $$;
 
 -- ── 5. The switch ─────────────────────────────────────────────────────────

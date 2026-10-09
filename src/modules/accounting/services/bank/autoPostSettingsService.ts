@@ -24,6 +24,7 @@ import { bankControlRole } from '../gl/approvalEnforcement';
 import { mayWeakenAtLevel } from '../gl/approvalRuleGuards';
 import type { DocumentType } from '../gl/approvalService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
+import { assertNoUnreviewedRuleChanges, lockForAutoPostSettings } from './bankRuleAutoPostLock';
 
 type Row = DbRow;
 
@@ -181,6 +182,8 @@ async function assertMayWeaken(companyId: string, userId: string, weakened: stri
  * caller judges again against that row.
  */
 async function applyOnce(companyId: string, patch: AutoPostSettingsPatch, userId: string): Promise<AutoPostSettings | null> {
+  // Before the row lock, always: serialises with bank-rule writers (bankRuleAutoPostLock).
+  await lockForAutoPostSettings(companyId);
   const rows = (await sql`
     SELECT enabled, min_confidence, amount_cap, llm_enabled, llm_min_confidence, llm_amount_cap
     FROM bank_auto_post_settings WHERE company_id = ${companyId}::UUID
@@ -200,6 +203,8 @@ async function applyOnce(companyId: string, patch: AutoPostSettingsPatch, userId
   if (weakened.length > 0 && (types.length > 0 || bankRule)) {
     await assertMayWeaken(companyId, userId, weakened.map((f) => f.label), types, bankRule);
   }
+  // Switching auto-post on makes every active rule post money (877): not while one carries a change nobody approved.
+  if (bankRule && !before.enabled && after.enabled) await assertNoUnreviewedRuleChanges(companyId, userId);
 
   const written = exists
     ? (await sql`
