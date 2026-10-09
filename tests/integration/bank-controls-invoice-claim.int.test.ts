@@ -9,6 +9,7 @@
  * action per item with the reason. The sole approver on the admin floor passes.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { setLineBatchAsImported } from './bank-controls-a.helpers';
 import supplierInvoicesAction from '../../pages/api/accounting/supplier-invoices-action';
 import supplierInvoicesBulkAction from '../../pages/api/accounting/supplier-invoices-bulk-action';
 import {
@@ -47,7 +48,7 @@ async function importersBill(total: number): Promise<string> {
   const batch = (await pool.query(
     `INSERT INTO bank_import_batches(company_id, bank_account_id, statement_date, transaction_count, imported_by, import_channel)
      VALUES($1,$2,CURRENT_DATE,1,$3,'upload') RETURNING id`, [company, bankGl, user])).rows[0].id as string;
-  await pool.query('UPDATE bank_transactions SET import_batch_id = $2 WHERE id = $1', [bt, batch]);
+  await setLineBatchAsImported(pool, bt, batch);
   return seedInvoice({ documentId: doc, totalAmount: total });
 }
 const REASON = 'IMPORTER_MAY_NOT_ALLOCATE';

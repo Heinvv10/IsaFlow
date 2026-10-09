@@ -82,6 +82,26 @@ describe('REPRO 5 — import provenance cannot be shed', () => {
     expect(await outcome(pool.query('UPDATE bank_transactions SET description = $2 WHERE id = $1', [line, 'renamed']))).toBe('ok');
     expect(await outcome(pool.query('UPDATE bank_transactions SET import_batch_id = NULL WHERE id = $1', [keyed]))).toBe('ok');
   });
+
+  it('R2-3: a hand-keyed line cannot be GIVEN a batch, nor any line re-pointed to a feed; the gates still refuse', async () => {
+    const f = await bankCompany(pool, [[u.a, 'admin'], [u.b, 'admin']], companies);
+    await enforce(pool, f.c, u.b, ['manual_journal']);
+    await plantRule(pool, f.c, 'owner', { documentType: 'manual_journal', operator: 'any', value: 0 });
+    const keyed = await plantLine(pool, f, null);
+    const theirs = await plantBatch(pool, f, u.b);
+    const allocate = (line: string) => act(u.a, f.c, { action: 'allocate', bankTransactionId: line, allocationType: 'account',
+      contraAccountId: f.expA });
+    expect(await outcome(asApp(u.a, f.c, (db) => db.query('UPDATE bank_transactions SET import_batch_id = $2 WHERE id = $1', [keyed, theirs]))))
+      .toMatch(/^42501: .*feed connection are its provenance/);
+    expect((await allocate(keyed)).state.statusCode).toBe(409);
+    const imported = await plantLine(pool, f, await plantBatch(pool, f, u.a));
+    const feed = (await pool.query(
+      "INSERT INTO bank_feed_connections(company_id, bank_account_id, provider, status) VALUES($1,$2,'extension','active') RETURNING id",
+      [f.c, f.bank])).rows[0].id;
+    expect(await outcome(asApp(u.a, f.c, (db) => db.query('UPDATE bank_transactions SET bank_feed_connection_id = $2 WHERE id = $1',
+      [imported, feed])))).toMatch(/^42501/);
+    expect(refusalOf(await allocate(imported))).toMatchObject({ status: 403, reason: 'IMPORTER_MAY_NOT_ALLOCATE' });
+  });
 });
 
 describe('REPRO 6 — the raised approver role, in SQL too', () => {

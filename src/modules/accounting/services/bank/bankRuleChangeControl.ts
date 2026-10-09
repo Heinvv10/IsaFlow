@@ -20,6 +20,7 @@ import { isEnforced } from '../gl/approvalEnforcement';
 import { BANK_RULE } from '../gl/approvalRuleOptions';
 import { BankControlError } from './bankControlRefusal';
 import { lockRuleProjection } from './bankRuleChangeQueries';
+import { lockForRuleWrite } from './bankRuleAutoPostLock';
 
 /** A rule as 877 projects it: every column but its identity and bookkeeping (snake_case). */
 export type RuleProjection = Record<string, unknown>;
@@ -78,6 +79,7 @@ async function hold(companyId: string, ruleId: string | null, kind: 'create' | '
 
 /** Creates a rule, or holds the creation when it would auto-post under the switch. */
 export async function writeNewRule(companyId: string, cols: NewRuleColumns, userId: string): Promise<RuleWrite> {
+  await lockForRuleWrite(companyId);
   const { after, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
@@ -101,6 +103,7 @@ export async function writeNewRule(companyId: string, cols: NewRuleColumns, user
  * `Rule <id> not found` (as updateRule always has) for a rule not in the company.
  */
 export async function writeRuleChange(companyId: string, ruleId: string, patch: RulePatch, userId: string): Promise<RuleWrite> {
+  await lockForRuleWrite(companyId);
   const before = await lockRuleProjection(companyId, ruleId);
   if (!before) throw new Error(`Rule ${ruleId} not found`);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
@@ -154,6 +157,7 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
   userId: string): Promise<{ created: number; held: number }> {
   if (rules.length === 0) return { created: 0, held: 0 };
   return withSavepoint('bank_rules_seed', async () => {
+    await lockForRuleWrite(companyId);
     const afters = rules.map((r) => ({ ...RULE_DEFAULTS, rule_name: r.ruleName, match_field: 'description', match_type: 'contains',
       match_pattern: r.pattern, gl_account_id: r.glAccountId, supplier_id: null, client_id: null, description_template: null,
       priority: 100, auto_create_entry: false, vat_code: 'none', auto_apply: 'fifo' }));
@@ -200,6 +204,7 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
  * refuse it mid-merge. Called before the merge's first write.
  */
 export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId: string, targetId: string): Promise<void> {
+  await lockForRuleWrite(companyId);
   const rules = (await tx`
     SELECT r.rule_name, public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
     FROM bank_categorisation_rules r

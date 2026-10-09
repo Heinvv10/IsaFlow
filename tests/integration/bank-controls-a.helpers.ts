@@ -127,3 +127,18 @@ export async function cleanupBankControlsA(pool: Pool, companies: string[], user
   await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = ANY($1)', [companies]);
   await cleanupPr6(pool, companies, users);
 }
+
+/**
+ * Gives a planted line the batch an import would have written it with. 877
+ * fixes a line's provenance once written (any UPDATE of import_batch_id is
+ * refused), so a fixture that seeds the line first sets it with triggers off.
+ */
+export async function setLineBatchAsImported(pool: Pool, line: string, batch: string): Promise<void> {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await db.query('SET LOCAL session_replication_role = replica');
+    await db.query('UPDATE bank_transactions SET import_batch_id = $2 WHERE id = $1', [line, batch]);
+    await db.query('COMMIT');
+  } finally { db.release(); }
+}
