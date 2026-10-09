@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyMigrationParity,
+  HISTORIC_PROD_ORPHANS,
   type ParityFile,
   type ParityRow,
 } from '../../../scripts/lib/migrationParity';
@@ -36,6 +37,15 @@ describe('classifyMigrationParity', () => {
     expect(rules(r)).toEqual(['PROD_AHEAD:872_ghost.sql']);
     expect(r.findings[0]!.severity).toBe('FAIL');
     expect(r.ok).toBe(false);
+  });
+
+  it('PROD_AHEAD: the 13 historic renamed/deleted prod rows are allowlisted, counted, not failed', () => {
+    const orphans = [...HISTORIC_PROD_ORPHANS].map((name) => ({ name, checksum: 'x' }));
+    expect(orphans).toHaveLength(13);
+    const r = classifyMigrationParity([A], [row(A)], [row(A), ...orphans], { applyDev: false });
+    expect(r.findings).toEqual([]);
+    expect(r.ignoredOrphans).toBe(13);
+    expect(r.ok).toBe(true);
   });
 
   // Rule b

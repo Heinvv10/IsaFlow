@@ -35,8 +35,34 @@ export interface ParityResult {
   devMissing: string[];
   /** Old files on prod but untracked on dev (the historical gap). */
   ignoredHistoric: number;
+  /** Allowlisted historic prod rows with no repo file. */
+  ignoredOrphans: number;
   ok: boolean;
 }
+
+/**
+ * Prod tracking rows whose files were renamed or deleted from the repo long ago
+ * (BL-95..BL-102 duplicate-prefix renames, 245_inventory.sql removal, etc.).
+ * Measured against prod on 2026-10-09: exactly these 13 rows have no repo file.
+ * The code is not behind prod's schema for them, so they must not trip
+ * PROD_AHEAD. Any OTHER orphan row still fails; do not add to this list to
+ * silence a real PROD_AHEAD.
+ */
+export const HISTORIC_PROD_ORPHANS: ReadonlySet<string> = new Set([
+  '245_inventory.sql',
+  '246_purchase_orders.sql',
+  '250_vlm_extraction.sql',
+  '251_projects.sql',
+  '255_migration_wizard.sql',
+  '265_vat_period_alignment.sql',
+  '266_admin_platform_company_user_ext.sql',
+  '292_product_categories_company_id.sql',
+  '300_webhooks.sql',
+  '347_auto_posting_foundation',
+  '397_uif_declarations.sql',
+  '431_waitlist_signups.sql',
+  '462_bank_transfer_allocation.sql',
+]);
 
 const DIR = 'scripts/migrations/sql';
 const short = (s: string | null): string => (s ?? 'null').slice(0, 8);
@@ -58,9 +84,12 @@ export function classifyMigrationParity(
   const findings: ParityFinding[] = [];
   const devMissingFiles: ParityFile[] = [];
   let ignoredHistoric = 0;
+  let ignoredOrphans = 0;
 
   for (const p of prodRows) {
-    if (!fileByName.has(p.name)) {
+    if (!fileByName.has(p.name) && HISTORIC_PROD_ORPHANS.has(p.name)) {
+      ignoredOrphans += 1;
+    } else if (!fileByName.has(p.name)) {
       findings.push({
         rule: 'PROD_AHEAD',
         name: p.name,
@@ -120,6 +149,7 @@ export function classifyMigrationParity(
     findings,
     devMissing: devMissingFiles.map((f) => f.name),
     ignoredHistoric,
+    ignoredOrphans,
     ok: findings.every((x) => x.severity !== 'FAIL'),
   };
 }
