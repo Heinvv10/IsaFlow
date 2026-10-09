@@ -12,6 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
@@ -60,10 +61,9 @@ export default function NewCustomerInvoicePage() {
   };
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
-  const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
-  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
-  const tax = subtotal * (form.taxRate / 100);
-  const total = subtotal + tax;
+  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
+  const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
+  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;

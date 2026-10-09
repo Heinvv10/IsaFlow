@@ -17,6 +17,7 @@ import { useState } from 'react';
 import { Plus, Trash2, SlidersHorizontal, Tags } from 'lucide-react';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
 import type { CodingOption, InvoiceLineCodingOptions } from './useInvoiceLineCodingOptions';
+import { discountInput } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
 export interface InvoiceLine {
   key: string;
@@ -131,7 +132,7 @@ export function InvoiceLineItemsTable({
               {showDimensions && <td className="px-3 py-2"><CodingPicker label="BU" value={l.buId} options={options.bus} all={options} empty="No BU" onChange={(v) => onUpdate(l.key, 'buId', v)} /></td>}
               <td className="px-3 py-2"><input type="number" name="quantity" aria-label="Quantity" value={l.quantity} onChange={(e) => onUpdate(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
               <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
-              {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.1} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="0" className={`${inp} text-right`} /></td>}
+              {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value)))} placeholder="0" className={`${inp} text-right`} /></td>}
               <td className="px-4 py-2 text-right">
                 <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>
                 {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-600 dark:text-teal-400 font-medium">-{l.discount}%</span>}
