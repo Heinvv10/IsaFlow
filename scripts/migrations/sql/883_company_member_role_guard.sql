@@ -67,7 +67,11 @@
 --     AND accepted_at IS NULL AND expires_at > now();
 -- The count reads with row_security off, so a migration role that RLS would
 -- filter (not superuser, not BYPASSRLS) fails here instead of seeing none; it
--- first locks out writers, so one in flight is waited for and counted. Once
+-- first locks out writers, so one in flight is waited for and counted. That
+-- lock order (invitations, then members for the trigger) is the reverse of an
+-- invite acceptance's, so an acceptance in flight at that instant can deadlock
+-- with it: one side is cancelled — the invitee retries, or the deploy aborts
+-- cleanly and re-runs (adversarial review of PR #691, round 4, L8). Once
 -- applied, re-running this file by hand (a checksum repair) refuses while an
 -- owner's own owner invitation is pending — the normal runner never re-runs it.
 -- LIMIT: owner MEMBERSHIPS an admin granted, and owner invitations already
