@@ -18,9 +18,9 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
+import { invoiceRevenueJournalLines } from './invoiceRevenuePosting';
 import { assertDocumentPostable } from '../shared/documentCurrency';
-import { buildRevenueLines, parseRevenueItems } from './customerInvoiceRevenueLines';
-import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
+import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
 
 type Row = DbRow;
 
@@ -39,12 +39,8 @@ export async function postCustomerInvoiceToGL(
   opts?: PostingActorOpts & { historicalImport?: boolean; approvingFromStatus?: string },
 ): Promise<string> {
   try {
-    // The customer's FNO and the items' dimensions ride on the same read (customerInvoiceRevenueLines.ts).
     const invRows = (await sql`
-      SELECT ci.*, c.name AS client_name, c.default_cc1_id::TEXT AS customer_fno_id,
-        (SELECT json_agg(json_build_object('amount', cii.amount, 'cc1_id', cii.cc1_id,
-                 'cc2_id', cii.cc2_id, 'bu_id', cii.bu_id) ORDER BY cii.created_at, cii.id)
-           FROM customer_invoice_items cii WHERE cii.invoice_id = ci.id) AS dim_items
+      SELECT ci.*, c.name AS client_name
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.id = ${invoiceId}::UUID AND ci.company_id = ${companyId}::UUID
@@ -80,12 +76,6 @@ export async function postCustomerInvoiceToGL(
     // FX PR0: until functional posting lands, a foreign invoice would post its
     // document figures as rands. Refused before any write; the DB gate agrees.
     await assertDocumentPostable(companyId, [inv.currency_code], 'invoice');
-    // What posts is what is stored (and approved). Approving a draft refuses a
-    // row saved before its customer's FNO, or its project's, existed; one
-    // already approved posts as stored (dimensionStoredPosting).
-    const revenueItems = parseRevenueItems(inv.dim_items);
-    await assertPostsStoredDimensions(companyId, opts?.approvingFromStatus ?? String(inv.status), revenueItems,
-      (i) => `Invoice ${String(inv.invoice_number)} line ${i + 1}`, inv.customer_fno_id ? String(inv.customer_fno_id) : null);
 
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
@@ -94,11 +84,11 @@ export async function postCustomerInvoiceToGL(
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,
         description: `AR: ${inv.invoice_number}` },
-      // One revenue line per distinct CC1/CC2/BU (one line, as before, when none is named).
-      ...buildRevenueLines({
-        revenueAccountId: revenueAccount.id, subtotal: Number(inv.subtotal), invoiceNumber: String(inv.invoice_number),
-        items: revenueItems,
-      }),
+      // What posts is what is stored (and approved): approving refuses a line saved before its customer's
+      // FNO, or its project's, existed; one already approved posts as stored (dimensionStoredPosting).
+      ...(await invoiceRevenueJournalLines(companyId, invoiceId, {
+        number: String(inv.invoice_number), documentSubtotal: Number(inv.subtotal), credit: Number(inv.subtotal),
+      }, revenueAccount.id, opts?.approvingFromStatus ?? String(inv.status))),
     ];
 
     if (Number(inv.tax_amount) > 0) {

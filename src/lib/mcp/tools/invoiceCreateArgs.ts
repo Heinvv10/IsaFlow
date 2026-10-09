@@ -62,23 +62,6 @@ export interface ParsedSupplierInvoice {
   dimensionRefs: (DimensionRefs | undefined)[];
 }
 
-export interface ParsedCustomerInvoiceLine {
-  description: string;
-  quantity?: number;
-  unitPrice: number;
-}
-
-export interface ParsedCustomerInvoice {
-  customerId: string;
-  items: ParsedCustomerInvoiceLine[];
-  invoiceDate: string | undefined;
-  dueDate: string | undefined;
-  taxRate: number | undefined;
-  notes: string | undefined;
-  /** Per item, the cc1/cc2/bu as typed (undefined where none). */
-  dimensionRefs: (DimensionRefs | undefined)[];
-}
-
 /**
  * Parse and validate every supplier-invoice line BEFORE any ownership query or
  * write.
@@ -193,74 +176,5 @@ export function parseSupplierInvoiceInput(
     items: parsed.items,
     accountIds: parsed.accountIds,
     dimensionRefs: parsed.dimensionRefs,
-  };
-}
-
-/** Parse one customer-invoice payload. Returns the refusal MESSAGE on failure. */
-export function parseCustomerInvoiceInput(
-  args: Record<string, unknown>,
-): ParsedCustomerInvoice | string {
-  const bad = castableArgError(args, {
-    uuid: ['customer_id'],
-    date: ['invoice_date', 'due_date'],
-  });
-  if (bad) return bad;
-
-  const customerId = strArg(args, 'customer_id');
-  if (!customerId) return 'customer_id is required';
-
-  const raw = args.items;
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return 'items must be a non-empty array of {description, unit_price, quantity?}';
-  }
-  if (raw.length > MAX_LINES) {
-    return `too many items (${raw.length}); the maximum is ${MAX_LINES}`;
-  }
-
-  const items: ParsedCustomerInvoiceLine[] = [];
-  const dimensionRefs: (DimensionRefs | undefined)[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const line = raw[i];
-    if (typeof line !== 'object' || line === null || Array.isArray(line)) {
-      return `items[${i}] must be an object`;
-    }
-    const o = line as Record<string, unknown>;
-    const description = typeof o.description === 'string' ? o.description.trim() : '';
-    if (!description) return `items[${i}].description is required`;
-    // Bounds, not just finiteness — the supplier arm above checks them and so
-    // does `createDraftCustomerInvoice` ("Line unit prices cannot be negative").
-    // The service throwing is what stops a negative invoice being created; this
-    // is about WHERE the refusal lands. Answered here it names the element and
-    // the line, before the first INSERT; left to the service it surfaces
-    // mid-batch, after a bulk create has already written the elements above it
-    // and has to discard them.
-    const unitPrice = Number(o.unit_price);
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      return `items[${i}].unit_price must be a non-negative number`;
-    }
-    const quantity = o.quantity === undefined ? 1 : Number(o.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return `items[${i}].quantity must be a positive number`;
-    }
-    const dims = parseDimensionRefs(o, `items[${i}]`);
-    if (typeof dims === 'string') return dims;
-    dimensionRefs.push(dims);
-    items.push({ description, unitPrice, quantity });
-  }
-
-  let taxRate: number | undefined;
-  if (args.tax_rate !== undefined && args.tax_rate !== null) {
-    taxRate = Number(args.tax_rate);
-    if (!Number.isFinite(taxRate) || taxRate < 0) return 'tax_rate must be a non-negative number';
-  }
-
-  return {
-    customerId,
-    items,
-    invoiceDate: strArg(args, 'invoice_date'),
-    dueDate: strArg(args, 'due_date'),
-    taxRate,
-    notes: strArg(args, 'notes'),
-    dimensionRefs,
   };
 }
