@@ -1,0 +1,143 @@
+/**
+ * R-035 N1b (C, migration 882): who writes company_users and
+ * company_invitations, census by TABLE over the source tree on disk.
+ *
+ * 882's guards judge two roles — app_user (withAuth requests) and
+ * platform_admin (the admin portal) — and let every other role through: the
+ * owners, migration_admin (invite accept, tenant provisioning), the deploy
+ * role and the seed scripts. So a NEW writer is a new answer to "which role
+ * does this write as, and is that the rule the app means?" — it fails here
+ * until someone classifies it. Each pinned writer below was read (PR C
+ * census, W1–W18).
+ *
+ * Migrations: every migration but 882 is judged for anything that would turn
+ * the guards off or hand a write back — a trigger dropped, disabled or
+ * altered; a guard function redefined, altered or dropped; any ALTER of
+ * either table; a table grant on either; ALL TABLES grants; a role grant to
+ * app_user or platform_admin. The ones before 882 are pinned by name.
+ */
+import { describe, expect, it } from 'vitest';
+import path from 'node:path';
+import { sourceFiles, stripComments, type SourceFile } from '../../helpers/sourceCensus';
+
+const MIGRATIONS = 'scripts/migrations/sql/';
+const OWN = '882_company_member_role_guard.sql';
+const TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?company_(?:users|invitations)"?\b`;
+const WRITE = [
+  new RegExp(String.raw`\b(?:insert\s+into|update|delete\s+from|merge\s+into)\s+${TABLE}`, 'i'),
+  /\btruncate\b[^;]*?\bcompany_(?:users|invitations)\b/i,
+];
+const LOCK = /\bfor\s+(?:no\s+key\s+update|key\s+share|update|share)\b/i;
+const QUOTED = /['"`]company_(?:users|invitations)['"`]/;
+
+export function violations(text: string, file = 'x.ts'): string[] {
+  const code = stripComments(text, file);
+  const out: string[] = [];
+  if (WRITE.some((re) => re.test(code))) out.push('writes');
+  if (QUOTED.test(code)) out.push('names as a string');
+  for (const chunk of code.split(/`/)) {
+    if (/\bcompany_(?:users|invitations)\b/i.test(chunk) && LOCK.test(chunk)) out.push('locks');
+  }
+  return [...new Set(out)];
+}
+
+const GUARD_OFF = [
+  /\b(?:drop|alter)\s+trigger\b[^;]*\bcompany_(?:users|invitations)_role_guard\b/i,
+  /\b(?:create\s+(?:or\s+replace\s+)?|alter\s+|drop\s+)function\s+(?:if\s+exists\s+)?(?:"?public"?\.)?"?(?:company_users_role_guard|company_invitations_role_guard|company_member_actor_role)\b/i,
+  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\.)?"?company_(?:users|invitations)"?\b/i,
+];
+const GRANTED = [
+  /\bgrant\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:"?public"?\.)?"?company_(?:users|invitations)\b[^;]*\bto\b/i,
+  /\bgrant\b[^;]*\bon\s+all\s+tables\s+in\s+schema\s+"?public"?/i,
+  /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\b(?:app_user|platform_admin)\b/i,
+];
+
+export function migrationViolations(text: string): string[] {
+  const code = stripComments(text, 'm.sql');
+  const out: string[] = [];
+  if (GUARD_OFF.some((re) => re.test(code))) out.push('alters');
+  if (GRANTED.some((re) => re.test(code))) out.push('grants');
+  return out;
+}
+
+/** Every app writer, each read (PR C census; the role it writes as decides which rules apply). */
+const KNOWN_WRITERS = [
+  'pages/api/invitations/[token]/accept.ts: writes', // W9 invite accept — migration_admin pool, invitation's role
+  'pages/api/invitations/index.ts: writes', // W7 second invitation system — app_user
+  'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
+  'pages/api/invite/[token].ts: writes', // W10 /invite accept — the login role, invitation's role
+  'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
+  'scripts/large-scale-seed.ts: writes', // W18 seed — postgres
+  'scripts/provision-isademo2.ts: writes', // W18 demo provisioning — postgres
+  'scripts/qa-check-demo-db.ts: names as a string', // read-only table list
+  'scripts/qa-cleanup-run.ts: names as a string', // W18 QA cleanup by company — postgres
+  'scripts/stress-test.ts: writes', // W18 stress seed — postgres
+  'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
+  'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
+  'src/modules/admin/services/adminUserActionsService.ts: writes', // W11–W14 — platform_admin
+  'src/modules/onboarding/services/tenantProvisioningService.ts: writes', // W15 — migration_admin pool
+];
+
+/** Before 882, each read: 260 and 350 add invitation columns; 348 enables RLS and grants app_user; 352 grants platform_admin. */
+const KNOWN_MIGRATIONS: Record<string, string[]> = {
+  '260_invitation_email_tracking.sql': ['alters'],
+  '348_rls_and_auth_helpers.sql': ['alters', 'grants'],
+  '350_invitations_gotrue_link.sql': ['alters'],
+  '352_platform_admin_role.sql': ['grants'],
+};
+
+const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
+const isMigration = (file: string) => file.startsWith(MIGRATIONS) && file.endsWith('.sql');
+
+describe('company_users / company_invitations writers (census by table)', () => {
+  it('reads what it claims', () => {
+    expect(all().length).toBeGreaterThan(3000);
+    expect(all().some((f) => f.file === 'src/modules/accounting/services/core/userAccessService.ts')).toBe(true);
+  });
+
+  it('every app writer is one of the classified ones', () => {
+    const found = all()
+      .filter(({ file }) => !isMigration(file))
+      .flatMap(({ file, text }) => violations(text, file).map((why) => `${file}: ${why}`))
+      .sort();
+    expect(found).toEqual([...KNOWN_WRITERS].sort());
+  });
+
+  it('no migration but 882 and the pinned earlier ones turns the guards off or grants a write', () => {
+    const found = Object.fromEntries(all()
+      .filter(({ file }) => isMigration(file) && path.basename(file) !== OWN)
+      .map(({ file, text }) => [path.basename(file), migrationViolations(text)] as const)
+      .filter(([, why]) => why.length > 0));
+    expect(found).toEqual(KNOWN_MIGRATIONS);
+  });
+});
+
+describe('the census detects (counterexamples)', () => {
+  it.each([
+    ['an UPDATE of a role', "sql`UPDATE company_users SET role = 'owner' WHERE user_id = ${u}`", 'writes'],
+    ['a quoted, qualified INSERT', 'sql`INSERT INTO "public"."company_invitations" (role) VALUES (${r})`', 'writes'],
+    ['a TRUNCATE of a list', "pool.query('TRUNCATE companies, company_users')", 'writes'],
+    ['a lock', 'sql`SELECT 1 FROM company_users WHERE id = ${i} FOR UPDATE`', 'locks'],
+    ['a dynamic name', "for (const t of ['company_users']) await sql.unsafe(`DELETE FROM ${t}`)", 'names as a string'],
+  ])('%s', (_label, text, why) => {
+    expect(violations(text)).toContain(why);
+  });
+
+  it.each([
+    'DROP TRIGGER company_users_role_guard ON company_users;',
+    'ALTER TABLE company_users DISABLE TRIGGER company_users_role_guard;',
+    'ALTER TABLE public.company_invitations DISABLE TRIGGER ALL;',
+    'CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger AS $$ BEGIN RETURN NEW; END $$ LANGUAGE plpgsql;',
+    'ALTER FUNCTION company_member_actor_role(uuid) SECURITY DEFINER;',
+    'GRANT TRUNCATE ON company_users TO app_user;',
+    'GRANT INSERT ON public.company_invitations TO anon;',
+    'GRANT ALL ON ALL TABLES IN SCHEMA public TO app_user;',
+    'GRANT migration_admin TO platform_admin;',
+  ])('a later migration: %s', (stmt) => {
+    expect(migrationViolations(stmt)).not.toEqual([]);
+  });
+
+  it('and passes a read-only migration', () => {
+    expect(migrationViolations('SELECT role FROM company_users WHERE false;')).toEqual([]);
+  });
+});
