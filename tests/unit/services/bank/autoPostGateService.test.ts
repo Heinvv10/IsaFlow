@@ -330,8 +330,9 @@ describe('sweep', () => {
     ]);
     (postProvisional as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-9', prediction: {} });
 
-    const r = await sweep('co-1', ['t1'], 'import', 'u-1');
-    expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9 });
+    const r = await sweep('co-1', ['t1'], 'import', 'u-1', 'importer-1');
+    // Step 2: posted as the sweep's user, judged for the person who triggered it (the import's importer).
+    expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9, triggeredBy: 'importer-1' });
     expect(r.posted).toBe(1);
   });
 });

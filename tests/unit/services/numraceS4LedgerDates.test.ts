@@ -70,6 +70,7 @@ describe('OCR statement import', () => {
   });
 
   it('commit skips a stored row dated outside the window', async () => {
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (step 2: one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow([row('0001-06-01', 'ancient'), row('2026-03-05', 'modern')])]);
     sqlMock.mockResolvedValue([]);
     const out = await commitImport(CO, IMPORT, USER);

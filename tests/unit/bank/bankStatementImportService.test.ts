@@ -56,7 +56,7 @@ const baseArgs = {
   fileType: 'ofx' as const,
   content: '<OFX>…</OFX>',
   statementDate: '2026-04-30',
-  importedBy: 'mcp:import_bank_statement:v1',
+  provenance: { importedBy: 'user-1', importChannel: 'mcp' as const, fileSha256: 'a'.repeat(64) },
 };
 
 beforeEach(() => {
@@ -121,10 +121,11 @@ describe('importStatementForAgent', () => {
 
     const opts = vi.mocked(importParsedTransactions).mock.calls[0]![4] as {
       skipPostImportEffects?: boolean;
-      importedBy?: string;
+      importedBy?: string; importChannel?: string; fileSha256?: string;
     };
     expect(opts.skipPostImportEffects).toBe(true);
-    expect(opts.importedBy).toBe('mcp:import_bank_statement:v1');
+    // Step 2: the provenance passes through whole — the token's user, the channel, the content's hash.
+    expect(opts).toMatchObject({ importedBy: 'user-1', importChannel: 'mcp', fileSha256: 'a'.repeat(64) });
   });
 
   it('matches a stored negative half-cent amount instead of re-importing it forever', async () => {
@@ -251,8 +252,7 @@ describe('undoImportBatch', () => {
     expect(res).toBeNull();
     expect(deleteTransactions).not.toHaveBeenCalled();
     const batchQuery = (vi.mocked(sql).mock.calls[0]![0] as unknown as string[]).join('?');
-    expect(batchQuery).toContain('imported_by');
-    expect(batchQuery).toContain('mcp:%');
+    expect(batchQuery).toContain("import_channel = 'mcp' OR imported_by LIKE 'mcp:%'");
   });
 });
 

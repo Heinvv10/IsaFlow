@@ -37,6 +37,7 @@ import {
 } from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import type { ImportProvenance } from './importProvenance';
 
 export interface AgentImportArgs {
   companyId: string;
@@ -46,7 +47,7 @@ export interface AgentImportArgs {
   statementDate: string;
   bankFormat?: BankFormat;
   dryRun?: boolean;
-  importedBy?: string;
+  provenance?: ImportProvenance; // who (the token's user), the channel, the content's hash
   sourceFilename?: string;
 }
 
@@ -229,7 +230,7 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
     args.bankAccountId,
     args.statementDate,
     {
-      importedBy: args.importedBy,
+      ...args.provenance,
       sourceFilename: args.sourceFilename,
       // Insert only: no posting, and no touching rows this import did not
       // create. See the option's own comment in bankImportService.
@@ -274,7 +275,7 @@ export async function undoImportBatch(
     SELECT id FROM bank_import_batches
     WHERE id = ${batchId}::UUID
       AND company_id = ${companyId}::UUID
-      AND imported_by LIKE 'mcp:%'
+      AND (import_channel = 'mcp' OR imported_by LIKE 'mcp:%') -- step 2: the token's user is recorded; legacy rows say mcp:*
     LIMIT 1
   `) as Array<{ id: string }>;
   if (batch.length === 0) return null;

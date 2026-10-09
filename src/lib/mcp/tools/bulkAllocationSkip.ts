@@ -21,6 +21,7 @@
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import { importerArmOf, importerHeldLineSkips } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
   applyRouteFor,
@@ -120,6 +121,8 @@ export interface Partitioned {
 export async function partitionAllocationLines(
   companyId: string,
   resolved: readonly ResolvedLine[],
+  /** The token's user: a line of a statement they imported is skipped on an enforced arm (step 2). */
+  actorUserId: string,
 ): Promise<Partitioned> {
   // ONE query for the whole batch. Per-line reads would be 500 round trips
   // inside a request that is about to take 500 row locks.
@@ -158,6 +161,14 @@ export async function partitionAllocationLines(
   // and the dry run reports it the same way.
   const held = await handKeyedAccountLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
     .map(({ line, amount }) => ({ txId: line.txId, amount })));
+  // Step 2 (Hein, decision 2): a line the token's user imported, on an arm whose type is enforced — account and
+  // supplier outflow (and transfer, which allocateTransaction gates the same way) — is refused by allocateTransaction
+  // before it writes; skipped here instead, for the same reason as above.
+  const importerHeld = await importerHeldLineSkips(companyId, actorUserId, candidates.flatMap(({ line, signed }) => {
+    const arm = importerArmOf(line.line.allocType, line.line.entityId, signed);
+    return arm ? [{ txId: line.txId, arm }] : [];
+  }));
+  for (const [txId, reason] of importerHeld) if (!held.has(txId)) held.set(txId, reason);
   for (const { line } of candidates) {
     const reason = held.get(line.txId);
     if (reason) skipped.push({ index: line.index, transaction_id: line.txId, reason });

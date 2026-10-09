@@ -8,6 +8,7 @@
  * already stamps mcp:* and is reversible.
  */
 
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/modules/accounting/services/bank/bankStatementImportService', () => ({
@@ -75,11 +76,14 @@ describe('import_bank_statement', () => {
     expect(importStatementForAgent).not.toHaveBeenCalled();
   });
 
-  it('stamps the import so it is attributable to the agent', async () => {
+  it('records the token\'s user as the importer, channel mcp, and the SHA-256 of the content (step 2)', async () => {
     await importBankStatementTool.handler(validArgs, ctx);
 
     const call = vi.mocked(importStatementForAgent).mock.calls[0]![0];
-    expect(call.importedBy).toBe('mcp:import_bank_statement:v1');
+    expect(call.provenance).toEqual({
+      importedBy: 'user-1', importChannel: 'mcp',
+      fileSha256: createHash('sha256').update(Buffer.from('<OFX>…</OFX>', 'utf8')).digest('hex'),
+    });
   });
 
   it('rejects an unsupported file_type rather than guessing a parser', async () => {
