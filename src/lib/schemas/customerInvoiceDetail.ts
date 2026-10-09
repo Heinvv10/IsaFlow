@@ -5,15 +5,17 @@
  */
 import { z } from 'zod';
 import { UUID, ISODate } from '@/lib/schemas/common';
+import { isDiscountPercent } from '@/modules/accounting/services/ar/invoiceLineAmount';
 
 export const GetQuerySchema = z.object({ id: UUID });
 
 export const PutItemSchema = z.object({
   description: z.string().min(1).max(500),
-  quantity: z.number().positive(),
-  unitPrice: z.number().nonnegative(),
+  // Within their columns (quantity numeric(10,2) and at least 0.01 once stored; unit_price numeric(15,2)), as create checks them.
+  quantity: z.number().gte(0.005).lt(1e8),
+  unitPrice: z.number().nonnegative().lt(1e13),
   taxRate: z.number().min(0).max(100).optional(),
-  discount: z.number().min(0).max(100).optional(),
+  discount: z.number().refine(isDiscountPercent, 'discount must be from 0 to 100, to at most two decimal places').optional(),
   // Migration 874: the account the line credits and its job. Shape only —
   // ownership and the revenue-account rules are invoiceLineCodingGuard's.
   glAccountId: UUID.nullable().optional(),
