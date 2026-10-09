@@ -35,6 +35,8 @@ export function reversalGateOpen() {
     agentReversalRefusal: vi.fn(async () => null),
     assertMayUndoRun: vi.fn(async () => null),
     auditRunUndo: vi.fn(async () => undefined),
-    assertNotBankAllocationReversal: vi.fn(async () => undefined),
+    // The GL reversal entrance stays the D12 lock (whatever the test made of reconciledCash), minus the step-2 gate.
+    lockJournalCashForGlReversal: vi.fn(async (companyId: string, journalEntryId: string) =>
+      (await import('@/modules/accounting/services/bank/reconciledCash')).refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId)),
   };
 }

@@ -155,8 +155,8 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
   const GL = 'src/modules/accounting/services/gl/';
   it('every caller of reverseJournalEntry, classified by whether it can reach a bank allocation\'s journal', () => {
     const CALLERS: Record<string, string> = {
-      'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: assertNotBankAllocationReversal first (409 under enforcement)',
-      [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: assertNotBankAllocationReversal first, dry run included',
+      'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: lockJournalCashForGlReversal first (409 under enforcement)',
+      [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: lockJournalCashForGlReversal first, dry run included',
       [`${B}bankAllocationService.ts`]: 'the choke point itself (assertMayReverse, audited)',
       [`${B}bankChainLineReversal.ts`]: "the choke point's document arm, called from it only",
       [`${B}autoPostUndoService.ts`]: "undoRow's provisional/hand-reversed arms, behind assertMayUndoRun",
@@ -175,8 +175,11 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     };
     const callers = filesMatching(/\breverseJournalEntry\(/).filter((f) => f !== `${GL}journalEntryPostingService.ts`);
     expect(callers).toEqual(Object.keys(CALLERS).sort());
-    before('pages/api/accounting/journal-entries-action.ts', 'await assertNotBankAllocationReversal(companyId, id)', 'reverseJournalEntry(companyId, id');
-    before(`${MCP}writeJournalReverse.ts`, 'await assertNotBankAllocationReversal(ctx.companyId, id)', 'if (args.dry_run === true)');
+    // The GL entrance locks the chain's lines and judges THAT set (the TOCTOU fix); its locked set rides into the claim.
+    before('pages/api/accounting/journal-entries-action.ts', 'const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id)', 'reverseJournalEntry(companyId, id');
+    before(`${MCP}writeJournalReverse.ts`, 'cashLinesLocked = await lockJournalCashForGlReversal(ctx.companyId, id)', 'if (args.dry_run === true)');
+    before(`${B}bankReversalGate.ts`, 'const locked = await refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId)', "throw new BankControlError('REVERSE_FROM_BANK_LINE'");
+    expect(filesMatching(/\brefuseJournalCashOfCompletedReconciliation\(/).sort()).toEqual([`${B}bankReversalGate.ts`, `${B}reconciledCash.ts`]);
     before(`${B}provisionalDismissService.ts`, 'await assertMayReverse(companyId, line, jeId, userId)', 'reverseJournalEntry(companyId, head, userId)');
     before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
   });
@@ -193,7 +196,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
 });
 
 describe('6. every route that can raise a bank-control refusal answers it (blind review #684 MEDIUM-1)', () => {
-  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|assertNotBankAllocationReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument)\(/;
+  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|lockJournalCashForGlReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument)\(/;
   const EXEMPT: Record<string, RegExp> = {
     // A per-item answer: the refused id carries its reason, the batch goes on.
     'pages/api/accounting/supplier-invoices-bulk-action.ts': /err instanceof BankControlError \? \{ reason: err\.code \}/,

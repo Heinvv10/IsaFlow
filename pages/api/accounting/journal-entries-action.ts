@@ -17,7 +17,6 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
-import { refuseJournalCashOfCompletedReconciliation } from '@/modules/accounting/services/bank/reconciledCash';
 import { UUID } from '@/lib/schemas/common';
 import {
   postJournalEntry,
@@ -26,7 +25,7 @@ import {
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
-import { assertNotBankAllocationReversal } from '@/modules/accounting/services/bank/bankReversalGate';
+import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 const JournalEntryActionSchema = z.object({
@@ -94,10 +93,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
-        // Step 2 (decision 4): under enforcement a bank allocation's journal is reversed from its bank line (gated,
-        // audited, line reset) — refused here 409, before any write.
-        await assertNotBankAllocationReversal(companyId, id);
-        const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(companyId, id);
+        // Step 2 (decision 4) under the same lock: a bank allocation's journal is reversed from its bank line while
+        // enforced — refused 409 on the locked set (bankReversalGate.lockJournalCashForGlReversal), before any write.
+        const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id);
         const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
           reversalDate, cashLinesLocked }));
         if (reversed === JOURNAL_DATE_REFUSED) return;
