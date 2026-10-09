@@ -25,6 +25,7 @@ export function assertParityTestUrl(
   }
   const target = url ? hostPort(url) : null;
   if (!url || !target) throw new Error('PARITY_TEST_PG_URL is unset or not a URL');
+  if (new URL(url).port === '') throw new Error('PARITY_TEST_PG_URL needs an explicit port (a port-less URL falls back to PGPORT); refusing');
   if (!LOOPBACK.has(target.host)) throw new Error(`PARITY_TEST_PG_URL host must be loopback, got ${target.host}`);
   if (STACK_PORTS.includes(target.port)) throw new Error('PARITY_TEST_PG_URL port is in the IsaFlow stack range 7770-7776; refusing');
   // pg-connection-string lets ?host= / ?port= / ?hostaddr= / ?dbname= override the authority and path that
@@ -32,8 +33,9 @@ export function assertParityTestUrl(
   for (const key of new URL(url).searchParams.keys()) {
     if (key !== 'sslmode') throw new Error(`PARITY_TEST_PG_URL has query parameter "${key}"; only sslmode is allowed`);
   }
-  const dbName = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
-  if (dbName.includes('%')) throw new Error('PARITY_TEST_PG_URL database name is double-encoded; refusing');
+  const dbName = new URL(url).pathname.replace(/^\//, '');
+  // Percent-encoding is refused outright (covers %69saflow and double encoding), so no decode step is needed.
+  if (dbName.includes('%')) throw new Error('PARITY_TEST_PG_URL database name is percent-encoded; refusing');
   if (dbName === 'isaflow' || dbName === 'isaflow_dev') throw new Error(`PARITY_TEST_PG_URL names database ${dbName}; refusing`);
   const real = env.DATABASE_URL ? hostPort(env.DATABASE_URL) : null;
   if (real && real.port === target.port && (real.host === target.host || LOOPBACK.has(real.host))) {
