@@ -21,6 +21,31 @@ interface Props {
   items: CustomerInvoiceItem[];
 }
 
+/**
+ * What the line posts to, for whoever approves it (migration 874). A posted
+ * invoice whose journal did NOT credit the line's account (posted before line
+ * accounts existed) says so instead of naming an account it never touched; a
+ * line account, job, CC1, CC2 or BU this company cannot resolve is
+ * "unknown", never the default or nothing. The job (Project Profitability) and
+ * the CC2 project are labelled apart: two models until Hein rules.
+ */
+export function lineCoding(item: CustomerInvoiceItem): string {
+  const named = (code?: string | null, name?: string | null) => [code, name].filter(Boolean).join(' ');
+  const account = !item.gl_account_id ? 'default sales account'
+    : item.account_posted === false ? 'as posted — see the journal'
+      : named(item.gl_account_code, item.gl_account_name) || 'unknown account';
+  const parts = [`Revenue: ${account}`];
+  // A tag set on the line that this company cannot resolve is shown as "unknown", never dropped.
+  const tag = (label: string, id?: string | null, code?: string | null, name?: string | null) => {
+    const shown = named(code, name) || (id ? 'unknown' : '');
+    if (shown) parts.push(`${label}: ${shown}`);
+  };
+  tag('Job', item.project_id, item.project_number, item.line_project_name);
+  tag('CC1', item.cc1_id, item.cc1_code, item.cc1_name);
+  tag('CC2 project', item.cc2_id, item.cc2_code, item.cc2_name);
+  tag('BU', item.bu_id, item.bu_code, item.bu_name);
+  return parts.join(' · ');
+}
 export function CustomerInvoiceSummary({
   invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
   taxRate, subtotal, taxAmount, totalAmount, balance, notes, items,
@@ -67,7 +92,10 @@ export function CustomerInvoiceSummary({
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {(items || []).map(item => (
               <tr key={item.id} className="hover:bg-[var(--ff-bg-tertiary)]">
-                <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">{item.description || '—'}</td>
+                <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">
+                  {item.description || '—'}
+                  <span className="block text-xs text-[var(--ff-text-secondary)]">{lineCoding(item)}</span>
+                </td>
                 <td className="px-4 py-3 text-sm text-right font-mono">{item.quantity}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono">{fmt(Number(item.unit_price))}</td>
                 <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{Number(item.tax_rate)}%</td>

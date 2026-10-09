@@ -7,6 +7,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { UUID_RE } from '@/lib/validation';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany, CustomerNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { validateProject } from '@/modules/accounting/services/reports/projectAccountingService';
@@ -19,9 +20,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const companyId = (req as CompanyAuthedRequest).companyId;
 
   if (req.method === 'GET') {
-    const { status } = req.query;
+    const { status, ids } = req.query;
     let rows: Row[];
-    if (status) {
+    // ?ids=a&ids=b arrives as an array: refused, never a silent fall-through to the full list.
+    if (ids !== undefined && typeof ids !== 'string') return apiResponse.badRequest(res, 'ids must be ONE comma-separated list');
+    if (typeof ids === 'string') {
+      // The projects a document already names, whatever the 200-row list below
+      // returns — so an invoice line's project never reads "unavailable".
+      const wanted = ids.split(',').filter((id) => UUID_RE.test(id));
+      if (wanted.length === 0 || wanted.length > 200) return apiResponse.badRequest(res, 'ids must be 1–200 comma-separated UUIDs');
+      rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id AND c.company_id = p.company_id WHERE p.company_id = ${companyId}::UUID AND p.id = ANY(${wanted}::UUID[])` as Row[];
+    } else if (status) {
       rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id WHERE p.company_id = ${companyId}::UUID AND p.status = ${String(status)} ORDER BY p.created_at DESC` as Row[];
     } else {
       rows = await sql`SELECT p.*, c.name as client_name FROM projects p LEFT JOIN customers c ON p.client_id = c.id WHERE p.company_id = ${companyId}::UUID ORDER BY p.created_at DESC LIMIT 200` as Row[];
