@@ -417,5 +417,7 @@ Migration 872's assertions exempt only `session_user` (the role applying it) whe
 `approval_requests` or `app_user`; any OTHER member of either refuses the migration, loudly. A request-pool role
 that is a member of `app_user` must therefore be created AFTER 872 has applied — a from-scratch replay (DR restore,
 a CI or fixture cluster) on which such a role already exists will see 872 refuse until it is created later or
-temporarily removed from `app_user`.
+temporarily removed from `app_user`. The N1 catalogue test (`tests/integration/r035-n1-catalog.int.test.ts`, OTHERS)
+applies the same rule, so when N3 lands its pool role must be allowed there too, or the writer check reports it on
+every database where it exists (dev and CI included).
 

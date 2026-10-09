@@ -131,7 +131,7 @@ const SHAPE_ONLY = 'public.approval_document_digest(uuid,text,uuid)';
 
 const NOT_APPLIED = 'migration 872 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 
-/** Every role that is neither superuser, predefined (pg_*), the object's owner, nor app_user or one of its members; and PUBLIC. */
+/** Every role that is neither superuser, predefined (pg_*), the object's owner (or the session's role through it), nor — for the writers — app_user (or the session's role through it); and PUBLIC. */
 // The session's own role, when it is a member of the owner, holds the owner's
 // rights by inheritance — on production the deploy/login role `postgres` is a
 // member of the owner `migration_admin` — and is exempt like the owner and
