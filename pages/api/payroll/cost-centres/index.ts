@@ -1,6 +1,11 @@
 /**
  * GET  /api/payroll/cost-centres        - list (?activeOnly=1)
  * POST /api/payroll/cost-centres        - create
+ *
+ * The create writes the same cost_centres rows as the accounting master, so it
+ * goes through the same plan (dimensionMasterService): code / alias clash and
+ * the ladder — a centre with a parent is a CC2 under an active CC1 or programme
+ * of THIS company, one without is a CC1. A refusal is a 400 with its message.
  */
 
 import type { NextApiResponse } from 'next';
@@ -13,15 +18,16 @@ import {
   type AuthenticatedNextApiRequest,
   type CompanyAuthedRequest,
 } from '@/lib/auth';
+import { getPayrollCostCentre, listCostCentres } from '@/modules/accounting/services/core/costCentreService';
 import {
-  createCostCentre,
-  listCostCentres,
-} from '@/modules/accounting/services/core/costCentreService';
+  applyCreateDimensionCostCentre, planCreateDimensionCostCentre,
+} from '@/modules/accounting/services/gl/dimensions/dimensionMasterService';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 const CreateBody = z
   .object({
-    code: z.string().min(1).max(30),
+    code: z.string().min(1).max(20),
     name: z.string().min(1).max(120),
     parentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).optional().nullable(),
     notes: z.string().max(1000).optional(),
@@ -40,17 +46,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   if (req.method === 'POST') {
     const parsed = CreateBody.safeParse(req.body);
     if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid body');
+    const { code, name, parentId, notes } = parsed.data;
     try {
-      const cc = await createCostCentre({
-        companyId,
-        code: parsed.data.code,
-        name: parsed.data.name,
-        parentId: parsed.data.parentId ?? null,
-        notes: parsed.data.notes,
-        userId: user.id,
+      const plan = await planCreateDimensionCostCentre(companyId, {
+        code, name, notes, ccType: parentId ? 'cc2' : 'cc1', ...(parentId ? { parent: parentId } : {}),
       });
-      return apiResponse.created(res, cc);
+      const created = await applyCreateDimensionCostCentre(companyId, plan, user.id);
+      return apiResponse.created(res, await getPayrollCostCentre(companyId, created.id));
     } catch (err) {
+      if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Create failed');
     }
   }

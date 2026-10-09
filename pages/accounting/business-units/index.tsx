@@ -3,13 +3,14 @@
  * CRUD for the BU (function) dimension on bank transactions, documents and GL
  * journal lines. Create -> /api/accounting/business-units; edit, toggle and
  * delete -> /api/accounting/business-units-action (the delete is refused, with
- * counts, while anything carries the BU — deactivate instead).
+ * counts, while anything carries the BU — deactivate instead). Delete asks first.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Plus, Loader2, ToggleLeft, ToggleRight, Pencil, Trash2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 
 interface BusinessUnit {
   id: string;
@@ -33,6 +34,7 @@ export default function BusinessUnitsPage() {
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<BusinessUnit | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -214,7 +216,7 @@ export default function BusinessUnitsPage() {
                               : <ToggleLeft className="h-4 w-4" />
                           }
                         </button>
-                        <button onClick={() => doAction(bu, 'delete')} disabled={busy === bu.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                        <button onClick={() => setConfirmDelete(bu)} disabled={busy === bu.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -226,6 +228,15 @@ export default function BusinessUnitsPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete business unit"
+        message={confirmDelete ? `Delete ${confirmDelete.code} — ${confirmDelete.name}? This cannot be undone. A business unit anything still carries is refused; deactivate it instead.` : ''}
+        confirmLabel="Delete"
+        confirmTone="danger"
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => { const bu = confirmDelete; setConfirmDelete(null); if (bu) void doAction(bu, 'delete'); }}
+      />
     </AppLayout>
   );
 }
