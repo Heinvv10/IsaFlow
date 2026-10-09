@@ -124,6 +124,15 @@ describe('project_fno_mismatch — journal lines', () => {
     expect(atOctober.ids).not.toContain(rev.line);
   });
 
+  it('walks the whole reversal chain: in E → R1 → R2 → R3 → R4 only R4, the fourth step, is in force (#683 round 4)', async () => {
+    const chain = [await journal(b, ids.f2, ids.proj)];
+    for (let i = 1; i <= 4; i++) chain.push(await journal(b, ids.f2, ids.proj, { reversalOf: chain[i - 1]!.je }));
+    for (const step of chain.slice(0, 4)) await reverse(step.je); // E..R3 reversed, R4 stands
+    const r = await flagged(company, b);
+    expect(r.ids).toContain(chain[4]!.line);
+    for (const step of chain.slice(0, 4)) expect(r.ids).not.toContain(step.line);
+  });
+
   it('a reversed entry with no reversal row is judged by reversed_at against as_at', async () => {
     const early = await journal(b, ids.f2, ids.proj);
     const late = await journal(b, ids.f2, ids.proj);
