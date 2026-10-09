@@ -13,7 +13,7 @@ import supplierPaymentsAction from '../../pages/api/accounting/supplier-payments
 import { voidPaymentTool } from '../../src/lib/mcp/tools/writeVoidPayments';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { payRoutes, plantPayment } from './r035-pr5.helpers';
+import { payRoutes, plantBatch as plantPaymentBatch, plantPayment } from './r035-pr5.helpers';
 import {
   actionRoute, bankCompany, cleanupBankControlsA, enforce, lineStatus, mcpCaller, PAY_TYPES, plantBatch, plantLine, refusalOf,
   type BankCompany,
@@ -82,5 +82,27 @@ describe('the void of a payment a statement line is matched to', () => {
     const { f, paymentId, line } = await matchedPayment([]);
     expect((await voidAs(a, f.c, paymentId)).state.statusCode).toBe(200);
     expect(await lineStatus(pool, line)).toBe('imported');
+  });
+
+  it('batch-payments-action reverse of a batch a statement line is matched to: its maker 403 with the reason, nothing written', async () => {
+    const f = await bankCompany(pool, [[a, 'admin'], [b, 'admin']], companies);
+    const batch = await plantPaymentBatch(pool, f.c, a, f.bank, [1150]);
+    const routes = payRoutes(tokens);
+    for (const step of ['approve', 'process']) {
+      const res = await routes.batch(a, f.c, step, batch.id);
+      expect(res.state.statusCode, `${step}: ${JSON.stringify(res.state.body)}`).toBe(200);
+    }
+    const leg = (await pool.query(
+      `SELECT jl.id FROM supplier_payment_batches sb JOIN gl_journal_lines jl ON jl.journal_entry_id = sb.gl_journal_entry_id
+       WHERE sb.id = $1 AND jl.gl_account_id = $2`, [batch.id, f.bank])).rows[0].id as string;
+    const line = await plantLine(pool, f, await plantBatch(pool, f, null), -1150);
+    expect((await actionRoute(tokens)(b, f.c, { action: 'match', bankTransactionId: line, journalLineId: leg })).state.statusCode).toBe(200);
+    await enforce(pool, f.c, a, PAY_TYPES);
+    const refused = await routes.batch(a, f.c, 'reverse', batch.id);
+    expect(refusalOf(refused), JSON.stringify(refused.state.body)).toMatchObject({ status: 403, reason: 'ALLOCATOR_MAY_NOT_REVERSE' });
+    const state = async () => [(await pool.query('SELECT status FROM supplier_payment_batches WHERE id = $1', [batch.id])).rows[0].status,
+      await lineStatus(pool, line)];
+    expect(await state()).toEqual(['processed', 'matched']);
+    expect((await routes.batch(b, f.c, 'reverse', batch.id)).state.statusCode).toBe(200);
   });
 });
