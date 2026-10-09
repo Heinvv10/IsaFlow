@@ -23,11 +23,12 @@ import type { DocumentType } from './approvalService';
 import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
+import { BANK_RULE, ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
 import { actorRank } from './approvalRank';
 import {
   assertVerifyingSession, ownCompanyRole, recordBankBaseline, SupplierBankVerificationError,
 } from '../ap/supplierBankBaseline';
+import { assertHumanSession, BANK_CONTROL_FLOOR, BankControlError } from '../bank/bankControlRefusal';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
 // offers the same types); re-exported for every existing import site.
@@ -55,6 +56,9 @@ export class ApprovalEnforcementAuthorityError extends Error {
     super(documentType === SUPPLIER_BANK_DETAILS
       ? `Switching supplier bank verification off lets unverified bank details be paid. Bank details are verified at the ${ruleRole} `
         + `level, so only a role above ${ruleRole} (or the owner, at owner level) may switch it off`
+      : documentType === BANK_RULE
+      ? `Switching bank-rule approval off lets a rule be made to post money unattended without a second person. Rule changes are `
+        + `approved at the ${ruleRole} level, so only a role above ${ruleRole} (or the owner, at owner level) may switch it off`
       : `Switching ${documentType} approval enforcement off weakens an active ${ruleRole}-level rule: only a role above ${ruleRole} (or the owner, for an owner-level rule) may do it`);
     this.name = 'ApprovalEnforcementAuthorityError';
   }
@@ -147,7 +151,7 @@ export function coupledTypes(documentType: EnforcementType): EnforcementType[] {
 }
 
 /** The floor of the verifier role: R-035's default (an unreadable approver_role ranks as admin), the payment starter rules' role. */
-export const SUPPLIER_BANK_VERIFIER_FLOOR = 'admin';
+export const SUPPLIER_BANK_VERIFIER_FLOOR = BANK_CONTROL_FLOOR;
 
 /**
  * Who may verify supplier bank details (decision 5): whoever may approve any
@@ -159,13 +163,27 @@ export const SUPPLIER_BANK_VERIFIER_FLOOR = 'admin';
  * on and switch off (review of PR #679, REPRO 1).
  */
 export async function supplierBankVerifierRole(companyId: string): Promise<string> {
-  let strictest = SUPPLIER_BANK_VERIFIER_FLOOR;
-  for (const type of coupledTypes('supplier_payment')) {
-    const role = await strictestActiveRuleRole(companyId, type as DocumentType);
+  return bankControlRole(companyId, coupledTypes('supplier_payment') as DocumentType[]);
+}
+
+/**
+ * The role that judges a bank control (forensic-controls steps 1 and 2): the
+ * strictest ACTIVE rule role of `types`, never below the admin floor — a rule
+ * may only RAISE it (REPRO 1 above). Bank-rule changes take the manual-journal
+ * rules (an auto-posting rule writes journals); auto-post settings take the
+ * manual-journal and supplier-payment rules.
+ */
+export async function bankControlRole(companyId: string, types: readonly DocumentType[]): Promise<string> {
+  let strictest = BANK_CONTROL_FLOOR;
+  for (const type of types) {
+    const role = await strictestActiveRuleRole(companyId, type);
     if (role !== null && requiredRank(role) > requiredRank(strictest)) strictest = role;
   }
   return strictest;
 }
+
+/** Who approves a held bank-rule change (Hein, decision 3): the manual-journal approver, never below admin. */
+export const bankRuleApproverRole = (companyId: string): Promise<string> => bankControlRole(companyId, ['manual_journal']);
 
 /**
  * Idempotent: enabling an enforced type changes and records nothing. Enables
@@ -180,6 +198,16 @@ export async function supplierBankVerifierRole(companyId: string): Promise<strin
 export async function enableEnforcement(companyId: string, documentType: EnforcementType, actor: RuleActor): Promise<void> {
   if (!ENFORCEABLE_TYPES.includes(documentType)) throw new ApprovalEnforcementUnavailableError(documentType);
   const bank = documentType === SUPPLIER_BANK_DETAILS;
+  if (documentType === BANK_RULE) {
+    // Like supplier bank details: a person, in their own session, who could approve what it holds.
+    await assertHumanSession('switch bank-rule approval on');
+    const role = await bankRuleApproverRole(companyId);
+    const own = await ownCompanyRole(companyId, actor.userId);
+    if (own === null || actorRank(own) < requiredRank(role)) {
+      throw new BankControlError('APPROVER_ROLE_REQUIRED', `Switching bank-rule approval on needs the ${role} role or above — `
+        + 'the role that approves bank-rule changes.');
+    }
+  }
   if (bank) {
     await assertVerifyingSession();
     const role = await supplierBankVerifierRole(companyId);
@@ -231,8 +259,11 @@ export async function disableEnforcement(companyId: string, documentType: Enforc
   const types = coupledTypes(documentType);
   // …and, like switching on, only by a person in their own session ("login as" may not weaken it either).
   if (documentType === SUPPLIER_BANK_DETAILS) await assertVerifyingSession();
-  let strictest: string | null = documentType === SUPPLIER_BANK_DETAILS ? await supplierBankVerifierRole(companyId) : null;
-  for (const type of documentType === SUPPLIER_BANK_DETAILS ? [] : types) {
+  if (documentType === BANK_RULE) await assertHumanSession('switch bank-rule approval off');
+  const control = documentType === SUPPLIER_BANK_DETAILS || documentType === BANK_RULE;
+  let strictest: string | null = documentType === SUPPLIER_BANK_DETAILS ? await supplierBankVerifierRole(companyId)
+    : documentType === BANK_RULE ? await bankRuleApproverRole(companyId) : null;
+  for (const type of control ? [] : types) {
     const role = await strictestActiveRuleRole(companyId, type as DocumentType);
     if (role !== null && (strictest === null || requiredRank(role) > requiredRank(strictest))) strictest = role;
   }

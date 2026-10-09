@@ -17,6 +17,10 @@
  * baseline and is refused 403 to an impersonated session or a role below the
  * verifier role (SupplierBankVerificationError, nothing written).
  *
+ * `bank_rule` (forensic-controls step 2) likewise: switching it on or off needs
+ * a person in their own session (BankControlError 403 otherwise); on, the role
+ * that approves bank-rule changes; off, the authority to weaken it.
+ *
  * Enabling a type not in ENFORCEABLE_TYPES is a 400 NOT_ENFORCEABLE
  * (every type in PR1). Disabling needs the authority to WEAKEN the strictest
  * active rule of the type (mayWeakenAtLevel, R-048: a rank strictly above it,
@@ -40,10 +44,11 @@ import {
 import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnforcementPreview';
 import { SupplierBankVerificationError } from '@/modules/accounting/services/ap/supplierBankBaseline';
 import { bankDetailsPreview } from '@/modules/accounting/services/ap/supplierBankVerification';
+import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 
 const DOCUMENT_TYPES = new Set<EnforcementType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
-  'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details',
+  'supplier_payment', 'payment_batch', 'manual_journal', 'supplier_bank_details', 'bank_rule',
 ]);
 const isDocumentType = (value: unknown): value is EnforcementType =>
   typeof value === 'string' && DOCUMENT_TYPES.has(value as EnforcementType);
@@ -81,7 +86,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (error instanceof ApprovalEnforcementUnavailableError) {
         return apiResponse.badRequest(res, error.message, { reason: error.code });
       }
-      if (error instanceof ApprovalEnforcementAuthorityError || error instanceof SupplierBankVerificationError) {
+      if (error instanceof ApprovalEnforcementAuthorityError || error instanceof SupplierBankVerificationError
+        || error instanceof BankControlError) {
         return apiResponse.error(res, ErrorCode.FORBIDDEN, error.message, { reason: error.code });
       }
       throw error;
