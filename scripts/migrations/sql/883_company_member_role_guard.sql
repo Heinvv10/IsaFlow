@@ -64,7 +64,7 @@
 -- RC006 removing yourself · RC007 the portal may not grant this role ·
 -- RC008 the portal writes no invitations · RC009 inviter is not the actor.
 
--- ── 0. Precondition: no live owner invitation a non-owner sent ────────────
+-- ── 0. Precondition: no live owner invitation ─────────────────────────────
 DO $$
 DECLARE
   v_n pg_catalog.int8;
