@@ -23,7 +23,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
-import { filesUnder, migrationNumber, ROOT, sourceFiles, stripComments, type SourceFile } from '../../helpers/sourceCensus';
+import { filesUnder, migrationNumber, ROOT, sourceFiles, stripComments, withoutSqlComments, type SourceFile } from '../../helpers/sourceCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
 const OWN = '880_audit_log_append_only.sql';
@@ -40,29 +40,36 @@ const QUOTED = /['"`]audit_log['"`]/;
 
 /** Every reason `text` breaks the census (empty: none). */
 export function violations(text: string, file = 'x.ts'): string[] {
-  const code = stripComments(text, file);
   const out: string[] = [];
-  if (ERASE.some((re) => re.test(code))) out.push('updates, deletes or truncates audit_log');
-  if (QUOTED.test(code)) out.push('names audit_log as a string');
-  // A statement is a template literal or a quoted string: a lock clause or an
-  // upsert's DO UPDATE in one that names the table needs UPDATE on it.
-  for (const chunk of code.split(/`/)) {
-    if (!/\baudit_log\b/i.test(chunk)) continue;
-    if (LOCK.test(chunk)) out.push('locks audit_log');
-    if (UPSERT.test(chunk) && /\binsert\s+into\s+(?:"?public"?\s*\.\s*)?"?audit_log\b/i.test(chunk)) out.push('upserts audit_log');
+  // Judged twice: with the language's comments out (strings kept whole), and
+  // again with SQL comments removed everywhere — so a comment between a verb
+  // and the table hides nothing. Either view finding a statement counts.
+  for (const code of [stripComments(text, file), withoutSqlComments(stripComments(text, file))]) {
+    if (ERASE.some((re) => re.test(code))) out.push('updates, deletes or truncates audit_log');
+    if (QUOTED.test(code)) out.push('names audit_log as a string');
+    // A statement is a template literal or a quoted string: a lock clause or an
+    // upsert's DO UPDATE in one that names the table needs UPDATE on it.
+    for (const chunk of code.split(/`/)) {
+      if (!/\baudit_log\b/i.test(chunk)) continue;
+      if (LOCK.test(chunk)) out.push('locks audit_log');
+      if (UPSERT.test(chunk) && /\binsert\s+into\s+(?:"?public"?\s*\.\s*)?"?audit_log\b/i.test(chunk)) out.push('upserts audit_log');
+    }
   }
   return [...new Set(out)];
 }
 
 const GRANTED = [
-  /\bgrant\b[^;]*\b(?:update|delete|truncate|trigger|all)\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:"?public"?\.)?"?audit_log\b/i,
+  /\bgrant\b[^;]*\b(?:update|delete|truncate|trigger|all)\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:"?public"?\s*\.\s*)?"?audit_log\b/i,
   /\bgrant\b[^;]*\bon\s+all\s+tables\s+in\s+schema\s+"?public"?/i,
   // A ROLE grant (no ON clause) to a runtime role: membership in the owner,
   // pg_write_all_data or any role holding the erase hands it back.
   /\bgrant\s+(?![^;]*\bon\b)[^;]*\bto\s+[^;]*\b(?:app_user|platform_admin)\b/i,
+  // A runtime role made more than it is, or handed another role's objects (R2-6).
+  /\balter\s+(?:role|user)\s+"?(?:app_user|platform_admin)"?\b/i,
+  /\breassign\s+owned\s+by\b/i,
 ];
 const DDL = [
-  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\.)?"?audit_log"?\b/i,
+  /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\s*\.\s*)?"?audit_log"?\b/i,
   /\bcreate\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger\b[^;]*\bon\s+(?:"?public"?\.)?"?audit_log\b/i,
   /\bcreate\s+(?:or\s+replace\s+)?rule\b[^;]*\bto\s+(?:"?public"?\.)?"?audit_log\b/i,
   /\bcreate\s+(?:or\s+replace\s+)?(?:materialized\s+)?view\b[^;]*\baudit_log\b/i,
@@ -70,13 +77,14 @@ const DDL = [
 ];
 
 /** Why a migration (not 880) needs reading. */
-export function migrationViolations(text: string): string[] {
-  const code = stripComments(text, 'm.sql');
+export function migrationViolations(text: string, file = 'm.sql'): string[] {
   const out: string[] = [];
-  if (GRANTED.some((re) => re.test(code))) out.push('grants');
-  if (ERASE.some((re) => re.test(code))) out.push('erases');
-  if (DDL.some((re) => re.test(code))) out.push('ddl');
-  return out;
+  for (const code of [stripComments(text, file), withoutSqlComments(stripComments(text, file))]) {
+    if (GRANTED.some((re) => re.test(code))) out.push('grants');
+    if (ERASE.some((re) => re.test(code))) out.push('erases');
+    if (DDL.some((re) => re.test(code))) out.push('ddl');
+  }
+  return [...new Set(out)];
 }
 
 /**
@@ -102,6 +110,9 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '352_platform_admin_role.sql': ['grants'],
 };
 
+/** App and script files whose text grants on or alters the table, each read. */
+const KNOWN_APP_DDL: Record<string, string[]> = {};
+
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
 const isMigration = (file: string) => file.startsWith(MIGRATIONS) && file.endsWith('.sql');
 
@@ -126,6 +137,14 @@ describe('audit_log is append-only (census by table)', () => {
       .filter(({ file }) => !isMigration(file))
       .flatMap(({ file, text }) => violations(text, file).map((why) => `${file}: ${why}`));
     expect(found).toEqual(KNOWN_STRINGS);
+  });
+
+  it('no app or script text grants on, alters, views, drops or re-creates the table either (R2-5)', () => {
+    const found = all()
+      .filter(({ file }) => !isMigration(file))
+      .map(({ file, text }) => [file, migrationViolations(text, file).filter((w) => w !== 'erases')] as const)
+      .filter(([, why]) => why.length > 0);
+    expect(Object.fromEntries(found)).toEqual(KNOWN_APP_DDL);
   });
 
   it('no migration but 880 and the pinned pre-880 ones grants, erases, alters, triggers, views, drops or re-creates it', () => {
@@ -156,6 +175,10 @@ describe('the census detects (counterexamples)', () => {
     ['a statement after a "/*" in a string (E3)', "const g = 'src/*'; await sql`DELETE FROM audit_log`; /* end */", ERASES],
     ['a statement after a "--" in a string (E5)', "const sep = '--'; await sql`DELETE FROM audit_log`;", ERASES],
     ['a statement after a "//" in a string', "const u = 'https://x'; await sql`DELETE FROM audit_log`;", ERASES],
+    ['a block comment between verb and table (S4)', 'sql`DELETE FROM /* x */ audit_log WHERE id = 1`', ERASES],
+    ['a line comment between verb and table (S5)', 'sql`DELETE FROM -- x\n audit_log WHERE id = 1`', ERASES],
+    ['an empty comment in an UPDATE (S6)', 'sql`UPDATE /**/ audit_log SET action = ${a}`', ERASES],
+    ['a comment inside DO UPDATE (S7)', 'sql`INSERT INTO audit_log (id) VALUES (1) ON CONFLICT (id) DO /**/ UPDATE SET action = 1`', 'upserts audit_log'],
   ])('%s', (_label, text, why) => {
     expect(violations(text)).toContain(why);
   });
@@ -194,6 +217,12 @@ describe('the census detects (counterexamples)', () => {
     'CREATE VIEW v AS SELECT * FROM audit_log; GRANT UPDATE ON v TO app_user;',
     'DROP TABLE audit_log; CREATE TABLE audit_log (id uuid);',
     'DELETE FROM audit_log WHERE created_at < now();',
+    'GRANT UPDATE, DELETE ON public . audit_log TO app_user;',
+    'ALTER TABLE public . audit_log OWNER TO app_user;',
+    'ALTER ROLE app_user SUPERUSER;',
+    'REASSIGN OWNED BY migration_admin TO app_user;',
+    'SELECT "x--"; GRANT UPDATE ON audit_log TO app_user;',
+    'DELETE FROM /* x */ audit_log;',
   ])('a later migration: %s', (stmt) => {
     expect(migrationViolations(stmt)).not.toEqual([]);
   });

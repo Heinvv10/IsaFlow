@@ -89,24 +89,33 @@ BEGIN
       RAISE EXCEPTION 'migration 880: % still holds column UPDATE on audit_log', v_role;
     END IF;
   END LOOP;
-  -- A view over audit_log owned by a role that may erase it (the owner) would
-  -- erase through it for anyone granted UPDATE, DELETE or TRUNCATE on the
-  -- view (an auto-updatable view checks its OWNER's rights on the table; the
-  -- owner bypasses RLS) — adversarial review of PR #689, REPRO 4. None may.
+  -- A view over audit_log — or a view over such a view, to any depth — owned
+  -- by a role that may erase it would erase through it for anyone granted
+  -- UPDATE (table- or column-level), DELETE or TRUNCATE on the view: an
+  -- auto-updatable view checks its OWNER's rights on what it reads (and the
+  -- owner bypasses RLS). None may (adversarial review of PR #689, REPRO 4,
+  -- R2-1, R2-2). A security_invoker view checks the caller's own rights
+  -- instead, so it erases nothing a caller could not; it is not counted.
   FOR v_role, v_priv IN
+    WITH RECURSIVE chain(oid) AS (
+      SELECT w.ev_class FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_rewrite w ON w.oid = d.objid
+      WHERE d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
+        AND d.refobjid = 'public.audit_log'::pg_catalog.regclass AND w.ev_class <> d.refobjid
+      UNION
+      SELECT w.ev_class FROM chain JOIN pg_catalog.pg_depend d ON d.refobjid = chain.oid
+        JOIN pg_catalog.pg_rewrite w ON w.oid = d.objid
+      WHERE d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass AND w.ev_class <> chain.oid)
     SELECT r.rolname || ' on ' || v.oid::pg_catalog.regclass::pg_catalog.text, p.priv
-    FROM pg_catalog.pg_depend d
-    JOIN pg_catalog.pg_rewrite w ON w.oid = d.objid
-    JOIN pg_catalog.pg_class v ON v.oid = w.ev_class
+    FROM chain JOIN pg_catalog.pg_class v ON v.oid = chain.oid
     CROSS JOIN (VALUES ('UPDATE'), ('DELETE'), ('TRUNCATE')) p(priv)
     CROSS JOIN pg_catalog.pg_roles r
-    WHERE d.classid = 'pg_catalog.pg_rewrite'::pg_catalog.regclass
-      AND d.refobjid = 'public.audit_log'::pg_catalog.regclass
-      AND v.oid <> 'public.audit_log'::pg_catalog.regclass
+    WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(v.reloptions) o WHERE o ~* '^security_invoker=(true|on|yes|1)$')
       AND pg_catalog.has_table_privilege(v.relowner, 'public.audit_log', p.priv)
       AND NOT r.rolsuper AND r.oid <> v.relowner AND r.oid <> v_owner AND r.rolname !~ '^pg_'
       AND NOT (r.rolname = session_user AND pg_catalog.pg_has_role(r.oid, v_owner, 'USAGE'))
-      AND pg_catalog.has_table_privilege(r.oid, v.oid, p.priv)
+      AND (pg_catalog.has_table_privilege(r.oid, v.oid, p.priv)
+           OR (p.priv = 'UPDATE' AND pg_catalog.has_any_column_privilege(r.oid, v.oid, 'UPDATE')))
+    ORDER BY 1, 2
   LOOP
     RAISE EXCEPTION 'migration 880: % may % audit_log through a view', v_role, v_priv;
   END LOOP;

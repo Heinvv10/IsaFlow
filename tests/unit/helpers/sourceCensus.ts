@@ -12,8 +12,13 @@
  *    template literal nothing is stripped at all, so an SQL comment that names
  *    a write fails the census loudly rather than hiding one silently.
  *
- * LIMIT (named, not chased): a table name or statement assembled at run time
- * (`'audit_' + 'log'`, a template-built name) is invisible to any text check.
+ * LIMITS (named, not chased — adversarial review of PR #689, R2-4): a table
+ * name or statement assembled at run time (`'audit_' + 'log'`, a template-built
+ * name, a dollar-quoted DO that formats it) is invisible to any text check;
+ * and this is a hand tokenizer, not a parser — a regex literal holding a quote,
+ * `//` or `/*` (`/[//]/`), or a template literal nested inside `${…}`, can put
+ * it out of step for the rest of that line. Review of the change is the
+ * control for those.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -103,9 +108,10 @@ function stripSql(text: string): string {
       out += ' ';
       continue;
     }
-    if (c === "'") {
+    if (c === "'" || c === '"') {
+      // A literal ('…', '' escapes) or a quoted identifier ("…", "" escapes): kept whole.
       let j = i + 1;
-      while (j < text.length && !(text[j] === "'" && text[j + 1] !== "'")) j += text[j] === "'" ? 2 : 1;
+      while (j < text.length && !(text[j] === c && text[j + 1] !== c)) j += text[j] === c ? 2 : 1;
       out += text.slice(i, j + 1);
       i = j + 1;
       continue;
@@ -115,6 +121,14 @@ function stripSql(text: string): string {
   }
   return out;
 }
+
+/**
+ * SQL comments removed from ANY text, strings included — a second view used
+ * only to find statements, never instead of the first: `DELETE FROM /* x *\/
+ * audit_log` inside a template is still a statement (R2-4, S4–S7).
+ */
+export const withoutSqlComments = (text: string): string =>
+  text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
 
 /** Comments out, by the file's language; shell and Python are judged raw (a comment there fails loudly). */
 export function stripComments(text: string, file = 'x.ts'): string {
