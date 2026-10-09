@@ -153,6 +153,29 @@ describe('the last owner', () => {
     expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['admin', 'owner']);
   });
 
+  it('a portal REMOVAL of one owner and an app demotion of the other: the app one waits, then is refused (RC005; adversarial round 3, L2)', async () => {
+    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
+    const portal = await pool.connect();
+    const app = await session(c, p.o2);
+    try {
+      await portal.query('BEGIN');
+      await portal.query('SET LOCAL ROLE platform_admin');
+      await portal.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, p.o]);
+      const pid = (await app.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const appDemotion = app.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])
+        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
+      await blocked(pid);
+      await portal.query('COMMIT');
+      expect(await appDemotion).toBe('RC005');
+    } finally {
+      await app.query('ROLLBACK').catch(() => undefined);
+      await portal.query('ROLLBACK').catch(() => undefined);
+      app.release();
+      portal.release();
+    }
+    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual([null, 'owner']);
+  });
+
   it("a duplicate row of the same user, in another case, is not a second owner (RC005)", async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
     await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1, upper($2), 'owner')", [c, p.o]);

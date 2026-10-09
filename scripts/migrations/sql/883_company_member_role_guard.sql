@@ -66,7 +66,10 @@
 --   WHERE pg_catalog.lower(pg_catalog.btrim(role)) = 'owner'
 --     AND accepted_at IS NULL AND expires_at > now();
 -- The count reads with row_security off, so a migration role that RLS would
--- filter (not superuser, not BYPASSRLS) fails here instead of seeing none.
+-- filter (not superuser, not BYPASSRLS) fails here instead of seeing none; it
+-- first locks out writers, so one in flight is waited for and counted. Once
+-- applied, re-running this file by hand (a checksum repair) refuses while an
+-- owner's own owner invitation is pending — the normal runner never re-runs it.
 -- LIMIT: owner MEMBERSHIPS an admin granted, and owner invitations already
 -- accepted, before 883 cannot be told apart from legitimate ones and are not
 -- touched; list owners per company and review them by hand if in doubt.
