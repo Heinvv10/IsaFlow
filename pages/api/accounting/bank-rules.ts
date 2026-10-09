@@ -1,7 +1,10 @@
 /**
  * Bank Categorisation Rules API
  * GET  — list all rules
- * POST — create a new rule
+ * POST — create a new rule. Under the `bank_rule` switch a rule that would
+ *        auto-post is HELD for another person's approval: the answer is
+ *        { status: 'pending_approval', changeId, applied: 0 } and nothing runs.
+ *        Otherwise { ...rule, status: 'applied', applied }.
  *
  * Audit: docs/codex/browser-audits/monthly-close-market-readiness-audit.md
  * Finding 4 — make rule effects explicit, default to suggest-only.
@@ -81,6 +84,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       throw err;
     }
+
+    // Held for approval (the `bank_rule` switch): no rule exists yet, so
+    // nothing runs — a creation awaiting approval never posts on the spot.
+    if (rule.status === 'pending_approval') return apiResponse.success(res, { ...rule, applied: 0 });
 
     // Auto-apply on create: run only the new rule so the returned `applied`
     // count reflects this rule's matches and not the entire ruleset.
