@@ -151,3 +151,44 @@ describe('4. every reversal path passes the reversal gate', () => {
     before(`${B}autoPostHandCorrection.ts`, 'await assertMayUndoRun(companyId, runId, userId)', 'await undoRow(companyId, runId, userId, txId)');
   });
 });
+
+describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', () => {
+  const GL = 'src/modules/accounting/services/gl/';
+  it('every caller of reverseJournalEntry, classified by whether it can reach a bank allocation\'s journal', () => {
+    const CALLERS: Record<string, string> = {
+      'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: assertNotBankAllocationReversal first (409 under enforcement)',
+      [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: assertNotBankAllocationReversal first, dry run included',
+      [`${B}bankAllocationService.ts`]: 'the choke point itself (assertMayReverse, audited)',
+      [`${B}bankChainLineReversal.ts`]: "the choke point's document arm, called from it only",
+      [`${B}autoPostUndoService.ts`]: "undoRow's provisional/hand-reversed arms, behind assertMayUndoRun",
+      [`${B}provisionalDismissService.ts`]: 'Dismiss: assertMayReverse per line under the line locks, audited',
+      'src/modules/accounting/services/core/paymentVoidService.ts': 'void: a bank-linked payment goes through the choke point',
+      'src/modules/accounting/services/ap/batchPaymentReversal.ts': "a batch's own reversal (via the choke point when bank-linked)",
+      'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "a bill's settlement of a provisional, not the provisional's own journal",
+      'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts': "a bill's own journal",
+      'src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts': "a payment document's own reversal",
+      'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': 'a receipt (money in: ungated)',
+      'src/modules/accounting/services/ar/creditNoteCancelService.ts': "a credit note's own journal",
+      'src/modules/accounting/services/ar/customerInvoiceCancelService.ts': "an invoice's own journal",
+      'src/modules/accounting/services/core/softDeleteJournalService.ts': "an invoice's journal on delete",
+      'src/modules/accounting/services/core/migrationWizardOpeningBalanceService.ts': 'opening balances',
+      'src/modules/accounting/services/payroll/payrollJournalPostingService.ts': "a pay run's journal",
+    };
+    const callers = filesMatching(/\breverseJournalEntry\(/).filter((f) => f !== `${GL}journalEntryPostingService.ts`);
+    expect(callers).toEqual(Object.keys(CALLERS).sort());
+    before('pages/api/accounting/journal-entries-action.ts', 'await assertNotBankAllocationReversal(companyId, id)', 'reverseJournalEntry(companyId, id');
+    before(`${MCP}writeJournalReverse.ts`, 'await assertNotBankAllocationReversal(ctx.companyId, id)', 'if (args.dry_run === true)');
+    before(`${B}provisionalDismissService.ts`, 'await assertMayReverse(companyId, line, jeId, userId)', 'reverseJournalEntry(companyId, head, userId)');
+    before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
+  });
+
+  it('every caller of matchTransaction asks the importer first, but the unattended auto-match', () => {
+    expect(filesMatching(/(?<!\.)\bmatchTransaction\(/).filter((f) => !f.endsWith('bankTxStatusMutations.ts')).sort()).toEqual([
+      'pages/api/accounting/bank-match-confirm.ts', 'pages/api/accounting/bank-transactions-action.ts',
+      `${B}bankAutoMatchService.ts`, // unattended (auto_match): no person matches; not gated (orchestrator, #684)
+    ]);
+    const confirm = textOf('pages/api/accounting/bank-match-confirm.ts');
+    expect(confirm.match(/await assertImporterMayMatch\(companyId, bankTransactionId, candidateId, userId\);\s+await matchTransaction\(/g)).toHaveLength(2);
+    before('pages/api/accounting/bank-transactions-action.ts', 'await assertImporterMayMatch(', 'await matchTransaction(');
+  });
+});

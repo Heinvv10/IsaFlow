@@ -30,6 +30,8 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
 import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
+import { findChainCashLines } from './chainBankLines';
+import { findJournalChainRoot } from '../shared/journalChainHead';
 
 const NOBODY = '00000000-0000-0000-0000-000000000000';
 const ACTION = 'reverse a bank allocation while approval is on';
@@ -100,6 +102,33 @@ export async function auditedReversal<T>(
     });
   }
   return result;
+}
+
+/**
+ * The GL reversal of a journal (journal-entries-action `reverse`, MCP
+ * `reverse_journal_entry`) whose reversal chain books a statement line's cash
+ * — a bank allocation, matched or provisional: under enforcement of that
+ * allocation's arm it is refused, 409, before any write, for everyone. The
+ * bank line's own reverse is where the allocator and agent checks and the
+ * audit sit, and it also resets the line, which a raw GL reversal leaves
+ * allocated against a reversed journal. Enforcement off: unchanged.
+ */
+export async function assertNotBankAllocationReversal(companyId: string, journalEntryId: string): Promise<void> {
+  const lineIds = await findChainCashLines(companyId, journalEntryId);
+  if (lineIds.length === 0) return;
+  const rootId = (await findJournalChainRoot(companyId, journalEntryId)) ?? journalEntryId;
+  const lines = (await sql`
+    SELECT id, amount, auto_post_run_id FROM bank_transactions
+    WHERE id = ANY(${lineIds}::UUID[]) AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  for (const line of lines) {
+    const facts = await reversalFacts(companyId, line, rootId);
+    if (facts && await armEnforced(companyId, facts.arm)) {
+      throw new BankControlError('REVERSE_FROM_BANK_LINE',
+        `This journal is a bank allocation, and while ${armLabel(facts.arm)} approval is on it is reversed from its bank `
+        + 'line, not from Journal Entries: open the bank line in Banking and reverse it there.');
+    }
+  }
 }
 
 /** A refusal this request's session gets for `action`, or null: a person in their own session. */
