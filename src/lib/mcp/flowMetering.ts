@@ -389,6 +389,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Reads are free, like every read.
   list_cost_centres: null,
   list_business_units: null,
+  // The flat GL-line export is a report; reports are free over MCP.
+  export_gl_lines: null,
   // Master data posts nothing, same as create_gl_account / update_customer.
   create_cost_centre: null,
   create_business_unit: null,

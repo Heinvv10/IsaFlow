@@ -99,6 +99,20 @@ function serverIcons(): Array<{ src: string; mimeType: string; sizes: string[] }
   ];
 }
 
+/**
+ * The id to answer a transport-level refusal with. JSON-RPC lets a server reply
+ * `id: null` only when it cannot determine the request id — but a single
+ * request's id is right there in the body, and a null-id reply to a request
+ * that carried one is what MCP clients report as a "malformed result" with the
+ * real message (rate limit, connector off) never shown. A batch has no single
+ * id, so it keeps null.
+ */
+function refusalId(body: unknown): JsonRpcRequest['id'] {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
+  const id = (body as JsonRpcRequest).id;
+  return typeof id === 'string' || typeof id === 'number' ? id : null;
+}
+
 function setCors(res: NextApiResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -168,7 +182,7 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
   const enabled = await hasFeature(req.companyId, 'mcp_connector');
   if (!enabled) {
     res.status(200).json(
-      rpcError(null, RPC_CODES.NOT_ENABLED, 'MCP connector not enabled for this company'),
+      rpcError(refusalId(req.body), RPC_CODES.NOT_ENABLED, 'MCP connector not enabled for this company'),
     );
     return;
   }
@@ -195,7 +209,10 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
   }
   if (rpcCount > 0 && !(await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60, cost: rpcCount }))) {
     res.status(200).json(
-      rpcError(null, RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.'),
+      rpcError(refusalId(body), RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.', {
+        limitPerMinute: 120,
+        retryAfterSeconds: 60,
+      }),
     );
     return;
   }
@@ -289,7 +306,7 @@ const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) 
   const ip = getClientIp(req);
   if (!(await checkRateLimit(`mcp-ip:${ip}`, { max: 300, windowSecs: 60 }))) {
     setCors(res);
-    res.status(429).json(rpcError(null, RPC_CODES.SERVER_ERROR, 'Too many requests. Slow down and retry.'));
+    res.status(429).json(rpcError(refusalId(req.body), RPC_CODES.SERVER_ERROR, 'Too many requests. Slow down and retry.'));
     return;
   }
 
