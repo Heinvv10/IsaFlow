@@ -93,10 +93,19 @@ BEGIN
   PERFORM pg_catalog.set_config('row_security', 'off', true);
   -- Every live one, whoever it names as sender: before 883 an admin could
   -- write any `invited_by` by raw SQL, so the column proves nothing.
-  SELECT pg_catalog.count(*), pg_catalog.string_agg(ci.id::pg_catalog.text || ' (company ' || ci.company_id::pg_catalog.text || ')', ', ' ORDER BY ci.id)
-  INTO v_n, v_ids FROM public.company_invitations ci
+  SELECT pg_catalog.count(*) INTO v_n FROM public.company_invitations ci
   WHERE pg_catalog.lower(pg_catalog.btrim(ci.role)) = 'owner'
     AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now();
+  -- The first ten by id, so the refusal stays readable in a deploy log.
+  SELECT pg_catalog.string_agg(x.id::pg_catalog.text || ' (company ' || x.company_id::pg_catalog.text || ')', ', ' ORDER BY x.id)
+  INTO v_ids FROM (
+    SELECT ci.id, ci.company_id FROM public.company_invitations ci
+    WHERE pg_catalog.lower(pg_catalog.btrim(ci.role)) = 'owner'
+      AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now()
+    ORDER BY ci.id LIMIT 10) x;
+  IF v_n > 10 THEN
+    v_ids := v_ids || ' (+' || (v_n - 10)::pg_catalog.text || ' more)';
+  END IF;
   PERFORM pg_catalog.set_config('row_security', 'on', true);
   IF v_n > 0 THEN
     RAISE EXCEPTION 'migration 883: % pending owner invitation(s) exist and may have been sent or rewritten by a non-owner — cancel them before applying; an owner re-issues them afterwards: %', v_n, v_ids
