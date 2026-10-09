@@ -8,10 +8,13 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { deleteCostCentre } from '../../src/modules/accounting/services/core/costCentreService';
+import { inCompanyTx } from './dims-678.helpers';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// deleteCostCentre takes the dimension-master lock, which needs a request transaction.
+const del = (companyId: string, id: string) => inCompanyTx(pool, companyId, 'k110', () => deleteCostCentre(companyId, id));
 const company = crypto.randomUUID();
 const other = crypto.randomUUID();
 const user = crypto.randomUUID();
@@ -83,13 +86,13 @@ afterAll(async () => {
 });
 
 it('refuses a centre referenced only by a supplier invoice, which carries no FK', async () => {
-  await expect(deleteCostCentre(company, invoiceCentre)).rejects.toThrow('1 document(s)');
+  await expect(del(company, invoiceCentre)).rejects.toThrow('1 document(s)');
   const kept = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [invoiceCentre]);
   expect(kept.rows.length).toBe(1);
 });
 
 it('refuses a parent centre instead of silently reparenting its children', async () => {
-  await expect(deleteCostCentre(company, parentCentre)).rejects.toThrow('1 child cost centre(s)');
+  await expect(del(company, parentCentre)).rejects.toThrow('1 child cost centre(s)');
   const child = await pool.query('SELECT parent_id FROM cost_centres WHERE id=$1', [childCentre]);
   expect(child.rows[0].parent_id).toBe(parentCentre);
 });
@@ -97,7 +100,7 @@ it('refuses a parent centre instead of silently reparenting its children', async
 it('maps a cross-tenant FK violation onto the same refusal, not a 500', async () => {
   // The guard counts nothing: the referencing employee belongs to the other
   // company, so only the RESTRICT FK sees it.
-  await expect(deleteCostCentre(company, freeCentre))
+  await expect(del(company, freeCentre))
     .rejects.toThrow('Cannot delete cost centre that is used by other records. Deactivate instead.');
   const kept = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [freeCentre]);
   expect(kept.rows.length).toBe(1);
@@ -106,20 +109,20 @@ it('maps a cross-tenant FK violation onto the same refusal, not a 500', async ()
 it('reports not found for another tenant\'s centre rather than claiming a delete', async () => {
   // The scoped DELETE matches no row; RETURNING id makes that visible instead
   // of returning { deleted: true } for a row this tenant never owned.
-  await expect(deleteCostCentre(company, foreignCentre)).rejects.toThrow(`Cost centre not found: ${foreignCentre}`);
+  await expect(del(company, foreignCentre)).rejects.toThrow(`Cost centre not found: ${foreignCentre}`);
   const kept = await pool.query('SELECT id FROM cost_centres WHERE id=$1', [foreignCentre]);
   expect(kept.rows.length).toBe(1);
 });
 
 it('reports not found for an id that does not exist at all', async () => {
   const ghost = crypto.randomUUID();
-  await expect(deleteCostCentre(company, ghost)).rejects.toThrow(`Cost centre not found: ${ghost}`);
+  await expect(del(company, ghost)).rejects.toThrow(`Cost centre not found: ${ghost}`);
 });
 
 it('refuses a centre held only by an unallocated bank transaction\'s analysis code', async () => {
   // bankAllocationService copies cc1_id onto the journal line at allocation
   // time, so a dangling id here becomes a dangling id in the ledger.
-  await expect(deleteCostCentre(company, bankCentre)).rejects.toThrow('1 bank transaction(s)');
+  await expect(del(company, bankCentre)).rejects.toThrow('1 bank transaction(s)');
   const stranded = await pool.query('SELECT cc1_id FROM bank_transactions WHERE id=$1', [bankTx]);
   expect(stranded.rows[0].cc1_id).toBe(bankCentre);
 });
@@ -127,7 +130,7 @@ it('refuses a centre held only by an unallocated bank transaction\'s analysis co
 it('refuses a parent whose only child belongs to another tenant', async () => {
   // Migration 660: the company-scoped children count sees nothing, so the
   // RESTRICT FK is what stops the child being silently reparented to NULL.
-  await expect(deleteCostCentre(company, foreignParent))
+  await expect(del(company, foreignParent))
     .rejects.toThrow('Cannot delete cost centre that is used by other records. Deactivate instead.');
   const child = await pool.query('SELECT parent_id FROM cost_centres WHERE id=$1', [foreignChild]);
   expect(child.rows[0].parent_id).toBe(foreignParent);

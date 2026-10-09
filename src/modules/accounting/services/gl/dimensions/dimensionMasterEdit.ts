@@ -4,8 +4,10 @@
  *   - a CC1 takes no parent; a CC2's parent is an active CC1, or an active
  *     programme CC2 whose chain reaches a CC1 — and never itself or a descendant;
  *   - a code or alias may not equal another cost centre's code or alias;
- *   - a node with active children cannot be deactivated, and a node under an
- *     inactive parent cannot be reactivated.
+ *   - a node with active children, or that a customer / account / coding rule
+ *     names as its default, cannot be deactivated, and a node under an
+ *     inactive parent cannot be reactivated;
+ *   - a parent left as it is is kept as it is, active or not.
  *
  * Moving a CC2 (or a programme, with its subtree) under another FNO is refused
  * while anything carries it: every tagged line, document and default stored the
@@ -13,22 +15,36 @@
  * first, then move.
  *
  * Every refusal is a DimensionRefusal raised from reads, before the first write.
+ * Every plan first takes the company's master lock (dimensionMasterLock), so two
+ * concurrent edits cannot each plan against the master as it was before the other.
  */
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { assertCostCentreUnused, countCc2Carriers } from '../../core/costCentreUsageGuard';
+import { assertCostCentreUnused, costCentreDefaultUsage, countCc2Carriers } from '../../core/costCentreUsageGuard';
 import { deleteCostCentre } from '../../core/costCentreService';
+import { lockDimensionMasters } from '../../core/dimensionMasterLock';
 import { listDimensionCostCentres, type DimensionCostCentre } from './dimensionMasterService';
 import { aliasKey } from './dimensionRefResolver';
 import { DimensionRefusal } from './dimensionTypes';
 
-/** By UUID, code or alias (case-insensitive), active or not. */
+/**
+ * By UUID, exact code, code ignoring case, or alias — active or not. Codes are
+ * unique only as typed, so a reference that matches two codes differing only in
+ * case names neither and is refused.
+ */
 export function findDimensionCostCentre(all: DimensionCostCentre[], ref: string): DimensionCostCentre | undefined {
+  const text = ref.trim();
+  const byIdOrCode = all.find((c) => c.id === text.toLowerCase()) ?? all.find((c) => c.code === text);
+  if (byIdOrCode) return byIdOrCode;
+  const folded = all.filter((c) => c.code.toLowerCase() === text.toLowerCase());
+  if (folded.length > 1) {
+    throw new DimensionRefusal(`"${ref}" matches the codes ${folded.map((c) => c.code).join(', ')}, which differ only in case — use the exact code`);
+  }
   const key = aliasKey(ref);
-  return all.find((c) => c.id === ref.trim())
-    ?? all.find((c) => c.code.toLowerCase() === key)
-    ?? all.find((c) => c.aliases.some((a) => aliasKey(a) === key));
+  return folded[0] ?? all.find((c) => c.aliases.some((a) => aliasKey(a) === key));
 }
+
+const UNIQUE_VIOLATION = '23505';
 
 function descendantsOf(all: DimensionCostCentre[], id: string): string[] {
   const out: string[] = [];
@@ -54,6 +70,7 @@ export interface UpdateDimensionCostCentreInput {
   removeAliases?: string[];
   description?: string | null;
   department?: string | null;
+  notes?: string | null;
   isActive?: boolean;
 }
 
@@ -61,10 +78,11 @@ export interface UpdateDimensionCostCentrePlan {
   before: DimensionCostCentre;
   after: {
     code: string; name: string; parentId: string | null; parentCode: string | null; fnoCode: string | null;
-    isActive: boolean; description: string | null; department: string | null;
+    isActive: boolean; description: string | null; department: string | null; notes: string | null;
   };
   addAliases: { alias: string; key: string }[];
   removeAliasKeys: string[];
+  /** Empty when the input changes nothing; the caller decides whether that is a refusal. */
   changed: string[];
   warnings: string[];
 }
@@ -85,6 +103,7 @@ export async function planUpdateDimensionCostCentre(
   ref: string,
   input: UpdateDimensionCostCentreInput,
 ): Promise<UpdateDimensionCostCentrePlan> {
+  await lockDimensionMasters(companyId);
   const all = await listDimensionCostCentres(companyId, { includeInactive: true });
   const before = findDimensionCostCentre(all, ref);
   if (!before) throw new DimensionRefusal(`cost centre "${ref}" does not exist in this company`);
@@ -95,7 +114,8 @@ export async function planUpdateDimensionCostCentre(
   const name = input.name === undefined ? before.name : input.name.trim();
   if (!code || code.length > 20) throw new DimensionRefusal('code is required and at most 20 characters');
   if (!name || name.length > 255) throw new DimensionRefusal('name is required and at most 255 characters');
-  if (code.toLowerCase() !== before.code.toLowerCase()) {
+  // Exact, not folded: a case-only rename onto another code must be refused too.
+  if (code !== before.code) {
     const clash = takenBy(code.toLowerCase());
     if (clash) throw new DimensionRefusal(`code ${code} is already the code or an alias of ${clash.code}`);
   }
@@ -112,12 +132,16 @@ export async function planUpdateDimensionCostCentre(
       parentId = null; parentCode = null; fnoCode = before.ccType === 'cc1' ? code : null;
     } else {
       const parent = findDimensionCostCentre(all, input.parent);
-      if (!parent || !parent.isActive) throw new DimensionRefusal(`parent "${input.parent}" does not name an active CC1 or CC2 in this company`);
-      if (parent.id === before.id || descendantsOf(all, before.id).includes(parent.id)) {
-        throw new DimensionRefusal(`parent "${input.parent}" is ${before.code} itself or below it — that would make a loop`);
+      // The form re-sends the parent it was given: that one is kept as it is,
+      // even inactive or with no FNO above it. Only a NEW parent is checked.
+      if (!parent || parent.id !== before.parentId) {
+        if (!parent || !parent.isActive) throw new DimensionRefusal(`parent "${input.parent}" does not name an active CC1 or CC2 in this company`);
+        if (parent.id === before.id || descendantsOf(all, before.id).includes(parent.id)) {
+          throw new DimensionRefusal(`parent "${input.parent}" is ${before.code} itself or below it — that would make a loop`);
+        }
+        if (!parent.fnoCode) throw new DimensionRefusal(`parent "${input.parent}" is a CC2 whose chain reaches no CC1 (FNO) — fix the programme first`);
+        parentId = parent.id; parentCode = parent.code; fnoCode = parent.fnoCode;
       }
-      if (!parent.fnoCode) throw new DimensionRefusal(`parent "${input.parent}" is a CC2 whose chain reaches no CC1 (FNO) — fix the programme first`);
-      parentId = parent.id; parentCode = parent.code; fnoCode = parent.fnoCode;
     }
     if (before.ccType === 'cc2' && fnoCode !== before.fnoCode) {
       const subtree = [before.id, ...descendantsOf(all, before.id)];
@@ -138,8 +162,10 @@ export async function planUpdateDimensionCostCentre(
     if (activeChildren.length > 0) {
       throw new DimensionRefusal(`${before.code} has active children (${activeChildren.map((c) => c.code).join(', ')}) — deactivate or move them first`);
     }
+    const defaults = await costCentreDefaultUsage(companyId, before.id);
+    if (defaults) throw new DimensionRefusal(`${before.code} is the default on ${defaults} — clear those defaults before deactivating it`);
   }
-  if (isActive && parentId) {
+  if (isActive && !before.isActive && parentId) {
     const parent = all.find((c) => c.id === parentId);
     if (parent && !parent.isActive) throw new DimensionRefusal(`${before.code} sits under inactive ${parent.code} — activate or change the parent first`);
   }
@@ -165,42 +191,57 @@ export async function planUpdateDimensionCostCentre(
   const description = cleanText(input.description, before.description);
   const department = cleanText(input.department, before.department);
   if (department && department.length > 100) throw new DimensionRefusal('department is at most 100 characters');
-  const after = { code, name, parentId, parentCode, fnoCode, isActive, description, department };
+  const notes = cleanText(input.notes, before.notes);
+  const after = { code, name, parentId, parentCode, fnoCode, isActive, description, department, notes };
   const changed = [
     code !== before.code ? 'code' : '', name !== before.name ? 'name' : '',
     parentId !== before.parentId ? 'parent' : '', isActive !== before.isActive ? 'is_active' : '',
     description !== before.description ? 'description' : '', department !== before.department ? 'department' : '',
-    addAliases.length > 0 || removeAliasKeys.length > 0 ? 'aliases' : '',
+    notes !== before.notes ? 'notes' : '', addAliases.length > 0 || removeAliasKeys.length > 0 ? 'aliases' : '',
   ].filter(Boolean);
-  if (changed.length === 0) throw new DimensionRefusal('Nothing to change');
   return { before, after, addAliases, removeAliasKeys, changed, warnings };
 }
 
-/** Write the plan. Refuses nothing — call it with no catch. */
+/**
+ * Write the plan (nothing, when it changes nothing). Its writes run in one
+ * savepoint: a code or alias taken by a writer outside the master lock (23505)
+ * rolls them all back and comes out as a DimensionRefusal, so a caller that
+ * answers the refusal leaves nothing half-written behind.
+ */
 export async function applyUpdateDimensionCostCentre(
   companyId: string,
   plan: UpdateDimensionCostCentrePlan,
   userId: string,
 ): Promise<void> {
+  if (plan.changed.length === 0) return;
   const a = plan.after;
-  await sql`
-    UPDATE cost_centres SET
-      code = ${a.code}, name = ${a.name}, parent_id = ${a.parentId}::UUID, is_active = ${a.isActive},
-      description = ${a.description}, department = ${a.department}, updated_at = NOW()
-    WHERE id = ${plan.before.id}::UUID AND company_id = ${companyId}::UUID
-  `;
-  if (plan.removeAliasKeys.length > 0) {
-    await sql`
-      DELETE FROM cost_centre_aliases
-      WHERE company_id = ${companyId}::UUID AND cost_centre_id = ${plan.before.id}::UUID
-        AND alias_normalized = ANY(${plan.removeAliasKeys}::TEXT[])
-    `;
-  }
-  for (const al of plan.addAliases) {
-    await sql`
-      INSERT INTO cost_centre_aliases (company_id, cost_centre_id, alias, alias_normalized)
-      VALUES (${companyId}::UUID, ${plan.before.id}::UUID, ${al.alias}, ${al.key})
-    `;
+  try {
+    await withSavepoint('cost_centre_update', async () => {
+      await sql`
+        UPDATE cost_centres SET
+          code = ${a.code}, name = ${a.name}, parent_id = ${a.parentId}::UUID, is_active = ${a.isActive},
+          description = ${a.description}, department = ${a.department}, notes = ${a.notes}, updated_at = NOW()
+        WHERE id = ${plan.before.id}::UUID AND company_id = ${companyId}::UUID
+      `;
+      if (plan.removeAliasKeys.length > 0) {
+        await sql`
+          DELETE FROM cost_centre_aliases
+          WHERE company_id = ${companyId}::UUID AND cost_centre_id = ${plan.before.id}::UUID
+            AND alias_normalized = ANY(${plan.removeAliasKeys}::TEXT[])
+        `;
+      }
+      for (const al of plan.addAliases) {
+        await sql`
+          INSERT INTO cost_centre_aliases (company_id, cost_centre_id, alias, alias_normalized)
+          VALUES (${companyId}::UUID, ${plan.before.id}::UUID, ${al.alias}, ${al.key})
+        `;
+      }
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === UNIQUE_VIOLATION) {
+      throw new DimensionRefusal(`code ${a.code} or one of its aliases was just taken by another cost centre — reload and try again`);
+    }
+    throw err;
   }
   log.info('Updated dimension cost centre', {
     companyId, id: plan.before.id, code: a.code, changed: plan.changed, userId,
@@ -209,6 +250,7 @@ export async function applyUpdateDimensionCostCentre(
 
 /** The cost centre a delete would remove; refuses (counted) while anything uses it. */
 export async function planDeleteDimensionCostCentre(companyId: string, ref: string): Promise<DimensionCostCentre> {
+  await lockDimensionMasters(companyId);
   const all = await listDimensionCostCentres(companyId, { includeInactive: true });
   const target = findDimensionCostCentre(all, ref);
   if (!target) throw new DimensionRefusal(`cost centre "${ref}" does not exist in this company`);

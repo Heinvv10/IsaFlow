@@ -2,7 +2,10 @@
  * MCP edit / deactivate / delete for the dimension masters — the other half of
  * dimensionMasterTools' creates. Same scope (write:accounts) and same billing
  * (master data posts nothing). Every tool takes dry_run; every refusal comes
- * from reads before the first write.
+ * from reads before the first write, under the company's dimension-master lock
+ * (taken by each plan, dry_run included). A refusal the apply raises (a 23505 or
+ * 23503 from a writer outside the lock) is answered only after the service's
+ * own savepoint has rolled the write back, so nothing half-written survives it.
  */
 import type { McpTool, McpToolResult } from '../types';
 import {
@@ -10,7 +13,7 @@ import {
   planUpdateDimensionCostCentre, type UpdateDimensionCostCentreInput,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import {
-  applyUpdateBusinessUnit, assertBusinessUnitUnused, BusinessUnitActionError, deleteBusinessUnit, findBusinessUnit,
+  applyUpdateBusinessUnit, BusinessUnitActionError, deleteBusinessUnit, planDeleteBusinessUnit,
   planUpdateBusinessUnit, type BusinessUnitUpdate,
 } from '@/modules/accounting/services/core/businessUnitService';
 import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
@@ -102,6 +105,7 @@ export const updateCostCentreTool: McpTool = {
     } catch (err) {
       return refusal(err);
     }
+    if (plan.changed.length === 0) return toolError('Nothing to change');
     const a = plan.after;
     const summary = {
       id: plan.before.id, code: a.code, name: a.name, cc_type: plan.before.ccType, parent_code: a.parentCode,
@@ -110,7 +114,11 @@ export const updateCostCentreTool: McpTool = {
       ...(plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
     };
     if (args.dry_run === true) return preview(summary);
-    await applyUpdateDimensionCostCentre(ctx.companyId, plan, ctx.userId);
+    try {
+      await applyUpdateDimensionCostCentre(ctx.companyId, plan, ctx.userId);
+    } catch (err) {
+      return refusal(err);
+    }
     return ok(summary);
   },
 };
@@ -190,13 +198,18 @@ export const updateBusinessUnitTool: McpTool = {
     } catch (err) {
       return refusal(err);
     }
+    if (plan.changed.length === 0) return toolError('Nothing to change');
     const a = plan.after;
     const summary = {
       id: plan.before.id, code: a.code, name: a.name, division: a.division, description: a.description,
       is_active: a.isActive, changed: plan.changed,
     };
     if (args.dry_run === true) return preview(summary);
-    await applyUpdateBusinessUnit(ctx.companyId, plan);
+    try {
+      await applyUpdateBusinessUnit(ctx.companyId, plan);
+    } catch (err) {
+      return refusal(err);
+    }
     return ok(summary);
   },
 };
@@ -222,10 +235,9 @@ export const deleteBusinessUnitTool: McpTool = {
   handler: async (args, ctx) => {
     const ref = strArg(args, 'business_unit');
     if (!ref) return toolError('business_unit is required');
-    let bu: Awaited<ReturnType<typeof findBusinessUnit>>;
+    let bu: Awaited<ReturnType<typeof planDeleteBusinessUnit>>;
     try {
-      bu = await findBusinessUnit(ctx.companyId, ref);
-      await assertBusinessUnitUnused(ctx.companyId, bu.id);
+      bu = await planDeleteBusinessUnit(ctx.companyId, ref);
     } catch (err) {
       return refusal(err);
     }
