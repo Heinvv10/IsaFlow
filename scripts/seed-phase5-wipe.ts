@@ -2,20 +2,31 @@
  * The cost-centre wipe of seed-phase5-payroll.ts, on its own so it can be run
  * (and tested) without the rest of the seed.
  *
- * Every column that names a cost centre through a RESTRICT foreign key is
- * cleared first — scoped to the one company — or the DELETE dies on 23503:
- * the journal and bank lines (878 / 882), the document lines and credit notes
- * and the customer / account defaults (870), employees and assets (649), and the
- * coding-rule default (no FK, but it would point at nothing). The parent links
- * between the company's own centres (660) need nothing: one DELETE removes
- * parent and child together, and the check runs at the end of the statement.
- * Tags are CLEARED, never rows deleted: a deleted posted line would unbalance
- * its journal, and a tag moves no figure. BU tags are left alone — this wipe
- * deletes no business unit.
+ * Every RESTRICT foreign key to cost_centres, and what the wipe does about it
+ * (checked against pg_constraint and the migrations, 2026-10-09):
+ *   - payroll_employee_cost_allocations.cost_centre_id (451; NOT NULL): rows DELETED;
+ *   - payroll_employees.cost_centre_id, assets.cost_centre_id (649): cleared;
+ *   - gl_journal_lines.cc1_id / cc2_id (882), bank_transactions.cc1_id / cc2_id
+ *     (878): cleared;
+ *   - supplier_invoice_items, customer_invoice_items, credit_notes cc1_id /
+ *     cc2_id, customers.default_cc1_id, gl_accounts.default_cc1_id /
+ *     default_cc2_id (870): cleared;
+ *   - cost_centres.parent_id (660): nothing — one DELETE removes the company's
+ *     parents and children together and the check runs at the end of the
+ *     statement. A child in ANOTHER company would still block it; creating one
+ *     is refused (parents resolve within the company only).
+ * Plus supplier_coding_rules.default_cost_centre_id: no FK, cleared so it does
+ * not point at nothing. CASCADE / SET NULL references (aliases, GL mappings,
+ * capture events) need nothing. Every statement is scoped to the one company.
+ * Tags are CLEARED, never ledger rows deleted: a deleted posted line would
+ * unbalance its journal, and a tag moves no figure. BU tags are left alone —
+ * this wipe deletes no business unit.
  */
 type Sql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
 
 export async function wipePhase5CostCentres(sql: Sql, companyId: string): Promise<void> {
+  // NOT NULL: an allocation cannot be cleared, only removed.
+  await sql`DELETE FROM payroll_employee_cost_allocations WHERE company_id = ${companyId}::uuid`;
   await sql`UPDATE payroll_employees SET cost_centre_id = NULL WHERE company_id = ${companyId}::uuid`;
   await sql`UPDATE gl_journal_lines SET cc1_id = NULL, cc2_id = NULL
             WHERE company_id = ${companyId}::uuid AND (cc1_id IS NOT NULL OR cc2_id IS NOT NULL)`;
