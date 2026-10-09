@@ -303,7 +303,7 @@ Mutation checks. Each one must turn a test red:
   - **UI post** (`journal-entries-action`) and **MCP `post_journal`**: gate ANY draft a person (or agent) posts, whatever created it, under the journal's row lock and before any write — 409, or a tool error that leaves the idempotency key free (Q6). `create_draft_journal` stays ungated.
   - **Receipt autoPost, GL import with post-immediately, the recurring journal run and recurring-transaction journal autoPost** are unattended: each decides from the amount before writing, leaves a gated journal a draft and raises the request as the person who ran it, and never refuses after a write. The receipt claim stands (the document cannot be posted twice); the import never fails because of approval and lists the held ids; the schedules advance.
   - **MCP reclassification** creates and posts in one call with no draft surviving: refused up front when any journal it would post matches a rule (the dry run gives the same refusal).
-- **Not gated:** opening balances (they write source `manual`, so nothing keys on `source`), every system or document posting, the reversal of a posted journal and `bank-transfers.ts` (a raw `'posted'` insert) — the last two are not in decision 2 and are follow-ups for Hein. **Close-run** is gated (Hein, 2026-10-07, decision (b)): its `post_draft_journal` proposal posts ANY balanced draft by id when a person approves it — the UI Post by another door — so the approve gates it under the lock before the claim (409 with the reason, nothing written, the proposal stays retryable). Close-run creates no journals of its own.
+- **Not gated:** opening balances (they write source `manual`, so nothing keys on `source`), every system or document posting, the reversal of a posted journal and `bank-transfers.ts` (a raw `'posted'` insert) — the last two are not in decision 2 and are follow-ups for Hein. **REVISED 2026-10-09 (forensic-controls step 2):** Banking > Transfers is a person-composed manual journal: refused up front since #670, and now held as a draft plus an approval request (step 2 E, below). **Close-run** is gated (Hein, 2026-10-07, decision (b)): its `post_draft_journal` proposal posts ANY balanced draft by id when a person approves it — the UI Post by another door — so the approve gates it under the lock before the claim (409 with the reason, nothing written, the proposal stays retryable). Close-run creates no journals of its own.
 - **Digest:** the header a person types (date, description, reference, project, cost centre, intercompany flag and counterparty) and every line (account, debit, credit, narrative, VAT code, the five dimensions), lines ordered by created_at then content then id; bookkeeping, numbers, timestamps, actor stamps and evidence flags excluded. **Amount:** the larger side of the lines, in absolute terms.
 - **Authors:** the creator (composer, importer, uploader, runner) plus, while enforced, the recurring template's creator and editors (stamped into the journal at mint; the recurring-journals PUT stamps the template's editors) and whoever merged an account a draft's lines named. The account merge is the one path that edits a draft's content: it stales the approval (Q10).
 - **Backstop:** a marker, `gl_journal_entries.approval_document_type = 'manual_journal'`, written by the gated paths ONLY while enforcement is on (golden path g writes no 869 column). A marked journal may not enter 'posted' without a cleared approval (862's ratchet), may not be inserted already posted under enforcement, and its marker never clears. Known limit: raw SQL that posts an UNMARKED journal is not caught; the TypeScript gates are the control.
@@ -397,3 +397,117 @@ is ever written for it). Hein's decisions, 2026-10-08:
   account and branch). Payment and batch pages do not yet show the verification state.
 - **Not in this step**: a bank-detail edit UI, evidence uploads, employee/payroll beneficiaries, steps 2–5 of the programme.
 
+---
+## As built: bank controls (forensic-controls step 2, migration 877)
+
+Hein's decisions 2026-10-09 (goal `.claude/handoffs/2026-10-09-bank-controls-step2-goal.md` §2a). Built on the
+R-035 switchboard and step 1's pattern; no second approval kernel, no new allocation document type.
+
+**Shared pieces.**
+- `approval_enforcement` accepts `bank_rule` (877 §5): a switch with no rule type (`BANK_RULE` in
+  `approvalRuleOptions.ts`), like `supplier_bank_details`. Switching it on needs a person in their own session with a
+  role ≥ the bank-rule approver role; off needs `mayWeakenAtLevel` at that role.
+- `approvalEnforcement.bankControlRole(companyId, types)`: the strictest ACTIVE rule role of `types`, never below the
+  admin floor (`BANK_CONTROL_FLOOR`); `supplierBankVerifierRole` is now that over the payment types,
+  `bankRuleApproverRole` that over `manual_journal`.
+- `bank/bankControlRefusal.ts`: `BankControlError` (403 who may not / 404 / 409 state moved, with a `code`),
+  `assertHumanSession` (impersonation → `IMPERSONATION_FORBIDDEN`; a claim-less or MCP context — no `session_id` —
+  → `AGENT_FORBIDDEN`), `isSoleAtFloor` (R-035 Q2 judged on the admin floor), `rosterSnapshot`.
+  `bank/bankControlResponse.respondIfBankControlRefused` answers it on routes.
+
+**A. Importer ≠ allocator (decision 2).**
+- Provenance (877 §1): every path that writes lines with an `import_batch_id` writes a `bank_import_batches` row
+  naming the person (`imported_by`) and the channel (`import_channel`: `upload`, `mcp`, `extension`,
+  `statement_ocr`, `classified`), with `file_sha256` where there is a file. `bank-transactions-import-classified`
+  and the statement-OCR commit used to set `import_batch_id` with no batch row at all; both write one now. For OCR
+  the importer is the UPLOADER (the import's creator, else the captured document's uploader, else the committer):
+  whoever supplied the file's contents. MCP `import_bank_statement` records the token's user; `undo_bank_import`'s
+  boundary is `import_channel = 'mcp'` (or a legacy `mcp:%` importer). Provenance never changes once set (877
+  trigger). Census: `tests/unit/services/bank/bankImportProvenanceCensus.test.ts`.
+- The gate (`bank/bankLineImporterGate.ts`): under enforcement of the arm's TYPE (no matching rule needed) —
+  `manual_journal` for account / split / transfer and a customer REFUND (money out to a customer), `supplier_payment`
+  (either coupled switch) for a supplier outflow — the line's batch importer may not allocate it: 403
+  `IMPORTER_MAY_NOT_ALLOCATE`, before any write, read under the line lock where the site holds one. `importerArmOf`
+  is the one arm mapping (allocate, split, the rule sweep, the provisional poster, the MCP bulk classifier, the
+  reversal gate). Exempt: feed lines, money in (receipts, supplier refunds), a batch naming nobody (no row, a legacy
+  `mcp:*` importer). Importer ids compare case-insensitively. Sole-approver exception: R-035 Q2 on the admin floor,
+  judged only for the request's own user (a sweep acting for someone else is never sole — fails closed).
+- MCP: allocate, split and apply-supplier-payment refuse before any write and their dry runs agree; the bulk
+  classifier skips importer-held lines as `approval_required: …` in the dry run and the real run alike.
+- Sweeps act for the person who triggered them (decided per the goal's recommendation): `sweep(…, triggeredBy)` is
+  required and server-derived — the import's own sweep runs for the batch's importer (journals keep the zero-uuid
+  `created_by`), rules applied / smart-categorise / the LLM pass for the session user. Importer-held lines are
+  skipped `approval_required` and counted.
+
+**B. Bank-rule history and approval (decision 3).**
+- History is captured by the DATABASE: an AFTER trigger on `bank_categorisation_rules` writes one
+  `bank_rule_changes` row (status `applied`, before/after projections, `proposed_by = auth.uid()`) for every write
+  that changes the rule, whoever writes — UI, MCP, seed (declared `seed`), customer merge (declared `merge`), raw SQL.
+  No-op writes record nothing. An `applied` row can only come from that trigger (the insert guard refuses one at
+  trigger depth 1).
+- Whether a change needs approval is SQL (`bank_rule_change_needs_approval`): afterwards the rule auto-posts
+  (`is_active AND auto_create_entry`) and either it did not before, or any non-cosmetic column moved (cosmetic:
+  `rule_name`, `description_template`, `notes`). So a match pattern, priority, account, supplier, customer, VAT code or
+  `auto_apply` change on an auto-posting rule is held; turning auto-post off, disabling, deleting and suggestion-only
+  rules apply at once. `auto_apply` is TEXT `fifo`/`none` in the schema (how a supplier rule's cash is applied), so
+  it is a posting target, not the switch.
+- Held changes: `bank/bankRuleChangeControl.ts` (the ONLY writer of the rules table — census
+  `bankRuleChangeCensus`) inserts a `pending` row and applies nothing; the create route then never runs `applyRules`.
+  A newer change to a rule supersedes its undecided pending ones (877 trigger).
+- Status transitions are append-only DECISIONS (`bank_rule_change_decisions`: approved / rejected / superseded; one
+  per change, UNIQUE), never an UPDATE: no UPDATE grant exists on either table, and a SECURITY DEFINER status writer
+  would have been a second privileged writer to census. State is derived (`bank_rule_change_states`).
+- Who decides (`bankRuleApprovers.ts`, `bankRuleChangeDecision.ts`): a person in their own session; own role (read
+  from the DB) ≥ `bankRuleApproverRole` (strictest active manual-journal rule, never below admin), with step 1's
+  fallback to the floor when no non-proposer holds a raised role and the proposer does; not the proposer, except as
+  the sole approver on the admin floor (roster recorded). The digest (`sha256` of `[kind, rule_id, before, after]`)
+  must match; an approval whose rule moved since is 409. The DB guard re-checks the floor, the proposer, the roster,
+  pending-ness and staleness; the raised role is TypeScript's. Approval applies `after` atomically
+  (`bank_rule_change_apply`). Refusal order: session 403 → 404 → not pending 409 → digest 409 → who 403 → stale 409.
+  Normally a stale approval surfaces as `CHANGE_NOT_PENDING` (any write supersedes first).
+- Backstop: under the switch, the rules table refuses (23514) any write that needs approval unless it applies a
+  change approved in the same transaction — a missed code path fails closed.
+- MCP may propose (the tool reports "held for approval") and never decide (no tool; the route refuses an agent
+  context 403 `AGENT_FORBIDDEN`). A customer merge naming an auto-posting rule is refused 409 `RULE_MERGE_HELD`
+  under the switch (turn auto-post off, merge, propose again). Deleting a missing or foreign rule is 404, all or
+  nothing for a batch.
+- UI: Pending changes panel above the rules table (Approve / Reject only where `canDecide`), a per-rule badge, held
+  saves reported as held; the `bank_rule` row in the enforcement panel (preview: active auto-posting rules).
+
+**C. Reversals (decision 4).** One choke point, `reverseReconciledTransaction` (`bank/bankReversalGate.ts`), after
+the line lock and before any write: under enforcement of the arm's type (plain journal → `manual_journal`; supplier
+payment or batch on an outflow → `supplier_payment`; a customer refund → `manual_journal`; receipts ungated), a
+non-human session is refused (`AGENT_FORBIDDEN` / `IMPERSONATION_FORBIDDEN`), and the allocator — the union of the
+root journal's, the payment document's and the auto-post run's `created_by` (zero uuid = nobody) — may not reverse
+unless sole on the admin floor (403 `ALLOCATOR_MAY_NOT_REVERSE`). Each permitted reversal under enforcement writes
+`audit_log` (`reverse`, `bank_transaction`, metadata allocator / armType / soleApprover). The MCP reverse tools
+(single, batch, range — dry run alike) pre-check and refuse agents when the arm is enforced. `undoRun` and
+`undoAnyway` are judged at the run level, up front (run creator; zero-uuid import run belongs to nobody), with an
+`bank_auto_post_run` audit row when anything was undone. Void receipt / payment reach the choke point.
+
+**D. Auto-post settings (decision 5).** `updateAutoPostSettings` reads the row under lock (or the defaults the gate
+applies), writes nothing for a no-op, and audits every change field by field (`create` / `update`,
+`bank_auto_post_settings`). Under `manual_journal` or `supplier_payment`/`payment_batch` enforcement a WEAKENING change
+— enabling auto-post or the LLM tier; raising a cap, or setting one to 0 (no cap: the gate skips a line only when
+cap > 0); lowering a minimum confidence — needs a person in their own session and `mayWeakenAtLevel` at
+`bankControlRole` over the ENFORCED types only (a dormant rule of an unenforced type does not raise it); otherwise
+403 `WEAKENING_REQUIRES_AUTHORITY` before any write, with a `log.warn`. A mixed patch is judged whole.
+Strengthening is always allowed. Census: `autoPostSettingsWriteCensus`.
+
+**E. Transfers (decision 6).** Under `manual_journal` enforcement and a rule matching the amount, Banking > Transfers
+saves the transfer as a DRAFT journal (the same two bank legs, source `auto_bank_transfer`, marked `manual_journal`,
+`created_by` the person) and raises the approval request as the person; 202 `{ status: 'awaiting_approval', journalId,
+requestId, requiredRole }`. Order kept: Login-as refused → bank accounts → duplicate guard (428) → decision. After
+approval the creator posts it through `journal-entries-action` (gated, cleared). While held, its statement line
+allocated as a transfer is refused naming the draft (`transferDuplicateGuard`, while the request is pending or
+approved-unposted; a rejected draft no longer blocks). Known change: under enforcement a held transfer into a
+closed period or inactive account now fails at post, not before the write. Enforcement off or no rule matching:
+posts as before.
+
+**Known limits.**
+- Browser-extension ingest lines carry `bank_feed_connection_id`, so they are feed lines and exempt from
+  importer ≠ allocator (decision 2). The extension reads the bank's page in the user's own browser.
+- `bank-transactions-import-classified` writes `bank_transactions.suggested_cost_centre`, a column no migration
+  creates (pre-existing; the route 400s on a schema built from migrations).
+- Same boundary as N1 and 876: the objects bind application code paths and app_user statements, not an attacker
+  already running arbitrary SQL (who can reset the role or set claims).
