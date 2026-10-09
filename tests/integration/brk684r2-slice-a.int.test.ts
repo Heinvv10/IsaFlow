@@ -38,9 +38,9 @@ describe('R2-1 — auto_match settles the importer\'s own line against their own
     const f = await bankCompany(pool, [[u.a, 'admin'], [u.b, 'admin']], companies);
     await plantRule(pool, f.c, 'owner', { documentType: 'manual_journal', operator: 'greater_than', value: 1000 });
     await enforce(pool, f.c, u.b, ['manual_journal']);
-    // autoMatch pairs a deposit with a CREDIT on the bank (utils/autoMatch); match itself checks no direction, so the
-    // explicit match below refuses exactly the pair auto_match takes.
-    const line = await plantLine(pool, f, await plantBatch(pool, f, u.a), 500);
+    // A withdrawal pairs with the bank's CREDIT leg (#687, utils/autoMatch); the explicit match below refuses exactly the
+    // pair auto_match takes.
+    const line = await plantLine(pool, f, await plantBatch(pool, f, u.a), -500);
     const je = await plantJournal(pool, f, u.a, { amount: 500 });
     expect((await j.post(u.a, f.c, je)).state.statusCode).toBe(200);
     const bankLeg = (await pool.query('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2',
