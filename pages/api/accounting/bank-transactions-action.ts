@@ -122,7 +122,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, tx);
       }
       case 'auto_match': {
-        const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId);
+        const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId, userId);
         return apiResponse.success(res, result);
       }
       case 'allocate': {

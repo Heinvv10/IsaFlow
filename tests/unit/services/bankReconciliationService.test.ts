@@ -8,6 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 
 // sql.unsafe is called inside getBankTransactions for the bankAccountId+status
 // filter branch.  Use vi.hoisted so the mock reference is available inside

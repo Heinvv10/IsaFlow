@@ -130,6 +130,27 @@ export async function assertImporterMayMatch(
   await assertImporterMayAllocate(companyId, row, actorUserId, 'manual_journal');
 }
 
+/**
+ * Auto-match's twin of assertImporterMayMatch: the run acts for the person who
+ * triggered it (A3), so under manual_journal enforcement the bank lines among
+ * `pairs` that person imported AND whose journal they created are held —
+ * skipped and counted, never matched; sole approver excepted. One read per run.
+ */
+export async function importerHeldMatchPairs(companyId: string, actorUserId: string,
+  pairs: readonly { bankTransactionId: string; journalLineId: string }[]): Promise<Set<string>> {
+  if (pairs.length === 0 || !(await armEnforced(companyId, 'manual_journal'))) return new Set();
+  const own = new Set(((await sql`
+    SELECT bt.id FROM unnest(${pairs.map((p) => p.bankTransactionId)}::UUID[], ${pairs.map((p) => p.journalLineId)}::UUID[]) AS p(tx, jl)
+    JOIN bank_transactions bt ON bt.id = p.tx AND bt.company_id = ${companyId}::UUID
+    JOIN bank_import_batches b ON b.id = bt.import_batch_id AND b.company_id = bt.company_id
+    JOIN gl_journal_lines jl ON jl.id = p.jl AND jl.company_id = bt.company_id
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = bt.company_id
+    WHERE bt.bank_feed_connection_id IS NULL
+      AND lower(b.imported_by) = lower(${actorUserId}) AND lower(je.created_by::TEXT) = lower(${actorUserId})
+  `) as DbRow[]).map((r) => String(r.id)));
+  return own.size === 0 || await isSoleAsCaller(companyId, actorUserId) ? new Set() : own;
+}
+
 /** importerAllocationRefusal for a line by id, company-scoped (an MCP pre-check, unlocked); null when there is no such line. */
 export async function importerRefusalForLineId(
   companyId: string, bankTxId: string, actorUserId: string, arm: BankArm,

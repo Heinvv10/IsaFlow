@@ -21,10 +21,13 @@ import { BankTransactionLockTimeoutError } from './bankTxLock';
 import { BankMatchUnavailableError } from './bankTxStatusMutations';
 import { refuseCompletedSession, shareLockSession } from './reconciliationSessionLock';
 import type { AutoMatchResult } from '../../types/bank.types';
+import { importerHeldMatchPairs } from './bankLineImporterGate';
 import type { DbRow } from '@/types/db';
 
 export async function autoMatchTransactions(
-  companyId: string, bankAccountId: string, reconciliationId?: string
+  companyId: string, bankAccountId: string, reconciliationId: string | undefined,
+  /** The person who ran it (step 2, A3): their own statement line paired with their own journal is skipped, counted. */
+  triggeredBy: string,
 ): Promise<AutoMatchResult> {
   try {
     // Inside a session, only what that session may reconcile: lines dated on or
@@ -87,6 +90,7 @@ export async function autoMatchTransactions(
     let skippedRaced = 0;
     let skippedUnavailable = 0;
     let skippedRefused = 0;
+    let skippedImporter = 0;
     // D11: how many candidates were attempted, how many were a HELD row, and the first held error. If EVERY attempted
     // line was held nothing committed, so the request answers 503 + Retry-After (re-thrown below) instead of a 200.
     let attempted = 0;
@@ -99,8 +103,10 @@ export async function autoMatchTransactions(
       a.bankTransactionId < b.bankTransactionId ? -1 : a.bankTransactionId > b.bankTransactionId ? 1 : 0);
     // The whole loop is one savepoint: a run-level failure (the session gone, an unexpected error) discards the matches
     // already applied, so the request never commits half a run behind a 4xx.
+    const importerHeld = await importerHeldMatchPairs(companyId, triggeredBy, ordered.filter((m) => m.confidence >= 0.9));
     await withSavepoint('auto_match_run', async () => {
       for (const match of ordered) {
+        if (match.confidence >= 0.9 && importerHeld.has(match.bankTransactionId)) { skippedImporter++; continue; }
         if (match.confidence >= 0.9) {
           attempted++;
           try {
@@ -152,12 +158,12 @@ export async function autoMatchTransactions(
     if (attempted > 0 && held === attempted) throw firstHeld;
     const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
     log.info('Auto-match completed', {
-      bankAccountId, autoMatched: matchedCount, skippedRaced, skippedUnavailable, skippedRefused,
+      bankAccountId, autoMatched: matchedCount, skippedRaced, skippedUnavailable, skippedRefused, skippedImporter,
       candidates: lowConfidence.length, unmatched: result.unmatched.length,
     }, 'accounting');
     return {
       matched: matchedCount, unmatched: result.unmatched.length,
-      candidates: lowConfidence, skippedRaced, skippedUnavailable, skippedRefused,
+      candidates: lowConfidence, skippedRaced, skippedUnavailable, skippedRefused, skippedImporter,
     };
   } catch (err) {
     log.error('Failed to auto-match transactions', { error: err }, 'accounting');

@@ -184,14 +184,38 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
   });
 
-  it('every caller of matchTransaction asks the importer first, but the unattended auto-match', () => {
+  it('every caller of matchTransaction asks the importer first; auto-match skips for the person who ran it', () => {
     expect(filesMatching(/(?<!\.)\bmatchTransaction\(/).filter((f) => !f.endsWith('bankTxStatusMutations.ts')).sort()).toEqual([
-      'pages/api/accounting/bank-match-confirm.ts', 'pages/api/accounting/bank-transactions-action.ts',
-      `${B}bankAutoMatchService.ts`, // unattended (auto_match): no person matches; not gated (orchestrator, #684)
+      'pages/api/accounting/bank-match-confirm.ts', 'pages/api/accounting/bank-transactions-action.ts', `${B}bankAutoMatchService.ts`,
     ]);
     const confirm = textOf('pages/api/accounting/bank-match-confirm.ts');
     expect(confirm.match(/await assertImporterMayMatch\(companyId, bankTransactionId, candidateId, userId\);\s+await matchTransaction\(/g)).toHaveLength(2);
     before('pages/api/accounting/bank-transactions-action.ts', 'await assertImporterMayMatch(', 'await matchTransaction(');
+    // Blind review round 3 (MEDIUM-A): the run's pairs are judged for its person before the loop, skipped and counted.
+    before(`${B}bankAutoMatchService.ts`, 'await importerHeldMatchPairs(companyId, triggeredBy,', 'matchTransaction(companyId, match.bankTransactionId');
+    expect(textOf(`${B}bankAutoMatchService.ts`)).toMatch(/importerHeld\.has\(match\.bankTransactionId\)\) \{ skippedImporter\+\+; continue; \}/);
+    const calls = SOURCES.flatMap((x) => [...x.text.matchAll(/\bautoMatchTransactions\(([^)]*)\)/g)].map((m) => `${x.file}: ${m[1]}`))
+      .filter((c) => !c.includes('bankAutoMatchService.ts')).sort();
+    expect(calls).toEqual([
+      'pages/api/accounting/bank-transactions-action.ts: companyId, body.bankAccountId, body.reconciliationId, userId',
+      `${MCP}writeBankReconciliation.ts: ctx.companyId, bankAccountId, started.id, ctx.userId`,
+    ]);
+  });
+
+  it('every document reversal that unmatches a statement line from its journal is judged as the bank reverse is', () => {
+    const UNMATCHERS: Record<string, string | null> = {
+      [`${B}bankChainLineReversal.ts`]: null, // the choke point's document arm: assertMayReverse already ran
+      'src/modules/accounting/services/core/paymentVoidService.ts': null, // a linked line goes through the choke point; one matched since the peek is a retry
+      'src/modules/accounting/services/ap/supplierPaymentWorkflowService.ts': 'await lockJournalAndUnmatch(companyId, journalId, leg,',
+      'src/modules/accounting/services/ar/customerPaymentAllocationService.ts': 'await lockJournalAndUnmatch(companyId, journalId, leg, label)',
+      'src/modules/accounting/services/ap/batchPaymentReversal.ts': 'await reverseBatchWithLeg(companyId, batchId, userId, peekedJournal, leg)',
+    };
+    expect(filesMatching(/\blockJournalAndUnmatch\(|\breverseBatchWithLeg\(/)
+      .filter((f) => !f.endsWith('paymentJournalReversal.ts')).sort()).toEqual(Object.keys(UNMATCHERS).sort());
+    for (const [file, write] of Object.entries(UNMATCHERS)) {
+      if (write) before(file, 'await assertMayReverseMatchedLeg(', write);
+    }
+    before('src/modules/accounting/services/core/paymentVoidService.ts', 'await reverseReconciledTransaction(', 'await lockJournalAndUnmatch(');
   });
 });
 
