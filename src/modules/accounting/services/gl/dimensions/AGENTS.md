@@ -129,9 +129,9 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
   (update / delete plans and `update_cost_centre` / `delete_cost_centre` take it). BUs: send the id. A rename
   is clash-checked whenever the code changes at all (a case-only rename too). (#683 round 2)
 - Applies write inside their own savepoint and turn a 23505 into the refusal; deletes run the DELETE in a
-  savepoint and turn the 23503 into "used by other records". Migration 878 gives the journal and bank
-  cc1/cc2/bu columns RESTRICT FKs (NOT VALID; added without a DROP, bank before journal); 879 indexes the
-  bank columns. `payroll_employee_history` is NOT counted by the delete guard: display-only text, and counting
+  savepoint and turn the 23503 into "used by other records". Migrations 878 (bank) and 882 (journal) give
+  the cc1/cc2/bu columns RESTRICT FKs (NOT VALID; no DROP; one big table per file, so neither holds one while
+  waiting on the other); 879 indexes the bank columns. `payroll_employee_history` is NOT counted by the delete guard: display-only text, and counting
   it made any ever-assigned centre undeletable. MCP delete dry_run runs the real DELETE in a savepoint that is
   always rolled back (`core/rolledBackSavepoint`), so it meets the same FKs; a no-op MCP update succeeds
   (`nothing_changed`), as the routes do.
