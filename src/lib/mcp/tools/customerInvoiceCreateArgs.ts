@@ -125,7 +125,7 @@ export function parseCustomerInvoiceInput(
       return `items[${i}].quantity must be a positive number`;
     }
     if (quantity < 0.005 || quantity >= 1e8) {
-      return `items[${i}].quantity must be from 0.01 to below 100 000 000`;
+      return `items[${i}].quantity must be at least 0.01 (to two places) and below 100 000 000`;
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;

@@ -116,8 +116,8 @@ describe('parseCustomerInvoiceInput — line bounds are the columns\', as the se
 
   it('refuses a price or quantity the columns cannot hold, naming the line, before any write', () => {
     expect(customer({ unit_price: 1e13 })).toBe('items[0].unit_price must be below 10 000 000 000 000');
-    expect(customer({ quantity: 1e8 })).toBe('items[0].quantity must be from 0.01 to below 100 000 000');
-    expect(customer({ quantity: 0.004 })).toBe('items[0].quantity must be from 0.01 to below 100 000 000');
+    expect(customer({ quantity: 1e8 })).toBe('items[0].quantity must be at least 0.01 (to two places) and below 100 000 000');
+    expect(customer({ quantity: 0.004 })).toBe('items[0].quantity must be at least 0.01 (to two places) and below 100 000 000');
   });
 
   it('accepts the largest values that fit', () => {

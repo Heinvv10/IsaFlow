@@ -125,7 +125,7 @@ describe('isDiscountPercent', () => {
 });
 
 describe('discountInput — the discount field keeps what the server keeps', () => {
-  it.each([[12.345, 12.35], [12.34, 12.34], [1.005, 1.01], [0, 0], [100, 100]])('%s → %s', (typed, kept) => {
+  it.each([[12.345, 12.35], [12.34, 12.34], [1.005, 1.01], [0, 0], [100, 100], [150, 100], [-5, 0], [100.005, 100], [-0.004, 0]])('%s → %s', (typed, kept) => {
     expect(discountInput(typed)).toBe(kept);
     expect(isDiscountPercent(discountInput(typed))).toBe(true);
   });

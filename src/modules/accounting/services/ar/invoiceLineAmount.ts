@@ -70,8 +70,8 @@ export const previewTotals = (lineAmounts: readonly number[], ratePercent: numbe
 export const isDiscountPercent = (d: unknown): d is number =>
   typeof d === 'number' && d >= 0 && d <= 100 && /^\d+(\.\d{1,2})?$/.test(String(d));
 
-/** For the discount input: what was typed, to the two places the server keeps (12.345 → 12.35), never a refusal later. */
-export const discountInput = (n: number): number => (finite(n) ? toColumnCents(n) : 0);
+/** For the discount input: what was typed, held to what the server accepts — 0 to 100, two places (12.345 → 12.35, 150 → 100). */
+export const discountInput = (n: number): number => (finite(n) ? Math.min(100, Math.max(0, toColumnCents(n))) : 0);
 
 /**
  * The discount a stored line carries, for the edit form: there is no discount
