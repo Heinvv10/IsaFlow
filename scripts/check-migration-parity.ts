@@ -55,7 +55,7 @@ async function readProd(url: string): Promise<ParityRow[]> {
     await client.query('SET default_transaction_read_only = on');
     await client.query('BEGIN READ ONLY');
     const rows = await fetchRows(client);
-    await client.query('ROLLBACK');
+    await client.query('COMMIT'); // read-only transaction: nothing to persist
     return rows;
   } finally {
     await client.end();
@@ -111,10 +111,15 @@ async function main(): Promise<number> {
 
     const devRows = await fetchRows(dev);
     const result = classifyMigrationParity(files, devRows, prodRows, { applyDev });
-    const pending = files.length - files.filter((f) => prodRows.some((r) => r.name === f.name)).length;
-    console.log(`migration parity: dev=${db}, ${files.length} files, ${pending} pending for prod, ${prodRows.length} tracked on prod`);
+    const prodNames = new Set(prodRows.map((r) => r.name));
+    const pending = files.filter((f) => !prodNames.has(f.name)).map((f) => f.name);
+    console.log(`migration parity: dev=${db}, ${files.length} files, ${prodRows.length} tracked on prod`);
+    console.log(`pending for prod (${pending.length}): ${pending.slice(0, 10).join(', ') || '(none)'}`);
     if (result.ignoredHistoric > 0) {
       console.log(`${result.ignoredHistoric} old migration(s) are on prod but untracked on dev (historical gap, ignored)`);
+    }
+    if (result.ignoredOrphans > 0) {
+      console.log(`${result.ignoredOrphans} historic prod row(s) have no repo file (renamed/deleted long ago, allowlisted)`);
     }
     if (result.findings.length === 0) console.log('PASS: no findings');
     else printFindings(result);

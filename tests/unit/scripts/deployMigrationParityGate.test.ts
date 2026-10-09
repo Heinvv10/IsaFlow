@@ -40,6 +40,6 @@ describe('deploy.sh migration-parity gate', () => {
   });
 
   it('hands the gate the prod URL via env, never on the command line', () => {
-    expect(lines[gate]).toMatch(/PARITY_PROD_DATABASE_URL="\$PROD_DB"/);
+    expect(lines[gate]).toMatch(/PARITY_PROD_DATABASE_URL="\$PARITY_PROD_DB"/);
   });
 });
