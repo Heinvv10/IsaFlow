@@ -56,8 +56,8 @@ describe('URL parameter and encoding bypasses (pg-connection-string honours thes
     expect(() => assertParityTestUrl('postgres://127.0.0.1:34263/postgres?sslmode=disable', ENV)).not.toThrow();
   });
 
-  it.each(['%69saflow', '%69saflow_dev', 'isaflow%5Fdev', '%2569saflow'])('decodes the database path before the name check: %s', (db) => {
-    expect(() => assertParityTestUrl(`postgres://127.0.0.1:34263/${db}`, ENV)).toThrow(/isaflow|encoded/);
+  it.each(['%69saflow', '%69saflow_dev', 'isaflow%5Fdev', '%2569saflow'])('refuses a percent-encoded database path: %s', (db) => {
+    expect(() => assertParityTestUrl(`postgres://127.0.0.1:34263/${db}`, ENV)).toThrow(/encoded/);
   });
 });
 
@@ -66,7 +66,13 @@ describe('assertOnlyThrowawayDatabases (server-side check before any CREATE/DROP
     expect(() => assertOnlyThrowawayDatabases(['postgres', 'template0', 'template1', 'parity_prod_t', 'parity_dev_t'])).not.toThrow();
   });
 
-  it.each([['isaflow'], ['isaflow_dev'], ['app'], ['Parity_prod_t'], ['xparity_prod_t']])('refuses a server that also holds %s', (extra) => {
+  it.each([['isaflow'], ['isaflow_dev'], ['app'], ['Parity_prod_t'], ['xparity_prod_t'], ['payments'], ['prod'], ['parityx'], ['Parity_x'], ['parity']])('refuses a server that also holds %s', (extra) => {
     expect(() => assertOnlyThrowawayDatabases(['postgres', 'template1', extra!])).toThrow(/not a throwaway|refusing/);
+  });
+});
+
+describe('explicit port required (a port-less URL would fall back to PGPORT)', () => {
+  it.each(['postgres://127.0.0.1/postgres', 'postgres://localhost/postgres?sslmode=disable'])('refuses %s', (url) => {
+    expect(() => assertParityTestUrl(url, ENV)).toThrow(/explicit port/);
   });
 });

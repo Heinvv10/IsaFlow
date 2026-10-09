@@ -87,7 +87,10 @@ async function readProd(o: ParityRunOptions, want: string, say: (l: string) => v
     if (rows.length === 0) throw new Error('prod schema_migrations is empty; refusing (wrong database?)');
     return { id, rows };
   } finally {
-    await prod.end();
+    await prod.end().catch((endErr: unknown) => {
+      // Never let a failed disconnect replace the real result or error.
+      say(`WARNING: could not close the prod connection: ${endErr instanceof Error ? endErr.message : String(endErr)}`);
+    });
   }
 }
 
