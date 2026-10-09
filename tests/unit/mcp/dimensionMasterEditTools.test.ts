@@ -5,7 +5,12 @@
  */
 import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []), withSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => fn()) }));
+vi.mock('@/modules/accounting/services/core/dimensionMasterLock', () => ({ lockDimensionMasters: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/costCentreService', () => ({ deleteCostCentre: vi.fn(async () => undefined) }));
+vi.mock('@/modules/accounting/services/core/rolledBackSavepoint', () => ({
+  inRolledBackSavepoint: vi.fn(async (_n: string, fn: () => Promise<unknown>) => { await fn(); }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/gl/dimensions/dimensionMasterEdit', () => ({
   planUpdateDimensionCostCentre: vi.fn(), applyUpdateDimensionCostCentre: vi.fn(),
@@ -17,12 +22,17 @@ import {
   applyUpdateDimensionCostCentre, planDeleteDimensionCostCentre, planUpdateDimensionCostCentre, applyDeleteDimensionCostCentre,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
+import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
+import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import {
   assertBusinessUnitUnused, deleteBusinessUnit, planUpdateBusinessUnit,
 } from '@/modules/accounting/services/core/businessUnitService';
 import {
   deleteBusinessUnitTool, deleteCostCentreTool, updateBusinessUnitTool, updateCostCentreTool,
 } from '@/lib/mcp/tools/dimensionMasterEditTools';
+import { createBusinessUnitTool } from '@/lib/mcp/tools/dimensionMasterTools';
+import { planCreateBusinessUnit } from '@/modules/accounting/services/core/businessUnitService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null, scopes: [] } as never;
@@ -48,11 +58,23 @@ describe('planUpdateBusinessUnit', () => {
     expect(cleared.after.division).toBeNull();
   });
 
-  it('refuses a code another BU already has, and an edit that changes nothing', async () => {
+  it('refuses a code another BU already has; an edit that changes nothing plans no change', async () => {
     mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([{ code: 'MAINT' }]);
     await expect(planUpdateBusinessUnit('company-1', 'BUILD', { code: 'maint' })).rejects.toThrow(/code MAINT already exists/);
     mockSql.mockResolvedValueOnce([buRow()]);
-    await expect(planUpdateBusinessUnit('company-1', 'BUILD', { name: 'Build' })).rejects.toThrow(/Nothing to change/);
+    expect((await planUpdateBusinessUnit('company-1', 'BUILD', { name: 'Build' })).changed).toEqual([]);
+  });
+
+  it('checks a case-only rename for a clash (L2)', async () => {
+    mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([{ code: 'build' }]);
+    await expect(planUpdateBusinessUnit('company-1', BU_ID, { code: 'Build' })).rejects.toThrow(/code build already exists/);
+  });
+
+  it('refuses deactivating a BU an account names as its default (L3)', async () => {
+    mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([{ accounts: 2 }]);
+    await expect(planUpdateBusinessUnit('company-1', BU_ID, { isActive: false }))
+      .rejects.toThrow('BUILD is the default on 2 account(s) — clear those defaults before deactivating it');
+    expect(sqlText(1)).toMatch(/default_bu_id = \?::UUID AND company_id = \?::UUID/);
   });
 
   it('refuses an unknown BU', async () => {
@@ -95,7 +117,7 @@ describe('update_cost_centre / delete_cost_centre', () => {
     const dry = await updateCostCentreTool.handler({ cost_centre: 'FT-LAW', parent: 'HT-PHA', dry_run: true, ...KEY }, ctx);
     expect(dry.wroteNothing).toBe(true);
     expect(applyUpdateDimensionCostCentre).not.toHaveBeenCalled();
-    expect(planUpdateDimensionCostCentre).toHaveBeenCalledWith('company-1', 'FT-LAW', expect.objectContaining({ parent: 'HT-PHA' }));
+    expect(planUpdateDimensionCostCentre).toHaveBeenCalledWith('company-1', 'FT-LAW', expect.objectContaining({ parent: 'HT-PHA' }), undefined);
     const live = await updateCostCentreTool.handler({ cost_centre: 'FT-LAW', parent: 'HT-PHA', ...KEY }, ctx);
     expect(JSON.parse(text(live as never))).toMatchObject({ fno_code: 'HT001', changed: ['parent'] });
     expect(applyUpdateDimensionCostCentre).toHaveBeenCalledTimes(1);
@@ -104,7 +126,7 @@ describe('update_cost_centre / delete_cost_centre', () => {
   it('passes parent: null through as "detach"', async () => {
     vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue(plan as never);
     await updateCostCentreTool.handler({ cost_centre: 'FT-LAW', parent: null, dry_run: true, ...KEY }, ctx);
-    expect(planUpdateDimensionCostCentre).toHaveBeenCalledWith('company-1', 'FT-LAW', expect.objectContaining({ parent: null }));
+    expect(planUpdateDimensionCostCentre).toHaveBeenCalledWith('company-1', 'FT-LAW', expect.objectContaining({ parent: null }), undefined);
   });
 
   it('answers a refusal as a tool error and writes nothing', async () => {
@@ -131,5 +153,128 @@ describe('update_business_unit / delete_business_unit', () => {
     expect(r.isError).toBe(true);
     expect(text(r as never)).toMatch(/7 journal line\(s\)/);
     expect(mockSql.mock.calls.some((c) => /DELETE FROM business_units/.test((c[0] as string[]).join('?')))).toBe(false);
+  });
+});
+
+describe('#678 review (MCP)', () => {
+  const plan = {
+    before: { id: 'law', ccType: 'cc2' },
+    after: { code: 'FT-LAW', name: 'Lawley', parentCode: 'HT-PHA', fnoCode: 'HT001', isActive: true },
+    addAliases: [], removeAliasKeys: [], changed: ['parent'], warnings: [],
+  };
+
+  it('update_cost_centre answers an edit that changes nothing as success, writing and billing nothing (#683 round 2)', async () => {
+    vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue({ ...plan, changed: [] } as never);
+    const r = await updateCostCentreTool.handler({ cost_centre: 'FT-LAW', name: 'Lawley', ...KEY }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(text(r as never))).toMatchObject({ id: 'law', changed: [], nothing_changed: true });
+    expect(r).toMatchObject({ wroteNothing: true, billable: false });
+    expect(applyUpdateDimensionCostCentre).not.toHaveBeenCalled();
+  });
+
+  it('update_cost_centre / delete_cost_centre pass cc_type through and refuse a bad one', async () => {
+    vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue(plan as never);
+    await updateCostCentreTool.handler({ cost_centre: 'ABC', cc_type: 'cc2', name: 'x', dry_run: true, ...KEY }, ctx);
+    expect(planUpdateDimensionCostCentre).toHaveBeenCalledWith('company-1', 'ABC', expect.anything(), 'cc2');
+    vi.mocked(planDeleteDimensionCostCentre).mockResolvedValue({ id: 'abc1', code: 'ABC', ccType: 'cc1', aliases: [] } as never);
+    await deleteCostCentreTool.handler({ cost_centre: 'ABC', cc_type: 'cc1', dry_run: true, ...KEY }, ctx);
+    expect(planDeleteDimensionCostCentre).toHaveBeenCalledWith('company-1', 'ABC', 'cc1');
+    const bad = await deleteCostCentreTool.handler({ cost_centre: 'ABC', cc_type: 'cc3', ...KEY }, ctx);
+    expect(text(bad as never)).toBe('cc_type must be cc1 or cc2');
+  });
+
+  it('delete_cost_centre dry_run runs the real delete in a rolled-back savepoint and answers its refusal (#683 round 2)', async () => {
+    vi.mocked(planDeleteDimensionCostCentre).mockResolvedValue({ id: 'law', code: 'FT-LAW', ccType: 'cc2', aliases: [] } as never);
+    vi.mocked(deleteCostCentre).mockRejectedValueOnce(new CostCentreActionError('Cannot delete cost centre that is used by other records. Deactivate instead.'));
+    const refused = await deleteCostCentreTool.handler({ cost_centre: 'FT-LAW', dry_run: true, ...KEY }, ctx);
+    expect(text(refused as never)).toBe('Cannot delete cost centre that is used by other records. Deactivate instead.');
+    expect(inRolledBackSavepoint).toHaveBeenCalledWith('mcp_cc_delete_dry_run', expect.any(Function));
+    const ok = await deleteCostCentreTool.handler({ cost_centre: 'FT-LAW', dry_run: true, ...KEY }, ctx);
+    expect(ok).toMatchObject({ wroteNothing: true });
+    expect(applyDeleteDimensionCostCentre).not.toHaveBeenCalled();
+  });
+
+  it('update_cost_centre answers a refusal raised by the apply (a race-time 23505) as a tool error (L1)', async () => {
+    vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue(plan as never);
+    vi.mocked(applyUpdateDimensionCostCentre).mockRejectedValueOnce(new DimensionRefusal('code FT-LAW or one of its aliases was just taken'));
+    const r = await updateCostCentreTool.handler({ cost_centre: 'FT-LAW', parent: 'HT-PHA', ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r as never)).toMatch(/just taken/);
+  });
+
+  it('update_cost_centre lets an unclassified failure in the apply propagate', async () => {
+    vi.mocked(planUpdateDimensionCostCentre).mockResolvedValue(plan as never);
+    vi.mocked(applyUpdateDimensionCostCentre).mockRejectedValueOnce(new Error('connection lost'));
+    await expect(updateCostCentreTool.handler({ cost_centre: 'FT-LAW', parent: 'HT-PHA', ...KEY }, ctx)).rejects.toThrow('connection lost');
+  });
+
+  it('update_business_unit answers a race-time 23505 as the code refusal (L1)', async () => {
+    mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([])
+      .mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' }));
+    const r = await updateBusinessUnitTool.handler({ business_unit: BU_ID, code: 'MAINT', ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r as never)).toBe('A business unit with code MAINT already exists');
+  });
+
+  it('update_business_unit answers an edit that changes nothing as success (#683 round 2)', async () => {
+    mockSql.mockResolvedValueOnce([buRow()]);
+    const r = await updateBusinessUnitTool.handler({ business_unit: BU_ID, name: 'Build', ...KEY }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(JSON.parse(text(r as never))).toMatchObject({ id: BU_ID, changed: [], nothing_changed: true });
+    expect(mockSql.mock.calls.some((c) => /UPDATE business_units/.test((c[0] as string[]).join('?')))).toBe(false);
+  });
+
+  it('delete_business_unit dry_run runs the real DELETE (rolled back) and answers its FK refusal (#683 round 2)', async () => {
+    // find, the plan's count, then the probe's count and its DELETE (23503).
+    mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([{}]).mockResolvedValueOnce([{}])
+      .mockRejectedValueOnce(Object.assign(new Error('fk'), { code: '23503' }));
+    const r = await deleteBusinessUnitTool.handler({ business_unit: BU_ID, dry_run: true, ...KEY }, ctx);
+    expect(text(r as never)).toMatch(/Cannot delete business unit that is used by other records/);
+    expect(inRolledBackSavepoint).toHaveBeenCalledWith('mcp_bu_delete_dry_run', expect.any(Function));
+  });
+
+  it('delete_business_unit answers an FK-held DELETE (23503) as the in-use refusal (L1)', async () => {
+    mockSql.mockResolvedValueOnce([buRow()]).mockResolvedValueOnce([{}]).mockResolvedValueOnce([{}])
+      .mockRejectedValueOnce(Object.assign(new Error('fk'), { code: '23503' }));
+    const r = await deleteBusinessUnitTool.handler({ business_unit: BU_ID, ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r as never)).toMatch(/Cannot delete business unit that is used by other records/);
+  });
+
+  it('findBusinessUnit refuses a code matching two units ignoring case, even an exact one: send the id (L2, round 2)', async () => {
+    mockSql.mockResolvedValueOnce([buRow({ code: 'BUILD' }), buRow({ id: 'x', code: 'build' })]);
+    await expect(planUpdateBusinessUnit('company-1', 'Build', { name: 'x' })).rejects.toThrow('"Build" matches 2 business units (BUILD, build) — send its id');
+    mockSql.mockResolvedValueOnce([buRow({ code: 'BUILD' }), buRow({ id: 'x', code: 'build' })]);
+    await expect(planUpdateBusinessUnit('company-1', 'build', { name: 'x' })).rejects.toThrow(/matches 2 business units/);
+  });
+});
+
+describe('BU create validation lives in the service (L7)', () => {
+  it.each([
+    [{ code: ' ', name: 'Ops' }, 'code is required and at most 20 characters'],
+    [{ code: 'X'.repeat(21), name: 'Ops' }, 'code is required and at most 20 characters'],
+    [{ code: 'OPS', name: 'N'.repeat(256) }, 'name is required and at most 255 characters'],
+    [{ code: 'OPS', name: 'Ops', division: 'D'.repeat(121) }, 'division is at most 120 characters'],
+  ])('refuses %j before any read', async (input, msg) => {
+    await expect(planCreateBusinessUnit('company-1', input)).rejects.toThrow(msg);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('refuses a code another BU has ignoring case, and trims what it keeps', async () => {
+    mockSql.mockResolvedValueOnce([{ code: 'OPS' }]);
+    await expect(planCreateBusinessUnit('company-1', { code: ' ops ', name: 'Ops' })).rejects.toThrow('A business unit with code OPS already exists');
+    expect(sqlText(0)).toMatch(/lower\(code\) = \?/);
+    expect(mockSql.mock.calls[0]!.slice(1)).toContain('ops');
+    mockSql.mockResolvedValueOnce([]);
+    expect(await planCreateBusinessUnit('company-1', { code: ' ops ', name: ' Ops ', division: ' ', description: ' d ' }))
+      .toEqual({ code: 'ops', name: 'Ops', division: undefined, description: 'd' });
+  });
+
+  it('create_business_unit answers the service refusal, even on dry_run, and writes nothing', async () => {
+    mockSql.mockResolvedValueOnce([{ code: 'OPS' }]);
+    const r = await createBusinessUnitTool.handler({ code: 'ops', name: 'Ops', dry_run: true, ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r as never)).toBe('A business unit with code OPS already exists');
+    expect(mockSql.mock.calls.some((c) => /INSERT INTO business_units/.test((c[0] as string[]).join('?')))).toBe(false);
   });
 });

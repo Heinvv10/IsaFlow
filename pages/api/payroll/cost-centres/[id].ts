@@ -1,6 +1,14 @@
 /**
  * PATCH  /api/payroll/cost-centres/:id  - update fields
  * DELETE /api/payroll/cost-centres/:id  - deactivate (soft delete)
+ *
+ * Both edit the same cost_centres rows as the accounting master, so both go
+ * through its plan (dimensionMasterEdit): parent of this company only, no loop,
+ * no carried CC2 moved to another FNO, no code / alias clash, no deactivation
+ * with active children or while a default names it. A refusal is a 400 with its
+ * message; an edit that changes nothing (deactivating an inactive centre) succeeds.
+ * An id that is not one of this company's cost centres is a 404, whether it
+ * exists elsewhere or not.
  */
 
 import type { NextApiResponse } from 'next';
@@ -15,14 +23,15 @@ import {
   type CompanyAuthedRequest,
 } from '@/lib/auth';
 import {
-  updateCostCentre,
-  deactivateCostCentre,
-  CostCentreNotFoundError,
-} from '@/modules/accounting/services/core/costCentreService';
+  applyUpdateDimensionCostCentre, planUpdateDimensionCostCentre, type UpdateDimensionCostCentreInput,
+} from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { UUID_RE } from '@/lib/validation';
+import { getPayrollCostCentre } from '@/modules/accounting/services/core/costCentreService';
 
 const PatchBody = z
   .object({
-    code: z.string().min(1).max(30).optional(),
+    code: z.string().min(1).max(20).optional(),
     name: z.string().min(1).max(120).optional(),
     parentId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, { message: "Invalid UUID" }).nullable().optional(),
     notes: z.string().max(1000).nullable().optional(),
@@ -31,28 +40,31 @@ const PatchBody = z
   .strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
   const id = String(req.query.id ?? '');
-  if (!id) return apiResponse.badRequest(res, 'Missing cost centre id');
+  if (!UUID_RE.test(id)) return apiResponse.badRequest(res, 'Missing or invalid cost centre id');
 
-  try {
-    if (req.method === 'PATCH') {
-      const parsed = PatchBody.safeParse(req.body);
-      if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid body');
-      await updateCostCentre(companyId, id, parsed.data);
-      return apiResponse.success(res, { updated: true });
-    }
-
-    if (req.method === 'DELETE') {
-      await deactivateCostCentre(companyId, id);
-      return apiResponse.success(res, { deactivated: true });
-    }
-
+  let input: UpdateDimensionCostCentreInput;
+  if (req.method === 'PATCH') {
+    const parsed = PatchBody.safeParse(req.body);
+    if (!parsed.success) return apiResponse.badRequest(res, parsed.error.issues[0]?.message ?? 'Invalid body');
+    const { parentId, ...rest } = parsed.data;
+    input = { ...rest, ...(parentId !== undefined ? { parent: parentId } : {}) };
+  } else if (req.method === 'DELETE') {
+    input = { isActive: false };
+  } else {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['PATCH', 'DELETE']);
+  }
+
+  if (!(await getPayrollCostCentre(companyId, id))) return apiResponse.notFound(res, 'Cost centre');
+  try {
+    const plan = await planUpdateDimensionCostCentre(companyId, id, input);
+    await applyUpdateDimensionCostCentre(companyId, plan, user.id);
   } catch (err) {
-    if (err instanceof CostCentreNotFoundError) return apiResponse.notFound(res, err.message);
+    if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;
   }
+  return apiResponse.success(res, req.method === 'PATCH' ? { updated: true } : { deactivated: true });
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

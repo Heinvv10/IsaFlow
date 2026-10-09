@@ -7,12 +7,15 @@
  * the API refuses a parent loop, an alias used elsewhere, deactivating a node
  * with active children, a project move to another FNO while anything carries
  * it, and a delete while anything references it — and the refusal is shown.
+ * Delete asks first. The parent is sent by id; an edit keeps the current
+ * parent even when it is inactive (listed, marked inactive).
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Plus, Trash2, Loader2, ToggleLeft, ToggleRight, Pencil } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 
 type CcType = 'cc1' | 'cc2';
@@ -20,7 +23,7 @@ type CcType = 'cc1' | 'cc2';
 interface CostCentre {
   id: string; code: string; name: string;
   description?: string | null; department?: string | null; ccType: CcType; isActive: boolean;
-  parentCode?: string | null; fnoCode?: string | null; aliases?: string[];
+  parentId?: string | null; parentCode?: string | null; fnoCode?: string | null; aliases?: string[];
 }
 
 const EMPTY_FORM = { code: '', name: '', description: '', department: '', parent: '', aliases: '' };
@@ -43,6 +46,7 @@ export default function CostCentresPage() {
   const [error, setError] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
   const [search, setSearch] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<CostCentre | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,7 +62,10 @@ export default function CostCentresPage() {
     } finally { setLoading(false); }
   }, []);
   const items = all.filter(cc => (cc.ccType || 'cc1') === activeTab);
-  const parentOptions = all.filter(cc => cc.isActive && cc.id !== editId && (cc.ccType === 'cc1' || !!cc.fnoCode));
+  const currentParentId = editId ? all.find(cc => cc.id === editId)?.parentId : null;
+  // Active parents that reach an FNO, plus (on edit) the current parent as it is.
+  const parentOptions = all.filter(cc => cc.id === currentParentId
+    || (cc.isActive && cc.id !== editId && (cc.ccType === 'cc1' || !!cc.fnoCode)));
 
   useEffect(() => { void load(); }, [load]);
 
@@ -93,7 +100,7 @@ export default function CostCentresPage() {
   const startEdit = (cc: CostCentre) => {
     setForm({
       code: cc.code, name: cc.name, description: cc.description || '', department: cc.department || '',
-      parent: cc.parentCode || '', aliases: (cc.aliases || []).join(', '),
+      parent: cc.parentId || '', aliases: (cc.aliases || []).join(', '),
     });
     setEditId(cc.id); setShowForm(true);
   };
@@ -193,7 +200,9 @@ export default function CostCentresPage() {
                   <select value={form.parent} onChange={e => setForm(f => ({ ...f, parent: e.target.value }))} className="ff-input" aria-label="Parent">
                     <option value="">No parent (no FNO)</option>
                     {parentOptions.map(p => (
-                      <option key={p.id} value={p.code}>{p.code} — {p.name}{p.ccType === 'cc2' ? ` (programme, ${p.fnoCode})` : ''}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.code} — {p.name}{p.ccType === 'cc2' ? ` (programme, ${p.fnoCode ?? 'no FNO'})` : ''}{p.isActive ? '' : ' (inactive)'}
+                      </option>
                     ))}
                   </select>
                 )}
@@ -247,7 +256,7 @@ export default function CostCentresPage() {
                         <button onClick={() => doAction('toggle', cc.id, { isActive: !cc.isActive })} disabled={busy === cc.id} className="p-1 text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]" title={cc.isActive ? 'Disable' : 'Enable'}>
                           {cc.isActive ? <ToggleRight className="h-4 w-4 text-teal-400" /> : <ToggleLeft className="h-4 w-4" />}
                         </button>
-                        <button onClick={() => doAction('delete', cc.id)} disabled={busy === cc.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                        <button onClick={() => setConfirmDelete(cc)} disabled={busy === cc.id} className="p-1 text-red-400 hover:text-red-300" title="Delete">
                           {busy === cc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                         </button>
                       </div>
@@ -259,6 +268,15 @@ export default function CostCentresPage() {
           </div>
         </div>
       </div>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="Delete cost centre"
+        message={confirmDelete ? `Delete ${confirmDelete.code} — ${confirmDelete.name}? This cannot be undone. A centre anything still uses is refused; deactivate it instead.` : ''}
+        confirmLabel="Delete"
+        confirmTone="danger"
+        onCancel={() => setConfirmDelete(null)}
+        onConfirm={() => { const cc = confirmDelete; setConfirmDelete(null); if (cc) void doAction('delete', cc.id); }}
+      />
     </AppLayout>
   );
 }
