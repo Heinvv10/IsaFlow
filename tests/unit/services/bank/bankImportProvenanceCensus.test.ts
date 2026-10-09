@@ -60,6 +60,8 @@ describe('1. every import path records the importer', () => {
   it('nothing UPDATEs a batch: who imported it, from what file and how is fixed once written (877)', () => {
     expect(filesMatching(/UPDATE\s+bank_import_batches/)).toEqual([]);
     expect(filesMatching(/UPDATE\s+bank_transactions\s+SET[^`;]*\bimport_batch_id\s*=/)).toEqual([]);
+    // …nor DELETEs one: a batch row is its lines' provenance (877 refuses it while a line names it — breaker #684 REPRO 5).
+    expect(filesMatching(/DELETE\s+FROM\s+bank_import_batches/)).toEqual([]);
   });
 
   it('the writers of bank_transactions.import_batch_id are exactly these, each beside its batch row', () => {

@@ -93,11 +93,18 @@ describe('held changes and decisions', () => {
 });
 
 describe('the database guards rank on the same ladder', () => {
-  it("877's floor role lists (bank_control_member_at_floor, bank_control_sole_at_floor) are the ladder's roles at or above admin", () => {
-    const sql = readFileSync(path.join(ROOT, 'scripts/migrations/sql/877_bank_controls_step2.sql'), 'utf8');
-    const lists = [...sql.matchAll(/IN \(('super_admin'[^)]*)\)/g)].map((m) => m[1]!.split(',').map((r) => r.trim().replace(/'/g, '')).sort());
-    const expected = Object.keys(APPROVER_RANK).filter((r) => APPROVER_RANK[r]! >= APPROVER_RANK[BANK_CONTROL_FLOOR]!).sort();
-    expect(lists).toHaveLength(2);
-    for (const list of lists) expect(list).toEqual(expected);
+  const sql = readFileSync(path.join(ROOT, 'scripts/migrations/sql/877_bank_controls_step2.sql'), 'utf8');
+
+  it("877's bank_control_rank is APPROVER_RANK, role for role", () => {
+    const body = sql.slice(sql.indexOf('FUNCTION public.bank_control_rank('), sql.indexOf('END\n$$;', sql.indexOf('FUNCTION public.bank_control_rank(')));
+    const ladder = Object.fromEntries([...body.matchAll(/WHEN '([a-z_]+)' THEN (\d+)/g)].map((m) => [m[1]!, Number(m[2])]));
+    expect(ladder).toEqual(APPROVER_RANK);
+  });
+
+  it('every role comparison in 877 goes through that ladder (no hand-written role list), the floor is admin', () => {
+    expect(sql).not.toMatch(/IN \('super_admin'/);
+    expect(sql).not.toMatch(/\brole\s+IN\s*\(/i);
+    expect(BANK_CONTROL_FLOOR).toBe('admin');
+    expect(sql).toMatch(/COALESCE\(public\.bank_control_rank\(e ->> 'role'\), 0\) >= public\.bank_control_rank\('admin'\)/);
   });
 });

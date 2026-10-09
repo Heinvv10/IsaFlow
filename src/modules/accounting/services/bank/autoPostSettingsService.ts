@@ -10,6 +10,9 @@
  * lets the sweep post more without anyone approving — is refused, before any
  * write, under manual-journal or supplier-payment enforcement unless a person in
  * their own session holds the authority to weaken the bank-control role.
+ * Under `bank_rule` enforcement too (breaker #684 REPRO 4): with auto-post on,
+ * every active rule posts money (877's bank_rule_posts_money), so enabling or
+ * loosening it is judged against at least the bank-rule approver role.
  */
 
 import { sql } from '@/lib/neon';
@@ -132,15 +135,15 @@ const FIELDS: { key: Key; label: string; weakens: (b: AutoPostSettings, a: AutoP
  * settings could undercut — and counting it would let a dormant rule, never
  * switched on, decide who may change auto-post.
  */
-async function enforcedControlTypes(companyId: string): Promise<DocumentType[]> {
+async function enforcedControlTypes(companyId: string): Promise<{ types: DocumentType[]; bankRule: boolean }> {
   const rows = (await sql`
     SELECT document_type FROM approval_enforcement
-    WHERE company_id = ${companyId}::UUID AND document_type IN ('manual_journal', 'supplier_payment', 'payment_batch')
+    WHERE company_id = ${companyId}::UUID AND document_type IN ('manual_journal', 'supplier_payment', 'payment_batch', 'bank_rule')
   `) as Row[];
   const on = new Set(rows.map((r) => String(r.document_type)));
   const types: DocumentType[] = on.has('manual_journal') ? ['manual_journal'] : [];
   if (on.has('supplier_payment') || on.has('payment_batch')) types.push('supplier_payment', 'payment_batch');
-  return types;
+  return { types, bankRule: on.has('bank_rule') };
 }
 
 /**
@@ -151,20 +154,22 @@ async function enforcedControlTypes(companyId: string): Promise<DocumentType[]> 
  * No audit_log action fits a refusal and withAuth commits a 4xx, so the attempt
  * is recorded as a warning.
  */
-async function assertMayWeaken(companyId: string, userId: string, weakened: string[], types: DocumentType[]): Promise<void> {
+async function assertMayWeaken(companyId: string, userId: string, weakened: string[], types: DocumentType[], bankRule: boolean)
+  : Promise<void> {
   const refused = (err: unknown, level: string | null): never => {
     log.warn('Auto-post settings weakening refused', {
-      companyId, userId, fields: weakened, enforcedTypes: types, level, reason: (err as BankControlError).code,
+      companyId, userId, fields: weakened, enforcedTypes: types, bankRule, level, reason: (err as BankControlError).code,
     }, 'auto-post-gate');
     throw err;
   };
   await assertHumanSession('weaken the auto-post settings').catch((err: unknown) => refused(err, null));
-  const level = await bankControlRole(companyId, types);
+  // bank_rule: at least the bank-rule approver role (bankRuleApproverRole — the manual-journal rules').
+  const level = await bankControlRole(companyId, bankRule && !types.includes('manual_journal') ? [...types, 'manual_journal'] : types);
   const own = await ownCompanyRole(companyId, userId);
   if (own !== null && mayWeakenAtLevel(own, level)) return;
   const need = level === 'owner' ? 'the owner role' : `a role above ${level}`;
-  const what = types.includes('manual_journal')
-    ? (types.length > 1 ? 'Manual-journal and supplier-payment' : 'Manual-journal') : 'Supplier-payment';
+  const what = [types.includes('manual_journal') && 'Manual-journal', types.includes('supplier_payment') && 'supplier-payment',
+    bankRule && 'bank-rule'].filter(Boolean).join(' and ').replace(/^./, (c) => c.toUpperCase());
   refused(new BankControlError('WEAKENING_REQUIRES_AUTHORITY', `${what} approval is enforced, and auto-post posts without `
     + `anyone approving, so loosening it (${weakened.join(', ')}) needs ${need}. Ask someone who holds it to make this `
     + 'change; tightening a setting needs no approval.'), level);
@@ -191,8 +196,10 @@ async function applyOnce(companyId: string, patch: AutoPostSettingsPatch, userId
   if (changed.length === 0) return before;
 
   const weakened = changed.filter((f) => f.weakens(before, after));
-  const types = await enforcedControlTypes(companyId);
-  if (weakened.length > 0 && types.length > 0) await assertMayWeaken(companyId, userId, weakened.map((f) => f.label), types);
+  const { types, bankRule } = await enforcedControlTypes(companyId);
+  if (weakened.length > 0 && (types.length > 0 || bankRule)) {
+    await assertMayWeaken(companyId, userId, weakened.map((f) => f.label), types, bankRule);
+  }
 
   const written = exists
     ? (await sql`
@@ -222,7 +229,7 @@ async function applyOnce(companyId: string, patch: AutoPostSettingsPatch, userId
     entityId: companyId,
     changes: {
       fields: changed.map((f) => ({ field: f.key, old: String(before[f.key]), new: String(after[f.key]), label: f.label })),
-      metadata: { weakening: String(weakened.length > 0), enforcedTypes: types.join(',') },
+      metadata: { weakening: String(weakened.length > 0), enforcedTypes: [...types, ...(bankRule ? ['bank_rule'] : [])].join(',') },
     },
   });
   log.info('Updated auto-post settings', { companyId, fields: changed.map((f) => f.key) }, 'auto-post-gate');
