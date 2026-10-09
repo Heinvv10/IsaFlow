@@ -13,11 +13,11 @@ import { SignJWT } from 'jose';
 import payrollCreate from '../../pages/api/payroll/cost-centres';
 import payrollEdit from '../../pages/api/payroll/cost-centres/[id]';
 import costCentresAction from '../../pages/api/accounting/cost-centres-action';
-import { deleteCostCentreTool } from '@/lib/mcp/tools/dimensionMasterEditTools';
+import { deleteBusinessUnitTool, deleteCostCentreTool } from '@/lib/mcp/tools/dimensionMasterEditTools';
 import type { McpToolContext } from '@/lib/mcp/types';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { routeCaller, type Route } from './w3-01-payroll.helpers';
-import { costCentre, dropBase, inRequest, journalLine, seedBase, type Base } from './dims-678.helpers';
+import { businessUnit, costCentre, dropBase, inRequest, journalLine, seedBase, type Base } from './dims-678.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -107,6 +107,20 @@ describe('payroll routes go through the master rules (H1)', () => {
   });
 });
 
+describe('payroll code length matches the master (#683 round 2)', () => {
+  it('POST and PATCH refuse a 21-character code at validation, with the zod message', async () => {
+    const long = 'C'.repeat(21);
+    const post = await call(payrollCreate as Route, 'POST', '/api/payroll/cost-centres', undefined, { body: { code: long, name: 'Long' } });
+    expect(post.statusCode).toBe(400);
+    expect(post.body.error?.message).toBe('Too big: expected string to have <=20 characters');
+    const cc = await costCentre(pool, company, 'R-LEN');
+    const p = await patch(cc, { code: long });
+    expect(p.statusCode).toBe(400);
+    expect(p.body.error?.message).toBe('Too big: expected string to have <=20 characters');
+    expect((await pool.query('SELECT code FROM cost_centres WHERE id = $1', [cc])).rows[0].code).toBe('R-LEN');
+  });
+});
+
 describe('payroll PATCH / DELETE on an id that is not this company\'s', () => {
   it.each(['PATCH', 'DELETE'])('%s answers 404 for an unknown id and for another company\'s, and changes nothing', async (method) => {
     const theirs = await costCentre(pool, other, `R-THEIRS-${method}`);
@@ -143,5 +157,27 @@ describe('MCP delete_cost_centre (L1)', () => {
     expect(out.result.isError).toBe(true);
     expect(out.result.content[0]!.text).toBe('Cannot delete cost centre that is used by other records. Deactivate instead.');
     expect(out.after).toBe(1);
+  });
+
+  it('dry_run meets the same FK the live delete meets, and keeps everything (#683 round 2)', async () => {
+    const ctx = { companyId: company, userId: user, scopes: ['write:accounts'], tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
+    const held = await costCentre(pool, company, 'R-DRY-HELD');
+    await journalLine(pool, ob, 'cc2_id', held);
+    const free = await costCentre(pool, company, 'R-DRY-FREE');
+    const heldBu = await businessUnit(pool, company, 'R-DRY-BU');
+    await journalLine(pool, ob, 'bu_id', heldBu);
+    const out = await inRequest(pool, b, async (c) => ({
+      held: await deleteCostCentreTool.handler({ cost_centre: held, dry_run: true, idempotency_key: 'k1' }, ctx),
+      free: await deleteCostCentreTool.handler({ cost_centre: free, dry_run: true, idempotency_key: 'k2' }, ctx),
+      bu: await deleteBusinessUnitTool.handler({ business_unit: heldBu, dry_run: true, idempotency_key: 'k3' }, ctx),
+      after: (await c.query('SELECT 1 AS ok')).rows[0].ok,
+    }));
+    expect(out.held.content[0]!.text).toBe('Cannot delete cost centre that is used by other records. Deactivate instead.');
+    expect(out.bu.content[0]!.text).toMatch(/Cannot delete business unit that is used by other records/);
+    expect(out.free.isError).toBeFalsy();
+    expect(JSON.parse(out.free.content[0]!.text)).toMatchObject({ dry_run: true, id: free });
+    expect(out.after).toBe(1);
+    const left = await pool.query('SELECT count(*)::int AS n FROM cost_centres WHERE id = ANY($1)', [[held, free]]);
+    expect(left.rows[0].n).toBe(2); // the dry run deleted nothing, not even the free one
   });
 });
