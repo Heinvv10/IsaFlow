@@ -209,10 +209,13 @@ export async function editDraftCustomerInvoice(
       const rate = taxRate ?? existingTaxRate;
       computed = { ...invoiceTotals(lineAmounts, rate), rate };
     }
-    // numeric(15,2), as create checks it: the total and functional_total = fx_functional(total, rate) the
-    // UPDATE below writes — a new rate alone re-derives it from the stored total. Before the first write.
+    // numeric(15,2), as create checks it: the total, and functional_total = fx_functional(total, rate) when
+    // the UPDATE below rewrites it (new lines or a new rate — a rate alone re-derives it from the stored
+    // total). Before the first write.
     const nextTotal = computed?.total ?? Number(ownedRows[0]!.total_amount ?? 0);
-    if (nextTotal >= 1e13 || toFunctional(nextTotal, fxRateOverride ?? (existingRate || 1)) >= 1e13) {
+    const rewritesFunctional = computed !== null || fxRateOverride !== null;
+    if (nextTotal >= 1e13
+      || (rewritesFunctional && toFunctional(nextTotal, fxRateOverride ?? (existingRate || 1)) >= 1e13)) {
       return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
     }
 

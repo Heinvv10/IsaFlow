@@ -152,6 +152,12 @@ describeIfDisposable('creating a customer invoice with a line discount', () => {
       expect(await stored(id)).toEqual(before);
       const [n] = (await sql`SELECT notes FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${f.fx.companyId}::UUID`) as { notes: string | null }[];
       expect(n!.notes).toBeNull();
+
+      // An edit that does not rewrite functional_total is not checked against it: a stored rate that drifted
+      // from it (only reachable by hand) must not lock the notes.
+      await sql`UPDATE customer_invoices SET exchange_rate = 1000 WHERE id = ${id}::UUID AND company_id = ${f.fx.companyId}::UUID`;
+      expect(await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, notes: 'notes only' })))
+        .toEqual({ kind: 'ok' });
     } finally {
       await sql`UPDATE companies SET fx_documents_enabled = false WHERE id = ${f.fx.companyId}::UUID`;
     }
