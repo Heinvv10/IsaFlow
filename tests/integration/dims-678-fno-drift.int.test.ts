@@ -29,10 +29,10 @@ const ids: Record<string, string> = {};
 const q = (text: string, values: unknown[]) => pool.query(text, values);
 
 /** A journal with one tagged debit line and an untagged credit, in `status` (posted by UPDATE, as the balance trigger wants). */
-async function journal(base: Base, cc1: string | null, cc2: string, opts: { status?: string; reversalOf?: string } = {}) {
+async function journal(base: Base, cc1: string | null, cc2: string, opts: { status?: string; reversalOf?: string; date?: string } = {}) {
   const je = String((await q(
-    "INSERT INTO gl_journal_entries(company_id, entry_date, created_by, description, reversal_of_id) VALUES($1, '2026-08-01', $2, 'D678 drift', $3) RETURNING id",
-    [base.company, base.user, opts.reversalOf ?? null])).rows[0].id);
+    "INSERT INTO gl_journal_entries(company_id, entry_date, created_by, description, reversal_of_id) VALUES($1, $4, $2, 'D678 drift', $3) RETURNING id",
+    [base.company, base.user, opts.reversalOf ?? null, opts.date ?? '2026-08-01'])).rows[0].id);
   const line = String((await q(
     'INSERT INTO gl_journal_lines(company_id, journal_entry_id, gl_account_id, debit, credit, cc1_id, cc2_id) VALUES($1, $2, $3, 10, 0, $4, $5) RETURNING id',
     [base.company, je, base.account, cc1, cc2])).rows[0].id);
@@ -49,10 +49,10 @@ async function bank(base: Base, cc1: string | null, cc2: string): Promise<string
   return id;
 }
 
-const flagged = async (companyId: string, base: Base) => inRequest(pool, base, async () => {
-  const report = await runIntegrityChecks(companyId, { asAt: AS_AT, limit: 100, checks: ['project_fno_mismatch'] });
+const flagged = async (companyId: string, base: Base, asAt = AS_AT) => inRequest(pool, base, async () => {
+  const report = await runIntegrityChecks(companyId, { asAt, limit: 100, checks: ['project_fno_mismatch'] });
   const check = report.checks[0]!;
-  return { count: check.count, amount: check.amount, ids: check.sample.map((s) => s.id).sort(), sample: check.sample };
+  return { count: check.count, amount: check.amount, ids: check.sample.map((s) => s.id).sort(), sample: check.sample, finding: check.finding };
 });
 
 beforeAll(async () => {
@@ -110,6 +110,35 @@ describe('project_fno_mismatch — journal lines', () => {
     const r2 = await flagged(company, b);
     expect(r2.ids).toContain(again.line);
     expect(r2.ids).not.toContain(rev.line);
+  });
+
+  it('keeps a line reversed AFTER as_at: it was in force on that date (#683 round 3)', async () => {
+    const orig = await journal(b, ids.f2, ids.proj);
+    const rev = await journal(b, ids.f2, ids.proj, { reversalOf: orig.je, date: '2026-10-05' });
+    await reverse(orig.je); // reversed_at = now (2026-10-09), status 'reversed'
+    const atSeptember = await flagged(company, b, '2026-09-30');
+    expect(atSeptember.ids).toContain(orig.line);
+    expect(atSeptember.ids).not.toContain(rev.line); // dated after as_at
+    const atOctober = await flagged(company, b, '2026-10-31');
+    expect(atOctober.ids).not.toContain(orig.line);
+    expect(atOctober.ids).not.toContain(rev.line);
+  });
+
+  it('a reversed entry with no reversal row is judged by reversed_at against as_at', async () => {
+    const early = await journal(b, ids.f2, ids.proj);
+    const late = await journal(b, ids.f2, ids.proj);
+    await q("UPDATE gl_journal_entries SET status = 'reversed', reversed_at = '2026-08-15' WHERE id = $1", [early.je]);
+    await q("UPDATE gl_journal_entries SET status = 'reversed', reversed_at = '2026-10-05' WHERE id = $1", [late.je]);
+    const r = await flagged(company, b, '2026-09-30');
+    expect(r.ids).not.toContain(early.line);
+    expect(r.ids).toContain(late.line);
+  });
+
+  it('says every carrier is counted, so the amount is tagging to repair, not money at stake (#683 round 3)', async () => {
+    const r = await flagged(company, b);
+    expect(r.finding).toMatch(/EVERY carrier is counted/);
+    expect(r.finding).toMatch(/a document line and the journal line it posted are two rows here/);
+    expect(r.finding).toMatch(/not money at stake/);
   });
 
   it('flags a line committed under the old FNO once its project has moved (the race it closes)', async () => {
