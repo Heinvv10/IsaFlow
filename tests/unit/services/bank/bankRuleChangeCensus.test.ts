@@ -92,6 +92,37 @@ describe('held changes and decisions', () => {
   });
 });
 
+describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLock)', () => {
+  const LOCK = `${BANK}bankRuleAutoPostLock.ts`;
+  const SETTINGS = `${BANK}autoPostSettingsService.ts`;
+  const text = (f: string) => files.find((x) => x.file === f)!.text;
+  const body = (f: string, fn: string) => { const t = text(f); const i = t.indexOf(`function ${fn}(`); return t.slice(i, t.indexOf('\n}\n', i)); };
+
+  it('exactly the control takes the shared lock, exactly the settings writer the exclusive one', () => {
+    expect(matching(/\blockForRuleWrite\(/)).toEqual([LOCK, CONTROL]);
+    expect(matching(/\blockForAutoPostSettings\(/)).toEqual([SETTINGS, LOCK]);
+    expect(matching(/bank_rule_unreviewed_changes/)).toEqual([LOCK]);
+  });
+
+  it('each writer that can apply a change takes the shared lock before it reads or locks a rule', () => {
+    for (const fn of ['writeNewRule', 'writeRuleChange', 'seedRules', 'moveRulesToCustomer']) {
+      const b = body(CONTROL, fn);
+      const lock = b.indexOf('await lockForRuleWrite(companyId)');
+      expect(lock, fn).toBeGreaterThan(0);
+      for (const first of ['classify(', 'lockRuleProjection(', 'bank_categorisation_rules']) {
+        if (b.includes(first)) expect(lock, `${fn}: lock before ${first}`).toBeLessThan(b.indexOf(first));
+      }
+    }
+  });
+
+  it('the settings writer takes the exclusive lock before the row lock, and checks before it writes', () => {
+    const b = body(SETTINGS, 'applyOnce');
+    expect(b.indexOf('await lockForAutoPostSettings(companyId)')).toBeGreaterThan(0);
+    expect(b.indexOf('await lockForAutoPostSettings(companyId)')).toBeLessThan(b.indexOf('FOR UPDATE'));
+    expect(b.indexOf('assertNoUnreviewedRuleChanges(')).toBeLessThan(b.indexOf('UPDATE bank_auto_post_settings'));
+  });
+});
+
 describe('the database guards rank on the same ladder', () => {
   const sql = readFileSync(path.join(ROOT, 'scripts/migrations/sql/877_bank_controls_step2.sql'), 'utf8');
 

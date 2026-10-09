@@ -20,6 +20,7 @@ import { isEnforced } from '../gl/approvalEnforcement';
 import { BANK_RULE } from '../gl/approvalRuleOptions';
 import { BankControlError } from './bankControlRefusal';
 import { lockRuleProjection } from './bankRuleChangeQueries';
+import { lockForRuleWrite } from './bankRuleAutoPostLock';
 
 /** A rule as 877 projects it: every column but its identity and bookkeeping (snake_case). */
 export type RuleProjection = Record<string, unknown>;
@@ -78,6 +79,7 @@ async function hold(companyId: string, ruleId: string | null, kind: 'create' | '
 
 /** Creates a rule, or holds the creation when it would auto-post under the switch. */
 export async function writeNewRule(companyId: string, cols: NewRuleColumns, userId: string): Promise<RuleWrite> {
+  await lockForRuleWrite(companyId);
   const { after, held } = await classify(companyId, null, { ...RULE_DEFAULTS, ...cols });
   if (held) return hold(companyId, null, 'create', after, userId);
   const rows = (await sql`
@@ -101,6 +103,7 @@ export async function writeNewRule(companyId: string, cols: NewRuleColumns, user
  * `Rule <id> not found` (as updateRule always has) for a rule not in the company.
  */
 export async function writeRuleChange(companyId: string, ruleId: string, patch: RulePatch, userId: string): Promise<RuleWrite> {
+  await lockForRuleWrite(companyId);
   const before = await lockRuleProjection(companyId, ruleId);
   if (!before) throw new Error(`Rule ${ruleId} not found`);
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
@@ -144,23 +147,52 @@ export async function removeRules(companyId: string, ids: readonly string[]): Pr
   return rows.length;
 }
 
-/** Seed rules (suggest-only, never held), recorded as `seed`, in one savepoint. */
+/**
+ * Seed rules (suggest-only), in one savepoint. A seeded rule is classified as
+ * any creation is: while auto-post is on, an active suggest-only rule posts
+ * money (877), so under `bank_rule` each one is HELD as its own pending
+ * creation, decided like any other; the rest are inserted and recorded as `seed`.
+ */
 export async function seedRules(companyId: string, rules: readonly { ruleName: string; pattern: string; glAccountId: string }[],
-  userId: string): Promise<number> {
-  if (rules.length === 0) return 0;
+  userId: string): Promise<{ created: number; held: number }> {
+  if (rules.length === 0) return { created: 0, held: 0 };
   return withSavepoint('bank_rules_seed', async () => {
+    await lockForRuleWrite(companyId);
+    const afters = rules.map((r) => ({ ...RULE_DEFAULTS, rule_name: r.ruleName, match_field: 'description', match_type: 'contains',
+      match_pattern: r.pattern, gl_account_id: r.glAccountId, supplier_id: null, client_id: null, description_template: null,
+      priority: 100, auto_create_entry: false, vat_code: 'none', auto_apply: 'fifo' }));
+    const classified = (await sql`
+      SELECT (e.i - 1)::INT AS i, n.after,
+             public.bank_rule_change_needs_approval(${companyId}::UUID, NULL, n.after)
+               AND EXISTS (SELECT 1 FROM approval_enforcement ae
+                           WHERE ae.company_id = ${companyId}::UUID AND ae.document_type = ${BANK_RULE}) AS held
+      FROM jsonb_array_elements(${json(afters)}::jsonb) WITH ORDINALITY AS e(v, i),
+           LATERAL (SELECT public.bank_rule_projection(to_jsonb(jsonb_populate_record(NULL::bank_categorisation_rules, e.v))) AS after) n
+      ORDER BY e.i
+    `) as { i: number; after: RuleProjection; held: boolean }[];
+    const toHold = classified.filter((c) => c.held);
+    const toInsert = classified.filter((c) => !c.held).map((c) => rules[c.i]!);
+    if (toHold.length > 0) {
+      await sql`
+        INSERT INTO bank_rule_changes (company_id, rule_id, kind, before, after, proposed_by, status)
+        SELECT ${companyId}::UUID, NULL, 'create', NULL, a.v, ${userId}, 'pending'
+        FROM jsonb_array_elements(${json(toHold.map((c) => c.after))}::jsonb) AS a(v)
+      `;
+      log.info('Seeded bank rules held for approval', { companyId, held: toHold.length, proposedBy: userId }, 'accounting');
+    }
+    if (toInsert.length === 0) return { created: 0, held: toHold.length };
     await sql`SELECT set_config('isaflow.bank_rule_change_kind', 'seed', true)`;
     const rows = (await sql`
       INSERT INTO bank_categorisation_rules (
         rule_name, match_field, match_type, match_pattern, gl_account_id, auto_create_entry, priority, created_by, company_id
       )
       SELECT t.name, 'description', 'contains', t.pattern, t.gl, false, 100, ${userId}, ${companyId}::UUID
-      FROM unnest(${rules.map((r) => r.ruleName)}::TEXT[], ${rules.map((r) => r.pattern)}::TEXT[],
-                  ${rules.map((r) => r.glAccountId)}::UUID[]) AS t(name, pattern, gl)
+      FROM unnest(${toInsert.map((r) => r.ruleName)}::TEXT[], ${toInsert.map((r) => r.pattern)}::TEXT[],
+                  ${toInsert.map((r) => r.glAccountId)}::UUID[]) AS t(name, pattern, gl)
       RETURNING id
     `) as { id: string }[];
     await sql`SELECT set_config('isaflow.bank_rule_change_kind', '', true)`;
-    return rows.length;
+    return { created: rows.length, held: toHold.length };
   });
 }
 
@@ -172,6 +204,7 @@ export async function seedRules(companyId: string, rules: readonly { ruleName: s
  * refuse it mid-merge. Called before the merge's first write.
  */
 export async function moveRulesToCustomer(tx: TxSql, companyId: string, sourceId: string, targetId: string): Promise<void> {
+  await lockForRuleWrite(companyId);
   const rules = (await tx`
     SELECT r.rule_name, public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r))) AS auto_posts
     FROM bank_categorisation_rules r

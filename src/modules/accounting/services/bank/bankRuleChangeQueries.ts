@@ -104,3 +104,12 @@ export async function countAutoPostingRules(companyId: string): Promise<number> 
   `) as { n: number }[];
   return Number(rows[0]?.n ?? 0);
 }
+
+/** Lower-cased match patterns of creations held for approval — the seed route skips them as it skips live rules. */
+export async function pendingCreationPatterns(companyId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT LOWER(after ->> 'match_pattern') AS p FROM bank_rule_change_states
+    WHERE company_id = ${companyId}::UUID AND status = 'pending' AND kind = 'create'
+  `) as { p: string | null }[];
+  return rows.map((r) => String(r.p ?? ''));
+}
