@@ -23,7 +23,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
-import { migrationNumber, sourceFiles, stripComments, type SourceFile } from '../../helpers/sourceCensus';
+import { filesUnder, migrationNumber, ROOT, sourceFiles, stripComments, type SourceFile } from '../../helpers/sourceCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
 const OWN = '880_audit_log_append_only.sql';
@@ -114,6 +114,9 @@ describe('audit_log is append-only (census by table)', () => {
     for (const known of ['middleware.ts', 'src/modules/accounting/services/core/auditTrailService.ts', `${MIGRATIONS}${OWN}`]) {
       expect(files.some((f) => f.file === known), known).toBe(true);
     }
+    // A directory it cannot read is an error, never an empty scan (only a missing one is skipped).
+    expect(() => filesUnder(path.join(ROOT, 'package.json'))).toThrow(/ENOTDIR/);
+    expect(filesUnder(path.join(ROOT, 'no-such-dir'))).toEqual([]);
     const insert = files.find((f) => f.file.endsWith('core/auditTrailService.ts'))!;
     expect(stripComments(insert.text, insert.file)).toMatch(/\binsert\s+into\s+audit_log\b/i);
   });
@@ -136,22 +139,25 @@ describe('audit_log is append-only (census by table)', () => {
 });
 
 describe('the census detects (counterexamples)', () => {
+  const ERASES = 'updates, deletes or truncates audit_log';
   it.each([
-    ['an UPDATE', 'await sql`UPDATE audit_log SET user_id = ${u} WHERE id = ${id}`'],
-    ['an UPDATE ONLY, quoted and schema-qualified', 'sql`UPDATE ONLY "public"."audit_log" SET action = ${a}`'],
-    ['a schema-qualified DELETE', "client.query('DELETE FROM public.audit_log WHERE id = $1')"],
-    ['a TRUNCATE', "pool.query('TRUNCATE TABLE audit_log')"],
-    ['a TRUNCATE of a list (E1)', "pool.query('TRUNCATE companies, audit_log CASCADE')"],
-    ['a MERGE', 'sql`MERGE INTO audit_log a USING x ON true WHEN MATCHED THEN DELETE`'],
-    ['an upsert (E2)', 'sql`INSERT INTO audit_log (id) VALUES (${i}) ON CONFLICT (id) DO UPDATE SET action = ${a}`'],
-    ['a row lock', 'sql`SELECT id FROM audit_log a WHERE a.id = ${id} FOR UPDATE`'],
-    ['a FOR KEY SHARE in a join', 'sql`SELECT 1 FROM companies c JOIN audit_log a ON true FOR KEY SHARE`'],
-    ['a dynamic table name', "for (const t of ['bills', 'audit_log']) await sql.unsafe(`DELETE FROM ${t}`)"],
-    ['a statement after a "/*" in a string (E3)', "const g = 'src/*'; await sql`DELETE FROM audit_log`; /* end */"],
-    ['a statement after a "--" in a string (E5)', "const sep = '--'; await sql`DELETE FROM audit_log`;"],
-    ['a statement after a "//" in a string', "const u = 'https://x'; await sql`DELETE FROM audit_log`;"],
-  ])('%s', (_label, text) => {
-    expect(violations(text)).not.toEqual([]);
+    ['an UPDATE', 'await sql`UPDATE audit_log SET user_id = ${u} WHERE id = ${id}`', ERASES],
+    ['an UPDATE ONLY, quoted and schema-qualified', 'sql`UPDATE ONLY "public"."audit_log" SET action = ${a}`', ERASES],
+    ['an UPDATE ONLY', 'sql`UPDATE ONLY audit_log SET action = ${a}`', ERASES],
+    ['a schema-qualified DELETE', "client.query('DELETE FROM public.audit_log WHERE id = $1')", ERASES],
+    ['a quoted-schema DELETE', 'sql`DELETE FROM "public".audit_log WHERE id = 1`', ERASES],
+    ['a TRUNCATE', "pool.query('TRUNCATE TABLE audit_log')", ERASES],
+    ['a TRUNCATE of a list (E1)', "pool.query('TRUNCATE companies, audit_log CASCADE')", ERASES],
+    ['a MERGE', 'sql`MERGE INTO audit_log a USING x ON true WHEN MATCHED THEN DELETE`', ERASES],
+    ['an upsert (E2)', 'sql`INSERT INTO audit_log (id) VALUES (${i}) ON CONFLICT (id) DO UPDATE SET action = ${a}`', 'upserts audit_log'],
+    ['a row lock', 'sql`SELECT id FROM audit_log a WHERE a.id = ${id} FOR UPDATE`', 'locks audit_log'],
+    ['a FOR KEY SHARE in a join', 'sql`SELECT 1 FROM companies c JOIN audit_log a ON true FOR KEY SHARE`', 'locks audit_log'],
+    ['a dynamic table name', "for (const t of ['bills', 'audit_log']) await sql.unsafe(`DELETE FROM ${t}`)", 'names audit_log as a string'],
+    ['a statement after a "/*" in a string (E3)', "const g = 'src/*'; await sql`DELETE FROM audit_log`; /* end */", ERASES],
+    ['a statement after a "--" in a string (E5)', "const sep = '--'; await sql`DELETE FROM audit_log`;", ERASES],
+    ['a statement after a "//" in a string', "const u = 'https://x'; await sql`DELETE FROM audit_log`;", ERASES],
+  ])('%s', (_label, text, why) => {
+    expect(violations(text)).toContain(why);
   });
 
   it.each([
