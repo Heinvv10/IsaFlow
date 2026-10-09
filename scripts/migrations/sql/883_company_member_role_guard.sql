@@ -51,12 +51,12 @@
 -- deadlock (40P01) — the row lock is taken before the trigger; no app path
 -- edits two members in one transaction.
 --
--- Precondition (section 0): owner invitations an admin sent BEFORE this
--- migration — the route allowed it until now — would stay live (their
--- token is the admin's). 883 refuses to apply while any unaccepted,
--- unexpired one exists whose sender is not an owner of the company; cancel
--- or have an owner re-issue them first (the query is in the R-035 N1b
--- handoff).
+-- Precondition (section 0): owner invitations an admin sent or rewrote
+-- BEFORE this migration — the route and RLS allowed it until now — would
+-- stay live, their token the admin's, and `invited_by` cannot tell them
+-- apart (it was writable too). 883 refuses to apply while ANY unaccepted,
+-- unexpired owner invitation exists: cancel them first, and an owner
+-- re-issues them afterwards (the query is in the R-035 N1b handoff).
 --
 -- Refusals (SQLSTATE): RC001 not an owner/admin of the company · RC002 role
 -- outside the allow-list · RC003 only an owner grants owner · RC004 a column
@@ -69,13 +69,12 @@ DO $$
 DECLARE
   v_n pg_catalog.int8;
 BEGIN
+  -- Every live one, whoever it names as sender: before 883 an admin could
+  -- write any `invited_by` by raw SQL, so the column proves nothing.
   SELECT pg_catalog.count(*) INTO v_n FROM public.company_invitations ci
-  WHERE ci.role = 'owner' AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now()
-    AND NOT EXISTS (SELECT 1 FROM public.company_users cu
-                    WHERE cu.company_id = ci.company_id AND cu.role = 'owner'
-                      AND pg_catalog.lower(cu.user_id::pg_catalog.text) = pg_catalog.lower(ci.invited_by::pg_catalog.text));
+  WHERE ci.role = 'owner' AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now();
   IF v_n > 0 THEN
-    RAISE EXCEPTION 'migration 883: % pending owner invitation(s) were sent by someone who is not an owner of the company — cancel them, or have an owner re-issue them, before applying', v_n;
+    RAISE EXCEPTION 'migration 883: % pending owner invitation(s) exist and may have been sent or rewritten by a non-owner — cancel them before applying; an owner re-issues them afterwards', v_n;
   END IF;
 END $$;
 

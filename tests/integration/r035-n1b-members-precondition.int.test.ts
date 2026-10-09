@@ -1,10 +1,10 @@
 /**
  * R-035 N1b (C, migration 883), section 0 (adversarial review of PR #691,
  * F1): an `owner` invitation an admin sent before 883 — the route allowed it
- * until this PR — would stay live, its token the admin's. 883 refuses to
- * apply while any unaccepted, unexpired owner invitation exists whose sender
- * is not an owner of the company. Run against poisoned states inside one
- * rolled-back transaction, as the deploy role.
+ * until this PR — would stay live, its token the admin's; and `invited_by`
+ * proves nothing (it was writable too). 883 refuses to apply while ANY
+ * unaccepted, unexpired owner invitation exists. Run against poisoned states
+ * inside one rolled-back transaction, as the deploy role.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -41,16 +41,26 @@ const legacy = (c: PoolClient, co: string, by: string, extra = '') => c.query(
   `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at${extra ? ',accepted_at' : ''})
    VALUES($1,'legacy@n1bc.test','owner',$2,$3, now() + interval '7 days'${extra})`, [co, by, tokenHash(crypto.randomUUID())]);
 
+const REFUSED = 'migration 883: 1 pending owner invitation(s) exist and may have been sent or rewritten by a non-owner — cancel them before applying; an owner re-issues them afterwards';
+
 describe('migration 883 section 0', () => {
-  it('refuses while a live owner invitation sent by an admin exists', async () => {
+  it.each([
+    ['an admin sent it', (c: PoolClient, co: string) => legacy(c, co, p.a)],
+    // invited_by was writable before 883: naming an owner proves nothing.
+    ['it names an owner as its sender', (c: PoolClient, co: string) => legacy(c, co, p.o)],
+  ])('refuses while a live owner invitation exists — %s', async (_label, poison) => {
     const co = await company(pool, p, companies);
-    expect(await applyAfter((c) => legacy(c, co, p.a).then(() => undefined)))
-      .toBe('migration 883: 1 pending owner invitation(s) were sent by someone who is not an owner of the company — cancel them, or have an owner re-issue them, before applying');
+    expect(await applyAfter((c) => poison(c, co).then(() => undefined))).toBe(REFUSED);
   });
 
   it.each([
-    ['an owner sent it', (c: PoolClient, co: string) => legacy(c, co, p.o)],
     ['it was accepted', (c: PoolClient, co: string) => legacy(c, co, p.a, ', now()')],
+    ['it has expired', (c: PoolClient, co: string) => c.query(
+      `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
+       VALUES($1,'old@n1bc.test','owner',$2,$3, now() - interval '1 day')`, [co, p.a, tokenHash(crypto.randomUUID())])],
+    ['it is for a lesser role', (c: PoolClient, co: string) => c.query(
+      `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
+       VALUES($1,'mgr@n1bc.test','manager',$2,$3, now() + interval '7 days')`, [co, p.a, tokenHash(crypto.randomUUID())])],
   ])('applies when %s', async (_label, poison) => {
     const co = await company(pool, p, companies);
     expect(await applyAfter((c) => poison(c, co).then(() => undefined))).toBe('applied');
