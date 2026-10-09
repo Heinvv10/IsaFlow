@@ -87,13 +87,14 @@ describe('createRule — auto_apply', () => {
 
 describe('updateRule — auto_apply', () => {
   it('changes the mode when named', async () => {
-    // bankRuleChangeControl: lock the rule, classify before → after, then write.
+    // bankRuleChangeControl: the advisory lock, lock the rule, classify before → after, then write.
     mockSql
+      .mockResolvedValueOnce([] as never) // the advisory lock (bankRuleAutoPostLock)
       .mockResolvedValueOnce([{ p: { auto_apply: 'fifo' } }] as never)
       .mockResolvedValueOnce([{ after: { auto_apply: 'none' }, held: false, toggle_only: false }] as never)
       .mockResolvedValueOnce([ROW] as never);
     await updateRule(COMPANY, RULE, { autoApply: 'none' }, USER);
-    expect(mockSql.mock.calls[1]!.slice(1)).toContain(JSON.stringify({ auto_apply: 'none' }));
+    expect(mockSql.mock.calls[2]!.slice(1)).toContain(JSON.stringify({ auto_apply: 'none' }));
     expect(lastQuery()).toContain('auto_apply = n.auto_apply');
     expect(lastValues()).toContain(JSON.stringify({ auto_apply: 'none' }));
   });
