@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { assertParityTestUrl } from '../helpers/parityTestGuard';
+import { assertOnlyThrowawayDatabases, assertParityTestUrl } from '../helpers/parityTestGuard';
 import { computeChecksum, type MigrationFile } from '../../scripts/lib/migrationFiles';
 import { runParityGate, MAX_DEV_APPLY } from '../../scripts/lib/migrationParityRun';
 import { HISTORIC_DEV_UNTRACKED } from '../../scripts/lib/migrationParity';
@@ -72,20 +72,26 @@ const gate = (files: MigrationFile[], over: Partial<Parameters<typeof runParityG
     say: (l) => out.push(l), warn: (l) => out.push(l), ...over });
 
 suite('migration parity gate (real databases)', () => {
-  const clusters = [BASE!, ...(BASE2 ? [BASE2] : [])];
+  const requested = [BASE!, ...(BASE2 ? [BASE2] : [])];
+  // Only clusters that passed BOTH the URL guard and the server-side database check; afterAll touches nothing else.
+  const clusters: string[] = [];
   beforeAll(async () => {
-    for (const base of clusters) {
+    for (const base of requested) {
       assertParityTestUrl(base, process.env); // throws before any connection if this is not a throwaway
       const admin = new pg.Client({ connectionString: base });
       await admin.connect();
-      await admin.query(`DROP ROLE IF EXISTS ${RO_ROLE}`).catch(() => undefined);
-      for (const db of [PROD, DEV]) {
-        await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
-        await admin.query(`CREATE DATABASE ${db}`);
+      try {
+        assertOnlyThrowawayDatabases((await admin.query('SELECT datname FROM pg_database')).rows.map((r) => r.datname as string));
+        clusters.push(base);
+        for (const db of [PROD, DEV]) {
+          await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
+          await admin.query(`CREATE DATABASE ${db}`);
+        }
+        await admin.query(`DROP ROLE IF EXISTS ${RO_ROLE}`);
+        await admin.query(`CREATE ROLE ${RO_ROLE} LOGIN PASSWORD '${RO_PW}'`);
+      } finally {
+        await admin.end();
       }
-      await admin.query(`DROP ROLE IF EXISTS ${RO_ROLE}`);
-      await admin.query(`CREATE ROLE ${RO_ROLE} LOGIN PASSWORD '${RO_PW}'`);
-      await admin.end();
     }
   });
   beforeEach(async () => {
