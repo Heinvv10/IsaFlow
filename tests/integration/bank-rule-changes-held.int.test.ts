@@ -9,7 +9,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser } from './r035-approval.helpers';
+import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
+import { callRoute, createUser } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
 import { journalCompany, type JournalCompany } from './r035-pr6.helpers';
 import { cleanupRuleChanges, enforceRules, historyOf, mcpRules, plantBankRule, ruleOf, ruleRoutes } from './bank-rule-changes.helpers';
@@ -139,5 +140,18 @@ describe("a held creation's `after`", () => {
     // The DB agrees it is the same rule (jsonb equality, numerics by value).
     expect((await pool.query("SELECT ($1::jsonb - 'gl_account_id') = ($2::jsonb - 'gl_account_id') AS same",
       [JSON.stringify(p!.after), JSON.stringify(row.p)])).rows[0].same).toBe(true);
+  });
+});
+
+describe('the switch preview', () => {
+  it('counts the active auto-posting rules (not inactive or suggest-only ones)', async () => {
+    const f = await fixture(false);
+    await plantBankRule(pool, f.c, f.expA, { autoPost: true });
+    await plantBankRule(pool, f.c, f.expA, { autoPost: true, active: false });
+    await plantBankRule(pool, f.c, f.expA);
+    const res = await callRoute(approvalEnforcement as never, tokens[a]!, f.c, 'GET', undefined, '/api/accounting/approval-enforcement',
+      { preview: '1' });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(dataOf<{ preview: Record<string, number> }>(res).preview.bank_rule).toBe(1);
   });
 });
