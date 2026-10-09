@@ -3,15 +3,16 @@
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction, sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
+import { sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
-import { detectBankFormat } from '../../utils/bankCsvParsers';
-import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import { withLedgerDays } from './bankStatementLedgerDays';
-import type { BankFormat, BankCsvParseResult } from '../../types/bank.types';
+import type { BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
 import type { ImportProvenance } from './importProvenance';
+
+// A statement upload's provenance, for importParsedTransactions' upload caller (bank-transactions-bulk-commit).
+export { uploadProvenance } from './importProvenance';
 
 /**
  * Per-call suffix for the auto-post savepoint. `SAVEPOINT x` with a name that is
@@ -27,74 +28,6 @@ export interface BulkImportContext {
   bulkSequence: number;
   sourceFilename: string;
   sourceFileSizeBytes: number;
-}
-
-export async function importBankStatement(
-  companyId: string,
-  csvContent: string,
-  bankAccountId: string,
-  _statementDate: string,
-  bankFormat?: BankFormat
-): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
-  try {
-    // Through `parseStatement` rather than calling the parsers directly, so this
-    // entry point inherits the same guard: a file that HAS rows and yielded no
-    // transaction is refused instead of returning a clean `{transactionCount: 0}`,
-    // which told a user who picked the wrong file type that the statement was in.
-    // A genuinely empty period still returns 0 rows.
-    const format = bankFormat && bankFormat !== 'unknown' ? bankFormat : detectBankFormat(csvContent);
-    const fileType: StatementFileType =
-      format === 'ofx' ? 'ofx' : format === 'qif' ? 'qif' : format === 'mt940' ? 'mt940' : 'csv';
-    const parseResult = await withLedgerDays(await parseStatement({ fileType, csvContent, bankFormat: format }));
-
-    if (parseResult.transactions.length === 0) {
-      return { batchId: '', transactionCount: 0, errors: parseResult.errors };
-    }
-
-    const batchId = crypto.randomUUID();
-
-    await transaction((txSql) =>
-      parseResult.transactions.map(tx => txSql`
-        INSERT INTO bank_transactions (
-          company_id, bank_account_id, transaction_date, value_date, amount,
-          description, reference, import_batch_id
-        ) VALUES (
-          ${companyId}::UUID, ${bankAccountId}::UUID, ${tx.transactionDate}, ${tx.valueDate || null},
-          ${tx.amount}, ${tx.description}, ${tx.reference || null}, ${batchId}::UUID
-        )
-      `)
-    );
-
-    log.info('Imported bank statement', {
-      batchId, format, count: parseResult.transactions.length,
-    }, 'accounting');
-
-    // Auto-provisional posting for outflows (best-effort — failures are swallowed)
-    try {
-      const outflowIds = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND amount < 0
-          AND status = 'imported'
-      `) as { id: string }[];
-      if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, systemUser); // legacy: no batch row, so no importer
-      }
-    } catch (provErr) {
-      log.warn('auto-post sweep failed after import — non-fatal', { batchId, error: provErr }, 'accounting');
-    }
-
-    return {
-      batchId,
-      transactionCount: parseResult.transactions.length,
-      errors: parseResult.errors,
-    };
-  } catch (err) {
-    log.error('Failed to import bank statement', { error: err }, 'accounting');
-    throw err;
-  }
 }
 
 /**

@@ -67,11 +67,11 @@ describe('1. every import path records the importer', () => {
   it('the writers of bank_transactions.import_batch_id are exactly these, each beside its batch row', () => {
     expect(filesMatching(/INSERT INTO bank_transactions\s*\([^)]*\bimport_batch_id\b/)).toEqual([
       CLASSIFIED,
-      `${B}bankImportService.ts`, // importParsedTransactions (with its batch row); importBankStatement — LEGACY, no batch row, no non-test caller
+      `${B}bankImportService.ts`, // importParsedTransactions, with its batch row (the legacy importBankStatement is deleted)
       `${B}bankStatementOcrService.ts`,
       `${B}feed/bankIngestionPersistence.ts`,
     ].sort());
-    expect(filesMatching(/\bimportBankStatement\(/)).toEqual([`${B}bankImportService.ts`]); // the legacy entry point stays uncalled
+    expect(filesMatching(/\bimportBankStatement\b/)).toEqual([]); // the legacy importer (no batch row) is gone
   });
 
   it('the upload and the MCP import pass the person, the channel and the file hash', () => {
@@ -116,7 +116,6 @@ describe('3. every sweep names the person who triggered it', () => {
     const expected = [
       "pages/api/accounting/smart-categorize.ts: sweep(companyId, categorizedIds, 'categorization', userId, userId)",
       `${B}bankImportService.ts: sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser)`,
-      `${B}bankImportService.ts: sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, systemUser)`,
       `${B}llmCategorizationPass.ts: gateSweep(companyId, ids, 'categorization', userId, userId)`,
     ];
     expect(calls).toHaveLength(expected.length);
@@ -156,8 +155,8 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
   const GL = 'src/modules/accounting/services/gl/';
   it('every caller of reverseJournalEntry, classified by whether it can reach a bank allocation\'s journal', () => {
     const CALLERS: Record<string, string> = {
-      'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: assertNotBankAllocationReversal first (409 under enforcement)',
-      [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: assertNotBankAllocationReversal first, dry run included',
+      'pages/api/accounting/journal-entries-action.ts': 'GL reverse of ANY journal: lockJournalCashForGlReversal first (409 under enforcement)',
+      [`${MCP}writeJournalReverse.ts`]: 'MCP reverse_journal_entry: lockJournalCashForGlReversal first, dry run included',
       [`${B}bankAllocationService.ts`]: 'the choke point itself (assertMayReverse, audited)',
       [`${B}bankChainLineReversal.ts`]: "the choke point's document arm, called from it only",
       [`${B}autoPostUndoService.ts`]: "undoRow's provisional/hand-reversed arms, behind assertMayUndoRun",
@@ -176,8 +175,11 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     };
     const callers = filesMatching(/\breverseJournalEntry\(/).filter((f) => f !== `${GL}journalEntryPostingService.ts`);
     expect(callers).toEqual(Object.keys(CALLERS).sort());
-    before('pages/api/accounting/journal-entries-action.ts', 'await assertNotBankAllocationReversal(companyId, id)', 'reverseJournalEntry(companyId, id');
-    before(`${MCP}writeJournalReverse.ts`, 'await assertNotBankAllocationReversal(ctx.companyId, id)', 'if (args.dry_run === true)');
+    // The GL entrance locks the chain's lines and judges THAT set (the TOCTOU fix); its locked set rides into the claim.
+    before('pages/api/accounting/journal-entries-action.ts', 'const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id)', 'reverseJournalEntry(companyId, id');
+    before(`${MCP}writeJournalReverse.ts`, 'cashLinesLocked = await lockJournalCashForGlReversal(ctx.companyId, id)', 'if (args.dry_run === true)');
+    before(`${B}bankReversalGate.ts`, 'const locked = await refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId)', "throw new BankControlError('REVERSE_FROM_BANK_LINE'");
+    expect(filesMatching(/\brefuseJournalCashOfCompletedReconciliation\(/).sort()).toEqual([`${B}bankReversalGate.ts`, `${B}reconciledCash.ts`]);
     before(`${B}provisionalDismissService.ts`, 'await assertMayReverse(companyId, line, jeId, userId)', 'reverseJournalEntry(companyId, head, userId)');
     before(`${B}provisionalDismissService.ts`, 'await lockBankTransactionsInIdOrder(', 'await assertMayReverse(');
   });
@@ -190,5 +192,29 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     const confirm = textOf('pages/api/accounting/bank-match-confirm.ts');
     expect(confirm.match(/await assertImporterMayMatch\(companyId, bankTransactionId, candidateId, userId\);\s+await matchTransaction\(/g)).toHaveLength(2);
     before('pages/api/accounting/bank-transactions-action.ts', 'await assertImporterMayMatch(', 'await matchTransaction(');
+  });
+});
+
+describe('6. every route that can raise a bank-control refusal answers it (blind review #684 MEDIUM-1)', () => {
+  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|lockJournalCashForGlReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument)\(/;
+  const EXEMPT: Record<string, RegExp> = {
+    // A per-item answer: the refused id carries its reason, the batch goes on.
+    'pages/api/accounting/supplier-invoices-bulk-action.ts': /err instanceof BankControlError \? \{ reason: err\.code \}/,
+    // The settle refusal is caught in provisionalAttachSettle: the bill goes back to draft with the reason in its notes.
+    'pages/api/accounting/ai-invoice-pipeline.ts': /attachEvidenceAndSettleApproved\(/,
+    // Money in: a customer receipt is no gated arm (importerArmOf), so allocateTransaction cannot refuse it here.
+    'pages/api/accounting/ar/receipt-match/confirm.ts': /confirmReceiptMatch\(/,
+    // Allocates the hand-keyed line it inserts itself: no batch, so no importer to refuse.
+    'pages/api/accounting/bank-transactions-manual.ts': /allocateTransaction\(/,
+  };
+  it('each route calling a service that raises BankControlError maps it with respondIfBankControlRefused, or is classified', () => {
+    const routes = SOURCES.filter((x) => x.file.startsWith('pages/api/') && THROWERS.test(x.text)).map((x) => x.file).sort();
+    expect(routes.length).toBeGreaterThan(8);
+    for (const route of routes) {
+      const exempt = EXEMPT[route];
+      if (exempt) expect(textOf(route), route).toMatch(exempt);
+      else expect(textOf(route), `${route} must answer BankControlError (respondIfBankControlRefused)`).toMatch(/respondIfBankControlRefused\(res, err\)/);
+    }
+    for (const route of Object.keys(EXEMPT)) expect(routes, `stale exemption ${route}`).toContain(route);
   });
 });
