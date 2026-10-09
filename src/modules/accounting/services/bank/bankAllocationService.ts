@@ -37,6 +37,8 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertImporterMayAllocate, importerArmOf } from './bankLineImporterGate';
+import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
@@ -148,6 +150,9 @@ export async function allocateTransaction(
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
+  // Step 2 (Hein, decision 2): under the arm's enforced type, the statement's importer may not allocate its line — 403.
+  const importerArm = importerArmOf(allocType, entityId, Number(tx.amount));
+  if (importerArm) await assertImporterMayAllocate(companyId, tx, userId, importerArm);
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -678,6 +683,7 @@ export async function splitAllocateTransaction(
     throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
   await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
+  await assertImporterMayAllocate(companyId, tx, userId, 'manual_journal'); // step 2: not the statement's own importer
 
   const bankAccountId = String(tx.bank_account_id);
   // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
@@ -805,7 +811,13 @@ async function reverseReconciledInner(
   // changed a completed reconciliation's figures with the reconciliation still
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
-  if (chain?.doc) return reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts);
+  // Step 2 (Hein, decision 4): under the arm's enforced type, no agent, and not the allocator (bar the sole approver);
+  // refused here, before any write — a permitted reversal is audited once it is done.
+  const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId);
+  if (chain?.doc) {
+    return auditedReversal(companyId, bankTxId, userId, clearance,
+      await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
+  }
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
   // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
   const journalEntryId = chain?.rootId ?? null;
@@ -868,6 +880,7 @@ async function reverseReconciledInner(
     return result;
   });
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
+  await auditedReversal(companyId, bankTxId, userId, clearance, null);
   // Reported rather than discarded: `void_receipt` delegates to this function
   // and previously had to answer "0 invoices reopened" for the branch that does
   // the MOST work, because the counts were computed here and thrown away. An

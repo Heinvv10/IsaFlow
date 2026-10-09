@@ -10,6 +10,7 @@ import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { feedStateOf } from '../bank/bankFeedStateGuard';
 import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
+import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 
 type Row = DbRow;
 
@@ -161,7 +162,7 @@ export async function postProvisional(
   companyId: string,
   bankTxId: string,
   userId: string,
-  opts: { minConfidence?: number } = {},
+  opts: { minConfidence?: number; triggeredBy?: string } = {}, // triggeredBy: who ran the sweep (default userId)
 ): Promise<{ journalEntryId: string | null; prediction: CodingPrediction; skipped?: string }> {
   const minConfidence = opts.minConfidence ?? 0.7;
 
@@ -193,6 +194,10 @@ export async function postProvisional(
   // R-035 PR6 (H2, round 5): DR <predicted account> / CR bank from a HAND-KEYED outflow is a manual journal nobody
   // decides — skipped before any write under an enforced rule; the route and the auto-post gate report the reason.
   if (!isBankEvidenced(tx) && await handKeyedLineJournalRefusal(companyId, Math.abs(amount))) {
+    return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'approval_required' };
+  }
+  // Step 2: so is one run for the person who imported the line (unlocked: a line's provenance never changes, 877).
+  if (await importerAllocationRefusal(companyId, tx, opts.triggeredBy ?? userId, importerArmOf('account', null, amount)!)) {
     return { journalEntryId: null, prediction: NO_PREDICTION, skipped: 'approval_required' };
   }
 

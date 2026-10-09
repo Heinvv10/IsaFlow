@@ -32,6 +32,8 @@ import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { isReconciliationCompleted } from './reconciliationSessionLock';
 import { refuseLockedCash } from './reconciledCash';
+import { BankControlError } from './bankControlRefusal';
+import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -143,6 +145,7 @@ export async function markCorrectedByHand(
 export async function undoAnyway(
   companyId: string, runId: string, txId: string, journalId: string, userId: string,
 ): Promise<UndoAnywayResult> {
+  const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): as undoRun, before anything
   const d = await lockForDecision(companyId, runId, txId, journalId);
   const j = d.journal;
   if (!j || !j.blocks) throw new HandCorrectionRefusedError('That journal is not blocking the undo of this line');
@@ -170,7 +173,7 @@ export async function undoAnyway(
     // A lock timeout (the bank reversal's flow budget, D8 round 11) is contention too: the retry is the remedy.
     // D12: another line of the chain in a COMPLETED reconciliation is the shared 409, not a generic refusal.
     if (err instanceof HandCorrectionRefusedError || isRetryableContention(err) || isHeldRowError(err)
-      || isReconciliationCompleted(err)) throw err;
+      || isReconciliationCompleted(err) || err instanceof BankControlError) throw err;
     // The reversal itself refused — a closed period, say. The savepoint rolled
     // the declaration back with it, so this is a refusal with nothing written,
     // the same `failed` the undo counts; the cause goes to the log, not the user.
@@ -182,6 +185,7 @@ export async function undoAnyway(
   }
   // Closes only when no line is left tagged — so never while this line, still
   // blocked by another journal, or any other line remains in the run.
+  await auditRunUndo(companyId, runId, userId, clearance, result.kind === 'reversed' ? 1 : 0);
   const runClosed = await closeRunIfNothingTagged(companyId, runId, userId);
   log.info('Auto-post line undone after its blocking journal was declared unrelated',
     { companyId, runId, txId, journalId: j.id, outcome: result.kind, runClosed }, 'auto-post-undo');

@@ -15,6 +15,7 @@ import {
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { statementFileSha256 } from '@/modules/accounting/services/bank/importProvenance';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport — it is passed through
@@ -123,7 +124,8 @@ export const importBankStatementTool: McpTool = {
         statementDate,
         bankFormat: rawBankFormat as AgentBankFormat | undefined,  // validated above
         dryRun: args.dry_run === true,
-        importedBy: 'mcp:import_bank_statement:v1',
+        // Step 2: the TOKEN'S user is the importer (who may then not allocate its lines), with the content's hash.
+        provenance: { importedBy: ctx.userId, importChannel: 'mcp', fileSha256: statementFileSha256({ csvContent: content }) },
         sourceFilename: 'mcp-import',
       });
 

@@ -26,7 +26,8 @@
  *
  * And one `ApprovalRequiredError` (routes answer 409): the line was keyed by
  * hand and supplier_payment enforcement has a rule matching its amount (R-035
- * PR5 round 2, `bankLinePaymentGate`).
+ * PR5 round 2, `bankLinePaymentGate`); and one `BankControlError` (403): the
+ * approver imported the line's statement (step 2, `bankLineImporterGate`).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -42,6 +43,7 @@ import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { withRowLockBudget } from '../core/rowLockBudget';
 import { assertBankLineMayPaySupplier } from './bankLinePaymentGate';
+import { assertImporterMayAllocate } from '../bank/bankLineImporterGate';
 
 const CENT = 0.005;
 
@@ -125,6 +127,8 @@ async function holderOf(companyId: string, jeId: string): Promise<DbRow | null> 
 export async function claimEvidencedProvisional(
   companyId: string,
   invoiceId: string,
+  /** Who settles the line as a supplier payment: not the statement's importer, under enforcement (step 2). */
+  actorUserId: string,
 ): Promise<ProvisionalClaim | null> {
   const [inv] = (await sql`
     SELECT source_document_id, invoice_date FROM supplier_invoices
@@ -195,6 +199,8 @@ export async function claimEvidencedProvisional(
     // enforced rule refuses it HERE, from reads — not at the 867 backstop after
     // the bill's journal.
     await assertBankLineMayPaySupplier(companyId, c, bankAmount);
+    // Step 2 (Hein, decision 2): nor may the person who imported the line's statement settle it — BankControlError 403.
+    await assertImporterMayAllocate(companyId, c, actorUserId, 'supplier_payment');
     return {
       journalEntryId: jeId, entryNumber, bankTxId: String(c.bt_id), bankAccountId, bankAmount, settleLines, reclassDate,
     };

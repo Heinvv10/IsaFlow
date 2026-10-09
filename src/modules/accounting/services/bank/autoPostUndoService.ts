@@ -24,6 +24,7 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
+import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 
 type Row = DbRow;
 
@@ -188,6 +189,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   `) as Row[];
   if (runRows.length === 0) throw new Error(`Auto-post run ${runId} not found`);
   if (runRows[0]!.undone_at) throw new Error('Run already undone');
+  const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): the RUN judged, before any row
 
   const txRows = (await sql`
     SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id
@@ -281,6 +283,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   // failure status.
   if (contention !== null && reversed === 0 && alreadyUndone === 0) throw contention;
 
+  await auditRunUndo(companyId, runId, userId, clearance, reversed + alreadyUndone);
   const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand;
   const undone = skipped === 0;
   if (undone) {

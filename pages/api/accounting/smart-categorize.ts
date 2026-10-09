@@ -126,7 +126,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           }
           const result = await bulkCategorize(companyId, transactionIds);
           const categorizedIds = result.results.filter((r) => r.result).map((r) => r.transactionId);
-          const autoPost = await withJournalDateRefusal(res, () => sweep(companyId, categorizedIds, 'categorization', userId));
+          const autoPost = await withJournalDateRefusal(res, () => sweep(companyId, categorizedIds, 'categorization', userId, userId));
           if (autoPost === JOURNAL_DATE_REFUSED) return;
 
           // Derive residual pass over the request's transaction ids
