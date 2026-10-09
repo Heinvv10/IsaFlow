@@ -9,10 +9,13 @@
  *   rule writers (bankRuleChangeControl: create, change, seed, merge re-point)
  *     → shared, before they read or lock a rule;
  *   the auto-post settings writer (autoPostSettingsService.applyOnce)
- *     → exclusive, before it locks the settings row.
+ *     → exclusive, before it locks the settings row;
+ *   switching `bank_rule` on (approvalEnforcement.enableEnforcement)
+ *     → exclusive, before it inserts the switch (its enabled_at is a cutoff too).
  * So a rule change either commits before the switch-on reads the history (and
  * is judged), or classifies after the switch-on committed (and sees auto-post
- * on, so it is held).
+ * on, so it is held). The history places each change by recorded_at, the
+ * moment it was written under the lock — not its transaction's start (R3-1).
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -24,7 +27,8 @@ export async function lockForRuleWrite(companyId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${key(companyId)}, 0))`;
 }
 
-export async function lockForAutoPostSettings(companyId: string): Promise<void> {
+/** Exclusive: no rule change records while the caller moves a cutoff or switches auto-post on. */
+export async function lockOutRuleWriters(companyId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${key(companyId)}, 0))`;
 }
 

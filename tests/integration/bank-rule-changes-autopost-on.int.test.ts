@@ -18,6 +18,10 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
 import { bankCompany, cleanupBankControlsA, plantBatch, plantLine, type BankCompany } from './bank-controls-a.helpers';
+import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
+import { als } from '../../src/lib/als';
+import { updateAutoPostSettings } from '../../src/modules/accounting/services/bank/autoPostSettingsService';
+import { updateRule } from '../../src/modules/accounting/services/bank/bankRulesService';
 import { enforceRules, plantBankRule, ruleRoutes } from './bank-rule-changes.helpers';
 
 assertDisposable();
@@ -136,6 +140,57 @@ describe('hole 3: the cutoff', () => {
       await db.query('INSERT INTO bank_auto_post_settings(company_id, enabled) VALUES($1, false)', [f.c]);
     });
     expect(await disabledAt()).toBeNull();
+    await refusedOn(u.o, f.c, /BRC rule/);
+  });
+});
+
+describe('R3-1: a change is placed by when it was RECORDED, not when its transaction began', () => {
+  /** A request transaction as withAuth opens one; its now() is fixed here. */
+  async function openRequest(user: string, company: string): Promise<PoolClient> {
+    const db = await pool.connect();
+    await db.query('BEGIN');
+    await db.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: user, session_id: crypto.randomUUID() })]);
+    await db.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+    await db.query('SET LOCAL ROLE app_user');
+    await db.query('SELECT now()');
+    return db;
+  }
+  const inRequest = <T>(db: PoolClient, user: string, company: string, fn: () => Promise<T>) =>
+    als.run({ client: db, userId: user, companyId: company, claims: { sub: user, session_id: 'x' } } as never, fn);
+  /** The admin's edit transaction begins first; `cutoff` then commits; the edit applies after it. */
+  async function editAcross(c: string, rule: string, to: string, cutoff: () => Promise<unknown>) {
+    const edit = await openRequest(u.a, c);
+    try {
+      await cutoff();
+      const written = await inRequest(edit, u.a, c, () => updateRule(c, rule, { glAccountId: to }, u.a));
+      await edit.query('COMMIT');
+      expect(written.status).toBe('applied'); // auto-post was off when it classified
+    } finally { edit.release(); }
+  }
+
+  it('an edit begun before auto-post was switched off, and applied after, still blocks switching it on', async () => {
+    const f = await bankCompany(pool, [[u.o, 'owner'], [u.a, 'admin']], companies);
+    await enforceRules(pool, f.c, u.o);
+    await pool.query('INSERT INTO bank_auto_post_settings(company_id, enabled, min_confidence, amount_cap) VALUES($1,true,0.90,10000)', [f.c]);
+    const rule = await plantBankRule(pool, f.c, f.expA, { pattern: 'BRK684R31' });
+    await editAcross(f.c, rule, f.expB, async () => {
+      const off = await openRequest(u.a, f.c);
+      try {
+        await inRequest(off, u.a, f.c, () => updateAutoPostSettings(f.c, { enabled: false }, u.a));
+        await off.query('COMMIT');
+      } finally { off.release(); }
+    });
+    await refusedOn(u.o, f.c, /BRC rule/);
+  });
+
+  it('an edit begun before bank_rule was switched on, and applied after, is counted too', async () => {
+    const f = await bankCompany(pool, [[u.o, 'owner'], [u.a, 'admin']], companies);
+    const rule = await plantBankRule(pool, f.c, f.expA, { pattern: 'BRK684R31E' });
+    await editAcross(f.c, rule, f.expB, async () => {
+      const res = await callRoute(approvalEnforcement as never, tokens[u.o]!, f.c, 'POST', { documentType: 'bank_rule', enabled: true },
+        '/api/accounting/approval-enforcement');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    });
     await refusedOn(u.o, f.c, /BRC rule/);
   });
 });

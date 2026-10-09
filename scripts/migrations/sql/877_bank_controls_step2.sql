@@ -219,6 +219,13 @@ CREATE TABLE IF NOT EXISTS bank_rule_changes (
     (status = 'applied' AND rule_id IS NOT NULL)
     OR (status = 'pending' AND kind IN ('create', 'update', 'toggle') AND (kind = 'create') = (rule_id IS NULL)))
 );
+-- When the change was RECORDED (clock_timestamp(), by the guard below), as
+-- opposed to proposed_at (now(): its transaction's start, which other checks
+-- use as a "this transaction" marker). Rule writers record only after taking
+-- bankRuleAutoPostLock's shared lock, so recorded_at orders a change against
+-- auto-post's switch-off and bank_rule's switch-on (breaker R3-1). NULL on rows
+-- recorded before this column: readers fall back to proposed_at.
+ALTER TABLE bank_rule_changes ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS bank_rule_changes_rule_idx ON bank_rule_changes (company_id, rule_id, seq DESC);
 CREATE INDEX IF NOT EXISTS bank_rule_changes_pending_idx ON bank_rule_changes (company_id, seq DESC) WHERE status = 'pending';
 
@@ -248,7 +255,7 @@ CREATE TABLE IF NOT EXISTS bank_rule_change_decisions (
 CREATE OR REPLACE VIEW bank_rule_change_states WITH (security_invoker = true) AS
   SELECT c.id, c.seq, c.company_id, COALESCE(c.rule_id, d.rule_id) AS rule_id, c.kind, c.before, c.after,
          c.proposed_by, c.proposed_at, COALESCE(d.decision, c.status) AS status,
-         d.decided_by, d.decided_at, d.note AS decision_note, d.roster_snapshot
+         d.decided_by, d.decided_at, d.note AS decision_note, d.roster_snapshot, c.recorded_at
   FROM bank_rule_changes c
   LEFT JOIN bank_rule_change_decisions d ON d.change_id = c.id AND d.company_id = c.company_id;
 
@@ -378,6 +385,7 @@ DECLARE
   shape pg_catalog.text[];
 BEGIN
   NEW.proposed_at := pg_catalog.now();
+  NEW.recorded_at := pg_catalog.clock_timestamp();
   NEW.seq := pg_catalog.nextval(pg_catalog.pg_get_serial_sequence('public.bank_rule_changes', 'seq'));
   IF NEW.status = 'applied' THEN
     -- An applied change is recorded only by the rules table's own trigger
@@ -760,7 +768,11 @@ $$;
 -- that nobody approved.
 --
 -- The cutoff is the later of when `bank_rule` was switched on and when
--- auto-post was last switched OFF. That second time is kept by the table
+-- auto-post was last switched OFF. Changes are placed by recorded_at (R3-1).
+-- bank_rule's enabled_at is its transaction's start (the column default), and
+-- switching it on takes bankRuleAutoPostLock exclusively: a rule change
+-- recorded after that start is counted even if its own transaction began
+-- earlier, and one recorded before it was made before the switch existed. That second time is kept by the table
 -- itself: bank_auto_post_settings.disabled_at, set only by this trigger, only
 -- on an on→off transition (a fresh row records none, so deleting and
 -- re-inserting the row can only move the cutoff EARLIER). The settings audit
@@ -775,7 +787,13 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     NEW.disabled_at := NULL;
   ELSIF OLD.enabled AND NOT NEW.enabled THEN
-    NEW.disabled_at := pg_catalog.now();
+    -- clock_timestamp(), not now(): the switch-off holds bankRuleAutoPostLock
+    -- exclusively by this point, so this is after every rule change that held
+    -- the shared lock first (each classified with auto-post still on: held if
+    -- it needed approval) and before every one that waits (recorded later).
+    -- now() — this transaction's start — could precede a change recorded while
+    -- this one waited for the lock; same clock as recorded_at (R3-1).
+    NEW.disabled_at := pg_catalog.clock_timestamp();
   ELSE
     NEW.disabled_at := OLD.disabled_at;
   END IF;
@@ -812,7 +830,7 @@ AS $$
   WITH cutoff AS (SELECT public.bank_rule_auto_post_cutoff(p_company_id) AS t),
   landed AS (
     SELECT s.rule_id, s.seq, s.before, s.after, s.status, s.proposed_by,
-           CASE WHEN s.status = 'approved' THEN s.decided_at ELSE s.proposed_at END AS at
+           CASE WHEN s.status = 'approved' THEN s.decided_at ELSE COALESCE(s.recorded_at, s.proposed_at) END AS at
     FROM public.bank_rule_change_states s
     WHERE s.company_id = p_company_id AND s.status IN ('applied', 'approved'))
   SELECT r.id, r.rule_name::pg_catalog.text, x.who, x.last_at
