@@ -18,7 +18,7 @@ const row = (f: ParityFile, checksum: string | null = f.checksum): ParityRow => 
 
 const A = file('870_a.sql');
 const B = file('871_b.sql');
-const OLD = file('600_old.sql');
+const OLD = file('524_redate_remaining_batch_dated_journals.sql'); // pinned in HISTORIC_DEV_UNTRACKED
 
 const rules = (r: ReturnType<typeof classifyMigrationParity>) =>
   r.findings.map((x) => `${x.rule}:${x.name}`).sort();
