@@ -97,6 +97,25 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "Installing dependencies..."
 $BUN install
 
+# 1a-0. Migration-parity gate. Runs BEFORE the CI gate (and is not subject to
+# SKIP_CI) because the CI gate runs DB-backed tests against isaflow_dev: dev
+# must carry every migration this deploy will apply to prod, with identical
+# checksums, or those tests fail for reasons unrelated to the code. Prod is
+# opened read-only; --apply-dev applies missing pending migrations to DEV only.
+# Fails closed: if prod's URL cannot be read, parity cannot be verified.
+PARITY_PROD_ENV="$DEPLOY_DIR/.env.local"
+PARITY_PROD_DB=""
+if sudo test -f "$PARITY_PROD_ENV"; then
+  PARITY_PROD_DB=$(sudo grep "^DATABASE_URL=" "$PARITY_PROD_ENV" | cut -d= -f2-)
+fi
+if [ -z "$PARITY_PROD_DB" ]; then
+  echo "ERROR: cannot read DATABASE_URL from $PARITY_PROD_ENV - migration parity cannot be verified"
+  exit 1
+fi
+echo "Checking migration parity (dev vs prod vs repo)..."
+PARITY_PROD_DATABASE_URL="$PARITY_PROD_DB" $BUN "$REPO_DIR/scripts/check-migration-parity.ts" --apply-dev
+unset PARITY_PROD_DB
+
 # 1a. CI gate — type-check, lint, unit tests must pass before we build
 if [ "${SKIP_CI:-0}" != "1" ]; then
   echo "Running CI gate (bun run ci)..."

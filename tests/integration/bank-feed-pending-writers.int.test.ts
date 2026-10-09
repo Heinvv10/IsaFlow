@@ -30,6 +30,7 @@ beforeAll(async () => {
     `INSERT INTO bank_feed_connections(id,company_id,bank_account_id,provider,status,is_active)
      VALUES($1,$2,$3,'test_provider','active',true)`, [conn, company, bank]);
   // Two posted GL lines the auto-match candidate SELECT can pair against:
+  // bank CREDIT legs (money out), the direction a -42.50 statement line takes;
   // same amount as the seeded bank rows (42.50), same date, so runAutoMatch's
   // tier 2 (amount + date within 3 days) scores 0.9 — clears
   // autoMatchTransactions's `>= 0.9` bar and calls matchTransaction. TWO lines
@@ -47,7 +48,7 @@ beforeAll(async () => {
   journalEntryId = String(je.rows[0].id);
   await pool.query(
     `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id)
-     VALUES($1,$2,42.50,0,$3), ($1,$2,42.50,0,$3)`, [journalEntryId, bank, company]);
+     VALUES($1,$2,0,42.50,$3), ($1,$2,0,42.50,$3)`, [journalEntryId, bank, company]);
 });
 
 afterAll(async () => {
@@ -136,7 +137,8 @@ describe('set-based writers leave a pending feed row alone', () => {
   it('autoMatchTransactions does not throw on a pending row', async () => {
     await seed();
     const { autoMatchTransactions } = await import('@/modules/accounting/services/bank/bankAutoMatchService');
-    await inRequest(() => autoMatchTransactions(company, bank, undefined, user));
+    const result = await inRequest(() => autoMatchTransactions(company, bank, undefined, user));
+    expect(result.matched, 'the posted row matched; the pending one was never offered').toBe(1);
     await pendingUntouched();
   });
 });
