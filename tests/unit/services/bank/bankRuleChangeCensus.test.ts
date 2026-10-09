@@ -100,7 +100,7 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
 
   it('exactly the control takes the shared lock, exactly the settings writer the exclusive one', () => {
     expect(matching(/\blockForRuleWrite\(/)).toEqual([LOCK, CONTROL]);
-    expect(matching(/\blockOutRuleWriters\(/)).toEqual([SETTINGS, LOCK, 'src/modules/accounting/services/gl/approvalEnforcement.ts']);
+    expect(matching(/\blockOutRuleWriters\(/)).toEqual([SETTINGS, LOCK]);
     expect(matching(/bank_rule_unreviewed_changes/)).toEqual([LOCK]);
   });
 
@@ -128,11 +128,22 @@ describe('rule writers and switching auto-post on serialise (bankRuleAutoPostLoc
     }
   });
 
-  it('switching bank_rule on takes the exclusive lock before it inserts the switch (its enabled_at is a cutoff)', () => {
-    const b = body('src/modules/accounting/services/gl/approvalEnforcement.ts', 'enableEnforcement');
-    const lock = b.indexOf('await lockOutRuleWriters(companyId)');
-    expect(lock).toBeGreaterThan(b.indexOf('if (documentType === BANK_RULE)'));
-    expect(lock).toBeLessThan(b.indexOf('INSERT INTO approval_enforcement'));
+  it('switching bank_rule goes through the definer (885), which takes the same lock, exclusive, before the row', () => {
+    // TypeScript: enableEnforcement / disableEnforcement → writeSwitch → setEnforcementRows → approval_enforcement_set.
+    const enf = text('src/modules/accounting/services/gl/approvalEnforcement.ts');
+    expect(enf).not.toMatch(/INSERT\s+INTO\s+approval_enforcement|DELETE\s+FROM\s+approval_enforcement/);
+    expect(body('src/modules/accounting/services/gl/approvalEnforcement.ts', 'writeSwitch')).toMatch(/setEnforcementRows\(/);
+    expect(text('src/modules/accounting/services/gl/approvalRuleWrites.ts')).toMatch(/FROM approval_enforcement_set\(/);
+    // SQL: the newest definition of approval_enforcement_set is 885's; its bank_rule branch locks with the TS key before INSERT.
+    const dir = path.join(ROOT, 'scripts/migrations/sql');
+    const defining = readdirSync(dir).filter((f) => f.endsWith('.sql')
+      && readFileSync(path.join(dir, f), 'utf8').includes('CREATE OR REPLACE FUNCTION public.approval_enforcement_set(')).sort();
+    expect(defining.at(-1)).toBe('885_bank_rule_switch_definer.sql');
+    const sql885 = readFileSync(path.join(dir, '885_bank_rule_switch_definer.sql'), 'utf8');
+    const lock = sql885.indexOf("pg_advisory_xact_lock(pg_catalog.hashtextextended('bank_rule_auto_post:' || p_company_id::pg_catalog.text, 0))");
+    expect(lock).toBeGreaterThan(sql885.indexOf('IF v_bank_rule THEN', sql885.indexOf('IF p_enabled THEN')));
+    expect(lock).toBeLessThan(sql885.indexOf('INSERT INTO public.approval_enforcement'));
+    expect(text(LOCK)).toMatch(/`bank_rule_auto_post:\$\{companyId\.toLowerCase\(\)\}`/);
   });
 
   it('the settings writer takes the exclusive lock before the row lock, and checks before it writes', () => {

@@ -13,8 +13,9 @@
  *     which it cannot reorder), but still before it touches a rule;
  *   the auto-post settings writer (autoPostSettingsService.applyOnce)
  *     → exclusive, first of all (before the settings row);
- *   switching `bank_rule` on (approvalEnforcement.enableEnforcement)
- *     → exclusive, before it inserts the switch (its enabled_at is a cutoff too).
+ *   switching `bank_rule` on (approval_enforcement_set, migration 885 — the
+ *     definer that writes the switch) → exclusive, before it inserts the row
+ *     (its enabled_at is a cutoff too). Same key, built the same way in SQL.
  * Cycle-free: the exclusive holders lock nothing but the settings row and the
  * switch, which no shared holder waits on; shared holders never wait on each
  * other. So the merge's later acquisition can wait, never deadlock.
@@ -27,7 +28,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { BankControlError } from './bankControlRefusal';
 
-const key = (companyId: string) => `bank_rule_auto_post:${companyId}`;
+/** The lock's key; 885 builds it as 'bank_rule_auto_post:' || company_id::text — lower-case, as here. */
+const key = (companyId: string) => `bank_rule_auto_post:${companyId.toLowerCase()}`;
 
 export async function lockForRuleWrite(companyId: string): Promise<void> {
   await sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${key(companyId)}, 0))`;

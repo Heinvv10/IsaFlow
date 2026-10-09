@@ -219,3 +219,33 @@ C4  lock order — a statement inserted before `await lockForRuleWrite(companyId
     U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "first of all"
     RED: rule writers and switching auto-post on serialise (bankRuleAutoPostLock) > create, change and seed take the shared lock first of all; …
          AssertionError: writeNewRule: expected 103 to be 126
+
+── Integration (post-SHIP, #690 merged): migration 885 — the bank_rule switch through 881's definer ──
+Fixture: 127.0.0.1:55995 (orchestrator's), 880/881 applied, then 885. Restore: 885 re-applied; md5(prosrc) of
+approval_enforcement_set verified back to the pinned 816cf0c6e71f862b4c617003939ff5c7.
+
+D17 bank_rule is enforceable in the definer — 885 approval_enforcement_set: 'bank_rule' dropped from the enforceable list
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "before bank_rule was switched on"
+    RED: R3-1 … > an edit begun before bank_rule was switched on, and applied after, is counted too
+         AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"Approval enforcement is not available for bank_rule yet",
+         "details":{"reason":"NOT_ENFORCEABLE"}}…}: expected 400 to be 200   (the integration break this migration fixes)
+
+D18 a person's own session — 885 bank_rule branch: `v_session := approval_request_session_actor()` -> `'self'`
+    I tests/integration/bank-rule-switch-definer.int.test.ts -t "impersonated or claim-less"
+    RED: approval_enforcement_set: bank_rule > an impersonated or claim-less session is refused, on and off (RB012); its own session is not
+         AssertionError: expected 'ok' to be 'RB012'
+
+D19 on: the approver role — 885: the RB014 check -> `IF false`
+    I … -t "below the approver role"
+    RED: … > on: below the approver role is refused (RB014); an owner-level manual_journal rule raises it to owner
+         AssertionError: expected 'ok' to be 'RB014'
+
+D20 off: the weakening authority — 885: `v_strictest := v_approver` -> `NULL` for bank_rule
+    I … -t "authority to weaken"
+    RED: … > off: only the authority to weaken the approver role (RB011 for an admin at admin level; the owner may)
+         AssertionError: expected 'ok' to be 'RB011'
+
+D21 the exclusive bankRuleAutoPostLock before the row — 885: the PERFORM pg_advisory_xact_lock(...) -> NULL
+    I … -t "waits for a rule writer"
+    RED: … > on: waits for a rule writer holding bankRuleAutoPostLock shared, then writes the row
+         AssertionError: expected { waiting: false, done: true } to deeply equal { waiting: true, done: false }

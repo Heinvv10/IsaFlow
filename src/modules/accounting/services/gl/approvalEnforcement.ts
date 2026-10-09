@@ -21,6 +21,9 @@
  * repeats every check below in SQL, writes the audit rows and the supplier
  * bank-detail baseline itself; the checks here still run first, with their
  * error types and messages, and a SQL refusal maps back onto the same ones.
+ * `bank_rule` likewise since migration 885: the session, the approver role
+ * (RB012/RB014 → BankControlError), the weakening authority (RB011), and
+ * bankRuleAutoPostLock's exclusive lock before the row, all in the definer.
  */
 
 import { sql } from '@/lib/neon';
@@ -33,7 +36,6 @@ import { actorRank } from './approvalRank';
 import { assertVerifyingSession, ownCompanyRole, SupplierBankVerificationError } from '../ap/supplierBankBaseline';
 import { setEnforcementRows, sqlRefusal } from './approvalRuleWrites';
 import { assertHumanSession, BANK_CONTROL_FLOOR, BankControlError } from '../bank/bankControlRefusal';
-import { lockOutRuleWriters } from '../bank/bankRuleAutoPostLock';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
 // offers the same types); re-exported for every existing import site.
@@ -139,10 +141,14 @@ async function writeSwitch(companyId: string, documentType: EnforcementType, ena
   try {
     return await setEnforcementRows(companyId, documentType, enabled, actor);
   } catch (error) {
-    const refusal = sqlRefusal(error, ['RB010', 'RB011', 'RB012', 'RB013']);
+    const refusal = sqlRefusal(error, ['RB010', 'RB011', 'RB012', 'RB013', 'RB014']);
     if (!refusal) throw error;
     if (refusal.code === 'RB010') throw new ApprovalEnforcementUnavailableError(documentType);
     if (refusal.code === 'RB011') throw new ApprovalEnforcementAuthorityError(documentType, refusal.detail);
+    if (documentType === BANK_RULE) {
+      throw new BankControlError(refusal.code === 'RB014' ? 'APPROVER_ROLE_REQUIRED'
+        : refusal.detail === 'impersonation' ? 'IMPERSONATION_FORBIDDEN' : 'AGENT_FORBIDDEN', refusal.message);
+    }
     throw new SupplierBankVerificationError(
       refusal.code === 'RB012' ? 'IMPERSONATION_FORBIDDEN' : 'VERIFIER_ROLE_REQUIRED', refusal.message);
   }
@@ -216,8 +222,6 @@ export async function enableEnforcement(companyId: string, documentType: Enforce
       throw new BankControlError('APPROVER_ROLE_REQUIRED', `Switching bank-rule approval on needs the ${role} role or above — `
         + 'the role that approves bank-rule changes.');
     }
-    // Its enabled_at is a cutoff for switching auto-post on: no rule change records across it (bankRuleAutoPostLock).
-    await lockOutRuleWriters(companyId);
   }
   if (bank) {
     await assertVerifyingSession();
