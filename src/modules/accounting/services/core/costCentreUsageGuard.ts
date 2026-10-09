@@ -113,11 +113,12 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
       (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE (tl.old_cc1_id = ${id}::UUID OR tl.old_cc2_id = ${id}::UUID)
-          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history,
-      -- No FK either: the assignment history stores the id as TEXT.
-      (SELECT COUNT(*) FROM payroll_employee_history eh
-        WHERE eh.field_name = 'cost_centre_id' AND (eh.old_value = ${id}::TEXT OR eh.new_value = ${id}::TEXT)
-          AND eh.company_id = ${companyId}::UUID) AS employee_history
+          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history
+      -- payroll_employee_history is deliberately NOT counted. Its old_value /
+      -- new_value hold a cost_centre_id as display-only TEXT: nothing joins it
+      -- back, posts from it or restores it, so a deleted id there strands
+      -- nothing. Counting it would make every centre ever assigned to anyone
+      -- undeletable for good (#683 review round 2).
   `) as Record<string, unknown>[];
 
   const row = usage[0] ?? {};
@@ -133,7 +134,6 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
     ['coding_rules', 'coding rule(s)'],
     ['defaults', 'customer/account default(s)'],
     ['tag_history', 'un-reversed tag batch line(s)'],
-    ['employee_history', 'employee history entry(ies)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row[key] ?? 0), label] as const)
