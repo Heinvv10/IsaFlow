@@ -3,7 +3,7 @@
  * Phase 2: Quick entry rules + statement mapping
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Search, X } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -15,6 +15,8 @@ import { useBankRuleRefData } from '@/components/accounting/bank-rules/useBankRu
 import { BankRulesHeader } from '@/components/accounting/bank-rules/BankRulesHeader';
 import { BankRulesTable } from '@/components/accounting/bank-rules/BankRulesTable';
 import { useBankRules, type BankRule } from '@/components/accounting/bank-rules/useBankRules';
+import { useBankRuleChanges } from '@/components/accounting/bank-rules/useBankRuleChanges';
+import { PendingRuleChangesPanel } from '@/components/accounting/bank-rules/PendingRuleChangesPanel';
 
 /**
  * Best-effort live preview of match count while the user types. Failures
@@ -43,7 +45,14 @@ async function fetchPreviewMatchCount(params: URLSearchParams): Promise<number |
 
 export default function BankRulesPage() {
   const { accounts, bankAccounts, suppliers, clients, defaultBankId, suppliersTruncated, errors: refErrors } = useBankRuleRefData();
-  const rules = useBankRules({ defaultBankId, fetchPreview: fetchPreviewMatchCount });
+  // Changes held for approval (the `bank_rule` switch): any rule write may add or supersede one,
+  // and a decision moves the rules — each side re-reads the other.
+  const rules = useBankRules({ defaultBankId, fetchPreview: fetchPreviewMatchCount, onChanged: () => ruleChanges.load() });
+  const ruleChanges = useBankRuleChanges(() => rules.load());
+  const names = useMemo(() => Object.fromEntries([
+    ...accounts.map((a) => [a.id, `${a.accountCode} — ${a.accountName}`]),
+    ...suppliers.map((x) => [x.id, x.name]), ...clients.map((x) => [x.id, x.name]),
+  ]), [accounts, suppliers, clients]);
 
   // Modal-based confirmations replace window.confirm() so the UX is styled,
   // accessible (focus management, ARIA), and consistent across the app.
@@ -143,6 +152,9 @@ export default function BankRulesPage() {
             </div>
           ) : null}
 
+          <PendingRuleChangesPanel changes={ruleChanges.changes} error={ruleChanges.error} busyId={ruleChanges.busyId}
+            names={names} onDecide={ruleChanges.decide} />
+
           {rules.showForm && (
             <BankRuleForm
               form={rules.form}
@@ -190,6 +202,7 @@ export default function BankRulesPage() {
             filteredRules={rules.filteredRules}
             search={rules.search}
             selected={rules.selected}
+            pendingRuleIds={ruleChanges.pendingRuleIds}
             busyId={rules.busy}
             onSelectChange={rules.setSelected}
             onEdit={rules.handleEdit}
@@ -230,6 +243,7 @@ export default function BankRulesPage() {
         onCancel={() => setConfirmBulkOpen(false)}
         onConfirm={async () => {
           await rules.performBulkDelete();
+          await ruleChanges.load();
           setConfirmBulkOpen(false);
         }}
       />

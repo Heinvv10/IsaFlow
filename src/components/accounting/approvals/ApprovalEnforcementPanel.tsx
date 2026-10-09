@@ -71,6 +71,25 @@ function bankRow(on: boolean, n: number): { label: string; count: string; note: 
   };
 }
 
+/**
+ * Bank-rule approval (forensic-controls step 2) shares the switchboard too and
+ * is no document approval: `n` is the active rules that auto-post now.
+ */
+const BANK_RULE = 'bank_rule';
+function bankRuleRow(on: boolean, n: number): { label: string; count: string; note: string } {
+  const rules = `${n} active auto-posting rule${n === 1 ? '' : 's'}`;
+  return {
+    label: 'Require a second person to approve bank-rule changes that post money',
+    count: rules,
+    note: on
+      ? 'Creating an auto-posting rule, turning auto-post on, or changing where an auto-posting rule posts waits on the '
+        + 'Bank rules page until another member with the manual-journal approver role approves it. Turning auto-post off, '
+        + 'disabling and deleting apply at once. Every rule change is kept in its history.'
+      : 'Rules already auto-posting keep posting. Once on, a change that makes a rule post money, or changes where it posts, '
+        + 'needs another member\'s approval before it takes effect.',
+  };
+}
+
 const GATES_NOTHING = 'No active rule for this type — turning this on gates nothing.';
 
 /**
@@ -156,9 +175,9 @@ export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?
         When on, a document an active rule matches cannot be posted until an eligible approver approves it.
       </p>
       {data.enforceable.map((type) => {
-        if (type === BANK) {
+        if (type === BANK || type === BANK_RULE) {
           const on = data.items.some((i) => i.documentType === type);
-          const row = bankRow(on, data.preview[type] ?? 0);
+          const row = (type === BANK ? bankRow : bankRuleRow)(on, data.preview[type] ?? 0);
           return (
             <div key={type} className="flex flex-wrap items-center justify-between gap-2">
               <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">

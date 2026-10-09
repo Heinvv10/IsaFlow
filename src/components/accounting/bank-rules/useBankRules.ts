@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { emitApplyToast } from './applyToast';
+import { emitApplyToast, isHeldForApproval, notifyHeld, reportCreated } from './applyToast';
 import type { BankRuleFormState } from './BankRuleForm';
 import type { BankRuleRowData, VatCode } from './BankRuleRow';
 
@@ -72,9 +72,11 @@ interface UseBankRulesOptions {
    *     a stuck loading indicator)
    */
   fetchPreview: (params: URLSearchParams) => Promise<number | null>;
+  /** After any rule write: a save may have been held, or superseded a held change. */
+  onChanged?: () => Promise<void> | void;
 }
 
-export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOptions): UseBankRulesResult {
+export function useBankRules({ defaultBankId, fetchPreview, onChanged }: UseBankRulesOptions): UseBankRulesResult {
   const [rules, setRules] = useState<BankRule[]>([]);
   const [selectedBankId, setSelectedBankId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -200,7 +202,9 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           body: JSON.stringify({ action: 'update', id: editingRule.id, ...payload }),
         });
         await assertOk(res, 'Could not update the rule - try again');
-        notify.success(`Rule "${payload.ruleName}" updated`);
+        const json = await res.json();
+        if (isHeldForApproval(json.data)) notifyHeld(`The change to rule "${payload.ruleName}"`);
+        else notify.success(`Rule "${payload.ruleName}" updated`);
       } else {
         const res = await apiFetch('/api/accounting/bank-rules', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -212,29 +216,16 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
         });
         await assertOk(res, 'Could not create the rule - try again');
         const json = await res.json();
-        const parts = {
-          applied: Number(json.data?.applied ?? 0),
-          autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
-          autoPostSkippedNoPeriod: Number(json.data?.autoPostSkippedNoPeriod ?? 0),
-          autoPostSkippedVatLocked: Number(json.data?.autoPostSkippedVatLocked ?? 0),
-          autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
-          autoPostSkippedRaced: Number(json.data?.autoPostSkippedRaced ?? 0),
-          autoPostSkippedLocked: Number(json.data?.autoPostSkippedLocked ?? 0),
-          autoPostTruncatedRules: Number(json.data?.autoPostTruncatedRules ?? 0),
-        };
-        if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
-        const headline = `Rule "${payload.ruleName}" created`;
-        const anythingToReport = parts.applied + parts.autoPostSkippedClosedPeriod
-          + parts.autoPostSkippedNoPeriod + parts.autoPostSkippedVatLocked + parts.autoPostRulesSkippedNoBankGl
-          + parts.autoPostSkippedRaced + parts.autoPostSkippedLocked
-          + parts.autoPostTruncatedRules;
-        if (anythingToReport > 0) {
-          emitApplyToast(headline, parts);
-        } else notify.success(headline);
+        if (isHeldForApproval(json.data)) notifyHeld(`Rule "${payload.ruleName}"`);
+        else {
+          const ran = reportCreated(`Rule "${payload.ruleName}" created`, json.data);
+          if (ran) setApplyResult(ran);
+        }
       }
 
       resetForm();
       await load();
+      await onChanged?.();
     } catch (err) {
       fail(err, editingRule ? 'Could not update the rule - try again' : 'Could not create the rule - try again');
     } finally {
@@ -265,11 +256,13 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           notify.warning('Rules applied', 'Unexpected server response — refresh to verify');
         }
       } else if (action === 'toggle') {
-        notify.success(extra?.isActive === true ? 'Rule activated' : 'Rule deactivated');
+        if (isHeldForApproval(json.data)) notifyHeld('Re-activating this auto-posting rule');
+        else notify.success(extra?.isActive === true ? 'Rule activated' : 'Rule deactivated');
       } else if (action === 'delete') {
         notify.success('Rule deleted');
       }
       await load();
+      await onChanged?.();
     } catch (err) {
       fail(err, failure);
     } finally {

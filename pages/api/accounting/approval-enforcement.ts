@@ -45,6 +45,7 @@ import { previewEnforcement } from '@/modules/accounting/services/gl/approvalEnf
 import { SupplierBankVerificationError } from '@/modules/accounting/services/ap/supplierBankBaseline';
 import { bankDetailsPreview } from '@/modules/accounting/services/ap/supplierBankVerification';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
+import { countAutoPostingRules } from '@/modules/accounting/services/bank/bankRuleChangeQueries';
 
 const DOCUMENT_TYPES = new Set<EnforcementType>([
   'customer_invoice', 'supplier_invoice', 'payment', 'journal_entry', 'credit_note', 'customer_credit_note', 'supplier_credit_note',
@@ -69,7 +70,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const base = { items, enforceable: ENFORCEABLE_TYPES, legacyCreditNoteRules, legacyPaymentRules, legacyJournalRules };
     // Hashes every unposted bill: only on demand (the Enforce switch asks), never on the plain read.
     if (req.query.preview !== '1') return apiResponse.success(res, base);
-    const preview = { ...(await previewEnforcement(companyId)), supplier_bank_details: await bankDetailsPreview(companyId, user.id) };
+    const preview = { ...(await previewEnforcement(companyId)), supplier_bank_details: await bankDetailsPreview(companyId, user.id),
+      bank_rule: await countAutoPostingRules(companyId) };
     return apiResponse.success(res, { ...base, preview });
   }
 
