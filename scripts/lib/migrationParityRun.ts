@@ -136,6 +136,8 @@ export async function runParityGate(o: ParityRunOptions): Promise<number> {
   try {
     const devId = await identity(dev, say, 'dev');
     if (devId.db !== want.dev) throw new Error(`DATABASE_URL names database "${devId.db}", expected "${want.dev}"; refusing to treat it as dev`);
+    // Defence in depth: with the pinned names (isaflow vs isaflow_dev) this can never match; it only bites when a test
+    // overrides `expect`. If exactly one side can call pg_control_system() the two ids differ in form and it does not match either.
     if (devId.db === prod.id.db && devId.cluster === prod.id.cluster) {
       throw new Error('dev and prod connections resolve to the same cluster and database; refusing');
     }
@@ -202,7 +204,10 @@ export async function runParityGate(o: ParityRunOptions): Promise<number> {
       // Keep the original error/result; ending the session releases the lock anyway.
       warn(`WARNING: could not unlock advisory lock ${ADVISORY_LOCK_KEY}: ${unlockErr instanceof Error ? unlockErr.message : String(unlockErr)}`);
     } finally {
-      await dev.end();
+      await dev.end().catch((endErr: unknown) => {
+        // Never let a failed disconnect replace the gate's real result or error.
+        warn(`WARNING: could not close the dev connection: ${endErr instanceof Error ? endErr.message : String(endErr)}`);
+      });
     }
   }
 }

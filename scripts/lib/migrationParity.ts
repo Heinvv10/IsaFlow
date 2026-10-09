@@ -134,7 +134,12 @@ export const HISTORIC_DEV_UNTRACKED: ReadonlySet<string> = new Set([
   '719_bank_reconciliation_reopen.sql',
 ]);
 
-/** True when a migration issues its own COMMIT, so a failure after it cannot be rolled back atomically. */
+/**
+ * True when a migration issues its own COMMIT, so a failure after it cannot be rolled back atomically.
+ * Advisory only (a warning, never a block). Known limits: false positive on SQL-standard `BEGIN ATOMIC ... END;`
+ * function bodies and on a quoted (non-dollar) string containing `; COMMIT;`; false negative when a `'$$'` string
+ * literal precedes a real COMMIT (the dollar-quote strip swallows it).
+ */
 export function hasOwnCommit(sql: string): boolean {
   const stripped = sql
     .replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, '') // function / DO bodies cannot end the outer transaction
