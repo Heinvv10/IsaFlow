@@ -148,3 +148,20 @@ result: RED — Tests  1 failed | 4 passed (5)
   failed: tests/unit/services/gl/manualJournalApprovalCensus.test.ts > the callers of postJournalEntry > every gated path consults the gate before it posts
   assertion: AssertionError: src/modules/accounting/services/bank/bankTransferService.ts: newManualJournalGate(: expected -1 to be greater than -1
 
+# Follow-up (orchestrator review): the held-draft arm of transferDuplicateGuard, at b9575d054.
+
+## E6: a held Transfers-page draft blocks its statement line allocated as a transfer (double-post guard)
+mutation: src/modules/accounting/services/bank/transferDuplicateGuard.ts: the heldTransferDraft refusal neutralised
+command: bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-transfers-approval.int.test.ts
+result: RED — Tests  2 failed | 6 passed (8)
+  failed: tests/integration/bank-transfers-approval.int.test.ts > while a held transfer is a draft, the statement line of the same movement > is refused as a transfer on either bank, naming the draft; nothing is written
+  failed: tests/integration/bank-transfers-approval.int.test.ts > while a held transfer is a draft, the statement line of the same movement > still refused once the draft is approved and not yet posted; a rejected draft no longer counts
+  assertion: AssertionError: promise resolved "{ …(2) }" instead of rejecting
+  assertion: AssertionError: promise resolved "{ …(2) }" instead of rejecting
+
+## E7: a rejected draft holds no movement (only pending/approved requests count)
+mutation: src/modules/accounting/services/bank/transferDuplicateGuard.ts: a rejected request's draft still counts
+command: bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-transfers-approval.int.test.ts
+result: RED — Tests  1 failed | 7 passed (8)
+  failed: tests/integration/bank-transfers-approval.int.test.ts > while a held transfer is a draft, the statement line of the same movement > still refused once the draft is approved and not yet posted; a rejected draft no longer counts
+
