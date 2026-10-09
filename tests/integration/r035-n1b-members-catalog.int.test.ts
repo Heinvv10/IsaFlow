@@ -1,10 +1,10 @@
 /**
- * R-035 N1b (C, migration 882), the CATALOGUE half — read-only, so it runs
+ * R-035 N1b (C, migration 883), the CATALOGUE half — read-only, so it runs
  * against whatever DATABASE_URL names; it skips only without a database.
  *
  *  - each table carries exactly its guard: one enabled BEFORE INSERT OR
  *    UPDATE OR DELETE row trigger (and no rewrite rule);
- *  - the guards and the role lookup they share are the bodies 882 ships
+ *  - the guards and the role lookup they share are the bodies 883 ships
  *    (md5) and SECURITY INVOKER — the guard judges `current_user`, which a
  *    DEFINER would replace with its owner;
  *  - TRUNCATE (which fires no row trigger) and TRIGGER are held by no role
@@ -13,7 +13,7 @@
  *    app_user, platform_admin and migration_admin (and the owner, superusers,
  *    the session's role through the owner).
  *
- * A database without 882 fails here by design, and says so.
+ * A database without 883 fails here by design, and says so.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -23,7 +23,7 @@ const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url });
 afterAll(() => pool.end());
 
-const NOT_APPLIED = 'migration 882 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
+const NOT_APPLIED = 'migration 883 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 const TABLES = ['company_users', 'company_invitations'];
 
 /** Change one and you change who may grant what: re-review N1b C, then move the pin. */
@@ -48,7 +48,7 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });
 
-  it('the guards and their role lookup: the bodies 882 ships, SECURITY INVOKER', async () => {
+  it('the guards and their role lookup: the bodies 883 ships, SECURITY INVOKER', async () => {
     const { rows } = await pool.query(`
       SELECT p.oid::regprocedure::text AS fn, md5(p.prosrc) AS md5, p.prosecdef FROM pg_proc p
       WHERE p.oid = ANY (SELECT to_regprocedure('public.' || f) FROM unnest($1::text[]) f) ORDER BY 1`, [Object.keys(PINNED)]);

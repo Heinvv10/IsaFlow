@@ -1,4 +1,4 @@
--- 882: R-035 N1b (C) — company_users and company_invitations enforce, in the
+-- 883: R-035 N1b (C) — company_users and company_invitations enforce, in the
 -- database, the role rules the app enforces.
 --
 -- The approval definers (872, 881) rank people by company_users.role, and
@@ -241,7 +241,7 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                    WHERE t.tgrelid = ('public.' || v_table)::pg_catalog.regclass AND t.tgname = v_table || '_role_guard'
                      AND t.tgenabled = 'O' AND t.tgtype = 31) THEN
-      RAISE EXCEPTION 'migration 882: % has no enabled BEFORE INSERT OR UPDATE OR DELETE row guard', v_table;
+      RAISE EXCEPTION 'migration 883: % has no enabled BEFORE INSERT OR UPDATE OR DELETE row guard', v_table;
     END IF;
     FOR v_role IN
       SELECT r.rolname FROM pg_catalog.pg_roles r
@@ -251,14 +251,14 @@ BEGIN
     LOOP
       FOREACH v_priv IN ARRAY ARRAY['TRUNCATE', 'TRIGGER'] LOOP
         IF v_role <> 'migration_admin' AND pg_catalog.has_table_privilege(v_role, 'public.' || v_table, v_priv) THEN
-          RAISE EXCEPTION 'migration 882: % still holds % on %', v_role, v_priv, v_table;
+          RAISE EXCEPTION 'migration 883: % still holds % on %', v_role, v_priv, v_table;
         END IF;
       END LOOP;
       CONTINUE WHEN v_role IN ('app_user', 'platform_admin', 'migration_admin');
       FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE'] LOOP
         IF pg_catalog.has_table_privilege(v_role, 'public.' || v_table, v_priv)
            OR (v_priv <> 'DELETE' AND pg_catalog.has_any_column_privilege(v_role, 'public.' || v_table, v_priv)) THEN
-          RAISE EXCEPTION 'migration 882: % still holds % on %', v_role, v_priv, v_table;
+          RAISE EXCEPTION 'migration 883: % still holds % on %', v_role, v_priv, v_table;
         END IF;
       END LOOP;
     END LOOP;

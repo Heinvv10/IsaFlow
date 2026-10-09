@@ -52,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     // Pentest H5, on the invitation route too (Hein, 2026-10-09, R-035 N1b C):
     // an admin may not hand out `owner` by inviting someone as owner. Migration
-    // 882 enforces the same rule in the database.
+    // 883 enforces the same rule in the database.
     if (role === 'owner' && companyRole !== 'owner') {
       return apiResponse.forbidden(res, 'Only an owner can grant the owner role.');
     }
