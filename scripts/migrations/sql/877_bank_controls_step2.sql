@@ -567,6 +567,31 @@ CREATE TRIGGER bank_rule_change_decisions_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION public.bank_rule_history_append_only();
 
 -- ── 4. The rules table: backstop and history ──────────────────────────────
+-- A deleted supplier or GL account clears that one column on the rules naming
+-- it. 489's composite FKs said plain SET NULL, which nulls company_id too: the
+-- delete always failed (23502, and under 877 the guard's "company cannot
+-- change"). PostgreSQL 15+ narrows the action to the column. Before such a
+-- delete the application disables the rules that post money through it
+-- (bankRuleChangeControl.disableRulesLosingTarget): losing where a rule posts
+-- re-points it, which the guard below holds for approval.
+DO $$
+BEGIN
+  IF pg_catalog.current_setting('server_version_num')::pg_catalog.int4 >= 150000 THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conname = 'bank_categorisation_rules_supplier_tenant_fkey'
+               AND conrelid = 'public.bank_categorisation_rules'::pg_catalog.regclass AND confdelsetcols IS NULL) THEN
+      ALTER TABLE bank_categorisation_rules DROP CONSTRAINT bank_categorisation_rules_supplier_tenant_fkey;
+      ALTER TABLE bank_categorisation_rules ADD CONSTRAINT bank_categorisation_rules_supplier_tenant_fkey
+        FOREIGN KEY (supplier_id, company_id) REFERENCES suppliers(id, company_id) ON DELETE SET NULL (supplier_id) DEFERRABLE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conname = 'bank_categorisation_rules_gl_account_tenant_fkey'
+               AND conrelid = 'public.bank_categorisation_rules'::pg_catalog.regclass AND confdelsetcols IS NULL) THEN
+      ALTER TABLE bank_categorisation_rules DROP CONSTRAINT bank_categorisation_rules_gl_account_tenant_fkey;
+      ALTER TABLE bank_categorisation_rules ADD CONSTRAINT bank_categorisation_rules_gl_account_tenant_fkey
+        FOREIGN KEY (gl_account_id, company_id) REFERENCES gl_accounts(id, company_id) ON DELETE SET NULL (gl_account_id) DEFERRABLE;
+    END IF;
+  END IF;
+END $$;
+
 -- Whether this transaction approved the change that turns rule p_rule_id into
 -- p_after: the one way a gated write passes.
 CREATE OR REPLACE FUNCTION public.bank_rule_write_approved(p_company_id pg_catalog.uuid, p_rule_id pg_catalog.uuid,
