@@ -26,7 +26,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-const u = { owner: '', admin: '' };
+const u = { owner: '', admin: '', manager: '' };
 const r = bankRoutes(pool, tokens);
 
 beforeAll(async () => {
@@ -77,6 +77,16 @@ describe('the bank control in the definer (adversarial review of PR #690)', () =
     expect((await bankSwitch(c, u.owner, true)).rows[0].baseline_suppliers).toBe(0);
     await bankSwitch(c, u.owner, false);
     await withBankDetails(c, 'late');
+    expect((await bankSwitch(c, u.owner, true)).rows[0].baseline_suppliers).toBe(0);
+  });
+
+  it('a member cannot erase the switch-on audit row (880), so a second switch-on baselines nobody (REPRO 6, closed)', async () => {
+    const { company: c } = await bankCompany(pool, [[u.owner, 'owner'], [u.manager, 'manager']], companies);
+    await bankSwitch(c, u.owner, true);
+    await bankSwitch(c, u.owner, false);
+    await withBankDetails(c, 'late');
+    expect(await outcome(asRole(pool, 'app_user', c, { sub: u.manager }, (cl) => cl.query(
+      "DELETE FROM audit_log WHERE company_id = $1 AND entity_type = 'approval_enforcement' AND action = 'create'", [c]), true))).toBe('42501');
     expect((await bankSwitch(c, u.owner, true)).rows[0].baseline_suppliers).toBe(0);
   });
 

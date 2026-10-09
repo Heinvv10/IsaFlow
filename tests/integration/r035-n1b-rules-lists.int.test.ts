@@ -81,6 +81,32 @@ describe('each allow-list is the TypeScript one', () => {
   });
 });
 
+describe('each SQL list, read from the function body, is exactly its TypeScript constant (adversarial R2-1)', () => {
+  /** Every `ARRAY['a', 'b']` literal in `fn`'s body, each as a sorted list. */
+  const arraysIn = async (fn: string) => {
+    const { rows: [f] } = await pool.query('SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure($1)', [fn]);
+    return [...String(f.prosrc).matchAll(/ARRAY\[([^\]]*)\]/g)]
+      .map((m) => [...m[1]!.matchAll(/'([^']*)'/g)].map((x) => x[1]!).sort());
+  };
+  const sorted = (xs: readonly string[]) => [...xs].sort();
+
+  it('approval_rule_assert_input: the approver roles, operators and fields', async () => {
+    const arrays = await arraysIn('public.approval_rule_assert_input(text,text,text,text,numeric)');
+    expect(arrays).toEqual(expect.arrayContaining([sorted(APPROVER_ROLES), sorted(CONDITION_OPERATORS), sorted(CONDITION_FIELDS)]));
+    expect(arrays).toHaveLength(3);
+  });
+
+  it('approval_rule_create: the offered document types', async () => {
+    expect(await arraysIn('public.approval_rule_create(uuid,text,text,text,text,text,numeric,text)'))
+      .toEqual([sorted(RULE_FORM_DOCUMENT_TYPES)]);
+  });
+
+  it('approval_enforcement_set: the enforceable types (and the coupled payment pair)', async () => {
+    expect(await arraysIn('public.approval_enforcement_set(uuid,text,boolean,text)'))
+      .toEqual(expect.arrayContaining([sorted(ENFORCEABLE_TYPES), sorted(['supplier_payment', 'payment_batch'])]));
+  });
+});
+
 describe('the bank control from a session that cannot be classified (blind L2)', () => {
   it("is refused with the TypeScript's own message (RB012)", async () => {
     const owner = await createUser(pool, {});
