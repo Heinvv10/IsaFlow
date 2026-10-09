@@ -13,6 +13,7 @@ import { CustomerNotInCompanyError } from '@/modules/accounting/services/core/co
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getQuotes, getQuote, createQuote, updateQuote, deleteQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -41,6 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // Line-validation failures (W1) are client errors, not 500s.
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
@@ -55,6 +57,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, quote);
     } catch (err) {
       if (err instanceof LineValidationError) return apiResponse.badRequest(res, err.message);
+      if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
       throw err;
     }

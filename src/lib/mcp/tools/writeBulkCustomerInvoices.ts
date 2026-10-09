@@ -18,28 +18,16 @@ import {
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 import { mcpPostingOpts } from '../mcpActor';
+import { MAX_LINES } from './invoiceCreateArgs';
 import {
-  MAX_LINES,
-  parseCustomerInvoiceInput,
-  type ParsedCustomerInvoice,
-} from './invoiceCreateArgs';
+  CUSTOMER_INVOICE_LINE_SCHEMA, parseCustomerInvoiceInput, type ParsedCustomerInvoice,
+} from './customerInvoiceCreateArgs';
 import { MAX_INVOICES, elementError, parseBatch } from './writeBulkInvoices';
 import { NOT_FOUND, ok, toolError } from './toolHelpers';
-import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions } from './dimensionArgs';
+import { itemsWithDimensions } from './dimensionArgs';
 
-
-const CUSTOMER_LINE_SCHEMA = {
-  type: 'object',
-  properties: {
-    description: { type: 'string' },
-    quantity: { type: 'number', exclusiveMinimum: 0 },
-    unit_price: { type: 'number', minimum: 0 },
-    ...DIMENSION_LINE_PROPERTIES,
-  },
-  required: ['description', 'unit_price'],
-  additionalProperties: false,
-} as const;
 
 export const bulkCreateCustomerInvoicesTool: McpTool = {
   name: 'bulk_create_customer_invoices',
@@ -61,8 +49,9 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
           properties: {
             customer_id: { type: 'string' },
             items: {
-              type: 'array', minItems: 1, maxItems: MAX_LINES, items: CUSTOMER_LINE_SCHEMA,
+              type: 'array', minItems: 1, maxItems: MAX_LINES, items: CUSTOMER_INVOICE_LINE_SCHEMA,
             },
+            project_id: { type: 'string', description: 'The invoice\'s project, display only; tag lines to post by project (items[].project_id).' },
             invoice_date: { type: 'string', format: 'date' },
             due_date: { type: 'string', format: 'date' },
             tax_rate: { type: 'number', minimum: 0 },
@@ -113,6 +102,7 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
           dueDate: p.dueDate,
           taxRate: p.taxRate,
           notes: p.notes,
+          projectId: p.projectId,
         }, mcpPostingOpts(ctx, 'bulk_create_customer_invoices'));
         created.push({ index: i, ...(result as unknown as Record<string, unknown>) });
       } catch (err) {
@@ -121,6 +111,8 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
         if (err instanceof InvoiceLineValidationError) {
           throw new Error(`invoices[${i}]: ${err.message}`, { cause: err });
         }
+        // The registered refusal, named by element, so the agent sees which line to recode.
+        if (err instanceof InvoiceLineCodingRefusal) throw new InvoiceLineCodingRefusal(`invoices[${i}]: ${err.message}`);
         throw elementError(i, err, 'Failed to create customer invoice.');
       }
     }
