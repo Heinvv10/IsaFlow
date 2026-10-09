@@ -56,6 +56,19 @@ describe("an admin cannot take over an owner's invitation", () => {
     expect(await roleOf(pool, c, p.x)).toBeNull();
   });
 
+  it.each([
+    ['its email alone', "UPDATE company_invitations SET email = 'other@n1bc.test' WHERE company_id = $1 AND role = 'owner'"],
+    ['its token alone', "UPDATE company_invitations SET token = md5(random()::text) WHERE company_id = $1 AND role = 'owner'"],
+    ['its expiry alone (reviving it)', "UPDATE company_invitations SET expires_at = now() + interval '90 days' WHERE company_id = $1 AND role = 'owner'"],
+    ['its sender, to the admin', "UPDATE company_invitations SET invited_by = current_setting('request.jwt.claims')::jsonb->>'sub' WHERE company_id = $1 AND role = 'owner'"],
+  ])('change %s (RC003)', async (_label, statement) => {
+    const c = await company(pool, p, companies);
+    await ownerInvitation(c);
+    const before = await invitations(c);
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(statement, [c])))).toBe('RC003');
+    expect(await invitations(c)).toEqual(before);
+  });
+
   it('re-open an accepted owner invitation (RC003)', async () => {
     const c = await company(pool, p, companies);
     await ownerInvitation(c);
@@ -115,6 +128,29 @@ describe('the last owner', () => {
       two.release();
     }
     expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['owner', 'admin']);
+  });
+
+  it('a portal demotion and an app demotion of the other owner: the app one waits for the portal, then is refused (RC005)', async () => {
+    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
+    const portal = await pool.connect();
+    const app = await session(c, p.o2);
+    try {
+      await portal.query('BEGIN');
+      await portal.query('SET LOCAL ROLE platform_admin');
+      await portal.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o]);
+      const pid = (await app.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const appDemotion = app.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])
+        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
+      await blocked(pid);
+      await portal.query('COMMIT');
+      expect(await appDemotion).toBe('RC005');
+    } finally {
+      await app.query('ROLLBACK').catch(() => undefined);
+      await portal.query('ROLLBACK').catch(() => undefined);
+      app.release();
+      portal.release();
+    }
+    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['admin', 'owner']);
   });
 
   it("a duplicate row of the same user, in another case, is not a second owner (RC005)", async () => {
