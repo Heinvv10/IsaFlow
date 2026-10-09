@@ -46,7 +46,8 @@ const N = 3000;
 let c: DateFixture;
 let o: DateFixture;
 
-/** A draft journal of `n` + 2 lines, `n` of them CR bank 100 — never candidates (posted only), only match targets. */
+/** A draft journal of `n` + 2 lines (DR expense, then `n` + 1 CR bank 100) — never candidates (posted only), only match
+ * targets. */
 async function draftLegs(d: DateFixture, n: number): Promise<string> {
   const je = String((await createJournalEntry(d.fx.companyId, { entryDate: '2025-03-01', description: 'MPLN draft',
     source: 'manual', lines: [{ glAccountId: d.expense, debit: 100, credit: 0, description: 'dr' },
@@ -57,7 +58,7 @@ async function draftLegs(d: DateFixture, n: number): Promise<string> {
   return je;
 }
 
-/** `n` statement lines of `d`, every `every`-th matched to its own leg of `je`, the rest unmatched. */
+/** One statement line of `d` per line of `je`, every `every`-th matched to that line, the rest unmatched. */
 async function statementLines(d: DateFixture, je: string, every: number): Promise<void> {
   await sql`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status,
       import_batch_id, matched_journal_line_id)
@@ -69,9 +70,9 @@ async function statementLines(d: DateFixture, je: string, every: number): Promis
 }
 
 /**
- * EXPLAIN of the service's candidate query for a company with N matched bank legs and N statement lines holding a
- * provisional journal, at work_mem's floor, in a transaction that is rolled back. `stale`: the last ANALYZE saw only
- * another company's statement lines (half matched), and this company's arrive after it.
+ * EXPLAIN of the service's candidate query for a company with N + 2 matched journal lines (N + 1 of them bank legs) and
+ * N statement lines holding a provisional journal, at work_mem's floor, in a transaction that is rolled back. `stale`:
+ * the last ANALYZE saw only another company's statement lines (half matched), and this company's arrive after it.
  */
 async function planOf(stale: boolean): Promise<string> {
   const client = await c.fx.pool.connect();
