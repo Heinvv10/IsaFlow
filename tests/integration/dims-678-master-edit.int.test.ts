@@ -125,14 +125,17 @@ describe('edits', () => {
     await q('UPDATE gl_accounts SET default_bu_id = NULL WHERE id = $1', [b.bank]);
   });
 
-  it('refuses a reference that matches two codes differing only in case, prefers an exact one (L2)', async () => {
+  it('refuses a code matching more than one master ignoring case, even an exact one; the id or cc_type picks (L2, round 2)', async () => {
     const lower = await businessUnit(pool, company, 'ops');
     await businessUnit(pool, company, 'OPS');
-    await expect(inRequest(pool, b, () => findBusinessUnit(company, 'Ops'))).rejects.toThrow(/differ only in case/);
-    expect((await inRequest(pool, b, () => findBusinessUnit(company, 'ops'))).id).toBe(lower);
+    await expect(inRequest(pool, b, () => findBusinessUnit(company, 'Ops'))).rejects.toThrow(/matches 2 business units/);
+    await expect(inRequest(pool, b, () => findBusinessUnit(company, 'ops'))).rejects.toThrow(/send its id/);
+    expect((await inRequest(pool, b, () => findBusinessUnit(company, lower))).id).toBe(lower);
     await costCentre(pool, company, 'dup-cc');
-    await costCentre(pool, company, 'DUP-CC');
-    await expect(update('Dup-Cc', { name: 'x' })).rejects.toThrow(/differ only in case/);
+    const upper = await costCentre(pool, company, 'DUP-CC', 'cc2');
+    await expect(update('dup-cc', { name: 'x' })).rejects.toThrow(/matches 2 cost centres .*send its id, or its cc_type/);
+    const plan = await inRequest(pool, b, () => planUpdateDimensionCostCentre(company, 'dup-cc', { name: 'x' }, 'cc2'));
+    expect(plan.before.id).toBe(upper);
   });
 
   it('refuses a case-only rename onto another code instead of a 23505 (L2)', async () => {
@@ -141,8 +144,8 @@ describe('edits', () => {
     await expect(inRequest(pool, b, async () => applyUpdateBusinessUnit(company, await planUpdateBusinessUnit(company, fin2, { code: 'fin' }))))
       .rejects.toThrow(/code fin already exists/);
     await costCentre(pool, company, 'case-a');
-    await costCentre(pool, company, 'Case-A');
-    await expect(update('Case-A', { code: 'case-a' })).rejects.toThrow(/already the code or an alias of case-a/);
+    const caseB = await costCentre(pool, company, 'Case-A');
+    await expect(update(caseB, { code: 'case-a' })).rejects.toThrow(/already the code or an alias of case-a/);
   });
 });
 

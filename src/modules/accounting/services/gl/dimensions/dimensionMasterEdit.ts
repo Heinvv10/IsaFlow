@@ -23,25 +23,33 @@ import { log } from '@/lib/logger';
 import { assertCostCentreUnused, costCentreDefaultUsage, countCc2Carriers } from '../../core/costCentreUsageGuard';
 import { deleteCostCentre } from '../../core/costCentreService';
 import { lockDimensionMasters } from '../../core/dimensionMasterLock';
-import { listDimensionCostCentres, type DimensionCostCentre } from './dimensionMasterService';
+import { listDimensionCostCentres, type DimensionCcType, type DimensionCostCentre } from './dimensionMasterService';
 import { aliasKey } from './dimensionRefResolver';
 import { DimensionRefusal } from './dimensionTypes';
 
 /**
- * By UUID, exact code, code ignoring case, or alias — active or not. Codes are
- * unique only as typed, so a reference that matches two codes differing only in
- * case names neither and is refused.
+ * By UUID, code (any case) or alias — active or not, narrowed to one cc_type when
+ * the caller names it. Codes are unique only as typed, so a code that matches
+ * more than one centre ignoring case (a CC1 "ABC" beside a CC2 "abc", or two
+ * case variants of one type) names none of them, and is refused even when one
+ * of them matches exactly: the caller sends the id, or the cc_type.
  */
-export function findDimensionCostCentre(all: DimensionCostCentre[], ref: string): DimensionCostCentre | undefined {
+export function findDimensionCostCentre(
+  all: DimensionCostCentre[], ref: string, ccType?: DimensionCcType,
+): DimensionCostCentre | undefined {
   const text = ref.trim();
-  const byIdOrCode = all.find((c) => c.id === text.toLowerCase()) ?? all.find((c) => c.code === text);
-  if (byIdOrCode) return byIdOrCode;
-  const folded = all.filter((c) => c.code.toLowerCase() === text.toLowerCase());
-  if (folded.length > 1) {
-    throw new DimensionRefusal(`"${ref}" matches the codes ${folded.map((c) => c.code).join(', ')}, which differ only in case — use the exact code`);
+  const byId = all.find((c) => c.id === text.toLowerCase());
+  if (byId) return byId;
+  const pool = ccType ? all.filter((c) => c.ccType === ccType) : all;
+  const byCode = pool.filter((c) => c.code.toLowerCase() === text.toLowerCase());
+  if (byCode.length > 1) {
+    throw new DimensionRefusal(
+      `"${ref}" matches ${byCode.length} cost centres (${byCode.map((c) => `${c.code} ${c.ccType}`).join(', ')}) — `
+      + 'send its id, or its cc_type',
+    );
   }
   const key = aliasKey(ref);
-  return folded[0] ?? all.find((c) => c.aliases.some((a) => aliasKey(a) === key));
+  return byCode[0] ?? pool.find((c) => c.aliases.some((a) => aliasKey(a) === key));
 }
 
 const UNIQUE_VIOLATION = '23505';
@@ -102,10 +110,11 @@ export async function planUpdateDimensionCostCentre(
   companyId: string,
   ref: string,
   input: UpdateDimensionCostCentreInput,
+  refCcType?: DimensionCcType,
 ): Promise<UpdateDimensionCostCentrePlan> {
   await lockDimensionMasters(companyId);
   const all = await listDimensionCostCentres(companyId, { includeInactive: true });
-  const before = findDimensionCostCentre(all, ref);
+  const before = findDimensionCostCentre(all, ref, refCcType);
   if (!before) throw new DimensionRefusal(`cost centre "${ref}" does not exist in this company`);
   const others = all.filter((c) => c.id !== before.id);
   const takenBy = (key: string) => others.find((c) => c.code.toLowerCase() === key || c.aliases.some((a) => aliasKey(a) === key));
@@ -249,10 +258,12 @@ export async function applyUpdateDimensionCostCentre(
 }
 
 /** The cost centre a delete would remove; refuses (counted) while anything uses it. */
-export async function planDeleteDimensionCostCentre(companyId: string, ref: string): Promise<DimensionCostCentre> {
+export async function planDeleteDimensionCostCentre(
+  companyId: string, ref: string, refCcType?: DimensionCcType,
+): Promise<DimensionCostCentre> {
   await lockDimensionMasters(companyId);
   const all = await listDimensionCostCentres(companyId, { includeInactive: true });
-  const target = findDimensionCostCentre(all, ref);
+  const target = findDimensionCostCentre(all, ref, refCcType);
   if (!target) throw new DimensionRefusal(`cost centre "${ref}" does not exist in this company`);
   await assertCostCentreUnused(companyId, target.id);
   return target;

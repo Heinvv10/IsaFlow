@@ -175,11 +175,23 @@ describe('#678 review', () => {
     expect(costCentreDefaultUsage).toHaveBeenCalledWith(C, 'law');
   });
 
-  it('prefers an exact code, refuses codes that differ only in case, and checks a case-only rename (L2)', async () => {
+  it('refuses a code matching more than one centre ignoring case — even with an exact match — and checks a case-only rename (L2)', async () => {
     vi.mocked(listDimensionCostCentres).mockResolvedValue([...MASTER, cc({ id: 'law2', code: 'ft-law', parentId: 'ft', fnoCode: 'FT001' })]);
-    expect((await planUpdateDimensionCostCentre(C, 'ft-law', { name: 'n' })).before.id).toBe('law2');
-    await expect(planUpdateDimensionCostCentre(C, 'Ft-Law', { name: 'n' })).rejects.toThrow(/differ only in case/);
-    await expect(planUpdateDimensionCostCentre(C, 'ft-law', { code: 'FT-LAW' })).rejects.toThrow(/already the code or an alias of FT-LAW/);
+    await expect(planUpdateDimensionCostCentre(C, 'ft-law', { name: 'n' })).rejects.toThrow(/matches 2 cost centres .* send its id, or its cc_type/);
+    await expect(planUpdateDimensionCostCentre(C, 'Ft-Law', { name: 'n' })).rejects.toThrow(/matches 2 cost centres/);
+    expect((await planUpdateDimensionCostCentre(C, 'law2', { name: 'n' })).before.id).toBe('law2');
+    await expect(planUpdateDimensionCostCentre(C, 'law2', { code: 'FT-LAW' })).rejects.toThrow(/already the code or an alias of FT-LAW/);
+  });
+
+  it('refuses a code shared across cc_type, and the cc_type picks one (#683 round 2)', async () => {
+    vi.mocked(listDimensionCostCentres).mockResolvedValue([...MASTER, cc({ id: 'abc1', code: 'ABC', ccType: 'cc1', fnoCode: 'ABC' }),
+      cc({ id: 'abc2', code: 'abc', parentId: 'ft', fnoCode: 'FT001' })]);
+    await expect(planUpdateDimensionCostCentre(C, 'ABC', { name: 'n' })).rejects.toThrow('"ABC" matches 2 cost centres (ABC cc1, abc cc2) — send its id, or its cc_type');
+    await expect(planDeleteDimensionCostCentre(C, 'abc')).rejects.toThrow(/matches 2 cost centres/);
+    expect((await planUpdateDimensionCostCentre(C, 'ABC', { name: 'n' }, 'cc2')).before.id).toBe('abc2');
+    expect((await planDeleteDimensionCostCentre(C, 'abc', 'cc1')).id).toBe('abc1');
+    // A parent named by such a code is refused the same way.
+    await expect(planUpdateDimensionCostCentre(C, 'FT-LAW', { parent: 'Abc' })).rejects.toThrow(/matches 2 cost centres/);
   });
 
   it('a 23505 inside apply comes out as a refusal (L1)', async () => {
