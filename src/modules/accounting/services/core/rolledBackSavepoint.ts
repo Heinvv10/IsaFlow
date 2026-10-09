@@ -8,9 +8,13 @@
  * live call meets — and keep nothing.
  *
  * Refused outside a request transaction: there withSavepoint degrades to a
- * plain call, and the write would stand.
+ * plain call, and the write would stand. And never a success after a failed
+ * ROLLBACK TO: withSavepoint marks the transaction unusable and rethrows our
+ * sentinel, so the sentinel alone cannot tell a rollback from a write that may
+ * still stand — assertTxUsable can.
  */
 import { withSavepoint } from '@/lib/neon';
+import { assertTxUsable } from '@/lib/als';
 import { requireRequestTransaction } from './requestTransaction';
 
 class RolledBack extends Error {
@@ -28,7 +32,10 @@ export async function inRolledBackSavepoint(name: string, fn: () => Promise<unkn
       throw new RolledBack();
     });
   } catch (err) {
-    if (err instanceof RolledBack) return;
+    if (err instanceof RolledBack) {
+      assertTxUsable();
+      return;
+    }
     throw err;
   }
 }
