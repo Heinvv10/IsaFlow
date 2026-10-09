@@ -109,8 +109,8 @@ export async function postBankTransfer(
   // approved draft posts by the ordinary route; once posted it is a Transfers-page journal to transferDuplicateGuard
   // (auto_bank_transfer with a reference), so its statement line allocated as a transfer is refused (match it
   // instead); and findTransferRecordedFromStatement reads only POSTED auto_bank_transfer journals with NO reference,
-  // so the draft is never mistaken for a transfer the statement recorded. Residual, as for any unposted journal:
-  // until it posts, the guard does not see it — the message says to match the statement line to it.
+  // so the draft is never mistaken for a transfer the statement recorded. While it waits (pending, or approved and
+  // not yet posted), transferDuplicateGuard refuses its statement line allocated as a transfer too (heldTransferDraft).
   const draft = await createJournalEntry(companyId, {
     entryDate: input.transferDate,
     description: input.reference || label,
