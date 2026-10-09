@@ -201,7 +201,7 @@ describe('the enforcement GET previews what switching on would hold', () => {
     expect(res.state.statusCode).toBe(200);
     expect(dataOf<{ preview: Record<string, number> }>(res).preview).toEqual({
       supplier_invoice: 0, customer_credit_note: 2, supplier_credit_note: 1, customer_invoice: 0, supplier_payment: 0, payment_batch: 0,
-      manual_journal: 0, supplier_bank_details: 0,
+      manual_journal: 0, supplier_bank_details: 0, bank_rule: 0,
     });
   });
 });

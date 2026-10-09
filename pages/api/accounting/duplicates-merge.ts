@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateDetectionService';
 import { SupplierMergeRefusal } from '@/modules/accounting/services/core/duplicateMergeService';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { isUuidParam } from '@/lib/validation';
 
 const VALID_ENTITY_TYPES = ['customer', 'supplier', 'item'] as const;
@@ -76,6 +77,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, result);
   } catch (err) {
+    // An auto-posting bank rule names the merged-away customer under `bank_rule` (409, nothing merged).
+    if (respondIfBankControlRefused(res, err)) return;
     // Refused before anything moved — the caller can act on the message.
     if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
     if (err instanceof ArRequestError) {
