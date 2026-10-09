@@ -9,6 +9,7 @@ import { Settings, Loader2, AlertCircle, Save, Check } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AutoPostLlmSection } from '@/components/accounting/AutoPostLlmSection';
+import { useAutoPostSettings } from '@/components/accounting/useAutoPostSettings';
 
 interface SettingItem {
   key: string;
@@ -34,25 +35,12 @@ const SETTINGS_DEFINITIONS: Omit<SettingItem, 'value'>[] = [
   },
 ];
 
-interface AutoPostSettings {
-  enabled: boolean;
-  minConfidence: number;
-  amountCap: number;
-  llmEnabled: boolean;
-  llmMinConfidence: number;
-  llmAmountCap: number;
-}
-
 export default function AccountingSettingsPage() {
   const [settings, setSettings] = useState<SettingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [error, setError] = useState('');
   const [loadErr, setLoadErr] = useState('');
-  const [apLoadErr, setApLoadErr] = useState('');
-  const [ap, setAp] = useState<AutoPostSettings>({ enabled: false, minConfidence: 0.9, amountCap: 10000, llmEnabled: false, llmMinConfidence: 0.95, llmAmountCap: 2000 });
-  const [apDraft, setApDraft] = useState<{ minConfidence: string; amountCap: string; llmMinConfidence: string; llmAmountCap: string }>({ minConfidence: '0.9', amountCap: '10000', llmMinConfidence: '0.95', llmAmountCap: '2000' });
-  const [apSaving, setApSaving] = useState(false);
+  const { ap, apDraft, setApDraft, apSaving, apError, apLoadErr, saveAutoPost } = useAutoPostSettings();
 
   useEffect(() => {
     async function loadSettings() {
@@ -77,47 +65,6 @@ export default function AccountingSettingsPage() {
     }
     void loadSettings();
   }, []);
-
-  useEffect(() => {
-    apiFetch('/api/accounting/bank-auto-post', { credentials: 'include' })
-      .then(async (r) => { await assertOk(r, 'Could not load auto-post settings - try again'); return r.json(); })
-      .then((j: { data?: { settings?: AutoPostSettings } }) => {
-        if (j?.data?.settings) setAp(j.data.settings);
-        // else: leave defaults; card still renders with sensible values
-      })
-      .catch((err) => setApLoadErr(apiErrorMessage(err, 'Could not load auto-post settings - try again')));
-  }, []);
-
-  // Sync the editable string drafts whenever ap changes (initial GET hydration
-  // and after every successful save) so the inputs always track server state.
-  useEffect(() => {
-    setApDraft({
-      minConfidence: String(ap.minConfidence),
-      amountCap: String(ap.amountCap),
-      llmMinConfidence: String(ap.llmMinConfidence),
-      llmAmountCap: String(ap.llmAmountCap),
-    });
-  }, [ap.minConfidence, ap.amountCap, ap.llmMinConfidence, ap.llmAmountCap]);
-
-  async function saveAutoPost(patch: Partial<AutoPostSettings>) {
-    setApSaving(true);
-    try {
-      const res = await apiFetch('/api/accounting/bank-auto-post', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      await assertOk(res, 'Could not save auto-post settings - try again');
-      const j = (await res.json()) as { data?: { settings?: AutoPostSettings }; error?: string };
-      if (j?.data?.settings) setAp(j.data.settings);
-      else setError('Could not save auto-post settings - try again');
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not save auto-post settings - try again'));
-    } finally {
-      setApSaving(false);
-    }
-  }
 
   const updateSetting = async (key: string, value: string) => {
     setSettings(prev => prev.map(s => s.key === key ? { ...s, value } : s));
@@ -160,7 +107,7 @@ export default function AccountingSettingsPage() {
         </div>
 
         <div className="p-6 max-w-2xl">
-          {[loadErr, apLoadErr, error].filter(Boolean).map(m => (
+          {[loadErr, apLoadErr, apError].filter(Boolean).map(m => (
             <div key={m} className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm mb-4">
               <AlertCircle className="h-4 w-4" /> {m}
             </div>
