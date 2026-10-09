@@ -137,20 +137,10 @@ export async function moveRuleSilently(pool: Pool, id: string, set: string): Pro
 }
 
 /**
- * The history is append-only for every role, and its FK to companies has no
- * cascade (reported as an 877 defect): it is removed with triggers off, then
- * PR6's teardown runs. Rules go first, inside the same replica session, so
- * deleting them records nothing.
+ * Rules first (each delete is recorded), then PR6's teardown: deleting the
+ * companies cascades their rule history (877 lets only that DELETE through).
  */
 export async function cleanupRuleChanges(pool: Pool, companies: string[], users: string[]): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SET LOCAL session_replication_role = replica');
-    await client.query('DELETE FROM bank_rule_change_decisions WHERE company_id = ANY($1)', [companies]);
-    await client.query('DELETE FROM bank_rule_changes WHERE company_id = ANY($1)', [companies]);
-    await client.query('DELETE FROM bank_categorisation_rules WHERE company_id = ANY($1)', [companies]);
-    await client.query('COMMIT');
-  } finally { client.release(); }
+  await pool.query('DELETE FROM bank_categorisation_rules WHERE company_id = ANY($1)', [companies]);
   await cleanupPr6(pool, companies, users);
 }
