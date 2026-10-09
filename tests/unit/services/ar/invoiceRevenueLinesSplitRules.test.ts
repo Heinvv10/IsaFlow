@@ -78,4 +78,9 @@ describe('the rounding residual is placed a cent at a time', () => {
     expect(mixed[2]).toBeLessThanOrEqual(0);
     expect(mixed.reduce((a, b) => a + b, 0)).toBe(37);
   });
+
+  it('allocateByWeight refuses weights that sum to nothing, or a total that is not a number, rather than loop', () => {
+    expect(() => allocateByWeight(10, [1, -1])).toThrow(/cannot split/);
+    expect(() => allocateByWeight(Number.NaN, [1, 2])).toThrow(/cannot split/);
+  });
 });

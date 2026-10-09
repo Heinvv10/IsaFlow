@@ -208,12 +208,18 @@ describeIfDisposable('invoice line revenue posting (migration 874)', () => {
     expect((await legs(je)).filter((l) => l.code === '4100')).toEqual([L('4100', 0, 150)]);
   });
 
-  it('past draft, a line on an expense account posts as stored; only what the journal refuses is refused first', async () => {
+  it('past draft, a line on a non-revenue account is refused before any journal (it would post revenue there); a header posts', async () => {
     const id = await draft([{ description: 'Recoded later', unitPrice: 100 }]);
     await sql`UPDATE customer_invoices SET status = 'approved' WHERE id = ${id}::UUID`;
     await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.expense}::UUID WHERE invoice_id = ${id}::UUID`;
+    const before = await journalCount();
+    const err = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineCodingRefusal);
+    expect((err as Error).message).toMatch(/6100 Crew.*not a revenue account/);
+    expect(await journalCount()).toBe(before);
+    await sql`UPDATE customer_invoice_items SET gl_account_id = ${f.acct.header}::UUID WHERE invoice_id = ${id}::UUID`;
     const je = await inTx(f.fx, () => postCustomerInvoiceToGL(f.fx.companyId, id, f.fx.userId));
-    expect((await legs(je)).filter((l) => l.code === '6100')).toEqual([L('6100', 0, 100)]);
+    expect((await legs(je)).filter((l) => l.code === '4300')).toEqual([L('4300', 0, 100)]);
   });
 
   it('an FNO is read from the invoice\'s customer in THIS company only (a forged foreign client carries none)', async () => {

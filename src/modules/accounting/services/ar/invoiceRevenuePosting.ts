@@ -5,6 +5,8 @@
  * allocates.
  */
 import { sql } from '@/lib/neon';
+import { getSystemAccount } from '../gl/systemAccountResolver';
+import { creditNoteHeaderOf } from './creditNoteHeaderTags';
 import type { JournalLineInput } from '../../types/gl.types';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import { assertPostsStoredDimensions, isApprovingFrom } from '../gl/dimensions/dimensionStoredPosting';
@@ -153,4 +155,24 @@ export async function recordCreditNoteRevenueAllocations(
               ${a.projectId}::UUID, ${a.cc1Id}::UUID, ${a.cc2Id}::UUID, ${a.buId}::UUID, ${a.amount}, ${a.isExcess})
     `;
   }
+}
+
+/**
+ * A note unlinked until `applyCreditNoteToInvoice` links it here, which has
+ * recorded nothing, debited default_revenue at its own approval and took
+ * nothing from this invoice's legs: one excess row says so, or it would be
+ * REPLAYED against them as a pre-874 note and crowd the next note off its
+ * legs. A note already linked keeps its link and stays replayed where it took
+ * from (review #685). Caller holds the note row and the invoice's credit-note
+ * lock.
+ */
+export async function recordLateLinkExcess(companyId: string, note: Record<string, unknown>, invoiceId: string): Promise<void> {
+  if (note.customer_invoice_id) return;
+  const recorded = (await sql`SELECT 1 FROM credit_note_revenue_allocations
+    WHERE company_id = ${companyId}::UUID AND credit_note_id = ${String(note.id)}::UUID LIMIT 1`) as Record<string, unknown>[];
+  if (recorded.length > 0) return;
+  const { projectId, cc1Id, cc2Id, buId } = creditNoteHeaderOf(note);
+  const revenue = await getSystemAccount('default_revenue', companyId);
+  await recordCreditNoteRevenueAllocations(companyId, String(note.id), invoiceId, [{ journalLineId: null,
+    glAccountId: revenue.id, projectId, cc1Id, cc2Id, buId, amount: Number(note.subtotal), isExcess: true }]);
 }

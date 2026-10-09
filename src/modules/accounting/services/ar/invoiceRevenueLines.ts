@@ -89,6 +89,8 @@ const money = (c: number): string => rands(c).toFixed(2);
  */
 export function allocateByWeight(total: number, weights: readonly number[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);
+  // The residual loop below never ends on NaN; a hang would hold the invoice's locks.
+  if (!(sum > 0) || !Number.isFinite(total)) throw new Error(`allocateByWeight: cannot split ${total} over weights summing to ${sum}`);
   const shares = weights.map((w) => Math.round((total * w) / sum));
   const order = weights.map((_, i) => i).sort((a, b) => Math.abs(weights[b]!) - Math.abs(weights[a]!) || a - b);
   let residual = total - shares.reduce((a, b) => a + b, 0);

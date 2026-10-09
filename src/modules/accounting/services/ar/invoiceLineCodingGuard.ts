@@ -92,10 +92,11 @@ async function lockedAccountRows(companyId: string, ids: string[]): Promise<Reve
  * Why these line codings cannot be accepted, or null. `lock: false` is for a
  * read-only pass that only decides what to skip (bulk finalize and its dry
  * run); the posting path re-checks under lock. `posting`: an invoice past
- * draft posts its coding as stored (#675), so only what the journal itself
- * would refuse is refused, before it is written — an account or job of
- * another company, or a deactivated account; a header or non-revenue account
- * and a cancelled job post as stored.
+ * draft posts its coding as stored (#675), so what is refused is what the
+ * journal would refuse or post wrongly, before it is written — an account or
+ * job of another company, a deactivated account, and an account that is not a
+ * revenue account (a credit to AR control or a bank would corrupt the ledger
+ * silently); a header account and a cancelled job post as stored.
  */
 export async function invoiceLineCodingRefusal(
   companyId: string,
@@ -107,7 +108,9 @@ export async function invoiceLineCodingRefusal(
     const rows = await accountRows(companyId, accounts, opts.lock ?? true);
     if (rows.length !== accounts.length) return FOREIGN_LINE_CODING;
     for (const row of [...rows].sort((x, y) => x.account_code.localeCompare(y.account_code))) {
-      const problem = opts.posting ? (row.is_active ? null : 'is inactive') : revenueLineAccountProblem(row);
+      const problem = opts.posting
+        ? (row.account_type !== 'revenue' ? `is not a revenue account (it is ${row.account_type})` : row.is_active ? null : 'is inactive')
+        : revenueLineAccountProblem(row);
       if (problem) return `An invoice line cannot be coded to ${row.account_code} ${row.account_name}: it ${problem}.`;
     }
   }
