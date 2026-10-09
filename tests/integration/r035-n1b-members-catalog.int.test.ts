@@ -29,8 +29,8 @@ const TABLES = ['company_users', 'company_invitations'];
 /** Change one and you change who may grant what: re-review N1b C, then move the pin. */
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
-  'company_users_role_guard()': '589cbe421bee1fa94e7bad454d36d289',
-  'company_invitations_role_guard()': 'e702263eeb88682d9a8f0c3a05cd842e',
+  'company_users_role_guard()': '8bbf8dbdbe00cefa4003738e07634840',
+  'company_invitations_role_guard()': '054fbd5ee30e51ec2ff0316ed16d87bf',
 };
 
 const OTHERS = `

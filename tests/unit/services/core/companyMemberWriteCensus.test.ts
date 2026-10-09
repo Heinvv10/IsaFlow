@@ -14,7 +14,9 @@
  * the guards off or hand a write back — a trigger dropped, disabled or
  * altered; a guard function redefined, altered or dropped; any ALTER of
  * either table; a table grant on either; ALL TABLES grants; a role grant to
- * app_user or platform_admin. The ones before 883 are pinned by name.
+ * app_user or platform_admin; and any write to either (a migration, or a
+ * definer function it adds, writes as the owner, unjudged). The ones before
+ * 883 are pinned by name.
  */
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
@@ -57,6 +59,10 @@ export function migrationViolations(text: string): string[] {
   const out: string[] = [];
   if (GUARD_OFF.some((re) => re.test(code))) out.push('alters');
   if (GRANTED.some((re) => re.test(code))) out.push('grants');
+  // A write in a migration runs as the owner, unjudged — and so does a SECURITY
+  // DEFINER function a migration adds that writes either table (blind review
+  // of PR #691, L4): both need reading.
+  if (WRITE.some((re) => re.test(code))) out.push('writes');
   return out;
 }
 
@@ -78,12 +84,26 @@ const KNOWN_WRITERS = [
   'src/modules/onboarding/services/tenantProvisioningService.ts: writes', // W15 — migration_admin pool
 ];
 
-/** Before 883, each read: 260 and 350 add invitation columns; 348 enables RLS and grants app_user; 352 grants platform_admin. */
+/**
+ * Before 883, each read: 220 and 251 seed memberships; 260 and 350 add
+ * invitation columns; 293 is the one-off user-id repair; 348 enables RLS and
+ * grants app_user; 352 grants platform_admin; 459, 476 and 513 are the
+ * versions of create_company_with_owner (the creator as owner); 516 is
+ * set_default_company (is_default only); 662 expires stale invitations once.
+ */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
+  '220_multi_company_scoping.sql': ['writes'],
+  '251_demo_seed_data.sql': ['writes'],
   '260_invitation_email_tracking.sql': ['alters'],
+  '293_fix_admin_user_uuid.sql': ['writes'],
   '348_rls_and_auth_helpers.sql': ['alters', 'grants'],
   '350_invitations_gotrue_link.sql': ['alters'],
   '352_platform_admin_role.sql': ['grants'],
+  '459_fix_company_create_rls.sql': ['writes'],
+  '476_seed_company_taxonomy_on_create.sql': ['writes'],
+  '513_create_company_writes_vat_system_type.sql': ['writes'],
+  '516_set_default_company_fn.sql': ['writes'],
+  '662_invite_token_encoding_retire_stale.sql': ['writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
@@ -124,6 +144,7 @@ describe('the census detects (counterexamples)', () => {
   });
 
   it.each([
+    'CREATE FUNCTION f() RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ UPDATE company_users SET role = $1 $$;',
     'DROP TRIGGER company_users_role_guard ON company_users;',
     'ALTER TABLE company_users DISABLE TRIGGER company_users_role_guard;',
     'ALTER TABLE public.company_invitations DISABLE TRIGGER ALL;',

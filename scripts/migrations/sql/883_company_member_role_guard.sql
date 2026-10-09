@@ -20,9 +20,10 @@
 --   company_invitations  the actor is an owner or admin of the company;
 --                   a role in [owner, admin, manager, viewer, storeman,
 --                   technician] (both invitation routes' lists); only an
---                   owner creates or upgrades an `owner` invitation (Hein,
---                   2026-10-09: the app route now refuses it too); the
---                   inviter recorded is the actor; the company never changes.
+--                   owner creates, upgrades, re-points or re-opens an `owner`
+--                   invitation (Hein, 2026-10-09: the app route now refuses
+--                   an admin's owner invite too); the inviter recorded is the
+--                   actor; the company never changes.
 --  platform_admin (the admin portal) — the portal's rules: a membership role
 --   in ALLOWED_COMPANY_ROLES [admin, accountant, bookkeeper, viewer] (never
 --   `owner`), removals as before; no invitation writes (the portal makes none).
@@ -30,17 +31,21 @@
 -- Every other role is NOT judged: the table owners and whoever inherits them
 -- (migrations, the deploy/login role on production), superusers, the
 -- SECURITY DEFINER functions that write as their owner (create_company_with_owner
--- grants the creator `owner`; set_default_company), the invite-accept route
--- (runs as migration_admin and grants the invitation's role, now judged when
--- the invitation was written), tenant provisioning and the seed scripts. Those
+-- grants the creator `owner`; set_default_company), the two invite-accept
+-- routes (/api/invitations/[token]/accept on the migration_admin pool,
+-- /api/invite/[token] on the login role; both grant the invitation's role,
+-- which was judged when the invitation was written or last re-shaped), tenant
+-- provisioning (migration_admin pool) and the seed scripts. Those
 -- write without a user JWT, and raw SQL that can RESET ROLE to them is the N1
 -- boundary (N3). Any OTHER role that holds a write privilege on either table
 -- loses it here (enumerated from the ACL) and the migration asserts none does.
 --
 -- Unchanged on purpose (the app allows them today; §8): an admin changing
 -- their own role below owner, and an admin demoting or removing a non-last
--- owner. The last-owner count is not locked, as in the app (two concurrent
--- demotions of the last two owners can both pass — a named limit).
+-- owner. The last-owner count is taken under a per-company lock and by
+-- person (stricter than the app's unlocked row count only in a race or for a
+-- duplicate row of one user). The admin portal (platform_admin) has no
+-- last-owner rule today, and keeps none here.
 --
 -- Refusals (SQLSTATE): RC001 not an owner/admin of the company · RC002 role
 -- outside the allow-list · RC003 only an owner grants owner · RC004 a column
@@ -110,10 +115,18 @@ BEGIN
     RAISE EXCEPTION 'You cannot remove yourself from the company.' USING ERRCODE = 'RC006';
   END IF;
 
-  -- The last owner: never demoted, never removed (counted as the app counts).
+  -- The last owner: never demoted, never removed. Counted by PERSON, not by
+  -- row (a second row for the same user in another case is still that user),
+  -- under a per-company lock so two owners demoting each other at once are
+  -- judged one after the other — the second sees the first's demotion and is
+  -- refused (adversarial review of PR #691, REPRO 3 and 4). An advisory lock,
+  -- not FOR UPDATE on the owner rows: each UPDATE already holds its own row,
+  -- so row locks taken in id order would deadlock the pair.
   IF OLD.role = 'owner' AND (TG_OP = 'DELETE' OR NEW.role IS DISTINCT FROM 'owner') THEN
-    SELECT pg_catalog.count(*) INTO v_others FROM public.company_users cu
-    WHERE cu.company_id = OLD.company_id AND cu.role = 'owner' AND cu.id <> OLD.id;
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
+    SELECT pg_catalog.count(DISTINCT pg_catalog.lower(cu.user_id::pg_catalog.text)) INTO v_others FROM public.company_users cu
+    WHERE cu.company_id = OLD.company_id AND cu.role = 'owner'
+      AND pg_catalog.lower(cu.user_id::pg_catalog.text) <> pg_catalog.lower(OLD.user_id::pg_catalog.text);
     IF v_others = 0 THEN
       RAISE EXCEPTION '%', CASE TG_OP WHEN 'DELETE' THEN 'Cannot remove the last owner of the company.'
                                ELSE 'Cannot change role: this is the last owner of the company.' END
@@ -155,6 +168,17 @@ BEGIN
     IF NEW.role = 'owner' AND v_actor_role <> 'owner' THEN
       RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
     END IF;
+  END IF;
+  -- A live owner invitation is an owner's to shape. Re-pointing one that stays
+  -- `owner` — its email, token or GoTrue user — or re-opening it (accepted_at,
+  -- expires_at) is how a non-owner would take it over and accept it as owner
+  -- (blind H1 / adversarial REPRO 1–2 on PR #691), so it takes an owner. The
+  -- send-status columns stay writable; turning it into a lesser invitation
+  -- (a re-invite at another role) does not need an owner.
+  IF TG_OP = 'UPDATE' AND NEW.role = 'owner' AND v_actor_role <> 'owner'
+     AND (NEW.email, NEW.token, NEW.gotrue_user_id, NEW.accepted_at, NEW.expires_at, NEW.invited_by)
+         IS DISTINCT FROM (OLD.email, OLD.token, OLD.gotrue_user_id, OLD.accepted_at, OLD.expires_at, OLD.invited_by) THEN
+    RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
   END IF;
   IF (TG_OP = 'INSERT' OR NEW.invited_by IS DISTINCT FROM OLD.invited_by)
      AND pg_catalog.lower(NEW.invited_by::pg_catalog.text) IS DISTINCT FROM pg_catalog.lower(auth.uid()) THEN
