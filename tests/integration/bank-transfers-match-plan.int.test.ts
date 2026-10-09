@@ -121,7 +121,11 @@ function expectFastShape(plan: string): void {
   const lines = plan.split('\n');
   const unhashed = [...plan.matchAll(/NOT \(SubPlan (\d+)\)/g)].map((m) => m[1]!);
   expect(unhashed, plan).toHaveLength(1);
-  expect(subPlanBlock(lines, unhashed[0]!), plan).toMatch(/Index Cond: .*matched_journal_line_id = jl\.id/);
+  // Keyed on BOTH: the line and its company (without the company it scans the whole unique index per candidate and is
+  // no longer tenant-scoped — brk-nrfa round 29b).
+  const cond = subPlanBlock(lines, unhashed[0]!).split('\n').find((l) => /Index Cond:/.test(l)) ?? '';
+  expect(cond, plan).toMatch(/matched_journal_line_id = jl\.id/);
+  expect(cond, plan).toMatch(/company_id = jl\.company_id/);
   // The held set filters the LINE: on je the planner could pair every unheld journal with every bank leg by a join
   // filter (3-18 s, brk-nrfa round 27). The plan node owning that filter is the gl_journal_lines scan.
   const at = lines.findIndex((l) => /Filter: .*NOT \(hashed SubPlan/.test(l));
