@@ -82,27 +82,32 @@ export const refusalOf = (res: { state: { statusCode: number; body: unknown } })
 
 export type McpReply = { isError?: boolean; content: { text: string }[] };
 
-/** A registry of `tools`, called as the bearer pipeline runs a token: app_user, claims without a session id, the company GUC. */
+/** `fn` in one transaction run as the bearer pipeline runs a token: app_user, claims without a session id, the company GUC. */
+export async function asToken<T>(pool: Pool, user: string, company: string, fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL ROLE app_user');
+    const claims = { sub: user, role: 'authenticated', company_id: company };
+    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+    await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
+    const out = await als.run({ client, userId: user, companyId: company, claims } as never, fn);
+    await client.query('COMMIT');
+    return out;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
+}
+
+/** A registry of `tools`, called through asToken. */
 export function mcpCaller(pool: Pool, tools: McpTool[]) {
   const registry = new McpRegistry();
   for (const tool of tools) registry.register(tool);
-  return async (user: string, company: string, name: string, args: Record<string, unknown>): Promise<McpReply> => {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('SET LOCAL ROLE app_user');
-      const claims = { sub: user, role: 'authenticated', company_id: company };
-      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
-      await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
-      const out = await als.run({ client, userId: user, companyId: company, claims } as never, () => registry.call(name, args,
-        { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:invoices'], tokenJti: 'bc-a', oauthAppId: null }));
-      await client.query('COMMIT');
-      return out as McpReply;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally { client.release(); }
-  };
+  return (user: string, company: string, name: string, args: Record<string, unknown>): Promise<McpReply> =>
+    asToken(pool, user, company, async () => (await registry.call(name, args,
+      { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:invoices'], tokenJti: 'bc-a', oauthAppId: null },
+    )) as McpReply);
 }
 
 /** What slice a's tests leave behind, then PR6's teardown. */
