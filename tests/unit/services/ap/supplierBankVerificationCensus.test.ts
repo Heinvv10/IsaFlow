@@ -98,8 +98,8 @@ describe('both routes run the gate on what they send', () => {
 describe('one fingerprint, in SQL', () => {
   it('only these files name supplier_bank_fingerprint', () => {
     expect(matching(/supplier_bank_fingerprint\(/)).toEqual([
-      EFT, NETCASH,
-      `${AP}supplierBankBaseline.ts`, `${AP}supplierBankVerification.ts`, `${AP}supplierBankVerificationGate.ts`,
+      // supplierBankBaseline.ts no longer: the baseline's fingerprint is taken in SQL by approval_enforcement_set (881).
+      EFT, NETCASH, `${AP}supplierBankVerification.ts`, `${AP}supplierBankVerificationGate.ts`,
     ]);
   });
 
@@ -124,12 +124,13 @@ describe('who writes a verification', () => {
     expect(matching(/\bverifySupplierBankDetails\(/)).toEqual([
       'pages/api/accounting/supplier-bank-verification.ts', `${AP}supplierBankVerification.ts`,
     ]);
-    expect(matching(/\brecordBankBaseline\(/)).toEqual([
-      `${AP}supplierBankBaseline.ts`, 'src/modules/accounting/services/gl/approvalEnforcement.ts',
-    ]);
-    expect(matching(/INSERT\s+INTO\s+supplier_bank_verifications/)).toEqual([
-      `${AP}supplierBankBaseline.ts`, `${AP}supplierBankVerification.ts`,
-    ]);
+    // The baseline moved into approval_enforcement_set (migration 881, R-035
+    // N1b B), which the switch route alone reaches through approvalRuleWrites.
+    expect(matching(/\brecordBankBaseline\(/)).toEqual([]);
+    expect(matching(/INSERT\s+INTO\s+supplier_bank_verifications/)).toEqual([`${AP}supplierBankVerification.ts`]);
+    expect(matching(/\bapproval_enforcement_set\(/)).toEqual(['src/modules/accounting/services/gl/approvalRuleWrites.ts']);
+    expect(readFileSync(path.join(ROOT, 'scripts/migrations/sql/881_approval_rule_enforcement_definer_writes.sql'), 'utf8'))
+      .toMatch(/INSERT INTO public\.supplier_bank_verifications \(company_id, supplier_id, fingerprint, kind, verified_by\)[\s\S]*'baseline', p_actor/);
   });
 
   it('no MCP tool reaches a verification writer', () => {

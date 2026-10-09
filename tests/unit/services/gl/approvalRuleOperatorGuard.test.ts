@@ -18,9 +18,6 @@ vi.mock('@/lib/neon', () => {
   });
   return { sql: sqlMock, withTransaction: vi.fn(), withSavepoint: (_n: string, f: () => unknown) => f() };
 });
-vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
-  logAuditOrThrow: vi.fn().mockResolvedValue(undefined),
-}));
 
 import { sql } from '@/lib/neon';
 import {
