@@ -45,13 +45,39 @@
 -- owner. The last-owner count is taken under a per-company lock and by
 -- person (stricter than the app's unlocked row count only in a race or for a
 -- duplicate row of one user). The admin portal (platform_admin) has no
--- last-owner rule today, and keeps none here.
+-- last-owner rule today, and keeps none here (it takes the lock, so an app
+-- demotion racing it is still judged after it). LIMIT: a transaction that
+-- demotes two owners while another demotes them in the other order can
+-- deadlock (40P01) — the row lock is taken before the trigger; no app path
+-- edits two members in one transaction.
+--
+-- Precondition (section 0): owner invitations an admin sent BEFORE this
+-- migration — the route allowed it until now — would stay live (their
+-- token is the admin's). 883 refuses to apply while any unaccepted,
+-- unexpired one exists whose sender is not an owner of the company; cancel
+-- or have an owner re-issue them first (the query is in the R-035 N1b
+-- handoff).
 --
 -- Refusals (SQLSTATE): RC001 not an owner/admin of the company · RC002 role
 -- outside the allow-list · RC003 only an owner grants owner · RC004 a column
 -- other than role changed, or the company/user moved · RC005 last owner ·
 -- RC006 removing yourself · RC007 the portal may not grant this role ·
 -- RC008 the portal writes no invitations · RC009 inviter is not the actor.
+
+-- ── 0. Precondition: no live owner invitation a non-owner sent ────────────
+DO $$
+DECLARE
+  v_n pg_catalog.int8;
+BEGIN
+  SELECT pg_catalog.count(*) INTO v_n FROM public.company_invitations ci
+  WHERE ci.role = 'owner' AND ci.accepted_at IS NULL AND ci.expires_at > pg_catalog.now()
+    AND NOT EXISTS (SELECT 1 FROM public.company_users cu
+                    WHERE cu.company_id = ci.company_id AND cu.role = 'owner'
+                      AND pg_catalog.lower(cu.user_id::pg_catalog.text) = pg_catalog.lower(ci.invited_by::pg_catalog.text));
+  IF v_n > 0 THEN
+    RAISE EXCEPTION 'migration 883: % pending owner invitation(s) were sent by someone who is not an owner of the company — cancel them, or have an owner re-issue them, before applying', v_n;
+  END IF;
+END $$;
 
 -- ── 1. The guards ─────────────────────────────────────────────────────────
 -- SECURITY INVOKER on purpose: `current_user` must be the role that wrote.
@@ -77,6 +103,14 @@ DECLARE
   v_others pg_catalog.int8;
 BEGIN
   IF current_user = 'platform_admin' THEN
+    -- The portal keeps its power to demote or remove an owner (no last-owner
+    -- rule there today), but takes the same per-company lock app_user's
+    -- last-owner check takes: a portal demotion and an app demotion of the
+    -- other owner are then judged one after the other, and the app's is
+    -- refused rather than both passing (adversarial review of PR #691, F2).
+    IF TG_OP <> 'INSERT' AND OLD.role = 'owner' AND (TG_OP = 'DELETE' OR NEW.role IS DISTINCT FROM 'owner') THEN
+      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
+    END IF;
     IF TG_OP = 'UPDATE' AND (NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.user_id IS DISTINCT FROM OLD.user_id) THEN
       RAISE EXCEPTION 'A company membership cannot be moved to another company or user' USING ERRCODE = 'RC004';
     END IF;
