@@ -136,7 +136,7 @@ describe('set-based writers leave a pending feed row alone', () => {
   it('autoMatchTransactions does not throw on a pending row', async () => {
     await seed();
     const { autoMatchTransactions } = await import('@/modules/accounting/services/bank/bankAutoMatchService');
-    await inRequest(() => autoMatchTransactions(company, bank));
+    await inRequest(() => autoMatchTransactions(company, bank, undefined, user));
     await pendingUntouched();
   });
 });

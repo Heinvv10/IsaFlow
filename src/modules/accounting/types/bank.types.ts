@@ -195,6 +195,8 @@ export interface AutoMatchResult {
   skippedUnavailable?: number;
   /** Candidates refused for a typed state of their own (a reversed or missing journal line): skipped, counted. */
   skippedRefused?: number;
+  /** Step 2: the run's own person imported the line AND created the journal, under manual_journal enforcement. */
+  skippedImporter?: number;
 }
 
 // ── Bank Categorisation Rules ───────────────────────────────────────────────

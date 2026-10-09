@@ -165,6 +165,8 @@ async function cancelCustomerPaymentInner(
     const label = `Receipt ${payment.paymentNumber}`;
     // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
     const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label);
+    // Step 2: a statement line MATCHED to this journal (a refund out is gated; a receipt is money in) — before any write.
+    const auditLeg = !delegated && journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;
 
     // (3) Reverse invoice balances — runs on the ALS-bound connection so the
     // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
@@ -188,6 +190,7 @@ async function cancelCustomerPaymentInner(
       await lockJournalAndUnmatch(companyId, journalId, leg, label);
       if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
     }
+    await auditLeg?.();
 
     const cancelNote = reason ? ` [CANCELLED: ${reason}]` : ' [CANCELLED]';
     const updated = (await sql`
@@ -211,6 +214,7 @@ export { postCustomerInvoiceToGL } from './customerInvoiceGlPosting';
 
 // ── Private mapper ────────────────────────────────────────────────────────────
 import type { CustomerPaymentStatus } from '../../types/ar.types';
+import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 
 function mapPaymentRow(row: Row): CustomerPayment {
   return {
