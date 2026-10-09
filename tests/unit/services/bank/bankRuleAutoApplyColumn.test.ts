@@ -87,14 +87,20 @@ describe('createRule — auto_apply', () => {
 
 describe('updateRule — auto_apply', () => {
   it('changes the mode when named', async () => {
-    await updateRule(COMPANY, RULE, { autoApply: 'none' });
-    expect(lastQuery()).toContain('auto_apply = COALESCE(?, auto_apply)');
-    expect(lastValues()).toContain('none');
+    // bankRuleChangeControl: lock the rule, classify before → after, then write.
+    mockSql
+      .mockResolvedValueOnce([{ p: { auto_apply: 'fifo' } }] as never)
+      .mockResolvedValueOnce([{ after: { auto_apply: 'none' }, held: false, toggle_only: false }] as never)
+      .mockResolvedValueOnce([ROW] as never);
+    await updateRule(COMPANY, RULE, { autoApply: 'none' }, USER);
+    expect(mockSql.mock.calls[1]!.slice(1)).toContain(JSON.stringify({ auto_apply: 'none' }));
+    expect(lastQuery()).toContain('auto_apply = n.auto_apply');
+    expect(lastValues()).toContain(JSON.stringify({ auto_apply: 'none' }));
   });
 
   it('refuses a mode that is not one', async () => {
     await expect(
-      updateRule(COMPANY, RULE, { autoApply: 'fifo ' as never }),
+      updateRule(COMPANY, RULE, { autoApply: 'fifo ' as never }, USER),
     ).rejects.toThrow(/auto_apply must be one of/);
   });
 });
