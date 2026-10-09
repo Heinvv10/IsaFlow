@@ -8,13 +8,17 @@
  * savepointed INSERT.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import {
+  HTTP_CODING_KEYS, InvoiceLineCodingRefusal, parseLineCoding, readCodingId, type InvoiceLineCoding,
+} from './invoiceLineCoding';
+import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
@@ -26,6 +30,9 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
+  /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
+  glAccountId?: string | null;
+  projectId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
   cc1Id?: string;
   cc2Id?: string;
@@ -43,6 +50,8 @@ export interface DraftInvoiceInput {
   items: DraftInvoiceLineInput[];
   currencyCode?: string;
   exchangeRate?: number;
+  /** The invoice's own project. Explicit or none — never guessed from the client. */
+  projectId?: string | null;
 }
 
 /** Thrown for invalid line quantities/prices — maps to a 400 at the route. */
@@ -86,6 +95,22 @@ export async function createDraftCustomerInvoice(
     if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
   }
 
+  // Migration 874: what each line credits and is tagged with. Shape first (a
+  // uuid STRING or nothing — the body is untyped), then ownership and the
+  // revenue-account rules, all before the first write below.
+  const codings: InvoiceLineCoding[] = [];
+  for (const [i, item] of items.entries()) {
+    const coding = parseLineCoding(item as unknown as Record<string, unknown>, HTTP_CODING_KEYS, `items[${i}]`);
+    if (typeof coding === 'string') throw new InvoiceLineCodingRefusal(coding);
+    codings.push(coding);
+  }
+  const projectId = readCodingId(input.projectId);
+  if (projectId === undefined) throw new InvoiceLineCodingRefusal('projectId must be a UUID');
+  const codingRefusal = await invoiceLineCodingRefusal(
+    companyId, [...codings, { glAccountId: null, projectId }],
+  );
+  if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
+
   // R-119: the same audit, one field over. `taxRate` comes off the request
   // body and is used below for `tax_amount` and the output-VAT journal leg. A
   // negative rate leaves the TOTAL positive — `subtotal 1000, tax -500,
@@ -117,19 +142,6 @@ export async function createDraftCustomerInvoice(
   const invDate = invoiceDate || today;
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
-
-  // Find project from client (optional). Wrap in a SAVEPOINT — without it,
-  // a failed read here poisons the request-scoped tx (set up by withAuth for
-  // RLS) and every subsequent statement in this handler returns "current
-  // transaction is aborted, commands ignored until end of transaction block".
-  const projectId: string | null = await withSavepoint('lookup_project', async () => {
-    const projRows = (await sql`
-      SELECT id FROM projects
-       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId}
-       LIMIT 1
-    `) as Row[];
-    return (projRows[0]?.['id'] as string | undefined) ?? null;
-  }).catch(() => null);
 
   // The invoice number comes from the company's configured sequence, and
   // `insertWithReservedNumber` owns the reserve-and-retry loop every other
@@ -167,16 +179,18 @@ export async function createDraftCustomerInvoice(
     },
   );
 
-  for (const item of items) {
+  for (const [i, item] of items.entries()) {
     const qty = item.quantity || 1;
     const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
+    const coding = codings[i]!;
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        cc1_id, cc2_id, bu_id
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id
       ) VALUES (
         ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
+        ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
       )
     `;

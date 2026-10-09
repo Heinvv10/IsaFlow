@@ -30,6 +30,8 @@ import {
 import { lockInvoicesForUpdate, UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
 import { EPS, round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
+import { lockInvoiceCreditNotes } from './creditNotePostingChecks';
+import { recordLateLinkExcess } from './invoiceRevenuePosting';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { underFlowLockBudget } from '../core/rowLockBudget';
@@ -201,6 +203,9 @@ export async function applyCreditNoteToInvoice(
     throw new Error('Credit note must be approved before applying');
   }
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
+  // Next lock after the note row, before the invoice's: approveCreditNote's order (ar/.claude.md), so the
+  // allocation rows an approval of another note on this invoice reads cannot change under it.
+  await lockInvoiceCreditNotes(invoiceId);
 
   // ...and the invoice SECOND, also locked. Without FOR UPDATE, `outstanding`
   // below is derived from a row another request may already be changing, and
@@ -267,13 +272,15 @@ export async function applyCreditNoteToInvoice(
   const appliedRows = (await sql`
     UPDATE credit_notes
     SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount))},
-        customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW(),
+        customer_invoice_id = COALESCE(customer_invoice_id, ${invoiceId}::UUID), updated_at = NOW(),
         applied_amount = ${nowApplied}
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];
   const updated = appliedRows[0];
   if (!updated) throw new Error(`Credit note ${creditNoteId} vanished while being applied.`);
+  // A note unlinked until now took nothing from this invoice's legs: record so, or it would be replayed.
+  await recordLateLinkExcess(companyId, cn, invoiceId);
 
   log.info('Applied credit note to invoice', { creditNoteId, invoiceId, applyAmount, userId }, 'accounting');
   return mapRow(updated);
