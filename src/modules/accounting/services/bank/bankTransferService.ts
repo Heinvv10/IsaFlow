@@ -8,20 +8,24 @@
  * its own header at status 'posted' with a TXF- number from an unlocked MAX + 1, and columns that do not exist.
  *
  * Both accounts must be bank accounts (isBankSubtype). It is still a journal a person composed, with no bank line as
- * evidence: under manual_journal enforcement a rule matching the amount refuses it, from reads, before the first
- * write (409) — as a hand-keyed bank line transferred to another bank account is (bankLineJournalGate, R-035 PR6
- * round 4: any account can be relabelled bank). manualJournalApprovalCensus lists it GATED.
+ * evidence (R-035 PR6 round 4: any account can be relabelled bank), so under manual_journal enforcement a rule
+ * matching its amount HOLDS it (Hein, forensic-controls step 2, decision 6 — it used to be refused 409): the transfer
+ * is saved as a DRAFT journal, marked manual_journal, and an approval request is raised as the person — the
+ * manual-journal draft -> request -> approve -> post flow (journal-entries-action posts it once another member
+ * approves). manualJournalApprovalCensus lists it GATED (draft + request).
  *
- * Refused from a Login-as (impersonation) session before anything is read (R-032 L5).
+ * Refused from a Login-as (impersonation) session before anything is read (R-032 L5) — so a held transfer's request
+ * is always raised by the person themselves.
  *
  * The caller runs this inside a savepoint (withJournalDateRefusal): a refusal raised after the draft exists rolls the
- * draft back with it.
+ * draft (and its request) back with it.
  */
 import { sql } from '@/lib/neon';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { DbRow } from '@/lib/neon';
 import { isBankSubtype } from '../gl/accountSubtypes';
-import { newManualJournalRefusal } from '../gl/manualJournalApproval';
+import { markManualJournal, newManualJournalGate } from '../gl/manualJournalApproval';
+import { requestApproval } from '../gl/approvalDocuments';
 import { findTransferRecordedFromStatement } from './transferDuplicateGuard';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import type { JournalEntry } from '../../types/gl.types';
@@ -57,11 +61,13 @@ export interface BankTransferInput {
   confirmDuplicate?: boolean;
 }
 
-export interface BankTransferResult {
-  entry: JournalEntry;
-  fromName: string;
-  toName: string;
-}
+/**
+ * Posted at once, or — under manual-journal enforcement, a rule matching its amount — held: `entry` is the draft
+ * journal and `requestId` the approval request raised for it as the person.
+ */
+export type BankTransferResult = { entry: JournalEntry; fromName: string; toName: string } & (
+  | { status: 'posted' }
+  | { status: 'awaiting_approval'; requestId: string; requiredRole: string | null });
 
 export async function postBankTransfer(
   companyId: string, input: BankTransferInput, userId: string,
@@ -87,25 +93,36 @@ export async function postBankTransfer(
       companyId, input.fromAccountId, input.toAccountId, input.amount, input.transferDate);
     if (recorded) throw new PossibleDuplicateTransferError(recorded);
   }
-  const refusal = await newManualJournalRefusal(companyId, input.amount, (role, rule, amountText) =>
-    `A bank transfer is a journal a person composed, so transferring ${amountText} needs ${role} approval before it `
-    + `can be posted (rule: ${rule}). Record it as a journal through Journal Entries and submit it for approval; when `
-    + 'the bank statement shows it, match the statement line to that journal rather than allocating it as a transfer.');
-  if (refusal) throw refusal;
   const fromName = String(from.account_name);
   const toName = String(to.account_name);
   const label = `Transfer: ${fromName} -> ${toName}`;
+  const lines = [
+    { glAccountId: input.toAccountId, debit: input.amount, credit: 0, description: `Transfer from ${fromName}` },
+    { glAccountId: input.fromAccountId, debit: 0, credit: input.amount, description: `Transfer to ${toName}` },
+  ];
+  // Decided from reads, before the draft exists: enforcement on and an active rule matching the amount — exactly
+  // what refused this transfer before decision 6.
+  const gate = await newManualJournalGate(companyId, lines);
 
+  // The source stays auto_bank_transfer for a held draft too. The manual-journal gate, the approval request and the
+  // journal-entries-action post accept any draft whatever its source (gateManualJournalPost: "ANY draft"), so the
+  // approved draft posts by the ordinary route; once posted it is a Transfers-page journal to transferDuplicateGuard
+  // (auto_bank_transfer with a reference), so its statement line allocated as a transfer is refused (match it
+  // instead); and findTransferRecordedFromStatement reads only POSTED auto_bank_transfer journals with NO reference,
+  // so the draft is never mistaken for a transfer the statement recorded. Residual, as for any unposted journal:
+  // until it posts, the guard does not see it — the message says to match the statement line to it.
   const draft = await createJournalEntry(companyId, {
     entryDate: input.transferDate,
     description: input.reference || label,
     reference: label,
     source: 'auto_bank_transfer',
-    lines: [
-      { glAccountId: input.toAccountId, debit: input.amount, credit: 0, description: `Transfer from ${fromName}` },
-      { glAccountId: input.fromAccountId, debit: 0, credit: input.amount, description: `Transfer to ${toName}` },
-    ],
+    lines,
   }, userId);
-  const entry = await postJournalEntry(companyId, draft.id, userId);
-  return { entry, fromName, toName };
+  if (!gate.held) {
+    const entry = await postJournalEntry(companyId, draft.id, userId);
+    return { status: 'posted', entry, fromName, toName };
+  }
+  await markManualJournal(companyId, draft.id);
+  const request = await requestApproval(companyId, { documentType: 'manual_journal', documentId: draft.id, requestedBy: userId });
+  return { status: 'awaiting_approval', entry: draft, fromName, toName, requestId: request.id, requiredRole: request.requiredRole };
 }
