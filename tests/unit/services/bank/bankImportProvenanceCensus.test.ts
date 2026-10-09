@@ -233,7 +233,7 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
 });
 
 describe('6. every route that can raise a bank-control refusal answers it (blind review #684 MEDIUM-1)', () => {
-  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|lockJournalCashForGlReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument)\(/;
+  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|lockJournalCashForGlReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument|reverseBatch|assertMayReverseMatchedLeg|voidProvisionalSettlement|voidSettlementDocument|assertMayReverse)\(/;
   const EXEMPT: Record<string, RegExp> = {
     // A per-item answer: the refused id carries its reason, the batch goes on.
     'pages/api/accounting/supplier-invoices-bulk-action.ts': /err instanceof BankControlError \? \{ reason: err\.code \}/,

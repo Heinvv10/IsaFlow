@@ -2,7 +2,7 @@ Bank controls step 2 — slice a (importer != allocator; reversal gating): mutat
 Each guard was neutralised in place (one textual change), the named test run against the disposable
 fixture (127.0.0.1:55996, .fixture/env.sh), the failure recorded, and the file restored. Never committed mutated.
 Branch feat/bank-controls-step2-a. Harness: a python driver applying exactly the 'mutation' line shown.
-Run 2026-10-09. All 43 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684, 1 TOCTOU, 4 blind review round 3, 4 breaker round 2).
+Run 2026-10-09. All 44 mutations went RED (21 slice-a guards, 7 breaker #684, 6 blind review #684, 1 TOCTOU, 4 blind review round 3, 4 breaker round 2, 1 blind review round 4).
 
 ## 0. importer check: service throw (allocateTransaction)
 mutation: src/modules/accounting/services/bank/bankAllocationService.ts: `await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);` -> `if (false) await assertImporterMayAllocateAs(companyId, tx, userId, allocType, entityId);`
@@ -360,3 +360,15 @@ command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-
 result: Tests  1 failed | 3 skipped (4)
 failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > a run that names no person is refused before it reads anything (fails closed)
 assertion: AssertionError: promise resolved "{ matched: 1, unmatched: +0, …(5) }" instead of rejecting
+
+# Blind review round 4 (b51bdfbca): batch-payments-action unmapped, run 2026-10-09
+
+## 44. blind round 4: batch-payments-action maps the refusal
+mutation: pages/api/accounting/batch-payments-action.ts: `if (respondIfBankControlRefused(res, err)) return;` -> ``
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-matched-void.int.test.ts -t "batch-payments-action reverse"
+result: Tests  1 failed | 3 skipped (4)
+failing: FAIL  tests/integration/bank-controls-matched-void.int.test.ts > the void of a payment a statement line is matched to > batch-payments-action reverse of a batch a statement line is matched to: its maker 403 with the reason, nothing written
+assertion: AssertionError: {"success":false,"data":null,"message":"You made this allocation, so while supplier-payment approval is on you cannot reverse it yourself. Ask another member to reverse it.","code":"INTERNAL_SERVER_ERROR"}: expected { Object (status, reason, ...) } to match object { status: 403, …(1)
+census: the same mutation (the mapping line deleted) turns tests/unit/services/bank/bankImportProvenanceCensus.test.ts red:
+  'each route calling a service that raises BankControlError maps it ...' — "pages/api/accounting/batch-payments-action.ts
+  must answer BankControlError (respondIfBankControlRefused)" (env -u DATABASE_URL bunx vitest run <that file>).
