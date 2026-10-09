@@ -14,6 +14,7 @@ import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { assertStoredDocumentSettleable } from '../shared/documentCurrency';
 
 type Row = DbRow;
 
@@ -123,6 +124,8 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     WHERE wo.id = ${id} AND wo.company_id = ${companyId}
   `) as Row[];
   if (!woRows[0]) throw new Error('Write-off not found');
+  // FX PR0, before the claim (the first write): a foreign invoice cannot be settled.
+  if (woRows[0].invoice_id) await assertStoredDocumentSettleable(companyId, 'customer_invoice', String(woRows[0].invoice_id));
 
   // CLAIM before anything is posted. What this replaced read
   // `woRows[0].status !== 'draft'` and then posted DR Bad Debt / CR AR (plus

@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CurrencyCodeInvalidError, DocumentCurrencyError, DocumentExchangeRateError, ForeignCurrencyDisabledError,
-  assertPostableCurrency, checkDocumentCurrency,
+  assertPostableCurrency, assertSettleableCurrency, checkDocumentCurrency, ForeignCurrencySettlementError,
 } from '@/modules/accounting/services/shared/documentCurrency';
 
 const off = { functionalCurrency: 'ZAR', fxDocumentsEnabled: false };
@@ -89,5 +89,18 @@ describe('assertPostableCurrency (approve / post / edit of a stored document)', 
   it('passes the functional currency, NULL and blank, and anything once enabled', () => {
     assertPostableCurrency(off, ['ZAR', null, undefined, '', ' ', 'zar'], 'bill');
     assertPostableCurrency(on, ['USD', 'EUR'], 'bill');
+  });
+});
+
+describe('assertSettleableCurrency (settling a stored document)', () => {
+  it('refuses a foreign code whatever the switch, naming the currency', () => {
+    for (const company of [off, on]) {
+      expect(() => assertSettleableCurrency(company, ['USD'], 'invoice')).toThrow(ForeignCurrencySettlementError);
+      expect(() => assertSettleableCurrency(company, ['ZAR', ' eur '], 'bill')).toThrow(/This bill is in EUR/);
+    }
+  });
+
+  it('passes the functional currency, NULL and blank', () => {
+    assertSettleableCurrency(on, ['ZAR', null, undefined, '', ' ', 'zar'], 'credit note');
   });
 });

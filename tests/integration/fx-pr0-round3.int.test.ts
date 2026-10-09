@@ -182,7 +182,7 @@ describe('invoicesPayable', () => {
     const attempt = invoicesPayable(c, [{ invoice_number: 'INV-FX3', currency_code: 'USD' }]);
     await expect(attempt).rejects.toBeInstanceOf(ReceiptRefusal);
     await expect(invoicesPayable(c, [{ invoice_number: 'INV-FX3', currency_code: 'USD' }]))
-      .rejects.toThrow(/Invoice INV-FX3 cannot take this receipt: USD invoices are not enabled/);
+      .rejects.toThrow(/Invoice INV-FX3 cannot take this receipt: This invoice is in USD, and settling a foreign-currency invoice is not supported yet/);
     await expect(invoicesPayable(c, [{ invoice_number: 'INV-ZAR', currency_code: ' ' }])).resolves.toHaveLength(1);
   });
 });

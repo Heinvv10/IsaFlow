@@ -21,6 +21,11 @@
  *   is off. The database refuses the same (fx_document_currency_gate); this
  *   answers first, with a 400.
  *
+ * SETTLING a foreign document (amount_paid, a credit note's applied_amount)
+ * is refused whatever the switch (`assertSettleableCurrency`): until FX PR3
+ * the ledger cannot carry a foreign balance's movements, and
+ * fx_settlement_refusal refuses the same, unconditionally, in the database.
+ *
  * Credit notes are created with no currency input at all (the column takes
  * its 'ZAR' default), so creation has nothing to check here; a note linked
  * to a foreign invoice is refused by creditNoteLinkService instead.
@@ -62,6 +67,14 @@ export class ForeignCurrencyDisabledError extends DocumentCurrencyError {
     super(`${currencyCode} ${noun}s are not enabled for this company yet. To issue it in ${functionalCurrency}, `
       + `re-enter its amounts in ${functionalCurrency} — changing only the currency would book the ${currencyCode} figures as ${functionalCurrency}.`);
     this.name = 'ForeignCurrencyDisabledError';
+  }
+}
+
+export class ForeignCurrencySettlementError extends DocumentCurrencyError {
+  readonly code = 'FOREIGN_CURRENCY_SETTLEMENT';
+  constructor(currencyCode: string, noun: string) {
+    super(`This ${noun} is in ${currencyCode}, and settling a foreign-currency ${noun} is not supported yet.`);
+    this.name = 'ForeignCurrencySettlementError';
   }
 }
 
@@ -108,6 +121,12 @@ export function assertPostableCurrency(company: CompanyCurrency, storedCodes: re
   if (foreign) throw new ForeignCurrencyDisabledError(foreign, company.functionalCurrency, noun);
 }
 
+/** The pure rule for SETTLING a stored document: refused while any of its currency columns is foreign, whatever the switch. */
+export function assertSettleableCurrency(company: CompanyCurrency, storedCodes: readonly unknown[], noun: string): void {
+  const foreign = storedCodes.map(storedCode).find((c) => c !== null && c !== company.functionalCurrency);
+  if (foreign) throw new ForeignCurrencySettlementError(foreign, noun);
+}
+
 /** The company's functional currency and switch. `q` is the caller's transaction when it has one. */
 export async function loadCompanyCurrency(companyId: string, q: Query = sql): Promise<CompanyCurrency> {
   const rows = (await q`
@@ -139,17 +158,45 @@ export async function assertDocumentPostable(companyId: string, storedCodes: rea
  * own read answers "not found".
  */
 export async function assertStoredDocumentPostable(
-  companyId: string, kind: 'customer_invoice' | 'supplier_invoice' | 'credit_note', id: string,
+  companyId: string, kind: StoredDocumentKind, id: string,
 ): Promise<void> {
+  const row = await storedCurrencyRow(companyId, kind, id);
+  if (row) await assertDocumentPostable(companyId, row.codes, row.noun);
+}
+
+/** {@link assertSettleableCurrency} for a document read by id; absent rows pass, as above. */
+export async function assertStoredDocumentSettleable(
+  companyId: string, kind: StoredDocumentKind, id: string,
+): Promise<void> {
+  const row = await storedCurrencyRow(companyId, kind, id);
+  if (row) assertSettleableCurrency(await loadCompanyCurrency(companyId), row.codes, row.noun);
+}
+
+/** Whether every one of `docs` may be settled: for the paths that leave a foreign document unapplied rather than refuse. */
+export async function storedDocumentsSettleable(
+  companyId: string, docs: readonly (readonly [StoredDocumentKind, string])[],
+): Promise<boolean> {
+  const company = await loadCompanyCurrency(companyId);
+  for (const [kind, id] of docs) {
+    const row = await storedCurrencyRow(companyId, kind, id);
+    if (row && row.codes.map(storedCode).some((c) => c !== null && c !== company.functionalCurrency)) return false;
+  }
+  return true;
+}
+
+type StoredDocumentKind = 'customer_invoice' | 'supplier_invoice' | 'credit_note';
+
+async function storedCurrencyRow(
+  companyId: string, kind: StoredDocumentKind, id: string,
+): Promise<{ codes: unknown[]; noun: string } | null> {
   const rows = (kind === 'supplier_invoice'
     ? await sql`SELECT currency_code, currency FROM supplier_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
     : kind === 'customer_invoice'
       ? await sql`SELECT currency_code FROM customer_invoices WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
       : await sql`SELECT currency FROM credit_notes WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as Record<string, unknown>[];
   const row = rows[0];
-  if (!row) return;
-  const noun = kind === 'supplier_invoice' ? 'bill' : kind === 'customer_invoice' ? 'invoice' : 'credit note';
-  await assertDocumentPostable(companyId, Object.values(row), noun);
+  if (!row) return null;
+  return { codes: Object.values(row), noun: kind === 'supplier_invoice' ? 'bill' : kind === 'customer_invoice' ? 'invoice' : 'credit note' };
 }
 
 /**
@@ -198,3 +245,8 @@ export const billForeignCurrencySql = () => sql`((
   SELECT COALESCE(NULLIF(upper(btrim(si.currency_code)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
       OR COALESCE(NULLIF(upper(btrim(si.currency)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
   FROM companies co WHERE co.id = si.company_id) IS NOT FALSE)`;
+
+/** {@link invoiceForeignCurrencySql} for the credit note aliased `cn`: automatic settlement leaves it out. */
+export const creditNoteForeignCurrencySql = () => sql`((
+  SELECT COALESCE(NULLIF(upper(btrim(cn.currency)), ''), co.functional_currency) IS DISTINCT FROM co.functional_currency
+  FROM companies co WHERE co.id = cn.company_id) IS NOT FALSE)`;

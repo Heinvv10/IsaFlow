@@ -106,10 +106,10 @@ describe('AR receipts against a foreign invoice', () => {
       clientId: invoice.customerId, paymentDate: '2026-09-15', totalAmount: 100,
       allocations: [{ invoiceId: invoice.id, amount: 100 }] }, '/api/accounting/customer-payments');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-    expect(messageOf(res)).toMatch(/cannot take this receipt: USD invoices are not enabled/);
+    expect(messageOf(res)).toMatch(/cannot take this receipt: This invoice is in USD, and settling a foreign-currency invoice is not supported yet/);
     expect((await pool.query('SELECT count(*)::INT AS n FROM customer_payments WHERE company_id = $1', [c])).rows[0].n).toBe(0);
     await expect(inTx(c, () => planAllocationLines(c, [{ invoiceId: invoice.id, amount: 10 }], { paymentId: null, customerId: null })))
-      .rejects.toThrow(/cannot take this receipt: USD invoices are not enabled/);
+      .rejects.toThrow(/cannot take this receipt: This invoice is in USD, and settling a foreign-currency invoice is not supported yet/);
   });
 
   it('bank-match suggestions leave foreign invoices and bills out', async () => {
@@ -146,7 +146,7 @@ describe('the supplier legacy `currency` column alone makes a bill foreign', () 
       supplierId: paid.supplierId, paymentDate: '2026-09-15', totalAmount: 100, reference: 'FX2',
       allocations: [{ invoiceId: paid.id, amount: 100 }] }, '/api/accounting/supplier-payments');
     expect(pay.state.statusCode).toBe(400);
-    expect(messageOf(pay)).toMatch(/cannot be paid: USD bills are not enabled/);
+    expect(messageOf(pay)).toMatch(/cannot be paid: This bill is in USD, and settling a foreign-currency bill is not supported yet/);
     const approve = await ap.approveBill(owner, c, draft.id);
     expect(approve.state.statusCode).toBe(400);
     expect(messageOf(approve)).toMatch(DISABLED);

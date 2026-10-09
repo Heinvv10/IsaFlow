@@ -15,7 +15,10 @@ export function documentCurrencyMock(original: DocumentCurrencyModule): Document
     assertDocumentPostable: async () => undefined,
     assertStoredDocumentPostable: async () => undefined,
     assertJournalDocumentsPostable: async () => undefined,
+    assertStoredDocumentSettleable: async () => undefined,
+    storedDocumentsSettleable: async () => true,
     invoiceForeignCurrencySql: (() => 'false') as unknown as DocumentCurrencyModule['invoiceForeignCurrencySql'],
     billForeignCurrencySql: (() => 'false') as unknown as DocumentCurrencyModule['billForeignCurrencySql'],
+    creditNoteForeignCurrencySql: (() => 'false') as unknown as DocumentCurrencyModule['creditNoteForeignCurrencySql'],
   };
 }

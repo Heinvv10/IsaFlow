@@ -85,13 +85,21 @@ export async function editDraftCustomerInvoice(
     // legacy foreign draft is refused here (400) whatever the edit, rather than
     // by the database gate on the way out.
     let nextCode: string | null = null;
+    const company = await loadCompanyCurrency(companyId, tx);
     try {
-      const checked = checkDocumentCurrency(await loadCompanyCurrency(companyId, tx),
+      const checked = checkDocumentCurrency(company,
         fxCode ?? ownedRows[0]!.currency_code, fxRateOverride ?? existingRate, 'invoice');
       if (fxCode !== null) nextCode = checked.currencyCode;
     } catch (err) {
       if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
       throw err;
+    }
+    // A currency change relabels every figure the invoice holds: without its lines
+    // re-entered, a legacy USD draft relabelled ZAR would post its USD amounts as rands.
+    const storedCode = String(ownedRows[0]!.currency_code ?? '').trim().toUpperCase() || company.functionalCurrency;
+    if (nextCode !== null && nextCode !== storedCode && !items) {
+      return { kind: 'currency_refused' as const, message: `Changing this invoice from ${storedCode} to ${nextCode} `
+        + `needs its lines re-entered in ${nextCode} — changing only the currency would book the ${storedCode} figures as ${nextCode}.` };
     }
 
     // Defence-in-depth: clientId must belong to the same tenant. The FK
@@ -179,8 +187,8 @@ export async function editDraftCustomerInvoice(
              subtotal = COALESCE(${computed?.subtotal ?? null}, subtotal),
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),
-             functional_total = CASE WHEN ${computed !== null}::BOOLEAN
-               THEN public.fx_functional(${computed?.total ?? null}::NUMERIC(15,2),
+             functional_total = CASE WHEN ${computed !== null || fxRateOverride !== null}::BOOLEAN
+               THEN public.fx_functional(COALESCE(${computed?.total ?? null}::NUMERIC(15,2), total_amount),
                                          COALESCE(${fxRateOverride}::NUMERIC(18,6), NULLIF(exchange_rate, 0), 1))
                ELSE functional_total END,
              currency_code = COALESCE(${nextCode}, currency_code),

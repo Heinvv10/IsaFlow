@@ -21,12 +21,13 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import {
   applyCreditNote,
   deriveCreditNoteStatus,
+  type CreditNoteApplication,
   type CreditNoteAutoApply,
 } from '../shared/creditNoteFifo';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
-import { assertStoredDocumentPostable } from '../shared/documentCurrency';
+import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /**
@@ -154,7 +155,11 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application = await applyCreditNote({
+    // FX PR0: settlement leaves a foreign note, or the foreign document it is linked to, unapplied (the note still posts).
+    const settles = await storedDocumentsSettleable(companyId, [['credit_note', id], ...(linked ? [[linkedType, String(linked)] as const] : [])]);
+    const application: CreditNoteApplication = !settles
+      ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
+      : await applyCreditNote({
       companyId,
       creditNoteId: id,
       side,

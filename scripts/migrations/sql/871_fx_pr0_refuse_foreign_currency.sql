@@ -31,7 +31,8 @@
 --      into one, or POSTED in one — entering the posted population, or taking
 --      its journal link (fx_document_currency_gate).
 --   8. No amount_paid may be written on a foreign-currency invoice or bill,
---      on INSERT (importers) or UPDATE (every settlement writer)
+--      nor applied_amount on a foreign credit note, on INSERT (importers) or
+--      UPDATE (every settlement writer), whatever the switch
 --      (fx_settlement_refusal). Temporary: PR3 replaces the UPDATE arm with
 --      the carrying-movement trigger; the INSERT arm stays (imports are ZAR).
 --   9. Grants and the owner assertion.
@@ -46,6 +47,8 @@
 -- Re-runnable: IF NOT EXISTS, CREATE OR REPLACE, DROP TRIGGER IF EXISTS.
 
 -- ── 1. Pre-checks and the lock bound ───────────────────────────────────────
+-- SET LOCAL holds because apply-migrations.ts runs each file in its own
+-- BEGIN/COMMIT; run by hand, wrap the file in one (psql -1) or it is a no-op.
 SET LOCAL lock_timeout = '5s';
 
 DO $$
@@ -63,6 +66,17 @@ BEGIN
   FROM (SELECT id, currency FROM bank_accounts WHERE currency <> 'ZAR' ORDER BY id LIMIT 20) b;
   IF v_rows IS NOT NULL THEN
     RAISE EXCEPTION 'migration 871: bank_accounts not in ZAR (first 20): %. Correct them before the CHECK.', v_rows;
+  END IF;
+  -- customer_invoices.currency (211) is legacy: nothing writes it and some
+  -- databases lack it. Where it exists it must not already hold a foreign code.
+  IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'customer_invoices'::regclass
+             AND attname = 'currency' AND NOT attisdropped) THEN
+    EXECUTE $q$SELECT string_agg(id::TEXT || '=' || currency, ', ') FROM (SELECT id, currency FROM customer_invoices
+      WHERE NULLIF(upper(btrim(currency)), '') IS DISTINCT FROM 'ZAR' AND NULLIF(btrim(currency), '') IS NOT NULL
+      ORDER BY id LIMIT 20) x$q$ INTO v_rows;
+    IF v_rows IS NOT NULL THEN
+      RAISE EXCEPTION 'migration 871: customer_invoices.currency not ZAR (first 20): %. Correct them first.', v_rows;
+    END IF;
   END IF;
 END $$;
 
@@ -147,7 +161,8 @@ DECLARE
   v_codes pg_catalog.text[];
 BEGIN
   IF TG_TABLE_NAME = 'customer_invoices' THEN
-    v_codes := ARRAY[NEW.currency_code];
+    -- `currency` (211) only where the column exists: to_jsonb reads it as NULL otherwise.
+    v_codes := ARRAY[NEW.currency_code, pg_catalog.to_jsonb(NEW) ->> 'currency'];
   ELSIF TG_TABLE_NAME = 'supplier_invoices' THEN
     v_codes := ARRAY[NEW.currency_code, NEW.currency];
   ELSE
@@ -186,6 +201,22 @@ CREATE TRIGGER trg_customer_invoice_fx_gate_upd
         AND COALESCE(NEW.status, '') NOT IN ('draft', 'pending_approval', 'cancelled'))
     OR (OLD.gl_journal_entry_id IS NULL AND NEW.gl_journal_entry_id IS NOT NULL))
   EXECUTE FUNCTION public.fx_document_currency_gate();
+-- Where the legacy `currency` column exists, a change of it fires the gate too.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'customer_invoices'::regclass
+             AND attname = 'currency' AND NOT attisdropped) THEN
+    EXECUTE $t$DROP TRIGGER IF EXISTS trg_customer_invoice_fx_gate_upd ON customer_invoices;
+      CREATE TRIGGER trg_customer_invoice_fx_gate_upd
+        BEFORE UPDATE OF currency_code, currency, status, gl_journal_entry_id ON customer_invoices
+        FOR EACH ROW WHEN (
+          OLD.currency_code IS DISTINCT FROM NEW.currency_code
+          OR OLD.currency IS DISTINCT FROM NEW.currency
+          OR (COALESCE(OLD.status, '') IN ('draft', 'pending_approval', 'cancelled')
+              AND COALESCE(NEW.status, '') NOT IN ('draft', 'pending_approval', 'cancelled'))
+          OR (OLD.gl_journal_entry_id IS NULL AND NEW.gl_journal_entry_id IS NOT NULL))
+        EXECUTE FUNCTION public.fx_document_currency_gate()$t$;
+  END IF;
+END $$;
 
 DROP TRIGGER IF EXISTS trg_supplier_invoice_fx_gate ON supplier_invoices;
 DROP TRIGGER IF EXISTS trg_supplier_invoice_fx_gate_ins ON supplier_invoices;
@@ -221,7 +252,10 @@ CREATE TRIGGER trg_credit_note_fx_gate_upd
 -- ── 8. The settlement refusal ──────────────────────────────────────────────
 -- INSERT arm: an importer writing a non-zero amount_paid. UPDATE arm: any
 -- change of amount_paid, up or down, whatever wrote it — the census of those
--- writers has been wrong five times, which is why this is a trigger.
+-- writers has been wrong five times, which is why this is a trigger. A credit
+-- note's applied_amount the same: a foreign note applied to a ZAR invoice
+-- passes the invoice's arm. Unconditional — the switch does not enable
+-- settlement (FX PR3 replaces these arms); reversals are refused too.
 CREATE OR REPLACE FUNCTION public.fx_settlement_refusal() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
@@ -231,8 +265,10 @@ DECLARE
 BEGIN
   IF TG_TABLE_NAME = 'supplier_invoices' THEN
     v_codes := ARRAY[NEW.currency_code, NEW.currency];
+  ELSIF TG_TABLE_NAME = 'customer_invoices' THEN
+    v_codes := ARRAY[NEW.currency_code, pg_catalog.to_jsonb(NEW) ->> 'currency'];
   ELSE
-    v_codes := ARRAY[NEW.currency_code];
+    v_codes := ARRAY[NEW.currency];
   END IF;
   IF NEW.company_id IS NOT NULL AND public.fx_row_is_foreign(NEW.company_id, v_codes) THEN
     RAISE EXCEPTION 'FX_SETTLEMENT_REFUSED: % % is in % — settling a foreign-currency document is not supported yet',
@@ -250,7 +286,7 @@ CREATE TRIGGER trg_customer_invoice_fx_settle_ins
 DROP TRIGGER IF EXISTS trg_customer_invoice_fx_settle_upd ON customer_invoices;
 CREATE TRIGGER trg_customer_invoice_fx_settle_upd
   BEFORE UPDATE OF amount_paid ON customer_invoices
-  FOR EACH ROW WHEN (OLD.amount_paid IS DISTINCT FROM NEW.amount_paid)
+  FOR EACH ROW WHEN (COALESCE(OLD.amount_paid, 0) IS DISTINCT FROM COALESCE(NEW.amount_paid, 0))
   EXECUTE FUNCTION public.fx_settlement_refusal();
 DROP TRIGGER IF EXISTS trg_supplier_invoice_fx_settle_ins ON supplier_invoices;
 CREATE TRIGGER trg_supplier_invoice_fx_settle_ins
@@ -260,7 +296,17 @@ CREATE TRIGGER trg_supplier_invoice_fx_settle_ins
 DROP TRIGGER IF EXISTS trg_supplier_invoice_fx_settle_upd ON supplier_invoices;
 CREATE TRIGGER trg_supplier_invoice_fx_settle_upd
   BEFORE UPDATE OF amount_paid ON supplier_invoices
-  FOR EACH ROW WHEN (OLD.amount_paid IS DISTINCT FROM NEW.amount_paid)
+  FOR EACH ROW WHEN (COALESCE(OLD.amount_paid, 0) IS DISTINCT FROM COALESCE(NEW.amount_paid, 0))
+  EXECUTE FUNCTION public.fx_settlement_refusal();
+DROP TRIGGER IF EXISTS trg_credit_note_fx_settle_ins ON credit_notes;
+CREATE TRIGGER trg_credit_note_fx_settle_ins
+  BEFORE INSERT ON credit_notes
+  FOR EACH ROW WHEN (NEW.applied_amount IS NOT NULL AND NEW.applied_amount <> 0)
+  EXECUTE FUNCTION public.fx_settlement_refusal();
+DROP TRIGGER IF EXISTS trg_credit_note_fx_settle_upd ON credit_notes;
+CREATE TRIGGER trg_credit_note_fx_settle_upd
+  BEFORE UPDATE OF applied_amount ON credit_notes
+  FOR EACH ROW WHEN (COALESCE(OLD.applied_amount, 0) IS DISTINCT FROM COALESCE(NEW.applied_amount, 0))
   EXECUTE FUNCTION public.fx_settlement_refusal();
 
 -- ── 9. Grants and the owner assertion ──────────────────────────────────────

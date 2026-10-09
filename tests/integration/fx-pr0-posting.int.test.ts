@@ -159,12 +159,12 @@ describe('settlement that picks its own documents leaves a foreign one out', () 
       supplierId: bill.supplierId, paymentDate: '2026-09-15', totalAmount: 100, reference: 'FX0',
       allocations: [{ invoiceId: bill.id, amount: 100 }] }, '/api/accounting/supplier-payments');
     expect(pay.state.statusCode, JSON.stringify(pay.state.body)).toBe(400);
-    expect(messageOf(pay)).toMatch(/cannot be paid: USD bills are not enabled/);
+    expect(messageOf(pay)).toMatch(/cannot be paid: This bill is in USD, and settling a foreign-currency bill is not supported yet/);
     const batch = await callRoute(batchPayments, tokens[owner]!, c, 'POST', {
       batchDate: '2026-09-15', payments: [{ supplierId: bill.supplierId, invoiceAllocations: [{ invoiceId: bill.id, amount: 100 }] }],
     }, '/api/accounting/batch-payments');
     expect(batch.state.statusCode, JSON.stringify(batch.state.body)).toBe(400);
-    expect(messageOf(batch)).toMatch(/cannot be paid: USD bills are not enabled/);
+    expect(messageOf(batch)).toMatch(/cannot be paid: This bill is in USD, and settling a foreign-currency bill is not supported yet/);
     const counts = await pool.query(
       `SELECT (SELECT count(*)::INT FROM supplier_payments WHERE company_id = $1) AS p,
               (SELECT count(*)::INT FROM supplier_payment_batches WHERE company_id = $1) AS b`, [c]);
