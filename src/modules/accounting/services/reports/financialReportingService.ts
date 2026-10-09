@@ -5,7 +5,7 @@
  * for backward compatibility.
  */
 
-export { getIncomeStatement } from './incomeStatementService';
+export { getIncomeStatement, getIncomeStatementByDimension } from './incomeStatementService';
 export { getBalanceSheet } from './balanceSheetService';
 export { getVATReturn } from './vatReturnService';
 export { getProjectProfitability } from './projectProfitabilityService';

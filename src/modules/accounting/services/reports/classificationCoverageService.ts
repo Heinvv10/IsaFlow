@@ -96,8 +96,10 @@ export async function getClassificationCoverage(
   periodStart: string,
   periodEnd: string,
   costCentreId?: string,
+  businessUnitId?: string,
 ): Promise<ClassificationCoverage> {
   const ccId = costCentreId ?? null;
+  const buId = businessUnitId ?? null;
   try {
     const rows = (await sql`
       SELECT ga.id AS account_id, ga.account_code, ga.account_name,
@@ -114,7 +116,12 @@ export async function getClassificationCoverage(
         AND je.entry_date >= ${periodStart}::DATE
         AND je.entry_date <= ${periodEnd}::DATE
         AND ga.account_type IN ('revenue', 'expense')
-        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+        -- The same predicate as the figures it qualifies (dimensionPnlService):
+        -- legacy cost centre OR CC1 OR CC2. Matching only cost_center_id left
+        -- the coverage of an FNO-filtered statement empty.
+        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
+          OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+        AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
       GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type, ga.account_subtype
       ORDER BY ga.account_code
     `) as DbRow[];

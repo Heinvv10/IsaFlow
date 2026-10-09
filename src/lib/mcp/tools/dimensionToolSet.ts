@@ -3,6 +3,7 @@
  * one place each (reads with the reads, writes with the writes).
  */
 import { createBusinessUnitTool, createCostCentreTool, listBusinessUnitsTool, listCostCentresTool } from './dimensionMasterTools';
+import { exportGlLinesTool } from './exportGlLines';
 import {
   deleteBusinessUnitTool, deleteCostCentreTool, updateBusinessUnitTool, updateCostCentreTool,
 } from './dimensionMasterEditTools';
@@ -12,7 +13,7 @@ import {
 import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
 import { splitAllocateBankTransactionTool } from './writeBankSplit';
 
-export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool] as const;
+export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool, exportGlLinesTool] as const;
 
 export const DIMENSION_WRITE_TOOLS = [
   createCostCentreTool,
