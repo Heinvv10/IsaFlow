@@ -96,6 +96,11 @@ BEGIN
   -- owner bypasses RLS). None may (adversarial review of PR #689, REPRO 4,
   -- R2-1, R2-2). A security_invoker view checks the caller's own rights
   -- instead, so it erases nothing a caller could not; it is not counted.
+  -- LIMIT (named): each view is judged by its OWN owner's rights on
+  -- audit_log, so a chain with mixed owners — an outer view owned by a role
+  -- with no rights on audit_log, over an inner view an erase-capable owner
+  -- granted it UPDATE on — is not seen. It needs owner-level DDL by two roles;
+  -- the catalogue and migration review are the controls.
   FOR v_role, v_priv IN
     WITH RECURSIVE chain(oid) AS (
       SELECT w.ev_class FROM pg_catalog.pg_depend d JOIN pg_catalog.pg_rewrite w ON w.oid = d.objid
