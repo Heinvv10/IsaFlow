@@ -27,6 +27,11 @@ import {
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { creditNoteRevenueJournalLines, recordCreditNoteRevenueAllocations } from './invoiceRevenuePosting';
+import { creditNoteHeaderOf, creditNoteHeaderTags } from './creditNoteHeaderTags';
+import type { CreditNoteAllocation } from './invoiceRevenueLines';
+import { ArPostingAfterWriteError } from './arErrors';
+import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
@@ -60,10 +65,14 @@ export async function approveCreditNote(
     // refuses here instead.
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
+    // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
+    if (cn.customer_invoice_id) await lockInvoiceCreditNotes(String(cn.customer_invoice_id));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
+    // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
+    const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
     // FX PR0, before any write: the note itself, and the invoice approving it
     // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
     await assertStoredDocumentPostable(companyId, 'credit_note', id);
@@ -71,9 +80,13 @@ export async function approveCreditNote(
       ? ['customer_invoice', cn.customer_invoice_id] as const
       : ['supplier_invoice', cn.supplier_invoice_id] as const;
     if (linked) await assertStoredDocumentPostable(companyId, linkedType, String(linked));
+    // FX PR0: settlement leaves a foreign note, or the foreign document it is linked to, unapplied (the note
+    // still posts). Read here, before the journal: a failure after it is written must not be the route's 400.
+    const settles = await storedDocumentsSettleable(companyId, [['credit_note', id], ...(linked ? [[linkedType, String(linked)] as const] : [])]);
 
     let lines: JournalLineInput[];
-    // The note's CC1/CC2/BU ride on its revenue/expense leg only — never AR/AP/VAT (brief §5.3).
+    let allocations: CreditNoteAllocation[] = [];
+    // A supplier note's CC1/CC2/BU ride on its expense leg only — never AP/VAT (brief §5.3).
     const dims = {
       ...(cn.cc1_id ? { cc1Id: String(cn.cc1_id) } : {}),
       ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
@@ -88,10 +101,10 @@ export async function approveCreditNote(
       const arAccount = await getSystemAccount('receivable', companyId);
       const vatAccount = await getSystemAccount('vat_output', companyId);
 
-      lines = [
-        { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
-          description: `Credit note ${cn.credit_note_number}`, ...dims },
-      ];
+      ({ lines, allocations } = await creditNoteRevenueJournalLines(companyId, {
+        id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
+        customerInvoiceId: cn.customer_invoice_id ? String(cn.customer_invoice_id) : null, tags: headerTags!,
+      }, revenueAccount.id));
       if (Number(cn.tax_amount) > 0 && vatAccount) {
         // Coded 'standard' (2026-09-25): an uncoded VAT leg is a pre-filing
         // exception, and 'standard' is what the VAT201 already read it as.
@@ -133,13 +146,22 @@ export async function approveCreditNote(
     // captured_documents(id) only (migration 409); a credit note's own id
     // would violate it. The credit_note <-> journal entry link is instead
     // persisted below via credit_notes.gl_journal_entry_id.
+    // Refused here, before the draft journal exists, so the route's 400 commits nothing.
+    await assertCreditNoteCanPost(companyId, entryDate, lines);
     const je = await createJournalEntry(companyId, {
       entryDate,
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       lines,
     }, userId, actorMeta(opts), POST_AS_STORED);
-    await postJournalEntry(companyId, je.id, userId);
+    // From here the draft journal is written: a failure is a 5xx (rollback), not the route's 400.
+    const noteNumber = String(cn.credit_note_number);
+    await afterJournalWritten(noteNumber, () => postJournalEntry(companyId, je.id, userId));
+    // What this note took per invoice leg: the next note's capacity is read from it.
+    if (allocations.length > 0 && cn.customer_invoice_id) {
+      const invoiceId = String(cn.customer_invoice_id);
+      await afterJournalWritten(noteNumber, () => recordCreditNoteRevenueAllocations(companyId, id, invoiceId, allocations));
+    }
 
     // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
     // document it names first, capped at that document's outstanding balance,
@@ -155,11 +177,9 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    // FX PR0: settlement leaves a foreign note, or the foreign document it is linked to, unapplied (the note still posts).
-    const settles = await storedDocumentsSettleable(companyId, [['credit_note', id], ...(linked ? [[linkedType, String(linked)] as const] : [])]);
     const application: CreditNoteApplication = !settles
       ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
-      : await applyCreditNote({
+      : await afterJournalWritten(noteNumber, () => applyCreditNote({
       companyId,
       creditNoteId: id,
       side,
@@ -171,27 +191,27 @@ export async function approveCreditNote(
         ? (cn.customer_invoice_id ? String(cn.customer_invoice_id) : null)
         : (cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null),
       autoApply: opts?.autoApply ?? 'fifo',
-    });
+    }));
     const appliedAmount = application.appliedAmount;
 
     // DERIVED from what was consumed, never chosen: 'partially_applied' is the
     // state a note spread across some but not all of its face value is in, and
     // it is the state every statement and ledger reader now distinguishes.
     const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount));
-    const updatedRows = (await sql`
+    const updatedRows = (await afterJournalWritten(noteNumber, () => sql`
       UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
         approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
         applied_amount = ${appliedAmount}
       WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
       RETURNING *
-    `) as Record<string, unknown>[];
+    `)) as Record<string, unknown>[];
     // The `status = 'draft'` predicate is a second fence behind the row lock
     // above, not a substitute for it: the lock is what stops two approvals
     // building a journal in parallel, but if a future caller ever reaches this
     // UPDATE without holding it, refusing here beats stamping a second journal
     // onto an already-approved note.
     if (updatedRows.length === 0) {
-      throw new Error(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
+      throw new ArPostingAfterWriteError(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
     }
     const updated = updatedRows[0] as Record<string, unknown>;
 

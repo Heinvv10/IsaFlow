@@ -12,6 +12,7 @@ import {
   updateQuoteStatus, convertToInvoice, convertToSalesOrder, QuoteConvertedError,
 } from '@/modules/accounting/services/ar/quoteService';
 import { QuoteNotConvertibleError, QuoteNotInvoiceableError } from '@/modules/accounting/services/ar/quoteConvertService';
+import { InvoiceLineCodingRefusal } from '@/modules/accounting/services/ar/invoiceLineCoding';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
@@ -52,6 +53,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // invoice id is handed back so the client can open it. The refusal is
         // raised before the sequence is touched, so this 4xx (which `withAuth`
         // COMMITs) commits nothing.
+        // A line account the invoice could never post to: refused before the claim, so nothing is written.
+        if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
         if (err instanceof QuoteNotInvoiceableError) {
           return apiResponse.conflict(res, err.message, {
             quoteStatus: err.quoteStatus,
