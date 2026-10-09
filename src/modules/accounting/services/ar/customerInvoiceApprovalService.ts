@@ -19,6 +19,7 @@ import { assertApprovalCleared } from '../gl/approvalGate';
 import { storedInvoiceLinesRefusal } from './invoiceLineCodingGuard';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
 import { ArPostingAfterWriteError } from './arErrors';
+import { assertDocumentPostable } from '../shared/documentCurrency';
 
 type Row = DbRow;
 
@@ -147,7 +148,7 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status FROM customer_invoices
+      SELECT status, currency_code FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])
       FOR NO KEY UPDATE
@@ -156,13 +157,15 @@ export async function approveCustomerInvoice(
     if (isLockTimeout(err)) throw new CustomerInvoiceLockTimeoutError(`Customer invoice ${invoiceId}`);
     throw err;
   }
-  if (locked[0]) await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
-  // Line coding (migration 874): an account deactivated, a cost centre retired
-  // or lines that no longer add up since the draft was saved. Refused HERE,
-  // under the row lock and before the guarded UPDATE, so the 400 this answers
-  // has written nothing — the same check inside postCustomerInvoiceToGL runs
-  // after the UPDATE and is re-raised below as a 5xx class.
   if (locked[0]) {
+    await assertApprovalCleared(companyId, 'customer_invoice', invoiceId);
+    // FX PR0: under the lock and before the status write, like the approval check.
+    await assertDocumentPostable(companyId, [locked[0].currency_code], 'invoice');
+    // Line coding (migration 874): an account deactivated, a cost centre retired
+    // or lines that no longer add up since the draft was saved. Refused HERE,
+    // under the row lock and before the guarded UPDATE, so the 400 this answers
+    // has written nothing — the same check inside postCustomerInvoiceToGL runs
+    // after the UPDATE and is re-raised below as a 5xx class.
     const lineRefusal = await storedInvoiceLinesRefusal(companyId, invoiceId);
     if (lineRefusal) throw new InvoiceLineCodingRefusal(lineRefusal);
   }
@@ -204,7 +207,8 @@ export async function approveCustomerInvoice(
   // Past the status UPDATE: a line refusal now (a cost centre retired since the
   // check above — projects and cost centres are not locked) must not reach a
   // route as the pre-write 400 it maps InvoiceLineCodingRefusal to.
-  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts).catch((err: unknown) => {
+  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId,
+    { ...opts, approvingFromStatus: String(locked[0]?.status) }).catch((err: unknown) => {
     if (err instanceof InvoiceLineCodingRefusal) throw new ArPostingAfterWriteError(err.message, { cause: err });
     throw err;
   });

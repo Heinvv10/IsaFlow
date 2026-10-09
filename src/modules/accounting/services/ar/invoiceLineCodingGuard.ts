@@ -5,8 +5,8 @@
  * to GL): an account can be deactivated, gain children or be reclassified, and
  * a job cancelled, after the line names it. The line's CC1 / CC2 / BU are the
  * dimensions model's (gl/dimensions): checked at save by its own
- * assertDocumentDimensions, and again here before posting, with the customer's
- * FNO (applyCustomerFno).
+ * assertDocumentDimensions, and again here before posting — as stored: the
+ * customer's FNO is stamped on the lines at save (#675), never filled here.
  *
  * A line credits revenue, so its account must be:
  *  - this company's (`gl_account_id` is a single-column FK: another tenant's
@@ -28,7 +28,6 @@ import {
   InvoiceLineAccountLockError, InvoiceLineCodingRefusal, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
 import { isRevenueCoded, revenueLinesProblem, type StoredRevenueLine } from './invoiceRevenueLines';
-import { applyCustomerFno } from '../gl/dimensions/dimensionDerivation';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 
@@ -181,7 +180,7 @@ export async function storedInvoiceLines(
 /**
  * Why this invoice's STORED lines cannot post, or null: the coding rules
  * against the chart as it is now, the lines' CC1 / CC2 / BU against the
- * masters and the customer's FNO, and lines that do not add up to the
+ * masters, and lines that do not add up to the
  * subtotal. An invoice none of whose lines is coded posts as it always did and
  * is never refused here.
  */
@@ -190,24 +189,30 @@ export async function storedInvoiceLinesRefusal(
   invoiceId: string,
   opts: { lock?: boolean } = {},
 ): Promise<string | null> {
-  return storedLinesRefusal(companyId, await storedInvoiceLines(companyId, invoiceId), opts);
+  return storedLinesRefusal(companyId, await storedInvoiceLines(companyId, invoiceId), { ...opts, approving: true });
 }
 
-/** The same over lines already read. */
+/**
+ * The same over lines already read. `approving`: the CC1 / CC2 / BU are checked
+ * against the masters too — an invoice past draft posts the dimensions it
+ * stores, refusing none (#675, dimensionStoredPosting).
+ */
 export async function storedLinesRefusal(
   companyId: string,
   stored: StoredInvoiceLines | null,
-  opts: { lock?: boolean } = {},
+  opts: { lock?: boolean; approving?: boolean } = {},
 ): Promise<string | null> {
   if (!stored || !stored.lines.some(isRevenueCoded)) return null;
   const coding = await invoiceLineCodingRefusal(companyId, stored.lines, opts);
   if (coding) return `Invoice ${stored.invoiceNumber}: ${coding}${POSTING_HINT}`;
-  try {
-    const lines = applyCustomerFno(stored.lines, stored.customerFnoId, (i) => `line ${i + 1}`);
-    await assertDocumentDimensions(companyId, lines);
-  } catch (err) {
-    if (isDimensionRefusal(err)) return `Invoice ${stored.invoiceNumber}: ${err.message}${POSTING_HINT}`;
-    throw err;
+  if (opts.approving) {
+    try {
+      // As stored (#675): the customer's FNO is on the lines from their save, never filled here.
+      await assertDocumentDimensions(companyId, stored.lines);
+    } catch (err) {
+      if (isDimensionRefusal(err)) return `Invoice ${stored.invoiceNumber}: ${err.message}${POSTING_HINT}`;
+      throw err;
+    }
   }
   const problem = revenueLinesProblem(stored.lines, stored.subtotal);
   return problem ? `Invoice ${stored.invoiceNumber}: ${problem}` : null;

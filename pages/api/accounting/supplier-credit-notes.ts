@@ -19,6 +19,7 @@ import {
   getCreditNotes,
   getCreditNoteById,
   createCreditNote,
+  CreditNoteLinkError,
   approveCreditNote,
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
@@ -33,6 +34,7 @@ import { ReversalBeforeOriginalError } from '@/modules/accounting/services/gl/jo
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError, describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -148,6 +150,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfImpersonationForbidden(res, err)) return;
       // Numbering the note (and, on 'post', its journal) waits on the company+year number lock (migration 858).
       if (respondIfLockTimeout(res, err)) return;
+      // Before any write: a supplier or bill the note may not name (FX PR0 adds a foreign bill).
+      if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
       log.error('supplier-credit-notes POST failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create supplier credit note');
     }
@@ -197,7 +201,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfImpersonationForbidden(res, err)) return;
       // R-035: 'post' refused by the approval gate, under the row lock and before any write.
       if (respondIfApprovalRequired(res, err)) return;
-      if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError) {
+      if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
       // 'reverse' runs under the credit-note cancel's flow lock budget (D8 round 10): 503 + Retry-After.

@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { JournalLineInput } from '../../types/gl.types';
 import { InvoiceLineCodingRefusal } from './invoiceLineCoding';
+import { assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { storedInvoiceLines, storedLinesRefusal } from './invoiceLineCodingGuard';
 import {
   allocateCreditNote, buildInvoiceRevenueLines, isRevenueCoded, type CreditNoteAllocation, type LegTags, type RevenueLeg,
@@ -15,17 +16,22 @@ import {
 /**
  * The invoice's revenue credit legs. `credit` is the amount the journal
  * carries; the stored lines decide only where it goes. An invoice with no
- * coded line gets the single default_revenue leg it always got (tagged with
- * the customer's FNO when it has one).
+ * coded line gets the single default_revenue leg it always got. `status` is
+ * the one the invoice is posted FROM: approving (draft, pending_approval)
+ * refuses a line its customer's or project's FNO would add to, or a dimension
+ * no longer an active master; past draft it posts as stored (#675).
  */
 export async function invoiceRevenueJournalLines(
   companyId: string,
   invoiceId: string,
   invoice: { number: string; documentSubtotal: number; credit: number },
   defaultRevenueAccountId: string,
+  status: string,
 ): Promise<JournalLineInput[]> {
   const stored = await storedInvoiceLines(companyId, invoiceId);
   const lines = stored?.lines ?? [];
+  await assertPostsStoredDimensions(companyId, status, lines,
+    (i) => `Invoice ${invoice.number} line ${i + 1}`, stored?.customerFnoId ?? null);
   if (lines.some(isRevenueCoded)) {
     // Under lock, against the chart as it is now — approve already refused
     // this before its first write; Post to GL and the backfills meet it here,
@@ -39,7 +45,6 @@ export async function invoiceRevenueJournalLines(
     credit: invoice.credit,
     lines,
     defaultRevenueAccountId,
-    customerFnoId: stored?.customerFnoId ?? null,
   });
 }
 

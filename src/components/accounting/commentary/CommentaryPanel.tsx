@@ -18,14 +18,15 @@ import type { SharePackParams } from '@/modules/accounting/services/reports/pack
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] disabled:cursor-not-allowed disabled:opacity-50';
 
 export interface CommentaryPanelProps {
-  sectionRef: string;
+  /** Internal mode: omitted = every section of the pack, grouped. Published mode with none prints nothing. */
+  sectionRef?: string;
   mode: 'internal' | 'published';
   canApprove: boolean;
   params: SharePackParams;
 }
 
 export function CommentaryPanel({ sectionRef, mode, canApprove, params }: CommentaryPanelProps) {
-  const { rows, error, generate, approve, reject } = useCommentary({ params });
+  const { rows, error, generate, approve, reject, refresh } = useCommentary({ params });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [replaceConfirmed, setReplaceConfirmed] = useState(false);
 
@@ -54,6 +55,8 @@ export function CommentaryPanel({ sectionRef, mode, canApprove, params }: Commen
         rows={rows}
         mode={mode}
         onApprove={canApprove ? approve : undefined}
+        onRefresh={canApprove ? refresh : undefined}
+        budgeted={params.type === 'board'}
         onReject={canApprove ? reject : undefined}
       />
       {error && <p className="mt-1 text-xs text-[var(--ff-unfav)]">{error}</p>}

@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertStoredDocumentSettleable } from '../shared/documentCurrency';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
@@ -231,6 +232,10 @@ export async function applyCreditNoteToInvoice(
   if (UNAPPLICABLE_STATUSES.customer.includes(invStatus)) {
     throw new Error(`Cannot apply a credit note to an invoice with status: ${invStatus}`);
   }
+
+  // FX PR0: neither a foreign note nor a foreign invoice can be settled, whatever the switch.
+  await assertStoredDocumentSettleable(companyId, 'credit_note', creditNoteId);
+  await assertStoredDocumentSettleable(companyId, 'customer_invoice', invoiceId);
 
   // The column and the rows must agree before this extends either — an
   // unattributable legacy note is reconciled by hand, never silently extended.

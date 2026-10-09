@@ -63,8 +63,8 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
   it('bank transfers: refusal is shown', async () => {
     const MSG = 'D2 server says no: accounts are in a closed period';
     script((u, m) => (u.endsWith('/bank-transfers') && m === 'POST' ? refuse(MSG, 422) : undefined), {
-      '/chart-of-accounts': { accounts: [
-        { id: 'a1', account_code: '1000', account_name: 'Cheque' }, { id: 'a2', account_code: '1100', account_name: 'Savings' }] },
+      '/chart-of-accounts': [
+        { id: 'a1', accountCode: '1000', accountName: 'Cheque', accountSubtype: 'bank' }, { id: 'a2', accountCode: '1100', accountName: 'Savings', accountSubtype: 'bank' }],
     });
     render(<BankTransfersPage />);
     await screen.findAllByRole('option', { name: /Cheque/ });
@@ -107,7 +107,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
 
   it('business units: create refusal is shown', async () => {
     const MSG = 'D2 server says no: code FIN is already used';
-    script((u, m) => (u.includes('/cost-centres') && m === 'POST' ? refuse(MSG, 409) : undefined), { '/business-units': [] });
+    script((u, m) => (u.endsWith('/api/accounting/business-units') && m === 'POST' ? refuse(MSG, 409) : undefined), { '/business-units': [] });
     render(<BusinessUnitsPage />);
     fireEvent.click(screen.getByRole('button', { name: /new business unit/i }));
     fireEvent.change(screen.getByPlaceholderText('Name *'), { target: { value: 'Finance' } });
@@ -118,7 +118,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
 
   it('business units: edit refusal is shown', async () => {
     const MSG = 'D2 server says no: department is locked by payroll';
-    script((u, m) => (u.includes('/api/departments/') && m === 'PUT' ? refuse(MSG, 409) : undefined), {
+    script((u, m) => (u.endsWith('/api/accounting/business-units-action') && m === 'POST' ? refuse(MSG, 409) : undefined), {
       '/business-units': [{ id: 'd1', name: 'Ops', code: 'OPS', isActive: true }],
     });
     render(<BusinessUnitsPage />);

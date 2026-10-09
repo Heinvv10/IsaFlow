@@ -9,7 +9,8 @@
 -- transactions, never read by posting, no FK). This adds project_id beside it, nullable, under a
 -- foreign key. The posting rules live in src/modules/accounting/services/ar/invoiceRevenueLines.ts;
 -- an invoice none of whose lines names an account, job or CC1/CC2/BU posts the single
--- default_revenue leg it always did (carrying the customer's FNO when it has one, as 870 does).
+-- default_revenue leg it always did. Lines post the CC1 / CC2 / BU they STORE (#675: the
+-- customer's FNO is stamped on them at save).
 --
 -- EXISTING DRAFTS THAT CHANGE: lines that already carry gl_account_id — written, unchecked, by quote
 -- conversion (the quote line's account) and by recurring-transaction templates (the template
@@ -38,13 +39,14 @@
 -- APPROVAL DIGEST. A line's job reaches the journal, so it is approval content: retagging a line
 -- after its approval must stale it (security review, 2026-10-07). The customer_invoice arm of
 -- approval_document_digest gains cii.project_id, in the line array and the ORDER BY, as the
--- supplier arm carries sii.project_id. (870's cc1/cc2/bu are added to the digests by their own
--- fix, which lands first; this body is re-based on it then.)
+-- supplier arm carries sii.project_id.
 --
--- AFTER 869. Migration 869 redefines the WHOLE function (it adds the manual_journal arm), so the
--- CREATE OR REPLACE below is 869's complete body plus this change. Were this applied before 869,
--- 869 would then replace the function without the column and the bypass would return silently —
--- so the first DO block refuses to run until 869's objects exist.
+-- AFTER 873. Migration 873 redefines the WHOLE function (869's body plus CC1 / CC2 / BU), so the
+-- CREATE OR REPLACE below is 873's complete body plus this change. Were this applied before 873,
+-- 873 would then replace the function without the column and the bypass would return silently —
+-- so the first DO block refuses to run until 873's body is the live one. The document tables and
+-- approval_requests are locked first, as 873 locks them, so no edit or request can commit
+-- between the "before" snapshot and the re-bind.
 --
 -- Every customer invoice digest changes (one more element per line, NULL today), so requests
 -- are RE-BOUND as 708 did for its pending supplier-invoice requests: a pending or approved
@@ -75,6 +77,12 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
+-- Every writer of what the snapshot reads is held until COMMIT (873's order and modes); taken
+-- before the ALTER, so customer_invoices is locked before its lines, never after.
+LOCK TABLE public.customer_invoices, public.customer_invoice_items, public.supplier_invoices,
+           public.supplier_invoice_items, public.credit_notes IN SHARE MODE;
+LOCK TABLE public.approval_requests IN SHARE ROW EXCLUSIVE MODE;
+
 ALTER TABLE customer_invoice_items ADD COLUMN IF NOT EXISTS project_id UUID;
 
 CREATE INDEX IF NOT EXISTS idx_cii_project_id
@@ -94,10 +102,9 @@ END $$;
 -- ── Approval digest ────────────────────────────────────────────────────────
 DO $$
 BEGIN
-  IF pg_catalog.to_regprocedure('public.approval_manual_journal_gate_amount(uuid,uuid)') IS NULL
-     OR pg_catalog.pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'::pg_catalog.regprocedure)
-        NOT LIKE '%WHEN ''manual_journal''%' THEN
-    RAISE EXCEPTION 'migration 874: apply migration 869 (PR #660, manual journal approval) first — 874 replaces 869''s approval_document_digest';
+  IF pg_catalog.pg_get_functiondef('public.approval_document_digest(uuid,text,uuid)'::pg_catalog.regprocedure)
+        NOT LIKE '%cii.cc1_id, cii.cc2_id, cii.bu_id%' THEN
+    RAISE EXCEPTION 'migration 874: apply migration 873 (approval digest CC1 / CC2 / BU) first — 874 replaces 873''s approval_document_digest';
   END IF;
 END $$;
 
@@ -148,7 +155,7 @@ CREATE TEMP TABLE r874_before ON COMMIT DROP AS
      OR EXISTS (SELECT 1 FROM public.approval_requests ar
                 WHERE ar.document_type = 'manual_journal' AND ar.document_id = je.id);
 
--- 869's function, verbatim, but for the customer_invoice line array and its ORDER BY.
+-- 873's function, verbatim, but for cii.project_id in the customer_invoice line array and its ORDER BY.
 CREATE OR REPLACE FUNCTION public.approval_document_digest(
   p_company_id pg_catalog.uuid, p_document_type pg_catalog.text, p_document_id pg_catalog.uuid
 ) RETURNS pg_catalog.text
@@ -168,10 +175,11 @@ AS $$
                    sii.gl_account_id, sii.description, trim_scale(sii.quantity),
                    trim_scale(sii.unit_price), trim_scale(sii.tax_rate), trim_scale(sii.tax_amount),
                    trim_scale(sii.line_total), sii.project_id, sii.cost_center_id,
-                   sii.vat_classification)
+                   sii.vat_classification, sii.cc1_id, sii.cc2_id, sii.bu_id)
                  ORDER BY sii.created_at, sii.description, sii.gl_account_id, sii.quantity,
                           sii.unit_price, sii.tax_rate, sii.tax_amount, sii.line_total,
-                          sii.project_id, sii.cost_center_id, sii.vat_classification, sii.id)
+                          sii.project_id, sii.cost_center_id, sii.vat_classification,
+                          sii.cc1_id, sii.cc2_id, sii.bu_id, sii.id)
           FROM public.supplier_invoice_items sii
           WHERE sii.supplier_invoice_id = si.id
         ), '[]'::jsonb)
@@ -184,7 +192,8 @@ AS $$
         cn.type, cn.credit_note_number, cn.client_id, cn.customer_invoice_id,
         cn.supplier_id, cn.supplier_invoice_id, cn.credit_date, cn.currency,
         trim_scale(cn.subtotal), trim_scale(cn.tax_rate), trim_scale(cn.tax_amount),
-        trim_scale(cn.total_amount), cn.project_id, cn.cost_center_id
+        trim_scale(cn.total_amount), cn.project_id, cn.cost_center_id,
+        cn.cc1_id, cn.cc2_id, cn.bu_id
       )::TEXT, 'UTF8')), 'hex')
       FROM public.credit_notes cn
       WHERE cn.id = p_document_id AND cn.company_id = p_company_id AND cn.type = 'customer'
@@ -194,7 +203,8 @@ AS $$
         cn.type, cn.credit_note_number, cn.client_id, cn.customer_invoice_id,
         cn.supplier_id, cn.supplier_invoice_id, cn.credit_date, cn.currency,
         trim_scale(cn.subtotal), trim_scale(cn.tax_rate), trim_scale(cn.tax_amount),
-        trim_scale(cn.total_amount), cn.project_id, cn.cost_center_id
+        trim_scale(cn.total_amount), cn.project_id, cn.cost_center_id,
+        cn.cc1_id, cn.cc2_id, cn.bu_id
       )::TEXT, 'UTF8')), 'hex')
       FROM public.credit_notes cn
       WHERE cn.id = p_document_id AND cn.company_id = p_company_id AND cn.type = 'supplier'
@@ -209,10 +219,10 @@ AS $$
           SELECT jsonb_agg(jsonb_build_array(
                    cii.description, trim_scale(cii.quantity), trim_scale(cii.unit_price),
                    trim_scale(cii.amount), trim_scale(cii.tax_rate), cii.gl_account_id,
-                   cii.project_id, cii.currency_code)
+                   cii.project_id, cii.currency_code, cii.cc1_id, cii.cc2_id, cii.bu_id)
                  ORDER BY cii.created_at, cii.description, cii.quantity, cii.unit_price,
-                          cii.amount, cii.tax_rate, cii.gl_account_id, cii.project_id,
-                          cii.currency_code, cii.id)
+                          cii.amount, cii.tax_rate, cii.gl_account_id, cii.project_id, cii.currency_code,
+                          cii.cc1_id, cii.cc2_id, cii.bu_id, cii.id)
           FROM public.customer_invoice_items cii
           WHERE cii.invoice_id = ci.id
         ), '[]'::jsonb)

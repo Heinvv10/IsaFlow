@@ -1,7 +1,7 @@
 /**
  * Ledger-date window (sec-numrace S4): createJournalEntry refuses an entry date outside 1900-01-01..2199-12-31 before
- * the journal writes anything (gl/journalDateGuard), and bank-transfers, which INSERTs its journal itself, refuses it
- * too.
+ * the journal writes anything (gl/journalDateGuard), and bank-transfers refuses it at the route (422) before its
+ * journal funnel runs.
  *   - the manual journal route: 400 with the window's wording (lib/apiJournalDate.withJournalDateRefusal), nothing written;
  *   - MCP create_draft_journal: the caller-safe refusal, nothing written;
  *   - fail closed (round 6): a refusal NOT answered by that helper is a 500 that rolls back, even after a caller caught
@@ -96,7 +96,7 @@ describeIfDb('ledger-date window: createJournalEntry refuses a date outside 1900
     expect(await journals('NRJD caught')).toBe(0);
   }, 60000);
 
-  it('bank-transfers (INSERTs its own journal): transferDate 0001-06-01 is a 422 before anything runs', async () => {
+  it('bank-transfers: transferDate 0001-06-01 is a 422 before anything runs', async () => {
     const out = await callRoute(c.fx, token, bankTransfers, {
       fromAccountId: c.fx.bankAccountId, toAccountId: c.expense, amount: 10, transferDate: '0001-06-01',
     });

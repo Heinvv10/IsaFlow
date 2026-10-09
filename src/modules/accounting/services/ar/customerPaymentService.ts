@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
+import { invoicesPayable } from './invoicesPayable';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -115,10 +116,11 @@ export async function createCustomerPayment(companyId: string,
     // balance and both confirm into an over-payment.
     for (const alloc of input.allocations) {
       const invRows = (await sql`
-        SELECT total_amount, amount_paid FROM customer_invoices
+        SELECT total_amount, amount_paid, invoice_number, currency_code FROM customer_invoices
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
       `) as Row[];
       if (invRows.length === 0) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+      await invoicesPayable(companyId, invRows); // FX PR0: pre-write, a 400 not the trigger's message
       const pendingRows = (await sql`
         SELECT COALESCE(SUM(cpa.amount_allocated), 0) AS pending
         FROM customer_payment_allocations cpa

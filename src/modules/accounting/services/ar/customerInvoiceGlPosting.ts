@@ -19,6 +19,8 @@ import { assertJournalVatPeriodOpen } from '../gl/journalVatLockGuard';
 import type { JournalLineInput } from '../../types/gl.types';
 import { documentInPopulation } from '../shared/documentPopulation';
 import { invoiceRevenueJournalLines } from './invoiceRevenuePosting';
+import { assertDocumentPostable } from '../shared/documentCurrency';
+import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
 
 type Row = DbRow;
 
@@ -33,7 +35,8 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: PostingActorOpts & { historicalImport?: boolean },
+  // approvingFromStatus: the status approveCustomerInvoice moved the invoice FROM (it is 'approved' by now).
+  opts?: PostingActorOpts & { historicalImport?: boolean; approvingFromStatus?: string },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -70,6 +73,10 @@ export async function postCustomerInvoiceToGL(
       );
     }
 
+    // FX PR0: until functional posting lands, a foreign invoice would post its
+    // document figures as rands. Refused before any write; the DB gate agrees.
+    await assertDocumentPostable(companyId, [inv.currency_code], 'invoice');
+
     const arAccount = await getSystemAccount('receivable', companyId);
     const revenueAccount = await getSystemAccount('default_revenue', companyId);
     const vatAccount = await getSystemAccount('vat_output', companyId);
@@ -77,9 +84,11 @@ export async function postCustomerInvoiceToGL(
     const lines: JournalLineInput[] = [
       { glAccountId: arAccount.id, debit: Number(inv.total_amount), credit: 0,
         description: `AR: ${inv.invoice_number}` },
+      // What posts is what is stored (and approved): approving refuses a line saved before its customer's
+      // FNO, or its project's, existed; one already approved posts as stored (dimensionStoredPosting).
       ...(await invoiceRevenueJournalLines(companyId, invoiceId, {
         number: String(inv.invoice_number), documentSubtotal: Number(inv.subtotal), credit: Number(inv.subtotal),
-      }, revenueAccount.id)),
+      }, revenueAccount.id, opts?.approvingFromStatus ?? String(inv.status))),
     ];
 
     if (Number(inv.tax_amount) > 0) {
@@ -131,7 +140,7 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId), POST_AS_STORED);
 
     if (opts?.historicalImport) {
       // Historical import diverges from the canonical path (postJournalEntry)

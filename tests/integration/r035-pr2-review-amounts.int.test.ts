@@ -14,7 +14,7 @@ import { Pool } from 'pg';
 import supplierInvoices from '../../pages/api/accounting/supplier-invoices';
 import approvalEnforcement from '../../pages/api/accounting/approval-enforcement';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser, plantBill, plantRule, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, enableFxDocuments, plantBill, plantRule, reasonOf } from './r035-approval.helpers';
 import { billState, cleanupPr2, dataOf, enforce, messageOf, postableCompany, routes } from './r035-pr2.helpers';
 
 assertDisposable();
@@ -35,6 +35,7 @@ afterAll(async () => {
 /** An owner rule over R100 000, enforced. A (admin) books; B is an owner. */
 async function fixture() {
   const c = await postableCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+  await enableFxDocuments(pool, c); // FX PR0: one case creates a USD bill through the route
   await plantRule(pool, c, 'owner', { operator: 'greater_than', value: 100000 });
   await enforce(pool, c, u.b);
   const bill = await plantBill(pool, c, u.a);

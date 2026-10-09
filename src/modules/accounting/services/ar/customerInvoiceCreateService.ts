@@ -19,6 +19,7 @@ import {
   HTTP_CODING_KEYS, InvoiceLineCodingRefusal, parseLineCoding, readCodingId, type InvoiceLineCoding,
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
+import { resolveDocumentCurrency } from '../shared/documentCurrency';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -123,10 +124,10 @@ export async function createDraftCustomerInvoice(
     throw new InvoiceLineValidationError(`Tax rate must be between 0 and 100, got ${String(taxRate)}`);
   }
 
-  // Currency defaults
-  const invCurrencyCode = (typeof currencyCode === 'string' && currencyCode.trim())
-    ? currencyCode.trim().toUpperCase() : 'ZAR';
-  const invExchangeRate = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : 1.0;
+  // FX PR0: the company's own currency at exactly 1, or a foreign one only once
+  // the company has enabled them — refused here, before the first write.
+  const { currencyCode: invCurrencyCode, exchangeRate: invExchangeRate } =
+    await resolveDocumentCurrency(companyId, currencyCode, exchangeRate, 'invoice');
 
   // Calculate totals (in foreign currency)
   const rate = requestedRate;
@@ -137,9 +138,6 @@ export async function createDraftCustomerInvoice(
   subtotal = Math.round(subtotal * 100) / 100;
   const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
   const totalAmount = subtotal + taxAmount;
-  // functional_total = total in ZAR (functional currency)
-  const functionalTotal = Math.round(totalAmount * invExchangeRate * 100) / 100;
-
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   const bpStart = billingPeriodStart || null;
@@ -173,7 +171,7 @@ export async function createDraftCustomerInvoice(
           ${bpStart}, ${bpEnd},
           ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
           ${dueDate || null}, ${notes || null}, 'draft', ${userId},
-          ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal},
+          ${invCurrencyCode}, ${invExchangeRate}, public.fx_functional(${totalAmount}::NUMERIC(15,2), ${invExchangeRate}::NUMERIC(18,6)),
           ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING id
       `) as Row[];

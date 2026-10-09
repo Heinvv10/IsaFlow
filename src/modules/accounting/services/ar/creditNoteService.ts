@@ -89,6 +89,14 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
   return rows.length > 0 ? mapRow(rows[0]!) : null;
 }
 
+/** A link the note may not carry, raised before any write; the REST route answers it 400. */
+export class CreditNoteLinkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CreditNoteLinkError';
+  }
+}
+
 /**
  * @param actor Who raised it (migration 531). Omitted by the REST route, which
  *   leaves both columns NULL — resolved from the approval journal's
@@ -112,7 +120,7 @@ export async function createCreditNote(companyId: string,
     // open. (The tool still pre-checks, to answer with a specific message
     // before any write rather than a generic failure.)
     const linkError = await validateCreditNoteLinks(companyId, input);
-    if (linkError) throw new Error(linkError);
+    if (linkError) throw new CreditNoteLinkError(linkError);
     // CC1 from CC2 (conflict refused), then tenant/slot/active — no query when none is named.
     const [dims] = await deriveLineDimensions(companyId, [{ cc1Id: input.cc1Id, cc2Id: input.cc2Id, buId: input.buId }]);
     await assertDocumentDimensions(companyId, [dims!]);

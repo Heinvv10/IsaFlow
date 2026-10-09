@@ -26,7 +26,9 @@ export interface UseCommentaryResult {
   loading: boolean;
   error: string | null;
   generate: (replace?: boolean) => Promise<void>;
-  approve: (id: string) => Promise<void>;
+  /** `text` present = approve with the approver's own wording. Resolves true
+   *  only when the server accepted the approval. */
+  approve: (id: string, text?: string) => Promise<boolean>;
   reject: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -96,13 +98,18 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
     }
   }, [type, from, to, refresh]);
 
-  const approve = useCallback(async (id: string) => {
+  const approve = useCallback(async (id: string, text?: string) => {
     setError(null);
     try {
-      await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' }, 'Could not approve the commentary - try again');
+      await apiJson(`/api/accounting/commentary/${id}/approve`, {
+        method: 'POST',
+        ...(text === undefined ? {} : { body: JSON.stringify({ text }) }),
+      }, 'Could not approve the commentary - try again');
       await refresh();
+      return true;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not approve the commentary - try again'));
+      return false;
     }
   }, [refresh]);
 

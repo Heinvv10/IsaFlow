@@ -326,3 +326,74 @@ Mutation checks. Each one must turn a test red:
 ### Round 5 (PR #660), 2026-10-07
 - **Provisional posting** (`postProvisional`, from the provisional/outstanding route and the auto-post gate's import branch) posts DR <predicted account> / CR bank for an unallocated outflow: a HAND-KEYED one is a manual journal, so under a matching rule it is skipped as `approval_required` before any write, and both callers report it (adversarial REPRO 4).
 - **VAT guard:** calling the moved `vatInclusiveSplit` is its own guard kind, allowlisted only for `bankVatInclusive.ts` and `bankAllocationService.ts`; the latter no longer excuses a rate constant it no longer has.
+
+---
+## As built: N1 — approval requests written only through SECURITY DEFINER functions (migration 872)
+
+- **The hole closed (for any session that stays app_user or platform_admin — see the last bullet for one that does not):** a statement as `app_user` (or `platform_admin`, BYPASSRLS) could `UPDATE approval_requests SET status = 'approved'`, INSERT a decided row (supplier_invoice was outside 862's guard), DELETE a request, or rewrite `required_role` / `rule_id` / `decided_by` — and every gate trusts an approved row.
+- **Privileges:** every non-owner INSERT / UPDATE / DELETE / TRUNCATE / TRIGGER grant is revoked, table- and column-level, enumerated from the ACL (app_user, PUBLIC, platform_admin, migration_admin on the fixture; whatever else an environment granted). SELECT stays. The migration asserts it for every role by catalogue and, as app_user, by outcome (each write and a `FOR UPDATE` refused 42501). No src path wrote the table as platform_admin or migration_admin (import-graph census from `pages/api/admin` and `src/modules/admin`).
+- **The writers (census by table: requestApproval's INSERT, rebindPendingRequest's UPDATE, decideRequest's UPDATE, the decide row lock — there is no cancel/withdraw write):** `approval_request_raise`, `_rebind`, `_decide`, `_lock`. SECURITY DEFINER, `search_path = pg_catalog, public, pg_temp`, every relation schema-qualified, owner asserted to bypass RLS, EXECUTE for app_user only (helpers for nobody). Each re-checks, with the same SQL definitions the TypeScript reads:
+  - the session: decide refuses `impersonation` and `unknown` (`assertDecidingSession`), raise and rebind refuse `impersonation` (`assertNotImpersonating`) — the impersonation refusal IS representable in SQL (claims `session_id` + `impersonation_sessions`);
+  - the actor: `auth.uid()` (as a uuid, any case) is the requester / decider named; the company is `app.current_company_id()`; the caller can see the company as RLS would (membership) — raise/rebind keep 862's exemption for a caller that bypasses RLS (scripts, fixtures);
+  - the write role (review round 1): every route that raises, re-binds or decides — `approval-requests`, `capture/[id]/post`, `capture/[id]/post-expense`, `ai-invoice-pipeline`, `receipt-to-journal`, `gl-import`, `recurring-invoices-action`, `recurring-invoices-run`, `recurring-transactions-execute`, `recurring-journals-action` — is wrapped in `withWriteAccess` with the default roles, so the actor's company role must be owner, admin or manager (`approval_request_may_write`, bound to `writeRoles.ts` by `r035-n1-roles`); reject (a withdrawal) included; RA008;
+  - raise: the document exists in the company (`findDocument`'s SQL twin `approval_request_document_facts`), the rule is the company's, active, of the type (a batch may bind a member's supplier_payment rule) and as strict as the strictest matching rule today; amount, reference, digest, `content_authors` and the Q2 roster are computed in SQL, never taken from the caller;
+  - rebind: the row under FOR UPDATE, pending; a rule only upwards from `COALESCE(required_role, bound rule's role, 'admin')`; "content moved" decided from the digest it computes;
+  - decide: the row under FOR UPDATE, this company's, pending; the ratchet (higher of `required_role` and the bound rule's live role); the author refusal (live ∪ snapshot authors, or past requesters for a type with no editor tracking); the requester refusal with Q2 exactly as `approvalSelfApproval.ts` (enforced, roster unchanged since the request, no OTHER active member at the demanded rank); a foreign rule; membership; rank; then the document exists and expected = stored = live digest.
+- **TypeScript:** the four calls live in `gl/approvalRequestWrites.ts`; the existing checks, messages and error types are unchanged and run first. A SQL refusal (RA001–RA008) maps back onto the same error type, so routes answer the same status; RA009 (forged actor, company or rule type — the app never sends one) is a 500. RA010 — the rule the TypeScript chose is no longer the strictest (a rule added or edited, or the amount moved, in the window) — is refused with nothing written; `requestApproval` re-reads and raises once more, and a second race is a 409 with its own reason, `APPROVAL_RULES_CHANGED` (the client renders every 409 message generically, so a distinct reason lets a caller tell "submit again" from the decide path's `DOCUMENT_CHANGED`). The unattended raisers (capture post, AI pipeline, recurring runs, the journal holds) do not map it: they write the document before they raise, so a 4xx there would COMMIT a half-made run — a double race is a 500 that rolls the whole run back, and running it again raises cleanly. A rule deactivated in that window makes rebind keep its binding and still re-stamp the content, as the old UPDATE did.
+- **The Q2 audit row** (`approve`, `approval_request`, metadata `selfApproval: 'sole_approver'`, `requiredRole`, `approverRoster`, `documentType`, `documentId`, `documentDigest`) is written by `approval_request_decide` itself, in the decision's transaction, so the decision cannot commit without it. It is only as durable as `audit_log`: app_user can still UPDATE or DELETE it (or INSERT a forged marker) by raw SQL — see "Not closed by N1". The TypeScript no longer writes it. `approverRoster` is the stored snapshot's JSON text (Postgres spacing; every reader parses it).
+- **Catalogue:** `r035-n1-catalog.int.test.ts` reads the live database wherever DATABASE_URL is set — grants (role, PUBLIC, membership), DEFINER, `pg_temp` last, owner, EXECUTE, the writers' bodies and every function they call transitively (helpers, rank ladder, gate amounts, authors, roster, claims helpers, insert guard) pinned by `md5(prosrc)` with the set checked closed — except `approval_document_digest`, shape-checked only because other branches redefine it by design: a legitimate change (more columns) only stales approvals, but a weakened one (fewer columns, a constant) would widen them and passes the catalogue; its controls are review of each digest-redefining migration, their own "existing digests unchanged" guards, and the digest behaviour suites on the fixture (decide, parity, raise, approval-digest, pr3-digest — red on a constant digest in review round 5) — the triggers on `approval_requests` pinned to exactly the insert guard, and statically named writes in any other body. A writer that builds its SQL at run time is beyond it: for the four writers the body pin and the behaviour suites on the disposable fixture are the backstop; a new run-time-SQL writer is caught by no test (migration review is the control). Without 872 it fails saying so.
+- **Census:** `approvalRequestWriteCensus.test.ts` walks src/pages/scripts/lib on disk (untracked files included): any statement writing, truncating or locking the table, a quoted table name, or a call of the writers outside `approvalRequestWrites.ts` fails; so does a later migration re-granting a write on the table or `ON ALL TABLES IN SCHEMA public` (348's statement would silently reopen N1).
+- **Unchanged:** who may approve what, Q2, the ratchet, live supplier-invoice enforcement (every approval suite passes; the five that pinned app_user's direct INSERT were re-pointed — forgeries now refused by privilege, legitimate raises through `approval_request_raise`). The 862 insert guard stays; a definer INSERT passes through it unchecked (its owner bypasses RLS).
+- **Not closed by N1:** raw SQL is not stopped — the app logs in as a superuser and drops to app_user with `SET LOCAL ROLE`, so injected SQL can `RESET ROLE`, and can `set_config` the claims GUC (N3). N1 binds application code paths. Three tables the decision trusts remain directly writable by app_user under RLS alone — follow-ups for Hein, outside N1:
+  - `approval_enforcement` (switch enforcement off) and `approval_rules` (deactivate or weaken a rule);
+  - `audit_log` (`app_user=arwd`, RLS company-scoped): the Q2 sole-approver row can be deleted or rewritten after the decision commits, and a forged `sole_approver` marker inserted — the row records a self-approval, it does not make one tamper-proof;
+  - `company_users`, through the `cu_admin_write` policy: an admin can raise their own role to owner (or demote or remove other owners before raising, manufacturing a Q2 sole approver) by raw SQL, and the definers trust that role — the route refuses it (`company-users.ts`, pentest H5), the table does not.
+  - Also outside N1: `auth.user_admin_companies(text)` is SECURITY DEFINER with `search_path = public` and no explicit `pg_temp`, so pg_temp is searched first (the 872 definers do not call it).
+
+## As built: supplier bank-detail verification (forensic-controls step 1, migration 876)
+
+Not an approval document type, but it shares the switchboard: `approval_enforcement.document_type = 'supplier_bank_details'`
+(`EnforcementType` / `ENFORCEABLE_TYPES` in `gl/approvalRuleOptions.ts`; `RULE_FORM_DOCUMENT_TYPES` is unchanged — no rule
+is ever written for it). Hein's decisions, 2026-10-08:
+
+- **Gate outbound money only.** `eft-generate` and `netcash/submit` (batch mode) refuse 409 `SUPPLIER_BANK_DETAILS_UNVERIFIED`,
+  naming the suppliers, when any payee is unverified; a raw Netcash `payments[]` list is refused 403 while the control is on.
+  Nothing that records money is gated. Census: `tests/unit/services/ap/supplierBankVerificationCensus.test.ts`.
+- **Independent of payment approval**: works with `supplier_payment`/`payment_batch` enforcement on or off.
+- **Derived state**: verified iff the latest `supplier_bank_verifications` row's fingerprint equals
+  `supplier_bank_fingerprint()` of the five current bank columns (trimmed, whitespace collapsed, lower-cased names;
+  digits-only account and branch; '' = NULL). `supplier_bank_verified(company, supplier)`.
+- **Switch-on baseline**: enabling writes a `baseline` row for every non-deleted supplier with bank details, by the
+  switcher, in the enable's transaction (the 876 guard accepts a baseline only then) — except suppliers whose current
+  details the switcher set (a refinement of decision 3: otherwise off → change → on verifies one's own change; the guard
+  refuses such a baseline too). Enabling needs a human session and a
+  role ≥ the verifier role; disabling needs a human session and `mayWeakenAtLevel` at the verifier role.
+- **Who verifies** (`ap/supplierBankVerifiers.ts`): role ≥ `supplierBankVerifierRole` — the strictest active
+  `supplier_payment`/`payment_batch` rule's role but **never below admin** (a refinement of decision 5: a rule may only raise
+  it, or an inert low rule lowers who may verify and switch off) — falling back to admin only when nobody who did not set
+  the details holds the raised role AND every setter holds it (else a sole owner's own change under an owner-level rule
+  is unverifiable; anyone below the raised role having touched the details keeps the raised requirement). Not in
+  `bank_details_setters`, except R-035 Q2's sole approver judged on the **admin floor** (no OTHER active member reaches
+  admin — so a setter cannot raise the role to qualify alone), recorded `self_verified` with `approval_roster_snapshot`.
+  Own role and standing read from the database. Cookie session only (impersonated / claim-less refused).
+  Verify sends the fingerprint the verifier saw; the supplier is locked FOR UPDATE and a changed fingerprint is 409.
+- **Table**: append-only (app_user SELECT+INSERT; a trigger refuses UPDATE/DELETE/TRUNCATE for every role except the FK
+  cascade from a purged supplier); RLS binds tenant and `verified_by = auth.uid()`; a BEFORE INSERT guard binds the row
+  to the supplier's current fingerprint, refuses a setter's plain `verified` and any verify while the control is off,
+  requires an active member at admin or above, re-reads the roster for `self_verified`, and draws `seq` itself (an
+  OVERRIDING SYSTEM VALUE cannot pin a row as "latest").
+  Same boundary as N1: it binds code paths, not raw SQL run as app_user.
+- **Baseline only on the company's first switch-on** (`bankVerificationEverOn`; the 876 guard refuses a baseline once the
+  company has any row from an earlier transaction), so switching off and on cannot accept anything — a pending change, a
+  supplier created or given details meanwhile; a setter is shed only when the account
+  number's DIGITS change (`bankDetailsChange`), so re-typing the same number cannot clear whoever redirected it.
+- **Known limits (review of PR #679)**: a narrow dead end, failing closed — under a raised (e.g. owner-level) payment rule,
+  if every holder of that role set the details and someone below it did too (the only owner set the account, an admin
+  then changed the branch), nobody can verify until a member with that role who did not set them is added, the rule is
+  relaxed, or the owner re-points the account (setters reset to them, and an admin may then verify); the refusal says
+  so. The masked account is display-only: the same users can read the full number on the payment pages, and the fingerprint
+  (unsalted sha256 of low-entropy fields) is returned to them. The fingerprint covers the five bank columns; Netcash sends
+  the supplier NAME as account holder, which it does not cover (a name change redirects nothing — the bank routes on
+  account and branch). Payment and batch pages do not yet show the verification state.
+- **Not in this step**: a bank-detail edit UI, evidence uploads, employee/payroll beneficiaries, steps 2–5 of the programme.
+

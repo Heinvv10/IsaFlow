@@ -15,12 +15,14 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
-type LineItem = InvoiceLine;
+// CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
+// otherwise left to derivation (the project's FNO, else the customer's: dimensionKeepStored).
+type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
   amount?: number | string; tax_rate?: number | string;
-  gl_account_id?: string | null; project_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
+  gl_account_id?: string | null; project_id?: string | null; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
 };
 type InvoiceDetail = {
   id: string; status: string; invoice_number: string;
@@ -101,6 +103,8 @@ export default function EditCustomerInvoicePage() {
           projectId: it.project_id ?? '',
           cc2Id: it.cc2_id ?? '',
           buId: it.bu_id ?? '',
+          cc1Id: it.cc1_id ?? null,
+          cc2AtLoad: it.cc2_id ?? '',
         };
       }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
       setLoading(false);
@@ -150,6 +154,9 @@ export default function EditCustomerInvoicePage() {
             discount: l.discount || 0,
             glAccountId: l.glAccountId || null,
             projectId: l.projectId || null,
+            cc2Id: l.cc2Id || null,
+            buId: l.buId || null,
+            ...(l.cc1Id && l.cc2Id === (l.cc2AtLoad ?? '') ? { cc1Id: l.cc1Id } : {}),
           })),
         }),
       });

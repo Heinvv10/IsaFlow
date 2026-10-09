@@ -164,7 +164,7 @@ describe('postingAgent attribution reaches the GL services', () => {
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID, { postingAgent: 'mcp:approve_credit_note:v1' });
     expect(mockCreateJournalEntry).toHaveBeenCalledWith(
       COMPANY_ID, expect.anything(), USER_ID,
-      { postingAgent: 'mcp:approve_credit_note:v1' },
+      { postingAgent: 'mcp:approve_credit_note:v1' }, { dimensionAssignmentMode: 'historical-copy' },
     );
   });
 
@@ -172,7 +172,7 @@ describe('postingAgent attribution reaches the GL services', () => {
     setNote(creditNoteRow());
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
     expect(mockCreateJournalEntry).toHaveBeenCalledWith(
-      COMPANY_ID, expect.anything(), USER_ID, undefined,
+      COMPANY_ID, expect.anything(), USER_ID, undefined, { dimensionAssignmentMode: 'historical-copy' },
     );
   });
 

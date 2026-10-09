@@ -17,7 +17,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantBill } from './r035-approval.helpers';
+import { createUser, enableFxDocuments, plantBill } from './r035-approval.helpers';
 import { plantNote } from './r035-pr3.helpers';
 import { cleanupPr4, digestOf, invoiceCompany, plantInvoice } from './r035-pr4.helpers';
 
@@ -62,6 +62,7 @@ describe('the customer invoice digest', () => {
 
   it('moves with every hashed header column', async () => {
     const c = await company();
+    await enableFxDocuments(pool, c); // FX PR0: `currency_code` is one of the columns
     const inv = await plantInvoice(pool, c, user);
     const base = await digestOf(pool, c, inv.id);
     const otherCustomer = (await plantInvoice(pool, c, user)).customerId;
@@ -165,16 +166,18 @@ describe('the customer invoice authors', () => {
 
 describe('the earlier branches are unchanged', () => {
   const MIGRATIONS = path.resolve(__dirname, '../../scripts/migrations/sql');
-  /** The function as migration 862 defined it, re-created under a temporary name. */
-  function asDefinedIn862(fn: string, alias: string): string {
-    const text = readFileSync(path.join(MIGRATIONS, '862_credit_note_approval_enforcement.sql'), 'utf8');
+  /** The function as migration 862 (or `file`) defined it, re-created under a temporary name. */
+  function asDefinedIn862(fn: string, alias: string, file = '862_credit_note_approval_enforcement.sql'): string {
+    const text = readFileSync(path.join(MIGRATIONS, file), 'utf8');
     const start = text.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`);
     const end = text.indexOf('$$;', start) + 3;
     expect(start, fn).toBeGreaterThan(-1);
     return text.slice(start, end).replace(`public.${fn}(`, `pg_temp.${alias}(`);
   }
 
-  it('a bill and both kinds of credit note digest and list their authors exactly as 862 defined them', async () => {
+  // 865 against 862, not against the live function: 873 deliberately extends
+  // these digests with the CC1 / CC2 / BU columns.
+  it('a bill and both kinds of credit note digest as 865 left 862\'s definition, and list their authors exactly as 862 defined them', async () => {
     const c = await company();
     const bill = await plantBill(pool, c, user);
     const customerNote = await plantNote(pool, c, user, 'customer');
@@ -184,11 +187,12 @@ describe('the earlier branches are unchanged', () => {
     const client = await pool.connect();
     try {
       await client.query(asDefinedIn862('approval_document_digest', 'r035_digest_862'));
+      await client.query(asDefinedIn862('approval_document_digest', 'r035_digest_865', '865_customer_invoice_approval_enforcement.sql'));
       await client.query(asDefinedIn862('approval_document_authors', 'r035_authors_862'));
       for (const [type, id] of [['supplier_invoice', bill.id], ['customer_credit_note', customerNote.id],
         ['supplier_credit_note', supplierNote.id]] as const) {
         const { rows: [r] } = await client.query(
-          `SELECT pg_temp.r035_digest_862($1,$2,$3) AS old_digest, approval_document_digest($1,$2,$3) AS new_digest,
+          `SELECT pg_temp.r035_digest_862($1,$2,$3) AS old_digest, pg_temp.r035_digest_865($1,$2,$3) AS new_digest,
                   pg_temp.r035_authors_862($1,$2,$3)::TEXT AS old_authors, approval_document_authors($1,$2,$3)::TEXT AS new_authors`,
           [c, type, id]);
         expect(r.old_digest, type).toMatch(/^[0-9a-f]{64}$/);

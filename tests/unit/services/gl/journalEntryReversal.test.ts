@@ -21,6 +21,9 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 // here it is a no-op, and the error class stays real.
 // reverseJournalEntry first asks whether the entry has a late-claim companion
 // (vatLateClaimSplit); none here, and the positional sql queue must not see it.
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/modules/accounting/services/gl/vatLateClaimSplit', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/vatLateClaimSplit')>()),
   planLateClaimCompanionReversal: vi.fn(async () => null),

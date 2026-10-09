@@ -197,6 +197,16 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 ## Recent changes
 
+- 2026-10-08: **Edit / delete for the dimension masters, 4 tools (156 = 73 read + 83 write).**
+  `update_cost_centre` (code, name, parent — null detaches, aliases replace / add / remove,
+  description, department, is_active), `delete_cost_centre`, `update_business_unit` (code, name,
+  division / description — null clears, is_active), `delete_business_unit`; all `write:accounts`,
+  free, `dry_run`. Service: `gl/dimensions/dimensionMasterEdit.ts` (CC) and `core/businessUnitService`
+  (BU). A CC2 move to another FNO is REFUSED while anything carries it (lines store the CC1 derived
+  at write time); deactivating a node with active children is refused; delete is refused with counts
+  (both guards now also count invoice items, credit notes, customer / account defaults and
+  UN-REVERSED tag-batch lines, whose old_* ids carry no FK). The app routes use the same services;
+  the BU page used to create a COST CENTRE and edit via a non-existent `/api/departments` — fixed.
 - 2026-10-07: **CC1 / CC2 / BU dimensions (Phase 1), 10 tools (152 = 73 read + 79 write).**
   Optional per-line `cc1` / `cc2` / `bu` (code, UUID or alias) on `allocate_bank_transaction`,
   `bulk_allocate_bank_transactions`, `create_supplier_invoice`, `bulk_create_supplier_invoices`,

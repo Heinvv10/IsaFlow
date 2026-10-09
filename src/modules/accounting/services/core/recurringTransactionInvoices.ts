@@ -21,6 +21,7 @@ import { assertNonNegativeDocumentTotal } from '../shared/documentTotalSign';
 import { evaluateApprovalGate } from '../gl/approvalGate';
 import { raiseUnattendedApproval } from '../gl/approvalUnattended';
 import { stampUpstreamAuthors } from '../ar/customerInvoiceUpstreamAuthors';
+import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 export async function mintRecurringCustomerInvoice(
   companyId: string,
@@ -58,6 +59,8 @@ export async function mintRecurringCustomerInvoice(
   if (accountRefusal) {
     throw new RecurringTemplateLineAccountError(template.id, `Recurring template "${template.name}": ${accountRefusal}`);
   }
+  // The customer's FNO is stored on each line, so it is what posts and what an approval covers (dimensionStoredPosting).
+  const dims = await revenueLineDefaults(companyId, clientId);
   const entityId = await insertWithReservedNumber(
     companyId, 'customer_invoice', 'rec_txn_inv_', 'uq_customer_invoices_company_number', async (invoiceNumber) => {
       const ciRows = (await sql`
@@ -85,10 +88,10 @@ export async function mintRecurringCustomerInvoice(
       for (const line of lines) {
         await sql`
           INSERT INTO customer_invoice_items (
-            invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id
+            invoice_id, description, quantity, unit_price, tax_rate, amount, gl_account_id, cc1_id
           ) VALUES (
             ${id}::UUID, ${line.description}, ${line.quantity}, ${line.unitPrice},
-            ${line.taxRate}, ${line.lineTotal}, ${line.glAccountId}
+            ${line.taxRate}, ${line.lineTotal}, ${line.glAccountId}, ${dims.cc1Id ?? null}::UUID
           )
         `;
       }

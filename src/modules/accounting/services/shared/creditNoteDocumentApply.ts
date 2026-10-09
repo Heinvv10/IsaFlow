@@ -29,6 +29,7 @@ import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNoteApplicationWrites';
 import { FIFO_ELIGIBLE_STATUSES } from '../ar/invoiceStatusRecompute';
+import { assertStoredDocumentSettleable } from './documentCurrency';
 
 /** A refusal whose message is safe to show the caller: it names no schema. */
 export class CreditNoteApplyRefusal extends Error {
@@ -240,9 +241,12 @@ async function buildPlan(
     );
   }
 
-  // Read-only: the column and the rows must agree before this extends them.
+  // Read-only: the column and the rows must agree before this extends them; and
+  // (FX PR0) neither a foreign note nor a foreign document can be settled.
   try {
     await assertAllocationsMatchApplied(companyId, input.creditNoteId, appliedBefore);
+    await assertStoredDocumentSettleable(companyId, 'credit_note', input.creditNoteId);
+    await assertStoredDocumentSettleable(companyId, side === 'customer' ? 'customer_invoice' : 'supplier_invoice', input.invoiceId);
   } catch (err) {
     throw new CreditNoteApplyRefusal(err instanceof Error ? err.message : String(err));
   }

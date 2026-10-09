@@ -6,10 +6,10 @@
  * INVOICE. When no line names an account, a job or a CC1 / CC2 / BU (every
  * invoice before migrations 870 and 874, and every writer that still writes
  * none) the result is the single `default_revenue` credit of the subtotal
- * posted before, byte for byte — tagged with the customer's FNO when it has
- * one (870's rule) — and the line amounts are not read. Otherwise each line
- * without a CC1 takes the customer's FNO (one that differs is refused), the
- * lines are grouped by (account ?? default_revenue, job, CC1, CC2, BU), and the
+ * posted before, byte for byte — and the line amounts are not read. Otherwise
+ * the lines post what they STORE (#675: the customer's FNO is stamped on them
+ * at save, so the approval digest covers it; nothing is filled here), grouped
+ * by (account ?? default_revenue, job, CC1, CC2, BU), and the
  * posted amount is split across the groups by their line totals. A group that
  * nets negative (a discount on its own dimensions) posts as a debit on its own
  * leg. The VAT and AR legs are the caller's and are unchanged.
@@ -27,7 +27,6 @@
  * default_revenue whatever its lines said.
  */
 import type { JournalLineInput } from '../../types/gl.types';
-import { applyCustomerFno } from '../gl/dimensions/dimensionDerivation';
 import { hasDimensions, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { InvoiceLineCodingRefusal, isCoded, type InvoiceLineCoding } from './invoiceLineCoding';
 
@@ -143,16 +142,13 @@ export function buildInvoiceRevenueLines(input: {
   credit: number;
   lines: readonly StoredRevenueLine[];
   defaultRevenueAccountId: string;
-  /** customers.default_cc1_id — the FNO revenue carries (migration 870). */
-  customerFnoId?: string | null;
 }): JournalLineInput[] {
   const { invoiceNumber, documentSubtotal, credit, defaultRevenueAccountId } = input;
   const description = `Revenue: ${invoiceNumber}`;
-  const fno = input.customerFnoId ? input.customerFnoId.toLowerCase() : null;
   if (!input.lines.some(isRevenueCoded)) {
-    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description, ...(fno ? { cc1Id: fno } : {}) }];
+    return [{ glAccountId: defaultRevenueAccountId, debit: 0, credit, description }];
   }
-  const lines = applyCustomerFno(input.lines, fno, (i) => `Invoice ${invoiceNumber} line ${i + 1}`);
+  const lines = input.lines;
 
   const problem = revenueLinesProblem(lines, documentSubtotal);
   if (problem) throw new InvoiceLineCodingRefusal(`Invoice ${invoiceNumber}: ${problem}`);

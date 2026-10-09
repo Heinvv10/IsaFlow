@@ -63,7 +63,7 @@ function updateFailsWith(err: unknown): void {
     .mockResolvedValueOnce([{ id: LINE }] as never)   // assertMatchTargets: line exists
     .mockResolvedValueOnce([] as never)   // the line's journal entry: not reversed
     .mockResolvedValueOnce([] as never)               // assertMatchTargets: unclaimed
-    .mockResolvedValueOnce([] as never)               // D10: the chain root (none -> the journal)
+    .mockResolvedValueOnce([{ id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' }] as never) // D10: the chain root (an unreversed journal is its own)
     .mockResolvedValueOnce([] as never)               // D10: no provisional's own line holds it
     .mockRejectedValueOnce(err as never);             // the write
 }

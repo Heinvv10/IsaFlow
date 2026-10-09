@@ -9,6 +9,11 @@
  * a control and is refused (403) below the strictest rule's authority, so a
  * refusal is shown and the switch left as it was — apiFetch resolves on a 4xx.
  * The preview is the server's count of unposted documents the switch holds.
+ *
+ * `activeRuleTypes` (R-035 follow-up, PR A): the types the company has an ACTIVE
+ * rule for, from the page's own rules list. A switch whose type has none says
+ * what turning it on then does (noRuleNote). Undefined while that list is not known (not loaded, or
+ * it failed), so the note never speaks from a list that is not there.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
@@ -46,7 +51,61 @@ const LABELS: Record<string, { name: string; noun: string; pending?: string }> =
   manual_journal: { name: 'manual journal', noun: 'journal', pending: 'draft' },
 };
 
-export function ApprovalEnforcementPanel() {
+/**
+ * Supplier bank verification (forensic-controls step 1) shares this switchboard
+ * but is no approval: its row says what switching on does to bank details.
+ * `n` is the server's preview — unverified suppliers when on; when off, the
+ * suppliers whose current details switching on would accept as the baseline.
+ */
+const BANK = 'supplier_bank_details';
+function bankRow(on: boolean, n: number): { label: string; count: string; note: string } {
+  const suppliers = `${n} supplier${n === 1 ? '' : 's'}`;
+  return {
+    label: 'Require independent verification of supplier bank details',
+    count: on ? `${suppliers} unverified` : `${suppliers} would be accepted as verified`,
+    note: on
+      ? 'A change to a supplier\'s bank details blocks EFT files and Netcash submissions paying it until someone '
+        + 'who did not make the change verifies it on the supplier\'s page. Raw Netcash payment lists are refused.'
+      : 'The first switch-on accepts suppliers\' current bank details as verified, recorded in your name — not details you '
+        + 'set yourself. Switching on again accepts nothing: whatever changed meanwhile needs someone to verify it.',
+  };
+}
+
+const GATES_NOTHING = 'No active rule for this type — turning this on gates nothing.';
+
+/**
+ * The note beside a switch whose type has no ACTIVE rule, or null — each one
+ * true of what switching on does with no rule of that type (pinned against the
+ * real gates by tests/integration/r035-rules-panel-truth.int.test.ts):
+ *  - payments are COUPLED (D1): either switch turns both on. With no rule on
+ *    either, nothing waits for an approver, but assertBatchMayBeSent holds an
+ *    unapproved batch's bank file and netcash/submit refuses a raw payment list.
+ *  - a payment_batch row whose partner has a rule: a batch is also judged by
+ *    its members' supplier_payment rules (strictestBatchRule), so it IS held.
+ *  - a supplier_payment row whose partner has a rule: a single payment is
+ *    matched only by supplier_payment rules, so only batches are held.
+ *  - manual journals: MCP set_opening_balance is refused outright under
+ *    enforcement (R-035 PR6 round 4), rule or no rule.
+ */
+function noRuleNote(type: string, activeRuleTypes: string[] | undefined): string | null {
+  if (!activeRuleTypes || activeRuleTypes.includes(type)) return null;
+  if (type === 'supplier_payment' || type === 'payment_batch') {
+    const other = type === 'supplier_payment' ? 'payment_batch' : 'supplier_payment';
+    if (!activeRuleTypes.includes(other)) {
+      return 'No active rule for either payment type — turning this on holds no payment for an approver, '
+        + "but a batch's bank file can then be sent only after the batch is approved, and a raw Netcash payment list is refused.";
+    }
+    if (type === 'payment_batch') return null;
+    return 'No active rule for this type — turning this on gates only payment batches (and refuses a raw Netcash payment list).';
+  }
+  if (type === 'manual_journal') {
+    return 'No active rule for this type — turning this on holds no journal for approval; '
+      + 'it only stops the MCP connector posting opening balances.';
+  }
+  return GATES_NOTHING;
+}
+
+export function ApprovalEnforcementPanel({ activeRuleTypes }: { activeRuleTypes?: string[] } = {}) {
   const [data, setData] = useState<EnforcementData | null>(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -97,6 +156,21 @@ export function ApprovalEnforcementPanel() {
         When on, a document an active rule matches cannot be posted until an eligible approver approves it.
       </p>
       {data.enforceable.map((type) => {
+        if (type === BANK) {
+          const on = data.items.some((i) => i.documentType === type);
+          const row = bankRow(on, data.preview[type] ?? 0);
+          return (
+            <div key={type} className="flex flex-wrap items-center justify-between gap-2">
+              <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
+                <input type="checkbox" checked={on} disabled={busy === type}
+                  onChange={(e) => { void toggle(type, e.target.checked); }} className="h-4 w-4 accent-teal-600" />
+                {row.label}
+              </label>
+              <span className="text-xs text-[var(--ff-text-secondary)]">{row.count}</span>
+              <p className="w-full text-xs text-[var(--ff-text-secondary)]">{row.note}</p>
+            </div>
+          );
+        }
         const label = LABELS[type] ?? { name: type.replace(/_/g, ' '), noun: 'document' };
         const on = data.items.some((i) => i.documentType === type);
         const n = data.preview[type] ?? 0;
@@ -107,6 +181,7 @@ export function ApprovalEnforcementPanel() {
             ? legacyWarning(data.legacyPaymentRules!, 'payment', 'supplier payment or payment batch')
             : type === 'manual_journal' && (data.legacyJournalRules ?? 0) > 0
               ? legacyWarning(data.legacyJournalRules!, 'journal-entry', 'manual journal') : null;
+        const noRule = noRuleNote(type, activeRuleTypes);
         return (
           <div key={type} className="flex flex-wrap items-center justify-between gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-[var(--ff-text-primary)]">
@@ -129,6 +204,7 @@ export function ApprovalEnforcementPanel() {
                 a batch is also held by each payment&apos;s own rule.
               </p>
             )}
+            {noRule && <p className="w-full text-xs text-amber-500">{noRule}</p>}
             {warning && <p className="w-full text-xs text-amber-500">{warning}</p>}
           </div>
         );

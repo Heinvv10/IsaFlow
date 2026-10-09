@@ -4,9 +4,10 @@
  * Bills: each item's dimensions ride on its EXPENSE leg; the AP and VAT legs
  * the workflow adds carry none. Customer invoices: one revenue line per
  * distinct (account, job, CC1, CC2, BU) — ar/invoiceRevenueLines since
- * migration 874 — summing exactly to the subtotal; the FNO defaults from the
- * customer and a conflicting one is refused; with no dimension anywhere the
- * journal is the single revenue line it always was.
+ * migration 874 — summing exactly to the subtotal; the lines post the CC1 they
+ * STORE (#675: the customer's FNO is stamped on them at save, never added
+ * here); with no dimension anywhere the journal is the single revenue line it
+ * always was.
  */
 import { describe, expect, it } from 'vitest';
 import { buildExpenseLines } from '@/modules/accounting/services/ap/supplierInvoiceExpenseLines';
@@ -44,28 +45,28 @@ describe('bill posting carries dimensions on the expense legs', () => {
 });
 
 describe('customer invoice revenue legs (one builder: account, job, CC1, CC2, BU — migration 874)', () => {
-  const build = (subtotal: number, lines: StoredRevenueLine[], customerFnoId: string | null) => buildInvoiceRevenueLines({
-    invoiceNumber: 'INV-1', documentSubtotal: subtotal, credit: subtotal, lines, defaultRevenueAccountId: 'rev', customerFnoId,
+  const build = (subtotal: number, lines: StoredRevenueLine[]) => buildInvoiceRevenueLines({
+    invoiceNumber: 'INV-1', documentSubtotal: subtotal, credit: subtotal, lines, defaultRevenueAccountId: 'rev',
   });
   const item = (amount: number, dims: Partial<StoredRevenueLine> = {}): StoredRevenueLine =>
     ({ amount, glAccountId: null, projectId: null, ...dims });
 
   it('is the SAME single revenue line as before when nothing names a dimension', () => {
-    expect(build(1000, [item(600), item(400)], null))
+    expect(build(1000, [item(600), item(400)]))
       .toEqual([{ glAccountId: 'rev', debit: 0, credit: 1000, description: 'Revenue: INV-1' }]);
   });
 
-  it('takes the customer FNO on revenue when the items name none', () => {
-    expect(build(1000, [item(1000)], 'FNO-FT'))
+  it('posts the FNO the lines STORE (written at save), never one it adds', () => {
+    expect(build(1000, [item(1000, { cc1Id: 'fno-ft' })]))
       .toEqual([{ glAccountId: 'rev', debit: 0, credit: 1000, description: 'Revenue: INV-1', cc1Id: 'fno-ft' }]);
   });
 
   it('splits the subtotal by (CC1, CC2, BU), summing EXACTLY to it', () => {
     const lines = build(1000.01, [
-      item(333.33, { cc2Id: 'lawley', buId: 'act' }),
-      item(333.34, { cc2Id: 'lawley', buId: 'act' }),
-      item(333.34, { cc2Id: 'mohadin', buId: 'civ' }),
-    ], 'fno-ft');
+      item(333.33, { cc1Id: 'fno-ft', cc2Id: 'lawley', buId: 'act' }),
+      item(333.34, { cc1Id: 'fno-ft', cc2Id: 'lawley', buId: 'act' }),
+      item(333.34, { cc1Id: 'fno-ft', cc2Id: 'mohadin', buId: 'civ' }),
+    ]);
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatchObject({ credit: 666.67, cc1Id: 'fno-ft', cc2Id: 'lawley', buId: 'act' });
     expect(lines[1]).toMatchObject({ credit: 333.34, cc1Id: 'fno-ft', cc2Id: 'mohadin', buId: 'civ' });
@@ -74,13 +75,14 @@ describe('customer invoice revenue legs (one builder: account, job, CC1, CC2, BU
     expect(validateJournalEntry(journal).valid).toBe(true);
   });
 
-  it('REFUSES an item whose FNO differs from the customer FNO', () => {
-    expect(() => build(100, [item(100, { cc1Id: 'fno-herotel' })], 'fno-ft')).toThrow(/differs from the customer's FNO/);
+  it("posts each line's stored CC1 as is: the customer's FNO is refused at save and approve, not here", () => {
+    const lines = build(100, [item(60, { cc1Id: 'fno-ft' }), item(40)]);
+    expect(lines.map((l) => [l.cc1Id, l.credit])).toEqual([['fno-ft', 60], [undefined, 40]]);
   });
 
   it('CHANGED from #663: a discount group on its own dimensions posts as its own debit leg, dims kept', () => {
     // #663 fell back to ONE line carrying only the FNO here, dropping BU 'build' and 'disc'.
-    expect(build(900, [item(1000, { buId: 'build' }), item(-100, { buId: 'disc' })], 'fno-ft')).toEqual([
+    expect(build(900, [item(1000, { cc1Id: 'fno-ft', buId: 'build' }), item(-100, { cc1Id: 'fno-ft', buId: 'disc' })])).toEqual([
       expect.objectContaining({ glAccountId: 'rev', debit: 0, credit: 1000, cc1Id: 'fno-ft', buId: 'build' }),
       expect.objectContaining({ glAccountId: 'rev', debit: 100, credit: 0, cc1Id: 'fno-ft', buId: 'disc' }),
     ]);
@@ -88,12 +90,12 @@ describe('customer invoice revenue legs (one builder: account, job, CC1, CC2, BU
 
   it('CHANGED from #663: items that do not add up to the subtotal are refused, not absorbed by the last group', () => {
     // #663 put the 50.00 difference on the last group (credit 550 against items of 500).
-    expect(() => build(1050, [item(500, { buId: 'a' }), item(500, { buId: 'b' })], null))
+    expect(() => build(1050, [item(500, { buId: 'a' }), item(500, { buId: 'b' })]))
       .toThrow(InvoiceLineCodingRefusal);
   });
 
   it('a job and a CC2 project are separate tags: the same CC2 on two jobs is two legs', () => {
-    const lines = build(100, [item(70, { projectId: 'job-1', cc2Id: 'lawley' }), item(30, { projectId: 'job-2', cc2Id: 'lawley' })], null);
+    const lines = build(100, [item(70, { projectId: 'job-1', cc2Id: 'lawley' }), item(30, { projectId: 'job-2', cc2Id: 'lawley' })]);
     expect(lines.map((l) => [l.projectId, l.cc2Id, l.credit])).toEqual([['job-1', 'lawley', 70], ['job-2', 'lawley', 30]]);
   });
 });

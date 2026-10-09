@@ -37,11 +37,14 @@ export interface DimensionCostCentre {
   /** The FNO (CC1) code a CC2 rolls up to; the row's own code for a CC1. */
   fnoCode: string | null;
   aliases: string[];
+  description: string | null;
+  department: string | null;
 }
 
 interface CcRow {
   id: string; code: string; name: string; cc_type: string | null; is_active: boolean | null;
   parent_id: string | null; parent_code: string | null; aliases: string[] | null;
+  description: string | null; department: string | null;
 }
 
 export async function listDimensionCostCentres(
@@ -49,7 +52,7 @@ export async function listDimensionCostCentres(
   opts: { ccType?: DimensionCcType; includeInactive?: boolean } = {},
 ): Promise<DimensionCostCentre[]> {
   const rows = (await sql`
-    SELECT cc.id::TEXT AS id, cc.code, cc.name, cc.cc_type, cc.is_active,
+    SELECT cc.id::TEXT AS id, cc.code, cc.name, cc.cc_type, cc.is_active, cc.description, cc.department,
            cc.parent_id::TEXT AS parent_id, p.code AS parent_code,
            COALESCE((SELECT array_agg(a.alias ORDER BY a.alias) FROM cost_centre_aliases a
                       WHERE a.cost_centre_id = cc.id AND a.company_id = cc.company_id), '{}') AS aliases
@@ -70,6 +73,7 @@ export async function listDimensionCostCentres(
         id: r.id, code: String(r.code), name: String(r.name), ccType: String(r.cc_type ?? 'cc1'),
         isActive: r.is_active === true, parentId: r.parent_id, parentCode: r.parent_code ?? null,
         fnoCode: fnoId ? (nodes.get(fnoId)?.code ?? null) : null, aliases: r.aliases ?? [],
+        description: r.description ?? null, department: r.department ?? null,
       };
     });
 }
@@ -81,6 +85,8 @@ export interface CreateDimensionCostCentreInput {
   /** Parent code, UUID or alias. CC2 only. */
   parent?: string;
   aliases?: string[];
+  description?: string;
+  department?: string;
 }
 
 export interface CreateDimensionCostCentrePlan {
@@ -100,6 +106,7 @@ export async function planCreateDimensionCostCentre(
   const name = input.name.trim();
   if (!code || code.length > 20) throw new DimensionRefusal('code is required and at most 20 characters');
   if (!name || name.length > 255) throw new DimensionRefusal('name is required and at most 255 characters');
+  if (input.department && input.department.trim().length > 100) throw new DimensionRefusal('department is at most 100 characters');
   if (input.ccType === 'cc1' && input.parent) {
     throw new DimensionRefusal('A CC1 (FNO) is the top of the project ladder and takes no parent');
   }
@@ -159,8 +166,9 @@ export async function applyCreateDimensionCostCentre(
   userId: string,
 ): Promise<{ id: string }> {
   const [row] = (await sql`
-    INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id)
-    VALUES (${companyId}::UUID, ${plan.input.code}, ${plan.input.name}, ${plan.input.ccType}, ${plan.parentId}::UUID)
+    INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id, description, department)
+    VALUES (${companyId}::UUID, ${plan.input.code}, ${plan.input.name}, ${plan.input.ccType}, ${plan.parentId}::UUID,
+            ${plan.input.description?.trim() || null}, ${plan.input.department?.trim() || null})
     RETURNING id::TEXT AS id
   `) as { id: string }[];
   for (const a of plan.aliases) {

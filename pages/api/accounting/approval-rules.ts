@@ -1,7 +1,9 @@
 /**
  * Approval Rules API
- * GET  — list all rules
- * POST — create a new rule
+ * GET  — list all rules, and the actor's own company role (`actorRole`) so the
+ *        rule form offers only roles they may demand (assertMayDemand)
+ * POST — create a new rule; { action: 'starter', rules } creates a confirmed
+ *        subset of the recommended set (approvalStarterService) in one savepoint
  * PUT  — update a rule
  * DELETE — delete a rule
  */
@@ -12,11 +14,16 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withSavepoint } from '@/lib/neon';
-import { listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError, ApprovalFieldInvalidError } from '@/modules/accounting/services/gl/approvalService';
+import {
+  listRules, createRule, updateRule, deleteRule, CONDITION_OPERATORS, ApprovalRoleInvalidError, ApprovalOperatorInvalidError,
+  ApprovalFieldInvalidError, ApprovalAmountInvalidError, ApprovalActiveFlagInvalidError, ApprovalNameInvalidError,
+  ApprovalDocumentTypeInvalidError,
+} from '@/modules/accounting/services/gl/approvalService';
 import { ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
 import { ApprovalRuleAuthorityError, type RuleActor } from '@/modules/accounting/services/gl/approvalRuleGuards';
 import { ApprovalRuleLegacyTypeError } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { isUuidParam } from '@/lib/validation';
+import { createStarterRules, parseStarterPicks } from '@/modules/accounting/services/gl/approvalStarterService';
 
 const OPERATOR_ERROR = `conditionOperator must be one of: ${CONDITION_OPERATORS.join(', ')}`;
 
@@ -54,7 +61,9 @@ function isForeignKeyViolation(error: unknown): boolean {
  */
 function respondToRuleWriteError(res: NextApiResponse, error: unknown, onDelete = false): boolean {
   if (error instanceof ApprovalRoleInvalidError || error instanceof ApprovalOperatorInvalidError
-      || error instanceof ApprovalFieldInvalidError || error instanceof ApprovalRuleLegacyTypeError) {
+      || error instanceof ApprovalFieldInvalidError || error instanceof ApprovalRuleLegacyTypeError
+      || error instanceof ApprovalAmountInvalidError || error instanceof ApprovalActiveFlagInvalidError
+      || error instanceof ApprovalNameInvalidError || error instanceof ApprovalDocumentTypeInvalidError) {
     apiResponse.badRequest(res, error.message);
     return true;
   }
@@ -86,7 +95,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const rules = await listRules(companyId);
-    return apiResponse.success(res, { items: rules });
+    // The role withAuth resolved — the one every guard ranks — never the client's copy.
+    return apiResponse.success(res, { items: rules, actorRole: companyRole });
+  }
+
+  if (req.method === 'POST' && typeof req.body === 'object' && req.body !== null && req.body.action === 'starter') {
+    // Validated in full before any write: a 400 here has written nothing.
+    const parsed = parseStarterPicks(req.body.rules);
+    if (!parsed.ok) return apiResponse.badRequest(res, parsed.message);
+    try {
+      // ONE savepoint: a refusal on any row (createRule's assertMayDemand, say)
+      // unwinds every row created before it, so the 4xx withAuth commits has
+      // written nothing. All of the confirmed rules, or none.
+      const result = await withSavepoint('approval_rule_starter', () => createStarterRules(companyId, parsed.picks, actor));
+      return apiResponse.success(res, result);
+    } catch (error) {
+      if (respondToRuleWriteError(res, error)) return;
+      throw error;
+    }
   }
 
   if (req.method === 'POST') {

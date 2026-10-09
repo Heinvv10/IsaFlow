@@ -15,7 +15,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { isUuidParam } from '@/lib/validation';
-import { enableOnlinePayment, InvoiceNotApprovedError } from '@/modules/accounting/services/core/paymentGatewayPortalService';
+import {
+  enableOnlinePayment, InvoiceForeignCurrencyError, InvoiceNotApprovedError,
+} from '@/modules/accounting/services/core/paymentGatewayPortalService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -38,6 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // R-180: the one refusal with its own answer; "not found" would send staff looking for the invoice.
     if (err instanceof InvoiceNotApprovedError) return apiResponse.badRequest(res, err.message);
+    if (err instanceof InvoiceForeignCurrencyError) return apiResponse.badRequest(res, err.message);
     throw err;
   }
   if (!paymentUrl) return apiResponse.notFound(res, 'Open invoice with a balance due');

@@ -60,6 +60,8 @@ export enum ErrorCode {
   PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
   PAYMENT_REQUIRED = 'PAYMENT_REQUIRED',
   INSUFFICIENT_SCOPE = 'INSUFFICIENT_SCOPE',
+  /** The request is refused until the caller confirms it (e.g. a possible duplicate); resend with the confirmation. */
+  PRECONDITION_REQUIRED = 'PRECONDITION_REQUIRED',
 
   // Server errors (500-599)
   INTERNAL_ERROR = 'INTERNAL_ERROR',
@@ -90,6 +92,7 @@ export const STATUS_CODE_MAP: Record<ErrorCode, number> = {
   [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
   [ErrorCode.PAYMENT_REQUIRED]: 402,
   [ErrorCode.INSUFFICIENT_SCOPE]: 403,
+  [ErrorCode.PRECONDITION_REQUIRED]: 428,
 
   // Server errors
   [ErrorCode.INTERNAL_ERROR]: 500,

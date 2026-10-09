@@ -18,6 +18,7 @@ import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
+import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,6 +44,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof InvoiceLineValidationError) return apiResponse.badRequest(res, err.message);
     // Raised before the first write: the 400 commits nothing.
     if (err instanceof InvoiceLineCodingRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+    if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
     if (err instanceof CustomerNotInCompanyError) return apiResponse.badRequest(res, err.message);
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Invoice create failed', { error: msg });

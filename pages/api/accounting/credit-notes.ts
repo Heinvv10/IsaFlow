@@ -16,6 +16,7 @@ import {
   getCreditNotes,
   getCreditNoteById,
   createCreditNote,
+  CreditNoteLinkError,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
@@ -85,6 +86,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfLockTimeout(res, err)) return;
       // Raised before the first write (creditNoteHeaderTags): a 400 commits nothing.
       if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
+      // Before any write: a counterparty or invoice the note may not name (FX PR0 adds a foreign invoice).
+      if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create credit note');
     }

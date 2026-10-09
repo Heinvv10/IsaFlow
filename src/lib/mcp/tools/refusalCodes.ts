@@ -28,6 +28,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
   'APPROVAL_REQUIRED',
+  // R-035 N1: the approval rules or the amount moved while a request was being
+  // raised (gl/approvalDocumentErrors). Names the caller's own document type
+  // and id; nothing is written. No MCP tool raises requests (Q6).
+  'APPROVAL_RULES_CHANGED',
   'BANK_ALLOCATION_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
@@ -63,6 +67,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
   'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
+  // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
+  'CURRENCY_CODE_INVALID',
   'CUSTOMER_INVOICE_LOCK_TIMEOUT',
   'CUSTOMER_NOT_FOUND',
   // CC1/CC2/BU refusals (gl/dimensions): an unknown reference, a project whose
@@ -77,11 +83,17 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Inactive or not-this-company line account (gl/documentLineAccountGuard): names only the caller's own account.
   'DOCUMENT_LINE_ACCOUNT_REFUSED',
   'DOCUMENT_NUMBER_LOCK_TIMEOUT',
-  // R-035 review HIGH-1 (ap/supplierInvoiceCurrency): names the currency and
-  // the rate the caller sent; raised before any write.
+  // R-035 review HIGH-1, invoices and bills since FX PR0 (shared/documentCurrency):
+  // names the currency and the rate the caller sent; raised before any write.
   'EXCHANGE_RATE_INVALID',
   // R-035: approve without the digest the approver was shown. Names only the request id.
   'EXPECTED_DIGEST_REQUIRED',
+  // FX PR0 (shared/documentCurrency): a foreign-currency document while the company has not
+  // enabled them. Names the caller's currency and the functional one; raised before any write.
+  'FOREIGN_CURRENCY_DISABLED',
+  // FX PR0 (shared/documentCurrency): settling a foreign-currency document, whatever the switch.
+  // Names the document's currency; raised before any write.
+  'FOREIGN_CURRENCY_SETTLEMENT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
@@ -141,6 +153,11 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
   'ROW_LOCK_TIMEOUT', // D8 round 9 (core/rowLockBudget): names the document; nothing acquired, retry.
   'RULE_AUTHORITY_REQUIRED',
+  // Supplier bank verification (forensic-controls step 1): a bank file or
+  // Netcash submission paying a supplier whose bank details are unverified;
+  // names the caller's own suppliers, raised before anything is sent. Listed
+  // because every `readonly code` must be; no MCP tool sends money.
+  'SUPPLIER_BANK_DETAILS_UNVERIFIED',
   // A refund larger than the contact's on-account credit (migration 681). One fixed sentence written for the user, naming the contact, the two amounts
   // and the as-at date the caller itself supplied — no id, no table — and
   // raised BEFORE the journal posts, so there is nothing written to leak.

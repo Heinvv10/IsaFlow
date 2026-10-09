@@ -35,8 +35,9 @@ import { assertPostedForAllocation } from './bankFeedStateGuard';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contactDirectoryService';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
-import { assertBankLineMayPaySupplier } from '../ap/bankLinePaymentGate';
+import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
 import { planSplitDimensions } from './bankSplitDimensions';
@@ -240,39 +241,22 @@ export async function allocateTransaction(
   let counterpartyAccountId: string | null = null;
 
   if (allocType === 'transfer') {
-    if (!contraAccountId) throw new Error('contraAccountId is required for transfer allocation (counterparty bank account)');
-    if (contraAccountId === bankAccountId) throw new Error('Transfer source and destination bank accounts must differ');
+    if (!contraAccountId) throw new BankAllocationRefusal('contraAccountId is required for transfer allocation (counterparty bank account)');
+    if (contraAccountId === bankAccountId) throw new BankAllocationRefusal('Transfer source and destination bank accounts must differ');
 
     const cpRows = (await sql`
       SELECT account_code, account_name, account_subtype FROM gl_accounts
       WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
     `) as Row[];
-    if (cpRows.length === 0) throw new Error('Counterparty bank account not found');
+    if (cpRows.length === 0) throw new BankAllocationRefusal('Counterparty bank account not found');
     const cp = cpRows[0]!;
     if (!isBankSubtype(cp.account_subtype == null ? null : String(cp.account_subtype))) {
-      throw new Error('Transfer counterparty must be a bank account (subtype = bank)');
+      throw new BankAllocationRefusal('Transfer counterparty must be a bank account (subtype = bank)');
     }
 
-    // Guard: if the opposite bank's feed already has an allocated transfer
-    // matching this amount/date, the user is double-posting. Matching the
-    // existing JE is the correct path.
-    const dupRows = (await sql`
-      SELECT id FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID
-        AND bank_account_id = ${contraAccountId}::UUID
-        AND counterparty_account_id = ${bankAccountId}::UUID
-        AND transfer_journal_entry_id IS NOT NULL
-        AND amount = ${-Number(tx.amount)}
-        AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
-                                 AND (${txDate}::DATE + INTERVAL '2 days')
-      LIMIT 1
-    `) as Row[];
-    if (dupRows.length > 0) {
-      throw new Error(
-        'A matching transfer already exists on the counterparty bank for this amount and date. ' +
-        'Match the existing journal entry instead of posting a new one.',
-      );
-    }
+    // The same movement already in the ledger (the other bank's line, or a Banking > Transfers journal): refused.
+    await assertNoDuplicateTransfer(companyId, bankAccountId, contraAccountId, Number(tx.amount), txDate,
+      isBankEvidenced(tx));
 
     counterpartyAccountId = contraAccountId;
     allocEntityName = `${String(cp.account_code)} ${String(cp.account_name)}`;
@@ -432,8 +416,12 @@ export async function allocateTransaction(
     sourceDocumentId: invoiceSourceDocId,
   };
 
+  // A transfer from a line with no statement or feed behind it (hand-keyed; a Sage-migrated line too) is a typed amount
+  // like a Transfers-page one: the reference says so (only a journal the statement created is reference-less:
+  // reports/journalSourceKinds, bank/transferDuplicateGuard — sec-nrfa r4 M1, brk-nrfa r6 L2).
+  const reference = source === 'auto_bank_transfer' && !isBankEvidenced(tx) ? 'No statement or feed line' : undefined;
   const je = await createJournalEntry(companyId, {
-    entryDate: txDate, description: entryDesc, source, lines: linesWithDims,
+    entryDate: txDate, description: entryDesc, source, lines: linesWithDims, reference,
   }, userId, allocationMeta, { allowLateInputClaim: opts?.allowLateInputClaim });
   const { lateClaim } = await postJournalEntry(companyId, je.id, userId, { allowLateInputClaim: opts?.allowLateInputClaim });
 

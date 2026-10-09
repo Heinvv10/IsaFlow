@@ -21,6 +21,7 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import {
   applyCreditNote,
   deriveCreditNoteStatus,
+  type CreditNoteApplication,
   type CreditNoteAutoApply,
 } from '../shared/creditNoteFifo';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -31,6 +32,8 @@ import { creditNoteHeaderOf, creditNoteHeaderTags } from './creditNoteHeaderTags
 import type { CreditNoteAllocation } from './invoiceRevenueLines';
 import { ArPostingAfterWriteError } from './arErrors';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
+import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
+import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -70,6 +73,16 @@ export async function approveCreditNote(
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
     const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
+    // FX PR0, before any write: the note itself, and the invoice approving it
+    // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
+    await assertStoredDocumentPostable(companyId, 'credit_note', id);
+    const [linkedType, linked] = String(cn.type) === 'customer'
+      ? ['customer_invoice', cn.customer_invoice_id] as const
+      : ['supplier_invoice', cn.supplier_invoice_id] as const;
+    if (linked) await assertStoredDocumentPostable(companyId, linkedType, String(linked));
+    // FX PR0: settlement leaves a foreign note, or the foreign document it is linked to, unapplied (the note
+    // still posts). Read here, before the journal: a failure after it is written must not be the route's 400.
+    const settles = await storedDocumentsSettleable(companyId, [['credit_note', id], ...(linked ? [[linkedType, String(linked)] as const] : [])]);
 
     let lines: JournalLineInput[];
     let allocations: CreditNoteAllocation[] = [];
@@ -79,6 +92,8 @@ export async function approveCreditNote(
       ...(cn.cc2_id ? { cc2Id: String(cn.cc2_id) } : {}),
       ...(cn.bu_id ? { buId: String(cn.bu_id) } : {}),
     };
+    // As stored (and approved), never re-derived from the project's current FNO (dimensionStoredPosting).
+    await assertPostsStoredDimensions(companyId, String(cn.status), [dims], () => `Credit note ${String(cn.credit_note_number)}`);
 
     if (String(cn.type) === 'customer') {
       // Customer CN: DR Revenue, CR Accounts Receivable
@@ -138,7 +153,7 @@ export async function approveCreditNote(
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       lines,
-    }, userId, actorMeta(opts));
+    }, userId, actorMeta(opts), POST_AS_STORED);
     // From here the draft journal is written: a failure is a 5xx (rollback), not the route's 400.
     const noteNumber = String(cn.credit_note_number);
     await afterJournalWritten(noteNumber, () => postJournalEntry(companyId, je.id, userId));
@@ -162,7 +177,9 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application = await afterJournalWritten(noteNumber, () => applyCreditNote({
+    const application: CreditNoteApplication = !settles
+      ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
+      : await afterJournalWritten(noteNumber, () => applyCreditNote({
       companyId,
       creditNoteId: id,
       side,
