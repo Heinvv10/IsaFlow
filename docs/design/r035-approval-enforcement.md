@@ -504,6 +504,37 @@ approved-unposted; a rejected draft no longer blocks). Known change: under enfor
 closed period or inactive account now fails at post, not before the write. Enforcement off or no rule matching:
 posts as before.
 
+**Review round 1 (PR #684; blind reviewer + adversarial breaker at 96595543), changes:**
+- **Rules that post money (Hein, 2026-10-09, breaker REPRO 4):** suggestion rules feed the unattended auto-post sweep
+  (rule matches score 0.95), so under `bank_rule` a rule POSTS MONEY when it is active AND (`auto_create_entry` OR the
+  company's auto-post is enabled) — `bank_rule_posts_money(company, p)`, `bank_rule_change_needs_approval(company,
+  before, after)`; the one-argument predicate is dropped. With auto-post on, creating or re-pointing any active rule
+  needs a second person; disable and delete stay immediate. Under `bank_rule`, enabling or loosening auto-post is a
+  weakening too (D), at no less than the bank-rule approver role. This supersedes "suggestion-only rules apply
+  immediately" while auto-post is on.
+- **GL reversal of a bank allocation:** `journal-entries-action` `reverse` and MCP `reverse_journal_entry` lock the
+  journal chain's statement lines first (D12's entrance, bank lines before journals) and, under the arm's enforced
+  type, refuse 409 `REVERSE_FROM_BANK_LINE` — reverse it from the bank line, where the allocator, agent and audit
+  rules apply (`bankReversalGate.lockJournalCashForGlReversal`). Enforcement off: unchanged.
+- **Provisional Dismiss** is a reversal: the same allocator / agent check under the line locks, audited per line.
+- **Matching** (`bank-transactions-action` `match`, `bank-match-confirm` journal line / bank transfer): the importer
+  may not match their batch's line to a journal they created (403 `IMPORTER_MAY_NOT_ALLOCATE`); `auto_match` is not
+  gated (an unattended pairing of existing entries).
+- **Provenance cannot be shed:** a batch a line names cannot be deleted (until the company is purged), and a line's
+  `import_batch_id` cannot change once set (877 triggers).
+- **The raised approver role is enforced in SQL too** (`bank_rule_approver_role`, `bank_control_rank` — the ladder,
+  pinned to `APPROVER_RANK` by census — with the same proposer fallback as `bankRuleApprovers.ts`).
+- **Rule targets:** 489's composite FKs nulled `company_id` with the target, so deleting any supplier or GL account a
+  rule named always failed (pre-existing); 877 re-creates them as `ON DELETE SET NULL (supplier_id)` /
+  `(gl_account_id)` (PG15+; skipped on older servers). A cleared target re-points money, so under `bank_rule` the
+  soft-delete purge and the migration rollback first disable the rules that would need approval
+  (`disableRulesLosingTarget`, recorded; re-enabling is held), in the same savepoint as the delete.
+- Every route whose call graph can raise `BankControlError` answers it (403/409) — census-pinned; the allocator and
+  the run creator compare case-insensitively; the dead legacy `importBankStatement` (batch-id lines with no batch row)
+  is deleted.
+- Disputed, with reasons in the PR: the importer check has no amount threshold (decision 2 sets none; a hand-keyed
+  line below a manual-journal rule's threshold is R-035 PR6's design), and extension lines are feed lines (decision 2).
+
 **Known limits.**
 - Browser-extension ingest lines carry `bank_feed_connection_id`, so they are feed lines and exempt from
   importer ≠ allocator (decision 2). The extension reads the bank's page in the user's own browser.
