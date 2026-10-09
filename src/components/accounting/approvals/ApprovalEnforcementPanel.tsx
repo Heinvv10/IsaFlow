@@ -73,18 +73,20 @@ function bankRow(on: boolean, n: number): { label: string; count: string; note: 
 
 /**
  * Bank-rule approval (forensic-controls step 2) shares the switchboard too and
- * is no document approval: `n` is the active rules that auto-post now.
+ * is no document approval: `n` is the rules that post money now — active, and
+ * auto-posting or (with auto-post on) suggesting to the sweep.
  */
 const BANK_RULE = 'bank_rule';
 function bankRuleRow(on: boolean, n: number): { label: string; count: string; note: string } {
-  const rules = `${n} active auto-posting rule${n === 1 ? '' : 's'}`;
+  const rules = `${n} rule${n === 1 ? '' : 's'} posting money`;
   return {
     label: 'Require a second person to approve bank-rule changes that post money',
     count: rules,
     note: on
-      ? 'Creating an auto-posting rule, turning auto-post on, or changing where an auto-posting rule posts waits on the '
-        + 'Bank rules page until another member with the manual-journal approver role approves it. Turning auto-post off, '
-        + 'disabling and deleting apply at once. Every rule change is kept in its history.'
+      ? 'Creating a rule that posts money, turning auto-post on for a rule, or changing where such a rule posts waits on the '
+        + 'Bank rules page until another member with the manual-journal approver role approves it. While auto-post is on, '
+        + 'every active rule posts money. Turning auto-post off, disabling and deleting apply at once. Every rule change is '
+        + 'kept in its history.'
       : 'Rules already auto-posting keep posting. Once on, a change that makes a rule post money, or changes where it posts, '
         + 'needs another member\'s approval before it takes effect.',
   };

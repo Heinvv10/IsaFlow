@@ -96,11 +96,11 @@ export async function lockRuleProjection(companyId: string, ruleId: string): Pro
   return rows[0]?.p ?? null;
 }
 
-/** Active rules that post money unattended now (877's bank_rule_auto_posts) — the `bank_rule` switch's preview. */
+/** Rules that post money unattended now (877's bank_rule_posts_money: active, and auto-posting or auto-post on) — the `bank_rule` switch's preview. */
 export async function countAutoPostingRules(companyId: string): Promise<number> {
   const rows = (await sql`
     SELECT count(*)::INT AS n FROM bank_categorisation_rules r
-    WHERE r.company_id = ${companyId}::UUID AND public.bank_rule_auto_posts(public.bank_rule_projection(to_jsonb(r)))
+    WHERE r.company_id = ${companyId}::UUID AND public.bank_rule_posts_money(r.company_id, public.bank_rule_projection(to_jsonb(r)))
   `) as { n: number }[];
   return Number(rows[0]?.n ?? 0);
 }

@@ -83,3 +83,50 @@ U1  UI held save — useBankRules toggle: the isHeldForApproval branch removed (
     C tests/unit/components/bankRulePendingChanges.test.tsx -t "a held toggle"
     RED: a held toggle reads as held, not as done
          AssertionError: expected "vi.fn()" to be called with arguments: [ StringMatching{…}, Any<String> ]
+
+── Round 2: breaker #684 REPROS 4–6 (877 edited; restores re-apply the working 877, verified triggers present) ──
+
+D5  rules that post money — 877 bank_rule_posts_money: the `OR EXISTS (… bank_auto_post_settings … enabled)` arm -> `OR false`
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "re-pointing it is held"
+    RED: with auto-post enabled, a suggestion-only rule posts money > re-pointing it is held; the sweep posts with the rule as it was, never to the unapproved account
+         AssertionError: expected 'applied' to be 'pending_approval'
+
+M10 enabling auto-post under bank_rule is a weakening — autoPostSettingsService.applyOnce: `(types.length > 0 || bankRule)` -> `types.length > 0`
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "an admin is refused 403"
+    RED: enabling auto-post under bank_rule enforcement is a weakening > an admin is refused 403 with nothing written; the owner may; tightening needs nobody
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 403
+
+M11 (EQUIVALENT, survived) — assertMayWeaken: level not raised to the manual-journal (bank-rule approver) role under bank_rule alone.
+    Behaviourally equivalent today: withWriteAccess admits only owner/admin/manager, and mayWeakenAtLevel gives the same answer
+    for each of them at the admin floor and at owner level (owner yes, admin/manager no). Only `system`/`super_admin` would tell
+    them apart, and neither can write. Kept as defence in depth; recorded, not proven.
+
+D6  batch row kept while a line names it — DROP TRIGGER bank_import_batch_kept ON bank_import_batches
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "a batch its lines still name"
+    RED: REPRO 5 — import provenance cannot be shed > a batch its lines still name cannot be deleted; the importer stays refused
+         AssertionError: expected 'ok' to match /^42501: .*still names? it/
+
+D7  a line's batch fixed — DROP TRIGGER bank_transaction_batch_fixed ON bank_transactions
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "once set, cannot move"
+    RED: REPRO 5 — … > a line's import_batch_id, once set, cannot move or be cleared
+         AssertionError: expected 'ok' to match /^42501: .*import batch/
+
+D8  raised approver role in SQL — 877 bank_rule_decision_guard: `required := public.bank_rule_approver_role(...)` -> `required := 'admin'`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "refused by the route AND by the database"
+    RED: REPRO 6 — the raised approver role, in SQL too > an admin below an owner-level manual_journal rule is refused by the route AND by the database
+         AssertionError: expected 'ok' to match /^23514: .*owner role or above/
+
+D9  SQL fallback (only the proposer holds the raised role) — 877 decision guard: `IF only_proposer THEN required := 'admin'; END IF;` -> `NULL;`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "only the proposer holds the raised role"
+    RED: REPRO 6 — … > only the proposer holds the raised role: an admin may decide, in the route and in SQL
+         AssertionError: expected 500 to be 200   (the route's TS fallback and the guard must agree)
+
+C2  census — 877's ladder drifts: `WHEN 'manager' THEN 4` -> `THEN 5`
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "bank_control_rank is APPROVER_RANK"
+    RED: the database guards rank on the same ladder > 877's bank_control_rank is APPROVER_RANK, role for role
+         AssertionError: expected { super_admin: 8, owner: 7, …(9) } to deeply equal { super_admin: 8, owner: 7, …(9) }
+
+C3  census — a stray `DELETE FROM bank_import_batches` added to bankStatementImportService.ts
+    U tests/unit/services/bank/bankImportProvenanceCensus.test.ts -t "nothing UPDATEs a batch"
+    RED: 1. every import path records the importer > nothing UPDATEs a batch: … (877)
+         AssertionError: expected [ Array(1) ] to deeply equal []
