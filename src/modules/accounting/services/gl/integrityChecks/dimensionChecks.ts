@@ -22,7 +22,7 @@ import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult } f
 
 /** The same bound as dimensionDerivation.deriveFnoId. */
 const MAX_DEPTH = 16;
-/** Reversal chains are walked to the same bound; one that deep is left unjudged. */
+/** Reversal chains are walked to the same bound; a line on one that deep (or cyclic) is flagged as unjudged. */
 const MAX_REVERSAL_DEPTH = 16;
 
 /**
@@ -39,7 +39,9 @@ const MAX_REVERSAL_DEPTH = 16;
  *     reversal, found by walking reversal_of_id up the whole chain) nets the
  *     entry above it and is skipped with it, so one move is not counted twice;
  *     an even step re-instates and is in force; an entry reversed only after
- *     as_at was in force on as_at and is kept. A stored NULL CC1 under a project that now
+ *     as_at was in force on as_at and is kept. A line whose chain reaches the
+ *     cap (16+ deep, or cyclic) is flagged anyway, marked unjudged — failing
+ *     open would make corrupt data look clean. A stored NULL CC1 under a project that now
  *     derives one IS flagged: every new journal line derives its CC1.
  *   - bank lines: un-allocated only (an allocated row's journal line is checked
  *     above), feed_state not 'removed', and a CC1 actually stored — a CC2-only
@@ -85,28 +87,32 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
     failing AS (
       SELECT jl.id::TEXT AS id, COALESCE(je.entry_number, je.id::TEXT) AS label,
              GREATEST(COALESCE(jl.debit, 0), COALESCE(jl.credit, 0)) AS amount,
-             'journal line' AS kind, jl.cc1_id, jl.cc2_id, d.fno_id
+             'journal line' AS kind, jl.cc1_id, jl.cc2_id, d.fno_id,
+             COALESCE(rd.depth >= ${MAX_REVERSAL_DEPTH}, FALSE) AS unjudged
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
       LEFT JOIN reversal_depth rd ON rd.entry_id = je.id
       JOIN derived d ON d.cc2_id = jl.cc2_id
       WHERE jl.company_id = ${ctx.companyId}::UUID AND je.status IN ('posted', 'reversed')
         AND je.entry_date <= ${ctx.asAt}::DATE
-        -- Undone AS AT as_at: a reversal dated on or before it (by its entry_date), or — a reversed entry with
-        -- no reversal row — reversed_at on or before it. Reversed later, the line was still in force then.
-        AND NOT EXISTS (
-          SELECT 1 FROM gl_journal_entries r
-          WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id
-            AND r.status IN ('posted', 'reversed') AND r.entry_date <= ${ctx.asAt}::DATE)
-        AND NOT (je.reversed_at IS NOT NULL AND je.reversed_at::DATE <= ${ctx.asAt}::DATE AND NOT EXISTS (
-          SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id))
-        -- An odd step down the chain is a reversal and nets the entry above it; an even step re-instates the
-        -- original and is in force. A chain as deep as the cap is not judged (fails closed: not flagged).
-        AND NOT (rd.depth IS NOT NULL AND (rd.depth % 2 = 1 OR rd.depth >= ${MAX_REVERSAL_DEPTH}))
+        -- A chain as deep as the cap (16+ steps, or a cycle) cannot be judged: such a line is FLAGGED, marked
+        -- unjudged, never dropped — a detector that dropped it would make corrupt data look clean.
+        AND (COALESCE(rd.depth >= ${MAX_REVERSAL_DEPTH}, FALSE) OR (
+          -- Undone AS AT as_at: a reversal dated on or before it (by its entry_date), or — a reversed entry
+          -- with no reversal row — reversed_at on or before it. Reversed later, the line was in force then.
+          NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries r
+            WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id
+              AND r.status IN ('posted', 'reversed') AND r.entry_date <= ${ctx.asAt}::DATE)
+          AND NOT (je.reversed_at IS NOT NULL AND je.reversed_at::DATE <= ${ctx.asAt}::DATE AND NOT EXISTS (
+            SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id))
+          -- An odd step down the chain is a reversal and nets the entry above it; an even step re-instates
+          -- the original and is in force.
+          AND NOT (rd.depth IS NOT NULL AND rd.depth % 2 = 1)))
         AND jl.cc1_id IS DISTINCT FROM d.fno_id
       UNION ALL
       SELECT bt.id::TEXT, COALESCE(bt.reference, bt.description, bt.id::TEXT),
-             ABS(bt.amount), 'bank line', bt.cc1_id, bt.cc2_id, d.fno_id
+             ABS(bt.amount), 'bank line', bt.cc1_id, bt.cc2_id, d.fno_id, FALSE
       FROM bank_transactions bt
       JOIN derived d ON d.cc2_id = bt.cc2_id
       WHERE bt.company_id = ${ctx.companyId}::UUID AND bt.feed_state <> 'removed'
@@ -115,7 +121,7 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
         AND bt.cc1_id IS NOT NULL AND bt.cc1_id <> d.fno_id
       UNION ALL
       SELECT sii.id::TEXT, COALESCE(si.invoice_number, si.id::TEXT),
-             ABS(COALESCE(sii.line_total, 0)), 'supplier invoice line', sii.cc1_id, sii.cc2_id, d.fno_id
+             ABS(COALESCE(sii.line_total, 0)), 'supplier invoice line', sii.cc1_id, sii.cc2_id, d.fno_id, FALSE
       FROM supplier_invoice_items sii
       JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
       JOIN derived d ON d.cc2_id = sii.cc2_id
@@ -124,7 +130,7 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
         AND sii.cc1_id IS NOT NULL AND sii.cc1_id <> d.fno_id
       UNION ALL
       SELECT cii.id::TEXT, COALESCE(ci.invoice_number, ci.id::TEXT),
-             ABS(COALESCE(cii.amount, 0)), 'customer invoice line', cii.cc1_id, cii.cc2_id, d.fno_id
+             ABS(COALESCE(cii.amount, 0)), 'customer invoice line', cii.cc1_id, cii.cc2_id, d.fno_id, FALSE
       FROM customer_invoice_items cii
       JOIN customer_invoices ci ON ci.id = cii.invoice_id
       JOIN derived d ON d.cc2_id = cii.cc2_id
@@ -133,7 +139,7 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
         AND cii.cc1_id IS NOT NULL AND cii.cc1_id <> d.fno_id
       UNION ALL
       SELECT cn.id::TEXT, COALESCE(cn.credit_note_number, cn.id::TEXT),
-             ABS(COALESCE(cn.total_amount, 0)), 'credit note', cn.cc1_id, cn.cc2_id, d.fno_id
+             ABS(COALESCE(cn.total_amount, 0)), 'credit note', cn.cc1_id, cn.cc2_id, d.fno_id, FALSE
       FROM credit_notes cn
       JOIN derived d ON d.cc2_id = cn.cc2_id
       WHERE cn.company_id = ${ctx.companyId}::UUID AND COALESCE(cn.status, 'draft') NOT IN ('draft', 'cancelled')
@@ -150,7 +156,9 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
     ${failing}
     SELECT f.id, f.label, f.amount,
            f.kind || ': project ' || COALESCE(p.code, '?') || ' stores FNO ' || COALESCE(s.code, '(none)')
-             || ', derives ' || COALESCE(n.code, '(none)') AS detail
+             || ', derives ' || COALESCE(n.code, '(none)')
+             || CASE WHEN f.unjudged THEN '; on a reversal chain 16+ deep or cyclic — in-force state not judged' ELSE '' END
+             AS detail
     FROM failing f
     LEFT JOIN cost_centres p ON p.id = f.cc2_id AND p.company_id = ${ctx.companyId}::UUID
     LEFT JOIN cost_centres s ON s.id = f.cc1_id AND s.company_id = ${ctx.companyId}::UUID
