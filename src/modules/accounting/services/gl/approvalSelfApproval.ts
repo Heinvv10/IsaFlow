@@ -74,7 +74,8 @@ type MemberRow = { role: string; is_active: boolean | null; status: string | nul
  * says it was the requester's own, allowed because nobody else could — is
  * written by approval_request_decide (migration 872), in the same transaction
  * as the decision, so the decision cannot commit without it. Since migration
- * 880 (R-035 N1b A) audit_log is append-only for every role but its owner, so
- * the row cannot be deleted or rewritten; a forged extra row can still be
- * inserted (the accepted limit).
+ * 880 (R-035 N1b A) audit_log is append-only for every role but its owner:
+ * app_user and platform_admin cannot delete or rewrite the row (a company
+ * delete, and a connection holding the owner's rights, still can), and a
+ * forged extra row can still be inserted (the accepted limit).
  */
