@@ -3,28 +3,45 @@
  *
  * A line that carries a project (CC2) stores the FNO (CC1) that was derived
  * from the project's parent chain when the line was written. Moving a project
- * to another FNO is refused while anything carries it (dimensionMasterEdit),
- * but journal posting does not take the master lock, so a line committed while
- * the move was being planned can still keep the old FNO. That race is closed by
- * detection, not by locking (Hein, 2026-10-09): this check finds every line
- * whose stored CC1 is not the FNO its CC2 derives TODAY.
+ * to another FNO is refused while anything carries it (dimensionMasterEdit,
+ * countCc2Carriers), but journal posting does not take the master lock, so a
+ * line committed while the move was being planned can keep the old FNO. That
+ * race is answered by detection, not by locking (Hein, 2026-10-09).
+ *
+ * COVERED: posted journal lines; un-allocated bank lines; customer invoice
+ * lines, supplier invoice lines and credit notes in the document population.
+ * NOT COVERED, on purpose: gl_accounts.default_cc1 / default_cc2 (independent
+ * card defaults, never a derived pair) and un-reversed tag-batch old_cc2_id
+ * (history a reversal restores, not a carrier of a current figure) — both still
+ * block the move itself through countCc2Carriers.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
 import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult } from './types';
 
 /** The same bound as dimensionDerivation.deriveFnoId. */
 const MAX_DEPTH = 16;
 
 /**
- * Journal and bank lines whose CC1 is not the FNO their CC2 derives now.
+ * Lines whose stored CC1 contradicts the FNO their CC2 derives TODAY.
  *
  * The derivation mirrors deriveFnoId: walk the CC2's parents, company-scoped,
- * to the first CC1; a cycle, a missing parent or no CC1 at all derives none.
- * IS DISTINCT FROM, so a line that stores no CC1 under a project that now
- * derives one is flagged, and a line that stores a CC1 under a project that
- * derives none is flagged too. Removed bank-feed rows are out of scope;
- * pending ones are not — their selection is what allocation copies to the ledger.
+ * to the first CC1; a cycle, a missing parent or no CC1 derives none. A CC2
+ * that derives NO FNO is never flagged: a CC1 beside it is what
+ * applyFnoDerivation / applyCustomerFno write on purpose (the customer's FNO).
+ *
+ * Per carrier:
+ *   - journal lines: posted, dated <= as_at, and still in force — a reversal
+ *     pair is skipped whole (the undone test bankMatchDbQueries uses), so one
+ *     move is not counted twice. A stored NULL CC1 under a project that now
+ *     derives one IS flagged: every new journal line derives its CC1.
+ *   - bank lines: un-allocated only (an allocated row's journal line is checked
+ *     above), feed_state not 'removed', and a CC1 actually stored — a CC2-only
+ *     selection stores NULL by design (planAllocationDimensions).
+ *   - documents: issued (shared/documentPopulation; credit notes: not draft or
+ *     cancelled), not deleted, dated <= as_at, with a CC1 stored — a CC2-only
+ *     line saved before 873 is refused at approval, not here.
  */
 export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<IntegrityCheckResult> {
   const failing = sql`
@@ -52,19 +69,49 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
              'journal line' AS kind, jl.cc1_id, jl.cc2_id, d.fno_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
-      LEFT JOIN derived d ON d.cc2_id = jl.cc2_id
-      WHERE jl.company_id = ${ctx.companyId}::UUID AND jl.cc2_id IS NOT NULL
+      LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
+      LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
+      JOIN derived d ON d.cc2_id = jl.cc2_id
+      WHERE jl.company_id = ${ctx.companyId}::UUID AND je.status = 'posted'
         AND je.entry_date <= ${ctx.asAt}::DATE
+        AND NOT (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL
+          AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL)))
         AND jl.cc1_id IS DISTINCT FROM d.fno_id
       UNION ALL
       SELECT bt.id::TEXT, COALESCE(bt.reference, bt.description, bt.id::TEXT),
              ABS(bt.amount), 'bank line', bt.cc1_id, bt.cc2_id, d.fno_id
       FROM bank_transactions bt
-      LEFT JOIN derived d ON d.cc2_id = bt.cc2_id
-      WHERE bt.company_id = ${ctx.companyId}::UUID AND bt.cc2_id IS NOT NULL
-        AND bt.feed_state <> 'removed'
+      JOIN derived d ON d.cc2_id = bt.cc2_id
+      WHERE bt.company_id = ${ctx.companyId}::UUID AND bt.feed_state <> 'removed'
+        AND bt.matched_journal_line_id IS NULL
         AND bt.transaction_date <= ${ctx.asAt}::DATE
-        AND bt.cc1_id IS DISTINCT FROM d.fno_id
+        AND bt.cc1_id IS NOT NULL AND bt.cc1_id <> d.fno_id
+      UNION ALL
+      SELECT sii.id::TEXT, COALESCE(si.invoice_number, si.id::TEXT),
+             ABS(COALESCE(sii.line_total, 0)), 'supplier invoice line', sii.cc1_id, sii.cc2_id, d.fno_id
+      FROM supplier_invoice_items sii
+      JOIN supplier_invoices si ON si.id = sii.supplier_invoice_id
+      JOIN derived d ON d.cc2_id = sii.cc2_id
+      WHERE si.company_id = ${ctx.companyId}::UUID AND ${sql.unsafe(documentInPopulationExpr('si'))}
+        AND si.deleted_at IS NULL AND si.invoice_date <= ${ctx.asAt}::DATE
+        AND sii.cc1_id IS NOT NULL AND sii.cc1_id <> d.fno_id
+      UNION ALL
+      SELECT cii.id::TEXT, COALESCE(ci.invoice_number, ci.id::TEXT),
+             ABS(COALESCE(cii.amount, 0)), 'customer invoice line', cii.cc1_id, cii.cc2_id, d.fno_id
+      FROM customer_invoice_items cii
+      JOIN customer_invoices ci ON ci.id = cii.invoice_id
+      JOIN derived d ON d.cc2_id = cii.cc2_id
+      WHERE ci.company_id = ${ctx.companyId}::UUID AND ${sql.unsafe(documentInPopulationExpr('ci'))}
+        AND ci.deleted_at IS NULL AND COALESCE(ci.invoice_date, ci.created_at::DATE) <= ${ctx.asAt}::DATE
+        AND cii.cc1_id IS NOT NULL AND cii.cc1_id <> d.fno_id
+      UNION ALL
+      SELECT cn.id::TEXT, COALESCE(cn.credit_note_number, cn.id::TEXT),
+             ABS(COALESCE(cn.total_amount, 0)), 'credit note', cn.cc1_id, cn.cc2_id, d.fno_id
+      FROM credit_notes cn
+      JOIN derived d ON d.cc2_id = cn.cc2_id
+      WHERE cn.company_id = ${ctx.companyId}::UUID AND COALESCE(cn.status, 'draft') NOT IN ('draft', 'cancelled')
+        AND cn.credit_date <= ${ctx.asAt}::DATE
+        AND cn.cc1_id IS NOT NULL AND cn.cc1_id <> d.fno_id
     )`;
 
   const totals = (await sql`
@@ -93,8 +140,8 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
     amount: r2(num(totals[0]?.amount)),
     sample: rows.map((r) => ({ id: str(r.id), label: str(r.label), amount: r2(num(r.amount)), detail: str(r.detail) })),
     finding:
-      'Each of these lines stores a CC1 other than the FNO its CC2 rolls up to through the current parent chain — usually a line '
-      + 'committed while the project was being moved. FNO reports split its figure from the project\'s. Re-tag the line (tag_journal_lines) '
-      + 'or move the project back.',
+      'Each of these journal lines, bank lines or document lines stores a CC1 other than the FNO its CC2 rolls up to through '
+      + 'the current parent chain — usually written while the project was being moved. FNO reports split its figure from the '
+      + 'project\'s. Re-tag the journal line (tag_journal_lines), re-save the document, or move the project back.',
   };
 }
