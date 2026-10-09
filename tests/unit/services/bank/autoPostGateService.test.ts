@@ -117,21 +117,23 @@ describe('updateAutoPostSettings', () => {
       .rejects.toThrow(/amount_cap/);
   });
 
-  it('upserts and returns the merged settings', async () => {
+  // The write, its audit and the weakening control run against a real database:
+  // tests/integration/bank-auto-post-settings-controls.int.test.ts. Here: a patch equal to the locked row is one read.
+  it('a patch equal to the stored row returns it after one read, writing nothing', async () => {
     sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: true }, 'u-1');
     expect(s.enabled).toBe(true);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
-  it('persists enabled:false without dropping it', async () => {
+  it('enabled:false equal to the stored row is not dropped, and writes nothing', async () => {
     sqlMock.mockResolvedValueOnce([{ enabled: false, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { enabled: false }, 'u-1');
     expect(s.enabled).toBe(false);
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts amountCap 0 (uncapped) and forwards it', async () => {
+  it('accepts amountCap 0 (uncapped); equal to the stored row it writes nothing', async () => {
     sqlMock.mockResolvedValueOnce([{ enabled: true, min_confidence: '0.9', amount_cap: '0', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
     const s = await updateAutoPostSettings('co-1', { amountCap: 0 }, 'u-1');
     expect(s.amountCap).toBe(0);
