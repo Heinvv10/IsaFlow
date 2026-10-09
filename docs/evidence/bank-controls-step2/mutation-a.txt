@@ -329,3 +329,34 @@ command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-
 result: Tests  1 failed | 2 skipped (3)
 failing: FAIL  tests/integration/brk684r2-settlement-void.int.test.ts > the R-127 settlement undo reverses a provisional bank allocation around the reversal gate > FIXED: another member undoes it — the provisional reversed, the line freed, one audit row
 assertion: AssertionError: expected { provisionalReversed: true, …(2) } to deeply equal { provisionalReversed: true, …(2) }
+
+# Re-run after master #687 (auto-match pairs a withdrawal with the bank's CREDIT leg): the auto-match fixtures now plant a
+# withdrawal; #37's mutation now neutralises the per-pair refusal in importerHeldMatchPairs (rewritten for R2-6). Still red.
+
+## 36 (re-run). round 3 MEDIUM-A: auto-match skips the run's person's own pair
+mutation: src/modules/accounting/services/bank/bankAutoMatchService.ts: `if (match.confidence >= 0.9 && importerHeld.has(match.bankTransactionId)) { skippedImporter++; continue; }` -> `if (false && match.confidence >= 0.9 && importerHeld.has(match.bankTransactionId)) { skippedImporter++; continue; }`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "own line and own journal"
+result: Tests  1 failed | 3 skipped (4)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > the importer's own line and own journal: skipped and counted, as `match` refuses it; another member's run matches it
+assertion: AssertionError: expected { matched: 1, unmatched: +0, …(5) } to match object { matched: +0, skippedImporter: 1 }
+
+## 37 (re-run). round 3 MEDIUM-A: the held-pair read itself
+mutation: src/modules/accounting/services/bank/bankLineImporterGate.ts: `if (mine.has(p.bankTransactionId) && await importerMatchRefusal(companyId, p.bankTransactionId, p.journalLineId, actorUserId)) {` -> `if (false && mine.has(p.bankTransactionId)) {`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "perform_bank_reconciliation"
+result: Tests  1 failed | 3 skipped (4)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > MCP perform_bank_reconciliation skips the same pair for the token's user
+assertion: AssertionError: expected { dry_run: false, …(18) } to match object { auto_matched: +0, …(1) }
+
+## 40 (re-run). breaker R2-6: the match gate judges the arm of what the line is matched to
+mutation: src/modules/accounting/services/bank/bankLineImporterGate.ts: `return importerAllocationRefusal(companyId, row, actorUserId, facts.arm);` -> `return importerAllocationRefusal(companyId, row, actorUserId, 'manual_journal');`
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/brk684r2-slice-a.int.test.ts -t "R2-6"
+result: Tests  1 failed | 1 skipped (2)
+failing: FAIL  tests/integration/brk684r2-slice-a.int.test.ts > R2-6 — the match gate judges every journal on the manual-journal arm only > supplier_payment enforced: the importer may not pay a supplier from their own line, but matches it to their own payment
+assertion: AssertionError: expected { status: 200, line: 'matched' } to deeply equal { status: 403, line: 'imported' }
+
+## 41 (re-run). orchestrator: auto-match without a person fails closed
+mutation: src/modules/accounting/services/bank/bankAutoMatchService.ts: `if (!triggeredBy) throw new Error('autoMatchTransactions: the person who ran it (triggeredBy) is required');` -> ``
+command: cd <worktree> && . .fixture/env.sh && timeout 900 bunx vitest run --no-file-parallelism --config vitest.integration.config.ts tests/integration/bank-controls-auto-match.int.test.ts -t "names no person"
+result: Tests  1 failed | 3 skipped (4)
+failing: FAIL  tests/integration/bank-controls-auto-match.int.test.ts > auto_match acts for the person who ran it > a run that names no person is refused before it reads anything (fails closed)
+assertion: AssertionError: promise resolved "{ matched: 1, unmatched: +0, …(5) }" instead of rejecting
