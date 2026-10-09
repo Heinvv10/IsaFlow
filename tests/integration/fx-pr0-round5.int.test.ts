@@ -3,9 +3,9 @@
  * WHATEVER the switch, in the services as in the database, on every path the
  * reviewers named — and a currency change on a draft needs its lines.
  *
- * - A legacy USD draft relabelled ZAR without its lines is refused (it would
- *   post its USD figures as rands); with its lines re-entered it is not. A
- *   rate-only edit recomputes functional_total.
+ * - A legacy USD draft (switch off) cannot change currency at all — the edit
+ *   page re-sends its lines, so their presence proves nothing; with the switch
+ *   on a change needs the lines. A rate-only edit recomputes functional_total.
  * - applyCreditNoteToInvoice and the named-document apply (dry run and live)
  *   refuse a foreign note and a foreign invoice with the worded refusal.
  * - Approving a foreign note (switch on) posts it and leaves it unapplied.
@@ -34,6 +34,7 @@ import { invoicesPayable } from '@/modules/accounting/services/ar/invoicesPayabl
 import { billsPayable } from '@/modules/accounting/services/ap/billAllocatable';
 import { loadContraDocument } from '@/modules/accounting/services/core/contraSettlementService';
 import { readBackfillSources } from '@/modules/accounting/services/shared/autoApplyBackfillPopulation';
+import { applyOneCreditNote } from '@/modules/accounting/services/shared/autoApplyBackfillApply';
 import {
   applyCreditNoteToDocument, CreditNoteApplyRefusal, planCreditNoteToDocument,
 } from '@/modules/accounting/services/shared/creditNoteDocumentApply';
@@ -90,14 +91,23 @@ const allocationsOf = async (noteId: string) =>
   Number((await pool.query('SELECT count(*) FROM credit_note_allocations WHERE credit_note_id = $1', [noteId])).rows[0].count);
 
 describe('a draft invoice edit', () => {
-  it('relabelling a legacy USD draft as ZAR without its lines is refused; with them re-entered it saves', async () => {
+  it('a legacy USD draft (switch off) cannot be relabelled ZAR, with or without its lines: the page re-sends them unchanged', async () => {
     const c = await company();
     const inv = await plantInvoice(pool, c, owner, { currencyCode: 'USD', exchangeRate: 18.5, functionalTotal: 21275 });
     await off(c);
-    const refused = await inRequest(c, () => editDraftCustomerInvoice(c, owner, { id: inv.id, currencyCode: 'ZAR', exchangeRate: 1 }));
-    expect(refused).toMatchObject({ kind: 'currency_refused', message: expect.stringMatching(/re-entered in ZAR/) });
-    expect((await pool.query('SELECT currency_code FROM customer_invoices WHERE id = $1', [inv.id])).rows[0].currency_code).toBe('USD');
+    for (const items of [undefined, [{ description: 'Line A', quantity: 2, unitPrice: 300 }, { description: 'Line B', quantity: 1, unitPrice: 400 }]]) {
+      const refused = await inRequest(c, () => editDraftCustomerInvoice(c, owner, { id: inv.id, currencyCode: 'zar ', exchangeRate: 1, items } as never));
+      expect(refused, JSON.stringify(items)).toMatchObject({ kind: 'currency_refused', message: expect.stringMatching(/cancel it and create the invoice again in ZAR/) });
+    }
+    const { rows: [row] } = await pool.query('SELECT currency_code, total_amount FROM customer_invoices WHERE id = $1', [inv.id]);
+    expect(row).toEqual({ currency_code: 'USD', total_amount: '1150.00' });
+  });
 
+  it('with the switch on, a currency change needs the lines; with them it saves at the new figures', async () => {
+    const c = await company();
+    const inv = await plantInvoice(pool, c, owner, { currencyCode: 'USD', exchangeRate: 18.5, functionalTotal: 21275 });
+    expect(await inRequest(c, () => editDraftCustomerInvoice(c, owner, { id: inv.id, currencyCode: 'ZAR', exchangeRate: 1 })))
+      .toMatchObject({ kind: 'currency_refused', message: expect.stringMatching(/needs its lines re-entered in ZAR/) });
     const saved = await inRequest(c, () => editDraftCustomerInvoice(c, owner, {
       id: inv.id, currencyCode: 'ZAR', exchangeRate: 1, items: [{ description: 'Re-entered', quantity: 1, unitPrice: 20000 }],
     } as never));
@@ -192,13 +202,16 @@ describe('settlement with the switch ON', () => {
     await expect(loadContraDocument(c, 'ar', inv.id, 10)).rejects.toThrow(SETTLE);
   });
 
-  it('the auto-apply back-fill leaves a USD note out and keeps a ZAR one', async () => {
+  it('the auto-apply back-fill leaves a USD note out and keeps a ZAR one; a USD note handed to it directly is refused by name', async () => {
     const c = await company();
     const usd = await appliedPair(c, 'USD');
     const zar = await appliedPair(c);
-    const ids = (await readBackfillSources(c, 'ar', null, 100)).map((s) => s.paymentId);
-    expect(ids).toContain(zar.id);
-    expect(ids).not.toContain(usd.id);
+    const sources = await readBackfillSources(c, 'ar', null, 100);
+    expect(sources.map((s) => s.paymentId)).toContain(zar.id);
+    expect(sources.map((s) => s.paymentId)).not.toContain(usd.id);
+    const direct = { ...sources.find((s) => s.paymentId === zar.id)!, paymentId: usd.id };
+    await expect(inRequest(c, () => applyOneCreditNote({ companyId: c, subledger: 'ar', userId: owner, idempotencyKey: null, oldestFirstFor: async () => true } as never, direct)))
+      .rejects.toThrow(ForeignCurrencySettlementError);
   });
 });
 

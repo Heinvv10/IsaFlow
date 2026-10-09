@@ -65,7 +65,7 @@ export class ForeignCurrencyDisabledError extends DocumentCurrencyError {
   constructor(currencyCode: string, functionalCurrency: string, noun: string) {
     // Not "issue it in ZAR": relabelling a USD draft as ZAR keeps its USD figures, now read as rands.
     super(`${currencyCode} ${noun}s are not enabled for this company yet. To issue it in ${functionalCurrency}, `
-      + `re-enter its amounts in ${functionalCurrency} — changing only the currency would book the ${currencyCode} figures as ${functionalCurrency}.`);
+      + `create it in ${functionalCurrency} with its amounts in ${functionalCurrency} — changing only the currency would book the ${currencyCode} figures as ${functionalCurrency}.`);
     this.name = 'ForeignCurrencyDisabledError';
   }
 }

@@ -62,16 +62,18 @@ const row = async (table: string, id: string) => (await pool.query(
   `SELECT currency_code, exchange_rate::text AS rate, total_amount::text AS total, functional_total::text AS f FROM ${table} WHERE id = $1`, [id])).rows[0];
 
 describe('a legacy foreign draft once the switch is off', () => {
-  it('any edit, a notes edit too, is a 400 naming the currency; converting it to ZAR goes through', async () => {
+  it('any edit, a notes edit too, is a 400 naming the currency; converting it to ZAR is refused too (cancel and re-create)', async () => {
     const c = await company(true);
     const inv = await plantInvoice(pool, c, owner, { currencyCode: 'USD', exchangeRate: 18.5 });
     await pool.query('UPDATE companies SET fx_documents_enabled = false WHERE id = $1', [c]);
     const notes = await put(c, { id: inv.id, notes: 'just a note' });
     expect(notes.state.statusCode, JSON.stringify(notes.state.body)).toBe(400);
     expect(messageOf(notes)).toMatch(/USD invoices are not enabled for this company/);
+    // The edit page re-sends the lines unchanged, so "lines included" cannot prove they were re-entered in ZAR.
     const back = await put(c, { id: inv.id, items, currencyCode: 'ZAR', exchangeRate: 1 });
-    expect(back.state.statusCode, JSON.stringify(back.state.body)).toBe(200);
-    expect(await row('customer_invoices', inv.id)).toMatchObject({ currency_code: 'ZAR', f: '2300.00' });
+    expect(back.state.statusCode, JSON.stringify(back.state.body)).toBe(400);
+    expect(messageOf(back)).toMatch(/cancel it and create the invoice again in ZAR/);
+    expect(await row('customer_invoices', inv.id)).toMatchObject({ currency_code: 'USD' });
   });
 });
 

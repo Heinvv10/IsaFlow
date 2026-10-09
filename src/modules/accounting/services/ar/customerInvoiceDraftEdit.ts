@@ -94,12 +94,20 @@ export async function editDraftCustomerInvoice(
       if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
       throw err;
     }
-    // A currency change relabels every figure the invoice holds: without its lines
-    // re-entered, a legacy USD draft relabelled ZAR would post its USD amounts as rands.
+    // A currency change relabels every figure the invoice holds. A legacy foreign
+    // draft (switch off) may not change at all: the edit page re-sends its lines
+    // unchanged, so "lines included" proves nothing — its USD amounts would post
+    // as rands. Otherwise the lines must come with the change.
     const storedCode = String(ownedRows[0]!.currency_code ?? '').trim().toUpperCase() || company.functionalCurrency;
-    if (nextCode !== null && nextCode !== storedCode && !items) {
-      return { kind: 'currency_refused' as const, message: `Changing this invoice from ${storedCode} to ${nextCode} `
-        + `needs its lines re-entered in ${nextCode} — changing only the currency would book the ${storedCode} figures as ${nextCode}.` };
+    if (nextCode !== null && nextCode !== storedCode) {
+      if (storedCode !== company.functionalCurrency && !company.fxDocumentsEnabled) {
+        return { kind: 'currency_refused' as const, message: `This ${storedCode} draft cannot be changed to ${nextCode}: `
+          + `cancel it and create the invoice again in ${nextCode}, with its amounts in ${nextCode}.` };
+      }
+      if (!items) {
+        return { kind: 'currency_refused' as const, message: `Changing this invoice from ${storedCode} to ${nextCode} `
+          + `needs its lines re-entered in ${nextCode} — changing only the currency would book the ${storedCode} figures as ${nextCode}.` };
+      }
     }
 
     // Defence-in-depth: clientId must belong to the same tenant. The FK
