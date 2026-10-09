@@ -63,6 +63,16 @@ describe('purging a supplier a rule names', () => {
     expect((res.state.body as { data: { status: string } }).data.status).toBe('pending_approval');
   });
 
+  it('with auto-post on (REPRO 4), a suggest-only rule naming the supplier posts money too: it is disabled first', async () => {
+    const f = await fixture(true);
+    await pool.query('INSERT INTO bank_auto_post_settings(company_id, enabled) VALUES($1, true)', [f.c]);
+    const { supplier, rule } = await supplierRule(f, false);
+    expect(await inUsableTx(f.c, () => purgeExpiredDeletes(f.c))).toBe(1);
+    expect(await supplierExists(supplier)).toBe(false);
+    expect(await ruleOf(pool, rule)).toMatchObject({ supplier_id: null, is_active: false });
+    await pool.query('DELETE FROM bank_auto_post_settings WHERE company_id = $1', [f.c]);
+  });
+
   it('a rule that posts nothing, or any rule with the switch off, keeps running and only loses the supplier', async () => {
     const on = await fixture(true);
     const suggest = await supplierRule(on, false);
