@@ -120,4 +120,22 @@ describeIfDisposable('creating a customer invoice with a line discount', () => {
     expect(r).toEqual({ kind: 'ok' });
     expect(await stored(id)).toEqual(before);
   });
+
+  it('a two-place discount on a R10m line reads back exactly, so an unchanged save moves nothing', async () => {
+    const id = await create([{ description: 'Big', unitPrice: 9999.99, quantity: 1000, discount: 87.26 }]);
+    const before = await stored(id);
+    const r = await inTx(f.fx, async () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, items: await asEditPageSends(id) }));
+    expect(r).toEqual({ kind: 'ok' });
+    expect(await stored(id)).toEqual(before);
+  });
+
+  it('the draft edit refuses a total its column cannot hold (a 400, not numeric overflow), and writes nothing', async () => {
+    const id = await create([{ description: 'Small', unitPrice: 10, quantity: 1 }]);
+    const before = await stored(id);
+    const r = await inTx(f.fx, () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
+      id, items: [{ description: 'Huge', unitPrice: 9e12, quantity: 1 }],
+    }));
+    expect(r).toEqual({ kind: 'bad_amount', message: 'The invoice total is too large' });
+    expect(await stored(id)).toEqual(before);
+  });
 });

@@ -29,6 +29,7 @@ import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
 import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
+import { toFunctional } from '../shared/functionalAmounts';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -42,6 +43,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
   | { kind: 'bad_line'; message: string }
+  | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
 
@@ -206,6 +208,10 @@ export async function editDraftCustomerInvoice(
       const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
       const rate = taxRate ?? existingTaxRate;
       computed = { ...invoiceTotals(lineAmounts, rate), rate };
+      // numeric(15,2), as create checks it: the total and functional_total = fx_functional(total, rate).
+      if (computed.total >= 1e13 || toFunctional(computed.total, fxRateOverride ?? (existingRate || 1)) >= 1e13) {
+        return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
+      }
     }
 
     await tx`

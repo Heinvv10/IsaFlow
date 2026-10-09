@@ -20,7 +20,8 @@ import {
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
-import { invoiceLineAmount, invoiceTotals, toColumnCents } from './invoiceLineAmount';
+import { invoiceLineAmount, invoiceTotals, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
+import { toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -105,8 +106,8 @@ export async function createDraftCustomerInvoice(
     if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
       throw new InvoiceLineValidationError('Line unit prices must be numbers of zero or more');
     }
-    if (!(typeof discount === 'number' && discount >= 0 && discount <= 100)) {
-      throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100');
+    if (!isDiscountPercent(discount)) {
+      throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100, to at most two decimal places');
     }
     const qty = toColumnCents(qtyIn);
     if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
@@ -152,7 +153,10 @@ export async function createDraftCustomerInvoice(
   // edit and the new-invoice preview compute them.
   const rate = requestedRate;
   const { subtotal, tax: taxAmount, total: totalAmount } = invoiceTotals(priced.map((p) => p.amount), rate);
-  if (totalAmount >= 1e13) throw new InvoiceLineValidationError('The invoice total is too large');
+  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
+  if (totalAmount >= 1e13 || toFunctional(totalAmount, invExchangeRate) >= 1e13) {
+    throw new InvoiceLineValidationError('The invoice total is too large');
+  }
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   const bpStart = billingPeriodStart || null;

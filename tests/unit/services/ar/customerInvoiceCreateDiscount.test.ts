@@ -33,6 +33,7 @@ vi.mock('@/modules/accounting/services/ar/invoiceLineCodingGuard', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { resolveDocumentCurrency } from '@/modules/accounting/services/shared/documentCurrency';
 import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
@@ -149,6 +150,13 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     expect(calls('INSERT INTO')).toHaveLength(0);
   });
 
+  it('refuses an FX total whose functional_total its column cannot hold, before writing anything', async () => {
+    vi.mocked(resolveDocumentCurrency).mockResolvedValueOnce({ currencyCode: 'USD', exchangeRate: 1000 });
+    const err = await create([{ description: 'X', unitPrice: 2e10, quantity: 1 }]).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(calls('INSERT INTO')).toHaveLength(0);
+  });
+
   it('refuses a total its column cannot hold, before writing anything', async () => {
     const err = await create([{ description: 'X', unitPrice: 9e12, quantity: 1 }, { description: 'Y', unitPrice: 9e12, quantity: 1 }])
       .then(() => null, (e: unknown) => e);
@@ -165,6 +173,8 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     ['a boolean', true],
     ['an array', [10]],
     ['an object', {}],
+    ['finer than two places', 12.345],
+    ['a tiny fraction', 1e-7],
   ])('refuses a %s discount before writing anything', async (_label, discount) => {
     const err = await create([{ description: 'X', unitPrice: 1000, quantity: 1, discount: discount as number }])
       .then(() => null, (e: unknown) => e);

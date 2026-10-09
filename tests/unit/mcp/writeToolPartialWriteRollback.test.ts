@@ -222,7 +222,7 @@ describe('create_draft_invoice', () => {
   });
 
   it('still reports the pre-write line validation precisely', async () => {
-    createInvoiceMock.mockRejectedValue(new InvoiceLineValidationError('Line quantities must be positive'));
+    createInvoiceMock.mockRejectedValue(new InvoiceLineValidationError('Line quantities must be positive numbers'));
 
     const r = await createDraftInvoiceTool.handler(invoiceArgs, ctx());
     expect(r.isError).toBe(true);

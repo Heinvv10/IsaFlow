@@ -61,19 +61,34 @@ export const previewTotals = (lineAmounts: readonly number[], ratePercent: numbe
   (finite(ratePercent, ...lineAmounts) ? invoiceTotals(lineAmounts, ratePercent) : { subtotal: 0, tax: 0, total: 0 });
 
 /**
+ * A discount a line can carry: a number from 0 to 100 with at most two decimal
+ * places, checked by its text (a float test lets 12.345 or 1e-7 through). Two
+ * places is what `discountFromAmount` can always read back exactly: there is
+ * no discount column, and a finer figure on a large line (R1m+) re-prices to
+ * a different cent after an unchanged save.
+ */
+export const isDiscountPercent = (d: unknown): d is number =>
+  typeof d === 'number' && d >= 0 && d <= 100 && /^\d+(\.\d{1,2})?$/.test(String(d));
+
+/**
  * The discount a stored line carries, for the edit form: there is no discount
- * column, so it is read back from amount < qty × price. The shortest decimal
- * (1 to 6 places) that re-prices to exactly the stored amount, so saving the
- * form unchanged moves nothing; 0 when the amount is not below qty × price.
+ * column, so it is read back from amount < qty × price — the shortest figure
+ * (0, 1 or 2 places) that re-prices to exactly the stored amount, so saving the
+ * form unchanged moves nothing. Every line priced here had such a figure (its
+ * own, isDiscountPercent). 0 when the amount is not below qty × price; a legacy
+ * amount no two-place discount reproduces reads back rounded to two places.
  */
 export function discountFromAmount(quantity: number, unitPrice: number, amount: number): number {
   if (!finite(quantity, unitPrice, amount)) return 0;
   const base = invoiceLineAmount(quantity, unitPrice, 0);
   if (!(base > 0 && amount < base)) return 0;
   const exact = (1 - amount / base) * 100;
-  for (let places = 1; places <= 6; places++) {
-    const d = Number(exact.toFixed(places));
-    if (d >= 0 && d <= 100 && invoiceLineAmount(quantity, unitPrice, d) === amount) return d;
+  for (const scale of [1, 10, 100]) {
+    const nearest = Math.round(exact * scale);
+    for (const n of [nearest, nearest - 1, nearest + 1]) {
+      const d = n / scale;
+      if (d >= 0 && d <= 100 && invoiceLineAmount(quantity, unitPrice, d) === amount) return d;
+    }
   }
-  return Number(exact.toFixed(6));
+  return Math.min(100, Math.max(0, Math.round(exact * 100) / 100));
 }

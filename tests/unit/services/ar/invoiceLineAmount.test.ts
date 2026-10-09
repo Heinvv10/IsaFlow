@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  discountFromAmount, invoiceLineAmount, invoiceTotals, previewLineAmount, previewTotals, toColumnCents,
+  discountFromAmount, invoiceLineAmount, invoiceTotals, isDiscountPercent, previewLineAmount, previewTotals, toColumnCents,
 } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { NotADecimalError } from '@/modules/accounting/services/shared/functionalAmounts';
 
@@ -79,7 +79,8 @@ describe('discountFromAmount — the edit form reads a stored line back', () => 
     [1, 1000, 10],
     [1, 1000, 12.34],    // to 0.1% this read back as 12.3 and an unchanged save billed 877.00, not 876.60
     [3, 33.33, 12.5],
-    [7, 13.37, 33.333],
+    [7, 13.37, 33.33],
+    [1000, 9999.99, 87.26],   // a R10m base: a 7-place discount here re-priced a cent off (breaker round 2)
     [1, 0.01, 50],
     [2.5, 19.99, 0.01],
     [1, 400, 100],
@@ -94,10 +95,31 @@ describe('discountFromAmount — the edit form reads a stored line back', () => 
     expect(discountFromAmount(1, 1000, 876.6)).toBe(12.34);
   });
 
+  it('reads back every two-place discount exactly, on any base the columns hold (seeded search)', () => {
+    let seed = 20261009;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const misses: string[] = [];
+    for (let i = 0; i < 20000; i++) {
+      const qty = Math.max(1, Math.round(10 ** (rnd() * 6))) / 100;          // 0.01 … 10 000
+      const price = Math.round(10 ** (rnd() * 11)) / 100;                    // 0.01 … 1 000 000 000
+      const d = Math.round(rnd() * 10000) / 100;                             // 0.00 … 100.00
+      const stored = invoiceLineAmount(qty, price, d);
+      const readBack = discountFromAmount(qty, price, stored);
+      if (!isDiscountPercent(readBack) || invoiceLineAmount(qty, price, readBack) !== stored) misses.push(`${qty}×${price}@${d}`);
+    }
+    expect(misses).toEqual([]);
+  });
+
   it('is 0 for an undiscounted line, a zero base, or an amount above qty × price', () => {
     expect(discountFromAmount(2, 250, 500)).toBe(0);
     expect(discountFromAmount(1, 0, 0)).toBe(0);
     expect(discountFromAmount(3, 33.33, 100)).toBe(0);
     expect(discountFromAmount(1, Number.NaN, 1)).toBe(0);
   });
+});
+
+describe('isDiscountPercent', () => {
+  it.each([0, 10, 12.5, 12.34, 99.99, 100, 0.01])('accepts %s', (d) => expect(isDiscountPercent(d)).toBe(true));
+  it.each([-0.01, 100.01, 12.345, 87.2574374, 1e-7, Number.NaN, Number.POSITIVE_INFINITY, '10', true, null, [10]])(
+    'refuses %s', (d) => expect(isDiscountPercent(d)).toBe(false));
 });
