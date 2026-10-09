@@ -14,6 +14,7 @@ import approvalEnforcement from '../../pages/api/accounting/approval-enforcement
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, cleanup, createUser, newCompany, plantRule } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
+import { asRole } from './r035-n1.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -101,24 +102,59 @@ describe('rule writes', () => {
     expect(await audits(c, 'approval_rule')).toEqual([]);
   });
 
-  it('an audit row that cannot be written fails the write: no unrecorded rule change', async () => {
-    const c = await company();
+  /** `statement` as app_user (owner, claims with an email) while audit rows of `entity` are refused: the error, or 'ok'. */
+  async function withAuditRefused(c: string, entity: string, statement: string, params: unknown[]): Promise<string> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // Refuse this company's rule audit rows for the length of the transaction only.
-      await client.query(`ALTER TABLE audit_log ADD CONSTRAINT n1b_no_rule_audit
-        CHECK (company_id <> '${c}'::UUID OR entity_type <> 'approval_rule') NOT VALID`);
+      // Refuse this company's audit rows of `entity` for the length of the transaction only.
+      await client.query(`ALTER TABLE audit_log ADD CONSTRAINT n1b_no_audit
+        CHECK (company_id <> '${c}'::UUID OR entity_type <> '${entity}') NOT VALID`);
       await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: u.owner, session_id: crypto.randomUUID() })]);
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
       await client.query('SET LOCAL ROLE app_user');
-      await expect(client.query("SELECT * FROM approval_rule_create($1,$2,'x','supplier_invoice',NULL,'any',0,'owner')", [c, u.owner]))
-        .rejects.toMatchObject({ code: '23514' });
+      await client.query(statement, params);
+      return 'ok';
+    } catch (error) {
+      return (error as { code?: string }).code ?? 'error';
     } finally {
       await client.query('ROLLBACK');
       client.release();
     }
-    expect((await pool.query('SELECT count(*)::INT AS n FROM approval_rules WHERE company_id = $1', [c])).rows[0].n).toBe(0);
+  }
+
+  it.each([
+    ['create', "SELECT * FROM approval_rule_create($1,$2,'x','supplier_invoice',NULL,'any',0,'owner') WHERE $3::UUID IS NOT NULL", 'approval_rule'],
+    ['update', 'SELECT * FROM approval_rule_update($1,$3,$2,NULL,NULL,NULL,NULL,NULL,false)', 'approval_rule'],
+    ['delete', 'SELECT * FROM approval_rule_delete($1,$3,$2)', 'approval_rule'],
+    ['switch on', "SELECT * FROM approval_enforcement_set($1,'customer_invoice',true,$2) WHERE $3::UUID IS NOT NULL", 'approval_enforcement'],
+    ['switch off', "SELECT * FROM approval_enforcement_set($1,'manual_journal',false,$2) WHERE $3::UUID IS NOT NULL", 'approval_enforcement'],
+  ])('an audit row that cannot be written fails the %s: nothing changes unrecorded (blind L4)', async (_op, statement, entity) => {
+    const c = await company();
+    const rule = await plantRule(pool, c, 'manager', { name: 'kept' });
+    await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'manual_journal', $2)", [c, u.owner]);
+    const before = (await pool.query(
+      `SELECT (SELECT json_agg(r ORDER BY r.id) FROM approval_rules r WHERE r.company_id = $1) AS rules,
+              (SELECT json_agg(e.document_type ORDER BY e.document_type) FROM approval_enforcement e WHERE e.company_id = $1) AS switches`,
+      [c])).rows[0];
+    expect(await withAuditRefused(c, entity, statement, [c, u.owner, rule])).toBe('23514');
+    const after = (await pool.query(
+      `SELECT (SELECT json_agg(r ORDER BY r.id) FROM approval_rules r WHERE r.company_id = $1) AS rules,
+              (SELECT json_agg(e.document_type ORDER BY e.document_type) FROM approval_enforcement e WHERE e.company_id = $1) AS switches`,
+      [c])).rows[0];
+    expect(after).toEqual(before);
+  });
+
+  it("records the session's email as the actor's (the JWT claims' email, as withAuth's user.email) (adversarial REPRO 4)", async () => {
+    const c = await company();
+    await asRole(pool, 'app_user', c, { sub: u.owner }, async (cl) => {
+      await cl.query("SELECT set_config('request.jwt.claims', $1, true)",
+        [JSON.stringify({ sub: u.owner, session_id: crypto.randomUUID(), email: 'owner@n1b.test' })]);
+      await cl.query("SELECT * FROM approval_enforcement_set($1,'supplier_invoice',true,$2)", [c, u.owner]);
+      await cl.query("SELECT * FROM approval_rule_create($1,$2,'e','supplier_invoice',NULL,'any',0,'manager')", [c, u.owner]);
+    }, true);
+    const { rows } = await pool.query('SELECT DISTINCT user_email FROM audit_log WHERE company_id = $1', [c]);
+    expect(rows).toEqual([{ user_email: 'owner@n1b.test' }]);
   });
 
   it('the starter: every confirmed rule created and audited', async () => {

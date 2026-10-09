@@ -21,9 +21,6 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('@/modules/accounting/services/core/auditTrailService', () => ({
-  logAuditOrThrow: vi.fn().mockResolvedValue(undefined),
-}));
 
 // R-035 PR2: raising is refused under Login-as (covered through the real route
 // in r035-pr2-authors.int.test.ts); these tests are about the request row.

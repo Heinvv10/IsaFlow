@@ -349,7 +349,7 @@ That is defensible only if Hein judges the injection surface small (§1) and tre
 
 **Cost:** (f1) 2 to 3 days; (f2) 1 day on top of (d).
 
-**As built (R-035 N1b B, migration 881, 2026-10-09): (f1) without (b).** The five definers (`approval_rule_lock` / `_create` / `_update` / `_delete`, `approval_enforcement_set`) take the actor from `auth.uid()` and the company from `app.current_company_id()`, as 872 does, and every non-owner write privilege on both tables (TRUNCATE and TRIGGER included, `platform_admin` and `migration_admin` included) is revoked. So T6 is closed for application code and for `app_user`/`platform_admin` SQL; it stays open to anything that can forge the claims GUC or `RESET ROLE` (T3/T5), until an anchor exists. (f2) is not built.
+**As built (R-035 N1b B, migration 881, 2026-10-09): (f1) without (b).** The five definers (`approval_rule_lock` / `_create` / `_update` / `_delete`, `approval_enforcement_set`) take the actor from `auth.uid()` and the company from `app.current_company_id()`, as 872 does, and every non-owner write privilege on both tables (TRUNCATE and TRIGGER included; `platform_admin`, and `migration_admin` wherever it is a plain grantee rather than the owner, as on the classic fixture) is revoked. The rank the definers judge is `company_users.role`, which an admin could rewrite by raw SQL until N1b C (migration 883) — so (f1) is only as strong as that table. So T6 is closed for application code and for `app_user`/`platform_admin` SQL; it stays open to anything that can forge the claims GUC or `RESET ROLE` (T3/T5), until an anchor exists. (f2) is not built.
 
 **Rollout risk: medium.** The rules UI (PR A) and the enforcement API must move to the functions in the same release.
 

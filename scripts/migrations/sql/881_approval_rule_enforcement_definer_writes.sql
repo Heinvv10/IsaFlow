@@ -18,6 +18,11 @@
 -- refusal class), and the TypeScript keeps its own checks, error types and
 -- messages, running first.
 --
+-- The definers rank the actor by company_users.role, as the TypeScript does:
+-- they are exactly as strong as that table. Until N1b C (migration 883) an
+-- admin could raise their own role there by raw SQL (cu_admin_write) and then
+-- pass these checks as an owner (adversarial review of PR #690, REPRO 1).
+--
 -- Refusals (SQLSTATE; MESSAGE; DETAIL carries the value the TS message names):
 --   RB001 rank below the rule (DETAIL: the rule's role)       → ApprovalRuleAuthorityError
 --   RB002 weakening needs a higher rank (DETAIL: rule's role) → ApprovalRuleAuthorityError(weakening)
@@ -98,8 +103,11 @@ $$;
 -- chased): "visible" excludes whitespace, Cc, every format character (Cf)
 -- and the five blank fillers exactly, but combining marks (M) only by their
 -- main blocks — Postgres regex has no \p{M} — so a name made only of a rarer
--- combining mark passes here and is refused in TypeScript. A rule name is
--- display text, not a security boundary (approvalRuleOptions.ts says so).
+-- combining mark passes here and is refused in TypeScript, and a name made
+-- only of an UNASSIGNED code point inside one of those blocks is refused here
+-- and accepted in TypeScript (r035-n1b-rules-lists sweeps the BMP and allows
+-- exactly these two). A rule name is display text, not a security boundary
+-- (approvalRuleOptions.ts says so).
 CREATE OR REPLACE FUNCTION public.approval_rule_name_ok(p_name pg_catalog.text)
 RETURNS pg_catalog.bool
 LANGUAGE plpgsql IMMUTABLE
