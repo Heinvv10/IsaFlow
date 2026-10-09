@@ -8,9 +8,10 @@
  * and the customer / account defaults (870), employees and assets (649), and the
  * coding-rule default (no FK, but it would point at nothing). The parent links
  * between the company's own centres (660) need nothing: one DELETE removes
- * parent and child together, and the check runs at the end of the statement. Tags are CLEARED, never rows deleted: a deleted
- * posted line would unbalance its journal, and a tag moves no figure. BU tags
- * are left alone — this wipe deletes no business unit.
+ * parent and child together, and the check runs at the end of the statement.
+ * Tags are CLEARED, never rows deleted: a deleted posted line would unbalance
+ * its journal, and a tag moves no figure. BU tags are left alone — this wipe
+ * deletes no business unit.
  */
 type Sql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
 
