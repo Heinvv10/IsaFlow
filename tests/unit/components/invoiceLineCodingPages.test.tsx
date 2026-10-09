@@ -2,7 +2,7 @@
 // offers only active LEAF revenue accounts; Dimensions offers jobs that are not cancelled, ACTIVE CC2 projects and
 // business units (fetched with ?active=true) — the job and the CC2 project labelled apart; each picker writes its own
 // field; the header Job is display only and pre-fills new lines; the edit page edits a line's CC2 / BU and re-sends
-// its CC1 only while its CC2 is the one it loaded with (CC1 follows CC2); an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
+// its CC1 only while its CC2 is the one it loaded with, else null (CC1 follows CC2); an edit round-trips what each line and the header are coded to, labelling a project past the list's cap
 // by fetching it by id, and telling loading, failed and unavailable apart; the approver sees each line's coding.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -183,9 +183,8 @@ describe('customer invoice line coding — edit', () => {
     expect(sent[0]!.body.projectId).toBe(FAR);
     expect(sent[0]!.body.items).toMatchObject([
       { glAccountId: ACC.commercials, projectId: FAR, cc2Id: CC2, buId: BU, cc1Id: 'fno-1' },
-      { glAccountId: ACC.retired, projectId: null, cc2Id: null, buId: null },
+      { glAccountId: ACC.retired, projectId: null, cc2Id: null, buId: null, cc1Id: null },
     ]);
-    expect('cc1Id' in (sent[0]!.body.items as Record<string, unknown>[])[1]!).toBe(false);
   });
 
   it("changing a line's CC2 (or clearing it, or its BU) sends the new values and leaves its CC1 to derivation", async () => {
@@ -199,8 +198,7 @@ describe('customer invoice line coding — edit', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(sent).toHaveLength(1));
     const [line] = sent[0]!.body.items as Record<string, unknown>[];
-    expect(line).toMatchObject({ cc2Id: null, buId: null });
-    expect('cc1Id' in line!).toBe(false);
+    expect(line).toMatchObject({ cc2Id: null, buId: null, cc1Id: null });
   });
 });
 

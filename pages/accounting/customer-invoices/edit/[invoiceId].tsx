@@ -16,7 +16,7 @@ import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-in
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
 // CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
-// otherwise left to derivation (the project's FNO, else the customer's: dimensionKeepStored).
+// otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
 type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
 const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 type InvoiceItemRow = {
@@ -156,7 +156,7 @@ export default function EditCustomerInvoicePage() {
             projectId: l.projectId || null,
             cc2Id: l.cc2Id || null,
             buId: l.buId || null,
-            ...(l.cc1Id && l.cc2Id === (l.cc2AtLoad ?? '') ? { cc1Id: l.cc1Id } : {}),
+            cc1Id: l.cc2Id === (l.cc2AtLoad ?? '') ? (l.cc1Id ?? null) : null,
           })),
         }),
       });
