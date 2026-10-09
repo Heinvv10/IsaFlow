@@ -10,15 +10,18 @@
  */
 import { vi } from 'vitest';
 
-export async function importerGateOpen() {
-  const real = await vi.importActual<typeof import('@/modules/accounting/services/bank/bankLineImporterGate')>(
-    '@/modules/accounting/services/bank/bankLineImporterGate');
+export function importerGateOpen() {
+  // No vi.importActual: loading the real module pulls the approval kernel's graph, which cost a fresh-module test
+  // (bankAllocationUnwind) its 5 s budget under the full suite. Every export is stubbed open; the arm is irrelevant
+  // when nothing is ever held.
   return {
-    ...real,
+    armLabel: vi.fn((arm: string) => arm),
+    importerArmOf: vi.fn(() => null),
     armEnforced: vi.fn(async () => false),
     isSoleAsCaller: vi.fn(async () => false),
     importerAllocationRefusal: vi.fn(async () => null),
     assertImporterMayAllocate: vi.fn(async () => undefined),
+    assertImporterMayAllocateAs: vi.fn(async () => undefined),
     importerRefusalForLineId: vi.fn(async () => null),
     importerHeldLineSkips: vi.fn(async () => new Map()),
   };
