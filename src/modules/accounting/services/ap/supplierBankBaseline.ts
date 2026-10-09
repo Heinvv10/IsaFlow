@@ -69,8 +69,10 @@ export async function assertVerifyingSession(): Promise<void> {
  * the FIRST switch-on writes a baseline (review of PR #679, R2-1): after it,
  * every supplier created, given details or changed — even while the control
  * was later off — needs a person's verify; switching off and on again
- * accepts nothing. (audit_log is app_user-writable — the N1 boundary; the 876
- * guard independently refuses a baseline once the company has any row.)
+ * accepts nothing. (audit_log is append-only for app_user and
+ * platform_admin since 880, so an enable row cannot be erased through the
+ * app's roles, though a member can insert one; the 876 guard independently
+ * refuses a baseline once the company has any row.)
  */
 export async function bankVerificationEverOn(companyId: string): Promise<boolean> {
   const rows = (await sql`
