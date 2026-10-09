@@ -43,8 +43,9 @@ export function findMatchCandidates(
   const isDeposit = bankTx.amount > 0;
 
   for (const line of glLines) {
-    // For deposits, match against credit lines; for withdrawals, match against debit lines
-    const lineAmount = isDeposit ? line.credit : line.debit;
+    // glLines are the bank account's own legs: money in debits it, money out credits it. So a deposit pairs with a
+    // DEBIT leg and a withdrawal with a CREDIT leg (the match screen's SIGN(debit - credit) = SIGN(amount) rule).
+    const lineAmount = isDeposit ? line.debit : line.credit;
     if (lineAmount <= 0) continue;
 
     const amountMatch = Math.abs(txAmount - lineAmount) < 0.02;
