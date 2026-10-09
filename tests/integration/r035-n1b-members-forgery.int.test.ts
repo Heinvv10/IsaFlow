@@ -1,8 +1,8 @@
 /**
- * R-035 N1b (C, migration 882): company_users and company_invitations refuse,
+ * R-035 N1b (C, migration 883): company_users and company_invitations refuse,
  * by raw SQL, every role change the app refuses — as app_user (an admin of
  * the company, under real claims) and as platform_admin. Each forgery went
- * through before 882 (RLS `cu_admin_write` / `invites_tenant` allowed it); each
+ * through before 883 (RLS `cu_admin_write` / `invites_tenant` allowed it); each
  * is refused after, with the row unchanged. The headline case end to end: an
  * admin forges an `owner` invitation for their other account and accepts it.
  */
@@ -92,7 +92,7 @@ describe('as app_user, an admin cannot by raw SQL', () => {
 });
 
 describe('as app_user, a manager (a member, not an admin) cannot', () => {
-  it('write or delete an invitation (RC001) — RLS let any member before 882', async () => {
+  it('write or delete an invitation (RC001) — RLS let any member before 883', async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.m, (cl) => cl.query(...invitation(c, p.m, 'viewer', emailOf(p.x)))))).toBe('RC001');
     await pool.query(...invitation(c, p.o, 'viewer', emailOf(p.x)));
