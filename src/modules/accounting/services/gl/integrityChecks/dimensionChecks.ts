@@ -32,9 +32,10 @@ const MAX_DEPTH = 16;
  * applyFnoDerivation / applyCustomerFno write on purpose (the customer's FNO).
  *
  * Per carrier:
- *   - journal lines: posted, dated <= as_at, and still in force — a reversal
- *     pair is skipped whole (the undone test bankMatchDbQueries uses), so one
- *     move is not counted twice. A stored NULL CC1 under a project that now
+ *   - journal lines: posted (or reversed), dated <= as_at, and in force AS AT
+ *     as_at — a reversal pair dated by then is skipped whole (the chain-parity
+ *     test bankMatchDbQueries uses), so one move is not counted twice; an entry
+ *     reversed only after as_at was in force on as_at and is kept. A stored NULL CC1 under a project that now
  *     derives one IS flagged: every new journal line derives its CC1.
  *   - bank lines: un-allocated only (an allocated row's journal line is checked
  *     above), feed_state not 'removed', and a CC1 actually stored — a CC2-only
@@ -72,10 +73,18 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
       LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
       LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
       JOIN derived d ON d.cc2_id = jl.cc2_id
-      WHERE jl.company_id = ${ctx.companyId}::UUID AND je.status = 'posted'
+      WHERE jl.company_id = ${ctx.companyId}::UUID AND je.status IN ('posted', 'reversed')
         AND je.entry_date <= ${ctx.asAt}::DATE
-        AND NOT (je.reversed_at IS NOT NULL OR (je.reversal_of_id IS NOT NULL
-          AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL)))
+        -- Undone AS AT as_at: a reversal dated on or before it (by its entry_date), or — a reversed entry with
+        -- no reversal row — reversed_at on or before it. Reversed later, the line was still in force then.
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries r
+          WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id
+            AND r.status IN ('posted', 'reversed') AND r.entry_date <= ${ctx.asAt}::DATE)
+        AND NOT (je.reversed_at IS NOT NULL AND je.reversed_at::DATE <= ${ctx.asAt}::DATE AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id))
+        -- A reversal (an odd step down the chain) nets its original; a reversal of a reversal is in force.
+        AND NOT (je.reversal_of_id IS NOT NULL AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL))
         AND jl.cc1_id IS DISTINCT FROM d.fno_id
       UNION ALL
       SELECT bt.id::TEXT, COALESCE(bt.reference, bt.description, bt.id::TEXT),
@@ -141,7 +150,9 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
     sample: rows.map((r) => ({ id: str(r.id), label: str(r.label), amount: r2(num(r.amount)), detail: str(r.detail) })),
     finding:
       'Each of these journal lines, bank lines or document lines stores a CC1 other than the FNO its CC2 rolls up to through '
-      + 'the current parent chain — usually written while the project was being moved. FNO reports split its figure from the '
-      + 'project\'s. Re-tag the journal line (tag_journal_lines), re-save the document, or move the project back.',
+      + 'the current parent chain — usually written while the project was being moved. EVERY carrier is counted: a document '
+      + 'line and the journal line it posted are two rows here, and an un-allocated bank line beside them a third, so count '
+      + 'and amount measure the tagging to repair, not money at stake. Re-tag the journal line (tag_journal_lines), re-save '
+      + 'the document, or move the project back.',
   };
 }
