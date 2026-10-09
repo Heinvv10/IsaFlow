@@ -132,6 +132,7 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     const err = await create([{ description: 'X', unitPrice: 10, ...(bad as object) } as DraftInvoiceLineInput])
       .then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect((err as Error).message).toBe('Line quantities must be positive numbers');
     expect(calls('INSERT INTO')).toHaveLength(0);
   });
 
@@ -144,6 +145,7 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     const err = await create([{ description: 'X', unitPrice: bad as number, quantity: 1 }])
       .then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect((err as Error).message).toBe('Line unit prices must be numbers of zero or more');
     expect(calls('INSERT INTO')).toHaveLength(0);
   });
 

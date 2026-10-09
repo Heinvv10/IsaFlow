@@ -106,7 +106,7 @@ export function parseCustomerInvoiceInput(
     const description = typeof o.description === 'string' ? o.description.trim() : '';
     if (!description) return `items[${i}].description is required`;
     // Bounds, not just finiteness — the supplier arm above checks them and so
-    // does `createDraftCustomerInvoice` ("Line unit prices cannot be negative").
+    // does `createDraftCustomerInvoice` ("Line unit prices must be numbers of zero or more").
     // The service throwing is what stops a negative invoice being created; this
     // is about WHERE the refusal lands. Answered here it names the element and
     // the line, before the first INSERT; left to the service it surfaces

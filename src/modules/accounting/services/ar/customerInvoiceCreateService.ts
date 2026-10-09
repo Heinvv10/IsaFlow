@@ -100,16 +100,16 @@ export async function createDraftCustomerInvoice(
     const priceIn: unknown = item?.unitPrice;
     const discount: unknown = item?.discount ?? 0;
     if (!(typeof qtyIn === 'number' && qtyIn > 0 && qtyIn < 1e8)) {
-      throw new InvoiceLineValidationError('Line quantities must be positive');
+      throw new InvoiceLineValidationError('Line quantities must be positive numbers');
     }
     if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
-      throw new InvoiceLineValidationError('Line unit prices cannot be negative');
+      throw new InvoiceLineValidationError('Line unit prices must be numbers of zero or more');
     }
     if (!(typeof discount === 'number' && discount >= 0 && discount <= 100)) {
       throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100');
     }
     const qty = toColumnCents(qtyIn);
-    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive');
+    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
     const price = toColumnCents(priceIn);
     priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
   }
