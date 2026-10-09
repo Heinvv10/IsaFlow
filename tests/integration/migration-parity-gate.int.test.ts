@@ -175,6 +175,14 @@ suite('migration parity gate (real databases)', () => {
       expect(await tables(PROD)).toEqual([]);
     });
 
+    it('runs each migration under the 15-minute apply bound (not the 60s read bound, not unbounded)', async () => {
+      await seed([A], [A]);
+      const probe = mf('871_probe.sql', "INSERT INTO order_log(t) SELECT current_setting('statement_timeout');");
+      expect(await gate([A, probe], { applyDev: true })).toBe(0);
+      const rows = await withDb(DEV, async (c) => (await c.query('SELECT t FROM order_log')).rows.map((r) => r.t));
+      expect(rows).toEqual(['15min']);
+    });
+
     it('stops at the first failure: the failing file rolls back fully and later files are untouched', async () => {
       await seed([A], [A]);
       expect(await gate([A, B, BAD, D], { applyDev: true })).toBe(1);
