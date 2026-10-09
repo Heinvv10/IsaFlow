@@ -1,4 +1,4 @@
--- 880: Foreign keys for the CC1 / CC2 / BU columns on journal and bank lines.
+-- 878: Foreign keys for the CC1 / CC2 / BU columns on journal and bank lines.
 --
 -- gl_journal_lines.cc1_id / cc2_id / bu_id (migration 285) and
 -- bank_transactions.cc1_id / cc2_id / bu_id carry no FK, so the only thing

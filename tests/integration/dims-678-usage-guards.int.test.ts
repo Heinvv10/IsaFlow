@@ -2,7 +2,7 @@
  * #678 review M6 / L4 / M2: the usage guards' SQL against real Postgres. One
  * reference in each table the cost-centre guard counts refuses the delete and
  * keeps the row; and a line written between the count and the DELETE is held
- * by the journal-line FK (migration 880), answered as the same refusal inside
+ * by the journal-line FK (migration 878), answered as the same refusal inside
  * its own savepoint, so the request transaction stays usable.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -107,7 +107,7 @@ describe('assertCostCentreUnused counts a reference in each table', () => {
   });
 });
 
-describe('the journal and bank dimension FKs (migration 880)', () => {
+describe('the journal and bank dimension FKs (migration 878)', () => {
   it.each([
     ['gl_journal_lines', 'cc1_id'], ['gl_journal_lines', 'cc2_id'], ['bank_transactions', 'cc1_id'], ['bank_transactions', 'cc2_id'],
   ] as const)('%s.%s held by another tenant: the FK refuses, the refusal survives, the transaction stays usable', async (table, col) => {
