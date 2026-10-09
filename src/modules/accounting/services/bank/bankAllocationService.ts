@@ -37,6 +37,7 @@ import { assertCustomerInCompany, assertSupplierInCompany } from '../core/contac
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
+import { assertImporterMayAllocate, importerArmOf } from './bankLineImporterGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
@@ -148,6 +149,9 @@ export async function allocateTransaction(
   // supplier_payment rule, from the locked row, before the first write.
   if (allocType === 'supplier' && entityId && isSpent) await assertBankLineMayPaySupplier(companyId, tx, totalAmount);
   if (allocType === 'account' || allocType === 'transfer') await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2
+  // Step 2 (Hein, decision 2): under the arm's enforced type, the statement's importer may not allocate its line — 403.
+  const importerArm = importerArmOf(allocType, entityId, Number(tx.amount));
+  if (importerArm) await assertImporterMayAllocate(companyId, tx, userId, importerArm);
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
   // whoever chose this vat code — that an entertainment account normally denies
@@ -678,6 +682,7 @@ export async function splitAllocateTransaction(
     throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
   await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
+  await assertImporterMayAllocate(companyId, tx, userId, 'manual_journal'); // step 2: not the statement's own importer
 
   const bankAccountId = String(tx.bank_account_id);
   // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
