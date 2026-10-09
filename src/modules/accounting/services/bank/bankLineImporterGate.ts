@@ -99,6 +99,14 @@ export async function assertImporterMayAllocate(
   if (refused) throw refused;
 }
 
+/** assertImporterMayAllocate on the arm `allocType` posts on (importerArmOf) — allocateTransaction's one call. */
+export async function assertImporterMayAllocateAs(
+  companyId: string, line: Provenance & { amount?: unknown }, actorUserId: string, allocType: string, entityId?: string | null,
+): Promise<void> {
+  const arm = importerArmOf(allocType, entityId, Number(line.amount));
+  if (arm) await assertImporterMayAllocate(companyId, line, actorUserId, arm);
+}
+
 /** importerAllocationRefusal for a line by id, company-scoped (an MCP pre-check, unlocked); null when there is no such line. */
 export async function importerRefusalForLineId(
   companyId: string, bankTxId: string, actorUserId: string, arm: BankArm,
