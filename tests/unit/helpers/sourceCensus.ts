@@ -25,7 +25,7 @@ import path from 'node:path';
 
 export const ROOT = path.resolve(__dirname, '../../..');
 export const ROOTS = ['src', 'pages', 'scripts', 'lib', 'chrome-extension', 'config'];
-export const SOURCE = /\.(ts|tsx|js|mjs|cjs|sql|sh|py)$/;
+export const SOURCE = /\.(?:[cm]?[jt]sx?|sql|sh|py)$/;
 
 function walk(dir: string, out: string[], recurse: boolean): void {
   let entries;

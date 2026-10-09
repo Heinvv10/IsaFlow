@@ -16,7 +16,10 @@
  *    prosrc), the pinned set closed over the calls in those bodies — a weaker
  *    CREATE OR REPLACE fails here until N1b is re-reviewed and the pin moved;
  *  - no other function body names either table in a static write, and neither
- *    table carries a trigger or a rewrite rule.
+ *    table carries a trigger or a rewrite rule;
+ *  - no view over either table, at any depth, lets another role write through
+ *    its owner (an auto-updatable view checks its OWNER's rights: adversarial
+ *    review of PR #690, R3-1; as 880 for audit_log).
  *
  * LIMIT (as r035-n1-catalog): a function that builds its write at run time is
  * not seen; migration review is the control. A database without 881 fails
@@ -32,6 +35,7 @@ afterAll(() => pool.end());
 
 const NOT_APPLIED = 'migration 881 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 const TABLES = ['approval_rules', 'approval_enforcement'];
+const BODY_CHANGED = 'a pinned body differs from the one 881 ships — re-review N1b B, then move the pin (or 881 is not applied)';
 
 const WRITERS = [
   'public.approval_rule_lock(uuid,uuid,text)',
@@ -174,7 +178,7 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
       SELECT n.nspname || '.' || (p.oid::regprocedure)::text AS fn, md5(p.prosrc) AS md5
       FROM reach JOIN pg_proc p ON p.oid = reach.oid JOIN pg_namespace n ON n.oid = p.pronamespace
       ORDER BY 1`, [WRITERS]);
-    expect(Object.fromEntries(rows.map((x) => [x.fn.replace(/^(\w+)\.\1\./, '$1.'), x.md5])), NOT_APPLIED).toEqual(PINNED);
+    expect(Object.fromEntries(rows.map((x) => [x.fn.replace(/^(\w+)\.\1\./, '$1.'), x.md5])), BODY_CHANGED).toEqual(PINNED);
   });
 
   it('no function body but the four writers names either table in a write (static SQL only — see LIMIT)', async () => {
@@ -193,6 +197,26 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
       UNION ALL
       SELECT ev_class::regclass::text, rulename FROM pg_rewrite WHERE ev_class = ANY ($1::regclass[])`,
     [TABLES.map((t) => `public.${t}`)]);
+    expect(rows).toEqual([]);
+  });
+
+  it.each(TABLES)('no view over %s — at any depth — lets another role write through its owner', async (table) => {
+    const { rows: [t] } = await pool.query('SELECT relowner FROM pg_class WHERE oid = $1::regclass', [`public.${table}`]);
+    const { rows } = await pool.query(`
+      WITH RECURSIVE chain(oid) AS (
+        SELECT w.ev_class FROM pg_depend d JOIN pg_rewrite w ON w.oid = d.objid
+        WHERE d.classid = 'pg_rewrite'::regclass AND d.refobjid = $3::regclass AND w.ev_class <> d.refobjid
+        UNION
+        SELECT w.ev_class FROM chain JOIN pg_depend d ON d.refobjid = chain.oid JOIN pg_rewrite w ON w.oid = d.objid
+        WHERE d.classid = 'pg_rewrite'::regclass AND w.ev_class <> chain.oid)
+      SELECT v.oid::regclass::text AS view, x.who, p.priv
+      FROM chain JOIN pg_class v ON v.oid = chain.oid, (${OTHERS}) x, unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) p(priv)
+      WHERE NOT EXISTS (SELECT 1 FROM unnest(v.reloptions) o WHERE o ~* '^security_invoker=(true|on|yes|1)$')
+        AND has_table_privilege(v.relowner, $3::regclass, p.priv)
+        AND x.who <> (SELECT rolname FROM pg_roles WHERE oid = v.relowner)
+        AND (has_table_privilege(x.who, v.oid, p.priv)
+             OR (p.priv IN ('INSERT', 'UPDATE') AND has_any_column_privilege(x.who, v.oid, p.priv)))
+      ORDER BY 1, 2, 3`, [t.relowner, false, `public.${table}`]);
     expect(rows).toEqual([]);
   });
 });
