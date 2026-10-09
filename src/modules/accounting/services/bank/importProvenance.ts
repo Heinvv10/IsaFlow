@@ -25,3 +25,8 @@ export function statementFileSha256(file: { pdfBase64?: string; csvContent?: str
   const bytes = file.pdfBase64 ? Buffer.from(file.pdfBase64, 'base64') : Buffer.from(file.csvContent ?? '', 'utf8');
   return createHash('sha256').update(bytes).digest('hex');
 }
+
+/** A statement upload's provenance (bank-transactions-bulk-commit): the user, channel upload, the bytes' hash. */
+export function uploadProvenance(userId: string | undefined, file: { pdfBase64?: string; csvContent?: string }): ImportProvenance {
+  return { importedBy: userId, importChannel: 'upload', fileSha256: statementFileSha256(file) };
+}

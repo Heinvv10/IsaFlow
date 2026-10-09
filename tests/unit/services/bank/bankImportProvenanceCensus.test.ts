@@ -74,7 +74,8 @@ describe('1. every import path records the importer', () => {
 
   it('the upload and the MCP import pass the person, the channel and the file hash', () => {
     expect(filesMatching(/\bimportParsedTransactions\(/)).toEqual([BULK_COMMIT, `${B}bankImportService.ts`, `${B}bankStatementImportService.ts`]);
-    expect(textOf(BULK_COMMIT)).toMatch(/importedBy: authReq\.user\?\.id,\s+importChannel: 'upload',\s+fileSha256: statementFileSha256\(\{ pdfBase64, csvContent \}\)/);
+    expect(textOf(BULK_COMMIT)).toMatch(/\.\.\.uploadProvenance\(authReq\.user\?\.id, \{ pdfBase64, csvContent \}\)/);
+    expect(textOf(`${B}importProvenance.ts`)).toMatch(/importedBy: userId, importChannel: 'upload', fileSha256: statementFileSha256\(file\)/);
     expect(filesMatching(/\bimportStatementForAgent\(/)).toEqual([`${MCP}writeBankImport.ts`, `${B}bankStatementImportService.ts`]);
     expect(textOf(`${MCP}writeBankImport.ts`)).toMatch(/provenance: \{ importedBy: ctx\.userId, importChannel: 'mcp', fileSha256: statementFileSha256\(\{ csvContent: content \}\) \}/);
     expect(textOf(`${B}bankStatementImportService.ts`)).toMatch(/AND \(import_channel = 'mcp' OR imported_by LIKE 'mcp:%'\)/);
@@ -98,10 +99,11 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
   });
 
   it('one arm mapping: no site but the gate decides supplier_payment vs manual_journal for an importer check', () => {
-    for (const file of [`${B}bankAllocationService.ts`, `${B}bankRuleAutoPostLine.ts`, `${MCP}bulkAllocationSkip.ts`,
+    for (const file of [`${B}bankRuleAutoPostLine.ts`, `${MCP}bulkAllocationSkip.ts`,
       'src/modules/accounting/services/capture/provisionalPostingService.ts', `${B}bankReversalGate.ts`]) {
       expect(textOf(file), file).toMatch(/\bimporterArmOf\(/);
     }
+    expect(textOf(`${B}bankAllocationService.ts`)).toMatch(/\bassertImporterMayAllocateAs\(companyId, tx, userId, allocType, entityId\)/);
   });
 });
 
