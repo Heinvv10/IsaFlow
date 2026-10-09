@@ -2,13 +2,17 @@
  * Supplier bank-detail verification (forensic-controls step 1; migration 876)
  * — the pieces the enforcement switch needs, kept free of any import from the
  * approval kernel so approvalEnforcement.ts can call them without a cycle:
- * the typed refusal, the "a person in their own session" check, and the
- * switch-on baseline (Hein, decision 3).
+ * the typed refusal and the "a person in their own session" check. The
+ * switch-on baseline (Hein, decision 3) is written by approval_enforcement_set
+ * (migration 881, R-035 N1b B) in the transaction that inserts the switch row
+ * — only the company's FIRST switch-on (bankVerificationEverOn's test, in
+ * SQL); suppliers share-locked in id order; every non-deleted supplier with
+ * bank details, no verification history, and details the switcher did not
+ * set. The 876 guard refuses any other baseline.
  */
 import { sql } from '@/lib/neon';
 import { currentSessionActor } from '@/lib/auth/impersonationSessions';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
-import { suppliersWithBankDetailsSetBy } from './supplierPaymentAuthors';
 
 export type SupplierBankVerificationErrorCode =
   | 'IMPERSONATION_FORBIDDEN' | 'VERIFIER_ROLE_REQUIRED' | 'SETTER_FORBIDDEN' | 'NOT_ENFORCED'
@@ -81,38 +85,4 @@ export async function bankVerificationEverOn(companyId: string): Promise<boolean
                      AND entity_ref = 'supplier_bank_details' AND action = 'create') AS on_before
   `) as { on_before: boolean }[];
   return rows[0]?.on_before === true;
-}
-
-/**
- * Decision 3: switching the control on accepts every supplier's CURRENT bank
- * details, recorded as a `baseline` by the person who switched it on, at the
- * current fingerprint. Called by enableEnforcement in the transaction that
- * inserted the switch row (the 876 guard accepts a baseline only then). The
- * suppliers are share-locked first, in id order (the order the outbound gate
- * takes), so an edit in flight is waited for rather than half-baselined.
- * Left out, so they stay unverified until someone else looks: soft-deleted
- * suppliers (one restored later is then checked before it is paid);
- * suppliers that already have verification history — they keep their
- * derived state, so switching off and on again cannot accept a change that
- * is unverified now; and suppliers whose current details the switcher set.
- * The 876 guard refuses both of the latter baselines too. Returns how many
- * were baselined. Only the company's first switch-on baselines at all
- * (bankVerificationEverOn); a later one writes nothing.
- */
-export async function recordBankBaseline(companyId: string, userId: string): Promise<number> {
-  if (await bankVerificationEverOn(companyId)) return 0;
-  await sql`SELECT id FROM suppliers WHERE company_id = ${companyId}::UUID ORDER BY id FOR SHARE`;
-  const own = await suppliersWithBankDetailsSetBy(companyId, userId);
-  const rows = await sql`
-    INSERT INTO supplier_bank_verifications (company_id, supplier_id, fingerprint, kind, verified_by)
-    SELECT s.company_id, s.id,
-           supplier_bank_fingerprint(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_account_holder),
-           'baseline', ${userId}
-    FROM suppliers s
-    WHERE s.company_id = ${companyId}::UUID AND s.deleted_at IS NULL AND s.id <> ALL(${own}::UUID[])
-      AND supplier_bank_details_present(s.bank_name, s.bank_account_number, s.bank_branch_code, s.bank_account_type, s.bank_account_holder)
-      AND NOT EXISTS (SELECT 1 FROM supplier_bank_verifications v WHERE v.company_id = s.company_id AND v.supplier_id = s.id)
-    RETURNING id
-  `;
-  return rows.length;
 }
