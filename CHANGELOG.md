@@ -24,6 +24,33 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-09 — Invoice Line Dimensions, Deploy Parity Gate, FX Guard, Bank Fixes
+
+**AR — Invoice Lines**
+
+- Customer invoice lines now post to their own revenue account and job alongside CC1 / CC2 / BU; discount lines post as separate debit legs with their own dimensions; linked credit notes reverse to per-leg caps; unrecognised line keys refused by `create_draft_invoice` and `bulk_create_customer_invoices` MCP tools (migration 874) (#685)
+
+**Deploy**
+
+- Migration parity gate runs first in `deploy.sh`: flags reused/duplicate pending prefixes, allowlists 13 historic prod orphans, advisory lock, cluster identity check, 15-min apply cap, real two-database integration test (#686)
+
+**Bank**
+
+- Auto-match now pairs a deposit with the bank DEBIT leg and a withdrawal with the CREDIT leg — direction-blind matching was applying cash to the wrong side (#687)
+- Bank transfers revived; matched-line probe keyed on (bank line, company) (#670)
+
+**Approvals / Security**
+
+- Migration 872 tightened: exempts only the deploy role running it, not every owner-member; N1 catalogue writer check updated to match (#680)
+
+**FX**
+
+- Foreign-currency documents refused at submission (PR0 guard) until the ledger can carry them (migration 871) (#682)
+
+Migrations: **871** (`fx_document_refusal`), **874** (`invoice_line_dimensions`)
+
+---
+
 ## 2026-10-08 — Approvals Hardening (R-035 N1+UI), Dimensions Phase 1, Reports Day-Count Fix
 
 **Approvals — R-035**

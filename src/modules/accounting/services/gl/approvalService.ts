@@ -12,7 +12,9 @@ import {
 } from './approvalAuthority';
 import { assertDocumentUnchanged } from './approvalDecideDocument';
 import { mapRule, mapRequest } from './approvalMatching';
-import { assertMayDemand, assertMayEditRule, auditRuleChange, type RuleActor } from './approvalRuleGuards';
+import { assertMayDemand, assertMayEditRule, type RuleActor } from './approvalRuleGuards';
+import { deleteRuleRow, insertRuleRow, updateRuleRow } from './approvalRuleWrites';
+import { withRuleRefusals } from './approvalRuleRefusals';
 import { lockApprovalRequestForUpdate } from './approvalRequestLock';
 import { decideRequestRow } from './approvalRequestWrites';
 import { assertRuleDocumentTypeCreatable } from './approvalDocumentTypes';
@@ -112,17 +114,11 @@ export async function createRule(companyId: string, input: {
   // Without this an admin refused a weakening of the owner-only rule simply
   // creates a manager-level rule beside it and the control is gone.
   assertMayDemand(actor, input.approverRole || 'admin');
-  const rows = (await sql`
-    INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role)
-    VALUES (
-      ${companyId}, ${input.name.trim()}, ${input.documentType},
-      ${input.conditionField || 'total'}, ${input.conditionOperator || 'greater_than'},
-      ${input.conditionValue || 0}, ${input.approverRole || 'admin'}
-    ) RETURNING *
-  `) as Record<string, unknown>[];
-  await auditRuleChange(companyId, actor, 'create', String(rows[0]!.id), null, rows[0]!);
-  log.info('Created approval rule', { id: rows[0]!.id, name: input.name }, 'accounting');
-  return mapRule(rows[0]!);
+  // approval_rule_create (migration 881) repeats every check above, applies
+  // the same defaults and trim, and writes the audit row in the same statement.
+  const row = await withRuleRefusals(() => insertRuleRow(companyId, input, actor));
+  log.info('Created approval rule', { id: row.id, name: input.name }, 'accounting');
+  return mapRule(row);
 }
 
 export async function updateRule(companyId: string, id: string, input: Partial<{
@@ -140,32 +136,20 @@ export async function updateRule(companyId: string, id: string, input: Partial<{
   assertMayDemand(actor, input.approverRole);
   const before = await assertMayEditRule(companyId, id, actor, input);
   if (!before) throw new ApprovalRuleNotFoundError(id);
-  const rows = (await sql`
-    UPDATE approval_rules SET
-      name = COALESCE(${input.name?.trim() ?? null}, name),
-      condition_field = COALESCE(${input.conditionField ?? null}, condition_field),
-      condition_operator = COALESCE(${input.conditionOperator ?? null}, condition_operator),
-      condition_value = COALESCE(${input.conditionValue ?? null}, condition_value),
-      approver_role = COALESCE(${input.approverRole ?? null}, approver_role),
-      is_active = COALESCE(${input.isActive ?? null}, is_active),
-      updated_at = NOW()
-    WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING *
-  `) as Record<string, unknown>[];
-  if (!rows[0]) throw new ApprovalRuleNotFoundError(id);
-  await auditRuleChange(companyId, actor, 'update', id, before, rows[0]);
-  return mapRule(rows[0]);
+  // approval_rule_update (881): the same checks under the same lock, NULL =
+  // unchanged (the COALESCE this UPDATE used), and the audit row.
+  const row = await withRuleRefusals(() => updateRuleRow(companyId, id, input, actor));
+  if (!row) throw new ApprovalRuleNotFoundError(id);
+  return mapRule(row);
 }
 
 /** False when the id names no rule this company owns — the route answers 404. */
 export async function deleteRule(companyId: string, id: string, actor: RuleActor): Promise<boolean> {
   const before = await assertMayEditRule(companyId, id, actor, 'delete');
   if (!before) return false;
-  const rows = (await sql`
-    DELETE FROM approval_rules WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id
-  `) as Record<string, unknown>[];
-  if (!rows[0]) return false;
-  await auditRuleChange(companyId, actor, 'delete', id, before, null);
-  return true;
+  // approval_rule_delete (881): the same checks, the DELETE (a rule a request
+  // names is still a 23503) and the audit row.
+  return withRuleRefusals(() => deleteRuleRow(companyId, id, actor));
 }
 
 // ── Approval Requests ────────────────────────────────────────────────────────

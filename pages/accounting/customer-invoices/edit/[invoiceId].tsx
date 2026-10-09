@@ -10,6 +10,7 @@ import { ArrowLeft, FileText, Loader2, AlertCircle, Receipt } from 'lucide-react
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { discountFromAmount, previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
 import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
@@ -84,15 +85,13 @@ export default function EditCustomerInvoicePage() {
       const items = invoice.items || [];
       // The schema has no `discount` column — it is folded into `amount`.
       // Reverse-engineer percent discount from amount vs (qty × unitPrice) so a
-      // saved-then-reopened invoice round-trips without silently zeroing it.
+      // saved-then-reopened invoice round-trips without silently zeroing it —
+      // exactly, so an unchanged save re-prices to the stored amount.
       setLines(items.length > 0 ? items.map((it, i) => {
         const qty = Number(it.quantity || 1);
         const unitPrice = Number(it.unit_price || 0);
         const amount = Number(it.amount ?? qty * unitPrice);
-        const base = qty * unitPrice;
-        const discount = base > 0 && amount < base
-          ? Math.round((1 - amount / base) * 1000) / 10
-          : 0;
+        const discount = discountFromAmount(qty, unitPrice, amount);
         return {
           key: String(i),
           description: String(it.description || ''),
@@ -121,10 +120,9 @@ export default function EditCustomerInvoicePage() {
   const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
-  const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
-  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
-  const tax = subtotal * (form.taxRate / 100);
-  const total = subtotal + tax;
+  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
+  const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
+  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
   const isFx = form.currencyCode !== 'ZAR';
 
   const handleSubmit = async () => {

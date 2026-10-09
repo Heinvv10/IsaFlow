@@ -59,6 +59,18 @@ describe('supplier_bank_fingerprint', () => {
   });
 });
 
+/**
+ * The switch row of a switch-on in THIS transaction, written as the definer
+ * writes it since migration 881 (R-035 N1b B: app_user may no longer insert
+ * it), then back to app_user — so the baseline insert that follows is judged
+ * by the 876 guard exactly as inside approval_enforcement_set.
+ */
+async function switchedOnHere(db: PoolClient, company: string, by: string): Promise<void> {
+  await db.query('RESET ROLE');
+  await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [company, by]);
+  await db.query('SET LOCAL ROLE app_user');
+}
+
 /** `fn` as app_user inside a withAuth-shaped transaction: claims for `user`, company GUC `company`. Rolled back. */
 async function asApp<T>(user: string, company: string, fn: (db: PoolClient) => Promise<T>): Promise<T> {
   const db = await pool.connect();
@@ -163,7 +175,7 @@ describe('supplier_bank_verifications as app_user', () => {
     const s = await plantSupplier(pool, c);
     await pool.query('UPDATE suppliers SET bank_details_setters = ARRAY[$1::UUID] WHERE id = $2', [u.a, s]);
     await expect(asApp(u.a, c, async (db) => {
-      await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.a]);
+      await switchedOnHere(db, c, u.a);
       await insert(db, c, s, await current(s), u.a, 'baseline');
     })).rejects.toThrow(/set these bank details/);
   });
@@ -173,7 +185,7 @@ describe('supplier_bank_verifications as app_user', () => {
     await pool.query("DELETE FROM approval_enforcement WHERE company_id = $1 AND document_type = 'supplier_bank_details'", [c]);
     await pool.query("UPDATE suppliers SET bank_details_setters = '{}' WHERE id = $1", [s]);
     await expect(asApp(u.b, c, async (db) => {
-      await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.b]);
+      await switchedOnHere(db, c, u.b);
       await insert(db, c, s, await current(s), u.b, 'baseline');
     })).rejects.toThrow(/switched on before|history/);
   });
@@ -183,7 +195,7 @@ describe('supplier_bank_verifications as app_user', () => {
     const fresh = await plantSupplier(pool, c);
     await pool.query("DELETE FROM approval_enforcement WHERE company_id = $1 AND document_type = 'supplier_bank_details'", [c]);
     await expect(asApp(u.b, c, async (db) => {
-      await db.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'supplier_bank_details', $2)", [c, u.b]);
+      await switchedOnHere(db, c, u.b);
       await insert(db, c, fresh, await current(fresh), u.b, 'baseline');
     })).rejects.toThrow(/switched on before/);
   });
