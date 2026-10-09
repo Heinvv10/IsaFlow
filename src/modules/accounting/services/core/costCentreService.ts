@@ -57,7 +57,7 @@ export async function deleteCostCentre(companyId: string, id: string): Promise<v
   } catch (err) {
     // Guard is tenant-scoped, the RESTRICT FKs are not: another company's row
     // is invisible above and reaches us as a 23503 — as does a line written
-    // between the count and the DELETE (migration 878).
+    // between the count and the DELETE (migrations 878, 882).
     if ((err as { code?: string }).code === FK_VIOLATION) throw new CostCentreActionError(cannotDeleteMessage([]));
     throw err;
   }

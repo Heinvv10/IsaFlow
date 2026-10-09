@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   await sql`DELETE FROM pay_scales WHERE company_id = ${COMPANY_ID}::uuid`;
   // Cost centres may already exist from older Phase 4 seed; wipe for clean state
   await sql`UPDATE payroll_employees SET cost_centre_id = NULL WHERE company_id = ${COMPANY_ID}::uuid`;
-  // Journal and bank lines RESTRICT the centres they name (migration 878). Clear
+  // Journal and bank lines RESTRICT the centres they name (migrations 878, 882). Clear
   // the tags rather than delete the lines: a deleted posted line would leave its
   // journal unbalanced, and the tag moves no figure.
   await sql`UPDATE gl_journal_lines SET cc1_id = NULL, cc2_id = NULL WHERE company_id = ${COMPANY_ID}::uuid AND (cc1_id IS NOT NULL OR cc2_id IS NOT NULL)`;

@@ -188,7 +188,7 @@ export async function applyUpdateBusinessUnit(companyId: string, plan: BusinessU
 
 /**
  * Throws a counted refusal when anything still carries the BU. The document and
- * default columns (migration 870) and the journal and bank columns (878, NOT
+ * default columns (migration 870) and the bank and journal columns (878 / 882, NOT
  * VALID) have RESTRICT FKs; the tag-history columns have none, so only this
  * count protects them.
  */
@@ -248,7 +248,7 @@ export async function deleteBusinessUnit(companyId: string, id: string): Promise
       (await sql`DELETE FROM business_units WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[]);
   } catch (err) {
     // The count is tenant-scoped, the RESTRICT FKs are not (and since migration
-    // 878 they also hold a journal or bank line written after the count).
+    // 878 / 882 they also hold a journal or bank line written after the count).
     if ((err as { code?: string }).code === '23503') {
       throw new BusinessUnitActionError('Cannot delete business unit that is used by other records. Deactivate instead.');
     }

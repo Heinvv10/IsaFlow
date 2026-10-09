@@ -80,7 +80,7 @@ describe('the manual_journal digest', () => {
 
   const lineCases: [string, () => unknown][] = [
     ['gl_account_id', () => f.expB], ['debit', () => 1500.01], ['description', () => 'changed'],
-    // Real master rows: the dimension columns carry RESTRICT FKs since migration 878.
+    // Real master rows: the dimension columns carry RESTRICT FKs since migration 882.
     ['vat_type', () => 'standard'], ['cc1_id', () => master('cost_centres', 'cc1')], ['cc2_id', () => master('cost_centres', 'cc2')],
     ['bu_id', () => master('business_units')], ['project_id', () => crypto.randomUUID()],
     ['cost_center_id', () => crypto.randomUUID()],
