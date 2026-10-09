@@ -22,6 +22,8 @@ import { num, r2, str, type IntegrityCheckContext, type IntegrityCheckResult } f
 
 /** The same bound as dimensionDerivation.deriveFnoId. */
 const MAX_DEPTH = 16;
+/** Reversal chains are walked to the same bound; one that deep is left unjudged. */
+const MAX_REVERSAL_DEPTH = 16;
 
 /**
  * Lines whose stored CC1 contradicts the FNO their CC2 derives TODAY.
@@ -33,9 +35,11 @@ const MAX_DEPTH = 16;
  *
  * Per carrier:
  *   - journal lines: posted (or reversed), dated <= as_at, and in force AS AT
- *     as_at — a reversal pair dated by then is skipped whole (the chain-parity
- *     test bankMatchDbQueries uses), so one move is not counted twice; an entry
- *     reversed only after as_at was in force on as_at and is kept. A stored NULL CC1 under a project that now
+ *     as_at — an entry an odd number of reversal steps below its original (a
+ *     reversal, found by walking reversal_of_id up the whole chain) nets the
+ *     entry above it and is skipped with it, so one move is not counted twice;
+ *     an even step re-instates and is in force; an entry reversed only after
+ *     as_at was in force on as_at and is kept. A stored NULL CC1 under a project that now
  *     derives one IS flagged: every new journal line derives its CC1.
  *   - bank lines: un-allocated only (an allocated row's journal line is checked
  *     above), feed_state not 'removed', and a CC1 actually stored — a CC2-only
@@ -64,14 +68,27 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
       WHERE p.cc_type = 'cc1' AND NOT (p.id = ANY(w.path))
       ORDER BY w.start_id, w.depth
     ),
+    -- How many reversal steps each entry sits below its original: walk reversal_of_id up, company-scoped.
+    reversal_up(start_id, cur_id, depth) AS (
+      SELECT je.id, je.reversal_of_id, 1
+      FROM gl_journal_entries je
+      WHERE je.company_id = ${ctx.companyId}::UUID AND je.reversal_of_id IS NOT NULL
+      UNION ALL
+      SELECT u.start_id, p.reversal_of_id, u.depth + 1
+      FROM reversal_up u
+      JOIN gl_journal_entries p ON p.id = u.cur_id AND p.company_id = ${ctx.companyId}::UUID
+      WHERE p.reversal_of_id IS NOT NULL AND u.depth < ${MAX_REVERSAL_DEPTH}
+    ),
+    reversal_depth AS (
+      SELECT start_id AS entry_id, MAX(depth) AS depth FROM reversal_up GROUP BY start_id
+    ),
     failing AS (
       SELECT jl.id::TEXT AS id, COALESCE(je.entry_number, je.id::TEXT) AS label,
              GREATEST(COALESCE(jl.debit, 0), COALESCE(jl.credit, 0)) AS amount,
              'journal line' AS kind, jl.cc1_id, jl.cc2_id, d.fno_id
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
-      LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id AND orig.company_id = je.company_id
-      LEFT JOIN gl_journal_entries orig2 ON orig2.id = orig.reversal_of_id AND orig2.company_id = je.company_id
+      LEFT JOIN reversal_depth rd ON rd.entry_id = je.id
       JOIN derived d ON d.cc2_id = jl.cc2_id
       WHERE jl.company_id = ${ctx.companyId}::UUID AND je.status IN ('posted', 'reversed')
         AND je.entry_date <= ${ctx.asAt}::DATE
@@ -83,8 +100,9 @@ export async function projectFnoMismatch(ctx: IntegrityCheckContext): Promise<In
             AND r.status IN ('posted', 'reversed') AND r.entry_date <= ${ctx.asAt}::DATE)
         AND NOT (je.reversed_at IS NOT NULL AND je.reversed_at::DATE <= ${ctx.asAt}::DATE AND NOT EXISTS (
           SELECT 1 FROM gl_journal_entries r WHERE r.reversal_of_id = je.id AND r.company_id = je.company_id))
-        -- A reversal (an odd step down the chain) nets its original; a reversal of a reversal is in force.
-        AND NOT (je.reversal_of_id IS NOT NULL AND (orig.reversal_of_id IS NULL OR orig2.reversal_of_id IS NOT NULL))
+        -- An odd step down the chain is a reversal and nets the entry above it; an even step re-instates the
+        -- original and is in force. A chain as deep as the cap is not judged (fails closed: not flagged).
+        AND NOT (rd.depth IS NOT NULL AND (rd.depth % 2 = 1 OR rd.depth >= ${MAX_REVERSAL_DEPTH}))
         AND jl.cc1_id IS DISTINCT FROM d.fno_id
       UNION ALL
       SELECT bt.id::TEXT, COALESCE(bt.reference, bt.description, bt.id::TEXT),
