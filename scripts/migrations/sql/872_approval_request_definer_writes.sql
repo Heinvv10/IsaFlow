@@ -736,6 +736,16 @@ DECLARE
   v_priv pg_catalog.text;
   v_fn pg_catalog.text;
 BEGIN
+  -- First, the other direction: the definers' owner (this migration's current_user)
+  -- must still be able to do what they do, or every raise and decide fails.
+  FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE'] LOOP
+    IF NOT pg_catalog.has_table_privilege(current_user, 'public.approval_requests', v_priv) THEN
+      RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot % approval_requests', current_user, v_priv;
+    END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_table_privilege(current_user, 'public.audit_log', 'INSERT') THEN
+    RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot INSERT audit_log (the Q2 row)', current_user;
+  END IF;
   -- No role that may not keep write (see WHO IS "THE OWNER") may write, by
   -- grant, by column, via PUBLIC or via membership. A role that inherits
   -- pg_write_all_data's or another writer's rights is not a grant this
@@ -758,16 +768,6 @@ BEGIN
   END LOOP;
   IF NOT pg_catalog.has_table_privilege('app_user', 'public.approval_requests', 'SELECT') THEN
     RAISE EXCEPTION 'migration 872: app_user lost SELECT on approval_requests';
-  END IF;
-  -- The other direction: the definers' owner (this migration's current_user)
-  -- must still be able to do what they do, or every raise and decide fails.
-  FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE'] LOOP
-    IF NOT pg_catalog.has_table_privilege(current_user, 'public.approval_requests', v_priv) THEN
-      RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot % approval_requests', current_user, v_priv;
-    END IF;
-  END LOOP;
-  IF NOT pg_catalog.has_table_privilege(current_user, 'public.audit_log', 'INSERT') THEN
-    RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot INSERT audit_log (the Q2 row)', current_user;
   END IF;
 
   -- The functions: the owner (superusers and the owner's members) and, for
