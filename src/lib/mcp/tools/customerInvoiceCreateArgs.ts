@@ -113,12 +113,19 @@ export function parseCustomerInvoiceInput(
     // mid-batch, after a bulk create has already written the elements above it
     // and has to discard them.
     const unitPrice = Number(o.unit_price);
+    // The columns' bounds (unit_price numeric(15,2); quantity numeric(10,2), at least 0.01 once stored), as the service checks them.
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       return `items[${i}].unit_price must be a non-negative number`;
+    }
+    if (unitPrice >= 1e13) {
+      return `items[${i}].unit_price must be below 10 000 000 000 000`;
     }
     const quantity = o.quantity === undefined ? 1 : Number(o.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return `items[${i}].quantity must be a positive number`;
+    }
+    if (quantity < 0.005 || quantity >= 1e8) {
+      return `items[${i}].quantity must be from 0.01 to below 100 000 000`;
     }
     const coding = parseLineCoding(o, MCP_CODING_KEYS, `items[${i}]`);
     if (typeof coding === 'string') return coding;

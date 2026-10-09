@@ -108,3 +108,20 @@ describe('parseCustomerInvoiceInput — a line takes the account, the job AND #6
       .toMatch(/items\[0\] has "cost_center_id", which is not a line field — did you mean cc1, cc2 or bu\?/);
   });
 });
+
+describe('parseCustomerInvoiceInput — line bounds are the columns\', as the service checks them', () => {
+  const customer = (item: Record<string, unknown>) => parseCustomerInvoiceInput({
+    customer_id: SUPPLIER, items: [{ description: 'Spot', unit_price: 100, ...item }],
+  });
+
+  it('refuses a price or quantity the columns cannot hold, naming the line, before any write', () => {
+    expect(customer({ unit_price: 1e13 })).toBe('items[0].unit_price must be below 10 000 000 000 000');
+    expect(customer({ quantity: 1e8 })).toBe('items[0].quantity must be from 0.01 to below 100 000 000');
+    expect(customer({ quantity: 0.004 })).toBe('items[0].quantity must be from 0.01 to below 100 000 000');
+  });
+
+  it('accepts the largest values that fit', () => {
+    expect(customer({ unit_price: 9999999999999.99, quantity: 0.01 })).toMatchObject({ items: [{ unitPrice: 9999999999999.99, quantity: 0.01 }] });
+    expect(customer({ quantity: 99999999.99 })).toMatchObject({ items: [{ quantity: 99999999.99 }] });
+  });
+});

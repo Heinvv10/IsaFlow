@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  discountFromAmount, invoiceLineAmount, invoiceTotals, isDiscountPercent, previewLineAmount, previewTotals, toColumnCents,
+  discountFromAmount, discountInput, invoiceLineAmount, invoiceTotals, isDiscountPercent, previewLineAmount, previewTotals, toColumnCents,
 } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { NotADecimalError } from '@/modules/accounting/services/shared/functionalAmounts';
 
@@ -122,4 +122,12 @@ describe('isDiscountPercent', () => {
   it.each([0, 10, 12.5, 12.34, 99.99, 100, 0.01])('accepts %s', (d) => expect(isDiscountPercent(d)).toBe(true));
   it.each([-0.01, 100.01, 12.345, 87.2574374, 1e-7, Number.NaN, Number.POSITIVE_INFINITY, '10', true, null, [10]])(
     'refuses %s', (d) => expect(isDiscountPercent(d)).toBe(false));
+});
+
+describe('discountInput — the discount field keeps what the server keeps', () => {
+  it.each([[12.345, 12.35], [12.34, 12.34], [1.005, 1.01], [0, 0], [100, 100]])('%s → %s', (typed, kept) => {
+    expect(discountInput(typed)).toBe(kept);
+    expect(isDiscountPercent(discountInput(typed))).toBe(true);
+  });
+  it('a mid-edit NaN is 0, not a throw', () => expect(discountInput(Number.NaN)).toBe(0));
 });
