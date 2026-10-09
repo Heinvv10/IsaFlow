@@ -31,13 +31,17 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
   },
 }));
 
+// FX PR0: the foreign-currency test is a nested SQL fragment; a marker stands in for it here,
+// and fx-pr0-rails.int.test.ts runs the real one.
+vi.mock('@/modules/accounting/services/shared/documentCurrency', () => ({ invoiceForeignCurrencySql: () => 'FOREIGN?' }));
+
 import { decideGatewayAllocation } from '@/modules/accounting/services/ar/gatewayReceiptAllocation';
 
 const CO = '33333333-3333-4333-8333-333333333333';
 const INV = '44444444-4444-4444-8444-444444444444';
 const CUSTOMER = '11111111-1111-4111-8111-111111111111';
 const row = (change: Record<string, unknown> = {}) =>
-  ({ locked_total: '115.00', amount_paid: '0', status: 'sent', deleted_at: null, client_id: CUSTOMER, ...change });
+  ({ locked_total: '115.00', amount_paid: '0', status: 'sent', deleted_at: null, client_id: CUSTOMER, foreign_currency: false, ...change });
 
 beforeEach(() => { h.row = row(); h.pending = '0'; h.locked.length = 0; h.all.length = 0; });
 
@@ -46,7 +50,7 @@ describe('decideGatewayAllocation', () => {
     await decideGatewayAllocation(CO, INV, 115, 'r181_alloc');
     expect(h.locked).toHaveLength(1);
     expect(h.locked[0]!.text).toMatch(/FROM customer_invoices[\s\S]*company_id = \?::UUID[\s\S]*FOR UPDATE/);
-    expect(h.locked[0]!.values).toEqual([INV, CO]);
+    expect(h.locked[0]!.values).toEqual(['FOREIGN?', INV, CO]);
   });
 
   it("the draft-receipt deduction counts only DRAFT receipts, of this company, against this invoice", async () => {
@@ -78,6 +82,14 @@ describe('decideGatewayAllocation', () => {
   it("the caller's hold (unapplied_currency) allocates nothing", async () => {
     expect(await decideGatewayAllocation(CO, INV, 115, 'r181_alloc', 'unapplied_currency'))
       .toMatchObject({ allocated: 0, invoiceBlock: 'unapplied_currency', overpaid: false });
+  });
+
+  it('a foreign-currency invoice is held, never allocated; the caller\'s own hold still names itself', async () => {
+    h.row = row({ foreign_currency: true });
+    expect(await decideGatewayAllocation(CO, INV, 115, 'fx_alloc'))
+      .toMatchObject({ allocated: 0, invoiceBlock: 'invoice_foreign_currency', overpaid: false });
+    expect(await decideGatewayAllocation(CO, INV, 115, 'fx_alloc', 'unapplied_currency'))
+      .toMatchObject({ allocated: 0, invoiceBlock: 'unapplied_currency' });
   });
 
   it('returns the customer as read under the lock', async () => {

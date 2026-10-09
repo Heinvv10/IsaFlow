@@ -17,6 +17,7 @@ import {
   convertAmount,
   deleteExchangeRate,
 } from '@/modules/accounting/services/core/currencyService';
+import { NotADecimalError } from '@/modules/accounting/services/shared/functionalAmounts';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -27,9 +28,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Convert endpoint: ?convert=true&from=USD&to=ZAR&amount=100&date=2026-02-26
     if (convert === 'true' && from && to && amount) {
-      const result = await convertAmount(companyId,
-        Number(amount), String(from), String(to), date ? String(date) : undefined
-      );
+      let result: Awaited<ReturnType<typeof convertAmount>>;
+      try {
+        result = await convertAmount(companyId, Number(amount), String(from), String(to), date ? String(date) : undefined);
+      } catch (err) {
+        // toFunctional (FX PR0) refuses NaN, Infinity and exponent-sized input: the caller's fault, not a 500.
+        if (err instanceof NotADecimalError) return apiResponse.badRequest(res, `amount ${err.message}`);
+        throw err;
+      }
       if (!result) return apiResponse.notFound(res, 'Exchange rate', `${from}/${to}`);
       return apiResponse.success(res, result);
     }

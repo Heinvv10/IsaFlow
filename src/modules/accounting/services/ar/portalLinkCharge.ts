@@ -21,9 +21,11 @@
  */
 import { sql } from '@/lib/neon';
 import { documentInPopulation } from '@/modules/accounting/services/shared/documentPopulation';
+import { invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 
 export type LinkChargeRefusal =
-  | 'link_not_found' | 'link_not_active' | 'link_expired' | 'invoice_gone' | 'invoice_unapproved' | 'nothing_owed';
+  | 'link_not_found' | 'link_not_active' | 'link_expired' | 'invoice_gone' | 'invoice_unapproved'
+  | 'invoice_foreign_currency' | 'nothing_owed';
 
 export interface LinkCharge {
   linkId: string;
@@ -47,6 +49,7 @@ interface Row {
   client_name: string | null;
   client_email: string | null;
   charge_cents: string | null;
+  foreign_currency: boolean;
 }
 
 /**
@@ -65,6 +68,7 @@ export async function resolveLinkCharge(
     SELECT l.id AS link_id, l.status AS link_status,
            ${linkExpiredSql()} AS expired,
            ci.id AS invoice_id, ci.status AS invoice_status, ci.company_id, ci.invoice_number,
+           ${invoiceForeignCurrencySql()} AS foreign_currency,
            COALESCE(c.name, 'Customer') AS client_name, c.email AS client_email,
            -- NaN sorts above every number, so LEAST would drop it silently; it charges nothing.
            CASE WHEN b.balance <> 'NaN' AND (l.charges_balance OR l.amount <> 'NaN')
@@ -86,6 +90,8 @@ export async function resolveLinkCharge(
   if (row.expired) return { ok: false, reason: 'link_expired' };
   if (!row.invoice_id || !row.company_id) return { ok: false, reason: 'invoice_gone' };
   if (!documentInPopulation(row.invoice_status)) return { ok: false, reason: 'invoice_unapproved' };
+  // FX PR0 (permanent): the balance is in the invoice's currency and the gateway charges rands.
+  if (row.foreign_currency) return { ok: false, reason: 'invoice_foreign_currency' };
   const chargeCents = row.charge_cents === null ? 0 : Number(row.charge_cents);
   if (!(chargeCents > 0)) return { ok: false, reason: 'nothing_owed' };
   return {

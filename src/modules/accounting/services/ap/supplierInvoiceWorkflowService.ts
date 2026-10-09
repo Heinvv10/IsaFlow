@@ -17,7 +17,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
-import { assertSupplierInvoiceLinesPostable } from './billLineAccountGuard';
+import { assertBillApprovable, assertBillPostable } from './billPostingGuard';
 import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
@@ -26,7 +26,6 @@ import type { LateClaimInfo, PostJournalOpts } from '../gl/vatLateClaimPlan';
 import { claimEvidencedProvisional, settleClaimedProvisional } from './provisionalInvoiceSettlement';
 import { mapInvoiceRow } from './supplierInvoiceWorkflowRow';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
-import { assertApprovalCleared } from '../gl/approvalGate';
 import { RowLockTimeoutError, underFlowLockBudget, withRowLockBudget } from '../core/rowLockBudget';
 
 type Row = DbRow;
@@ -74,7 +73,7 @@ async function approveInner(
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
-    await assertApprovalCleared(companyId, 'supplier_invoice', id); // R-035: under the lock, before any write
+    await assertBillApprovable(companyId, id); // R-035 + FX PR0: under the lock, before any write
 
     // A DRAFT can already carry a journal, and posting a second one is the
     // worst outcome this function has.
@@ -118,7 +117,7 @@ async function approveInner(
     const vatAccount = await getSystemAccount('vat_input', companyId);
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
-    await assertSupplierInvoiceLinesPostable(companyId, invoice);
+    await assertBillPostable(companyId, invoice);
     const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
     if (invoice.taxAmount > 0) {
@@ -238,7 +237,7 @@ async function postToGLInner(
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
-  await assertSupplierInvoiceLinesPostable(companyId, invoice);
+  await assertBillPostable(companyId, invoice);
   const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
 
   if (invoice.taxAmount > 0) {

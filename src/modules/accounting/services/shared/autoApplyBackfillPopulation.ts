@@ -26,6 +26,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getUnappliedPaymentBasis } from './unappliedPaymentBasis';
+import { creditNoteForeignCurrencySql } from './documentCurrency';
 import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { journalsInAPeriod } from './journalPeriodVisibility';
@@ -71,6 +72,7 @@ async function readCreditNotes(
           AND cn.status = ANY(${CREDIT_NOTE_STATUSES}::TEXT[])
           AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > ${EPS}
           AND (${entityId}::UUID IS NULL OR cn.supplier_id = ${entityId}::UUID)
+          AND NOT ${creditNoteForeignCurrencySql()}
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC
         LIMIT ${limit}`
     : await sql`
@@ -85,6 +87,7 @@ async function readCreditNotes(
           AND cn.status = ANY(${CREDIT_NOTE_STATUSES}::TEXT[])
           AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > ${EPS}
           AND (${entityId}::UUID IS NULL OR cn.client_id = ${entityId}::UUID)
+          AND NOT ${creditNoteForeignCurrencySql()}
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC
         LIMIT ${limit}`) as DbRow[];
 

@@ -44,6 +44,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { billForeignCurrencySql } from '../shared/documentCurrency';
 import type { DbRow } from '@/lib/neon';
 import { EPS } from '../shared/autoAllocateStrategy';
 import type { SimulationDocument } from '../shared/autoApplySimulation';
@@ -88,19 +89,21 @@ export async function fetchOpenSupplierBills(
     ? await sql`
         SELECT id, invoice_number, invoice_date, due_date,
                (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
+        FROM supplier_invoices si
         WHERE company_id = ${companyId}::UUID
+          AND NOT ${billForeignCurrencySql()}
           AND supplier_id = ${supplierId}::UUID
           AND deleted_at IS NULL
           AND status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])
           AND (total_amount - COALESCE(amount_paid, 0)) > ${EPS}
         ORDER BY id
-        FOR UPDATE`
+        FOR UPDATE OF si`
     : await sql`
         SELECT id, invoice_number, invoice_date, due_date,
                (total_amount - COALESCE(amount_paid, 0)) AS outstanding
-        FROM supplier_invoices
+        FROM supplier_invoices si
         WHERE company_id = ${companyId}::UUID
+          AND NOT ${billForeignCurrencySql()}
           AND supplier_id = ${supplierId}::UUID
           AND deleted_at IS NULL
           AND status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])

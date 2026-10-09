@@ -26,6 +26,7 @@ import { resolveCustomerAutoAllocateStrategy } from '../ar/customerAutoAllocate'
 import { sql } from '@/lib/neon';
 import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
+import { assertStoredDocumentSettleable } from './documentCurrency';
 import { applyCreditNote, deriveCreditNoteStatus } from './creditNoteFifo';
 import { fetchOpenDocuments } from './autoApplyBackfillPopulation';
 import type { BackfillSource, PlannedLine, Subledger } from './autoApplyBackfillPlan';
@@ -192,6 +193,8 @@ export async function applyOneCreditNote(
   // cancelling resets `applied_amount` to 0, so a cancelled note arrives with
   // its whole total apparently available and must never be spent.
   if (remainder <= EPS) return [];
+  // FX PR0: the population leaves a foreign note out; one reaching here (a direct caller) is refused by name.
+  await assertStoredDocumentSettleable(ctx.companyId, 'credit_note', source.paymentId);
   const status = String(note.status);
   if (!APPLICABLE_CREDIT_NOTE_STATUSES.has(status)) {
     throw new Error(

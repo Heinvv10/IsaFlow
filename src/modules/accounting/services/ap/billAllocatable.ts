@@ -6,6 +6,7 @@
 
 import { BALANCE_DERIVED } from '../ar/invoiceStatusRecompute';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { assertSettleableCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 
 /**
  * Statuses a bill may be in to take a payment — an ALLOW-list, deliberately.
@@ -55,4 +56,28 @@ export function assertBillAllocatable(
  */
 export function toCents(n: number): number {
   return Math.round(n * 100);
+}
+
+/**
+ * FX PR0: the locked bill rows a payment is about to settle, refused (400,
+ * before any write) if one is in a foreign currency, whatever the switch —
+ * settlement is currency-blind and would add rands to its
+ * foreign amount_paid. Every AP path locks its bills through
+ * `fetchBillCandidates`, which passes its rows through here: creating a
+ * payment or a batch, processing either, and applying a payment.
+ */
+export async function billsPayable<T extends { invoice_number: unknown; currency?: unknown; currency_code?: unknown }>(
+  companyId: string, rows: T[],
+): Promise<T[]> {
+  if (rows.length === 0) return rows;
+  const company = await loadCompanyCurrency(companyId);
+  for (const row of rows) {
+    try {
+      assertSettleableCurrency(company, [row.currency_code, row.currency], 'bill');
+    } catch (err) {
+      if (!(err instanceof DocumentCurrencyError)) throw err;
+      throw new SupplierPaymentRefusal(`Invoice ${String(row.invoice_number)} cannot be paid: ${err.message}`);
+    }
+  }
+  return rows;
 }

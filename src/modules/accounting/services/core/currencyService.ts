@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clampLimit } from '@/lib/pagination';
+import { toFunctional } from '../shared/functionalAmounts';
 
 type Row = DbRow;
 
@@ -145,7 +146,7 @@ export async function convertAmount(companyId: string,
   if (fromCurrency === toCurrency) return { converted: amount, rate: 1 };
   const rate = await getLatestRate(companyId, fromCurrency, toCurrency, asOfDate);
   if (rate === null) return null;
-  return { converted: Math.round(amount * rate * 100) / 100, rate };
+  return { converted: toFunctional(amount, rate), rate }; // exact decimal, as fx_functional rounds
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────

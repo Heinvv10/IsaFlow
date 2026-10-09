@@ -43,6 +43,9 @@ const { mockTx } = vi.hoisted(() => ({
     client: { query: (t: string) => { mockTx.queries.push(t); return Promise.resolve(undefined); } },
   },
 }));
+// FX PR0: the currency gate reads the company row; it has its own tests (fx-pr0-*).
+vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOriginal) =>
+  (await import('../../helpers/documentCurrencyMock')).documentCurrencyMock(await importOriginal()));
 vi.mock('@/lib/als', async () => {
   const actual = await vi.importActual<typeof import('@/lib/als')>('@/lib/als');
   return {

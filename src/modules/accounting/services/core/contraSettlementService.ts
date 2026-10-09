@@ -36,6 +36,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { assertStoredDocumentSettleable } from '../shared/documentCurrency';
 import type { DbRow } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
@@ -245,6 +246,9 @@ export async function loadContraDocument(
       + 'settlement cannot be attributed to one.',
     );
   }
+
+  // FX PR0: a foreign document cannot be settled (the dry run refuses it too).
+  await assertStoredDocumentSettleable(companyId, subledger === 'ar' ? 'customer_invoice' : 'supplier_invoice', documentId);
 
   const totalAmount = Number(row.total_amount);
   const amountPaid = Number(row.amount_paid ?? 0);

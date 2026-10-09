@@ -32,6 +32,10 @@ export async function newCompany(db: Db, members: [string, string][], companies?
   return id;
 }
 
+/** FX PR0 (migration 871): let `companyId` hold foreign-currency documents, as a case that plants one must. */
+export const enableFxDocuments = (db: Db, companyId: string) =>
+  db.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [companyId]);
+
 export async function plantRule(db: Db, companyId: string, approverRole: string, opts: {
   documentType?: string; operator?: string; value?: number; name?: string;
 } = {}): Promise<string> {

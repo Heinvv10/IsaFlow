@@ -23,6 +23,7 @@
  */
 import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
+import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
@@ -35,6 +36,7 @@ export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
+  | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
 
 export async function editDraftCustomerInvoice(
@@ -45,7 +47,8 @@ export async function editDraftCustomerInvoice(
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
     taxRate, currencyCode, exchangeRate, items,
   } = edit;
-  const fxCode = currencyCode ? currencyCode.trim().toUpperCase() : null;
+  // Blank is "no change", as it is "the functional currency" on create.
+  const fxCode = currencyCode?.trim().toUpperCase() || null;
   const fxRateOverride = (typeof exchangeRate === 'number' && exchangeRate > 0) ? exchangeRate : null;
 
   // Wrap header UPDATE + items DELETE/INSERT in one transaction so partial
@@ -76,6 +79,35 @@ export async function editDraftCustomerInvoice(
     // what approval rules match on (R-035).
     if (fxCode && fxCode !== String(ownedRows[0]!.currency_code ?? 'ZAR').toUpperCase() && fxRateOverride === null) {
       return { kind: 'rate_required' as const };
+    }
+    // FX PR0: the currency and rate EVERY edit leaves the invoice with — the
+    // functional currency at exactly 1, or a foreign one only once enabled. A
+    // legacy foreign draft is refused here (400) whatever the edit, rather than
+    // by the database gate on the way out.
+    let nextCode: string | null = null;
+    const company = await loadCompanyCurrency(companyId, tx);
+    try {
+      const checked = checkDocumentCurrency(company,
+        fxCode ?? ownedRows[0]!.currency_code, fxRateOverride ?? existingRate, 'invoice');
+      if (fxCode !== null) nextCode = checked.currencyCode;
+    } catch (err) {
+      if (err instanceof DocumentCurrencyError) return { kind: 'currency_refused' as const, message: err.message };
+      throw err;
+    }
+    // A currency change relabels every figure the invoice holds. A legacy foreign
+    // draft (switch off) may not change at all: the edit page re-sends its lines
+    // unchanged, so "lines included" proves nothing — its USD amounts would post
+    // as rands. Otherwise the lines must come with the change.
+    const storedCode = String(ownedRows[0]!.currency_code ?? '').trim().toUpperCase() || company.functionalCurrency;
+    if (nextCode !== null && nextCode !== storedCode) {
+      if (storedCode !== company.functionalCurrency && !company.fxDocumentsEnabled) {
+        return { kind: 'currency_refused' as const, message: `This ${storedCode} draft cannot be changed to ${nextCode}: `
+          + `cancel it and create the invoice again in ${nextCode}, with its amounts in ${nextCode}.` };
+      }
+      if (!items) {
+        return { kind: 'currency_refused' as const, message: `Changing this invoice from ${storedCode} to ${nextCode} `
+          + `needs its lines re-entered in ${nextCode} — changing only the currency would book the ${storedCode} figures as ${nextCode}.` };
+      }
     }
 
     // Defence-in-depth: clientId must belong to the same tenant. The FK
@@ -132,7 +164,7 @@ export async function editDraftCustomerInvoice(
       }
     }
 
-    let computed: { subtotal: number; tax: number; total: number; functionalTotal: number; rate: number } | null = null;
+    let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
       // recomputed totals stay correct when the caller doesn't re-send taxRate.
@@ -146,9 +178,7 @@ export async function editDraftCustomerInvoice(
       subtotal = Math.round(subtotal * 100) / 100;
       const tax = Math.round(subtotal * (rate / 100) * 100) / 100;
       const total = Math.round((subtotal + tax) * 100) / 100;
-      const fxRate = fxRateOverride ?? existingRate;
-      const functionalTotal = Math.round(total * fxRate * 100) / 100;
-      computed = { subtotal, tax, total, functionalTotal, rate };
+      computed = { subtotal, tax, total, rate };
     }
 
     await tx`
@@ -165,8 +195,11 @@ export async function editDraftCustomerInvoice(
              subtotal = COALESCE(${computed?.subtotal ?? null}, subtotal),
              tax_amount = COALESCE(${computed?.tax ?? null}, tax_amount),
              total_amount = COALESCE(${computed?.total ?? null}, total_amount),
-             functional_total = COALESCE(${computed?.functionalTotal ?? null}, functional_total),
-             currency_code = COALESCE(${fxCode}, currency_code),
+             functional_total = CASE WHEN ${computed !== null || fxRateOverride !== null}::BOOLEAN
+               THEN public.fx_functional(COALESCE(${computed?.total ?? null}::NUMERIC(15,2), total_amount),
+                                         COALESCE(${fxRateOverride}::NUMERIC(18,6), NULLIF(exchange_rate, 0), 1))
+               ELSE functional_total END,
+             currency_code = COALESCE(${nextCode}, currency_code),
              exchange_rate = COALESCE(${fxRateOverride}, exchange_rate),
              updated_at = NOW()
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
@@ -180,7 +213,7 @@ export async function editDraftCustomerInvoice(
       // re-send `currencyCode`. Falling back to ZAR would silently corrupt
       // line-item currency on FX invoices.
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
-      const lineCurrency = fxCode || existingCurrency;
+      const lineCurrency = nextCode ?? existingCurrency;
       for (const it of lines) {
         const qty = it.quantity;
         const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
