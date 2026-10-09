@@ -609,6 +609,30 @@ END
 $$;
 
 -- ── 3. Privileges ─────────────────────────────────────────────────────────
+-- WHO IS "THE OWNER" (prod, 2026-10-09, differs from every fixture): there the
+-- table owner is migration_admin, and the migration runner — postgres, which
+-- also owns the definers below — is NOT a superuser: it writes the table only
+-- as a member of migration_admin (BYPASSRLS, member of migration_admin and
+-- app_user). On the fixtures postgres is the superuser owner. So "a role that
+-- may keep write" is, on both layouts: a superuser, the object's owner, a role
+-- that has the owner's privileges by membership (pg_has_role … 'USAGE'), or
+-- the role running this migration (current_user), which owns the definers
+-- and must keep writing the table through them (asserted below by outcome).
+-- Every other role — app_user, platform_admin, PUBLIC, anything else — ends
+-- with no INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER, by table or by column.
+CREATE OR REPLACE FUNCTION pg_temp.n1_may_keep_write(p_role pg_catalog.oid, p_owner pg_catalog.oid)
+RETURNS pg_catalog.bool
+LANGUAGE sql STABLE
+AS $$
+  -- 0 is PUBLIC: never an owner, and pg_has_role has no role 0 (CASE keeps
+  -- it from being asked).
+  SELECT CASE WHEN p_role = 0 THEN false ELSE
+           p_role = p_owner
+           OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.oid = p_role AND r.rolsuper)
+           OR pg_catalog.pg_has_role(p_role, p_owner, 'USAGE')
+           OR p_role = (SELECT r.oid FROM pg_catalog.pg_roles r WHERE r.rolname = current_user)
+         END
+$$;
 -- Helpers: nobody but the owner (the definers call them as owner).
 REVOKE ALL ON FUNCTION public.approval_actor_rank(pg_catalog.text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.approval_request_caller_bypasses() FROM PUBLIC;
@@ -661,10 +685,13 @@ BEGIN
   END LOOP;
 END $$;
 
--- The table: every write privilege of every role but the owner, enumerated
--- from the ACL rather than named — app_user, PUBLIC, platform_admin and
--- migration_admin on the fixture; whatever else an environment granted
--- (no src path writes the table as platform_admin or migration_admin).
+-- The table: every write privilege of every role that may not keep one (see
+-- WHO IS "THE OWNER"), enumerated from the ACL rather than named — app_user,
+-- PUBLIC, platform_admin (and migration_admin, where it is not the owner);
+-- whatever else an environment granted (no src path writes the table as
+-- platform_admin or migration_admin). Run by a non-owner member of the
+-- owning role, a REVOKE acts as the owner, so grants the owner issued go too
+-- (asserted below by has_table_privilege, not trusted from the REVOKE).
 -- Table-level and column-level grants both: a column grant survives a
 -- table-level REVOKE. TRIGGER too: a trigger another role attached would run
 -- inside the definers' writes as their owner, and could rewrite the row.
@@ -679,7 +706,7 @@ BEGIN
     FROM pg_catalog.pg_class c, pg_catalog.aclexplode(c.relacl) a
     LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
     WHERE c.oid = 'public.approval_requests'::pg_catalog.regclass
-      AND a.grantee <> c.relowner
+      AND NOT pg_temp.n1_may_keep_write(a.grantee, c.relowner)
       AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER')
   LOOP
     EXECUTE pg_catalog.format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER ON public.approval_requests FROM %s CASCADE', v_grantee);
@@ -687,9 +714,12 @@ BEGIN
   FOR v_grantee, v_col IN
     SELECT DISTINCT CASE a.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(r.rolname) END,
            pg_catalog.quote_ident(att.attname)
-    FROM pg_catalog.pg_attribute att, pg_catalog.aclexplode(att.attacl) a
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_attribute att ON att.attrelid = c.oid
+    CROSS JOIN LATERAL pg_catalog.aclexplode(att.attacl) a
     LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee
-    WHERE att.attrelid = 'public.approval_requests'::pg_catalog.regclass AND att.attacl IS NOT NULL
+    WHERE c.oid = 'public.approval_requests'::pg_catalog.regclass AND att.attacl IS NOT NULL
+      AND NOT pg_temp.n1_may_keep_write(a.grantee, c.relowner)
       AND a.privilege_type IN ('INSERT', 'UPDATE')
   LOOP
     EXECUTE pg_catalog.format('REVOKE INSERT (%s), UPDATE (%s) ON public.approval_requests FROM %s CASCADE',
@@ -706,12 +736,13 @@ DECLARE
   v_priv pg_catalog.text;
   v_fn pg_catalog.text;
 BEGIN
-  -- No role but the owner and superusers may write, by grant or by column.
-  -- A role that inherits the owner's or pg_write_all_data's rights is not a
-  -- grant this migration can revoke: refuse rather than ship it silently.
+  -- No role that may not keep write (see WHO IS "THE OWNER") may write, by
+  -- grant, by column, via PUBLIC or via membership. A role that inherits
+  -- pg_write_all_data's or another writer's rights is not a grant this
+  -- migration can revoke: refuse rather than ship it silently.
   FOR v_role IN
     SELECT r.rolname FROM pg_catalog.pg_roles r
-    WHERE NOT r.rolsuper AND r.oid <> v_owner AND r.rolname !~ '^pg_'
+    WHERE r.rolname !~ '^pg_' AND NOT pg_temp.n1_may_keep_write(r.oid, v_owner)
     UNION ALL SELECT 'public'
   LOOP
     FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER'] LOOP
@@ -728,18 +759,30 @@ BEGIN
   IF NOT pg_catalog.has_table_privilege('app_user', 'public.approval_requests', 'SELECT') THEN
     RAISE EXCEPTION 'migration 872: app_user lost SELECT on approval_requests';
   END IF;
+  -- The other direction: the definers' owner (this migration's current_user)
+  -- must still be able to do what they do, or every raise and decide fails.
+  FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE'] LOOP
+    IF NOT pg_catalog.has_table_privilege(current_user, 'public.approval_requests', v_priv) THEN
+      RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot % approval_requests', current_user, v_priv;
+    END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_table_privilege(current_user, 'public.audit_log', 'INSERT') THEN
+    RAISE EXCEPTION 'migration 872: % (the definers'' owner) cannot INSERT audit_log (the Q2 row)', current_user;
+  END IF;
 
-  -- The functions: the owner (and superusers) and, for the four writers,
-  -- app_user — nobody else.
+  -- The functions: the owner (superusers and the owner's members) and, for
+  -- the four writers, app_user (and app_user's members, who are app_user) —
+  -- nobody else.
   FOR v_fn, v_role IN
     SELECT p.oid::pg_catalog.regprocedure::pg_catalog.text, r.rolname
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-    CROSS JOIN (SELECT rolname, oid FROM pg_catalog.pg_roles WHERE NOT rolsuper AND rolname !~ '^pg_'
-                UNION ALL SELECT 'public', 0) r
-    WHERE n.nspname = 'public' AND r.oid <> p.proowner
+    CROSS JOIN (SELECT rolname, oid, rolsuper FROM pg_catalog.pg_roles WHERE rolname !~ '^pg_'
+                UNION ALL SELECT 'public', 0, false) r
+    WHERE n.nspname = 'public' AND NOT r.rolsuper AND r.oid <> p.proowner
+      AND CASE WHEN r.oid = 0 THEN true ELSE NOT pg_catalog.pg_has_role(r.oid, p.proowner, 'USAGE') END
       AND (p.proname LIKE 'approval\_request\_%' OR p.proname = 'approval_actor_rank')
       AND p.proname <> 'approval_request_insert_guard'
-      AND NOT (r.rolname = 'app_user'
+      AND NOT (CASE WHEN r.oid = 0 THEN false ELSE pg_catalog.pg_has_role(r.oid, 'app_user', 'USAGE') END
                AND p.proname IN ('approval_request_raise', 'approval_request_rebind',
                                  'approval_request_lock', 'approval_request_decide'))
   LOOP
@@ -799,3 +842,4 @@ BEGIN
   END IF;
 END $$;
 RESET ROLE;
+DROP FUNCTION pg_temp.n1_may_keep_write(pg_catalog.oid, pg_catalog.oid);

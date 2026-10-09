@@ -131,10 +131,17 @@ const SHAPE_ONLY = 'public.approval_document_digest(uuid,text,uuid)';
 
 const NOT_APPLIED = 'migration 872 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 
-/** Every role that is neither superuser, predefined (pg_*), the object's owner, nor app_user or one of its members; and PUBLIC. */
+/**
+ * Every role that is neither superuser, predefined (pg_*), the object's owner,
+ * a role holding the owner's privileges by membership, nor (when $2) app_user
+ * or one of its members; and PUBLIC. "By membership" is what makes this hold
+ * on prod's layout (2026-10-09): the table owner there is migration_admin and
+ * postgres — the definers' owner, not a superuser — writes as its member.
+ */
 const OTHERS = `
   SELECT r.rolname AS who FROM pg_roles r
   WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> $1::oid
+    AND NOT pg_has_role(r.oid, $1::oid, 'USAGE')
     AND NOT ($2::bool AND pg_has_role(r.oid, 'app_user', 'MEMBER'))
   UNION ALL SELECT 'public'`;
 
@@ -230,6 +237,7 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
     const { rows } = await pool.query(`
       SELECT p.proname, x.who FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
         LATERAL (SELECT r.rolname AS who FROM pg_roles r WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> p.proowner
+                   AND NOT pg_has_role(r.oid, p.proowner, 'USAGE')
                  UNION ALL SELECT 'public') x
       WHERE n.nspname = 'public' AND (p.proname LIKE 'approval\\_request\\_%' OR p.proname = 'approval_actor_rank')
         AND p.proname NOT IN ('approval_request_insert_guard', 'approval_request_raise', 'approval_request_rebind',
@@ -251,6 +259,18 @@ describeIfDb('approval_requests catalogue (R-035 N1)', () => {
       SELECT 'app_user', priv FROM unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER']) priv
       WHERE has_table_privilege('app_user', 'public.approval_requests', priv)`, [t.relowner, false]);
     expect(rows).toEqual([]);
+  });
+
+  it("the writers' owner can still do what they do: read and write approval_requests, write audit_log", async () => {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT pg_get_userbyid(p.proowner) AS owner,
+             has_table_privilege(p.proowner, 'public.approval_requests', 'SELECT') AS sel,
+             has_table_privilege(p.proowner, 'public.approval_requests', 'INSERT') AS ins,
+             has_table_privilege(p.proowner, 'public.approval_requests', 'UPDATE') AS upd,
+             has_table_privilege(p.proowner, 'public.audit_log', 'INSERT') AS audit
+      FROM pg_proc p WHERE p.oid = ANY (ARRAY(SELECT to_regprocedure('public.' || w) FROM unnest($1::text[]) w))`, [WRITERS]);
+    expect(rows, NOT_APPLIED).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sel: true, ins: true, upd: true, audit: true });
   });
 
   it('no function body but the three writers names approval_requests in a write (static SQL only — see LIMIT)', async () => {
