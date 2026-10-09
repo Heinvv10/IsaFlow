@@ -80,9 +80,6 @@ const PLANTS: [string, string, Plant][] = [
   ['account default', 'customer/account default(s)', (cc) => q(
     'UPDATE gl_accounts SET default_cc2_id = $2 WHERE id = $1', [b.account, cc])],
   ['tag history', 'un-reversed tag batch line(s)', (cc) => tagHistory(pool, b, 'old_cc1_id', cc)],
-  ['employee history', 'employee history entr', (cc) => q(
-    "INSERT INTO payroll_employee_history(company_id, employee_id, field_name, old_value, new_value) VALUES($1, $2, 'cost_centre_id', NULL, $3)",
-    [company, b.employee, cc])],
 ];
 
 describe('assertCostCentreUnused counts a reference in each table', () => {
@@ -98,6 +95,16 @@ describe('assertCostCentreUnused counts a reference in each table', () => {
     await q('UPDATE payroll_employees SET cost_centre_id = NULL WHERE company_id = $1', [company]);
     await q('UPDATE gl_journal_entries SET cost_center_id = NULL WHERE company_id = $1', [company]);
     await q('UPDATE supplier_invoices SET cost_center_id = NULL WHERE company_id = $1', [company]);
+  });
+
+  it('deletes a centre that only the payroll assignment history names (display-only text, not counted)', async () => {
+    const cc = await costCentre(pool, company, 'G-HIST');
+    await q("INSERT INTO payroll_employee_history(company_id, employee_id, field_name, old_value, new_value) VALUES($1, $2, 'cost_centre_id', NULL, $3)",
+      [company, b.employee, cc]);
+    await inRequest(pool, b, () => deleteCostCentre(company, cc));
+    expect((await q('SELECT 1 FROM cost_centres WHERE id = $1', [cc])).rowCount).toBe(0);
+    // The history row keeps its text: it was never a reference.
+    expect((await q("SELECT new_value FROM payroll_employee_history WHERE company_id = $1 AND new_value = $2", [company, cc])).rowCount).toBe(1);
   });
 
   it('deletes a centre nothing references', async () => {
