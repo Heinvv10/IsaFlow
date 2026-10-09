@@ -28,9 +28,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
-import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, type BankArm } from './bankLineImporterGate';
+import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, sameUser, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
-import { findChainCashLines } from './chainBankLines';
+import { refuseJournalCashOfCompletedReconciliation } from './reconciledCash';
 import { findJournalChainRoot } from '../shared/journalChainHead';
 
 const NOBODY = '00000000-0000-0000-0000-000000000000';
@@ -79,7 +79,7 @@ export async function assertMayReverse(
   const facts = await reversalFacts(companyId, line, rootId);
   if (!facts || !(await armEnforced(companyId, facts.arm))) return null;
   await assertHumanSession(ACTION);
-  const own = facts.allocators.includes(actorUserId);
+  const own = facts.allocators.some((id) => sameUser(id, actorUserId));
   const soleApprover = own && await isSoleAsCaller(companyId, actorUserId);
   if (own && !soleApprover) {
     throw new BankControlError('ALLOCATOR_MAY_NOT_REVERSE',
@@ -105,21 +105,26 @@ export async function auditedReversal<T>(
 }
 
 /**
- * The GL reversal of a journal (journal-entries-action `reverse`, MCP
- * `reverse_journal_entry`) whose reversal chain books a statement line's cash
- * — a bank allocation, matched or provisional: under enforcement of that
- * allocation's arm it is refused, 409, before any write, for everyone. The
- * bank line's own reverse is where the allocator and agent checks and the
- * audit sit, and it also resets the line, which a raw GL reversal leaves
- * allocated against a reversed journal. Enforcement off: unchanged.
+ * The GL reversal's entrance (journal-entries-action `reverse`, MCP
+ * `reverse_journal_entry`) for a journal whose reversal chain books a
+ * statement line's cash — a bank allocation, matched or provisional. First the
+ * chain's statement lines are LOCKED in id order (refuseJournalCashOfCompleted
+ * Reconciliation: bank lines before the journal, the D8/D12 order; a completed
+ * reconciliation refuses 409). Then, on that locked set, under enforcement of
+ * the allocation's arm the reversal is refused, 409, for everyone: the bank
+ * line's own reverse is where the allocator and agent checks and the audit
+ * sit, and it resets the line. Returns the locked set for reverseJournalEntry's
+ * `cashLinesLocked`: a line matched to the chain AFTER this read is refused
+ * under the reversal's claim (a typed retry, 503), and the retry is judged
+ * here. Enforcement off: unchanged.
  */
-export async function assertNotBankAllocationReversal(companyId: string, journalEntryId: string): Promise<void> {
-  const lineIds = await findChainCashLines(companyId, journalEntryId);
-  if (lineIds.length === 0) return;
+export async function lockJournalCashForGlReversal(companyId: string, journalEntryId: string): Promise<string[]> {
+  const locked = await refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId);
+  if (locked.length === 0) return locked;
   const rootId = (await findJournalChainRoot(companyId, journalEntryId)) ?? journalEntryId;
   const lines = (await sql`
     SELECT id, amount, auto_post_run_id FROM bank_transactions
-    WHERE id = ANY(${lineIds}::UUID[]) AND company_id = ${companyId}::UUID
+    WHERE id = ANY(${locked}::UUID[]) AND company_id = ${companyId}::UUID
   `) as DbRow[];
   for (const line of lines) {
     const facts = await reversalFacts(companyId, line, rootId);
@@ -129,6 +134,7 @@ export async function assertNotBankAllocationReversal(companyId: string, journal
         + 'line, not from Journal Entries: open the bank line in Banking and reverse it there.');
     }
   }
+  return locked;
 }
 
 /** A refusal this request's session gets for `action`, or null: a person in their own session. */
@@ -179,8 +185,9 @@ export async function assertMayUndoRun(companyId: string, runId: string, actorUs
     SELECT created_by::TEXT AS created_by FROM bank_auto_post_runs WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   const by = run?.created_by != null && String(run.created_by) !== NOBODY ? String(run.created_by) : null;
-  const soleApprover = by === actorUserId && await isSoleAsCaller(companyId, actorUserId);
-  if (by === actorUserId && !soleApprover) {
+  const own = by !== null && sameUser(by, actorUserId);
+  const soleApprover = own && await isSoleAsCaller(companyId, actorUserId);
+  if (own && !soleApprover) {
     throw new BankControlError('ALLOCATOR_MAY_NOT_REVERSE',
       'You ran this auto-post run, so while manual-journal approval is on you cannot undo it yourself. '
       + 'Ask another member to undo it.');
