@@ -37,11 +37,14 @@ afterAll(async () => {
   await cleanupBankControlsA(pool, companies, [a, b]);
 });
 
-/** A line a imported, and a posted R500 journal by `journalBy` that auto-match pairs it with; manual_journal enforced. */
+/**
+ * A R500 withdrawal a imported, and a posted R500 journal by `journalBy` (DR expA / CR bank) that auto-match pairs it
+ * with — a withdrawal pairs with the bank's CREDIT leg (#687, utils/autoMatch); manual_journal enforced.
+ */
 async function pair(journalBy: string, members: [string, string][] = [[a, 'admin'], [b, 'admin']]) {
   const f: BankCompany = await bankCompany(pool, members, companies);
   await enforce(pool, f.c, a, ['manual_journal']);
-  const line = await plantLine(pool, f, await plantBatch(pool, f, a), 500);
+  const line = await plantLine(pool, f, await plantBatch(pool, f, a), -500);
   const je = await plantJournal(pool, f, journalBy, { amount: 500 });
   expect((await j.post(journalBy, f.c, je)).state.statusCode).toBe(200);
   const leg = (await pool.query('SELECT id FROM gl_journal_lines WHERE journal_entry_id = $1 AND gl_account_id = $2', [je, f.bank]))
