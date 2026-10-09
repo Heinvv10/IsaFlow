@@ -83,12 +83,14 @@ export const refusalOf = (res: { state: { statusCode: number; body: unknown } })
 export type McpReply = { isError?: boolean; content: { text: string }[] };
 
 /** `fn` in one transaction run as the bearer pipeline runs a token: app_user, claims without a session id, the company GUC. */
-export async function asToken<T>(pool: Pool, user: string, company: string, fn: () => Promise<T>): Promise<T> {
+export async function asToken<T>(pool: Pool, user: string, company: string, fn: () => Promise<T>,
+  /** A person in their own cookie session (a session id), rather than a token. */
+  opts: { session?: boolean } = {}): Promise<T> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL ROLE app_user');
-    const claims = { sub: user, role: 'authenticated', company_id: company };
+    const claims = { sub: user, role: 'authenticated', company_id: company, ...(opts.session ? { session_id: crypto.randomUUID() } : {}) };
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
     await client.query("SELECT set_config('app.current_company_id', $1, true)", [company]);
     const out = await als.run({ client, userId: user, companyId: company, claims } as never, fn);

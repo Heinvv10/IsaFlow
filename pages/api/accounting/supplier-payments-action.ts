@@ -26,6 +26,7 @@ import { isSupplierPaymentRefusal } from '@/modules/accounting/services/ap/suppl
 import { cancelSupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentCancel';
 import { UnapplyRefusal, unapplySupplierPayment } from '@/modules/accounting/services/ap/supplierPaymentUnapply';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -82,6 +83,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // lock, before any write — 409 with the reason, ahead of the prefix match
     // below, which would otherwise answer it 400 (or a 500 for process).
     if (respondIfApprovalRequired(res, err)) return;
+    // Step 2: void of a bank-linked payment by its allocator, an agent or "login as" — 403, before any write.
+    if (respondIfBankControlRefused(res, err)) return;
     // 409 for contention: `process` and `void` both take the payment row lock
     // as their first act, so a `PAYMENT_LOCK_TIMEOUT` here wrote nothing and
     // retrying is the remedy. It is the same event `supplier-allocations`

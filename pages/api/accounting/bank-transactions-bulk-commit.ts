@@ -58,8 +58,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql, withSavepoint } from '@/lib/neon';
-import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
-import { uploadProvenance } from '@/modules/accounting/services/bank/importProvenance';
+import { importParsedTransactions, uploadProvenance } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {

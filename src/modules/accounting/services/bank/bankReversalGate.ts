@@ -28,7 +28,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { assertHumanSession, BankControlError } from './bankControlRefusal';
-import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, type BankArm } from './bankLineImporterGate';
+import { armEnforced, armLabel, importerArmOf, isSoleAsCaller, sameUser, type BankArm } from './bankLineImporterGate';
 import { peekLineChain } from './bankChainLineReversal';
 import { findChainCashLines } from './chainBankLines';
 import { findJournalChainRoot } from '../shared/journalChainHead';
@@ -79,7 +79,7 @@ export async function assertMayReverse(
   const facts = await reversalFacts(companyId, line, rootId);
   if (!facts || !(await armEnforced(companyId, facts.arm))) return null;
   await assertHumanSession(ACTION);
-  const own = facts.allocators.includes(actorUserId);
+  const own = facts.allocators.some((id) => sameUser(id, actorUserId));
   const soleApprover = own && await isSoleAsCaller(companyId, actorUserId);
   if (own && !soleApprover) {
     throw new BankControlError('ALLOCATOR_MAY_NOT_REVERSE',
@@ -179,8 +179,9 @@ export async function assertMayUndoRun(companyId: string, runId: string, actorUs
     SELECT created_by::TEXT AS created_by FROM bank_auto_post_runs WHERE id = ${runId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   const by = run?.created_by != null && String(run.created_by) !== NOBODY ? String(run.created_by) : null;
-  const soleApprover = by === actorUserId && await isSoleAsCaller(companyId, actorUserId);
-  if (by === actorUserId && !soleApprover) {
+  const own = by !== null && sameUser(by, actorUserId);
+  const soleApprover = own && await isSoleAsCaller(companyId, actorUserId);
+  if (own && !soleApprover) {
     throw new BankControlError('ALLOCATOR_MAY_NOT_REVERSE',
       'You ran this auto-post run, so while manual-journal approval is on you cannot undo it yourself. '
       + 'Ask another member to undo it.');
