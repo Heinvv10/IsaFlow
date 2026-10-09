@@ -20,6 +20,7 @@ import {
 } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
+import { invoiceLineAmount, invoiceTotals, toColumnCents } from './invoiceLineAmount';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -30,7 +31,7 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
-  /** Percent off the line, 0 to 100 — as the draft edit's PutBodySchema takes it. Not stored: the amount carries it. */
+  /** Percent off the line, 0 to 100 — as the draft edit's PutBodySchema takes it. Not stored: the amount carries it (invoiceLineAmount.ts). */
   discount?: number;
   /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
   glAccountId?: string | null;
@@ -89,18 +90,28 @@ export async function createDraftCustomerInvoice(
     });
 
   // W1 (P2.1): server-side line validation — the July-4 audit created a
-  // -R115.00 invoice through this handler (no client OR server guard).
+  // -R115.00 invoice through this handler (no client OR server guard). The body
+  // is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
+  // pricing, and a negative discount would bill more than qty × price. Bounds
+  // are the columns' (quantity numeric(10,2), amounts numeric(15,2)).
+  const priced: { qty: number; price: number; amount: number }[] = [];
   for (const item of items) {
-    const qty = Number(item?.quantity ?? 1);
-    const price = Number(item?.unitPrice);
-    if (!(qty > 0)) throw new InvoiceLineValidationError('Line quantities must be positive');
-    if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
-    // The body is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
-    // arithmetic below, and a negative discount would bill more than qty × price.
-    const discount: unknown = item?.discount;
-    if (discount != null && !(typeof discount === 'number' && discount >= 0 && discount <= 100)) {
+    const qtyIn: unknown = item?.quantity ?? 1;
+    const priceIn: unknown = item?.unitPrice;
+    const discount: unknown = item?.discount ?? 0;
+    if (!(typeof qtyIn === 'number' && qtyIn > 0 && qtyIn < 1e8)) {
+      throw new InvoiceLineValidationError('Line quantities must be positive');
+    }
+    if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
+      throw new InvoiceLineValidationError('Line unit prices cannot be negative');
+    }
+    if (!(typeof discount === 'number' && discount >= 0 && discount <= 100)) {
       throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100');
     }
+    const qty = toColumnCents(qtyIn);
+    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive');
+    const price = toColumnCents(priceIn);
+    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
   }
 
   // Migration 874: what each line credits and is tagged with. Shape first (a
@@ -137,15 +148,11 @@ export async function createDraftCustomerInvoice(
   const { currencyCode: invCurrencyCode, exchangeRate: invExchangeRate } =
     await resolveDocumentCurrency(companyId, currencyCode, exchangeRate, 'invoice');
 
-  // Calculate totals (in foreign currency). A line is priced as the draft edit
-  // prices it — net of its discount, rounded to the cent — and the subtotal is
-  // the sum of those stored amounts, so the header foots to its own lines.
+  // Calculate totals (in foreign currency) — invoiceLineAmount.ts, as the draft
+  // edit and the new-invoice preview compute them.
   const rate = requestedRate;
-  const lineAmounts = items.map((item) =>
-    Math.round((item.quantity || 1) * item.unitPrice * (1 - (item.discount ?? 0) / 100) * 100) / 100);
-  const subtotal = Math.round(lineAmounts.reduce((s, a) => s + a, 0) * 100) / 100;
-  const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
-  const totalAmount = Math.round((subtotal + taxAmount) * 100) / 100;
+  const { subtotal, tax: taxAmount, total: totalAmount } = invoiceTotals(priced.map((p) => p.amount), rate);
+  if (totalAmount >= 1e13) throw new InvoiceLineValidationError('The invoice total is too large');
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   const bpStart = billingPeriodStart || null;
@@ -188,15 +195,14 @@ export async function createDraftCustomerInvoice(
   );
 
   for (const [i, item] of items.entries()) {
-    const qty = item.quantity || 1;
-    const lineAmount = lineAmounts[i]!;
+    const { qty, price, amount: lineAmount } = priced[i]!;
     const coding = codings[i]!;
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
         gl_account_id, project_id, cc1_id, cc2_id, bu_id
       ) VALUES (
-        ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
+        ${invoiceId}::UUID, ${item.description}, ${price},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
         ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID

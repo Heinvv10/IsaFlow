@@ -25,12 +25,13 @@ export class NotADecimalError extends Error {
   }
 }
 
-interface Decimal {
+/** A decimal as integer digits and a scale: 12.34 is { digits: 1234n, scale: 2 }. */
+export interface Decimal {
   digits: bigint;
   scale: number;
 }
 
-function parseDecimal(value: number | string): Decimal {
+export function parseDecimal(value: number | string): Decimal {
   let text = typeof value === 'number' ? String(value) : value.trim();
   if (typeof value === 'number' && !Number.isFinite(value)) throw new NotADecimalError(value);
   if (/e/i.test(text) && typeof value === 'number') text = value.toFixed(20);
@@ -42,7 +43,7 @@ function parseDecimal(value: number | string): Decimal {
 }
 
 /** `ROUND(d, places)`, half away from zero, as numeric round() does. */
-function roundTo(d: Decimal, places: number): Decimal {
+export function roundTo(d: Decimal, places: number): Decimal {
   if (d.scale <= places) return d;
   const divisor = 10n ** BigInt(d.scale - places);
   const magnitude = d.digits < 0n ? -d.digits : d.digits;

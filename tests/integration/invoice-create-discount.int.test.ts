@@ -3,7 +3,8 @@
  * Creation used to store the undiscounted amount, so a 10% discount on a
  * R1,000 line was saved, approved and posted as R1,000 + VAT: the client was
  * billed more than the new-invoice page showed. Now the line, the header and
- * the journal all carry R900.
+ * the journal all carry R900 — and saving that draft unchanged through the
+ * draft edit (as the edit page reads it back) moves nothing.
  *
  * Disposable databases only.
  */
@@ -11,6 +12,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createDraftCustomerInvoice, type DraftInvoiceLineInput } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
+import { discountFromAmount } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx } from './helpers/l1FifoFixture';
 import { dropLineRevenue, seedLineRevenue, type LineRevenueFixture } from './helpers/lineRevenueFixture';
@@ -23,10 +26,11 @@ vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
 const describeIfDisposable = isDisposableDb() ? describe : describe.skip;
 let f: LineRevenueFixture;
 
+const create = async (items: DraftInvoiceLineInput[]): Promise<string> => (await inTx(f.fx, () =>
+  createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 15, items }))).id;
+
 async function createAndApprove(items: DraftInvoiceLineInput[]): Promise<{ id: string; je: string }> {
-  const { id } = await inTx(f.fx, () => createDraftCustomerInvoice(f.fx.companyId, f.fx.userId, {
-    clientId: f.fx.customerId, invoiceDate: '2026-07-15', taxRate: 15, items,
-  }));
+  const id = await create(items);
   const r = await inTx(f.fx, () => approveCustomerInvoice(f.fx.companyId, id, f.fx.userId));
   return { id, je: r.glJournalEntryId! };
 }
@@ -48,6 +52,21 @@ const legs = async (je: string) => (await sql`
     FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
    WHERE jl.journal_entry_id = ${je}::UUID AND jl.company_id = ${f.fx.companyId}::UUID
    ORDER BY a.account_code`) as { code: string; debit: number; credit: number }[];
+
+const revenueTags = async (je: string) => (await sql`
+  SELECT a.account_code AS code, jl.credit::float AS credit, jl.cc1_id AS cc1, jl.cc2_id AS cc2
+    FROM gl_journal_lines jl JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
+   WHERE jl.journal_entry_id = ${je}::UUID AND jl.company_id = ${f.fx.companyId}::UUID AND a.account_type = 'revenue'
+   ORDER BY a.account_code`) as { code: string; credit: number; cc1: string | null; cc2: string | null }[];
+
+/** The stored lines as the edit page loads them: quantity, price, and the discount read back from the amount. */
+const asEditPageSends = async (id: string) => ((await sql`
+  SELECT cii.description, cii.quantity::float AS quantity, cii.unit_price::float AS unit_price, cii.amount::float AS amount
+    FROM customer_invoice_items cii JOIN customer_invoices ci ON ci.id = cii.invoice_id
+   WHERE cii.invoice_id = ${id}::UUID AND ci.company_id = ${f.fx.companyId}::UUID
+   ORDER BY cii.description`) as { description: string; quantity: number; unit_price: number; amount: number }[])
+  .map((r) => ({ description: r.description, quantity: r.quantity, unitPrice: r.unit_price,
+    discount: discountFromAmount(r.quantity, r.unit_price, r.amount) }));
 
 describeIfDisposable('creating a customer invoice with a line discount', () => {
   beforeAll(async () => { f = await seedLineRevenue(process.env.DATABASE_URL!); });
@@ -77,5 +96,28 @@ describeIfDisposable('creating a customer invoice with a line discount', () => {
       { code: '4000', debit: 0, credit: 500 },
       { code: '4100', debit: 0, credit: 900 },
     ]);
+  });
+
+  it('a discounted line tagged with a CC2 posts its discounted amount on that CC2, its CC1 derived', async () => {
+    const { je } = await createAndApprove([
+      { description: 'Grade', unitPrice: 4000, quantity: 1, discount: 25, glAccountId: f.acct.postProduction, cc2Id: f.dim.cc2 },
+    ]);
+    expect(await revenueTags(je)).toEqual([{ code: '4200', credit: 3000, cc1: f.dim.fno, cc2: f.dim.cc2 }]);
+  });
+
+  it('saving the created draft unchanged through the draft edit moves nothing — not a cent', async () => {
+    const id = await create([
+      // Five lines of 87.49125, stored 87.49: Σ stored 437.45, round(Σ unrounded) 437.46.
+      ...['A1', 'A2', 'A3', 'A4', 'A5'].map((description) => ({ description, unitPrice: 33.33, quantity: 3, discount: 12.5 })),
+      { description: 'B', unitPrice: 1000, quantity: 1, discount: 12.34 },   // 876.60
+      { description: 'D', unitPrice: 0.125, quantity: 1 },                   // stored 0.13
+      { description: 'E', unitPrice: 0.1, quantity: 1 },
+    ]);
+    const before = await stored(id);
+    expect(before.subtotal).toBe(before.lines.reduce((s, a) => Math.round((s + a) * 100) / 100, 0));
+
+    const r = await inTx(f.fx, async () => editDraftCustomerInvoice(f.fx.companyId, f.fx.userId, { id, items: await asEditPageSends(id) }));
+    expect(r).toEqual({ kind: 'ok' });
+    expect(await stored(id)).toEqual(before);
   });
 });

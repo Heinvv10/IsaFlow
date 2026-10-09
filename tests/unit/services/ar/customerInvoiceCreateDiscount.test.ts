@@ -4,10 +4,11 @@
  * but creation stored the undiscounted amount, so the saved invoice billed the
  * client more than the screen showed. The draft edit applied it already.
  *
- * Creation now prices a line as the draft edit does — rounded to the cent per
- * line — and the subtotal is the SUM of those stored line amounts, so the
- * header foots to its own lines. `discount` is validated as the draft edit's
- * zod schema validates it (a number, 0 to 100), before the first write.
+ * Creation now prices through invoiceLineAmount.ts, as the draft edit and the
+ * page previews do — each line rounded to the cent, the subtotal the SUM of
+ * the stored line amounts, so the header foots to its own lines. `discount` is
+ * validated as the draft edit's zod schema validates it (a number, 0 to 100),
+ * and quantity and price must be numbers too, all before the first write.
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
@@ -49,12 +50,14 @@ const calls = (fragment: string): unknown[][] => (mockSql.mock.calls as unknown 
   .filter(([strings]) => strings.join('').includes(fragment))
   .map(([, ...values]) => values);
 
-// Positions in the VALUES lists of the two INSERTs in customerInvoiceCreateService.ts.
+// Positions in the VALUES lists of the two INSERTs in customerInvoiceCreateService.ts —
+// pinned by the column-order test at the bottom, so a reordered INSERT fails loudly.
 const header = () => {
   const [v] = calls('INSERT INTO customer_invoices (');
   return { subtotal: v![7], taxRate: v![8], taxAmount: v![9], total: v![10], functionalInput: v![17] };
 };
 const lineAmounts = () => calls('INSERT INTO customer_invoice_items').map((v) => v[4]);
+const storedLines = () => calls('INSERT INTO customer_invoice_items').map((v) => ({ price: v[2], qty: v[3], amount: v[4] }));
 
 const create = (items: DraftInvoiceLineInput[], taxRate = 15) =>
   createDraftCustomerInvoice(COMPANY, USER, { clientId: CLIENT, taxRate, items });
@@ -72,7 +75,7 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     expect(header()).toEqual({ subtotal: 900, taxRate: 15, taxAmount: 135, total: 1035, functionalInput: 1035 });
   });
 
-  it('prices each line as the draft edit does, rounded per line, and the subtotal is the sum of the stored lines', async () => {
+  it('prices each line rounded to the cent, and the subtotal is the sum of the stored lines', async () => {
     await create([
       { description: 'A', unitPrice: 33.33, quantity: 3, discount: 12.5 }, // 87.49125 -> 87.49
       { description: 'B', unitPrice: 0.125, quantity: 1 },                 // 0.125    -> 0.13
@@ -106,6 +109,51 @@ describe('createDraftCustomerInvoice — the line discount', () => {
     expect(header()).toMatchObject({ subtotal: 400, total: 460 });
   });
 
+  it('rounds half away from zero on the decimal typed, not its float: 1.005 is 1.01, 15% of 0.10 is 0.02', async () => {
+    await create([{ description: 'A', unitPrice: 1.005, quantity: 1 }]);
+    expect(storedLines()).toEqual([{ price: 1.01, qty: 1, amount: 1.01 }]);
+    vi.clearAllMocks();
+    await create([{ description: 'B', unitPrice: 0.1, quantity: 1 }]);
+    expect(header()).toMatchObject({ subtotal: 0.1, taxAmount: 0.02, total: 0.12 });
+  });
+
+  it('stores quantity and price as their columns hold them, so each stored line foots to its amount', async () => {
+    await create([{ description: 'A', unitPrice: 33.333, quantity: 3 }]);
+    // 3 × 33.333 = 99.999 would round to 100.00 beside a stored 33.33 × 3 = 99.99.
+    expect(storedLines()).toEqual([{ price: 33.33, qty: 3, amount: 99.99 }]);
+  });
+
+  it.each([
+    ['a string', { quantity: '2' }],
+    ['a boolean', { quantity: true }],
+    ['zero at two places', { quantity: 0.004 }],
+    ['beyond its column', { quantity: 1e8 }],
+  ])('refuses a quantity that is %s before writing anything', async (_label, bad) => {
+    const err = await create([{ description: 'X', unitPrice: 10, ...(bad as object) } as DraftInvoiceLineInput])
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(calls('INSERT INTO')).toHaveLength(0);
+  });
+
+  it.each([
+    ['a string', '10'],
+    ['an array', [10]],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['beyond its column', 1e13],
+  ])('refuses a unit price that is %s before writing anything', async (_label, bad) => {
+    const err = await create([{ description: 'X', unitPrice: bad as number, quantity: 1 }])
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(calls('INSERT INTO')).toHaveLength(0);
+  });
+
+  it('refuses a total its column cannot hold, before writing anything', async () => {
+    const err = await create([{ description: 'X', unitPrice: 9e12, quantity: 1 }, { description: 'Y', unitPrice: 9e12, quantity: 1 }])
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(InvoiceLineValidationError);
+    expect(calls('INSERT INTO')).toHaveLength(0);
+  });
+
   it.each([
     ['negative', -10],
     ['above 100', 150],
@@ -127,5 +175,23 @@ describe('createDraftCustomerInvoice — the line discount', () => {
   it('lets a null discount through as no discount', async () => {
     await create([{ description: 'X', unitPrice: 1000, quantity: 1, discount: null as unknown as number }]);
     expect(lineAmounts()).toEqual([1000]);
+  });
+
+  it('pins the INSERT column order the positional reads above rely on', async () => {
+    await create([{ description: 'X', unitPrice: 1, quantity: 1 }]);
+    const columns = (fragment: string) => {
+      const [strings] = (mockSql.mock.calls as unknown as Call[]).find(([st]) => st.join('').includes(fragment))!;
+      return /\(([^)]*)\)\s*VALUES/.exec(strings.join('?'))![1]!.split(',').map((c) => c.trim());
+    };
+    expect(columns('INSERT INTO customer_invoices (').slice(0, 11)).toEqual([
+      'company_id', 'invoice_number', 'project_id', 'customer_id', 'client_id', 'billing_period_start',
+      'billing_period_end', 'subtotal', 'tax_rate', 'tax_amount', 'total_amount',
+    ]);
+    expect(columns('INSERT INTO customer_invoice_items').slice(0, 5)).toEqual([
+      'invoice_id', 'description', 'unit_price', 'quantity', 'amount',
+    ]);
+    // functional_total is fx_functional(<the total>, rate): the 18th value is the total it converts.
+    const [strings] = (mockSql.mock.calls as unknown as Call[]).find(([st]) => st.join('').includes('INSERT INTO customer_invoices ('))!;
+    expect(strings[17]).toMatch(/public\.fx_functional\($/);
   });
 });

@@ -28,6 +28,7 @@ import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
 import type { InvoiceLineCoding } from './invoiceLineCoding';
 import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveEditCodings } from './customerInvoiceDraftCoding';
+import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -197,20 +198,14 @@ export async function editDraftCustomerInvoice(
     }
 
     let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
+    // Priced as create prices them (invoiceLineAmount.ts): Σ of the stored line amounts.
+    const lineAmounts = (items ?? []).map((it) => invoiceLineAmount(it.quantity, it.unitPrice, it.discount ?? 0));
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
       // recomputed totals stay correct when the caller doesn't re-send taxRate.
       const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
       const rate = taxRate ?? existingTaxRate;
-      let subtotal = 0;
-      for (const it of items) {
-        const lineNet = it.quantity * it.unitPrice * (1 - ((it.discount ?? 0) / 100));
-        subtotal += lineNet;
-      }
-      subtotal = Math.round(subtotal * 100) / 100;
-      const tax = Math.round(subtotal * (rate / 100) * 100) / 100;
-      const total = Math.round((subtotal + tax) * 100) / 100;
-      computed = { subtotal, tax, total, rate };
+      computed = { ...invoiceTotals(lineAmounts, rate), rate };
     }
 
     await tx`
@@ -249,7 +244,7 @@ export async function editDraftCustomerInvoice(
       const lineCurrency = nextCode ?? existingCurrency;
       for (const [i, it] of lines.entries()) {
         const qty = it.quantity;
-        const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
+        const lineAmount = lineAmounts[i]!;
         const coding = codings[i]!;
         await tx`
           INSERT INTO customer_invoice_items (
