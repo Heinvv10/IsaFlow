@@ -10,7 +10,7 @@
  * The FK-less counts take no locks, so a row written against the centre between
  * the count and the DELETE is still stranded; only more foreign keys can close
  * that window. The FK-backed columns are immune because the database re-checks
- * at delete time — since migration 880 that includes the journal and bank
+ * at delete time — since migration 878 that includes the journal and bank
  * cc1_id / cc2_id (NOT VALID: checked for every new row, not for old ones).
  */
 

@@ -51,7 +51,7 @@ export async function cleanupDims(pool: Pool, companies: string[]): Promise<void
      WHERE supplier_invoice_id IN (SELECT id FROM supplier_invoices WHERE company_id = ANY($1))`, [companies]);
   await pool.query('UPDATE credit_notes SET cc1_id = NULL, cc2_id = NULL, bu_id = NULL WHERE company_id = ANY($1)', [companies]);
   await pool.query('UPDATE customers SET default_cc1_id = NULL WHERE company_id = ANY($1)', [companies]);
-  // Journal and bank lines RESTRICT the masters too since migration 880.
+  // Journal and bank lines RESTRICT the masters too since migration 878.
   await pool.query('UPDATE gl_journal_lines SET cc1_id = NULL, cc2_id = NULL, bu_id = NULL WHERE company_id = ANY($1)', [companies]);
   await pool.query('UPDATE bank_transactions SET cc1_id = NULL, cc2_id = NULL, bu_id = NULL WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM business_units WHERE company_id = ANY($1)', [companies]);
