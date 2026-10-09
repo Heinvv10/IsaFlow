@@ -111,6 +111,8 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
   `'dimension-master:' || company_id`, refused outside a request transaction. Never `FOR UPDATE` on cost_centres:
   it would block every journal insert's FK key-share check. Journal posting does not take the lock, so a CC2
   carried by a line committed during a move is still possible (the move counts carriers from a snapshot).
+  That race is DETECTED, not locked (Hein): the `project_fno_mismatch` integrity check
+  (`gl/integrityChecks/dimensionChecks.ts`, MCP `data_integrity_checks`) flags every such line.
 - **The payroll routes are the same writer.** `/api/payroll/cost-centres` POST and `[id]` PATCH / DELETE go
   through `planCreate` / `planUpdateDimensionCostCentre` (parentId is a UUID; a centre with a parent is created
   as a CC2; PATCH / DELETE on an id that is not this company's is a 404). There is no other writer of
