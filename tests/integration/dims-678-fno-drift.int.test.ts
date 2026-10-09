@@ -133,6 +133,22 @@ describe('project_fno_mismatch — journal lines', () => {
     for (const step of chain.slice(0, 4)) expect(r.ids).not.toContain(step.line);
   });
 
+  it('flags a mismatched line on a cyclic reversal chain as unjudged instead of dropping it (#683 round 5)', async () => {
+    const e = await journal(b, ids.f2, ids.proj);
+    const r1 = await journal(b, ids.f2, ids.proj, { reversalOf: e.je });
+    await q('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [e.je, r1.je]); // E <-> R1
+    const consistent = await journal(b, ids.f1, ids.proj);
+    await q('UPDATE gl_journal_entries SET reversal_of_id = $2 WHERE id = $1', [consistent.je, consistent.je]); // a self-cycle, no mismatch
+    const r = await flagged(company, b);
+    for (const line of [e.line, r1.line]) {
+      expect(r.ids).toContain(line);
+      expect(r.sample.find((s) => s.id === line)!.detail)
+        .toBe('journal line: project D-PROJ stores FNO D-F2, derives D-F1; on a reversal chain 16+ deep or cyclic — in-force state not judged');
+    }
+    expect(r.ids).not.toContain(consistent.line); // only a line that otherwise mismatches
+    await q('UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE id = ANY($1)', [[e.je, consistent.je]]);
+  });
+
   it('a reversed entry with no reversal row is judged by reversed_at against as_at', async () => {
     const early = await journal(b, ids.f2, ids.proj);
     const late = await journal(b, ids.f2, ids.proj);
