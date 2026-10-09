@@ -39,6 +39,13 @@ function walk(dir: string, out: string[], recurse: boolean): void {
   }
 }
 
+/** Every census-scope file under `dir` (absolute paths); [] when it does not exist; any other error throws. */
+export function filesUnder(dir: string): string[] {
+  const out: string[] = [];
+  walk(dir, out, true);
+  return out;
+}
+
 export interface SourceFile { file: string; text: string }
 
 /** Every census-scope file on disk, repo-relative. */
