@@ -24,6 +24,7 @@ export function importerGateOpen() {
     assertImporterMayAllocateAs: vi.fn(async () => undefined),
     importerRefusalForLineId: vi.fn(async () => null),
     importerHeldLineSkips: vi.fn(async () => new Map()),
+    assertImporterMayMatch: vi.fn(async () => undefined),
   };
 }
 
@@ -34,5 +35,6 @@ export function reversalGateOpen() {
     agentReversalRefusal: vi.fn(async () => null),
     assertMayUndoRun: vi.fn(async () => null),
     auditRunUndo: vi.fn(async () => undefined),
+    assertNotBankAllocationReversal: vi.fn(async () => undefined),
   };
 }

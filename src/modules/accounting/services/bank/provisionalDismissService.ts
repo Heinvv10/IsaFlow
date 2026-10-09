@@ -17,6 +17,7 @@ import { reverseJournalEntry } from '../gl/journalEntryService';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { lockBankTransactionsInIdOrder } from './bankTxLock';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { assertMayReverse, auditedReversal } from './bankReversalGate';
 
 type Row = DbRow;
 
@@ -55,7 +56,7 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
     SELECT id FROM bank_transactions
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID ORDER BY id
   `) as Row[];
-  await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)));
+  const locked = await lockBankTransactionsInIdOrder(companyId, lines.map((l) => String(l.id)));
   // Re-read under the bank-line locks (D8 round 10, brk-d8c O8): an automatic attach that committed while this
   // waited has evidenced the entry, and the read above is stale.
   const [still] = (await sql`
@@ -64,6 +65,10 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
   if (!still?.needs_evidence) {
     throw new Error('Journal entry is not provisional — dismiss only applies to provisional entries');
   }
+  // Step 2 (Hein, decision 4): dismissing reverses the allocation — under manual_journal enforcement not by an agent,
+  // nor by the person who posted it (bar the sole approver); decided under the line locks, before any write.
+  const clearances = [];
+  for (const line of locked) clearances.push({ id: String(line.id), clearance: await assertMayReverse(companyId, line, jeId, userId) });
   const head = await lockStandingChainHead(companyId, jeId);
   const reversal = head ? await reverseJournalEntry(companyId, head, userId) : null;
 
@@ -73,6 +78,8 @@ async function dismissInner(companyId: string, jeId: string, userId: string): Pr
     WHERE provisional_je_id = ${jeId}::UUID AND company_id = ${companyId}::UUID
     RETURNING id
   `) as Row[];
+
+  for (const { id, clearance } of clearances) await auditedReversal(companyId, id, userId, clearance, null);
 
   log.info(
     'Provisional entry dismissed (reversed)',

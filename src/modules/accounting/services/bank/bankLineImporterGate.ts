@@ -107,6 +107,28 @@ export async function assertImporterMayAllocateAs(
   if (arm) await assertImporterMayAllocate(companyId, line, actorUserId, arm);
 }
 
+/**
+ * Matching a statement line to a journal books the line's cash to that
+ * journal's accounts — the same ledger result as allocating it. So under
+ * manual_journal enforcement the importer may not match their own batch's line
+ * to a journal THEY created (case-insensitive), sole approver excepted; a
+ * journal someone else created stays matchable. Unlocked reads: a line's
+ * provenance and a journal's creator never change. Throws the 403.
+ */
+export async function assertImporterMayMatch(
+  companyId: string, bankTxId: string, journalLineId: string, actorUserId: string,
+): Promise<void> {
+  const [row] = (await sql`
+    SELECT bt.import_batch_id, bt.bank_feed_connection_id, je.created_by::TEXT AS journal_by
+    FROM bank_transactions bt
+    LEFT JOIN gl_journal_lines jl ON jl.id = ${journalLineId}::UUID AND jl.company_id = bt.company_id
+    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = bt.company_id
+    WHERE bt.id = ${bankTxId}::UUID AND bt.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (row?.journal_by == null || !sameUser(row.journal_by, actorUserId)) return;
+  await assertImporterMayAllocate(companyId, row, actorUserId, 'manual_journal');
+}
+
 /** importerAllocationRefusal for a line by id, company-scoped (an MCP pre-check, unlocked); null when there is no such line. */
 export async function importerRefusalForLineId(
   companyId: string, bankTxId: string, actorUserId: string, arm: BankArm,
