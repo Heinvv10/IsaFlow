@@ -551,10 +551,20 @@ posts as before.
   - Rule writers take a per-company advisory lock shared, and the settings writer takes it exclusive, before anything else (`bank/bankRuleAutoPostLock.ts`), so a concurrent rule change waits and is then held.
   - The owner switching auto-post off, editing and switching it back on alone is an accepted risk (breaker round 2). It needs exactly the authority that switches `bank_rule` itself off, and every step is audited.
 
+**Review round 3 (PR #684 at b51bdfbc), changes:**
+- **The auto-post-on re-check orders changes by when they were written, not when their transaction began.**
+  - `bank_rule_changes.recorded_at` is `clock_timestamp()`, set after the shared lock; `disabled_at` is also `clock_timestamp()`.
+  - Switching `bank_rule` on takes the same lock exclusive (`lockOutRuleWriters`).
+  - So an edit whose transaction began before a switch-off, or before the enable, is still counted.
+  - The lock order is census-pinned: the customer merge takes the shared lock after its own row locks, before any rule. That cannot deadlock, because the exclusive holders lock only the settings row and the switch.
+- **The batch reversal route** answers `BankControlError` 403. The census's list of throwers was re-derived from the call graph.
+- **Accepted, stated:** whoever may switch auto-post on is not blocked by their OWN unapproved rule changes, in any company. That authority already switches `bank_rule` off, and both acts are recorded.
+
 **Known limits.**
 - Browser-extension ingest lines carry `bank_feed_connection_id`, so they are feed lines and exempt from
   importer ≠ allocator (decision 2). The extension reads the bank's page in the user's own browser.
 - `bank-transactions-import-classified` writes `bank_transactions.suggested_cost_centre`, a column no migration
   creates (pre-existing; the route 400s on a schema built from migrations).
+- Turning auto-post on is checked in application code; raw SQL as app_user can still flip `bank_auto_post_settings.enabled`.
 - Same boundary as N1 and 876: the objects bind application code paths and app_user statements, not an attacker
   already running arbitrary SQL (who can reset the role or set claims).
