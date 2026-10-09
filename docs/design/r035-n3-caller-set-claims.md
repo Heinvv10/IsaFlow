@@ -410,3 +410,12 @@ That is defensible only if Hein judges the injection surface small (§1) and tre
 - **The prod image:** whether it ships `pgjwt`, Vault or pgsodium.
 - **The injection surface:** the 160 raw-SQL call sites, and whether any of them sends several statements on purpose (P0-iv's census).
 - **Other GUCs RLS trusts**, the same class as `request.jwt.claims`: `app.current_company_id` (WITH CHECK) and `app.invite_token` (`withInviteToken.ts:62`).
+
+## Note from the 872 production fix (2026-10-09)
+
+Migration 872's assertions exempt only `session_user` (the role applying it) when it inherits the owner of
+`approval_requests` or `app_user`; any OTHER member of either refuses the migration, loudly. A request-pool role
+that is a member of `app_user` must therefore be created AFTER 872 has applied — a from-scratch replay (DR restore,
+a CI or fixture cluster) on which such a role already exists will see 872 refuse until it is created later or
+temporarily removed from `app_user`.
+
