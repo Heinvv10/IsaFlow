@@ -36,7 +36,7 @@ afterAll(() => pool.end());
 const NOT_APPLIED = 'migration 880 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 
 /** A static erase naming the table: UPDATE/DELETE/TRUNCATE/MERGE, ONLY, schema-qualified or quoted. */
-const ERASE_STATEMENT = String.raw`(update|delete\s+from|merge\s+into)\s+(only\s+)?("?public"?\s*\.\s*)?"?audit_log\M|truncate[^;]*\maudit_log\M`;
+const ERASE_STATEMENT = String.raw`(update|delete\s+from|merge\s+into)\s+(only\s+)?("?public"?\s*\.\s*)?"?audit_log\M|\mtruncate\M[^;]*\maudit_log\M`;
 /** A row lock in a statement that names the table. */
 const LOCK_STATEMENT = String.raw`\maudit_log\M[^;]*\mfor\s+(no\s+key\s+update|key\s+share|update|share)\M`;
 
@@ -75,17 +75,23 @@ describeIfDb('audit_log catalogue (R-035 N1b A)', () => {
     expect(rows).toEqual([]);
   });
 
-  it('no view over audit_log lets another role erase through its owner', async () => {
+  it('no view over audit_log — at any depth — lets another role erase through its owner', async () => {
     const { rows: [t] } = await pool.query("SELECT relowner FROM pg_class WHERE oid = 'public.audit_log'::regclass");
     const { rows } = await pool.query(`
+      WITH RECURSIVE chain(oid) AS (
+        SELECT w.ev_class FROM pg_depend d JOIN pg_rewrite w ON w.oid = d.objid
+        WHERE d.classid = 'pg_rewrite'::regclass AND d.refobjid = 'public.audit_log'::regclass AND w.ev_class <> d.refobjid
+        UNION
+        SELECT w.ev_class FROM chain JOIN pg_depend d ON d.refobjid = chain.oid JOIN pg_rewrite w ON w.oid = d.objid
+        WHERE d.classid = 'pg_rewrite'::regclass AND w.ev_class <> chain.oid)
       SELECT v.oid::regclass::text AS view, x.who, p.priv
-      FROM pg_depend d JOIN pg_rewrite w ON w.oid = d.objid JOIN pg_class v ON v.oid = w.ev_class,
-           (${OTHERS}) x, unnest(ARRAY['UPDATE','DELETE','TRUNCATE']) p(priv)
-      WHERE d.classid = 'pg_rewrite'::regclass AND d.refobjid = 'public.audit_log'::regclass
-        AND v.oid <> 'public.audit_log'::regclass
+      FROM chain JOIN pg_class v ON v.oid = chain.oid, (${OTHERS}) x, unnest(ARRAY['UPDATE','DELETE','TRUNCATE']) p(priv)
+      WHERE NOT EXISTS (SELECT 1 FROM unnest(v.reloptions) o WHERE o ~* '^security_invoker=(true|on|yes|1)$')
         AND has_table_privilege(v.relowner, 'public.audit_log', p.priv)
         AND x.who <> (SELECT rolname FROM pg_roles WHERE oid = v.relowner)
-        AND has_table_privilege(x.who, v.oid, p.priv)`, [t.relowner]);
+        AND (has_table_privilege(x.who, v.oid, p.priv)
+             OR (p.priv = 'UPDATE' AND has_any_column_privilege(x.who, v.oid, 'UPDATE')))
+      ORDER BY 1, 2, 3`, [t.relowner]);
     expect(rows).toEqual([]);
   });
 });
