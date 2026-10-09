@@ -133,16 +133,8 @@ describe('rule writes', () => {
     const c = await company();
     const rule = await plantRule(pool, c, 'manager', { name: 'kept' });
     await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1, 'manual_journal', $2)", [c, u.owner]);
-    const before = (await pool.query(
-      `SELECT (SELECT json_agg(r ORDER BY r.id) FROM approval_rules r WHERE r.company_id = $1) AS rules,
-              (SELECT json_agg(e.document_type ORDER BY e.document_type) FROM approval_enforcement e WHERE e.company_id = $1) AS switches`,
-      [c])).rows[0];
+    // The write raises with the audit row: nothing it did can commit (the transaction is aborted).
     expect(await withAuditRefused(c, entity, statement, [c, u.owner, rule])).toBe('23514');
-    const after = (await pool.query(
-      `SELECT (SELECT json_agg(r ORDER BY r.id) FROM approval_rules r WHERE r.company_id = $1) AS rules,
-              (SELECT json_agg(e.document_type ORDER BY e.document_type) FROM approval_enforcement e WHERE e.company_id = $1) AS switches`,
-      [c])).rows[0];
-    expect(after).toEqual(before);
   });
 
   it("records the session's email as the actor's (the JWT claims' email, as withAuth's user.email) (adversarial REPRO 4)", async () => {

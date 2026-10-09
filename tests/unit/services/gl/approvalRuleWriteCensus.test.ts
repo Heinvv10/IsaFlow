@@ -17,40 +17,13 @@
  * catalogue against DATABASE_URL.
  */
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { ROOT, migrationNumber, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
 
-const ROOT = path.resolve(__dirname, '../../../..');
-const ROOTS = ['src', 'pages', 'scripts', 'lib'];
-const SOURCE = /\.(ts|tsx|js|mjs|cjs|sql)$/;
 const MIGRATIONS = 'scripts/migrations/sql/';
 const WRITERS_FILE = 'src/modules/accounting/services/gl/approvalRuleWrites.ts';
 const DEFINERS_FROM = 881;
-
-function walk(dir: string, out: string[]): void {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-    throw error;
-  }
-  for (const entry of entries) {
-    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full, out);
-    else if (SOURCE.test(entry.name)) out.push(full);
-  }
-}
-
-function sourceFiles(): { file: string; text: string }[] {
-  const files: string[] = [];
-  for (const root of ROOTS) walk(path.join(ROOT, root), files);
-  return files.map((f) => ({ file: path.relative(ROOT, f), text: readFileSync(f, 'utf8') }));
-}
-
-const stripComments = (text: string): string =>
-  text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\w])\/\/[^\n]*/g, '$1').replace(/--[^\n]*/g, ' ');
 
 const TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?approval_(?:rules|enforcement)"?\b`;
 const WRITE = new RegExp(String.raw`\b(?:insert\s+into|update|delete\s+from|truncate(?:\s+table)?|merge\s+into|copy)\s+${TABLE}`, 'i');
@@ -59,10 +32,10 @@ const CALL = /\bapproval_(?:rule_(?:lock|create|update|delete)|enforcement_set)\
 const QUOTED = /['"`]approval_(?:rules|enforcement)['"`]/;
 
 /** Every reason `text` breaks the census (empty: none). */
-export function violations(text: string): string[] {
-  const code = stripComments(text);
+export function violations(text: string, file = 'x.ts'): string[] {
+  const code = stripComments(text, file);
   const out: string[] = [];
-  if (WRITE.test(code)) out.push('writes approval_rules or approval_enforcement');
+  if (WRITE.test(code) || WRITE.test(withoutSqlComments(code))) out.push('writes approval_rules or approval_enforcement');
   if (QUOTED.test(code)) out.push('names approval_rules or approval_enforcement as a string');
   for (const chunk of code.split(/`/)) {
     if (/\bapproval_(?:rules|enforcement)\b/i.test(chunk) && LOCK.test(chunk)) out.push('locks approval_rules or approval_enforcement');
@@ -87,18 +60,24 @@ const REGRANT = [
   /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?approval_(?:rules|enforcement)"?\s+owner\b/i,
   /\balter\s+function\s+(?:public\.)?approval_(?:rule|enforcement)_\w+\s*\([^)]*\)\s+owner\b/i,
 ];
-const migrationNumber = (file: string): number => Number(/(\d{3})[a-z]?_/.exec(path.basename(file))?.[1] ?? '999');
+/**
+ * Migrations before 881 that match a re-grant pattern: the schema-wide grants
+ * to app_user (348) and platform_admin (352). 881 revokes after them, so they
+ * no longer reach either table; a new one is a reason to look.
+ */
+const KNOWN_REGRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql'];
+const regrants = (file: string, text: string) => REGRANT.some((re) => re.test(stripComments(text, file)));
 
 describe('approval_rules / approval_enforcement writers (census by table)', () => {
   it('no source file but approvalRuleWrites.ts writes or locks either table, or calls their writers', () => {
     const found = sourceFiles()
       .filter(({ file }) => !file.startsWith(MIGRATIONS))
-      .flatMap(({ file, text }) => violations(text).map((why) => `${file}: ${why}`));
+      .flatMap(({ file, text }) => violations(text, file).map((why) => `${file}: ${why}`));
     expect(found).toEqual([...KNOWN, `${WRITERS_FILE}: calls a rule or switch writer`].sort());
   });
 
   it('the writers file calls each of the five functions', () => {
-    const text = stripComments(readFileSync(path.join(ROOT, WRITERS_FILE), 'utf8'));
+    const text = stripComments(readFileSync(path.join(ROOT, WRITERS_FILE), 'utf8'), WRITERS_FILE);
     for (const fn of ['approval_rule_lock', 'approval_rule_create', 'approval_rule_update', 'approval_rule_delete', 'approval_enforcement_set']) {
       expect(text, fn).toMatch(new RegExp(String.raw`\b${fn}\(`));
     }
@@ -112,9 +91,17 @@ describe('approval_rules / approval_enforcement writers (census by table)', () =
   it('no migration after 881 hands a write privilege back, grants a runtime role a role, or moves an owner', () => {
     const found = sourceFiles()
       .filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > DEFINERS_FROM)
-      .filter(({ text }) => REGRANT.some((re) => re.test(stripComments(text))))
+      .filter(({ file, text }) => regrants(file, text))
       .map(({ file }) => file);
     expect(found).toEqual([]);
+  });
+
+  it('the migrations up to 881 that match a re-grant pattern are the known ones (a new one is a reason to look)', () => {
+    const found = sourceFiles()
+      .filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) <= DEFINERS_FROM)
+      .filter(({ file, text }) => regrants(file, text))
+      .map(({ file }) => path.basename(file));
+    expect(found.sort()).toEqual(KNOWN_REGRANTS);
   });
 });
 
