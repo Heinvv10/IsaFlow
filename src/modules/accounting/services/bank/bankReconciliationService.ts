@@ -262,7 +262,7 @@ function mapReconRow(row: DbRow): BankReconciliation {
 
 // ── Re-exports for backward compatibility ─────────────────────────────────────
 
-export { importBankStatement, importParsedTransactions } from './bankImportService';
+export { importParsedTransactions } from './bankImportService';
 export {
   getBankTransactions,
   matchTransaction,

@@ -55,7 +55,8 @@ export function importerArmOf(allocType: string, entityId: string | null | undef
 
 /** The system user: a sweep run for nobody (bankImportService's poster). */
 const NOBODY = '00000000-0000-0000-0000-000000000000';
-const sameUser = (x: unknown, y: string) => String(x).toLowerCase() === y.toLowerCase();
+/** User ids compared as the importer and allocator checks compare them: case-insensitively. */
+export const sameUser = (x: unknown, y: string) => String(x).toLowerCase() === y.toLowerCase();
 
 /**
  * R-035 Q2 on the admin floor, asked only on the request's own behalf:

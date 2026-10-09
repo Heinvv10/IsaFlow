@@ -67,11 +67,11 @@ describe('1. every import path records the importer', () => {
   it('the writers of bank_transactions.import_batch_id are exactly these, each beside its batch row', () => {
     expect(filesMatching(/INSERT INTO bank_transactions\s*\([^)]*\bimport_batch_id\b/)).toEqual([
       CLASSIFIED,
-      `${B}bankImportService.ts`, // importParsedTransactions (with its batch row); importBankStatement — LEGACY, no batch row, no non-test caller
+      `${B}bankImportService.ts`, // importParsedTransactions, with its batch row (the legacy importBankStatement is deleted)
       `${B}bankStatementOcrService.ts`,
       `${B}feed/bankIngestionPersistence.ts`,
     ].sort());
-    expect(filesMatching(/\bimportBankStatement\(/)).toEqual([`${B}bankImportService.ts`]); // the legacy entry point stays uncalled
+    expect(filesMatching(/\bimportBankStatement\b/)).toEqual([]); // the legacy importer (no batch row) is gone
   });
 
   it('the upload and the MCP import pass the person, the channel and the file hash', () => {
@@ -116,7 +116,6 @@ describe('3. every sweep names the person who triggered it', () => {
     const expected = [
       "pages/api/accounting/smart-categorize.ts: sweep(companyId, categorizedIds, 'categorization', userId, userId)",
       `${B}bankImportService.ts: sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser)`,
-      `${B}bankImportService.ts: sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, systemUser)`,
       `${B}llmCategorizationPass.ts: gateSweep(companyId, ids, 'categorization', userId, userId)`,
     ];
     expect(calls).toHaveLength(expected.length);
@@ -190,5 +189,29 @@ describe('5. #684 follow-ups: the GL reversal, Dismiss and the match writers', (
     const confirm = textOf('pages/api/accounting/bank-match-confirm.ts');
     expect(confirm.match(/await assertImporterMayMatch\(companyId, bankTransactionId, candidateId, userId\);\s+await matchTransaction\(/g)).toHaveLength(2);
     before('pages/api/accounting/bank-transactions-action.ts', 'await assertImporterMayMatch(', 'await matchTransaction(');
+  });
+});
+
+describe('6. every route that can raise a bank-control refusal answers it (blind review #684 MEDIUM-1)', () => {
+  const THROWERS = /\b(allocateTransaction|splitAllocateTransaction|reverseReconciledTransaction|dismissProvisionalEntry|undoRun|undoAnyway|approveSupplierInvoice|postSupplierInvoiceToGL|voidSupplierPayment|cancelCustomerPayment|assertImporterMayMatch|assertNotBankAllocationReversal|confirmCustomerMatch|confirmSupplierMatch|attachEvidenceAndSettleApproved|confirmReceiptMatch|applyBankLineToSupplierInvoices|voidPaymentDocument)\(/;
+  const EXEMPT: Record<string, RegExp> = {
+    // A per-item answer: the refused id carries its reason, the batch goes on.
+    'pages/api/accounting/supplier-invoices-bulk-action.ts': /err instanceof BankControlError \? \{ reason: err\.code \}/,
+    // The settle refusal is caught in provisionalAttachSettle: the bill goes back to draft with the reason in its notes.
+    'pages/api/accounting/ai-invoice-pipeline.ts': /attachEvidenceAndSettleApproved\(/,
+    // Money in: a customer receipt is no gated arm (importerArmOf), so allocateTransaction cannot refuse it here.
+    'pages/api/accounting/ar/receipt-match/confirm.ts': /confirmReceiptMatch\(/,
+    // Allocates the hand-keyed line it inserts itself: no batch, so no importer to refuse.
+    'pages/api/accounting/bank-transactions-manual.ts': /allocateTransaction\(/,
+  };
+  it('each route calling a service that raises BankControlError maps it with respondIfBankControlRefused, or is classified', () => {
+    const routes = SOURCES.filter((x) => x.file.startsWith('pages/api/') && THROWERS.test(x.text)).map((x) => x.file).sort();
+    expect(routes.length).toBeGreaterThan(8);
+    for (const route of routes) {
+      const exempt = EXEMPT[route];
+      if (exempt) expect(textOf(route), route).toMatch(exempt);
+      else expect(textOf(route), `${route} must answer BankControlError (respondIfBankControlRefused)`).toMatch(/respondIfBankControlRefused\(res, err\)/);
+    }
+    for (const route of Object.keys(EXEMPT)) expect(routes, `stale exemption ${route}`).toContain(route);
   });
 });
