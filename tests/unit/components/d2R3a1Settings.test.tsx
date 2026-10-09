@@ -13,6 +13,7 @@ vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { ch
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('@/utils/toast', () => ({ notify: toast, default: toast }));
 
+import { apiFetch } from '@/lib/apiFetch';
 import AccountingSettingsPage from '../../../pages/accounting/accounting-settings';
 import { TwoFactorSection } from '@/components/accounting/my-account/TwoFactorSection';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
@@ -70,6 +71,23 @@ describe('accounting settings', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(MSG));
     expect(toast.success).not.toHaveBeenCalled();
+  });
+  // Forensic-controls step 2 (decision 5): a weakening refused under approval enforcement is a 403 whose message says
+  // who may make it. The page shows it verbatim and puts the stored value back in the field the person edited.
+  it('a refused auto-post change shows the server message and re-loads the stored settings', async () => {
+    const refusal = 'Manual-journal approval is enforced, and auto-post posts without anyone approving, so loosening it '
+      + '(Amount cap) needs a role above admin.';
+    route((url, method) => (!url.includes('/bank-auto-post') ? KEY(method)
+      : method === 'PUT' ? new Response(JSON.stringify({ success: false, error: { code: 'FORBIDDEN', message: refusal } }), { status: 403 })
+        : ok(AP)));
+    render(<AccountingSettingsPage />);
+    const cap = (await screen.findByDisplayValue('10000')) as HTMLInputElement;
+    fireEvent.change(cap, { target: { value: '50000' } });
+    fireEvent.blur(cap, { target: { value: '50000' } });
+    expect(await screen.findByText(refusal)).toBeTruthy();
+    await waitFor(() => expect(cap.value).toBe('10000'));
+    const gets = vi.mocked(apiFetch).mock.calls.filter(([u, init]) => String(u).includes('/bank-auto-post') && !init?.method);
+    expect(gets).toHaveLength(2);
   });
   it('an empty 500 save shows a plain sentence', async () => {
     open((m) => (m === 'GET' ? ok({ value: 'USD' }) : empty500()));

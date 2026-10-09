@@ -20,9 +20,27 @@ const text = (n: number) => (sql.mock.calls[n]![0] as string[]).join('?');
 beforeEach(() => { sql.mockReset(); sql.mockResolvedValue([]); });
 
 describe('assertNoDuplicateTransfer', () => {
-  it("passes when neither the other bank's line nor a typed journal holds the movement", async () => {
+  it("passes when neither the other bank's line, a typed journal nor a held typed draft holds the movement", async () => {
     await expect(assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20', true)).resolves.toBeUndefined();
-    expect(sql).toHaveBeenCalledTimes(2);
+    expect(sql).toHaveBeenCalledTimes(3);
+  });
+
+  // Step-2 decision 6 follow-up: a Transfers-page transfer HELD for approval is a draft that posts the movement once
+  // approved, so its statement line allocated as a transfer meanwhile is refused, naming the draft.
+  it('refuses when a held Transfers-page draft holds it, naming the draft', async () => {
+    sql.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ entry_number: 'JE-2026-00007' }]);
+    await expect(assertNoDuplicateTransfer(CO, A, B, -1000, '2026-04-20', true))
+      .rejects.toThrow(/typed on the Transfers page as JE-2026-00007, a draft journal awaiting approval/);
+  });
+
+  it('asks for a held draft only: a typed draft whose request is pending or approved, in its own direction', async () => {
+    await assertNoDuplicateTransfer(CO, A, B, 1000, '2026-04-20', true);
+    expect(text(2)).toMatch(/je\.source = 'auto_bank_transfer' AND je\.status = 'draft' AND je\.reference IS NOT NULL/);
+    expect(text(2)).toMatch(/ar\.document_type = 'manual_journal' AND ar\.document_id = je\.id/);
+    expect(text(2)).toMatch(/ar\.status IN \('pending', 'approved'\)/);
+    expect(text(2)).toMatch(/je\.entry_date BETWEEN \(\?::DATE - INTERVAL '10 days'\)/);
+    expect(text(2)).not.toMatch(/approval_document_type/);
+    expect(values(2)).toEqual(expect.arrayContaining([CO, A, B, 1000, true]));
   });
 
   it('refuses when the other bank already allocated the transfer back (and skips the journal read)', async () => {

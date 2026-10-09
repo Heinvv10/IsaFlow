@@ -12,8 +12,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withRole, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql, transaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { seedRules } from '@/modules/accounting/services/bank/bankRuleChangeControl';
 
 const CategoryMapEntrySchema = z.object({
   originalCategory: z.string().min(1).max(500),
@@ -90,24 +91,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // Batch INSERT all new rules in a single transaction
-    if (toInsert.length > 0) {
-      await transaction((txSql) =>
-        toInsert.map((r) =>
-          txSql`
-            INSERT INTO bank_categorisation_rules (
-              rule_name, match_field, match_type, match_pattern,
-              gl_account_id, auto_create_entry, priority, created_by,
-              company_id
-            ) VALUES (
-              ${r.ruleName}, 'description', 'contains', ${r.pattern},
-              ${r.glAccountId}::UUID, false, 100, ${userId},
-              ${companyId}
-            )
-          `
-        )
-      );
-    }
+    // One savepoint, recorded as `seed` in the rule history (suggest-only
+    // rules, so never held for approval).
+    await seedRules(companyId, toInsert, userId);
 
     const created = toInsert.length;
 

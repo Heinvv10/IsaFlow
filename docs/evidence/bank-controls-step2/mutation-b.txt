@@ -1,0 +1,85 @@
+Forensic-controls step 2, slice b (bank-rule history + approval) — mutation proofs
+Fixture: disposable container 127.0.0.1:55997 (isaflow_schema_fixture), migration 877 applied.
+Branch feat/bank-controls-step2-b. Each mutation was applied, the named test run and seen RED, then
+restored (TS: git checkout of the committed file; DB: 877 re-applied with psql -f, verified
+afterwards: both rules-table triggers present, decision guard body back). No mutated code committed.
+
+Integration command (I):  . .fixture/env.sh && bunx vitest run --no-file-parallelism --config vitest.integration.config.ts <file> -t "<name>"
+Unit command (U):         env -u DATABASE_URL bunx vitest run <file> -t "<name>"
+Component command (C):    env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts <file> -t "<name>"
+
+M1  pending classification, create — bankRuleChangeControl.writeNewRule: `if (held)` -> `if (held && false)` (apply instead of hold)
+    I tests/integration/bank-rule-changes-held.int.test.ts -t "creating an auto-posting rule"
+    RED: held, not applied > creating an auto-posting rule: no rule, a pending create, and the route posts nothing on the spot
+         AssertionError: {..."message":"bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200
+
+M2  pending classification, update/toggle — writeRuleChange: `if (held)` -> `if (held && false)`
+    I tests/integration/bank-rule-changes-held.int.test.ts -t "every target change"
+    RED: held, not applied > turning auto-post on, re-activating an auto-posting rule, and every target change on one are held
+         AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"Action failed"}…}: expected 400 to be 200
+
+M3  proposer != approver (TS, decide path) — bankRuleApprovers.assertMayDecide: `judge(f, proposedBy, own && await isSoleAtFloor(...))` -> `judge(f, proposedBy, true)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "the proposer cannot approve"
+    RED: approve > the proposer cannot approve or reject; another admin approves, the rule is created auto-posting, and then posts
+         AssertionError: {…"message":"bank_rule_change_decisions: another active member could decide, so the proposer cannot","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 403
+    (also: removing the proposer branch in judge() entirely turns the canDecide hint red first: "expected true to be false")
+
+D1  proposer != approver (DB) — 877 bank_rule_decision_guard: `IF NEW.decided_by = ch.proposed_by THEN` -> `IF false AND …`
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "the proposer, unless the sole"
+    RED: bank_rule_change_decisions refuses > the proposer, unless the sole member at the floor with the current roster; a second decision
+         AssertionError: expected 'ok' to match /proposer of a change cannot decide/
+
+M4  stale check (TS) — bankRuleChangeDecision: `if (approve && change.kind !== 'create' && !(await stillCurrent(...)))` -> `if (false)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "a stale approval"
+    RED: refused, nothing written > a stale approval (the rule moved since the proposal) is 409 RULE_CHANGED
+         AssertionError: {…"message":"bank_rule_change_decisions: rule … changed since this change was proposed","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 409
+
+D2  stale check (DB) — 877 bank_rule_decision_guard: `IF ch.before IS DISTINCT FROM public.bank_rule_current(...) THEN` -> `IF false THEN`
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "a stale approval"
+    RED: bank_rule_change_decisions refuses > a member below the floor; a stale approval; another name (RLS); another tenant
+         AssertionError: expected 'ok' to match /changed since this change was proposed/
+
+M5  digest check — bankRuleChangeDecision: `if (input.digest !== change.digest)` -> `if (false)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "a wrong digest"
+    RED: refused, nothing written > a wrong digest is 409 DIGEST_MISMATCH
+         AssertionError: {"success":true,"data":{…"status":"approved"…}}: expected 200 to be 409
+
+M6  MCP/agent and login-as refusal on decide — bankRuleChangeDecision: `await assertHumanSession(...)` removed
+    I tests/integration/bank-rule-changes-who.int.test.ts -t "login-as is refused"
+    RED: sessions > login-as is refused 403; a token without a session (an agent) is refused 403 AGENT_FORBIDDEN
+         AssertionError: {"success":true,"data":{…"status":"approved"…}}: expected 200 to be 403
+
+M7  approver role (raised by an owner-level manual_journal rule; TS only — 877 checks the admin floor) — bankRuleApprovers.judge: `if (!holds(f.ownRole, role))` -> `if (false)`
+    I tests/integration/bank-rule-changes-who.int.test.ts -t "owner-level manual_journal rule raises"
+    RED: roles > an owner-level manual_journal rule raises the approver to owner
+         AssertionError: {"success":true,…"status":"approved"…}: expected 200 to be 403
+
+M8  merge refusal (RULE_MERGE_HELD) — bankRuleChangeControl.moveRulesToCustomer: `if (posting.length > 0 && await isEnforced(...))` -> `if (false)`
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "AUTO-POSTING rule naming the source"
+    RED: a customer merge > under bank_rule: an AUTO-POSTING rule naming the source refuses the merge 409 before any write
+         AssertionError: {"success":false,"error":{"code":"INTERNAL_ERROR",…}}: expected 500 to be 409
+
+M9  bulk delete all-or-nothing — bankRuleChangeControl.removeRules: `if (locked.length !== unique.length)` -> `if (false)`
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "a bulk delete records"
+    RED (both enforcement arms): … > a bulk delete records one delete per rule; a missing or foreign id refuses the whole batch (404, nothing deleted)
+         AssertionError: {"success":true,"data":{"deleted":2,"status":"applied"}…}: expected 200 to be 404
+
+D3  rules-table backstop — DROP TRIGGER bank_rule_write_guard ON bank_categorisation_rules
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "under the switch refuses"
+    RED: the rules table > under the switch refuses an app_user write that makes a rule auto-post; with it off, the write is history
+         AssertionError: expected 'ok' to match /^23514: .*needs another person's appr…/
+
+D4  history trigger — DROP TRIGGER bank_rule_history ON bank_categorisation_rules
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "create, rename, toggle and delete"
+    RED (both enforcement arms): every UI writer records history (…) > create, rename, toggle and delete each leave one applied row by the person, before/after
+         AssertionError: expected [] to deeply equal [ [ 'create', 'applied', …(1) ], …(3) ]
+
+C1  census — a stray writer added to bankRulesService.ts: sql`UPDATE bank_categorisation_rules SET priority = 1 WHERE false`
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "only the change control"
+    RED: who writes bank_categorisation_rules > only the change control (the merge re-point included)
+         AssertionError: expected [ …(2) ] to deeply equal [ Array(1) ]
+
+U1  UI held save — useBankRules toggle: the isHeldForApproval branch removed (always "Rule activated/deactivated")
+    C tests/unit/components/bankRulePendingChanges.test.tsx -t "a held toggle"
+    RED: a held toggle reads as held, not as done
+         AssertionError: expected "vi.fn()" to be called with arguments: [ StringMatching{…}, Any<String> ]
