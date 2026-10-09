@@ -36,6 +36,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { editDraftCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceDraftEdit';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { ApprovalDocumentNotFoundError } from '@/modules/accounting/services/gl/approvalDocuments';
+import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 type Row = Record<string, unknown>;
 
@@ -99,6 +100,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (result.kind === 'not_draft') return apiResponse.badRequest(res, 'Only draft invoices can be edited');
     if (result.kind === 'bad_client') return apiResponse.badRequest(res, 'clientId does not belong to this company');
     if (result.kind === 'rate_required') return apiResponse.badRequest(res, 'exchangeRate is required when currencyCode changes');
+    if (result.kind === 'currency_refused') return apiResponse.badRequest(res, result.message);
     if (result.kind === 'bad_dimensions') return apiResponse.badRequest(res, result.message);
 
     log.info('Customer invoice updated', { id, hasItems: Boolean(items) });
@@ -160,6 +162,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
         // R-035 PR4: raised under the row lock before any write — a 409 that commits nothing.
         if (respondIfApprovalRequired(res, err)) return;
+        // FX PR0: a foreign invoice while the company has not enabled them; also before any write.
+        if (err instanceof DocumentCurrencyError) return apiResponse.badRequest(res, err.message);
         // A dimension posting would add or contradict (dimensionStoredPosting), refused before the journal.
         if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
         throw err;

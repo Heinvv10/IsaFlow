@@ -15,6 +15,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { invoiceForeignCurrencySql } from '../shared/documentCurrency';
 import type { DbRow } from '@/lib/neon';
 import { EPS } from '../shared/autoAllocateStrategy';
 import type { SimulationDocument } from '../shared/autoApplySimulation';
@@ -55,6 +56,7 @@ export async function fetchOpenCustomerInvoices(
         WHERE ci.company_id = ${companyId}::UUID
           AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
           AND ci.deleted_at IS NULL
+          AND NOT ${invoiceForeignCurrencySql()}
           AND ci.status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])
           AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
         ORDER BY ci.id
@@ -66,6 +68,7 @@ export async function fetchOpenCustomerInvoices(
         WHERE ci.company_id = ${companyId}::UUID
           AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}::UUID
           AND ci.deleted_at IS NULL
+          AND NOT ${invoiceForeignCurrencySql()}
           AND ci.status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])
           AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
         ORDER BY ci.id`) as DbRow[];

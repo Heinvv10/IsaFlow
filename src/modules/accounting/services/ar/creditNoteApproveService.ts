@@ -21,11 +21,13 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import {
   applyCreditNote,
   deriveCreditNoteStatus,
+  type CreditNoteApplication,
   type CreditNoteAutoApply,
 } from '../shared/creditNoteFifo';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { creditNoteApprovalType } from '../gl/approvalDocumentTypes';
+import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 
 /**
@@ -62,6 +64,13 @@ export async function approveCreditNote(
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
+    // FX PR0, before any write: the note itself, and the invoice approving it
+    // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
+    await assertStoredDocumentPostable(companyId, 'credit_note', id);
+    const [linkedType, linked] = String(cn.type) === 'customer'
+      ? ['customer_invoice', cn.customer_invoice_id] as const
+      : ['supplier_invoice', cn.supplier_invoice_id] as const;
+    if (linked) await assertStoredDocumentPostable(companyId, linkedType, String(linked));
 
     let lines: JournalLineInput[];
     // The note's CC1/CC2/BU ride on its revenue/expense leg only — never AR/AP/VAT (brief §5.3).
@@ -146,7 +155,11 @@ export async function approveCreditNote(
     // never be applied again; it now settles the next open document, and
     // whatever is still left is on-account credit the aged reports net.
     const side = String(cn.type) === 'customer' ? 'customer' as const : 'supplier' as const;
-    const application = await applyCreditNote({
+    // FX PR0: settlement leaves a foreign note, or the foreign document it is linked to, unapplied (the note still posts).
+    const settles = await storedDocumentsSettleable(companyId, [['credit_note', id], ...(linked ? [[linkedType, String(linked)] as const] : [])]);
+    const application: CreditNoteApplication = !settles
+      ? { appliedAmount: 0, lines: [], remainder: Number(cn.total_amount) }
+      : await applyCreditNote({
       companyId,
       creditNoteId: id,
       side,

@@ -14,7 +14,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantRule } from './r035-approval.helpers';
+import { createUser, enableFxDocuments, plantRule } from './r035-approval.helpers';
 import {
   asAppUser, cleanupPr4, enforceInvoices, invoiceCompany, plantInvoice, type Invoice,
 } from './r035-pr4.helpers';
@@ -195,6 +195,7 @@ describe('the amount a customer-invoice rule sees (approval_customer_invoice_gat
 
   it('the backstop matches a USD invoice on its rand value, and a tiny rate cannot shrink a large total', async () => {
     const c = await invoiceCompany(pool, [[owner, 'owner']], companies);
+    await enableFxDocuments(pool, c); // FX PR0
     await plantRule(pool, c, 'owner', { documentType: 'customer_invoice', operator: 'greater_than', value: 50000 });
     await enforceInvoices(pool, c, owner);
     const usd = await plantInvoice(pool, c, owner, { subtotal: 4347.83, tax: 652.17, total: 5000, functionalTotal: 92500, currencyCode: 'USD', exchangeRate: 18.5 });

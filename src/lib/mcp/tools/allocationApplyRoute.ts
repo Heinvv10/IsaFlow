@@ -59,6 +59,7 @@
 import type { McpToolContext } from '../types';
 import { mcpPostingOpts } from '../mcpActor';
 import { sql } from '@/lib/neon';
+import { billForeignCurrencySql, invoiceForeignCurrencySql } from '@/modules/accounting/services/shared/documentCurrency';
 import type { DbRow } from '@/lib/neon';
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { applyBankLineToSupplierInvoices } from '@/modules/accounting/services/ap/supplierBankPaymentService';
@@ -110,6 +111,8 @@ export interface InvoiceState {
   invoiceNumber: string;
   outstanding: number;
   status: string;
+  /** FX PR0: not in the functional currency — rands never settle it, so the line is skipped. */
+  foreignCurrency: boolean;
 }
 
 /**
@@ -134,20 +137,21 @@ export async function fetchInvoiceStates(
     if (ids.length === 0) continue;
     const rows = (kind === 'customer'
       ? await sql`
-          SELECT id, invoice_number, total_amount,
-                 COALESCE(amount_paid, 0) AS amount_paid, status
-          FROM customer_invoices
-          WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`
+          SELECT ci.id, ci.invoice_number, ci.total_amount,
+                 COALESCE(ci.amount_paid, 0) AS amount_paid, ci.status, ${invoiceForeignCurrencySql()} AS foreign_currency
+          FROM customer_invoices ci
+          WHERE ci.company_id = ${companyId}::UUID AND ci.id = ANY(${ids}::UUID[])`
       : await sql`
-          SELECT id, invoice_number, total_amount,
-                 COALESCE(amount_paid, 0) AS amount_paid, status
-          FROM supplier_invoices
-          WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])`) as DbRow[];
+          SELECT si.id, si.invoice_number, si.total_amount,
+                 COALESCE(si.amount_paid, 0) AS amount_paid, si.status, ${billForeignCurrencySql()} AS foreign_currency
+          FROM supplier_invoices si
+          WHERE si.company_id = ${companyId}::UUID AND si.id = ANY(${ids}::UUID[])`) as DbRow[];
     for (const row of rows) {
       out.set(String(row.id), {
         invoiceNumber: String(row.invoice_number ?? ''),
         outstanding: Math.round((Number(row.total_amount) - Number(row.amount_paid)) * 100) / 100,
         status: String(row.status),
+        foreignCurrency: row.foreign_currency === true,
       });
     }
   }
@@ -174,6 +178,9 @@ export function skipReasonForInvoice(
   if (!state) return `invoice ${invoiceId} not found`;
   if (state.status === 'cancelled' || state.status === 'draft' || state.status === 'written_off') {
     return `invoice ${state.invoiceNumber} is ${state.status} and cannot take a payment`;
+  }
+  if (state.foreignCurrency) {
+    return `invoice ${state.invoiceNumber} is in a foreign currency, which a rand payment cannot settle yet`;
   }
   if (state.outstanding <= 0.01) return `invoice ${state.invoiceNumber} is already settled`;
   // The refusal `receiptAllocationLines` raises MID-WRITE, hoisted to a read so

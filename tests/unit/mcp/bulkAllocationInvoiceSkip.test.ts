@@ -106,7 +106,7 @@ describe('partitionAllocationLines — invoice state', () => {
 });
 
 describe('skipReasonForInvoice', () => {
-  const open = { invoiceNumber: 'INV-1', outstanding: 500, status: 'approved' };
+  const open = { invoiceNumber: 'INV-1', outstanding: 500, status: 'approved', foreignCurrency: false };
 
   it('allows an amount within the outstanding balance', () => {
     expect(skipReasonForInvoice(open, INV_OK, 500)).toBeNull();
@@ -126,6 +126,11 @@ describe('skipReasonForInvoice', () => {
     expect(skipReasonForInvoice({ ...open, outstanding: 0 }, INV_OK, 10)).toMatch(/already settled/);
     expect(skipReasonForInvoice({ ...open, status: 'draft' }, INV_OK, 10)).toMatch(/is draft/);
     expect(skipReasonForInvoice({ ...open, status: 'cancelled' }, INV_OK, 10)).toMatch(/is cancelled/);
+  });
+
+  it('skips a foreign-currency invoice: rands do not settle it (FX PR0)', () => {
+    expect(skipReasonForInvoice({ ...open, foreignCurrency: true }, INV_OK, 10))
+      .toBe('invoice INV-1 is in a foreign currency, which a rand payment cannot settle yet');
   });
 
   it('reports a missing invoice without revealing another tenant has it', () => {

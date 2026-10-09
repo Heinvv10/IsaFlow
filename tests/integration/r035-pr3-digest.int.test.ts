@@ -16,7 +16,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, plantBill } from './r035-approval.helpers';
+import { createUser, enableFxDocuments, plantBill } from './r035-approval.helpers';
 import { approvalTypeOf, cleanupPr3, noteCompany, plantNote, type NoteType } from './r035-pr3.helpers';
 
 assertDisposable();
@@ -59,6 +59,7 @@ describe.each(['customer', 'supplier'] as const)('the %s credit note digest', (t
 
   it('moves with every hashed column', async () => {
     const c = await company();
+    await enableFxDocuments(pool, c); // FX PR0: `currency` is one of the columns
     const note = await plantNote(pool, c, user, type, { linked: true });
     const base = await digest(c, approvalTypeOf(type), note.id);
     // credit_notes.project_id / cost_center_id carry no foreign key.
