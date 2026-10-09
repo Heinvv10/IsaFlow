@@ -21,3 +21,11 @@ Resulting ACLs (owner = the applying role, as on prod; app_user only SELECT+INSE
 877 contains no privilege ASSERTION (the 872 failure class); its REVOKE loop exempts the table's
 owner only, whichever role that is. ALTER TABLE / CREATE TRIGGER on migration_admin-owned tables
 (bank_import_batches, bank_categorisation_rules, approval_enforcement) succeed through membership.
+
+885 (2026-10-09, after merging #690's 880/881): same recipe on a fresh copy of the fixture at 877+880+881+885
+(container isaflow-prodtopo-885, every public/app/auth table and routine reassigned to the non-superuser
+BYPASSRLS migration_admin; login role `deployer` NOSUPERUSER BYPASSRLS, member of migration_admin and app_user).
+Applied AS deployer, in deploy order: 881, then 877, then 885. Each exit=0, and 885's re-assertions held:
+SECURITY DEFINER, owner bypasses RLS, search_path with pg_temp last, EXECUTE for app_user only, and no non-owner write on
+approval_enforcement. Result: approval_enforcement_set owner = migration_admin, prosecdef = t;
+app_user INSERT on approval_enforcement = f; app_user EXECUTE on approval_enforcement_set = t.
