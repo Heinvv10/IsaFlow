@@ -89,10 +89,10 @@ describe('createRule — auto_apply against a real database', () => {
       const rule = await createRule(companyId, { ...input(), autoApply: 'none' }, USER);
 
       // updateRule's COALESCE path: an unnamed field keeps what the row has.
-      const renamed = await updateRule(companyId, rule.id, { ruleName: 'Renamed' });
+      const renamed = await updateRule(companyId, rule.id, { ruleName: 'Renamed' }, USER);
       expect(renamed.autoApply).toBe('none');
 
-      const switched = await updateRule(companyId, rule.id, { autoApply: 'fifo' });
+      const switched = await updateRule(companyId, rule.id, { autoApply: 'fifo' }, USER);
       expect(switched.autoApply).toBe('fifo');
     });
   }, 60000);
