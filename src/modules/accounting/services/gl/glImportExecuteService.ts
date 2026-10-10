@@ -13,7 +13,7 @@ import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { ledgerDaysOf } from './journalDateGuard';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
-import { placeCostCentres } from './dimensions/costCentrePick';
+import { CostCentrePickRefusal, placeCostCentres } from './dimensions/costCentrePick';
 type Row = DbRow;
 
 /**
@@ -29,6 +29,24 @@ export class ImportValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ImportValidationError';
+  }
+}
+
+/**
+ * Each row's cost centre in its CC1 / CC2 slot. A refusal names the row and is
+ * an ImportValidationError — the file's fault, a 400 — raised while resolving,
+ * before any group is written. (The code map holds active centres only, so
+ * nothing is dropped here.)
+ */
+async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
+  try {
+    return (await placeCostCentres(companyId, lines)).lines;
+  } catch (err) {
+    if (!(err instanceof CostCentrePickRefusal)) throw err;
+    const row = rows[err.lineIndex]!;
+    throw new ImportValidationError(
+      `Import row "${row.description}" (${row.date}): cost centre "${row.costCentre ?? ''}" cannot be used — ${err.message}`,
+    );
   }
 }
 
@@ -154,7 +172,7 @@ export async function importJournalEntries(
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
         ...(firstRow.reference ? { reference: firstRow.reference } : {}),
-        lines: await placeCostCentres(companyId, lines), // each row's centre in its CC1 / CC2 slot, before any write
+        lines: await placeRowCentres(companyId, lines, groupRows), // each row's centre in its slot, before any write
         totalDebit,
       });
     }

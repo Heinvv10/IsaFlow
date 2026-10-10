@@ -52,6 +52,8 @@ const Schema = z.object({
   invoiceIds: z.array(UUID).min(1).max(200),
 });
 
+const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[] } = {};
+
 interface ItemResult {
   invoiceId: string;
   ok: boolean;
@@ -60,6 +62,7 @@ interface ItemResult {
   reason?: string;
   /** Set when the bill's input VAT was claimed late (s16(3)) — gl/vatLateClaimPlan. */
   lateClaim?: LateClaimInfo;
+  warnings?: string[];
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -96,20 +99,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
       // not: its bill was already approved, so already in the filed figures.
-      const lateClaim = await withSavepoint('bulk_supplier_invoice_item', async () => {
+      // `warnings`: a cost-centre pick the posting dropped (gl/dimensions/costCentrePick).
+      const { lateClaim, warnings } = await withSavepoint('bulk_supplier_invoice_item', async () => {
         switch (action) {
           case 'approve':
-            return (await approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true })).lateClaim;
+            return approveSupplierInvoice(companyId, invoiceId, userId, { allowLateInputClaim: true });
           case 'cancel':
             await cancelSupplierInvoice(companyId, invoiceId, userId);
-            return undefined;
+            return NOTHING;
           case 'post_gl':
-            await postSupplierInvoiceToGL(companyId, invoiceId, userId);
-            return undefined;
+            return { ...NOTHING, warnings: (await postSupplierInvoiceToGL(companyId, invoiceId, userId)).warnings };
         }
-        return undefined;
+        return NOTHING;
       });
-      results.push({ invoiceId, ok: true, ...(lateClaim ? { lateClaim } : {}) });
+      results.push({ invoiceId, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}) });
     } catch (err) {
       // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
       if (err instanceof ImpersonationForbiddenError) throw err;

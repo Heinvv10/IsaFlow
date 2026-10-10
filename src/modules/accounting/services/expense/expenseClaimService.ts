@@ -489,7 +489,7 @@ export async function postClaimToGl(
   id: string,
   companyId: string,
   opts: PostClaimOptions,
-): Promise<(ExpenseClaim & { lateClaim?: LateClaimInfo }) | null> {
+): Promise<(ExpenseClaim & { lateClaim?: LateClaimInfo; warnings?: string[] }) | null> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // Lock the claim for the request transaction BEFORE reading its status.
   // Without this, two concurrent posts both read 'approved', both build the
@@ -584,13 +584,15 @@ export async function postClaimToGl(
     description: `Reimbursement due — ${claim.claimNumber}`,
   });
 
+  // Each line's centre in its CC1 / CC2 slot; a refusal lands here, before the first write.
+  const placed = await placeCostCentres(companyId, lines);
   // source_document_id stays null at the header — a claim has many source docs.
   const entry = await createJournalEntry(companyId, {
     entryDate: claim.claimDate,
     description: `Expense claim ${claim.claimNumber}`,
     source: 'auto_expense_claim',
     reference: claim.claimNumber,
-    lines: await placeCostCentres(companyId, lines), // each line's centre in its CC1 / CC2 slot
+    lines: placed.lines,
   }, opts.userId, undefined, { allowLateInputClaim: opts.allowLateInputClaim });
 
   const posted = await postJournalEntry(companyId, entry.id, opts.userId, { allowLateInputClaim: opts.allowLateInputClaim });
@@ -603,5 +605,5 @@ export async function postClaimToGl(
 
   log.info('expense claim posted to GL', { id, jeId: entry.id, total: totalGross }, 'expense-claims');
   const out = await getClaim(id, companyId);
-  return out && posted.lateClaim ? { ...out, lateClaim: posted.lateClaim } : out;
+  return out && { ...out, ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(placed.warnings.length > 0 ? { warnings: placed.warnings } : {}) };
 }

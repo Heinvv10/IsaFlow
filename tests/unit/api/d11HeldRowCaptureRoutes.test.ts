@@ -11,7 +11,7 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h:
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: vi.fn().mockResolvedValue(true) }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([]) }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn().mockResolvedValue([]), withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRowLock', async (orig) => ({
   ...(await orig<object>()),
   lockCaptureEventForPosting: vi.fn(), lockCapturedDocumentForUpdate: vi.fn(), lockPostableCaptureEventIds: vi.fn(),
@@ -22,10 +22,15 @@ vi.mock('@/modules/accounting/services/gl/documentLineAccountGuard', async (orig
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccountId: vi.fn().mockResolvedValue('a') }));
 vi.mock('@/modules/accounting/services/capture/receiptDuplicateGuard', () => ({ checkReceiptDuplicate: vi.fn() }));
+vi.mock('@/modules/accounting/services/capture/pettyCashJournalService', async (orig) => ({
+  ...(await orig<object>()), postReceiptAsPettyCashJournal: vi.fn(),
+}));
 
 import { lockCaptureEventForPosting, lockCapturedDocumentForUpdate, lockPostableCaptureEventIds } from '@/modules/accounting/services/capture/captureRowLock';
 import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { CaptureEventLockedError } from '@/modules/accounting/services/capture/captureEventLock';
+import { postReceiptAsPettyCashJournal } from '@/modules/accounting/services/capture/pettyCashJournalService';
+import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 import postExpense from '../../../pages/api/accounting/capture/[id]/post-expense';
 import pipeline from '../../../pages/api/accounting/ai-invoice-pipeline';
 
@@ -62,6 +67,17 @@ describe('capture/[id]/post-expense: the duplicate guard', () => {
     vi.mocked(checkReceiptDuplicate).mockResolvedValueOnce(dup('duplicate') as never);
     const r = await call(postExpense, {}, { id: ID });
     expect(r.statusCode).toBe(409); expect(r.headers['Retry-After']).toBeUndefined();
+  });
+  // PR #688 round 4: the petty-cash service refuses a cost-centre pick before its first write — a 400, never a 500.
+  it('a cost-centre pick that cannot be used -> 400 with the refusal; any other throw still propagates', async () => {
+    const clear = { kind: 'clear', fingerprint: { receiptKey: null, duplicateOf: null, confirmedBy: null } };
+    vi.mocked(checkReceiptDuplicate).mockResolvedValue(clear as never);
+    vi.mocked(postReceiptAsPettyCashJournal).mockRejectedValueOnce(new CostCentrePickRefusal('CC1 must name an active CC1 cost centre in this company', 0));
+    const r = await call(postExpense, { costCentreId: ID }, { id: ID });
+    expect(r.statusCode, JSON.stringify(r.sent)).toBe(400);
+    expect(JSON.stringify(r.sent)).toContain('CC1 must name an active CC1 cost centre in this company');
+    vi.mocked(postReceiptAsPettyCashJournal).mockRejectedValueOnce(new Error('db down'));
+    await expect(call(postExpense, { costCentreId: ID }, { id: ID })).rejects.toThrow('db down');
   });
 });
 

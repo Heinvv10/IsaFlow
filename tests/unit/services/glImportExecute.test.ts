@@ -69,7 +69,7 @@ type Line = { glAccountId: string; debit: number; credit: number };
 const sum = (ls: Line[], k: 'debit' | 'credit') => ls.reduce((t, l) => t + l[k], 0);
 
 /** Chart of accounts + cost centres the service resolves codes against. */
-function withAccounts(codes: Record<string, string>) {
+function withAccounts(codes: Record<string, string>, ccType: string | null = 'cc1') {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM gl_accounts')) {
@@ -77,7 +77,7 @@ function withAccounts(codes: Record<string, string>) {
     }
     if (text.includes('FROM cost_centres')) {
       // The code map, and the pick's own read (gl/dimensions/costCentrePick): same row.
-      return Promise.resolve([{ code: 'CC1', id: CC_ID, cc_type: 'cc1', is_active: true }]);
+      return Promise.resolve([{ code: 'CC1', id: CC_ID, cc_type: ccType, is_active: true }]);
     }
     return Promise.resolve([]);
   }) as never);
@@ -254,5 +254,22 @@ describe('importJournalEntries', () => {
     const input = createMock.mock.calls[0]![1] as { lines: Array<Line & { costCenterId?: string; cc1Id?: string }> };
     expect(input.lines[0]!.cc1Id).toBe(CC_ID);
     expect(input.lines.some((l) => 'costCenterId' in l)).toBe(false);
+  });
+
+  it('a cost centre that cannot be used is the file\'s fault: an ImportValidationError naming the row, nothing written', async () => {
+    withAccounts(ACCOUNTS, null); // an untyped centre
+    const err = await importJournalEntries(
+      COMPANY,
+      [
+        row({ accountCode: '4000', debit: 0, credit: 1000, description: 'credit leg' }),
+        row({ accountCode: '1000', debit: 1000, credit: 0, description: 'bad centre', costCentre: 'cc1' }),
+      ],
+      USER,
+      true,
+    ).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(ImportValidationError);
+    expect((err as Error).message).toBe(
+      'Import row "bad centre" (2026-08-13): cost centre "cc1" cannot be used — CC1 must name an active CC1 cost centre in this company');
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

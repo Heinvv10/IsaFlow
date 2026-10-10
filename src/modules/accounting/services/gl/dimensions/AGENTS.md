@@ -34,7 +34,7 @@ cc1/cc2 exactly as stored.
 
 ```typescript
 resolveDimensionRefs(companyId, refs[], label?)      // code | UUID | alias -> ids (dimensionRefResolver)
-placeCostCentres(companyId, lines)                   // a costCenterId pick -> cc1Id / cc2Id, before posting (costCentrePick)
+placeCostCentres(companyId, lines, { storedPosting? }) // a costCenterId pick -> cc1Id / cc2Id; returns { lines, warnings } (costCentrePick)
 deriveLineDimensions(companyId, lines, label?)       // CC2 -> CC1, conflict refused (dimensionDerivation)
 deriveRevenueDimensions(companyId, customerId, lines)// + customer FNO default / conflict
 applyJournalDimensionPolicy(companyId, source, lines)// createJournalEntry hook (dimensionPolicy)

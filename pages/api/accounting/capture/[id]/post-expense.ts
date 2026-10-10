@@ -49,6 +49,7 @@ import {
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
+import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -271,6 +272,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (err instanceof ReceiptDoesNotBalanceError) {
       return apiResponse.badRequest(res, err.message);
     }
+    // The picked cost centre cannot be used: refused before the claim, so nothing is committed.
+    if (err instanceof CostCentrePickRefusal) return apiResponse.badRequest(res, err.message);
     // The service claims the document after its last SELECT, so this is a 4xx
     // that commits nothing either.
     if (err instanceof CapturedDocumentAlreadyPostedError) {

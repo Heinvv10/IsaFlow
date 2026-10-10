@@ -200,6 +200,7 @@ export const approveSupplierInvoiceTool: McpTool = {
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
       late_claim: lateClaimResult(updated.lateClaim),
+      ...(updated.warnings ? { warnings: updated.warnings } : {}), // a cost-centre pick the posting dropped
     });
   },
 };
