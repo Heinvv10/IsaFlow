@@ -9,19 +9,8 @@ import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { subtypeOptionsFor } from './accountSubtypeOptions';
-
-export function accountTypeColor(type: string): string {
-  switch (type) {
-    case 'asset':     return 'bg-blue-500/20 text-blue-400';
-    case 'liability': return 'bg-red-500/20 text-red-400';
-    case 'equity':    return 'bg-purple-500/20 text-purple-400';
-    case 'revenue':   return 'bg-teal-500/20 text-teal-400';
-    case 'expense':   return 'bg-amber-500/20 text-amber-400';
-    default:          return 'bg-gray-500/20 text-gray-400';
-  }
-}
-
-const VAT_LABELS: Record<string, string> = { standard: '15%', zero_rated: 'Zero Rated', exempt: 'Exempt' };
+import { accountTypeColor, VAT_LABELS } from './accountRowStyles';
+import { EntityHistoryButton } from '@/components/accounting/entity-history/EntityHistoryButton';
 
 export function AccountRow({
   account, level, viewMode, parentOptions, onUpdate, onDelete, onCodeChanged,
@@ -271,6 +260,8 @@ export function AccountRow({
           )}
         </td>
         <td className="px-6 py-3 text-right">
+          <div className="flex items-center justify-end gap-1">
+          <EntityHistoryButton entityType="gl_account" entityId={account.id} label={`${account.accountCode} ${account.accountName}`} />
           {account.isSystemAccount ? null : isEditing ? (
             <div className="flex items-center justify-end gap-1">
               <button onClick={handleSave} disabled={isSaving} className="p-1.5 rounded text-teal-400 hover:bg-teal-500/10 transition-colors disabled:opacity-50" title="Save">
@@ -290,6 +281,7 @@ export function AccountRow({
               </button>
             </div>
           )}
+          </div>
         </td>
       </tr>
       {viewMode === 'tree' && account.children?.map(child => (

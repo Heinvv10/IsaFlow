@@ -50,6 +50,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'mark_vat_declared_elsewhere',
   'list_agent_postings',
   'audit_trail',
+  'entity_history',
   'list_documents',
   'get_document',
   'list_unsupported_transactions',

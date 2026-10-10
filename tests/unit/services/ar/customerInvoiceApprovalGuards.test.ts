@@ -70,7 +70,7 @@ beforeEach(() => {
   clientQuery = vi.fn(async () => ({ rows: [] }));
   vi.mocked(als.getStore).mockReturnValue({ client: { query: clientQuery } } as never);
   // The guarded UPDATE claims the transition.
-  vi.mocked(sql).mockResolvedValue([{ id: INVOICE }] as never);
+  vi.mocked(sql).mockResolvedValue([{ id: INVOICE, total_amount: '115.00' }] as never); // the lock row carries the total (R0.00 is refused)
   vi.mocked(withSavepoint).mockImplementation(
     (async (_n: string, fn: () => Promise<unknown>) => fn()) as never,
   );

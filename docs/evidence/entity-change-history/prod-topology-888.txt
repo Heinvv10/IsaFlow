@@ -1,0 +1,41 @@
+Migration 888 on a prod-topology copy (2026-10-10)
+
+Prod's role graph (memory: prod_deploy_role_not_superuser): tables owned by the non-superuser
+`migration_admin`; the deploy role is a NON-superuser BYPASSRLS member of `migration_admin` and
+`app_user`. Every fixture's `postgres` is a superuser, so this was rebuilt in a disposable DB:
+
+  container isaflow-prodtopo-888 (pgvector pg15), DB isaflow_prodtopo: isaflow_dev's schema at master
+  (164355958, migrations through 886), then (.fixture/prodtopo.sql)
+  - every table / view / sequence and routine in public, app and auth reassigned to migration_admin;
+  - migration_admin NOSUPERUSER BYPASSRLS;
+  - login role `deployer`: NOSUPERUSER BYPASSRLS, member of migration_admin and app_user.
+
+Applied AS deployer:
+  psql -h 127.0.0.1 -U deployer -d isaflow_prodtopo -1 -v ON_ERROR_STOP=1 -f 888_entity_change_history.sql
+  -> exit 0 (only NOTICEs from DROP ... IF EXISTS). 888's own assertions held.
+
+Catalogue afterwards:
+  entity_changes owner = deployer (the applying role, as on prod); ACL {deployer=arwdDxt, app_user=r}
+  entity_change_capture(): owner deployer, SECURITY DEFINER, search_path=pg_catalog, public, pg_temp,
+    EXECUTE for its owner only
+  13 triggers named entity_change*, all ENABLE ALWAYS (10 captures on migration_admin-owned tables,
+    created and enabled through deployer's membership; 3 guards on entity_changes)
+  app_user: INSERT f, SELECT t, EXECUTE on the capture f
+
+Behaviour, as deployer (.fixture/prodtopo-smoke.sql):
+  - companies / company_users rows inserted by the login role: recorded, actor db:deployer, channel system
+  - as app_user with a person's claims: supplier create + bank-number change recorded, actor = the person,
+    channel session, db_role app_user, login_role deployer; app_user reads its own company's 4 rows
+  - app_user INSERT into entity_changes: 42501 permission denied
+  - the owner's direct INSERT: refused by the insert guard; the owner's UPDATE: refused (append-only)
+  - purging the company (suppliers, members, then the company) as deployer: 0 history rows left, no error
+
+Tripwire: CREATE ROLE intruder; GRANT deployer TO intruder; re-apply 888 as deployer ->
+  ERROR: migration 888: intruder still holds INSERT on entity_changes   (only session_user is exempt)
+  After REVOKE/DROP intruder, 888 re-applies cleanly (idempotent).
+
+Re-verified after review round 2 (2026-10-10, renumbered 890 -> 888; app_user granted SELECT on every column but
+seq / txid; wider company allow-list): a fresh copy of master's schema at 886 on the same topology, then 884 and 888
+applied AS deployer (exit 0), 888 re-applied (exit 0, idempotent), the same smoke script: app_user reads its company's
+4 rows, its INSERT is refused 42501, the owner's direct INSERT and UPDATE are refused by the guards, the purge leaves 0
+rows. On the fixture: app_user column privileges = every column of entity_changes except seq and txid.
