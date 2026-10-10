@@ -21,12 +21,13 @@
  * Nothing tagged is lost: the production census (2026-10-10, read-only) found
  * 4 lines with a legacy id — 2 equal to their cc1_id, 2 re-tagged, none with
  * the legacy id alone — and the writers that used to set only the legacy id
- * now put the picked centre in its slot (gl/dimensions/costCentrePick). Every CC1 filter and the cc1 grouping use cc1_id — here, the income
- * statement, the classification coverage, the trial balance, the balance
- * sheet, the ledger drill-downs and the GL-line export — so a cost-centre
- * filter and the cc1 column of the same member always agree. `cost_centre_id`
- * matches cc1_id OR cc2_id, so filtering on an FNO returns every line tagged
- * to it at either level.
+ * now put the picked centre in its slot (gl/dimensions/costCentrePick). Every
+ * CC1 filter and the cc1 grouping use cc1_id — here, the income statement, the
+ * classification coverage, the trial balance, the balance sheet, the ledger
+ * drill-downs and the GL-line export — so a cost-centre filter and the cc1
+ * column of the same member always agree. `cost_centre_id` matches cc1_id OR
+ * cc2_id, so filtering on an FNO returns every line tagged to it at either
+ * level.
  */
 
 import { sql } from '@/lib/neon';
