@@ -8,8 +8,9 @@
  *   - the columns are banded by the SAME classifier as the ungrouped statement,
  *     so Σ columns = aggregateFigures(all rows) for every band;
  *   - the residual is computed in cents, so float dust never reads as a miss,
- *     and a real miss is reported rather than absorbed;
- *   - the cost-centre filter reaches the query (it used to be dropped).
+ *     and a real miss is reported rather than absorbed.
+ * The SQL itself — filters, tenancy, the effective CC1 — runs against a real
+ * database in tests/integration/gl-dimension-pnl.int.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -22,16 +23,16 @@ import {
   UNTAGGED_KEY,
   bandsOf,
   buildDimensionPnl,
-  fetchDimensionAccountRows,
   isZeroResidual,
   residualOf,
   type DimensionAccountRow,
   type DimensionMember,
-} from '@/modules/accounting/services/reports/dimensionPnlService';
+} from '@/modules/accounting/services/reports/dimensionPnlColumns';
+import { fetchDimensionAccountRows } from '@/modules/accounting/services/reports/dimensionPnlService';
 import { aggregateFigures } from '@/modules/accounting/services/gl/accountClassification';
-import { getIncomeStatementByDimension } from '@/modules/accounting/services/reports/incomeStatementService';
+import { getIncomeStatementByDimension } from '@/modules/accounting/services/reports/incomeStatementByDimension';
 import ExcelJS from 'exceljs';
-import { addDimensionSheet } from '../../../../pages/api/accounting/income-statement-xlsx';
+import { addDimensionSheet } from '@/modules/accounting/services/reports/incomeStatementDimensionSheet';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const FT = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -162,19 +163,7 @@ describe('buildDimensionPnl — columns partition the P&L', () => {
   });
 });
 
-describe('fetchDimensionAccountRows — the filter reaches the query', () => {
-  it('binds cost_centre_id against cost_center_id, cc1_id and cc2_id, and business_unit_id against bu_id', async () => {
-    sqlMock.mockResolvedValue([]);
-    await fetchDimensionAccountRows(CO, '2026-04-01', '2026-04-30', 'cc2', { costCentreId: FT, businessUnitId: HT });
-    const [strings, ...values] = sqlMock.mock.calls[0]! as [TemplateStringsArray, ...unknown[]];
-    const text = strings.join('$');
-    expect(text).toMatch(/jl\.cost_center_id = \$::UUID\s+OR jl\.cc1_id = \$::UUID OR jl\.cc2_id = \$::UUID/);
-    expect(text).toMatch(/jl\.bu_id = \$::UUID/);
-    expect(values.filter((v) => v === FT).length).toBeGreaterThanOrEqual(4);
-    expect(values).toContain(HT);
-    expect(values).toContain('cc2');
-  });
-
+describe('fetchDimensionAccountRows — row mapping', () => {
   it('maps member_id null to an untagged row and parses numeric strings', async () => {
     sqlMock.mockResolvedValue([{
       account_id: 'acc-4000', account_code: '4000', account_name: 'Sales', account_type: 'revenue',
@@ -279,6 +268,15 @@ describe('xlsx by-dimension sheet', () => {
       if (v.includes('Income Statement sheet')) tieLabel = v;
     });
     expect(tieLabel).toBe('Ties to the Income Statement sheet');
+
+    // A residual says so on the sheet, in words, not only as a number.
+    const off = addDimensionSheet(new ExcelJS.Workbook(), { ...matrix, residual: { ...matrix.residual, netProfit: 0.01 } });
+    let offLabel = '';
+    off.eachRow((row) => {
+      const v = String(row.getCell(1).value ?? '');
+      if (v.includes('Income Statement sheet')) offLabel = v;
+    });
+    expect(offLabel).toBe('DOES NOT TIE to the Income Statement sheet');
   });
 });
 

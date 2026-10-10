@@ -106,8 +106,9 @@ describe('profit_and_loss cost_centre_id / business_unit_id restrict the figures
     expect(body.netProfit).toBe(150_000);
     expect(body.cost_centre_id).toBe(FT);
 
-    const [strings, ...values] = sqlMock.mock.calls[0]! as [TemplateStringsArray, ...unknown[]];
-    expect(strings.join('$')).toMatch(/jl\.cc1_id = \$::UUID OR jl\.cc2_id = \$::UUID/);
+    // The predicate itself is proved against a real database in
+    // tests/integration/gl-dimension-pnl.int.test.ts; here only that the id reaches it.
+    const [, ...values] = sqlMock.mock.calls[0]! as [TemplateStringsArray, ...unknown[]];
     expect(values).toContain(FT);
     // The coverage qualifies the same filtered statement.
     expect(getClassificationCoverage).toHaveBeenCalledWith(CTX.companyId, '2026-04-01', '2026-04-30', FT, undefined);

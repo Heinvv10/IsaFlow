@@ -3,6 +3,9 @@
  * GET /api/accounting/reports-income-statement
  *   ?period_start=YYYY-MM-DD&period_end=YYYY-MM-DD
  *   &project_id=UUID (optional)
+ *   &cost_centre_id=UUID &business_unit_id=UUID (optional)
+ *   &compare_start=YYYY-MM-DD&compare_end=YYYY-MM-DD (optional; not with group_by)
+ *   &group_by=cc1|cc2|bu (optional; adds byDimension)
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,7 +19,7 @@ import {
   getIncomeStatement,
   getIncomeStatementByDimension,
 } from '@/modules/accounting/services/reports/financialReportingService';
-import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlService';
+import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlColumns';
 import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -48,35 +51,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const comparePeriod = compare_start && compare_end
       ? { start: String(compare_start), end: String(compare_end) }
       : undefined;
+    const opts = {
+      projectId: project_id ? String(project_id) : undefined,
+      costCentreId: cost_centre_id ? String(cost_centre_id) : undefined,
+      businessUnitId: business_unit_id,
+    };
 
-    const report = await getIncomeStatement(companyId,
-      String(period_start),
-      String(period_end),
-      {
-        projectId: project_id ? String(project_id) : undefined,
-        costCentreId: cost_centre_id ? String(cost_centre_id) : undefined,
-        businessUnitId: business_unit_id,
-      },
-      comparePeriod
-    );
     if (group_by !== undefined) {
-      // The matrix carries its own ungrouped report; the one above is kept as
-      // the response body so existing consumers see no change in shape.
+      // The matrix has no comparative columns. Refuse rather than return a
+      // body that silently drops the comparison the caller asked for.
+      if (compare_start !== undefined || compare_end !== undefined) {
+        return apiResponse.badRequest(res, 'compare_start / compare_end cannot be combined with group_by');
+      }
+      // One computation: the matrix carries the ungrouped report it ties to,
+      // which stays the response body so existing consumers see no change.
       const m = await getIncomeStatementByDimension(
-        companyId, String(period_start), String(period_end), group_by,
-        {
-          projectId: project_id ? String(project_id) : undefined,
-          costCentreId: cost_centre_id ? String(cost_centre_id) : undefined,
-          businessUnitId: business_unit_id,
-        },
+        companyId, String(period_start), String(period_end), group_by, opts,
       );
       return apiResponse.success(res, {
-        ...report,
+        ...m.report,
         byDimension: {
           groupBy: m.groupBy, members: m.members, lines: m.lines, columns: m.columns, residual: m.residual,
         },
       });
     }
+
+    const report = await getIncomeStatement(companyId,
+      String(period_start),
+      String(period_end),
+      opts,
+      comparePeriod
+    );
     return apiResponse.success(res, report);
   } catch (err) {
     log.error('Failed to get income statement', { error: err }, 'accounting-api');

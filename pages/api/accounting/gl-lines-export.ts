@@ -10,38 +10,114 @@
  *
  * CSV, UTF-8, one file per table, header row, fixed column order. §9.2's file
  * facts travel as response headers so the CSV itself stays a pure table:
- * X-Export-Timestamp, X-Schema-Version, X-Row-Count, X-Control-Total and
- * X-Unbalanced-Txn-Count. The lines are written page by page (keyset), so full
- * history never sits in memory at once.
+ * X-Export-Timestamp, X-Schema-Version, X-Control-Total and
+ * X-Unbalanced-Txn-Count. The row count is NOT a header — it is the manifest's
+ * rowCount — because a header is sent before the first row and a posting
+ * during the download can move it.
+ *
+ * STREAMED page by page (keyset), so full history never sits in memory at
+ * once, and each write waits for the socket to drain when its buffer is full.
+ * A failure once the first byte has gone out cannot become a 500 any more: it
+ * is logged and the connection is destroyed, so the download fails visibly
+ * instead of ending as a complete-looking but truncated file.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import {
-  GL_EXPORT_TABLES,
   GL_LINE_EXPORT_COLUMNS,
-  GL_LINE_EXPORT_MAX_PAGE,
   GL_LINE_EXPORT_SCHEMA_VERSION,
   csvLine,
-  fetchGlLineExportPage,
-  getExportDimensionTable,
-  getExportEntityName,
-  getGlLineExportSummary,
-  isGlExportTable,
-  nextCursorOf,
   toExportRow,
+} from '@/modules/accounting/services/reports/glLineExportRows';
+import {
+  GL_LINE_EXPORT_MAX_PAGE,
+  fetchGlLineExportPage,
+  getExportEntity,
+  getGlLineExportSummary,
+  nextCursorOf,
   type GlLineExportCursor,
   type GlLineExportOptions,
 } from '@/modules/accounting/services/reports/glLineExportService';
+import {
+  GL_EXPORT_TABLES,
+  getExportDimensionTablePage,
+  isGlExportTable,
+  type DimensionTablePage,
+  type GlDimensionTable,
+} from '@/modules/accounting/services/reports/glLineExportTables';
 
 function one(v: string | string[] | undefined): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
+}
+
+/** Write, and when the socket's buffer is full wait for 'drain' — or fail if the client went away. */
+function writeChunk(res: NextApiResponse, chunk: string): Promise<void> {
+  if (res.write(chunk)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const settle = (err?: Error) => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onDrain = () => settle();
+    const onClose = () => settle(new Error('client closed the connection during the export'));
+    res.once('drain', onDrain);
+    res.once('close', onClose);
+  });
+}
+
+/**
+ * Stream `header` then every chunk `next` yields (null ends it). An error
+ * before the first byte propagates (withErrorHandler answers it); after it,
+ * the connection is destroyed so the client sees a failed download.
+ */
+async function streamCsv(
+  res: NextApiResponse, companyId: string, header: string, next: () => Promise<string | null>,
+): Promise<void> {
+  try {
+    await writeChunk(res, header);
+    for (let chunk = await next(); chunk !== null; chunk = await next()) {
+      await writeChunk(res, chunk);
+    }
+    res.end();
+  } catch (err) {
+    if (!res.headersSent) throw err;
+    log.error('GL lines export failed after the download started; connection destroyed', {
+      companyId, error: err instanceof Error ? err.message : String(err),
+    }, 'accounting-api');
+    res.destroy(err instanceof Error ? err : new Error(String(err)));
+  }
+}
+
+function startCsv(res: NextApiResponse, filename: string): void {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.status(200);
+}
+
+async function streamTable(res: NextApiResponse, companyId: string, table: GlDimensionTable): Promise<void> {
+  // The first page is read before any header goes out, so a failing read is
+  // still a clean 500.
+  let page: DimensionTablePage | null =
+    await getExportDimensionTablePage(companyId, table, null, GL_LINE_EXPORT_MAX_PAGE);
+  const columns = page.columns;
+  startCsv(res, `gl-export-${table}.csv`);
+  await streamCsv(res, companyId, columns.join(',') + '\n', async () => {
+    if (page === null) return null;
+    const chunk = page.rows.length === 0 ? '' : page.rows.map((r) => csvLine(columns, r)).join('\n') + '\n';
+    page = page.next === null
+      ? null
+      : await getExportDimensionTablePage(companyId, table, page.next, GL_LINE_EXPORT_MAX_PAGE);
+    return chunk;
+  });
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -71,18 +147,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.tooManyRequests(res, 'Too many export requests. Please try again shortly.');
   }
 
+  // Ledger data with names and VAT numbers: never stored by a browser or proxy.
+  res.setHeader('Cache-Control', 'no-store');
   const exportTimestamp = new Date().toISOString();
   res.setHeader('X-Export-Timestamp', exportTimestamp);
   res.setHeader('X-Schema-Version', GL_LINE_EXPORT_SCHEMA_VERSION);
 
-  if (table !== 'lines') {
-    const dim = await getExportDimensionTable(companyId, table);
-    res.setHeader('X-Row-Count', String(dim.rows.length));
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="gl-export-${table}.csv"`);
-    res.status(200).send([dim.columns.join(','), ...dim.rows.map((r) => csvLine(dim.columns, r))].join('\n') + '\n');
-    return;
-  }
+  if (table !== 'lines') return streamTable(res, companyId, table);
 
   const opts: GlLineExportOptions = { dateFrom, dateTo, status };
   const summary = await getGlLineExportSummary(companyId, opts);
@@ -90,37 +161,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, { exportTimestamp, ...summary, dateFrom: dateFrom ?? null, dateTo: dateTo ?? null, status });
   }
 
-  res.setHeader('X-Row-Count', String(summary.rowCount));
+  const entity = await getExportEntity(companyId);
   res.setHeader('X-Control-Total', summary.controlTotal.toFixed(2));
   res.setHeader('X-Unbalanced-Txn-Count', String(summary.unbalancedTxnCount));
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="gl-lines-${dateFrom ?? 'all'}-to-${dateTo ?? 'all'}.csv"`,
-  );
-  res.status(200);
+  startCsv(res, `gl-lines-${dateFrom ?? 'all'}-to-${dateTo ?? 'all'}.csv`);
 
-  const entity = await getExportEntityName(companyId);
-  res.write(GL_LINE_EXPORT_COLUMNS.join(',') + '\n');
   let cursor: GlLineExportCursor | null = null;
+  let started = false;
   let written = 0;
-  do {
+  await streamCsv(res, companyId, GL_LINE_EXPORT_COLUMNS.join(',') + '\n', async () => {
+    if (started && cursor === null) return null;
+    started = true;
     const rows = await fetchGlLineExportPage(companyId, opts, cursor, GL_LINE_EXPORT_MAX_PAGE);
-    if (rows.length > 0) {
-      res.write(rows.map((r) => csvLine(GL_LINE_EXPORT_COLUMNS, toExportRow(r, entity))).join('\n') + '\n');
-      written += rows.length;
-    }
     cursor = nextCursorOf(rows, GL_LINE_EXPORT_MAX_PAGE);
-  } while (cursor !== null);
+    written += rows.length;
+    return rows.length === 0 ? '' : rows.map((r) => csvLine(GL_LINE_EXPORT_COLUMNS, toExportRow(r, entity))).join('\n') + '\n';
+  });
 
-  if (written !== summary.rowCount) {
-    // The header already promised summary.rowCount. A posting between the two
-    // reads can move it; say so in the log rather than truncate silently.
+  if (res.writableEnded && written !== summary.rowCount) {
+    // The manifest and the control headers came from the summary read. A
+    // posting between it and the pages can move the count; say so in the log.
     log.warn('GL lines export row count drifted during export', {
-      companyId, promised: summary.rowCount, written,
+      companyId, summaryRowCount: summary.rowCount, written,
     }, 'accounting-api');
   }
-  res.end();
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(handler));
