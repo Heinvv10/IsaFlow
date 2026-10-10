@@ -12,6 +12,8 @@ interface BankRulesTableProps {
   filteredRules: BankRuleRowData[];
   search: string;
   selected: Set<string>;
+  /** Rules with a change held for approval. */
+  pendingRuleIds?: Set<string>;
   busyId: string;
   onSelectChange: (next: Set<string>) => void;
   onEdit: (rule: BankRuleRowData) => void;
@@ -25,6 +27,7 @@ export function BankRulesTable({
   filteredRules,
   search,
   selected,
+  pendingRuleIds,
   busyId,
   onSelectChange,
   onEdit,
@@ -95,6 +98,7 @@ export function BankRulesTable({
               key={rule.id}
               rule={rule}
               selected={selected.has(rule.id)}
+              pendingApproval={pendingRuleIds?.has(rule.id) ?? false}
               busyId={busyId}
               onToggleSelect={(id, checked) => {
                 const next = new Set(selected);

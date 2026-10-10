@@ -151,7 +151,7 @@ describe('create_draft_invoice', () => {
     )) as Record<string, unknown>;
     expect(createDraftCustomerInvoice).toHaveBeenCalledWith(
       COMPANY_ID, USER_ID,
-      expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
+      expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2, glAccountId: null, projectId: null }] }),
       // The document itself records the actor: a draft invoice posts no
       // journal, so until approval this is the only trace of who raised it.
       { postingAgent: 'mcp:create_draft_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
@@ -172,7 +172,7 @@ describe('create_draft_invoice', () => {
 
   it('maps InvoiceLineValidationError to a safe tool error', async () => {
     vi.mocked(createDraftCustomerInvoice).mockRejectedValue(
-      new InvoiceLineValidationError('Line unit prices cannot be negative'),
+      new InvoiceLineValidationError('Line unit prices must be numbers of zero or more'),
     );
     const r = await tool('create_draft_invoice').handler(
       { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: -1 }], ...KEY }, ctx(),

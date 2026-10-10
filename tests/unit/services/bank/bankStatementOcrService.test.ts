@@ -247,8 +247,11 @@ describe('commitImport', () => {
       extraction_summary: { rows, warnings: [] },
     });
 
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     // getImport: SELECT * FROM bank_statement_imports
     sqlMock.mockResolvedValueOnce([importRow]);
+    // INSERT bank_import_batches (step 2 provenance: the uploader, the document's hash)
+    sqlMock.mockResolvedValueOnce([]);
     // INSERT bank_transactions for row[0]
     sqlMock.mockResolvedValueOnce([]);
     // INSERT bank_transactions for row[2]
@@ -268,6 +271,7 @@ describe('commitImport', () => {
       extraction_summary: { rows: [], warnings: [] },
     });
 
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow]); // getImport
     // no INSERT calls since rows is empty
     sqlMock.mockResolvedValueOnce([]); // UPDATE status
@@ -281,6 +285,7 @@ describe('commitImport', () => {
 
   it('throws "Import already committed" when status is already committed', async () => {
     const importRow = makeImportDbRow({ status: 'committed', extraction_summary: { rows: [], warnings: [] } });
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import already committed');
@@ -288,12 +293,14 @@ describe('commitImport', () => {
 
   it('throws "Import has been rolled back" when status is rolled_back', async () => {
     const importRow = makeImportDbRow({ status: 'rolled_back', extraction_summary: { rows: [], warnings: [] } });
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import has been rolled back');
   });
 
   it('throws when import is not found', async () => {
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([]);
 
     await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import not found');
@@ -310,6 +317,7 @@ describe('commitImport', () => {
       duplicate_count: 2,
       extraction_summary: { rows, warnings: [] },
     });
+    sqlMock.mockResolvedValueOnce([]); // the import row's FOR UPDATE lock (one commit at a time)
     sqlMock.mockResolvedValueOnce([importRow]); // getImport
     sqlMock.mockResolvedValueOnce([]);          // UPDATE status
 

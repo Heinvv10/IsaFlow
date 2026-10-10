@@ -74,7 +74,7 @@ const CASES: { name: string; run: () => Promise<unknown> }[] = [
       ruleName: 'Rule', matchField: 'description', matchType: 'contains', matchPattern: 'X', clientId: FOREIGN,
     } as never, USER),
   },
-  { name: 'updateRule', run: () => updateRule(COMPANY, ROW, { clientId: FOREIGN }) },
+  { name: 'updateRule', run: () => updateRule(COMPANY, ROW, { clientId: FOREIGN }, USER) },
   { name: 'setOverride', run: () => setOverride(COMPANY, FOREIGN, { suppress_dunning: true }) },
   {
     name: 'createTimeEntry',

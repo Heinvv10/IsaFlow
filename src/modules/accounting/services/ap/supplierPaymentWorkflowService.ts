@@ -24,6 +24,7 @@ import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { underFlowLockBudget } from '../core/rowLockBudget';
+import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 type Row = DbRow;
 
 /**
@@ -231,6 +232,10 @@ async function voidSupplierPaymentInner(
       return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
 
+    // Step 2 (round 1's rule): a statement line MATCHED to this journal makes it a bank allocation — judged as the bank
+    // line's own reverse is (the maker, an agent, "login as" refused under enforcement), before the first write below.
+    const auditLeg = journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;
+
     // (3) Un-apply allocations: roll amount_paid back and recompute status.
     // A voided payment returns the invoice to its pre-payment state
     // ('approved' when nothing else is paid, 'partially_paid' otherwise).
@@ -261,6 +266,7 @@ async function voidSupplierPaymentInner(
       await lockJournalAndUnmatch(companyId, journalId, leg, `Payment ${payment.paymentNumber}`);
       if (!leg.alreadyReversed) await reverseJournalEntry(companyId, leg.reverseId, userId);
     }
+    await auditLeg?.();
 
     // Guarded flip: the status re-assertion is now redundant against a
     // concurrent void (the row has been locked since the top of this function)

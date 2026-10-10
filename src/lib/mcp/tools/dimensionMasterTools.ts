@@ -10,7 +10,9 @@ import type { McpTool } from '../types';
 import {
   applyCreateDimensionCostCentre, listDimensionCostCentres, planCreateDimensionCostCentre, type DimensionCcType,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterService';
-import { createBusinessUnit, getBusinessUnits } from '@/modules/accounting/services/core/businessUnitService';
+import {
+  applyCreateBusinessUnit, BusinessUnitActionError, getBusinessUnits, planCreateBusinessUnit, type BusinessUnitInput,
+} from '@/modules/accounting/services/core/businessUnitService';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { ok, strArg, toolError } from './toolHelpers';
 
@@ -159,21 +161,23 @@ export const createBusinessUnitTool: McpTool = {
     const code = strArg(args, 'code');
     const name = strArg(args, 'name');
     if (!code || !name) return toolError('code and name are required');
-    if (code.length > 20 || name.length > 255) return toolError('code is at most 20 and name at most 255 characters');
-    const division = strArg(args, 'division');
-    if (division && division.length > 120) return toolError('division is at most 120 characters');
-    const existing = await getBusinessUnits(ctx.companyId, false);
-    const clash = existing.find((b) => b.code.toLowerCase() === code.toLowerCase());
-    if (clash) return toolError(`A business unit with code ${clash.code} already exists`);
+    // Lengths and the case-insensitive code clash: the service's, shared with the route.
+    let plan: BusinessUnitInput;
+    try {
+      plan = await planCreateBusinessUnit(ctx.companyId, {
+        code, name, division: strArg(args, 'division'), description: strArg(args, 'description'),
+      });
+    } catch (err) {
+      if (err instanceof BusinessUnitActionError) return toolError(err.message);
+      throw err;
+    }
     if (args.dry_run === true) {
-      const preview = ok({ dry_run: true, code, name, division: division ?? null });
+      const preview = ok({ dry_run: true, code: plan.code, name: plan.name, division: plan.division ?? null });
       preview.wroteNothing = true;
       preview.billable = false;
       return preview;
     }
-    const bu = await createBusinessUnit(ctx.companyId, {
-      code, name, division, description: strArg(args, 'description'),
-    }, ctx.userId);
+    const bu = await applyCreateBusinessUnit(ctx.companyId, plan);
     return ok({ id: bu.id, code: bu.code, name: bu.name, division: bu.division ?? null });
   },
 };

@@ -1,7 +1,7 @@
 /**
  * MCP read tool: the integrity check suite.
  *
- * Fourteen questions an auditor asks, in one call. Every one is drawn from a
+ * Fifteen questions an auditor asks, in one call. Every one is drawn from a
  * finding that took hours to locate by hand on a live book: an invoice with no
  * due date hiding R1,058,000 from the aging, 2,114 bank transactions showing
  * "No VAT" over a claim, R14,081,940.13 in a clearing account that should be
@@ -40,9 +40,9 @@ function todayIso(): string {
 export const dataIntegrityChecksTool: McpTool = {
   name: 'data_integrity_checks',
   description:
-    'Runs a suite of fourteen integrity checks over the ledger and returns, for each, how many rows fail it, the money behind them, and a sample you can go and open. '
-    + 'Checks: invoices_null_due_date (invisible in the aging) · vat_displayed_differs_from_posted (the bank screen shows no VAT and the journal claims it) · journal_date_differs_from_bank_date (a day decides the VAT period) · duplicate_bank_references (the reference is not a key) · deactivated_accounts_with_balance · asset_accounts_with_credit_balance · cost_of_sales_typed_as_expense (gross profit) · clearing_accounts_not_nil · duplicate_control_accounts (two accounts receiving one role) · documents_outside_open_period · stale_suggested_transactions (look done, not in the GL) · test_records_in_production · invoices_without_revenue_line · payment_matched_but_unapplied (flagged as paid with the balance still open). '
-    + 'Pass checks:[...] to run a subset; omit it to run all fourteen. as_at scopes every check to a reporting date and defaults to today. limit caps the SAMPLE only — count and amount are always over every failing row, so count > sample.length simply means there are more. '
+    'Runs a suite of fifteen integrity checks over the ledger and returns, for each, how many rows fail it, the money behind them, and a sample you can go and open. '
+    + 'Checks: invoices_null_due_date (invisible in the aging) · vat_displayed_differs_from_posted (the bank screen shows no VAT and the journal claims it) · journal_date_differs_from_bank_date (a day decides the VAT period) · duplicate_bank_references (the reference is not a key) · deactivated_accounts_with_balance · asset_accounts_with_credit_balance · cost_of_sales_typed_as_expense (gross profit) · clearing_accounts_not_nil · duplicate_control_accounts (two accounts receiving one role) · documents_outside_open_period · stale_suggested_transactions (look done, not in the GL) · test_records_in_production · invoices_without_revenue_line · payment_matched_but_unapplied (flagged as paid with the balance still open) · project_fno_mismatch (a journal or bank line whose stored FNO/CC1 is not the one its project/CC2 derives through the current parent chain). '
+    + 'Pass checks:[...] to run a subset; omit it to run all fifteen. as_at scopes every check to a reporting date and defaults to today. limit caps the SAMPLE only — count and amount are always over every failing row, so count > sample.length simply means there are more. '
     + 'READ THIS BEFORE ACTING ON A ZERO: a check whose query failed comes back with count -1 and appears in excludedRows. That is "unknown", not "clean", and it is the one result you must never treat as a pass. '
     + 'LIMITS: this reports, it never fixes anything and never changes a row. Two checks (clearing_accounts_not_nil, cost_of_sales_typed_as_expense) match on the account NAME, because no subtype records the intent — they compare the name against the type rather than computing from it, so a differently-named clearing account is not found.',
   scope: 'read:reports',
@@ -53,7 +53,7 @@ export const dataIntegrityChecksTool: McpTool = {
       checks: {
         type: 'array',
         items: { type: 'string', enum: [...INTEGRITY_CHECK_IDS] },
-        description: 'Subset to run. Omit for all fourteen.',
+        description: 'Subset to run. Omit for all fifteen.',
       },
       as_at: { type: 'string', format: 'date' },
       limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Sample rows per check. Never caps count or amount.' },

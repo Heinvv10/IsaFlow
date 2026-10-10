@@ -8,14 +8,20 @@
  * savepointed INSERT.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { insertWithReservedNumber } from '@/modules/accounting/services/core/documentNumberRetry';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import {
+  HTTP_CODING_KEYS, InvoiceLineCodingRefusal, parseLineCoding, readCodingId, type InvoiceLineCoding,
+} from './invoiceLineCoding';
+import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
+import { invoiceLineAmount, invoiceTotals, isDiscountPercent, toColumnCents } from './invoiceLineAmount';
+import { toFunctional } from '../shared/functionalAmounts';
 import { deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { isDimensionRefusal } from '../gl/dimensions/dimensionTypes';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
@@ -26,6 +32,11 @@ export interface DraftInvoiceLineInput {
   description: string;
   unitPrice: number;
   quantity?: number;
+  /** Percent off the line, 0 to 100 — as the draft edit's PutBodySchema takes it. Not stored: the amount carries it (invoiceLineAmount.ts). */
+  discount?: number;
+  /** Revenue account and job (migration 874). Optional; read through parseLineCoding. */
+  glAccountId?: string | null;
+  projectId?: string | null;
   /** CC1 (FNO) / CC2 (project) / BU — posted onto this line's revenue leg (migration 870). */
   cc1Id?: string;
   cc2Id?: string;
@@ -43,6 +54,8 @@ export interface DraftInvoiceInput {
   items: DraftInvoiceLineInput[];
   currencyCode?: string;
   exchangeRate?: number;
+  /** The invoice's own project. Explicit or none — never guessed from the client. */
+  projectId?: string | null;
 }
 
 /** Thrown for invalid line quantities/prices — maps to a 400 at the route. */
@@ -78,13 +91,45 @@ export async function createDraftCustomerInvoice(
     });
 
   // W1 (P2.1): server-side line validation — the July-4 audit created a
-  // -R115.00 invoice through this handler (no client OR server guard).
+  // -R115.00 invoice through this handler (no client OR server guard). The body
+  // is untyped: `true`, `"10"` or `[10]` would coerce to a number in the
+  // pricing, and a negative discount would bill more than qty × price. Bounds
+  // are the columns' (quantity numeric(10,2), amounts numeric(15,2)).
+  const priced: { qty: number; price: number; amount: number }[] = [];
   for (const item of items) {
-    const qty = Number(item?.quantity ?? 1);
-    const price = Number(item?.unitPrice);
-    if (!(qty > 0)) throw new InvoiceLineValidationError('Line quantities must be positive');
-    if (!(price >= 0)) throw new InvoiceLineValidationError('Line unit prices cannot be negative');
+    const qtyIn: unknown = item?.quantity ?? 1;
+    const priceIn: unknown = item?.unitPrice;
+    const discount: unknown = item?.discount ?? 0;
+    if (!(typeof qtyIn === 'number' && qtyIn > 0 && qtyIn < 1e8)) {
+      throw new InvoiceLineValidationError('Line quantities must be positive numbers');
+    }
+    if (!(typeof priceIn === 'number' && priceIn >= 0 && priceIn < 1e13)) {
+      throw new InvoiceLineValidationError('Line unit prices must be numbers of zero or more');
+    }
+    if (!isDiscountPercent(discount)) {
+      throw new InvoiceLineValidationError('Line discounts must be a number from 0 to 100, to at most two decimal places');
+    }
+    const qty = toColumnCents(qtyIn);
+    if (qty <= 0) throw new InvoiceLineValidationError('Line quantities must be positive numbers');
+    const price = toColumnCents(priceIn);
+    priced.push({ qty, price, amount: invoiceLineAmount(qty, price, discount) });
   }
+
+  // Migration 874: what each line credits and is tagged with. Shape first (a
+  // uuid STRING or nothing — the body is untyped), then ownership and the
+  // revenue-account rules, all before the first write below.
+  const codings: InvoiceLineCoding[] = [];
+  for (const [i, item] of items.entries()) {
+    const coding = parseLineCoding(item as unknown as Record<string, unknown>, HTTP_CODING_KEYS, `items[${i}]`);
+    if (typeof coding === 'string') throw new InvoiceLineCodingRefusal(coding);
+    codings.push(coding);
+  }
+  const projectId = readCodingId(input.projectId);
+  if (projectId === undefined) throw new InvoiceLineCodingRefusal('projectId must be a UUID');
+  const codingRefusal = await invoiceLineCodingRefusal(
+    companyId, [...codings, { glAccountId: null, projectId }],
+  );
+  if (codingRefusal) throw new InvoiceLineCodingRefusal(codingRefusal);
 
   // R-119: the same audit, one field over. `taxRate` comes off the request
   // body and is used below for `tax_amount` and the output-VAT journal leg. A
@@ -104,32 +149,18 @@ export async function createDraftCustomerInvoice(
   const { currencyCode: invCurrencyCode, exchangeRate: invExchangeRate } =
     await resolveDocumentCurrency(companyId, currencyCode, exchangeRate, 'invoice');
 
-  // Calculate totals (in foreign currency)
+  // Calculate totals (in foreign currency) — invoiceLineAmount.ts, as the draft
+  // edit and the new-invoice preview compute them.
   const rate = requestedRate;
-  let subtotal = 0;
-  for (const item of items) {
-    subtotal += (item.quantity || 1) * item.unitPrice;
+  const { subtotal, tax: taxAmount, total: totalAmount } = invoiceTotals(priced.map((p) => p.amount), rate);
+  // numeric(15,2): the total, and functional_total = fx_functional(total, rate), must fit.
+  if (totalAmount >= 1e13 || toFunctional(totalAmount, invExchangeRate) >= 1e13) {
+    throw new InvoiceLineValidationError('The invoice total is too large');
   }
-  subtotal = Math.round(subtotal * 100) / 100;
-  const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
-  const totalAmount = subtotal + taxAmount;
   const today = fmtDate(new Date()); // local date — toISOString rolls back a day before 02:00 SAST
   const invDate = invoiceDate || today;
   const bpStart = billingPeriodStart || null;
   const bpEnd = billingPeriodEnd || null;
-
-  // Find project from client (optional). Wrap in a SAVEPOINT — without it,
-  // a failed read here poisons the request-scoped tx (set up by withAuth for
-  // RLS) and every subsequent statement in this handler returns "current
-  // transaction is aborted, commands ignored until end of transaction block".
-  const projectId: string | null = await withSavepoint('lookup_project', async () => {
-    const projRows = (await sql`
-      SELECT id FROM projects
-       WHERE client_id = ${clientId}::UUID AND company_id = ${companyId}
-       LIMIT 1
-    `) as Row[];
-    return (projRows[0]?.['id'] as string | undefined) ?? null;
-  }).catch(() => null);
 
   // The invoice number comes from the company's configured sequence, and
   // `insertWithReservedNumber` owns the reserve-and-retry loop every other
@@ -167,16 +198,17 @@ export async function createDraftCustomerInvoice(
     },
   );
 
-  for (const item of items) {
-    const qty = item.quantity || 1;
-    const lineAmount = Math.round(qty * item.unitPrice * 100) / 100;
+  for (const [i, item] of items.entries()) {
+    const { qty, price, amount: lineAmount } = priced[i]!;
+    const coding = codings[i]!;
     await sql`
       INSERT INTO customer_invoice_items (
         invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-        cc1_id, cc2_id, bu_id
+        gl_account_id, project_id, cc1_id, cc2_id, bu_id
       ) VALUES (
-        ${invoiceId}::UUID, ${item.description}, ${item.unitPrice},
+        ${invoiceId}::UUID, ${item.description}, ${price},
         ${qty}, ${lineAmount}, ${rate}, ${invCurrencyCode},
+        ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
         ${item.cc1Id || null}::UUID, ${item.cc2Id || null}::UUID, ${item.buId || null}::UUID
       )
     `;

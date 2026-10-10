@@ -64,8 +64,6 @@ const NOT_EXCHANGE_RATES: Record<string, { sites: number; why: string }> = {
   'src/lib/amortisation/pmt.ts': { sites: 1, why: 'loan interest rate' },
   'src/lib/taxCalculations.ts': { sites: 1, why: 'PAYE bracket rate' },
   'src/modules/accounting/services/afs/complianceCheckerService.ts': { sites: 1, why: 'a percentage to basis points' },
-  'src/modules/accounting/services/ar/customerInvoiceCreateService.ts': { sites: 1, why: 'VAT rate percentage (`rate / 100`)' },
-  'src/modules/accounting/services/ar/customerInvoiceDraftEdit.ts': { sites: 1, why: 'VAT rate percentage (`rate / 100`)' },
   'src/modules/accounting/services/core/timeTrackingService.ts': { sites: 1, why: 'hourly billing rate' },
   'src/modules/accounting/services/expense/expenseClaimService.ts': { sites: 1, why: 'mileage rate per km' },
   'src/modules/accounting/services/items/depreciationMethods.ts': { sites: 1, why: 'depreciation rate' },

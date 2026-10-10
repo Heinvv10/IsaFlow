@@ -19,6 +19,7 @@ import { insertWithReservedNumber } from '../core/documentNumberRetry';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getQuote } from './quoteService';
 import type { Quote } from './quoteService';
+import { assertLineAccountIds } from './invoiceLineCodingGuard';
 import { revenueLineDefaults } from '../gl/dimensions/dimensionDerivation';
 
 type Row = DbRow;
@@ -153,6 +154,10 @@ export async function convertToInvoice(
 ): Promise<{ quote: Quote; invoiceId: string } | null> {
   const quote = await getQuote(companyId, id);
   if (!quote) return null;
+  // The lines' accounts are copied onto the invoice, and posting credits them
+  // (migration 874): re-checked against the chart as it is now, before the
+  // claim below writes anything. A quote saved before 874 was never checked.
+  await assertLineAccountIds(companyId, (quote.lines ?? []).map((l) => l.accountId));
 
   // CLAIM THE QUOTE BEFORE ANYTHING IS MINTED — the same guard convertToSalesOrder
   // takes above, for the same reason. `quote.status !== 'accepted'` was a

@@ -58,7 +58,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql, withSavepoint } from '@/lib/neon';
-import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
+import { importParsedTransactions, uploadProvenance } from '@/modules/accounting/services/bank/bankImportService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { applyRules as applyBankRulesService } from '@/modules/accounting/services/bank/bankRulesService';
 import {
@@ -274,7 +274,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       statementDate,
       {
         sourceFilename: filename,
-        importedBy: authReq.user?.id,
+        ...uploadProvenance(authReq.user?.id, { pdfBase64, csvContent }), // who, channel upload, the uploaded bytes' hash
         bulkContext: {
           bulkImportId,
           bulkSequence: bulkSequence as number,

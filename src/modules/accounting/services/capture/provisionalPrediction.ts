@@ -1,0 +1,147 @@
+/**
+ * PRD-05 Phase 5 — the provisional poster's prediction: which supplier a bank
+ * line names (Dice coefficient over name tokens) and how that supplier's bills
+ * were coded (the mode of its last coding history rows), with a confidence.
+ * Reads only. Used by provisionalPostingService.postProvisional.
+ */
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+
+type Row = DbRow;
+
+const HISTORY_LOOKBACK = 10;
+const DICE_THRESHOLD = 0.6;
+const STOPWORDS = new Set(['the', 'pos', 'purchase', 'eft', 'debit', 'from', 'for', 'and', 'to']);
+
+export interface CodingPrediction {
+  supplierId: string | null;
+  supplierName: string | null;
+  glAccountId: string | null;
+  vatCode: string | null;
+  costCentreId: string | null;
+  projectId: string | null;
+  confidence: number;
+  basis: string;
+}
+
+// ── Tokeniser ────────────────────────────────────────────────────────────────
+
+function tokenise(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[\s\W]+/)
+      .filter((t) => t.length >= 2 && !STOPWORDS.has(t)),
+  );
+}
+
+function diceCoefficient(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const t of a) {
+    if (b.has(t)) shared++;
+  }
+  return (2 * shared) / (a.size + b.size);
+}
+
+// ── Prediction ───────────────────────────────────────────────────────────────
+
+export async function predictFromHistory(
+  companyId: string,
+  bankTx: { id: string; description: string | null; amount: number },
+): Promise<CodingPrediction> {
+  const none: CodingPrediction = {
+    supplierId: null,
+    supplierName: null,
+    glAccountId: null,
+    vatCode: null,
+    costCentreId: null,
+    projectId: null,
+    confidence: 0,
+    basis: 'none',
+  };
+
+  if (!bankTx.description) return none;
+
+  const txTokens = tokenise(bankTx.description);
+  if (txTokens.size === 0) return none;
+
+  // Load active suppliers for this company
+  const supplierRows = (await sql`
+    SELECT id, name FROM suppliers
+    WHERE company_id = ${companyId}::UUID AND is_active = true
+  `) as Row[];
+
+  // Fuzzy-match against supplier names
+  let bestScore = 0;
+  let bestSupplierId: string | null = null;
+  let bestSupplierName: string | null = null;
+
+  for (const s of supplierRows) {
+    const nameTokens = tokenise(String(s.name));
+    const score = diceCoefficient(txTokens, nameTokens);
+    if (score > bestScore) {
+      bestScore = score;
+      bestSupplierId = String(s.id);
+      bestSupplierName = String(s.name);
+    }
+  }
+
+  if (bestScore < DICE_THRESHOLD || !bestSupplierId) return none;
+
+  // Look up mode coding from supplier_coding_history (last HISTORY_LOOKBACK rows)
+  const historyRows = (await sql`
+    SELECT gl_account_id, vat_code, cost_centre_id, project_id
+    FROM supplier_coding_history
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${bestSupplierId}::UUID
+    ORDER BY posted_at DESC
+    LIMIT ${HISTORY_LOOKBACK}
+  `) as Row[];
+
+  if (historyRows.length === 0) {
+    return {
+      supplierId: bestSupplierId,
+      supplierName: bestSupplierName,
+      glAccountId: null,
+      vatCode: null,
+      costCentreId: null,
+      projectId: null,
+      confidence: 0.5,
+      basis: `history:0-rows`,
+    };
+  }
+
+  // Mode of gl_account_id
+  const glFreq = new Map<string, number>();
+  const vatFreq = new Map<string, number>();
+  for (const r of historyRows) {
+    const gl = r.gl_account_id ? String(r.gl_account_id) : '';
+    const vat = r.vat_code ? String(r.vat_code) : '';
+    if (gl) glFreq.set(gl, (glFreq.get(gl) ?? 0) + 1);
+    if (vat) vatFreq.set(vat, (vatFreq.get(vat) ?? 0) + 1);
+  }
+
+  const topGl = [...glFreq.entries()].sort((a, b) => b[1] - a[1])[0];
+  const topVat = [...vatFreq.entries()].sort((a, b) => b[1] - a[1])[0];
+  const topCc = historyRows.find((r) => r.cost_centre_id);
+  const topProj = historyRows.find((r) => r.project_id);
+
+  const glAccountId = topGl ? topGl[0] : null;
+  const glCount = topGl ? topGl[1] : 0;
+  const vatCode = topVat ? topVat[0] : null;
+
+  const confidence = glCount >= 3 ? 0.9 : glCount >= 1 ? 0.7 : 0.5;
+  const basis = `history:${historyRows.length}-rows`;
+
+  return {
+    supplierId: bestSupplierId,
+    supplierName: bestSupplierName,
+    glAccountId,
+    vatCode,
+    costCentreId: topCc ? String(topCc.cost_centre_id) : null,
+    projectId: topProj ? String(topProj.project_id) : null,
+    confidence,
+    basis,
+  };
+}

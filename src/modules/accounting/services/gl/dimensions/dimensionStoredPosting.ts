@@ -28,6 +28,9 @@ export const POST_AS_STORED = { dimensionAssignmentMode: 'historical-copy' } as 
 /** The statuses a document is approved FROM — the only ones this refuses in. */
 const APPROVING_FROM: ReadonlySet<string> = new Set(['draft', 'pending_approval']);
 
+/** Whether a document posted from `status` is being APPROVED (as opposed to posted past draft). */
+export const isApprovingFrom = (status: string): boolean => APPROVING_FROM.has(status);
+
 export async function assertPostsStoredDimensions(
   companyId: string,
   status: string,

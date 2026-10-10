@@ -1,11 +1,11 @@
 /**
  * The integrity check runner.
  *
- * Fourteen checks, each a count, a rand total and a bounded sample. Callers ask
+ * Fifteen checks, each a count, a rand total and a bounded sample. Callers ask
  * for all of them or name the ones they want.
  *
  * A CHECK THAT FAILS DOES NOT FAIL THE SUITE. One broken query would otherwise
- * take the other thirteen down with it, which on an integrity report is precisely
+ * take the other fourteen down with it, which on an integrity report is precisely
  * backwards: the reader would lose the twelve answers that worked and be told
  * nothing about the one that did not. A failing check is returned with its
  * error named in `finding` and a count of -1, so it can never be mistaken for
@@ -40,6 +40,7 @@ import {
   duplicateControlAccounts,
 } from './accountChecks';
 import { testRecordsInProduction, vatDisplayedDiffersFromPosted } from './vatChecks';
+import { projectFnoMismatch } from './dimensionChecks';
 
 export const INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn> = {
   invoices_null_due_date: invoicesNullDueDate,
@@ -56,6 +57,7 @@ export const INTEGRITY_CHECKS: Record<IntegrityCheckId, IntegrityCheckFn> = {
   test_records_in_production: testRecordsInProduction,
   invoices_without_revenue_line: invoicesWithoutRevenueLine,
   payment_matched_but_unapplied: paymentMatchedButUnapplied,
+  project_fno_mismatch: projectFnoMismatch,
 };
 
 export interface IntegrityReport {

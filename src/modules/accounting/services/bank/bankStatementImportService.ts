@@ -37,6 +37,8 @@ import {
 } from '../../utils/bankTransactionHash';
 import type { BankFormat, ParsedBankTransaction } from '../../types/bank.types';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
+import { dateRangeOf } from './bankStatementDateRange';
+import type { ImportProvenance } from './importProvenance';
 
 export interface AgentImportArgs {
   companyId: string;
@@ -46,7 +48,7 @@ export interface AgentImportArgs {
   statementDate: string;
   bankFormat?: BankFormat;
   dryRun?: boolean;
-  importedBy?: string;
+  provenance?: ImportProvenance; // who (the token's user), the channel, the content's hash
   sourceFilename?: string;
 }
 
@@ -116,34 +118,6 @@ function hashOf(tx: { transactionDate: string; amount: number; description?: str
     description: tx.description ?? '',
   };
   return bankTransactionHash(hashable);
-}
-
-/**
- * The shape check is not enough on its own: the OFX and MT940 parsers only
- * reject day > 31, so `<DTPOSTED>20260231` becomes the well-formed but
- * non-existent '2026-02-31'. Interpolated into `${from}::DATE` that raises
- * SQLSTATE 22008 on the request connection, aborting the surrounding
- * transaction and surfacing as a generic failure instead of a usable message.
- * Round-tripping through Date catches it here, where we can say what is wrong.
- */
-function isRealCalendarDate(d: string): boolean {
-  const [y, m, day] = d.slice(0, 10).split('-').map(Number);
-  if (!y || !m || !day) return false;
-  const probe = new Date(Date.UTC(y, m - 1, day));
-  return probe.getUTCFullYear() === y
-    && probe.getUTCMonth() === m - 1
-    && probe.getUTCDate() === day;
-}
-
-function dateRangeOf(txs: ParsedBankTransaction[]): { from: string; to: string } | null {
-  const dates = txs
-    .map((t) => t.transactionDate)
-    .filter((d): d is string =>
-      typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d) && isRealCalendarDate(d))
-    .sort();
-  const from = dates[0];
-  const to = dates[dates.length - 1];
-  return from && to ? { from, to } : null;
 }
 
 /** Hashes of rows already on this account inside the statement's date window. */
@@ -229,7 +203,7 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
     args.bankAccountId,
     args.statementDate,
     {
-      importedBy: args.importedBy,
+      ...args.provenance,
       sourceFilename: args.sourceFilename,
       // Insert only: no posting, and no touching rows this import did not
       // create. See the option's own comment in bankImportService.
@@ -274,7 +248,7 @@ export async function undoImportBatch(
     SELECT id FROM bank_import_batches
     WHERE id = ${batchId}::UUID
       AND company_id = ${companyId}::UUID
-      AND imported_by LIKE 'mcp:%'
+      AND (import_channel = 'mcp' OR imported_by LIKE 'mcp:%') -- step 2: the token's user is recorded; legacy rows say mcp:*
     LIMIT 1
   `) as Array<{ id: string }>;
   if (batch.length === 0) return null;

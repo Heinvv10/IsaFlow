@@ -145,10 +145,11 @@ export async function rig(label: string) {
       await q('DELETE FROM payroll_employee_components WHERE employee_id IN (SELECT id FROM payroll_employees WHERE company_id = ANY($1))');
       await q('DELETE FROM payroll_employees WHERE company_id = ANY($1)');
       await q('DELETE FROM payroll_components WHERE company_id = ANY($1)');
-      await q('DELETE FROM cost_centres WHERE company_id = ANY($1)');
+      // Journal lines before the cost centres: their cc1/cc2/bu RESTRICT the masters (migration 882).
       await q('UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ANY($1)');
       await q('DELETE FROM gl_journal_lines WHERE journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = ANY($1))');
       await q('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)');
+      await q('DELETE FROM cost_centres WHERE company_id = ANY($1)');
       await q('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = ANY($1))');
       await q('DELETE FROM gl_accounts WHERE company_id = ANY($1)');
       await q('DELETE FROM fiscal_periods WHERE company_id = ANY($1)');

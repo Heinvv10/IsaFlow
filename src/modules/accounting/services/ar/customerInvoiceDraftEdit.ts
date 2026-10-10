@@ -25,17 +25,25 @@ import type { z } from 'zod';
 import { withTransaction } from '@/lib/neon';
 import { checkDocumentCurrency, DocumentCurrencyError, loadCompanyCurrency } from '../shared/documentCurrency';
 import type { PutBodySchema } from '@/lib/schemas/customerInvoiceDetail';
+import type { InvoiceLineCoding } from './invoiceLineCoding';
+import { invoiceLineCodingRefusal } from './invoiceLineCodingGuard';
+import { resolveEditCodings } from './customerInvoiceDraftCoding';
+import { invoiceLineAmount, invoiceTotals } from './invoiceLineAmount';
+import { toFunctional } from '../shared/functionalAmounts';
 import { customerFnoId, deriveRevenueDimensions } from '../gl/dimensions/dimensionDerivation';
 import { keepStoredDimensions } from '../gl/dimensions/dimensionKeepStored';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { isDimensionRefusal, type DimensionIds } from '../gl/dimensions/dimensionTypes';
 
 type Row = Record<string, unknown>;
+const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
 
 export type CustomerInvoiceDraftEdit = z.infer<typeof PutBodySchema>;
 
 export type CustomerInvoiceDraftEditResult =
   | { kind: 'ok' } | { kind: 'not_found' } | { kind: 'not_draft' } | { kind: 'bad_client' } | { kind: 'rate_required' }
+  | { kind: 'bad_line'; message: string }
+  | { kind: 'bad_amount'; message: string }
   | { kind: 'currency_refused'; message: string }
   | { kind: 'bad_dimensions'; message: string };
 
@@ -45,7 +53,7 @@ export async function editDraftCustomerInvoice(
   const {
     id, notes, internalNotes, dueDate,
     clientId, invoiceDate, billingPeriodStart, billingPeriodEnd,
-    taxRate, currencyCode, exchangeRate, items,
+    taxRate, currencyCode, exchangeRate, items, projectId,
   } = edit;
   // Blank is "no change", as it is "the functional currency" on create.
   const fxCode = currencyCode?.trim().toUpperCase() || null;
@@ -61,7 +69,7 @@ export async function editDraftCustomerInvoice(
   // collapse to total × 1).
   return withTransaction(async (tx) => {
     const ownedRows = (await tx`
-      SELECT status, currency_code, exchange_rate, tax_rate, COALESCE(client_id, customer_id) AS customer_id,
+      SELECT status, currency_code, exchange_rate, tax_rate, total_amount, project_id, COALESCE(client_id, customer_id) AS customer_id,
              approval_document_digest(company_id, 'customer_invoice', id) AS digest
         FROM customer_invoices
        WHERE id = ${id}::UUID AND company_id = ${companyId}
@@ -124,6 +132,33 @@ export async function editDraftCustomerInvoice(
       }
     }
 
+    // Migration 874: the lines' revenue account and job (an
+    // absent key keeps the stored coding — customerInvoiceDraftCoding) and the
+    // header's display project, under the row lock and before the first write.
+    let codings: InvoiceLineCoding[] = [];
+    // A value the draft already stores is not re-checked at save (an account deactivated, or a job
+    // cancelled, since): every save would refuse until it was recoded. Approve refuses it, pre-write.
+    let unchanged = (_c: InvoiceLineCoding): InvoiceLineCoding => _c;
+    if (items) {
+      const stored = ((await tx`
+        SELECT gl_account_id, project_id FROM customer_invoice_items WHERE invoice_id = ${id}::UUID
+      `) as Row[]).map((r) => ({ glAccountId: idOrNull(r.gl_account_id), projectId: idOrNull(r.project_id) }));
+      const resolved = resolveEditCodings(items, stored);
+      if (typeof resolved === 'string') return { kind: 'bad_line' as const, message: resolved };
+      codings = resolved;
+      const had = { glAccountId: new Set(stored.map((c) => c.glAccountId)), projectId: new Set(stored.map((c) => c.projectId)) };
+      unchanged = (c) => ({ glAccountId: had.glAccountId.has(c.glAccountId) ? null : c.glAccountId,
+        projectId: had.projectId.has(c.projectId) ? null : c.projectId });
+    }
+    if (items || projectId) {
+      // The header project is display only: re-sending the one it already has
+      // (cancelled since it was set) must not refuse every save of the draft.
+      const changed = projectId && projectId.toLowerCase() !== idOrNull(ownedRows[0]!.project_id);
+      const header = changed ? [{ glAccountId: null, projectId: projectId.toLowerCase() }] : [];
+      const refusal = await invoiceLineCodingRefusal(companyId, [...codings.map(unchanged), ...header]);
+      if (refusal) return { kind: 'bad_line' as const, message: refusal };
+    }
+
     // CC1 / CC2 / BU (migration 870), as create treats them: a replacement line
     // keeps what it leaves out (dimensionKeepStored), CC1 is derived from CC2
     // and the customer's FNO applied, every id validated — all before the
@@ -165,20 +200,23 @@ export async function editDraftCustomerInvoice(
     }
 
     let computed: { subtotal: number; tax: number; total: number; rate: number } | null = null;
+    // Priced as create prices them (invoiceLineAmount.ts): Σ of the stored line amounts.
+    const lineAmounts = (items ?? []).map((it) => invoiceLineAmount(it.quantity, it.unitPrice, it.discount ?? 0));
     if (items) {
       // Fall back to the invoice's existing tax_rate (not a hardcoded 15%) so
       // recomputed totals stay correct when the caller doesn't re-send taxRate.
       const existingTaxRate = Number(ownedRows[0]!.tax_rate ?? 15);
       const rate = taxRate ?? existingTaxRate;
-      let subtotal = 0;
-      for (const it of items) {
-        const lineNet = it.quantity * it.unitPrice * (1 - ((it.discount ?? 0) / 100));
-        subtotal += lineNet;
-      }
-      subtotal = Math.round(subtotal * 100) / 100;
-      const tax = Math.round(subtotal * (rate / 100) * 100) / 100;
-      const total = Math.round((subtotal + tax) * 100) / 100;
-      computed = { subtotal, tax, total, rate };
+      computed = { ...invoiceTotals(lineAmounts, rate), rate };
+    }
+    // numeric(15,2), as create checks it: the total, and functional_total = fx_functional(total, rate) when
+    // the UPDATE below rewrites it (new lines or a new rate — a rate alone re-derives it from the stored
+    // total). Before the first write.
+    const nextTotal = computed?.total ?? Number(ownedRows[0]!.total_amount ?? 0);
+    const rewritesFunctional = computed !== null || fxRateOverride !== null;
+    if (nextTotal >= 1e13
+      || (rewritesFunctional && toFunctional(nextTotal, fxRateOverride ?? (existingRate || 1)) >= 1e13)) {
+      return { kind: 'bad_amount' as const, message: 'The invoice total is too large' };
     }
 
     await tx`
@@ -201,6 +239,7 @@ export async function editDraftCustomerInvoice(
                ELSE functional_total END,
              currency_code = COALESCE(${nextCode}, currency_code),
              exchange_rate = COALESCE(${fxRateOverride}, exchange_rate),
+             project_id = CASE WHEN ${projectId === undefined}::BOOLEAN THEN project_id ELSE ${projectId ?? null}::UUID END,
              updated_at = NOW()
        WHERE id = ${id}::UUID AND company_id = ${companyId} AND status = 'draft'
     `;
@@ -214,16 +253,18 @@ export async function editDraftCustomerInvoice(
       // line-item currency on FX invoices.
       const existingCurrency = String(ownedRows[0]!.currency_code ?? 'ZAR');
       const lineCurrency = nextCode ?? existingCurrency;
-      for (const it of lines) {
+      for (const [i, it] of lines.entries()) {
         const qty = it.quantity;
-        const lineAmount = Math.round(qty * it.unitPrice * (1 - ((it.discount ?? 0) / 100)) * 100) / 100;
+        const lineAmount = lineAmounts[i]!;
+        const coding = codings[i]!;
         await tx`
           INSERT INTO customer_invoice_items (
             invoice_id, description, unit_price, quantity, amount, tax_rate, currency_code,
-            cc1_id, cc2_id, bu_id
+            gl_account_id, project_id, cc1_id, cc2_id, bu_id
           ) VALUES (
             ${id}::UUID, ${it.description}, ${it.unitPrice},
             ${qty}, ${lineAmount}, ${it.taxRate ?? computed.rate}, ${lineCurrency},
+            ${coding.glAccountId}::UUID, ${coding.projectId}::UUID,
             ${it.cc1Id ?? null}::UUID, ${it.cc2Id ?? null}::UUID, ${it.buId ?? null}::UUID
           )
         `;

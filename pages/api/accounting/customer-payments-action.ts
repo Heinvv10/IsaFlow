@@ -12,6 +12,7 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { log } from '@/lib/logger';
 import { confirmCustomerPayment, cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
@@ -56,6 +57,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfLockTimeout(res, err)) return;
     // D12: cancel of a receipt whose bank line is in a COMPLETED reconciliation — 409, pre-write.
     if (respondIfReconciliationCompleted(res, err)) return;
+    // Step 2: cancel of a bank-linked refund by its allocator, an agent or "login as" — 403, before any write.
+    if (respondIfBankControlRefused(res, err)) return;
     if (isRetryableContention(err)) {
       log.info('Customer payment action hit a contended row', { error: err }, 'accounting-api');
       return apiResponse.conflict(res, (err as Error).message);

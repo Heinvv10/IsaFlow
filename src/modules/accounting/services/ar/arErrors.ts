@@ -28,3 +28,16 @@ export class ArRequestError extends Error {
     this.code = code;
   }
 }
+
+/**
+ * A failure AFTER a posting service wrote its draft journal. Deliberately NOT
+ * an ArRequestError: a route that answered it with a 4xx would make withAuth
+ * COMMIT the orphan draft journal it leaves. Routes rethrow it, so it reaches
+ * withAuth as a 500 and the whole request rolls back. The cause is kept.
+ */
+export class ArPostingAfterWriteError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ArPostingAfterWriteError';
+  }
+}

@@ -49,6 +49,28 @@ describe('BankTransfersPage', () => {
     expect(await screen.findByText(/Transfer completed/)).toBeTruthy();
   });
 
+  // Hein, step-2 decision 6: under manual-journal enforcement a matching transfer is held (202), not refused — the
+  // page says so and links the draft journal and Approvals, and does not claim a completed transfer.
+  it('on a held transfer (202 awaiting_approval) it shows Awaiting approval with links to the journal and Approvals', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (String(url).includes('chart-of-accounts')) return json(banks);
+      return new Response(JSON.stringify({ success: true, message: 'Transfer of R2000.00 saved as a draft journal awaiting admin approval.',
+        data: { status: 'awaiting_approval', journalId: 'je9', requestId: 'rq9', requiredRole: 'admin' } }), { status: 202 });
+    });
+    render(<BankTransfersPage />);
+    await screen.findAllByRole('option', { name: '1000 — Current Account' });
+    const [fromSelect, toSelect] = screen.getAllByRole('combobox');
+    fireEvent.change(fromSelect!, { target: { value: FROM } });
+    fireEvent.change(toSelect!, { target: { value: TO } });
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2000' } });
+    fireEvent.click(screen.getByRole('button', { name: /process transfer/i }));
+    expect(await screen.findByText('Awaiting approval')).toBeTruthy();
+    expect(screen.getByText(/saved as a draft journal awaiting admin approval/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /view the journal/i }).getAttribute('href')).toBe('/accounting/journal-entries/je9');
+    expect(screen.getByRole('link', { name: /approvals/i }).getAttribute('href')).toBe('/accounting/approvals');
+    expect(screen.queryByText(/Transfer completed/)).toBeNull();
+  });
+
   // brk-nrfa round 3 M2: a possible duplicate is a 428 the person can confirm, not a dead end.
   it('on a 428 it offers to post anyway, and resends with confirmDuplicate', async () => {
     let posts = 0;

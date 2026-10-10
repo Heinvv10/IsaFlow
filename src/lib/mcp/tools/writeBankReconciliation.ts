@@ -188,7 +188,7 @@ export const performBankReconciliationTool: McpTool = {
     );
 
     const matchResult = autoMatch
-      ? await autoMatchTransactions(ctx.companyId, bankAccountId, started.id)
+      ? await autoMatchTransactions(ctx.companyId, bankAccountId, started.id, ctx.userId)
       : null;
 
     // Re-read: startReconciliation computed the reconciled balance before any
@@ -231,6 +231,7 @@ export const performBankReconciliationTool: McpTool = {
       low_confidence_candidates: matchResult?.candidates.length ?? 0,
       skipped_raced: matchResult?.skippedRaced ?? 0,
       skipped_unavailable: matchResult?.skippedUnavailable ?? 0,
+      skipped_importer: matchResult?.skippedImporter ?? 0, // step 2: the token's user's own line paired with their own journal
       ...(complete && !balanced
         ? {
           note:

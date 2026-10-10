@@ -150,9 +150,11 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
   }, 60000);
 
   // R-035 PR6: a transfer is a journal a person composed with no bank line as evidence (as a hand-keyed bank line
-  // transferred to another bank account is, bankLineJournalGate round 4), so under manual-journal enforcement a rule
-  // matching the amount refuses it 409 before any write; one that does not match lets it post.
-  it('under manual-journal enforcement: a matching rule refuses it 409 with nothing written; below the rule it posts', async () => {
+  // transferred to another bank account is, bankLineJournalGate round 4). Under manual-journal enforcement a rule
+  // matching the amount HOLDS it (Hein, step-2 decision 6; it used to refuse 409): a draft journal and an approval
+  // request, nothing posted (tests/integration/bank-transfers-approval.int.test.ts drives it to posted). One the rule
+  // does not match posts.
+  it('under manual-journal enforcement: a matching rule holds it as a draft awaiting approval; below the rule it posts', async () => {
     await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by)
       VALUES (${c.fx.companyId}::UUID, 'manual_journal', ${c.fx.userId}::UUID)`;
     await sql`INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator,
@@ -161,14 +163,19 @@ describeIfDb('bank transfers post through createJournalEntry', () => {
     const n = await journalCount();
     const held = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 150, transferDate: '2026-03-14' });
     process.stdout.write(`BTXF gated ${JSON.stringify(held)}\n`);
-    expect(held.statusCode, JSON.stringify(held.body)).toBe(409);
-    expect(JSON.stringify(held.body)).toMatch(/needs admin approval/);
-    // The residual's remedy, in the refusal itself (brk-nrfa round 15, rev-nrfa round 15 LOW-1).
-    expect(JSON.stringify(held.body)).toMatch(/match the statement line to that journal rather than allocating it as a transfer/);
-    expect(await journalCount()).toBe(n);
+    expect(held.statusCode, JSON.stringify(held.body)).toBe(202);
+    expect(JSON.stringify(held.body)).toMatch(/awaiting admin approval/);
+    // The residual's remedy, in the answer itself (brk-nrfa round 15, rev-nrfa round 15 LOW-1).
+    expect(JSON.stringify(held.body)).toMatch(/match the statement line to this journal rather than allocating it as a transfer/);
+    expect(await journalCount()).toBe(n + 1);
+    const { journalId } = dataOf<{ journalId: string }>(held);
+    expect((await transfers()).find((r) => r.id === journalId)?.status).toBe('draft');
     const ok = await post({ fromAccountId: c.fx.bankAccountId, toAccountId: bank2, amount: 9, transferDate: '2026-03-14' });
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(200);
-    expect(await journalCount()).toBe(n + 1);
+    expect(await journalCount()).toBe(n + 2);
+    // The held draft and its request stay out of the later tests' way.
+    await sql`DELETE FROM approval_requests WHERE company_id = ${c.fx.companyId}::UUID`;
+    await sql`DELETE FROM gl_journal_entries WHERE id = ${journalId}::UUID AND company_id = ${c.fx.companyId}::UUID`;
     // The rule stays out of the later tests' way.
     await sql`DELETE FROM approval_rules WHERE company_id = ${c.fx.companyId}::UUID`;
     await sql`DELETE FROM approval_enforcement WHERE company_id = ${c.fx.companyId}::UUID`;

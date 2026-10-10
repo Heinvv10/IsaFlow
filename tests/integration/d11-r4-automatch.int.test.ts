@@ -115,7 +115,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D11 round
     const ids = [await seedPair(888.88, '2026-06-01', 'm1'), await seedPair(999.99, '2026-06-02', 'm2')].sort();
     const release = await holdLine(ids[1]!);
     let r;
-    try { r = await inTx(c.fx, () => autoMatchTransactions(c.fx.companyId, c.fx.bankAccountId)); } finally { await release(); }
+    try { r = await inTx(c.fx, () => autoMatchTransactions(c.fx.companyId, c.fx.bankAccountId, undefined, c.fx.userId)); } finally { await release(); }
     expect(r.matched).toBe(1);
     expect(r.skippedRaced).toBe(1);
     expect(await matchedOf(ids), 'what the service reported is what committed').toBe(1);
@@ -123,7 +123,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D11 round
     const only = [await seedPair(123.45, '2026-06-03', 'm3')];
     const release2 = await holdLine(only[0]!);
     try {
-      await expect(inTx(c.fx, () => autoMatchTransactions(c.fx.companyId, c.fx.bankAccountId))).rejects.toMatchObject({ code: 'BANK_TX_LOCK_TIMEOUT' });
+      await expect(inTx(c.fx, () => autoMatchTransactions(c.fx.companyId, c.fx.bankAccountId, undefined, c.fx.userId))).rejects.toMatchObject({ code: 'BANK_TX_LOCK_TIMEOUT' });
     } finally { await release2(); }
     expect(await matchedOf(only)).toBe(0);
   }, 90000);
