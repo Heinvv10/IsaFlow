@@ -69,23 +69,24 @@ async function adminInvitesOwnerAsViewer(c: string): Promise<string> {
   return raw;
 }
 
-async function expectOwnerKeptAndAccepted(c: string) {
-  expect(await roleOf(pool, c, p.o)).toBe('owner');
+async function expectOwnerKeptAndAccepted(c: string, stored: string) {
+  expect(await roleOf(pool, c, p.o)).toBe(stored);
   expect((await pool.query(
     "SELECT role, accepted_at IS NOT NULL AS accepted FROM company_invitations WHERE company_id = $1", [c])).rows)
     .toEqual([{ role: 'viewer', accepted: true }]);
 }
 
-describe("an admin's lesser invitation to the last owner, accepted by the owner", () => {
+// `Owner `: a legacy row the 886 guard counts as an owner's (trimmed, lower-cased); the routes judge it the same.
+describe.each(['owner', 'Owner '])("an admin's lesser invitation to the last owner (stored %j), accepted by the owner", (stored) => {
   it('/api/invite/<token>: the owner stays owner; the invitation is accepted', async () => {
-    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
+    const c = await company(pool, p, companies, [[p.o, stored], [p.a, 'admin']]);
     const raw = await adminInvitesOwnerAsViewer(c);
     expect((await acceptAsInvitee(p.o, raw)).state.statusCode).toBe(200);
-    await expectOwnerKeptAndAccepted(c);
+    await expectOwnerKeptAndAccepted(c, stored);
   });
 
   it('/api/invitations/<token>/accept: the owner stays owner; the invitation is accepted', async () => {
-    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
+    const c = await company(pool, p, companies, [[p.o, stored], [p.a, 'admin']]);
     const raw = await adminInvitesOwnerAsViewer(c);
     rateKeys.push(`invite-accept-by-ip:ip:${IP}`);
     const accept = (await import('../../pages/api/invitations/[token]/accept')).default;
@@ -95,6 +96,6 @@ describe("an admin's lesser invitation to the last owner, accepted by the owner"
       body: { token: raw, password: PASSWORD }, socket: { remoteAddress: IP },
     } as never, result.res as never);
     expect(result.state.statusCode).toBe(200);
-    await expectOwnerKeptAndAccepted(c);
+    await expectOwnerKeptAndAccepted(c, stored);
   });
 });
