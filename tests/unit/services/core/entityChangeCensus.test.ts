@@ -123,9 +123,10 @@ export function decodeEscapes(sql: string): string {
   const cp = (hex: string) => String.fromCodePoint(parseInt(hex, 16));
   return sql
     .replace(/\bE'((?:[^'\\]|\\.|'')*)'/gi, (_m, body: string) => `'${body
-      .replace(/\\x([0-9a-f]{1,2})/gi, (_x, h: string) => cp(h))
-      .replace(/\\u([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
-      .replace(/\\U([0-9a-f]{8})/g, (_x, h: string) => cp(h))
+      .replace(/\\x([0-9a-fA-F]{1,2})/g, (_x, h: string) => cp(h))
+      // \U before \u, letters case-sensitive (breaker r5 #1: an /i \u rule ate \U's first four digits).
+      .replace(/\\U([0-9a-fA-F]{8})/g, (_x, h: string) => cp(h))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_x, h: string) => cp(h))
       .replace(/\\([0-7]{1,3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)))
       .replace(/\\(.)/g, '$1')}'`)
     // U&'…' / U&"…", with UESCAPE 'c' naming another escape character (security review of d5665093).
@@ -155,8 +156,8 @@ function violates(sql: string): boolean {
     // TRUNCATE fires no row trigger: emptying a tracked table records nothing (breaker r3 #1) — anywhere, a DO block
     // or a function body included (blind r4 N-3) — and TRUNCATE … CASCADE empties every table referencing the named
     // one, tracked tables included (breaker r4). A privilege list (REVOKE …, TRUNCATE ON t … CASCADE) is not one.
-    || new RegExp(String.raw`\btruncate\s+(?!on\b)(?:table\s+)?(?:(?:only\s+)?[\w".]+\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
-    || /\btruncate\s+(?!on\b)(?:table\s+)?(?:only\s+)?[\w".]+[^;]*\bcascade\b/i.test(sql);
+    || new RegExp(String.raw`\btruncate\s+(?!on\b)(?:table\s+)?(?:(?:only\s+)?[\w"]+(?:\s*\.\s*[\w"]+)?\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
+    || /\btruncate\s+(?!on\b)(?:table\s+)?(?:only\s+)?[\w"]+(?:\s*\.\s*[\w"]+)?[^;]*\bcascade\b/i.test(sql);
 }
 
 /**
@@ -167,17 +168,24 @@ function violates(sql: string): boolean {
 export function decodeEverywhere(sql: string): string {
   const cp = (hex: string) => String.fromCodePoint(parseInt(hex, 16));
   return sql
-    .replace(/\\x([0-9a-f]{1,2})/gi, (_x, h: string) => cp(h))
-    .replace(/\\u([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
-    .replace(/\\U([0-9a-f]{8})/g, (_x, h: string) => cp(h))
+    .replace(/\\x([0-9a-fA-F]{1,2})/g, (_x, h: string) => cp(h))
+    .replace(/\\U([0-9a-fA-F]{8})/g, (_x, h: string) => cp(h))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_x, h: string) => cp(h))
     .replace(/\\\+([0-9a-f]{6})/gi, (_x, h: string) => cp(h))
     .replace(/\\([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
     .replace(/\\([0-7]{3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)));
 }
 
-/** What another migration may not do to 888 — judged as written, with its strings' escapes spelled out, and with every escape spelled out. */
+/**
+ * Adjacent string constants separated only by a newline (and whitespace or a `--` comment) are ONE constant to
+ * Postgres's lexer: 'DROP TRIGGER entity'⏎'_change_capture …' (breaker r5 #2). Folded before the other views.
+ */
+export const foldContinuations = (sql: string): string => sql.replace(/'(?:[ \t\f\r]*(?:--[^\n]*)?\n[ \t\f\r]*)+'/g, '');
+
+/** What another migration may not do to 888 — judged as written, folded, with string escapes and with every escape spelled out. */
 export function laterMigrationViolates(sql: string): boolean {
-  return violates(sql) || violates(decodeEscapes(sql)) || violates(decodeEverywhere(sql));
+  const folded = foldContinuations(sql);
+  return [sql, folded, decodeEscapes(folded), decodeEverywhere(folded)].some(violates);
 }
 
 describe('entity change history (census)', () => {
@@ -274,6 +282,11 @@ describe('entity change history (census)', () => {
     // Security review of d5665093: a UESCAPE escape, and switching how plain strings parse.
     `DROP TRIGGER U&"entity!005Fchange_capture" UESCAPE '!' ON public.companies`,
     'SET standard_conforming_strings = off',
+    // Breaker review r5.
+    "EXECUTE E'DROP TRIGGER entity\\U0000005Fchange_capture ON public.customers'",
+    "EXECUTE 'DROP TRIGGER entity'\n'_change_capture ON suppliers'",
+    "EXECUTE 'TRUNC' -- split\n  'ATE gl_accounts'",
+    'TRUNCATE public . widgets, customers',
     // Blind review r5 N-4: a plain string ending in " E" before the escaped one.
     "SELECT 'a E'; DO $$ BEGIN EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'; END $$;",
     "SELECT 'b E'; DROP TRIGGER U&\"entity\\005Fchange_capture\" ON public.companies;",
