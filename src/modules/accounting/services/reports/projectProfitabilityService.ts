@@ -20,13 +20,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ProjectProfitabilityReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
+import type { ProjectBasis } from './projectBasis';
 
-export const PROJECT_BASES = ['jobs', 'cc2'] as const;
-export type ProjectBasis = (typeof PROJECT_BASES)[number];
-
-export function isProjectBasis(v: unknown): v is ProjectBasis {
-  return typeof v === 'string' && (PROJECT_BASES as readonly string[]).includes(v);
-}
 
 interface ReportLineItem {
   accountCode: string;

@@ -11,7 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { getProjectProfitability } from '@/modules/accounting/services/reports/financialReportingService';
-import { isProjectBasis, PROJECT_BASES } from '@/modules/accounting/services/reports/projectProfitabilityService';
+import { isProjectBasis, PROJECT_BASES } from '@/modules/accounting/services/reports/projectBasis';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
