@@ -586,3 +586,82 @@ posts as before.
 - Turning auto-post on is checked in application code; raw SQL as app_user can still flip `bank_auto_post_settings.enabled`.
 - Same boundary as N1 and 876: the objects bind application code paths and app_user statements, not an attacker
   already running arbitrary SQL (who can reset the role or set claims).
+
+---
+## As built: entity change history (forensic-controls step 3, migration 888)
+
+Hein's decisions 2026-10-10 (one batch, every recommendation taken): (1) the full master set; (2) values stored in
+full, masked to the last four for everyone, owner / admin may reveal; (3) read API + per-entity History UI + a
+company-wide page + an MCP read tool; (4) reading follows the entity, payroll from manager up, the feed and
+everything else owner / admin, enforced in RLS too. Retention: until the company is purged.
+
+**Capture is the database's, not the services'.** The census (`entityChangeCensus`, every writer pinned per table)
+found 100+ writer sites — routes, MCP tools, the platform-admin portal, Sage commit, invite acceptance, scripts and
+SECURITY DEFINER functions (881/885, `create_company_with_owner`) — and none recorded old → new values (only
+approval rules, six payroll fields and bank rules had any). So one generic AFTER ROW trigger,
+`entity_change_capture(entity_type)`, ENABLE ALWAYS (it fires under `session_replication_role = replica` too), sits
+on suppliers, customers, gl_accounts, payroll_employees, company_users, company_invitations,
+company_user_permissions, companies, approval_rules and approval_enforcement. It records the row's projection before
+and after, the changed keys, and:
+- **actor** `auth.uid()`, else `db:<login role>`; **channel** `session` / `impersonation` (+ `impersonator` from
+  `impersonation_sessions`) / `token` (claims without `session_id`: MCP, PAT, extension) / `platform_admin` /
+  `system` (no claims); `db_role` (the role the session SET, which a definer does not change — so a write inside
+  881's `approval_enforcement_set` is the person's, `app_user`), `login_role`, `txid`, `recorded_at`.
+- No-op writes record nothing. The projection is every column (a column added later is recorded) minus id /
+  created_at / updated_at and derived or secret ones (`bank_details_setters`, `is_default`, the invitation token
+  and mail state); companies is an allow-list (tax, VAT, bank, year-end, lockdown, currency / FX, Netcash on/off,
+  status, idle timeout), and the two Netcash keys are recorded as a 12-hex sha256 digest, never the key.
+- A row moved between companies is recorded in both; a row deleted by a company purge records nothing (its FK would
+  refuse it).
+
+**Append-only, stronger than 877.** The capture is SECURITY DEFINER, so nobody else needs INSERT: app_user holds
+SELECT only — on every column but `seq` and `txid`, platform-wide counters that would let a member count other
+tenants' writes (review rounds 1–2) — platform_admin nothing, and EXECUTE on the capture and its helpers is the owner's alone (so it cannot
+be attached to a temp table of one's own to forge a row; a trigger fires without an EXECUTE check). A BEFORE INSERT
+guard refuses any insert not made from inside a capture (trigger depth) and stamps seq / clock / txid; BEFORE UPDATE /
+DELETE / TRUNCATE refuse every role's plain statements, the owner's included, except the cascade of a purged company.
+The owner — the role that applied 888, which on production is the app's own login (`deploy.sh` migrates with the app's
+`DATABASE_URL`), not `migration_admin` — can still disable or drop the guards, or forge a row from a trigger of its own
+(trigger depth is met by any trigger): injected SQL that RESETs ROLE can erase history (breaker #696 R7). That is the
+N1/N3 boundary: the same login already owns every tracked table through `migration_admin` and can switch the capture
+off. Closing it needs a history owner the login is not a member of (and, on PG < 16, a superuser to give that role
+BYPASSRLS) — part of N3, not built here. 888 asserts all of
+it — per role, exempting only `session_user` when it inherits the owner (#680) — plus that every tracked table carries
+the capture ENABLE ALWAYS, that no request role holds TRUNCATE on a tracked table (TRUNCATE fires no row trigger),
+and that the capture's owner bypasses RLS (FORCE RLS would otherwise refuse every tracked write).
+
+**Reading.** RLS (`entity_changes_read`): the company GUC and membership, then suppliers / customers / GL accounts
+for any member, payroll employees for owner / admin / manager, the rest for owner / admin. The same rules in
+`entityChangeTypes.ts` (bound to the SQL by test): `GET /api/accounting/entity-changes` (a timeline needs
+`entityType` + `entityId`; without an id it is the feed, owner / admin), `POST /api/accounting/entity-changes-reveal`
+(owner / admin, a person in their own session — Login-as and tokens refused — `audit_log` `export` /
+`entity_change` in the same transaction); paging is newest first by `(recorded_at, id)` with the last change's id as the
+cursor, and a cursor that is not a change of the same history is refused (400 / MCP error), never an empty page; MCP `entity_history` (masked always; `read:payroll` for employees, the
+feed filtered to employees included). UI: History tab on suppliers and customers, Record changes on the employee
+page, a History drawer on every chart-of-accounts row and bank-account card, Accounting → Change History.
+
+**Definer-aware (N1b).** approval_rules / approval_enforcement are written only by 881/885's definers and
+company_users / invitations are judged by 883/886's guards: the capture runs inside those as their owner but
+reads the request's claims, so the person is recorded; the N1b catalogue pins now admit exactly this one AFTER
+trigger on those tables (it writes only entity_changes and returns NULL, so it cannot change a row a guard judged).
+
+**Verified:** integration suites on a disposable fixture (`entity-changes-capture`, `-boundary`, `-routes`; red
+before 888), the census and unit pins, a prod-topology copy (`docs/evidence/entity-change-history/prod-topology-888.txt`:
+owner `migration_admin` non-superuser, deploy role non-superuser BYPASSRLS; the tripwire refuses a second member of
+the owner), the mutation proof (`mutation-proof.txt`), browser screenshots. On the prod-topology copy the tables 888 alters are owned by
+`migration_admin`; `entity_changes` and the capture are owned by the applying (deploy) role.
+
+**Known limits.** The N1 boundary (raw SQL that RESETs ROLE or forges claims — N3). History starts at deploy. Writes
+with no claims (invite acceptance on the migration_admin pool, provisioning, scripts) are `db:<role>` / `system` — the
+new member is in the row itself. `payroll_bank_details` is untracked (no company_id, no app writer). Names resolve
+only for current members (`approval_company_member_name`); a platform admin behind Login-as shows as an id. Readers
+order by `recorded_at` (the database clock at capture), not the hidden platform-wide `seq`: a backwards clock step on
+the server could show two changes in the wrong order (no tie or reversal was seen in 12 000 captured rows). Cost: about
+0.4 ms per tracked row written (a 5 000-row bulk insert or update takes ~2 s instead of ~0.1 s), so the Sage, chart and
+customer imports slow down and write a history row per row.
+
+**Open for Hein (review of PR #696, M2): erasure.** The history keeps a deleted employee's ID, passport and tax numbers,
+date of birth and equity fields, and a deleted supplier's bank account, in full (masked on screen) until the company is
+purged; nothing can erase one person's rows short of owner DDL. Retention of accounting and payroll records is a legal
+obligation for years, which this serves; whether POPIA needs a per-person redaction path (owner-run, audited) is a
+product decision, not built here.

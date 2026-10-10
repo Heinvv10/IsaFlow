@@ -130,6 +130,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/trial-balance') ||
     pathname.startsWith('/accounting/opening-balances') ||
     pathname.startsWith('/accounting/audit-log') ||
+    pathname.startsWith('/accounting/change-history') ||
     pathname.startsWith('/accounting/assets') ||
     pathname.startsWith('/accounting/depreciation') ||
     pathname.startsWith('/accounting/cost-centres') ||

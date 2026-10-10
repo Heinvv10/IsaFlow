@@ -40,6 +40,7 @@ import { vatExceptionsTool } from './tools/vatExceptions';
 import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
+import { entityHistoryTool } from './tools/entityHistory';
 import {
   listDocumentsTool,
   getDocumentTool,
@@ -184,6 +185,8 @@ export const MCP_TOOLS = [
   // Governance (W5). audit_trail supersedes list_agent_postings, which stays
   // registered: it is on the wire and agents are mid-flight against it.
   auditTrailTool,
+  // Forensic-controls step 3: master-data change history (migration 888).
+  entityHistoryTool,
   listDocumentsTool,
   getDocumentTool,
   listUnsupportedTransactionsTool,

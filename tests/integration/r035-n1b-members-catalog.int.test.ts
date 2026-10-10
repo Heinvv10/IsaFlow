@@ -3,7 +3,8 @@
  * against whatever DATABASE_URL names; it skips only without a database.
  *
  *  - each table carries exactly its guard: one enabled BEFORE INSERT OR
- *    UPDATE OR DELETE row trigger (and no rewrite rule);
+ *    UPDATE OR DELETE row trigger (and no rewrite rule) — plus, since 888,
+ *    the change-history capture (AFTER, writes only entity_changes);
  *  - the guards, the role lookup and the owner predicate they share are the
  *    bodies 883 and 886 ship (md5) and SECURITY INVOKER — the guard judges
  *    `current_user`, which a DEFINER would replace with its owner;
@@ -45,7 +46,12 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     const { rows } = await pool.query(`
       SELECT t.tgname, t.tgfoid::regprocedure::text AS fn, t.tgenabled, t.tgtype FROM pg_trigger t
       WHERE t.tgrelid = $1::regclass AND NOT t.tgisinternal`, [`public.${table}`]);
-    expect(rows, NOT_APPLIED).toEqual([{ tgname: `${table}_role_guard`, fn: `${table}_role_guard()`, tgenabled: 'O', tgtype: 31 }]);
+    // ...and, since 888, the change-history capture: AFTER INSERT OR UPDATE OR DELETE FOR EACH ROW (29), ENABLE
+    // ALWAYS, writing only entity_changes and returning NULL — it cannot change a row the guard judged.
+    expect(rows.sort((x, y) => x.tgname.localeCompare(y.tgname)), NOT_APPLIED).toEqual([
+      { tgname: `${table}_role_guard`, fn: `${table}_role_guard()`, tgenabled: 'O', tgtype: 31 },
+      { tgname: 'entity_change_capture', fn: 'entity_change_capture()', tgenabled: 'A', tgtype: 29 },
+    ].sort((x, y) => x.tgname.localeCompare(y.tgname)));
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });
 
