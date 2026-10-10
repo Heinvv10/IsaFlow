@@ -17,6 +17,7 @@ import {
 import { EmployeeTerminationCard } from '@/components/payroll/EmployeeTerminationCard';
 import { CostCentreAssignmentCard } from '@/components/payroll/CostCentreAssignmentCard';
 import { EmployeeHistoryCard } from '@/components/payroll/EmployeeHistoryCard';
+import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { PayScaleCard } from '@/components/payroll/PayScaleCard';
 import { ApplyPackageCard } from '@/components/payroll/ApplyPackageCard';
 import { OccupationalLevelCard } from '@/components/payroll/OccupationalLevelCard';
@@ -252,6 +253,13 @@ export default function EmployeeDetailPage() {
             {employeeId && <EmployeeTerminationCard employeeId={employeeId} endDate={employee.endDate ?? null} />}
 
             {employeeId && <EmployeeHistoryCard employeeId={employeeId} />}
+
+            {employeeId && (
+              <section className="space-y-2" data-testid="employee-change-history">
+                <h3 className="text-sm font-semibold text-[var(--ff-text-primary)]">Record changes (who changed what)</h3>
+                <EntityHistoryTimeline entityType="payroll_employee" entityId={employeeId} />
+              </section>
+            )}
             </>
           )}
         </div>

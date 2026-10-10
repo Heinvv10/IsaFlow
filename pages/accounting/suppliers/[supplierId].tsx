@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
+import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 
 interface Supplier {
   id: string;
@@ -30,7 +31,7 @@ interface Supplier {
   created_at: string;
 }
 
-type Tab = 'overview' | 'contacts' | 'activity' | 'rules';
+type Tab = 'overview' | 'contacts' | 'activity' | 'history' | 'rules';
 
 export default function SupplierDetailPage() {
   const router = useRouter();
@@ -127,6 +128,7 @@ export default function SupplierDetailPage() {
     { id: 'overview',  label: 'Overview'  },
     { id: 'contacts',  label: 'Contacts'  },
     { id: 'activity',  label: 'Activity'  },
+    { id: 'history',   label: 'History'   },
     { id: 'rules',     label: 'Coding Rules' },
   ];
 
@@ -223,6 +225,8 @@ export default function SupplierDetailPage() {
           {activeTab === 'activity' && (
             <ActivityTab supplierId={supplier.id} />
           )}
+
+          {activeTab === 'history' && <EntityHistoryTimeline entityType="supplier" entityId={supplier.id} />}
 
           {activeTab === 'rules' && typeof supplierId === 'string' && (
             <div className="flex flex-col items-start gap-3">
