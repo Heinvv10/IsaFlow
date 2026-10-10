@@ -4,7 +4,7 @@
 # core/entityChanges/
 
 ## Purpose
-Reading the master-data change history migration 890 records (forensic-controls step 3, Hein's decisions
+Reading the master-data change history migration 888 records (forensic-controls step 3, Hein's decisions
 2026-10-10). The DATABASE captures: one SECURITY DEFINER AFTER ROW trigger, `entity_change_capture`, ENABLE
 ALWAYS, on suppliers, customers, gl_accounts, payroll_employees, company_users, company_invitations,
 company_user_permissions, companies (tax / VAT / bank / year-end / lockdown / FX / status columns only),
@@ -14,10 +14,10 @@ capture to call and none to forget.
 ## Caller contract
 - `listEntityChanges(companyId, { types, entityType?, entityId?, before?, limit? })` — runs as the request's
   app_user (RLS binds tenant + role); pass `types` from `mayReadType` so a narrower reader asks for no more than
-  they may see. Newest first; `nextCursor` is the last row's `seq`.
+  they may see. Newest first; `nextCursor` is the last change's id (never the platform-wide `seq`).
 - `revealEntityChange(companyId, changeId, actor)` — owner / admin only (the ROUTE checks the role and a human
   session); writes `audit_log` (`export`, `entity_change`) in the same transaction when anything masked is revealed.
-- `entityChangeTypes.ts` states 890's rules once (types, channels, who reads what); `entityChangeTypes.test.ts`
+- `entityChangeTypes.ts` states 888's rules once (types, channels, who reads what); `entityChangeTypes.test.ts`
   binds it to the migration's SQL.
 
 ## Business rules
@@ -39,7 +39,7 @@ capture to call and none to forget.
 ## Known limits
 - Same boundary as N1/876/877: raw SQL that RESETs ROLE or forges the claims GUC is not stopped (N3).
 - History starts at deploy; earlier changes were never recorded. TRUNCATE of a tracked table records nothing
-  (no request role holds TRUNCATE on them; 890 asserts it).
+  (no request role holds TRUNCATE on them; 888 asserts it).
 - Writes with no claims (invite acceptance, provisioning, scripts) record `db:<role>` — the person is in the row.
 - `payroll_bank_details` is untracked (no company_id, no app writer).
 - The owner of `entity_changes` / the capture is the applying role — on production the app's own login — and can disable
@@ -47,7 +47,7 @@ capture to call and none to forget.
 - ~0.4 ms per tracked row written; bulk imports write one history row per row.
 
 ## Related
-Migration 890; routes `pages/api/accounting/entity-changes.ts`, `entity-changes-reveal.ts`; MCP
+Migration 888; routes `pages/api/accounting/entity-changes.ts`, `entity-changes-reveal.ts`; MCP
 `src/lib/mcp/tools/entityHistory.ts`; UI `src/components/accounting/entity-history/`; census
 `tests/unit/services/core/entityChangeCensus.test.ts` (every writer per table pinned); evidence
 `docs/evidence/entity-change-history/`.

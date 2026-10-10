@@ -1,5 +1,5 @@
 /**
- * Migration 890 — what the database records of a master-data write, whoever
+ * Migration 888 — what the database records of a master-data write, whoever
  * writes it: one entity_changes row per write that changes the row's
  * projection, with before / after, the changed keys, the actor and the
  * channel. Raw SQL as each channel runs it; the routes and MCP are covered by

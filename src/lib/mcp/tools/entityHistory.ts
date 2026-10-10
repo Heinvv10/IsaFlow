@@ -1,5 +1,5 @@
 /**
- * MCP read tool: entity_history — the master-data change history migration 890
+ * MCP read tool: entity_history — the master-data change history migration 888
  * records (forensic-controls step 3). Read-only, always masked (Hein's
  * decisions 2 and 3, 2026-10-10: no reveal over MCP). The same reading rules
  * as the route and RLS: one entity's timeline for whoever may read that type,
@@ -34,7 +34,7 @@ export const entityHistoryTool: McpTool = {
     + 'entity_id needs entity_type. Without entity_id this is the company-wide feed (optionally one entity_type), owner / '
     + 'admin only. Members, invitations, permissions, company settings, approval rules and switches: owner / admin; '
     + 'employees: owner / admin / manager with the read:payroll scope; suppliers and customers need read:contacts (the '
-    + 'feed leaves out any type a scope is missing for). History starts when migration 890 was deployed; '
+    + 'feed leaves out any type a scope is missing for). History starts when migration 888 was deployed; '
     + 'earlier changes were not recorded. Bank rules have their own history (list_bank_rules). '
     + `Paginate with next_cursor; at most ${MAX_PAGE} rows per page.`,
   scope: 'read:reports',

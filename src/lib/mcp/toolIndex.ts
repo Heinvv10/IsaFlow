@@ -185,7 +185,7 @@ export const MCP_TOOLS = [
   // Governance (W5). audit_trail supersedes list_agent_postings, which stays
   // registered: it is on the wire and agents are mid-flight against it.
   auditTrailTool,
-  // Forensic-controls step 3: master-data change history (migration 890).
+  // Forensic-controls step 3: master-data change history (migration 888).
   entityHistoryTool,
   listDocumentsTool,
   getDocumentTool,

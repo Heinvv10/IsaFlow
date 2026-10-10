@@ -1,4 +1,4 @@
--- 890: Entity change history (forensic-controls rebuild, step 3; Hein's
+-- 888: Entity change history (forensic-controls rebuild, step 3; Hein's
 -- decisions 2026-10-10). Every write that lands on a master-data row records
 -- one append-only entity_changes row with the row's before and after, who did
 -- it and through which channel — whoever writes: a withAuth route, an MCP
@@ -230,7 +230,8 @@ AS $$
          'netcash_enabled', 'status', 'is_active', 'idle_timeout_minutes',
          -- Where customers are told to pay, and the addresses and mail that carry it
          -- (breaker #696 R1): a changed "pay into" line is as material as the account.
-         'portal_payment_instructions', 'email', 'billing_email', 'email_always_cc', 'email_use_for_communication',
+         'portal_payment_instructions', 'portal_allow_payments', 'portal_welcome_message', 'email', 'billing_email',
+         'phone', 'mobile', 'email_always_cc', 'email_use_for_communication',
          'invoice_email_subject', 'invoice_email_body', 'invoice_email_signature',
          'quote_email_subject', 'quote_email_body', 'quote_email_signature',
          'statement_email_subject', 'statement_email_body', 'statement_email_signature',
@@ -423,17 +424,17 @@ BEGIN
   LOOP
     FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER'] LOOP
       IF pg_catalog.has_table_privilege(v_role, 'public.entity_changes', v_priv) THEN
-        RAISE EXCEPTION 'migration 890: % still holds % on entity_changes', v_role, v_priv;
+        RAISE EXCEPTION 'migration 888: % still holds % on entity_changes', v_role, v_priv;
       END IF;
     END LOOP;
     FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE'] LOOP
       IF pg_catalog.has_any_column_privilege(v_role, 'public.entity_changes', v_priv) THEN
-        RAISE EXCEPTION 'migration 890: % still holds column % on entity_changes', v_role, v_priv;
+        RAISE EXCEPTION 'migration 888: % still holds column % on entity_changes', v_role, v_priv;
       END IF;
     END LOOP;
   END LOOP;
   IF NOT pg_catalog.has_table_privilege('app_user', 'public.entity_changes', 'SELECT') THEN
-    RAISE EXCEPTION 'migration 890: app_user cannot read entity_changes';
+    RAISE EXCEPTION 'migration 888: app_user cannot read entity_changes';
   END IF;
 
   -- A TRUNCATE fires no row trigger: no request role may erase a tracked
@@ -445,7 +446,7 @@ BEGIN
       ('approval_enforcement')) x(tbl) LOOP
     FOREACH v_role IN ARRAY ARRAY['app_user', 'platform_admin', 'public'] LOOP
       IF pg_catalog.has_table_privilege(v_role, 'public.' || v_table, 'TRUNCATE') THEN
-        RAISE EXCEPTION 'migration 890: % may TRUNCATE % (no history would be recorded)', v_role, v_table;
+        RAISE EXCEPTION 'migration 888: % may TRUNCATE % (no history would be recorded)', v_role, v_table;
       END IF;
     END LOOP;
     IF NOT EXISTS (
@@ -453,12 +454,12 @@ BEGIN
       WHERE t.tgrelid = ('public.' || v_table)::pg_catalog.regclass AND t.tgname = 'entity_change_capture'
         AND t.tgenabled = 'A' AND t.tgfoid = 'public.entity_change_capture()'::pg_catalog.regprocedure
     ) THEN
-      RAISE EXCEPTION 'migration 890: % has no ENABLE ALWAYS entity_change_capture trigger', v_table;
+      RAISE EXCEPTION 'migration 888: % has no ENABLE ALWAYS entity_change_capture trigger', v_table;
     END IF;
   END LOOP;
   IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_trigger t
       WHERE t.tgrelid = 'public.entity_changes'::pg_catalog.regclass AND NOT t.tgisinternal AND t.tgenabled = 'A') <> 3 THEN
-    RAISE EXCEPTION 'migration 890: entity_changes must carry exactly its three ENABLE ALWAYS guards';
+    RAISE EXCEPTION 'migration 888: entity_changes must carry exactly its three ENABLE ALWAYS guards';
   END IF;
 
   -- FORCE RLS binds the capture's owner too: one without BYPASSRLS would be
@@ -467,7 +468,7 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
     WHERE p.oid = 'public.entity_change_capture()'::pg_catalog.regprocedure AND p.prosecdef AND (r.rolbypassrls OR r.rolsuper)
   ) THEN
-    RAISE EXCEPTION 'migration 890: entity_change_capture must be SECURITY DEFINER with an owner that bypasses RLS';
+    RAISE EXCEPTION 'migration 888: entity_change_capture must be SECURITY DEFINER with an owner that bypasses RLS';
   END IF;
   FOREACH v_fn IN ARRAY ARRAY[
       'public.entity_change_capture()', 'public.entity_change_projection(pg_catalog.text,pg_catalog.jsonb)',
@@ -478,7 +479,7 @@ BEGIN
       WHERE p.oid = v_fn::pg_catalog.regprocedure
         AND p.proconfig[pg_catalog.array_upper(p.proconfig, 1)] ~ '^search_path=.*pg_temp$'
     ) THEN
-      RAISE EXCEPTION 'migration 890: % must pin search_path with pg_temp last', v_fn;
+      RAISE EXCEPTION 'migration 888: % must pin search_path with pg_temp last', v_fn;
     END IF;
     FOR v_role IN
       SELECT r.rolname FROM pg_catalog.pg_roles r
@@ -489,7 +490,7 @@ BEGIN
       UNION ALL SELECT 'public'
     LOOP
       IF pg_catalog.has_function_privilege(v_role, v_fn, 'EXECUTE') THEN
-        RAISE EXCEPTION 'migration 890: % may execute %', v_role, v_fn;
+        RAISE EXCEPTION 'migration 888: % may execute %', v_role, v_fn;
       END IF;
     END LOOP;
   END LOOP;

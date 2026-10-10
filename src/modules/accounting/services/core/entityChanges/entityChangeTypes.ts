@@ -1,5 +1,5 @@
 /**
- * Entity change history (forensic-controls step 3, migration 890): the types,
+ * Entity change history (forensic-controls step 3, migration 888): the types,
  * and who may read what — the same rules entity_changes' RLS policy enforces
  * (entity_changes_read), stated once here for the routes, the MCP tool and the
  * UI. Pinned to the migration by entityChangeTypes.test.ts.

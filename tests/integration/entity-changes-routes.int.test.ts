@@ -89,7 +89,7 @@ describe('a supplier timeline', () => {
     expect((await get(a, c, { entityType: 'supplier', entityId: s, before: '9999999999999999999' })).state.statusCode).toBe(422);
     const mcp = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: '42' },
       ['read:reports', 'read:contacts']);
-    expect(mcp.isError).toBe(true);
+    expect(mcp).toMatchObject({ isError: true, content: [{ text: 'invalid cursor' }] }); // blind r2 L-5: the uuid guard, not a SQL error
     // Another company's change id is no cursor here: the page is empty, never theirs.
     const other = await company();
     const theirs = (await page(o, other, { entityType: 'company_user' })).items[0]!.id;
