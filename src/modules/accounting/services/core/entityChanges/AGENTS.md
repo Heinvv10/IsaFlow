@@ -39,6 +39,9 @@ capture to call and none to forget.
   (no request role holds TRUNCATE on them; 890 asserts it).
 - Writes with no claims (invite acceptance, provisioning, scripts) record `db:<role>` — the person is in the row.
 - `payroll_bank_details` is untracked (no company_id, no app writer).
+- The owner of `entity_changes` / the capture (the applying deploy role) can disable or drop the guards — outside the
+  boundary. No per-person erasure: a deleted entity's values stay until the company is purged (Hein to decide, #696 M2).
+- ~0.4 ms per tracked row written; bulk imports write one history row per row.
 
 ## Related
 Migration 890; routes `pages/api/accounting/entity-changes.ts`, `entity-changes-reveal.ts`; MCP

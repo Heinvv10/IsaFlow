@@ -20,13 +20,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  ENTITY_TYPES, isHistoryAdmin, mayReadType,
+  ENTITY_TYPES, isHistoryAdmin, isSeqCursor, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 
 const Query = z.object({
   entityType: z.enum(ENTITY_TYPES).optional(),
   entityId: UUID.optional(),
-  before: z.string().regex(/^[1-9][0-9]{0,18}$/).optional(),
+  before: z.string().refine(isSeqCursor, 'before must be a cursor from a previous page').optional(),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
 });
 

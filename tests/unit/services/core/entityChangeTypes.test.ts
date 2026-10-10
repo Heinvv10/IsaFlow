@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../../helpers/sourceCensus';
 import {
-  ADMIN_ROLES, CHANNELS, ENTITY_TYPES, isHistoryAdmin, mayReadType,
+  ADMIN_ROLES, CHANNELS, ENTITY_TYPES, isHistoryAdmin, isSeqCursor, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { changeFields, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { entityLabel } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
@@ -45,10 +45,33 @@ describe('890 and its TypeScript agree', () => {
   });
 
   it('a masked field is never one the projection drops', () => {
-    const dropped = ['id', 'created_at', 'updated_at', 'bank_details_setters', 'is_default', 'token'];
+    const projection = /CREATE OR REPLACE FUNCTION public\.entity_change_projection[\s\S]*?\n\$\$;/.exec(SQL)![0];
+    const dropped = quoted(projection.slice(projection.indexOf('ELSE p_row')));
+    expect(dropped).toEqual(expect.arrayContaining(['id', 'created_at', 'updated_at', 'bank_details_setters', 'token']));
     for (const fields of Object.values(SENSITIVE_FIELDS)) for (const f of fields) expect(dropped).not.toContain(f);
     const companyAllow = /e\.key = ANY \(ARRAY\[([\s\S]*?)\]::pg_catalog\.text\[\]\)/.exec(SQL)![1]!;
     for (const f of SENSITIVE_FIELDS.company) expect(quoted(companyAllow)).toContain(f);
+  });
+
+  // Hein's decision 2: exactly these are masked (blind review L3 — dropping one must fail here).
+  it('masks exactly the bank account and ID / tax numbers', () => {
+    expect(SENSITIVE_FIELDS).toEqual({
+      supplier: ['bank_account_number'],
+      customer: [],
+      gl_account: ['bank_account_number'],
+      payroll_employee: ['id_number', 'passport_number', 'tax_number', 'tax_directive_number', 'uif_number'],
+      company_user: [],
+      company_invitation: [],
+      company_user_permission: [],
+      company: ['bank_account_number', 'tax_number', 'paye_reference_number', 'sdl_reference_number', 'uif_reference_number'],
+      approval_rule: [],
+      approval_enforcement: [],
+    });
+  });
+
+  it('a page cursor is a seq that fits a BIGINT', () => {
+    for (const ok of ['1', '42', '9223372036854775807']) expect(isSeqCursor(ok), ok).toBe(true);
+    for (const bad of ['0', '-1', '01', '1.5', '9223372036854775808', '9999999999999999999', '']) expect(isSeqCursor(bad), bad).toBe(false);
   });
 });
 

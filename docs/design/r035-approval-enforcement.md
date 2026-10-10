@@ -618,7 +618,10 @@ and after, the changed keys, and:
 SELECT only, platform_admin nothing, and EXECUTE on the capture and its helpers is the owner's alone (so it cannot
 be attached to a temp table of one's own to forge a row; a trigger fires without an EXECUTE check). A BEFORE INSERT
 guard refuses any insert not made from inside a capture (trigger depth) and stamps seq / clock / txid; BEFORE UPDATE /
-DELETE / TRUNCATE refuse every role, the owner included, except the cascade of a purged company. 890 asserts all of
+DELETE / TRUNCATE refuse every role's plain statements, the owner's included, except the cascade of a purged company.
+The owner — the role that applied 890, the deploy role on production, not `migration_admin` — can still disable or
+drop the guards, or forge a row from a trigger of its own (trigger depth is met by any trigger): it is outside the
+boundary, with N3. 890 asserts all of
 it — per role, exempting only `session_user` when it inherits the owner (#680) — plus that every tracked table carries
 the capture ENABLE ALWAYS, that no request role holds TRUNCATE on a tracked table (TRUNCATE fires no row trigger),
 and that the capture's owner bypasses RLS (FORCE RLS would otherwise refuse every tracked write).
@@ -640,9 +643,18 @@ trigger on those tables (it writes only entity_changes and returns NULL, so it c
 **Verified:** integration suites on a disposable fixture (`entity-changes-capture`, `-boundary`, `-routes`; red
 before 890), the census and unit pins, a prod-topology copy (`docs/evidence/entity-change-history/prod-topology-890.txt`:
 owner `migration_admin` non-superuser, deploy role non-superuser BYPASSRLS; the tripwire refuses a second member of
-the owner), the mutation proof (`mutation-proof.txt`), browser screenshots.
+the owner), the mutation proof (`mutation-proof.txt`), browser screenshots. On the prod-topology copy the tables 890 alters are owned by
+`migration_admin`; `entity_changes` and the capture are owned by the applying (deploy) role.
 
 **Known limits.** The N1 boundary (raw SQL that RESETs ROLE or forges claims — N3). History starts at deploy. Writes
 with no claims (invite acceptance on the migration_admin pool, provisioning, scripts) are `db:<role>` / `system` — the
 new member is in the row itself. `payroll_bank_details` is untracked (no company_id, no app writer). Names resolve
-only for current members (`approval_company_member_name`); a platform admin behind Login-as shows as an id.
+only for current members (`approval_company_member_name`); a platform admin behind Login-as shows as an id. Cost: about
+0.4 ms per tracked row written (a 5 000-row bulk insert or update takes ~2 s instead of ~0.1 s), so the Sage, chart and
+customer imports slow down and write a history row per row.
+
+**Open for Hein (review of PR #696, M2): erasure.** The history keeps a deleted employee's ID, passport and tax numbers,
+date of birth and equity fields, and a deleted supplier's bank account, in full (masked on screen) until the company is
+purged; nothing can erase one person's rows short of owner DDL. Retention of accounting and payroll records is a legal
+obligation for years, which this serves; whether POPIA needs a per-person redaction path (owner-run, audited) is a
+product decision, not built here.
