@@ -18,7 +18,7 @@ import {
   costCentreSlot,
   placeCostCentres,
 } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
-import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { PreWriteDimensionRefusal, isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const FNO = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -69,10 +69,11 @@ describe('costCentreSlot — a stored posting (AP): a CC2 pick brings its FNO', 
     expect(costCentreSlot(PRJ, under(FNO), {})).toEqual({ kind: 'cc2', cc1Id: FNO });
     expect(costCentreSlot(ORPHAN, under(null), {})).toEqual({ kind: 'cc2' });
   });
-  it('a CC1 on the line: the project is placed only when its FNO is that CC1', () => {
+  it('a CC1 on the line: the project is placed unless its FNO is ANOTHER CC1', () => {
     expect(costCentreSlot(PRJ, under(FNO), { cc1Id: FNO.toUpperCase() })).toEqual({ kind: 'cc2' });
     expect(costCentreSlot(PRJ, under(FNO), { cc1Id: FNO2 })).toEqual({ kind: 'drop', reason: 'conflict' });
-    expect(costCentreSlot(ORPHAN, under(null), { cc1Id: FNO })).toEqual({ kind: 'drop', reason: 'conflict' });
+    // A project with no FNO contradicts no CC1: placed, as derivation leaves that pair on a new line (round 5).
+    expect(costCentreSlot(ORPHAN, under(null), { cc1Id: FNO })).toEqual({ kind: 'cc2' });
   });
   it('the line\'s own project still wins', () => {
     expect(costCentreSlot(PRJ, under(FNO), { cc2Id: PRJ2 })).toEqual({ kind: 'drop', reason: 'occupied' });
@@ -166,9 +167,13 @@ describe('placeCostCentres', () => {
     expect([foreign!.message, foreign!.lineIndex]).toEqual([COST_CENTRE_OUTSIDE_COMPANY, 1]);
     const untyped = await refusal([line({}), line({}), line({ costCenterId: UNTYPED })]);
     expect([untyped!.message, untyped!.lineIndex]).toEqual([COST_CENTRE_NOT_A_CC1_OR_CC2, 2]);
+    expect(foreign).toBeInstanceOf(PreWriteDimensionRefusal);
     sqlMock.mockClear();
-    const malformed = await refusal([line({ costCenterId: 'not-a-uuid' })]);
-    expect([malformed!.message, malformed!.lineIndex]).toEqual([COST_CENTRE_OUTSIDE_COMPANY, 0]);
+    // Not a UUID, or not even a string (a request body or a stored template can hold anything): refused, never a TypeError.
+    for (const pick of ['not-a-uuid', [FNO], 7, { id: FNO }]) {
+      const malformed = await refusal([line({}), { ...line({}), costCenterId: pick }]);
+      expect([malformed!.message, malformed!.lineIndex], JSON.stringify(pick)).toEqual([COST_CENTRE_OUTSIDE_COMPANY, 1]);
+    }
     expect(sqlMock).not.toHaveBeenCalled();
   });
 

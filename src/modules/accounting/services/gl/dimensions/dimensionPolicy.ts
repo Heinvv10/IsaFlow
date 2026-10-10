@@ -15,7 +15,7 @@
 import { sql } from '@/lib/neon';
 import { canonicalSubtype, rawSubtypesFor } from '../accountSubtypes';
 import type { GLEntrySource, JournalLineInput } from '../../../types/gl.types';
-import { DimensionRefusal, hasDimensions, type DimensionIds } from './dimensionTypes';
+import { DimensionRefusal, PreWriteDimensionRefusal, hasDimensions, isDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveLineDimensions } from './dimensionDerivation';
 import { assertJournalAnalysisDimensions } from '../journalCostCentreValidation';
 
@@ -54,6 +54,28 @@ export async function applyJournalDimensionPolicy(
 ): Promise<JournalLineInput[]> {
   assertNoSettlementDimensions(source, lines);
   return deriveLineDimensions(companyId, lines);
+}
+
+/**
+ * The dimension checks createJournalEntry will run on a NEW journal, for a
+ * caller that must refuse BEFORE its first write (a recurring run claims its
+ * schedule first; a route may only answer 4xx for a request that wrote
+ * nothing). Every refusal — a settlement carrying dimensions, a project under
+ * another FNO, an inactive or foreign CC1 / CC2 / BU, an inactive FNO derived
+ * from an active project — is a PreWriteDimensionRefusal. createJournalEntry
+ * raises the last kind as a plain Error, which no route can tell from a fault.
+ */
+export async function assertNewJournalDimensions(
+  companyId: string,
+  source: GLEntrySource | undefined,
+  lines: JournalLineInput[],
+): Promise<void> {
+  try {
+    await assertDocumentDimensions(companyId, await applyJournalDimensionPolicy(companyId, source, lines));
+  } catch (err) {
+    if (isDimensionRefusal(err)) throw new PreWriteDimensionRefusal(err.message);
+    throw err;
+  }
 }
 
 /**

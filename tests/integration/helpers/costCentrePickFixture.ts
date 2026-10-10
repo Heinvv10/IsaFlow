@@ -3,7 +3,8 @@
  * the late-claim fixture company with a route user, an employee and a
  * reimbursement account, plus the centres the rule tells apart —
  *   FT, HT: active CC1s · PH: a project under HT · OLD: an inactive CC1 ·
- *   UNT: an untyped centre · FX: another company's CC1.
+ *   UNT: an untyped centre · FX: another company's CC1 · ORPH: a project with
+ *   no FNO (no parent) · PI: an active project under the inactive OLD.
  */
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
@@ -19,13 +20,13 @@ export interface PickFixture {
   reimbursementId: string;
   employeeId: string;
   otherCompany: string;
-  FT: string; HT: string; PH: string; INACTIVE: string; UNTYPED: string; FOREIGN: string;
+  FT: string; HT: string; PH: string; INACTIVE: string; UNTYPED: string; FOREIGN: string; ORPHAN: string; PI: string;
 }
 
 export async function seedPickFixture(prefix: string, databaseUrl: string): Promise<PickFixture> {
   const fx = await seedLateFixture(prefix, databaseUrl);
   const token = await seedRouteUser(fx, prefix.toLowerCase());
-  const [FT, HT, PH, INACTIVE, UNTYPED, FOREIGN, employeeId, otherCompany] = Array.from({ length: 8 }, () => randomUUID());
+  const [FT, HT, PH, INACTIVE, UNTYPED, FOREIGN, ORPHAN, PI, employeeId, otherCompany] = Array.from({ length: 10 }, () => randomUUID());
   await sql`INSERT INTO companies (id, name) VALUES (${otherCompany}::UUID, ${`${prefix} other ${fx.tag}`})`;
   await sql`
     INSERT INTO cost_centres (id, company_id, code, name, cc_type, parent_id, is_active) VALUES
@@ -34,6 +35,8 @@ export async function seedPickFixture(prefix: string, databaseUrl: string): Prom
       (${PH}::UUID, ${fx.companyId}::UUID, 'PH', 'Project under HT', 'cc2', ${HT}::UUID, true),
       (${INACTIVE}::UUID, ${fx.companyId}::UUID, 'OLD', 'Withdrawn', 'cc1', NULL, false),
       (${UNTYPED}::UUID, ${fx.companyId}::UUID, 'UNT', 'Untyped', NULL, NULL, true),
+      (${ORPHAN}::UUID, ${fx.companyId}::UUID, 'ORPH', 'Project with no FNO', 'cc2', NULL, true),
+      (${PI}::UUID, ${fx.companyId}::UUID, 'PI', 'Project under the inactive OLD', 'cc2', ${INACTIVE}::UUID, true),
       (${FOREIGN}::UUID, ${otherCompany}::UUID, 'FX', 'Other company', 'cc1', NULL, true)`;
   const reimbursementId = String(((await sql`
     INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype,
@@ -44,7 +47,7 @@ export async function seedPickFixture(prefix: string, databaseUrl: string): Prom
   await sql`
     INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, employment_type, start_date, status)
     VALUES (${employeeId}::UUID, ${fx.companyId}::UUID, ${`${prefix}-${Date.now() % 1e9}`}, 'Pick', 'Slot', 'permanent', CURRENT_DATE, 'active')`;
-  return { fx, token, reimbursementId, employeeId, otherCompany, FT, HT, PH, INACTIVE, UNTYPED, FOREIGN };
+  return { fx, token, reimbursementId, employeeId, otherCompany, FT, HT, PH, INACTIVE, UNTYPED, FOREIGN, ORPHAN, PI };
 }
 
 export async function dropPickFixture(p: PickFixture | undefined): Promise<void> {

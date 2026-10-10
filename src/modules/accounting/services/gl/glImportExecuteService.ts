@@ -14,6 +14,8 @@ import { ledgerDaysOf } from './journalDateGuard';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 import { CostCentrePickRefusal, placeCostCentres } from './dimensions/costCentrePick';
+import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
+import { PreWriteDimensionRefusal } from './dimensions/dimensionTypes';
 type Row = DbRow;
 
 /**
@@ -40,10 +42,12 @@ export class ImportValidationError extends Error {
  */
 async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
   try {
-    return (await placeCostCentres(companyId, lines)).lines;
+    const placed = (await placeCostCentres(companyId, lines)).lines;
+    await assertNewJournalDimensions(companyId, 'auto_gl_import', placed); // e.g. a project under an inactive FNO
+    return placed;
   } catch (err) {
-    if (!(err instanceof CostCentrePickRefusal)) throw err;
-    const row = rows[err.lineIndex]!;
+    if (!(err instanceof PreWriteDimensionRefusal)) throw err;
+    const row = err instanceof CostCentrePickRefusal ? rows[err.lineIndex]! : rows.find((r) => r.costCentre) ?? rows[0]!;
     throw new ImportValidationError(
       `Import row "${row.description}" (${row.date}): cost centre "${row.costCentre ?? ''}" cannot be used — ${err.message}`,
     );

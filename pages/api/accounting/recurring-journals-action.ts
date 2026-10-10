@@ -17,7 +17,7 @@ import {
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
-import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 /** Detect by SQLSTATE + constraint name; pg localises and rewords messages. */
 function isDuplicateEntryNumber(err: unknown): boolean {
@@ -81,8 +81,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');
       return apiResponse.badRequest(res, err.message);
     }
-    // A template line's cost centre cannot be used: refused before the run is claimed (nothing written).
-    if (err instanceof CostCentrePickRefusal) return apiResponse.badRequest(res, err.message);
+    // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
+    if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
     // A duplicate entry_number is the other transient refusal, and it belongs
     // with the 409 rather than the 500 for exactly the same reason: the same
     // request succeeds on retry. `generate_journal_entry_number` computes

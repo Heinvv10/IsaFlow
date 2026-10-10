@@ -33,6 +33,7 @@ import {
   COST_CENTRE_NOT_A_CC1_OR_CC2,
   COST_CENTRE_OUTSIDE_COMPANY,
 } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx, seedBankTx } from './helpers/l1FifoFixture';
 import { countRows, type LateFixture } from './helpers/vatLateClaimFixture';
@@ -91,10 +92,13 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
     const before = await countRows(fx);
     await expect(postClaim(untyped)).rejects.toThrow(COST_CENTRE_NOT_A_CC1_OR_CC2);
     await expect(postClaim(foreign)).rejects.toThrow(COST_CENTRE_OUTSIDE_COMPANY);
-    const state = await callRoute(fx, p.token, expenseClaimPost,
-      { reimbursementAccountId: p.reimbursementId, vatInputAccountId: fx.vatInputId }, { id: untyped });
-    expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
-    expect(JSON.stringify(state.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+    // ... and an active project under an inactive FNO: createJournalEntry's own refusal, a 500 on this route until round 5.
+    for (const id of [untyped, await claim(p.PI)]) {
+      const state = await callRoute(fx, p.token, expenseClaimPost,
+        { reimbursementAccountId: p.reimbursementId, vatInputAccountId: fx.vatInputId }, { id });
+      expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
+      expect(JSON.stringify(state.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+    }
     expect(await countRows(fx)).toEqual(before);
   });
 
@@ -110,6 +114,13 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
     expect(out.journalEntryId, JSON.stringify(out)).toEqual(expect.any(String));
     expect(await legsOn(p, out.journalEntryId!, fx.expenseId)).toEqual([{ cc1: p.FT, cc2: null, legacy: null, net: 100 }]);
     expect(await bareOn(p, out.journalEntryId!, fx.vatInputId) && await bareOn(p, out.journalEntryId!, fx.bankAccountId)).toBe(true);
+    expect(out.warnings).toBeUndefined();
+    // A predicted centre that has since been withdrawn is dropped, and the result says so.
+    await sql`UPDATE supplier_coding_history SET cost_centre_id = ${p.INACTIVE}::UUID WHERE company_id = ${fx.companyId}::UUID`;
+    const tx2 = await seedBankTx(fx, { date: DATE, amount: -230, description: 'WALTONS STATIONERY' });
+    const dropped = await inTx(fx, () => postProvisional(fx.companyId, tx2, fx.userId));
+    expect(dropped.warnings).toEqual([INACTIVE_WARNING]);
+    expect(await legsOn(p, dropped.journalEntryId!, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: 200 }]);
   });
 
   it('GL import: a row\'s cost-centre code goes to its slot; one that cannot be used is a 400 naming the row', async () => {
@@ -137,6 +148,11 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
     const state = await callRoute(fx, p.token, glImport, { rows, postImmediately: true });
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toContain('Import row \\"untyped centre\\" (2026-07-10): cost centre \\"UNT\\" cannot be used');
+    // A project under an inactive FNO: the same 400, where the write loop used to throw a 500.
+    const underInactive = rows.map((r) => (r.costCentre ? { ...r, description: 'inactive fno', costCentre: 'PI' } : r));
+    const state2 = await callRoute(fx, p.token, glImport, { rows: underInactive, postImmediately: true });
+    expect(state2.statusCode, JSON.stringify(state2.body)).toBe(400);
+    expect(JSON.stringify(state2.body)).toContain('Import row \\"inactive fno\\" (2026-07-10): cost centre \\"PI\\" cannot be used');
     expect(await countRows(fx)).toEqual(counted);
   });
 
@@ -166,11 +182,17 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
       .toEqual(['Line 1: cost centre FT was not applied — the line already carries its own CC1 or project.']);
     expect(await legsOn(p, dataOf<{ id: string }>(beside).id, fx.expenseId)).toEqual([{ cc1: p.HT, cc2: p.PH, legacy: null, net: 100 }]);
     const before = await countRows(fx);
-    for (const [pick, message] of [[p.FOREIGN, COST_CENTRE_OUTSIDE_COMPANY], [p.UNTYPED, COST_CENTRE_NOT_A_CC1_OR_CC2]] as const) {
+    for (const [pick, message] of [
+      [p.FOREIGN, COST_CENTRE_OUTSIDE_COMPANY], [p.UNTYPED, COST_CENTRE_NOT_A_CC1_OR_CC2], [p.PI, COST_CENTRE_NOT_A_CC1_OR_CC2],
+      [[p.FT] as unknown as string, 'lines[1].costCenterId must be a cost centre id (a string)'],
+    ] as const) {
       const refused = await callRoute(fx, p.token, journalEntries, body(pick));
       expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
       expect(JSON.stringify(refused.body)).toContain(message);
     }
+    const nullLine = await callRoute(fx, p.token, journalEntries, { entryDate: DATE, lines: [null] });
+    expect(nullLine.statusCode).toBe(400);
+    expect(JSON.stringify(nullLine.body)).toContain('lines[0] must be a journal line object');
     expect(await countRows(fx)).toEqual(before);
   });
 
@@ -199,6 +221,13 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
     const withdrawn = await slip(p.INACTIVE);
     expect(withdrawn.warnings).toEqual([INACTIVE_WARNING]);
     expect(await legsOn(p, withdrawn.journalEntry.id, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: 100 }]);
+    // A project under an inactive FNO is refused BEFORE the document is claimed, so the route's 400 commits nothing.
+    const before = await countRows(fx);
+    await expect(slip(p.PI)).rejects.toBeInstanceOf(PreWriteDimensionRefusal);
+    expect(await countRows(fx)).toEqual(before);
+    const [claimed] = (await sql`SELECT COUNT(*)::INT AS n FROM captured_documents
+      WHERE company_id = ${fx.companyId}::UUID AND posted_at IS NULL`) as Row[];
+    expect(claimed!.n).toBe(1);
   });
 
   it('a reversal after a CC1 clear nets to zero: the contra copies what is stored, and re-derives nothing', async () => {
