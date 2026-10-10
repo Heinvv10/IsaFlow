@@ -113,15 +113,15 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // invitation row when the same address is re-invited, so an existing member
   // kept their old role while the invitation claimed the new one. Same fix as
   // pages/api/invitations/[token]/accept.ts — both routes accept the same rows.
-  // Never an owner's role (owner-ness as the 886 guard judges it, so a legacy
-  // `Owner ` too): an admin may invite any address at a lesser role, the
+  // Never an owner's role (886's company_member_role_is_owner, the guards' own
+  // test, so `Owner ` too): an admin may invite any address at a lesser role, the
   // owner's own included, and accepting that demoted the company's last owner
   // (PR #691 review round 5). The invitation is still accepted.
   await sql`
     INSERT INTO company_users (company_id, user_id, role)
     VALUES (${inv.company_id}::UUID, ${userId}::UUID, ${inv.role})
     ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
-      WHERE pg_catalog.lower(pg_catalog.btrim(company_users.role)) <> 'owner'
+      WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE
   `;
 
   // Mark invitation accepted

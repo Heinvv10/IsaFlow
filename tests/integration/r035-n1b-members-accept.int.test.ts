@@ -76,8 +76,8 @@ async function expectOwnerKeptAndAccepted(c: string, stored: string) {
     .toEqual([{ role: 'viewer', accepted: true }]);
 }
 
-// `Owner `: a legacy row the 886 guard counts as an owner's (trimmed, lower-cased); the routes judge it the same.
-describe.each(['owner', 'Owner '])("an admin's lesser invitation to the last owner (stored %j), accepted by the owner", (stored) => {
+// The legacy ones: rows 886's company_member_role_is_owner counts as an owner's; the routes ask the same function.
+describe.each(['owner', 'Owner ', 'owner\t', '\u00a0OWNER'])("an admin's lesser invitation to the last owner (stored %j), accepted by the owner", (stored) => {
   it('/api/invite/<token>: the owner stays owner; the invitation is accepted', async () => {
     const c = await company(pool, p, companies, [[p.o, stored], [p.a, 'admin']]);
     const raw = await adminInvitesOwnerAsViewer(c);
