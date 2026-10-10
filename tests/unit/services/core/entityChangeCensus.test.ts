@@ -18,6 +18,11 @@
  *
  * A TEXT check: a statement built at run time slips past it (the dynamic
  * seeders write through a table variable); the trigger still records those.
+ * Its escape handling is a hand-written decoder, not Postgres's own lexer: it
+ * decodes E''/U& escapes, folds string continuations and judges every view
+ * (each pinned as a probe below), but deliberate obfuscation beyond those
+ * forms — or a contrived act like DROP SCHEMA public CASCADE — is a named
+ * limit. Review of every migration is the control behind it (reviews of #696).
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -128,6 +133,8 @@ export function decodeEscapes(sql: string): string {
       .replace(/\\U([0-9a-fA-F]{8})/g, (_x, h: string) => cp(h))
       .replace(/\\u([0-9a-fA-F]{4})/g, (_x, h: string) => cp(h))
       .replace(/\\([0-7]{1,3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)))
+      // \b \f \n \r \t are whitespace to Postgres (blind r6 N-5: \n read as the letter n joined DISABLE\nTRIGGER).
+      .replace(/\\([bfnrt])/g, ' ')
       .replace(/\\(.)/g, '$1')}'`)
     // U&'…' / U&"…", with UESCAPE 'c' naming another escape character (security review of d5665093).
     .replace(/\bU&(["'])((?:(?!\1)[\s\S]|\1\1)*)\1(?:\s*uescape\s*'([^'])')?/gi,
@@ -173,7 +180,8 @@ export function decodeEverywhere(sql: string): string {
     .replace(/\\u([0-9a-fA-F]{4})/g, (_x, h: string) => cp(h))
     .replace(/\\\+([0-9a-f]{6})/gi, (_x, h: string) => cp(h))
     .replace(/\\([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
-    .replace(/\\([0-7]{3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)));
+    .replace(/\\([0-7]{1,3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)))
+    .replace(/\\[bfnrt]/g, ' ');
 }
 
 /**
@@ -287,6 +295,11 @@ describe('entity change history (census)', () => {
     "EXECUTE 'DROP TRIGGER entity'\n'_change_capture ON suppliers'",
     "EXECUTE 'TRUNC' -- split\n  'ATE gl_accounts'",
     'TRUNCATE public . widgets, customers',
+    // Blind review r6 N-5: whitespace and short octal escapes.
+    "DO $$ BEGIN EXECUTE E'ALTER TABLE public.customers DISABLE\\nTRIGGER USER'; END $$;",
+    "EXECUTE E'ALTER TABLE customers\\tDISABLE TRIGGER USER'",
+    "EXECUTE E'TRUNCATE\\40customers'",
+    "EXECUTE E'ALTER TABLE public\\56suppliers RENAME TO s_old'",
     // Blind review r5 N-4: a plain string ending in " E" before the escaped one.
     "SELECT 'a E'; DO $$ BEGIN EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'; END $$;",
     "SELECT 'b E'; DROP TRIGGER U&\"entity\\005Fchange_capture\" ON public.companies;",
