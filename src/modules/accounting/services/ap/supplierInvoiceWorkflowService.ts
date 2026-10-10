@@ -19,6 +19,7 @@ import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingCl
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertBillApprovable, assertBillPostable } from './billPostingGuard';
 import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the legacy pick, in its slot
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
@@ -118,7 +119,7 @@ async function approveInner(
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
     await assertBillPostable(companyId, invoice);
-    const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
+    const lines: JournalLineInput[] = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id));
 
     if (invoice.taxAmount > 0) {
       lines.push({
@@ -238,7 +239,7 @@ async function postToGLInner(
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
   await assertBillPostable(companyId, invoice);
-  const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
+  const lines: JournalLineInput[] = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id));
 
   if (invoice.taxAmount > 0) {
     lines.push({

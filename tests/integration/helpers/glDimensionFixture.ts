@@ -6,13 +6,13 @@
  * What A's ledger carries, and what each piece is for:
  *   - multi-tag lines (CC1 + CC2 + BU) and a cent-level split across FNOs;
  *   - CC1 is cc1_id alone; cost_center_id is legacy and read by no report
- *     (PR #688 round 2). E04: a legacy line as migration 887 leaves it
- *     (cost_center_id = cc1_id = FT) — counts under FT;
+ *     (PR #688 round 2). E04: a legacy line in sync with its CC1
+ *     (cost_center_id = cc1_id = FT), as prod's are — counts under FT;
  *   - E14: a RE-TAGGED line (cc1_id = HT, cost_center_id still FT) — counts
  *     under HT only (REPRO 1); E00 the same in the PRIOR financial year, so the
  *     trial balance's retained brought forward is filtered too;
- *   - CLEARED lines (cc1_id NULL, cost_center_id = FT — a CC1 untagged after
- *     887): E13's untagged opex and its bank line, and E00's second opex line
+ *   - CLEARED lines (cc1_id NULL, cost_center_id = FT — a CC1 untagged by
+ *     tag_journal_lines): E13's untagged opex and its bank line, and E00's second opex line
  *     in the prior year — never FT (REPRO B), in the P&L, the balance sheet and
  *     the retained brought forward;
  *   - E05 / E12: B's cost centre, project and BU on A's lines (UNKNOWN members,

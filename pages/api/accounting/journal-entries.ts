@@ -19,9 +19,10 @@ import {
   getJournalEntries,
   createJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
+import type { GLEntryStatus, GLEntrySource, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
 import { markCreatedManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -87,13 +88,16 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
+    // A line's costCenterId is a pick: it goes into its CC1 / CC2 slot
+    // (gl/dimensions/costCentrePick), never into the legacy column.
+    const placed = await placeCostCentres(companyId, lines as JournalLineInput[]);
     const entry = await withJournalDateRefusal(res, () => createJournalEntry(companyId, {
       entryDate,
       description,
       source,
       sourceDocumentId,
       fiscalPeriodId,
-      lines,
+      lines: placed,
       // A person drafting: a journal dated in a filed VAT period whose only VAT
       // is input tax may be drafted; posting it claims the VAT late (s16(3)).
     }, userId, undefined, { allowLateInputClaim: true }));

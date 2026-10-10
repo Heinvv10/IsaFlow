@@ -13,6 +13,7 @@ import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { ledgerDaysOf } from './journalDateGuard';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
+import { placeCostCentres } from './dimensions/costCentrePick';
 type Row = DbRow;
 
 /**
@@ -153,7 +154,7 @@ export async function importJournalEntries(
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
         ...(firstRow.reference ? { reference: firstRow.reference } : {}),
-        lines,
+        lines: await placeCostCentres(companyId, lines), // each row's centre in its CC1 / CC2 slot, before any write
         totalDebit,
       });
     }

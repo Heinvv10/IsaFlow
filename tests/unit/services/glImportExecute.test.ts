@@ -76,13 +76,15 @@ function withAccounts(codes: Record<string, string>) {
       return Promise.resolve(Object.entries(codes).map(([account_code, id]) => ({ account_code, id })));
     }
     if (text.includes('FROM cost_centres')) {
-      return Promise.resolve([{ code: 'CC1', id: 'cc-1' }]);
+      // The code map, and the pick's own read (gl/dimensions/costCentrePick): same row.
+      return Promise.resolve([{ code: 'CC1', id: CC_ID, cc_type: 'cc1', is_active: true }]);
     }
     return Promise.resolve([]);
   }) as never);
 }
 
 const ACCOUNTS = { '1000': 'acct-bank', '4000': 'acct-sales' };
+const CC_ID = 'cccccccc-0000-4000-8000-000000000001';
 
 function row(over: Partial<ImportRow>): ImportRow {
   return {
@@ -236,7 +238,7 @@ describe('importJournalEntries', () => {
     expect(input.source).toBe('auto_gl_import');
   });
 
-  it('resolves cost centres by code onto the line', async () => {
+  it('resolves a cost centre by code into the line\'s CC1 slot, never the legacy field', async () => {
     withAccounts(ACCOUNTS);
 
     await importJournalEntries(
@@ -249,7 +251,8 @@ describe('importJournalEntries', () => {
       false,
     );
 
-    const input = createMock.mock.calls[0]![1] as { lines: Array<Line & { costCenterId?: string }> };
-    expect(input.lines[0]!.costCenterId).toBe('cc-1');
+    const input = createMock.mock.calls[0]![1] as { lines: Array<Line & { costCenterId?: string; cc1Id?: string }> };
+    expect(input.lines[0]!.cc1Id).toBe(CC_ID);
+    expect(input.lines.some((l) => 'costCenterId' in l)).toBe(false);
   });
 });

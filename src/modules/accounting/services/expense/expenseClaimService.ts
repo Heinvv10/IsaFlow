@@ -33,6 +33,7 @@ import {
 } from '@/modules/accounting/services/expense/claimSourceDocuments';
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
+import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -589,7 +590,7 @@ export async function postClaimToGl(
     description: `Expense claim ${claim.claimNumber}`,
     source: 'auto_expense_claim',
     reference: claim.claimNumber,
-    lines,
+    lines: await placeCostCentres(companyId, lines), // each line's centre in its CC1 / CC2 slot
   }, opts.userId, undefined, { allowLateInputClaim: opts.allowLateInputClaim });
 
   const posted = await postJournalEntry(companyId, entry.id, opts.userId, { allowLateInputClaim: opts.allowLateInputClaim });

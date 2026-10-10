@@ -42,6 +42,7 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -127,16 +128,18 @@ export async function postReceiptAsPettyCashJournal(
   // Pre-existing here (this path was already dead on the source CHECK, so it
   // never surfaced); fixed alongside receipt-to-journal.ts, which migration 509
   // makes live.
-  const postableLines = journalInput.lines
+  // The picked centre goes on the EXPENSE leg only, into its CC1 / CC2 slot —
+  // never on the bank or VAT legs, which carry no dimensions (brief §5.3).
+  const postableLines = await placeCostCentres(companyId, journalInput.lines
     .filter(l => l.debit !== 0 || l.credit !== 0)
     .map(l => ({
       glAccountId: l.accountId,
       debit: l.debit,
       credit: l.credit,
       description: l.description,
-      costCenterId: costCentreId,
+      costCenterId: l.accountId === resolvedGlAccountId ? costCentreId : undefined,
       vatType: l.vatType,
-    }));
+    })));
 
   // Balance-check BEFORE the first write, the same pre-check
   // `receipt-to-journal.ts` runs and for the same reason: the legs come from
