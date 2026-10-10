@@ -2,6 +2,8 @@
  * Bank Transfers API
  * POST /api/accounting/bank-transfers - Transfer between two of the company's bank accounts
  * Posts one journal through the journal funnel (bank/bankTransferService): DR destination bank, CR source bank.
+ * Under manual-journal enforcement, a rule matching the amount holds it instead: 202 { status: 'awaiting_approval',
+ * journalId, requestId, requiredRole } — a draft journal and an approval request raised as the person.
  * Sage equivalent: Banking > Transfers
  */
 
@@ -19,7 +21,8 @@ import { journalDayWindowError } from '@/modules/accounting/utils/journalDateWin
 import { ledgerDaysOf } from '@/modules/accounting/services/gl/journalDateGuard';
 import { ClosedFiscalPeriodError, InactiveAccountError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
-import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { ApprovalNotRequiredError, ApprovalRuleNotFoundError } from '@/modules/accounting/services/gl/approvalAuthority';
+import { ApprovalRequestStaleError } from '@/modules/accounting/services/gl/approvalDocumentErrors';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import {
   BankTransferRefusedError, PossibleDuplicateTransferError, postBankTransfer,
@@ -70,16 +73,38 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }, userId));
     if (done === JOURNAL_DATE_REFUSED) return;
 
+    // Held under manual-journal enforcement (Hein, step-2 decision 6): a draft journal and a request raised as the
+    // person — 202, nothing posted until another member approves and the journal is posted.
+    if (done.status === 'awaiting_approval') {
+      log.info('Bank transfer held for approval', {
+        entryId: done.entry.id, requestId: done.requestId, amount, module: 'accounting',
+      });
+      const approver = done.requiredRole ? `${done.requiredRole} approval` : 'approval';
+      return apiResponse.success(res, {
+        status: done.status, journalId: done.entry.id, requestId: done.requestId, requiredRole: done.requiredRole,
+        journalEntry: done.entry,
+      }, `Transfer of R${amount.toFixed(2)} from ${done.fromName} to ${done.toName} saved as a draft journal awaiting `
+        + `${approver}. Once approved, post it from the journal. When the bank statement shows it, match the statement `
+        + 'line to this journal rather than allocating it as a transfer.', 202);
+    }
+
     log.info('Bank transfer posted', {
       entryId: done.entry.id, entryNumber: done.entry.entryNumber, amount, module: 'accounting',
     });
     return apiResponse.success(res, {
+      status: done.status,
       journalEntry: done.entry,
       message: `Transferred R${amount.toFixed(2)} from ${done.fromName} to ${done.toName}`,
     });
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return; // R-032 L5: 403, raised before any read
-    if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
+    // A held transfer's request raced a rule change (deactivated, or moved twice under the raise): the savepoint has
+    // rolled the draft back, so nothing was saved and submitting again decides afresh.
+    if (err instanceof ApprovalNotRequiredError || err instanceof ApprovalRuleNotFoundError
+      || err instanceof ApprovalRequestStaleError) {
+      return apiResponse.conflict(res, 'The approval rules changed while the transfer was being saved. Nothing was '
+        + 'saved - submit it again.');
+    }
     if (respondIfLockTimeout(res, err)) return;
     // 428: resend with confirmDuplicate once the person confirms it is a separate transfer.
     if (err instanceof PossibleDuplicateTransferError) {

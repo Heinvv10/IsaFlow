@@ -275,6 +275,6 @@ export async function buildRunDeps(
     // The pass runs after the request has committed (runAfterCommit), with no
     // request transaction. The sweep posts through allocateTransaction, whose
     // row locks and savepoints need one — so it gets its own, bound into ALS.
-    sweep: (ids) => withAlsTransaction({ userId, companyId }, () => gateSweep(companyId, ids, 'categorization', userId)),
+    sweep: (ids) => withAlsTransaction({ userId, companyId }, () => gateSweep(companyId, ids, 'categorization', userId, userId)),
   };
 }

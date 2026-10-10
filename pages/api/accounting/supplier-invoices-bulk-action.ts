@@ -42,6 +42,7 @@ import {
   cancelSupplierInvoice,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { ImpersonationForbiddenError } from '@/lib/auth/impersonationGuard';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
@@ -117,7 +118,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         action, invoiceId, error: message,
       }, 'accounting-api');
       if (isHeldRowError(err)) held += 1;
-      results.push({ invoiceId, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}) });
+      results.push({ invoiceId, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}),
+        ...(err instanceof BankControlError ? { reason: err.code } : {}) }); // step 2: e.g. IMPORTER_MAY_NOT_ALLOCATE
 
       // The savepoint's own ROLLBACK TO failed, so the connection is genuinely
       // aborted and nothing this request wrote can commit. Reporting the rows

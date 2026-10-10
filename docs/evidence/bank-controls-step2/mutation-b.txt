@@ -1,0 +1,251 @@
+Forensic-controls step 2, slice b (bank-rule history + approval) — mutation proofs
+Fixture: disposable container 127.0.0.1:55997 (isaflow_schema_fixture), migration 877 applied.
+Branch feat/bank-controls-step2-b. Each mutation was applied, the named test run and seen RED, then
+restored (TS: git checkout of the committed file; DB: 877 re-applied with psql -f, verified
+afterwards: both rules-table triggers present, decision guard body back). No mutated code committed.
+
+Integration command (I):  . .fixture/env.sh && bunx vitest run --no-file-parallelism --config vitest.integration.config.ts <file> -t "<name>"
+Unit command (U):         env -u DATABASE_URL bunx vitest run <file> -t "<name>"
+Component command (C):    env -u DATABASE_URL bunx vitest run --config vitest.components.config.ts <file> -t "<name>"
+
+M1  pending classification, create — bankRuleChangeControl.writeNewRule: `if (held)` -> `if (held && false)` (apply instead of hold)
+    I tests/integration/bank-rule-changes-held.int.test.ts -t "creating an auto-posting rule"
+    RED: held, not applied > creating an auto-posting rule: no rule, a pending create, and the route posts nothing on the spot
+         AssertionError: {..."message":"bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200
+
+M2  pending classification, update/toggle — writeRuleChange: `if (held)` -> `if (held && false)`
+    I tests/integration/bank-rule-changes-held.int.test.ts -t "every target change"
+    RED: held, not applied > turning auto-post on, re-activating an auto-posting rule, and every target change on one are held
+         AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"Action failed"}…}: expected 400 to be 200
+
+M3  proposer != approver (TS, decide path) — bankRuleApprovers.assertMayDecide: `judge(f, proposedBy, own && await isSoleAtFloor(...))` -> `judge(f, proposedBy, true)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "the proposer cannot approve"
+    RED: approve > the proposer cannot approve or reject; another admin approves, the rule is created auto-posting, and then posts
+         AssertionError: {…"message":"bank_rule_change_decisions: another active member could decide, so the proposer cannot","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 403
+    (also: removing the proposer branch in judge() entirely turns the canDecide hint red first: "expected true to be false")
+
+D1  proposer != approver (DB) — 877 bank_rule_decision_guard: `IF NEW.decided_by = ch.proposed_by THEN` -> `IF false AND …`
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "the proposer, unless the sole"
+    RED: bank_rule_change_decisions refuses > the proposer, unless the sole member at the floor with the current roster; a second decision
+         AssertionError: expected 'ok' to match /proposer of a change cannot decide/
+
+M4  stale check (TS) — bankRuleChangeDecision: `if (approve && change.kind !== 'create' && !(await stillCurrent(...)))` -> `if (false)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "a stale approval"
+    RED: refused, nothing written > a stale approval (the rule moved since the proposal) is 409 RULE_CHANGED
+         AssertionError: {…"message":"bank_rule_change_decisions: rule … changed since this change was proposed","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 409
+
+D2  stale check (DB) — 877 bank_rule_decision_guard: `IF ch.before IS DISTINCT FROM public.bank_rule_current(...) THEN` -> `IF false THEN`
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "a stale approval"
+    RED: bank_rule_change_decisions refuses > a member below the floor; a stale approval; another name (RLS); another tenant
+         AssertionError: expected 'ok' to match /changed since this change was proposed/
+
+M5  digest check — bankRuleChangeDecision: `if (input.digest !== change.digest)` -> `if (false)`
+    I tests/integration/bank-rule-changes-decide.int.test.ts -t "a wrong digest"
+    RED: refused, nothing written > a wrong digest is 409 DIGEST_MISMATCH
+         AssertionError: {"success":true,"data":{…"status":"approved"…}}: expected 200 to be 409
+
+M6  MCP/agent and login-as refusal on decide — bankRuleChangeDecision: `await assertHumanSession(...)` removed
+    I tests/integration/bank-rule-changes-who.int.test.ts -t "login-as is refused"
+    RED: sessions > login-as is refused 403; a token without a session (an agent) is refused 403 AGENT_FORBIDDEN
+         AssertionError: {"success":true,"data":{…"status":"approved"…}}: expected 200 to be 403
+
+M7  approver role (raised by an owner-level manual_journal rule; TS only — 877 checks the admin floor) — bankRuleApprovers.judge: `if (!holds(f.ownRole, role))` -> `if (false)`
+    I tests/integration/bank-rule-changes-who.int.test.ts -t "owner-level manual_journal rule raises"
+    RED: roles > an owner-level manual_journal rule raises the approver to owner
+         AssertionError: {"success":true,…"status":"approved"…}: expected 200 to be 403
+
+M8  merge refusal (RULE_MERGE_HELD) — bankRuleChangeControl.moveRulesToCustomer: `if (posting.length > 0 && await isEnforced(...))` -> `if (false)`
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "AUTO-POSTING rule naming the source"
+    RED: a customer merge > under bank_rule: an AUTO-POSTING rule naming the source refuses the merge 409 before any write
+         AssertionError: {"success":false,"error":{"code":"INTERNAL_ERROR",…}}: expected 500 to be 409
+
+M9  bulk delete all-or-nothing — bankRuleChangeControl.removeRules: `if (locked.length !== unique.length)` -> `if (false)`
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "a bulk delete records"
+    RED (both enforcement arms): … > a bulk delete records one delete per rule; a missing or foreign id refuses the whole batch (404, nothing deleted)
+         AssertionError: {"success":true,"data":{"deleted":2,"status":"applied"}…}: expected 200 to be 404
+
+D3  rules-table backstop — DROP TRIGGER bank_rule_write_guard ON bank_categorisation_rules
+    I tests/integration/bank-rule-changes-db.int.test.ts -t "under the switch refuses"
+    RED: the rules table > under the switch refuses an app_user write that makes a rule auto-post; with it off, the write is history
+         AssertionError: expected 'ok' to match /^23514: .*needs another person's appr…/
+
+D4  history trigger — DROP TRIGGER bank_rule_history ON bank_categorisation_rules
+    I tests/integration/bank-rule-changes-history.int.test.ts -t "create, rename, toggle and delete"
+    RED (both enforcement arms): every UI writer records history (…) > create, rename, toggle and delete each leave one applied row by the person, before/after
+         AssertionError: expected [] to deeply equal [ [ 'create', 'applied', …(1) ], …(3) ]
+
+C1  census — a stray writer added to bankRulesService.ts: sql`UPDATE bank_categorisation_rules SET priority = 1 WHERE false`
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "only the change control"
+    RED: who writes bank_categorisation_rules > only the change control (the merge re-point included)
+         AssertionError: expected [ …(2) ] to deeply equal [ Array(1) ]
+
+U1  UI held save — useBankRules toggle: the isHeldForApproval branch removed (always "Rule activated/deactivated")
+    C tests/unit/components/bankRulePendingChanges.test.tsx -t "a held toggle"
+    RED: a held toggle reads as held, not as done
+         AssertionError: expected "vi.fn()" to be called with arguments: [ StringMatching{…}, Any<String> ]
+
+── Round 2: breaker #684 REPROS 4–6 (877 edited; restores re-apply the working 877, verified triggers present) ──
+
+D5  rules that post money — 877 bank_rule_posts_money: the `OR EXISTS (… bank_auto_post_settings … enabled)` arm -> `OR false`
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "re-pointing it is held"
+    RED: with auto-post enabled, a suggestion-only rule posts money > re-pointing it is held; the sweep posts with the rule as it was, never to the unapproved account
+         AssertionError: expected 'applied' to be 'pending_approval'
+
+M10 enabling auto-post under bank_rule is a weakening — autoPostSettingsService.applyOnce: `(types.length > 0 || bankRule)` -> `types.length > 0`
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "an admin is refused 403"
+    RED: enabling auto-post under bank_rule enforcement is a weakening > an admin is refused 403 with nothing written; the owner may; tightening needs nobody
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 403
+
+M11 (EQUIVALENT, survived) — assertMayWeaken: level not raised to the manual-journal (bank-rule approver) role under bank_rule alone.
+    Behaviourally equivalent today: withWriteAccess admits only owner/admin/manager, and mayWeakenAtLevel gives the same answer
+    for each of them at the admin floor and at owner level (owner yes, admin/manager no). Only `system`/`super_admin` would tell
+    them apart, and neither can write. Kept as defence in depth; recorded, not proven.
+
+D6  batch row kept while a line names it — DROP TRIGGER bank_import_batch_kept ON bank_import_batches
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "a batch its lines still name"
+    RED: REPRO 5 — import provenance cannot be shed > a batch its lines still name cannot be deleted; the importer stays refused
+         AssertionError: expected 'ok' to match /^42501: .*still names? it/
+
+D7  a line's batch fixed — DROP TRIGGER bank_transaction_batch_fixed ON bank_transactions
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "once set, cannot move"
+    RED: REPRO 5 — … > a line's import_batch_id, once set, cannot move or be cleared
+         AssertionError: expected 'ok' to match /^42501: .*import batch/
+
+D8  raised approver role in SQL — 877 bank_rule_decision_guard: `required := public.bank_rule_approver_role(...)` -> `required := 'admin'`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "refused by the route AND by the database"
+    RED: REPRO 6 — the raised approver role, in SQL too > an admin below an owner-level manual_journal rule is refused by the route AND by the database
+         AssertionError: expected 'ok' to match /^23514: .*owner role or above/
+
+D9  SQL fallback (only the proposer holds the raised role) — 877 decision guard: `IF only_proposer THEN required := 'admin'; END IF;` -> `NULL;`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "only the proposer holds the raised role"
+    RED: REPRO 6 — … > only the proposer holds the raised role: an admin may decide, in the route and in SQL
+         AssertionError: expected 500 to be 200   (the route's TS fallback and the guard must agree)
+
+C2  census — 877's ladder drifts: `WHEN 'manager' THEN 4` -> `THEN 5`
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "bank_control_rank is APPROVER_RANK"
+    RED: the database guards rank on the same ladder > 877's bank_control_rank is APPROVER_RANK, role for role
+         AssertionError: expected { super_admin: 8, owner: 7, …(9) } to deeply equal { super_admin: 8, owner: 7, …(9) }
+
+C3  census — a stray `DELETE FROM bank_import_batches` added to bankStatementImportService.ts
+    U tests/unit/services/bank/bankImportProvenanceCensus.test.ts -t "nothing UPDATEs a batch"
+    RED: 1. every import path records the importer > nothing UPDATEs a batch: … (877)
+         AssertionError: expected [ Array(1) ] to deeply equal []
+
+── Round 2b: blind review LOW — deleting a supplier / GL account a rule names ──
+
+M12 purge disables first — softDeleteService.purgeSuppliers: `await disableRulesLosingTarget(companyId, 'supplier_id', ids);` removed
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "an auto-posting rule is disabled first"
+    RED: purging a supplier a rule names > under bank_rule: an auto-posting rule is disabled first, then loses the supplier; the purge completes
+         AssertionError: expected +0 to be 1   (the supplier DELETE refused by 877's write guard; nothing purged)
+
+M13 migration rollback disables first — migrationRollbackService bulk savepoint: the disableRulesLosingTarget call removed
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "the rule is disabled and loses the account"
+    RED: rolling back a migration that imported an account a rule posts to > under bank_rule: the rule is disabled and loses the account; the account is deleted
+         error: bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval
+
+M14 one savepoint per purged table — softDeleteService.purgeExpiredDeletes: `await withSavepoint(`purge_${entityType}`, fn)` -> `await fn()`
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "skipped in its own savepoint"
+    RED: purging a supplier a rule names > a table that cannot be purged is skipped in its own savepoint; the rest of the purge runs on a live transaction
+         error: current transaction is aborted, commands ignored until end of transaction block
+
+D10 the FK clears only its column — 877's narrowed FK put back to 489's plain `ON DELETE SET NULL` (nulls company_id too)
+    I tests/integration/bank-rule-changes-target-delete.int.test.ts -t "keeps running and only loses the supplier"
+    RED: purging a supplier a rule names > a rule that posts nothing, or any rule with the switch off, keeps running and only loses the supplier
+         AssertionError: expected +0 to be 1   (the cascade's company_id = NULL refused; nothing purged)
+
+── Round 3: blind review N2 — seeding under bank_rule with auto-post on ──
+
+M15 seeded rules held, not inserted — bankRuleChangeControl.seedRules: `toHold = classified.filter(held)` -> `[]` (every row inserted)
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "each seeded rule is held"
+    RED: seeding rules while auto-post is on (blind review N2) > each seeded rule is held as its own pending creation, reported as held; another member approves one and it applies
+         AssertionError: {…"message":"bank_categorisation_rules: this change makes rule … post money unattended and needs another person's approval","code":"INTERNAL_SERVER_ERROR"}: expected 500 to be 200
+
+M16 a re-seed skips patterns already pending — bank-rules-seed: pendingCreationPatterns(companyId) contributes nothing
+    I tests/integration/bank-rule-changes-posts-money.int.test.ts -t "each seeded rule is held"
+    RED: (same test)
+         AssertionError: expected { created: +0, held: 1, …(3) } to match object { created: +0, held: +0, skipped: 2 }
+
+── Round 3b: breaker round 2 R2-2b (+ holes 1–4) and R2-3 ──
+
+M17 switch-on refused over unreviewed rule changes — autoPostSettingsService.applyOnce: the assertNoUnreviewedRuleChanges call removed
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "cannot switch auto-post on over"
+    RED: R2-2b … > the owner cannot switch auto-post on over the admin's unapproved re-point; nothing posts to it; the way out works
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 409
+
+D11 hole 1, the whole span is judged — 877 bank_rule_unreviewed_changes: state at cutoff -> the `before` of the LATEST change only
+    I … -t "hole 1"
+    RED: … > hole 1: a rename after the re-point (even by the owner) does not hide it
+         AssertionError: {"success":true,…}: expected 200 to be 409
+
+D12 hole 2, a re-created rule is a creation — 877: needs_approval(COALESCE(state_at_cutoff, current), current, true) (no creation)
+    I … -t "hole 2"
+    RED: … > hole 2: deleting the rule and creating it again with a new target is a creation, and counts
+         AssertionError: {"success":true,…}: expected 200 to be 409
+
+D13 hole 3, the cutoff is kept by the table — DROP TRIGGER bank_auto_post_disabled_at ON bank_auto_post_settings
+    I … -t "cannot move the switch-off time"
+    RED: hole 3: the cutoff > app_user cannot move the switch-off time later: …
+         AssertionError: expected null not to be null   (no switch-off time recorded at all)
+
+M18 hole 4, rule writers take the shared lock — bankRuleChangeControl.writeRuleChange: `await lockForRuleWrite(companyId);` removed
+    I tests/integration/bank-rule-changes-autopost-race.int.test.ts -t "waits for the switch-on"
+    RED: switching auto-post on races a rule change > the rule change waits for the switch-on, then is held; it never lands unreviewed behind it
+         AssertionError: expected 'applied' to be 'pending_approval'
+
+M19 hole 4, the settings writer takes the exclusive lock — autoPostSettingsService.applyOnce: `await lockForAutoPostSettings(companyId);` removed
+    I (same test)
+    RED: AssertionError: expected 'applied' to be 'pending_approval'
+
+D14 R2-3, provenance fixed both ways — 877's line trigger put back to `UPDATE OF import_batch_id … WHEN (OLD.import_batch_id IS NOT NULL …)`
+    I tests/integration/bank-rule-changes-db-boundary.int.test.ts -t "R2-3"
+    RED: REPRO 5 … > R2-3: a hand-keyed line cannot be GIVEN a batch, nor any line re-pointed to a feed; the gates still refuse
+         AssertionError: expected 'ok' to match /^42501: .*feed connection are its pro…/
+
+── Round 4: breaker R3-1 — changes placed by when they were recorded ──
+
+D15 recorded_at orders a change against the cutoff — 877 bank_rule_unreviewed_changes: `COALESCE(s.recorded_at, s.proposed_at)` -> `s.proposed_at`
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "R3-1"
+    RED (both): R3-1 … > an edit begun before auto-post was switched off, and applied after, still blocks switching it on
+                R3-1 … > an edit begun before bank_rule was switched on, and applied after, is counted too
+         AssertionError: {"success":true,"data":{"settings":{"enabled":true,…}}}: expected 200 to be 409
+
+Not distinguishable by a test (recorded, reasoned in 877 / bankRuleAutoPostLock):
+  - disabled_at now() vs clock_timestamp(): with changes placed by recorded_at (clock, after the shared lock), a change recorded
+    after the switch-off committed is counted either way; clock_timestamp() is kept so both sides of the comparison use one clock.
+  - the exclusive lock in enableEnforcement(BANK_RULE): enabled_at is the enable's transaction start, so a change recorded
+    after it is counted with or without the lock; the lock is defence in depth, pinned by bankRuleChangeCensus.
+
+C4  lock order — a statement inserted before `await lockForRuleWrite(companyId)` in writeNewRule
+    U tests/unit/services/bank/bankRuleChangeCensus.test.ts -t "first of all"
+    RED: rule writers and switching auto-post on serialise (bankRuleAutoPostLock) > create, change and seed take the shared lock first of all; …
+         AssertionError: writeNewRule: expected 103 to be 126
+
+── Integration (post-SHIP, #690 merged): migration 885 — the bank_rule switch through 881's definer ──
+Fixture: 127.0.0.1:55995 (orchestrator's), 880/881 applied, then 885. Restore: 885 re-applied; md5(prosrc) of
+approval_enforcement_set verified back to the pinned 816cf0c6e71f862b4c617003939ff5c7.
+
+D17 bank_rule is enforceable in the definer — 885 approval_enforcement_set: 'bank_rule' dropped from the enforceable list
+    I tests/integration/bank-rule-changes-autopost-on.int.test.ts -t "before bank_rule was switched on"
+    RED: R3-1 … > an edit begun before bank_rule was switched on, and applied after, is counted too
+         AssertionError: {"success":false,"error":{"code":"BAD_REQUEST","message":"Approval enforcement is not available for bank_rule yet",
+         "details":{"reason":"NOT_ENFORCEABLE"}}…}: expected 400 to be 200   (the integration break this migration fixes)
+
+D18 a person's own session — 885 bank_rule branch: `v_session := approval_request_session_actor()` -> `'self'`
+    I tests/integration/bank-rule-switch-definer.int.test.ts -t "impersonated or claim-less"
+    RED: approval_enforcement_set: bank_rule > an impersonated or claim-less session is refused, on and off (RB012); its own session is not
+         AssertionError: expected 'ok' to be 'RB012'
+
+D19 on: the approver role — 885: the RB014 check -> `IF false`
+    I … -t "below the approver role"
+    RED: … > on: below the approver role is refused (RB014); an owner-level manual_journal rule raises it to owner
+         AssertionError: expected 'ok' to be 'RB014'
+
+D20 off: the weakening authority — 885: `v_strictest := v_approver` -> `NULL` for bank_rule
+    I … -t "authority to weaken"
+    RED: … > off: only the authority to weaken the approver role (RB011 for an admin at admin level; the owner may)
+         AssertionError: expected 'ok' to be 'RB011'
+
+D21 the exclusive bankRuleAutoPostLock before the row — 885: the PERFORM pg_advisory_xact_lock(...) -> NULL
+    I … -t "waits for a rule writer"
+    RED: … > on: waits for a rule writer holding bankRuleAutoPostLock shared, then writes the row
+         AssertionError: expected { waiting: false, done: true } to deeply equal { waiting: true, done: false }

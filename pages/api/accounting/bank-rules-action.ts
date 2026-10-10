@@ -1,6 +1,12 @@
 /**
  * Bank Rules Action API
  * POST — delete, toggle, or apply rules
+ *
+ * Under the `bank_rule` switch an update or toggle that makes a rule auto-post,
+ * or moves where an auto-posting rule posts, is HELD for another person's
+ * approval: { status: 'pending_approval', changeId }, nothing applied.
+ * Everything else answers status 'applied'. A delete of a missing or foreign
+ * rule (any one id of a deleteMany) is 404 with nothing deleted.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,6 +22,7 @@ import { deleteRule, deleteRules, toggleRule, applyRules, updateRule } from '@/m
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 const BankRulesActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('delete'), id: UUID }),
@@ -59,16 +66,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     switch (body.action) {
       case 'delete':
         await deleteRule(companyId, body.id);
-        return apiResponse.success(res, { deleted: true });
+        return apiResponse.success(res, { deleted: true, status: 'applied' });
 
       case 'deleteMany': {
         const count = await deleteRules(companyId, body.ids);
-        return apiResponse.success(res, { deleted: count });
+        return apiResponse.success(res, { deleted: count, status: 'applied' });
       }
 
-      case 'toggle':
-        await toggleRule(companyId, body.id, body.isActive !== false);
-        return apiResponse.success(res, { toggled: true });
+      case 'toggle': {
+        const toggled = await toggleRule(companyId, body.id, body.isActive !== false, userId);
+        return apiResponse.success(res, toggled.status === 'applied' ? { toggled: true, status: 'applied' } : { toggled: false, ...toggled });
+      }
 
       case 'update': {
         const updateInput = Object.fromEntries(
@@ -76,7 +84,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             k !== 'action' && k !== 'id' && v !== null && v !== undefined,
           ),
         );
-        const updated = await updateRule(companyId, body.id, updateInput);
+        const updated = await updateRule(companyId, body.id, updateInput, userId);
         return apiResponse.success(res, updated);
       }
 
@@ -88,6 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
+    if (respondIfBankControlRefused(res, err)) return;
     // R-067 / R-068: both fences run before any write, so the 4xx commits
     // nothing; surface the typed message rather than the generic fallback.
     if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {

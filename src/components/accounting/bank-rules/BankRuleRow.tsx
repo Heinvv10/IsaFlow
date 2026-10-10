@@ -34,6 +34,8 @@ export interface BankRuleRowData {
 interface BankRuleRowProps {
   rule: BankRuleRowData;
   selected: boolean;
+  /** An undecided change to this rule is held for approval (the `bank_rule` switch). */
+  pendingApproval?: boolean;
   busyId: string;
   onToggleSelect: (id: string, checked: boolean) => void;
   onEdit: (rule: BankRuleRowData) => void;
@@ -44,6 +46,7 @@ interface BankRuleRowProps {
 export function BankRuleRow({
   rule,
   selected,
+  pendingApproval = false,
   busyId,
   onToggleSelect,
   onEdit,
@@ -99,6 +102,12 @@ export function BankRuleRow({
         <span className={`px-2 py-0.5 rounded text-xs font-medium ${rule.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-gray-500/10 text-gray-400'}`}>
           {rule.isActive ? 'Active' : 'Inactive'}
         </span>
+        {pendingApproval && (
+          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400"
+            title="A change to this rule is waiting for another member's approval — see Pending changes">
+            Pending approval
+          </span>
+        )}
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1">

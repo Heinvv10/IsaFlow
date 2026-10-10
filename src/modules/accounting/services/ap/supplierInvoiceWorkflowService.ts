@@ -110,7 +110,7 @@ async function approveInner(
       return mapInvoiceRow(reused[0]!);
     }
 
-    const provisional = await claimEvidencedProvisional(companyId, id); // R-127: locked before the first write
+    const provisional = await claimEvidencedProvisional(companyId, id, userId); // R-127: locked before the first write
 
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
     const apAccount = await getSystemAccount('payable', companyId);
@@ -232,7 +232,7 @@ async function postToGLInner(
     );
   }
 
-  const provisional = await claimEvidencedProvisional(companyId, id); // R-127, as in approve
+  const provisional = await claimEvidencedProvisional(companyId, id, userId); // R-127, as in approve
   const apAccount = await getSystemAccount('payable', companyId);
   const vatAccount = await getSystemAccount('vat_input', companyId);
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);

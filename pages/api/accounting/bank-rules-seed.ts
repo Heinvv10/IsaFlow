@@ -4,6 +4,9 @@
  *   Seed categorisation rules from a Category Map (JSON array).
  *
  * Body: { entries: [{ originalCategory, standardCategory, glCode }] }
+ * Answers { created, held, skipped, missingGlCodes?, message? }: under the
+ * `bank_rule` switch with auto-post on, every seeded rule would post money, so
+ * each is held as a pending creation for another member to approve (`held`).
  */
 
 import type { NextApiResponse } from 'next';
@@ -12,8 +15,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withRole, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql, transaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { seedRules } from '@/modules/accounting/services/bank/bankRuleChangeControl';
+import { pendingCreationPatterns } from '@/modules/accounting/services/bank/bankRuleChangeQueries';
 
 const CategoryMapEntrySchema = z.object({
   originalCategory: z.string().min(1).max(500),
@@ -52,7 +57,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const existingPatternRows = (await sql`
       SELECT LOWER(match_pattern) AS match_pattern FROM bank_categorisation_rules WHERE company_id = ${companyId}
     `) as Record<string, unknown>[];
-    const existingPatterns = new Set<string>(existingPatternRows.map(r => String(r.match_pattern)));
+    // …and those of creations held for approval, so a re-seed never proposes the same rule twice.
+    const existingPatterns = new Set<string>([...existingPatternRows.map(r => String(r.match_pattern)),
+      ...await pendingCreationPatterns(companyId)]);
 
     let skipped = 0;
     const missingGlCodes: (number | string)[] = [];
@@ -90,35 +97,23 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // Batch INSERT all new rules in a single transaction
-    if (toInsert.length > 0) {
-      await transaction((txSql) =>
-        toInsert.map((r) =>
-          txSql`
-            INSERT INTO bank_categorisation_rules (
-              rule_name, match_field, match_type, match_pattern,
-              gl_account_id, auto_create_entry, priority, created_by,
-              company_id
-            ) VALUES (
-              ${r.ruleName}, 'description', 'contains', ${r.pattern},
-              ${r.glAccountId}::UUID, false, 100, ${userId},
-              ${companyId}
-            )
-          `
-        )
-      );
-    }
+    // One savepoint. A seeded rule that would post money (auto-post on, under
+    // the `bank_rule` switch) is held as a pending creation instead of written.
+    const { created, held } = await seedRules(companyId, toInsert, userId);
 
-    const created = toInsert.length;
-
-    log.info('Seeded bank categorisation rules', { created, skipped, missingGlCodes: missingGlCodes.length }, 'accounting');
+    log.info('Seeded bank categorisation rules', { created, held, skipped, missingGlCodes: missingGlCodes.length }, 'accounting');
 
     return apiResponse.success(res, {
       created,
+      held,
+      ...(held > 0 ? { message: `${held} rule${held === 1 ? '' : 's'} held for approval: auto-post is on, so each would post `
+        + 'money. Another member must approve them under Pending changes on the Bank rules page.' } : {}),
       skipped,
       missingGlCodes: missingGlCodes.length > 0 ? missingGlCodes : undefined,
     });
   } catch (err) {
+    // A database refusal (a SQLSTATE) is a fault, never an answer: its text is not for the caller.
+    if (typeof (err as { code?: unknown }).code === 'string') throw err;
     const message = err instanceof Error ? err.message : 'Failed to seed bank rules';
     log.error('Failed to seed bank rules', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

@@ -23,7 +23,8 @@ import { isHeldRowError } from '@/lib/lockTimeout';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
-import { findHandOffset, postingJournalOf, type HandOffset } from './autoPostHandOffset';
+import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandOffset';
+import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
 
 type Row = DbRow;
 
@@ -84,16 +85,6 @@ export type RowOutcome = 'reversed' | 'alreadyUndone' | 'unlinked' | 'reReversed
 export type RowResult = { kind: RowOutcome; lock?: LineLock } | { kind: 'offsetByHand'; offset: HandOffset };
 
 /**
- * Refuses a row whose posting a person already offset by hand (R-079): the
- * undo would otherwise reverse it on top of their correction.
- */
-async function handOffsetOf(companyId: string, tx: Row): Promise<RowResult | null> {
-  const jeId = await postingJournalOf(companyId, tx);
-  const offset = jeId ? await findHandOffset(companyId, jeId, tx) : null;
-  return offset ? { kind: 'offsetByHand', offset } : null;
-}
-
-/**
  * Undoes one row of a run, under the row lock. Exported for the recorded
  * "not the correction — undo anyway" decision, which undoes exactly one line.
  */
@@ -133,8 +124,8 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     // "done" over money still in the GL.
     if (state === 'reReversed') return { kind: 'reReversed' };
     if (state === 'none') {
-      const offset = await handOffsetOf(companyId, tx);
-      if (offset) return offset;
+      const offset = await handOffsetOf(companyId, tx); // R-079: never reversed on top of a person's correction
+      if (offset) return { kind: 'offsetByHand', offset };
       if (tx.matched_journal_line_id) await reverseReconciledTransaction(companyId, txId, userId);
       else await reverseJournalEntry(companyId, jeId, userId);
       outcome = 'reversed';
@@ -188,6 +179,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   `) as Row[];
   if (runRows.length === 0) throw new Error(`Auto-post run ${runId} not found`);
   if (runRows[0]!.undone_at) throw new Error('Run already undone');
+  const clearance = await assertMayUndoRun(companyId, runId, userId); // step 2 (decision 4): the RUN judged, before any row
 
   const txRows = (await sql`
     SELECT id, status, matched_journal_line_id, provisional_je_id, reconciliation_id
@@ -281,6 +273,7 @@ export async function undoRun(companyId: string, runId: string, userId: string):
   // failure status.
   if (contention !== null && reversed === 0 && alreadyUndone === 0) throw contention;
 
+  await auditRunUndo(companyId, runId, userId, clearance, reversed + alreadyUndone);
   const skipped = skippedBy.reconciled + skippedBy.contended + skippedBy.failed + skippedBy.offsetByHand;
   const undone = skipped === 0;
   if (undone) {

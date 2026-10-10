@@ -24,6 +24,9 @@
  *      id is the existence oracle the shared NOT_FOUND text exists to avoid.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
+vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../helpers/bankControlGateMocks')).reversalGateOpen());
 
 // The COS-without-project check (dimensions Phase 1) reads the database; this
 // file does not, so it answers "no warnings" — its behaviour is in dimensionPolicy.test.ts.

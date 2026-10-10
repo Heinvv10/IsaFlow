@@ -197,6 +197,8 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 ## Recent changes
 
+- 2026-10-09 (forensic-controls step 2): refusal codes `IMPORTER_MAY_NOT_ALLOCATE`, `ALLOCATOR_MAY_NOT_REVERSE`, `AGENT_FORBIDDEN`. Allocate, split, apply-supplier-payment and bulk allocate refuse (or skip `approval_required: …`) a line the token's user imported while the arm's type is enforced — dry run alike; the reverse tools (single, batch, range — dry run alike) refuse an agent while the arm's type is enforced. `import_bank_statement` records the token's user as `imported_by` with `import_channel = 'mcp'` (undo keeps working). `create_bank_rule` / `update_bank_rule` may report "held for approval (change <id>)" under `bank_rule`; no tool decides a rule change.
+
 - 2026-10-09 (#683 review): the dimension-master tools' plans take the company master lock (dry_run too);
   an edit that changes nothing SUCCEEDS (`nothing_changed: true`, wroteNothing, not billed) as the routes do;
   `delete_cost_centre` / `delete_business_unit` dry_run run the real DELETE in a savepoint that is always

@@ -20,6 +20,7 @@ import {
   getAutoPostSettings,
   updateAutoPostSettings,
 } from '@/modules/accounting/services/bank/autoPostGateService';
+import { AutoPostSettingsInvalidError } from '@/modules/accounting/services/bank/autoPostSettingsService';
 import { undoRun } from '@/modules/accounting/services/bank/autoPostUndoService';
 import {
   HandCorrectionRefusedError,
@@ -28,6 +29,7 @@ import {
 } from '@/modules/accounting/services/bank/autoPostHandCorrection';
 import { isUuidParam } from '@/lib/validation';
 import { isRetryableContention } from '@/modules/accounting/services/core/retryableContention';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 type Row = Record<string, unknown>;
 
@@ -39,6 +41,8 @@ interface PutBody {
   llmMinConfidence?: number;
   llmAmountCap?: number;
 }
+
+const PUT_FIELDS = ['enabled', 'minConfidence', 'amountCap', 'llmEnabled', 'llmMinConfidence', 'llmAmountCap'] as const;
 
 interface PostBody {
   action?: string;
@@ -65,6 +69,7 @@ async function handDecision(req: CompanyAuthedRequest, res: NextApiResponse, bod
     return apiResponse.success(res, result);
   } catch (err) {
     if (err instanceof HandCorrectionRefusedError) return apiResponse.badRequest(res, err.message);
+    if (respondIfBankControlRefused(res, err)) return;
     // A held row is 503 + Retry-After (D11); a retryable STATE conflict stays 409.
     if (respondIfLockTimeout(res, err)) return;
     if (isRetryableContention(err)) return apiResponse.conflict(res, (err as Error).message);
@@ -99,24 +104,27 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PUT') {
-    const body = (req.body ?? {}) as PutBody;
-    if (
-      body.enabled === undefined &&
-      body.minConfidence === undefined &&
-      body.amountCap === undefined &&
-      body.llmEnabled === undefined &&
-      body.llmMinConfidence === undefined &&
-      body.llmAmountCap === undefined
-    ) {
-      return apiResponse.badRequest(
-        res,
-        'At least one of enabled | minConfidence | amountCap | llmEnabled | llmMinConfidence | llmAmountCap is required',
-      );
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Only the known fields reach the service, each of its JSON type: junk is a 400 before anything is read.
+    const patch: PutBody = {};
+    for (const key of PUT_FIELDS) {
+      if (body[key] === undefined) continue;
+      const want = key === 'enabled' || key === 'llmEnabled' ? 'boolean' : 'number';
+      if (typeof body[key] !== want || (want === 'number' && !Number.isFinite(body[key]))) {
+        return apiResponse.badRequest(res, `${key} must be a ${want === 'number' ? 'finite number' : 'boolean'}`);
+      }
+      (patch as Record<string, unknown>)[key] = body[key];
+    }
+    if (Object.keys(patch).length === 0) {
+      return apiResponse.badRequest(res, `At least one of ${PUT_FIELDS.join(' | ')} is required`);
     }
     try {
-      const settings = await updateAutoPostSettings(companyId, body, userId);
+      const settings = await updateAutoPostSettings(companyId, patch, userId);
       return apiResponse.success(res, { settings });
     } catch (err) {
+      // A weakening refused (403) is raised before any write, so the COMMIT withAuth issues on it commits nothing.
+      if (respondIfBankControlRefused(res, err)) return;
+      if (err instanceof AutoPostSettingsInvalidError) return apiResponse.badRequest(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Invalid auto-post settings');
     }
   }
@@ -145,6 +153,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // is a 200 carrying `skipped` and `undone: false` instead.
       // A held row (the bank line, a payment, a chain head, the bank reversal's flow budget) is 503 + Retry-After
       // (D8, D11); a retryable STATE conflict stays 409.
+      if (respondIfBankControlRefused(res, err)) return;
       if (respondIfLockTimeout(res, err)) {
         log.info('Auto-post undo hit a contended line', { companyId, runId: body.runId }, 'bank-auto-post');
         return;

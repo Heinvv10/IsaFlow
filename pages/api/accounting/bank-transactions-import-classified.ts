@@ -156,10 +156,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       };
     });
 
-    // Batch INSERT all non-duplicate rows in a single transaction
+    // Batch INSERT all non-duplicate rows in a single transaction — the batch row first (step 2 provenance: the
+    // importer, who may then not allocate these lines under enforcement; a worksheet carries no statement file).
     if (insertRows.length > 0) {
-      await transaction((txSql) =>
-        insertRows.map((r) =>
+      const statementDate = insertRows.map((r) => r.txDate).sort().at(-1)!;
+      await transaction((txSql) => [
+        txSql`
+          INSERT INTO bank_import_batches (id, company_id, bank_account_id, statement_date, transaction_count,
+            imported_by, import_channel)
+          VALUES (${batchId}::UUID, ${companyId}::UUID, ${bankAccountId}::UUID, ${statementDate}::DATE,
+            ${insertRows.length}, ${(req as CompanyAuthedRequest).user.id}, 'classified')
+        `,
+        ...insertRows.map((r) =>
           txSql`
             INSERT INTO bank_transactions (
               bank_account_id, transaction_date, amount, description,
@@ -175,8 +183,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               ${companyId}
             )
           `
-        )
-      );
+        ),
+      ]);
     }
 
     const inserted = insertRows.length;

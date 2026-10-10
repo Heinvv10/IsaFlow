@@ -13,6 +13,8 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { assertImporterMayMatch } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -107,6 +109,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     switch (body.action) {
       case 'match': {
+        await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write
         const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
         return apiResponse.success(res, tx);
       }
@@ -119,7 +122,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         return apiResponse.success(res, tx);
       }
       case 'auto_match': {
-        const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId);
+        const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId, userId);
         return apiResponse.success(res, result);
       }
       case 'allocate': {
@@ -229,6 +232,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (respondIfReconciliationCompleted(res, err)) return;
     // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule — refused before any write.
     if (respondIfApprovalRequired(res, err)) return;
+    // Step 2: the importer allocating their own statement's line, or the allocator reversing their own allocation — pre-write, 403.
+    if (respondIfBankControlRefused(res, err)) return;
     // CONTENTION first, and 409 — the status this codebase gives "a peer holds
     // the row, retry". `allocate` reaches `planSupplierPaymentApplication` and
     // `planReceiptApplication` through `recordSupplierBankPayment` /
