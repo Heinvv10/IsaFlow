@@ -159,7 +159,7 @@ describe('customer-invoices-detail POST action guards', () => {
 
   it('approves a draft invoice and posts GL', async () => {
     sqlMock
-      .mockResolvedValueOnce([{ status: 'draft' }]) // the row lock (R-035)
+      .mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]) // the row lock (R-035)
       .mockResolvedValueOnce([{ id: INV_ID }]); // guarded UPDATE matched a draft row
     postGlMock.mockResolvedValueOnce('je-123');
     snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
@@ -177,22 +177,45 @@ describe('customer-invoices-detail POST action guards', () => {
     expect((glCall[3] as { postingAgent?: string } | undefined)?.postingAgent).toBeUndefined();
   });
 
+  // 'NaN' only by hand (migration 692 refuses it), but `<= 0` would let it through.
+  it.each(['0.00', 'NaN'])('a draft totalling %s is a 400 under the row lock: no status UPDATE, nothing posted', async (total) => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: total }]); // the row lock (R-035)
+
+    await call({ id: INV_ID, action: 'approve' });
+
+    expect(apiResponse.badRequest).toHaveBeenCalledWith(expect.anything(),
+      'This invoice totals 0.00, so there is nothing to post. Add a charge, or delete the draft.');
+    expect(sqlMock.mock.calls.some((c) => /UPDATE\s+customer_invoices/i.test(sqlText(c)))).toBe(false);
+    expect(postGlMock).not.toHaveBeenCalled();
+  });
+
+  it('a legacy NEGATIVE total is not refused as "totals 0.00": bulk finalize skips only zero, and so does approve', async () => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '-50.00' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    postGlMock.mockResolvedValueOnce('je-123');
+    snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
+
+    await call({ id: INV_ID, action: 'approve' });
+
+    expect(apiResponse.badRequest).not.toHaveBeenCalled();
+    expectApproveGuard(sqlMock.mock.calls[1]!);
+  });
+
   it('migration 874: a line refusal raised by posting AFTER the status UPDATE is a 5xx class, never the pre-write 400', async () => {
-    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]).mockResolvedValueOnce([{ id: INV_ID }]);
     postGlMock.mockRejectedValueOnce(new InvoiceLineCodingRefusal('Invoice INV-1: cost centre CC2 is inactive.'));
     await expect(call({ id: INV_ID, action: 'approve' })).rejects.toBeInstanceOf(ArPostingAfterWriteError);
     expect(apiResponse.badRequest).not.toHaveBeenCalled();
   });
 
   it('R-035: consults the approval gate for a draft under the row lock, BEFORE the guarded UPDATE', async () => {
-    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]).mockResolvedValueOnce([{ id: INV_ID }]);
     postGlMock.mockResolvedValueOnce('je-123');
     snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
 
     await call({ id: INV_ID, action: 'approve' });
 
     // FOR NO KEY UPDATE, approvable only (review F2): an FK insert's KEY SHARE is not held off.
-    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status, currency_code FROM customer_invoices[\s\S]*status = ANY\([\s\S]*FOR NO KEY UPDATE/);
+    expect(sqlText(sqlMock.mock.calls[0]!)).toMatch(/SELECT status, currency_code, total_amount FROM customer_invoices[\s\S]*status = ANY\([\s\S]*FOR NO KEY UPDATE/);
     expect(assertApprovalCleared).toHaveBeenCalledWith(COMPANY_ID, 'customer_invoice', INV_ID);
     const gateAt = vi.mocked(assertApprovalCleared).mock.invocationCallOrder[0]!;
     expect(gateAt).toBeGreaterThan(sqlMock.mock.invocationCallOrder[0]!);
@@ -200,7 +223,7 @@ describe('customer-invoices-detail POST action guards', () => {
   });
 
   it('R-035: a gate refusal answers 409 and the guarded UPDATE never runs', async () => {
-    sqlMock.mockResolvedValueOnce([{ status: 'draft' }]);
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]);
     vi.mocked(assertApprovalCleared).mockRejectedValueOnce(new ApprovalRequiredError({
       reason: 'APPROVAL_REQUIRED', requiredRole: 'owner', ruleName: 'r', requestId: null,
       documentType: 'customer_invoice', documentReference: 'INV-1',
