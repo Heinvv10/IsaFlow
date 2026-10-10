@@ -21,6 +21,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 // TODO(PRD-05): When a human-driven CREATE path is added to this handler
 // (or to pages/api/accounting/supplier-invoices.ts), call:
 //   recordCoding({ companyId, supplierId, supplierInvoiceId, glAccountId, vatCode,
@@ -76,6 +77,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfImpersonationForbidden(res, err)) return;
     // R-035: a 409 the client acts on (submit for approval), not the blanket 400.
     if (respondIfApprovalRequired(res, err)) return;
+    // Step 2: settling a bank-first provisional the approver imported — 403 with its reason, raised before any write.
+    if (respondIfBankControlRefused(res, err)) return;
     // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
     if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : 'Action failed';

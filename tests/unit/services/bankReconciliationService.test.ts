@@ -1,7 +1,6 @@
 // RED phase — written before implementation
 /**
  * Unit tests for bank reconciliation services:
- *   - importBankStatement (bankImportService.ts)
  *   - getBankTransactions (bankTransactionQueryService.ts)
  *   - matchTransaction (bankTransactionQueryService.ts)
  *   - autoMatchTransactions (bankReconciliationService.ts)
@@ -9,6 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
 
 // sql.unsafe is called inside getBankTransactions for the bankAccountId+status
 // filter branch.  Use vi.hoisted so the mock reference is available inside
@@ -41,7 +42,6 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql, transaction } from '@/lib/neon';
-import { importBankStatement } from '@/modules/accounting/services/bank/bankImportService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import {
   getBankTransactions,
@@ -208,87 +208,6 @@ describe('mapTxRow', () => {
     const tx = mapTxRow(row);
     expect(tx.allocationType).toBe('supplier');
     expect(tx.allocatedEntityName).toBe('Takealot');
-  });
-});
-
-// ────────────────────────────────────────────────────────────────────────────
-// importBankStatement
-// ────────────────────────────────────────────────────────────────────────────
-
-describe('importBankStatement', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('parses FNB CSV and inserts transactions via transaction()', async () => {
-    vi.mocked(transaction).mockResolvedValueOnce([] as never);
-
-    const result = await importBankStatement(
-      COMPANY_ID,
-      FNB_CSV,
-      BANK_ACCOUNT_ID,
-      '2026-03-31',
-      'fnb'
-    );
-
-    expect(result.transactionCount).toBe(2);
-    expect(result.batchId).toBeTruthy();
-    expect(result.errors).toHaveLength(0);
-    expect(vi.mocked(transaction)).toHaveBeenCalledOnce();
-  });
-
-  it('auto-detects FNB format when bankFormat is omitted', async () => {
-    vi.mocked(transaction).mockResolvedValueOnce([] as never);
-
-    const result = await importBankStatement(
-      COMPANY_ID,
-      FNB_CSV,
-      BANK_ACCOUNT_ID,
-      '2026-03-31'
-      // no bankFormat — detectBankFormat should return 'fnb'
-    );
-
-    expect(result.transactionCount).toBe(2);
-  });
-
-  it('returns transactionCount 0 and empty batchId when no parseable rows', async () => {
-    const headerOnlyCsv = `"Date","Description","Amount","Balance","Reference"\n`;
-
-    const result = await importBankStatement(
-      COMPANY_ID,
-      headerOnlyCsv,
-      BANK_ACCOUNT_ID,
-      '2026-03-31',
-      'fnb'
-    );
-
-    expect(result.transactionCount).toBe(0);
-    expect(result.batchId).toBe('');
-    expect(vi.mocked(transaction)).not.toHaveBeenCalled();
-  });
-
-  it('throws when format cannot be detected from unknown content', async () => {
-    await expect(
-      importBankStatement(COMPANY_ID, 'garbage,csv,data\n1,2,3', BANK_ACCOUNT_ID, '2026-03-31', 'unknown')
-    ).rejects.toThrow('Unable to detect bank format');
-  });
-
-  // K-145/L-2: this entry point used to call the parsers directly and return a
-  // clean `{transactionCount: 0}` for a file it could not read — the same
-  // misleading success `requireTransactions` was written to stop on the
-  // preview/commit path. It now goes through `parseStatement`, so it inherits
-  // the guard: a file WITH rows that yields nothing is refused.
-  it('refuses a file with rows that parses to nothing', async () => {
-    await expect(
-      importBankStatement(COMPANY_ID, FNB_CSV, BANK_ACCOUNT_ID, '2026-03-31', 'capitec')
-    ).rejects.toBeInstanceOf(StatementNotImportableError);
-    expect(vi.mocked(transaction)).not.toHaveBeenCalled();
-  });
-
-  it('propagates transaction() errors', async () => {
-    vi.mocked(transaction).mockRejectedValueOnce(new Error('DB write failed') as never);
-
-    await expect(
-      importBankStatement(COMPANY_ID, FNB_CSV, BANK_ACCOUNT_ID, '2026-03-31', 'fnb')
-    ).rejects.toThrow('DB write failed');
   });
 });
 
@@ -494,7 +413,7 @@ describe('autoMatchTransactions', () => {
     // bank_transactions query — empty
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     expect(result.unmatched).toBe(0);
     expect(result.candidates).toHaveLength(0);
@@ -508,7 +427,7 @@ describe('autoMatchTransactions', () => {
     // gl_journal_lines — empty
     vi.mocked(sql).mockResolvedValueOnce([] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     expect(result.unmatched).toBe(1);
   });
@@ -551,7 +470,7 @@ describe('autoMatchTransactions', () => {
       makeTxRow({ amount: 5000, status: 'matched', matched_journal_line_id: JL_ID }),
     ] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(1);
     expect(result.unmatched).toBe(0);
   });
@@ -594,7 +513,7 @@ describe('autoMatchTransactions', () => {
       makeTxRow({ amount: -2500, status: 'matched', matched_journal_line_id: JL_ID }),
     ] as never);
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(1);
     expect(result.unmatched).toBe(0);
   });
@@ -618,7 +537,7 @@ describe('autoMatchTransactions', () => {
     ] as never);
     // matchTransaction should NOT be called; no further sql calls expected
 
-    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    const result = await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
     expect(result.matched).toBe(0);
     // The own-direction credit leg (money out) is an amount-only candidate (0.7) — offered, not auto-committed
     expect(result.candidates.map((cand) => cand.journalLineId)).toEqual([JL_ID]);
@@ -631,7 +550,7 @@ describe('autoMatchTransactions', () => {
     vi.mocked(sql).mockRejectedValueOnce(new Error('connection refused') as never);
 
     await expect(
-      autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID)
+      autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1')
     ).rejects.toThrow('connection refused');
   });
 
@@ -640,7 +559,7 @@ describe('autoMatchTransactions', () => {
     // just by bank_account_id, preventing cross-tenant transaction reads.
     vi.mocked(sql).mockResolvedValueOnce([] as never); // empty → early return
 
-    await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID);
+    await autoMatchTransactions(COMPANY_ID, BANK_ACCOUNT_ID, undefined, 'user-1');
 
     // Inspect every value passed to sql() as a tagged-template parameter.
     const allValues = sqlMock.mock.calls.flatMap((callArgs: unknown[]) => {

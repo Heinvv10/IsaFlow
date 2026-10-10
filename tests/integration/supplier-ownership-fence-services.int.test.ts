@@ -133,9 +133,9 @@ describeIfDb('R-068 — supplier ids on paths outside the route fences', () => {
   });
 
   it('bank rule update refuses a foreign supplier with the typed error, not the FK violation', async () => {
-    await expect(inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_B })))
+    await expect(inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_B }, ids.USER)))
       .rejects.toBeInstanceOf(SupplierNotInCompanyError);
-    const rule = await inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_A }));
+    const rule = await inTx(() => updateRule(A, ids.RULE, { supplierId: SUP_A }, ids.USER));
     expect(rule.supplierId).toBe(SUP_A);
   });
 

@@ -12,8 +12,9 @@
  *      then allocated from the statement posted twice (brk-nrfa M1). A statement-created journal is arm 1's business.
  *      Only Transfers-page journals, deliberately: a manual journal of the amount between the two banks may be a
  *      correction, a reclass or part of a compound entry, and refusing on it blocked real transfers with a remedy that
- *      left the ledger short (brk-nrfa round 15 L1). Residual, stated: a transfer recorded as a manual, recurring, still
- *      unapproved or split journal is not seen, so its statement line allocated as a transfer posts it again — match the
+ *      left the ledger short (brk-nrfa round 15 L1). A Transfers-page transfer HELD for approval (a draft) counts too
+ *      (heldTransferDraft). Residual, stated: a transfer recorded as a manual, recurring, still unapproved or split
+ *      journal is not seen, so its statement line allocated as a transfer posts it again — match the
  *      line to that journal instead (the enforcement 409 says so; brk-nrfa rounds 14-15, sec-nrfa round 14).
  * "Matched" in either arm means matched to the journal's leg on the line's own bank, on its sign's side, for its
  * amount; a line's transfer pointer is never a match: an unmatch leaves it set (brk-nrfa round 5 F1, sec-nrfa round 5
@@ -54,11 +55,42 @@ import type { DbRow } from '@/lib/neon';
 
 /** The ledger already holds the movement: match the line to the existing journal instead (a 400, not a fault). */
 export class DuplicateTransferError extends Error {
-  constructor() {
-    super('A matching transfer already exists on the counterparty bank for this amount and date. ' +
-      'Match the existing journal entry instead of posting a new one.');
+  constructor(message = 'A matching transfer already exists on the counterparty bank for this amount and date. ' +
+      'Match the existing journal entry instead of posting a new one.') {
+    super(message);
     this.name = 'DuplicateTransferError';
   }
+}
+
+/**
+ * Arm 2 for a transfer typed on the Transfers page that is HELD (bankTransferService, Hein's step-2 decision 6): a
+ * draft awaiting approval, or approved and not yet posted. It posts the movement once approved, so allocating its
+ * statement line as a transfer meanwhile would post it twice (orchestrator review of slice de). Same legs, direction
+ * and ten-day window as the posted arm; nothing can be matched to a draft, so no match test. A draft whose request was
+ * rejected or cancelled holds no movement and does not count (there is no route to delete a draft journal). Read
+ * from approval_requests, not the 869 marker, so with enforcement off no statement here names an 869 column.
+ * The entry number, or null.
+ */
+async function heldTransferDraft(companyId: string, bankAccountId: string, counterpartyAccountId: string,
+  amount: number, into: boolean, txDate: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT je.entry_number FROM gl_journal_entries je
+    WHERE je.company_id = ${companyId}::UUID
+      AND je.source = 'auto_bank_transfer' AND je.status = 'draft' AND je.reference IS NOT NULL
+      AND je.entry_date BETWEEN (${txDate}::DATE - INTERVAL '10 days') AND (${txDate}::DATE + INTERVAL '10 days')
+      AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
+                    AND jl.gl_account_id = ${bankAccountId}::UUID
+                    AND (CASE WHEN ${into}::BOOLEAN THEN jl.debit ELSE jl.credit END) = ${amount})
+      AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.journal_entry_id = je.id AND jl.company_id = je.company_id
+                    AND jl.gl_account_id = ${counterpartyAccountId}::UUID
+                    AND (CASE WHEN ${into}::BOOLEAN THEN jl.credit ELSE jl.debit END) = ${amount})
+      AND EXISTS (SELECT 1 FROM approval_requests ar WHERE ar.company_id = je.company_id
+                    AND ar.document_type = 'manual_journal' AND ar.document_id = je.id
+                    AND ar.status IN ('pending', 'approved'))
+    ORDER BY je.entry_date, je.entry_number
+    LIMIT 1
+  `) as DbRow[];
+  return rows.length > 0 ? String(rows[0]!.entry_number) : null;
 }
 
 /** `lineEvidenced`: the line being allocated came from a statement or a feed. A hand-keyed one (petty cash, a bank with
@@ -172,6 +204,12 @@ export async function assertNoDuplicateTransfer(
     LIMIT 1
   `) as DbRow[];
   if (lines.length > 0 || journals.length > 0) throw new DuplicateTransferError();
+  const draft = await heldTransferDraft(companyId, bankAccountId, counterpartyAccountId, amount, into, txDate);
+  if (draft) {
+    throw new DuplicateTransferError(`This transfer was typed on the Transfers page as ${draft}, a draft journal awaiting `
+      + 'approval. Allocating this line as a transfer would record the movement twice. Once that journal is approved '
+      + 'and posted, match this line to it.');
+  }
 }
 
 /**

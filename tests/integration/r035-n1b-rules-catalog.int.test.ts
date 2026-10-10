@@ -60,7 +60,8 @@ const HELPERS_881 = [
 
 /**
  * md5(prosrc) of every writer and every function they call, transitively, as
- * 881 (and 862/872 for the shared rank and session helpers) ship them. A change
+ * 881 (and 862/872 for the shared rank and session helpers; 885 for
+ * approval_enforcement_set's bank_rule branch and the 877 functions it calls) ship them. A change
  * to any is a change to who may write a rule or a switch: re-review N1b B, then
  * `SELECT md5(prosrc) FROM pg_proc WHERE oid = to_regprocedure('<fn>')`.
  */
@@ -70,7 +71,7 @@ const PINNED: Record<string, string> = {
   'public.approval_actor_rank(text)': '6494ea06c769c6dcb1aab6c39defa9d0',
   'public.approval_enforcement_bank_baseline(uuid,text)': '0305ef1c9e4e6b6b1e979f790a880b9f',
   'public.approval_enforcement_bank_verifier_role(uuid)': '9ba996ca3a9a60bf035a3ac9c523175f',
-  'public.approval_enforcement_set(uuid,text,boolean,text)': 'b484821e0019d43869ab3011a2e738a2',
+  'public.approval_enforcement_set(uuid,text,boolean,text)': '816cf0c6e71f862b4c617003939ff5c7', // 885: + the bank_rule branch
   'public.approval_enforcement_strictest_role(uuid,text)': 'cd21513f46566972f73e50acbf4e8d11',
   'public.approval_request_assert_write_role(uuid,text,boolean)': '678e0f81e3eb0e48eaeab832a2eef790',
   'public.approval_request_caller_bypasses()': '6cd0733f7baaa32803c10537f2398b4f',
@@ -94,6 +95,9 @@ const PINNED: Record<string, string> = {
   'public.approval_rule_name_ok(text)': '90e6c6089fe536bba6265e34a09e4278',
   'public.approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)': 'bbcc0df79bc759c200ab0c511122db4f',
   'public.approval_rule_weakens(approval_rules,boolean,text,boolean,text,numeric)': '07e2481d2262f043a5972a7ff1f0a52f',
+  // 877's ladder and approver role, reached through 885's bank_rule branch.
+  'public.bank_control_rank(text)': 'e98c203ea62491b6a033a515b5fd0d6e',
+  'public.bank_rule_approver_role(uuid)': '31bc64f8ec0e09ac25bcc574ebd8b8c2',
   'public.supplier_bank_details_present(text,text,text,text,text)': '76863faedf34b260e5df523dfd1457d3',
   'public.supplier_bank_fingerprint(text,text,text,text,text)': '5b38c47e7eea7f2c4b7cff32ec453169',
 };

@@ -17,7 +17,6 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
-import { refuseJournalCashOfCompletedReconciliation } from '@/modules/accounting/services/bank/reconciledCash';
 import { UUID } from '@/lib/schemas/common';
 import {
   postJournalEntry,
@@ -26,6 +25,8 @@ import {
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
 import { gateManualJournalPost, markManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { lockJournalCashForGlReversal } from '@/modules/accounting/services/bank/bankReversalGate';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 const JournalEntryActionSchema = z.object({
   id: UUID,
@@ -92,7 +93,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // D12: cash a COMPLETED bank reconciliation signed off is refused (409) at the entrance, its statement lines
         // locked first (bank -> GL), before reverseJournalEntry takes the journal.
         // The locked set rides into the reversal, which re-checks under its claim (a line outside it: 503, retry).
-        const cashLinesLocked = await refuseJournalCashOfCompletedReconciliation(companyId, id);
+        // Step 2 (decision 4) under the same lock: a bank allocation's journal is reversed from its bank line while
+        // enforced — refused 409 on the locked set (bankReversalGate.lockJournalCashForGlReversal), before any write.
+        const cashLinesLocked = await lockJournalCashForGlReversal(companyId, id);
         const reversed = await withJournalDateRefusal(res, () => reverseJournalEntry(companyId, id, userId, {
           reversalDate, cashLinesLocked }));
         if (reversed === JOURNAL_DATE_REFUSED) return;
@@ -105,6 +108,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    if (respondIfBankControlRefused(res, err)) return; // step 2: a bank allocation's journal, raised before any write
     if (respondIfApprovalRequired(res, err)) return; // R-035 PR6: raised before any write
     // A pay run's journal (`PayrollRunBusyError`: the guard's wait ran out before anything was written) and the
     // reversal's chain-head claim (D8) are held rows: 503 + Retry-After, not the 400 below.

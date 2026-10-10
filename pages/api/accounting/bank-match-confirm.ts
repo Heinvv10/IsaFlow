@@ -17,6 +17,8 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { respondIfLockTimeout, respondRowHeld } from '@/lib/apiDocumentLock';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
+import { assertImporterMayMatch } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { apiResponse } from '@/lib/apiResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -223,6 +225,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         ? `${String(otherLegRows[0]!.account_code)} ${String(otherLegRows[0]!.account_name)}`
         : null;
 
+      await assertImporterMayMatch(companyId, bankTransactionId, candidateId, userId); // step 2: not the importer's own journal
       await matchTransaction(companyId, bankTransactionId, candidateId);
       await sql`
         UPDATE bank_transactions
@@ -239,6 +242,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     } else {
       // journal_line — match to existing GL entry
+      await assertImporterMayMatch(companyId, bankTransactionId, candidateId, userId); // step 2: not the importer's own journal
       await matchTransaction(companyId, bankTransactionId, candidateId);
       log.info('Confirmed match: journal line', { bankTransactionId, candidateId }, 'accounting-api');
     }
@@ -255,6 +259,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     // R-035 PR5 (D2): a hand-keyed line paying a supplier past an enforced rule, refused from the locked row pre-write.
     if (respondIfApprovalRequired(res, err)) return;
+    // Step 2: the importer allocating or matching their own statement's line — refused before any write, 403.
+    if (respondIfBankControlRefused(res, err)) return;
     const refusal = classifyBankMatchRefusal(err, candidateType);
     if (refusal) {
       if (refusal.contended) {

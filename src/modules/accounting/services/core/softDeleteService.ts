@@ -13,6 +13,7 @@ import { SoftDeleteRefusalError } from './softDeleteErrors';
 import { underFlowLockBudget } from './rowLockBudget';
 import { isLockTimeoutError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
+import { disableRulesLosingTarget } from '../bank/bankRuleChangeControl';
 import type { DbRow } from '@/types/db';
 
 // Allowlist of entity types that support soft-delete
@@ -224,6 +225,23 @@ function purgeInvoices(
  * document it describes: it is keyed on (company_id, entity_type, entity_id)
  * with no FK to the invoice, so the purge would otherwise strand it.
  */
+/**
+ * Suppliers: a bank rule that posts money through one is disabled first, in
+ * the same savepoint (bankRuleChangeControl.disableRulesLosingTarget) — the
+ * FK clears the rule's supplier, which under `bank_rule` would be a change
+ * needing approval, and the delete would fail.
+ */
+async function purgeSuppliers(companyId: string): Promise<DbRow[]> {
+  const ids = ((await sql`
+    SELECT id FROM suppliers
+    WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes'
+    FOR UPDATE
+  `) as DbRow[]).map((r) => String(r.id));
+  if (ids.length === 0) return [];
+  await disableRulesLosingTarget(companyId, 'supplier_id', ids);
+  return sql`DELETE FROM suppliers WHERE company_id = ${companyId}::uuid AND id = ANY(${ids}::uuid[]) RETURNING id, company_id` as Promise<DbRow[]>;
+}
+
 export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   let total = 0;
 
@@ -242,7 +260,7 @@ export async function purgeExpiredDeletes(companyId: string): Promise<number> {
   // makes both of those recoverable.
   const tables: Array<{ entityType: string; fn: () => Promise<DbRow[]> }> = [
     { entityType: 'customer',         fn: () => sql`DELETE FROM customers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
-    { entityType: 'supplier',         fn: () => sql`DELETE FROM suppliers WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
+    { entityType: 'supplier',         fn: () => purgeSuppliers(companyId) },
     { entityType: 'item',             fn: () => sql`DELETE FROM items WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'bank_rule',        fn: () => sql`DELETE FROM bank_rules WHERE company_id = ${companyId}::uuid AND deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL '5 minutes' RETURNING id, company_id` as Promise<DbRow[]> },
     { entityType: 'customer_invoice', fn: () => purgeInvoices('customer_invoices', 'customer_invoice', companyId) },
@@ -251,7 +269,9 @@ export async function purgeExpiredDeletes(companyId: string): Promise<number> {
 
   for (const { entityType, fn } of tables) {
     try {
-      const rows = await fn();
+      // Its own savepoint: a refused DELETE rolls back this table only, never
+      // leaving the rest of the purge on an aborted transaction.
+      const rows = await withSavepoint(`purge_${entityType}`, fn);
       if (rows.length > 0) {
         // BL-80: log per-tenant attribution so a mis-fired purge is observable
         const companyIds = [...new Set(rows.map((r) => String(r.company_id)))];

@@ -12,6 +12,7 @@
  * not duplicated.
  */
 import type { McpTool } from '../types';
+import { agentReversalRefusal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { ALLOCATION_PROPERTIES, REVERSAL_DATE_PROPERTY, SELECTOR_PROPERTIES } from './allocationSchema';
@@ -189,6 +190,10 @@ export const reverseBankAllocationTool: McpTool = {
     if (status !== 'allocated' && status !== 'matched' && status !== 'reconciled' && status !== 'provisional') {
       return toolError('Can only reverse allocated, matched, or reconciled transactions');
     }
+    // Step 2 (Hein, decision 4): an agent may not reverse an allocation whose arm's type is enforced — asked before any
+    // write (the service refuses it too, under the line's lock).
+    const agentRefusal = await agentReversalRefusal(ctx.companyId, [txId]);
+    if (agentRefusal) return toolError(agentRefusal.message);
 
     // The contra journal is stamped too: without it the agent's own correction
     // posts as human:<userId> and drops out of list_agent_postings — the

@@ -12,9 +12,18 @@ import {
 import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
+import { removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite } from './bankRuleChangeControl';
 
 // Re-export matching function for backward compatibility
-export type { RuleApplyResult };
+export type { RuleApplyResult, HeldRuleChange };
+
+/**
+ * A rule write's outcome (forensic-controls step 2): the rule as written, or,
+ * under the `bank_rule` switch, a change HELD for another person's approval
+ * (nothing applied) — bankRuleChangeControl.ts decides which.
+ */
+export type RuleOutcome = (BankCategorisationRule & { status: 'applied' }) | HeldRuleChange;
+const outcome = (w: RuleWrite): RuleOutcome => (w.status === 'applied' ? { ...mapRuleRow(w.row), status: 'applied' } : w);
 export { applyRules } from './bankRulesMatchingService';
 
 // ── CRUD ────────────────────────────────────────────────────────────────────
@@ -37,7 +46,7 @@ export async function createRule(
   companyId: string,
   input: RuleCreateInput,
   userId: string
-): Promise<BankCategorisationRule> {
+): Promise<RuleOutcome> {
   // R-067: the rule's client_id is copied onto every matching bank line as
   // suggested_client_id, and both are read back with the customer name joined.
   await assertCustomerInCompany(companyId, input.clientId);
@@ -56,53 +65,37 @@ export async function createRule(
   // case from the UI. A mocked-sql unit test cannot see this; the DB-gated one
   // in tests/unit/services/bank/bankRuleAutoApplyDb.test.ts can.
   const autoApply = assertAutoApply(input.autoApply) ?? DEFAULT_AUTO_APPLY;
-  const rows = (await sql`
-    INSERT INTO bank_categorisation_rules (
-      company_id, rule_name, match_field, match_type, match_pattern,
-      gl_account_id, supplier_id, client_id, description_template,
-      priority, auto_create_entry, vat_code, auto_apply, created_by
-    ) VALUES (
-      ${companyId}::UUID, ${input.ruleName}, ${input.matchField}, ${input.matchType}, ${input.matchPattern},
-      ${input.glAccountId || null}::UUID, ${input.supplierId || null}::UUID,
-      ${input.clientId || null}::UUID,
-      ${input.descriptionTemplate || null},
-      ${input.priority || 100}, ${input.autoCreateEntry === true}, ${vatCode},
-      ${autoApply}, ${userId}
-    ) RETURNING *
-  `) as Record<string, unknown>[];
-  log.info('Created bank rule', { id: rows[0]!.id, ruleName: input.ruleName }, 'accounting');
-  return mapRuleRow(rows[0]!);
+  const written = outcome(await writeNewRule(companyId, {
+    rule_name: input.ruleName, match_field: input.matchField, match_type: input.matchType, match_pattern: input.matchPattern,
+    gl_account_id: input.glAccountId || null, supplier_id: input.supplierId || null, client_id: input.clientId || null,
+    description_template: input.descriptionTemplate || null, priority: input.priority || 100,
+    auto_create_entry: input.autoCreateEntry === true, vat_code: vatCode, auto_apply: autoApply,
+  }, userId));
+  if (written.status === 'applied') log.info('Created bank rule', { id: written.id, ruleName: input.ruleName }, 'accounting');
+  return written;
 }
 
 export async function updateRule(
   companyId: string,
   id: string,
-  input: Partial<RuleCreateInput> & { isActive?: boolean }
-): Promise<BankCategorisationRule> {
+  input: Partial<RuleCreateInput> & { isActive?: boolean },
+  userId: string,
+): Promise<RuleOutcome> {
   // Use ?? not || so legitimately-zero priorities and false booleans are not
-  // dropped by COALESCE. Fields with min(1) (ruleName, matchPattern) and enums
-  // can't be empty strings, so ?? matches the schema invariants.
+  // dropped. Fields with min(1) (ruleName, matchPattern) and enums can't be
+  // empty strings, so ?? matches the schema invariants. Only the fields named
+  // (not null/undefined) move — the COALESCE semantics this always had.
   await assertCustomerInCompany(companyId, input.clientId);
   await assertSupplierInCompany(companyId, input.supplierId);
-  const rows = (await sql`
-    UPDATE bank_categorisation_rules SET
-      rule_name = COALESCE(${input.ruleName ?? null}, rule_name),
-      match_field = COALESCE(${input.matchField ?? null}, match_field),
-      match_type = COALESCE(${input.matchType ?? null}, match_type),
-      match_pattern = COALESCE(${input.matchPattern ?? null}, match_pattern),
-      gl_account_id = COALESCE(${input.glAccountId ?? null}::UUID, gl_account_id),
-      supplier_id = COALESCE(${input.supplierId ?? null}::UUID, supplier_id),
-      client_id = COALESCE(${input.clientId ?? null}::UUID, client_id),
-      description_template = COALESCE(${input.descriptionTemplate ?? null}, description_template),
-      priority = COALESCE(${input.priority ?? null}, priority),
-      auto_create_entry = COALESCE(${input.autoCreateEntry ?? null}, auto_create_entry),
-      vat_code = COALESCE(${input.vatCode ?? null}, vat_code),
-      auto_apply = COALESCE(${assertAutoApply(input.autoApply) ?? null}, auto_apply),
-      is_active = COALESCE(${input.isActive ?? null}, is_active)
-    WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID RETURNING *
-  `) as Record<string, unknown>[];
-  if (!rows[0]) throw new Error(`Rule ${id} not found`);
-  return mapRuleRow(rows[0]);
+  return outcome(await writeRuleChange(companyId, id, {
+    rule_name: input.ruleName ?? undefined, match_field: input.matchField ?? undefined,
+    match_type: input.matchType ?? undefined, match_pattern: input.matchPattern ?? undefined,
+    gl_account_id: input.glAccountId ?? undefined, supplier_id: input.supplierId ?? undefined,
+    client_id: input.clientId ?? undefined, description_template: input.descriptionTemplate ?? undefined,
+    priority: input.priority ?? undefined, auto_create_entry: input.autoCreateEntry ?? undefined,
+    vat_code: input.vatCode ?? undefined, auto_apply: assertAutoApply(input.autoApply) ?? undefined,
+    is_active: input.isActive ?? undefined,
+  }, userId));
 }
 
 /**
@@ -122,26 +115,18 @@ function assertAutoApply(value: AutoApplyMode | undefined): AutoApplyMode | unde
   return parsed;
 }
 
+/** Deleting is always applied (a deleted rule posts nothing); recorded by the rules table. 404 when the rule is not here. */
 export async function deleteRule(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID`;
+  await removeRules(companyId, [id]);
 }
 
+/** All or nothing: a missing or foreign id refuses the whole batch (404) before any delete. */
 export async function deleteRules(companyId: string, ids: string[]): Promise<number> {
-  if (ids.length === 0) return 0;
-  const rows = await sql`
-    DELETE FROM bank_categorisation_rules
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-    RETURNING id
-  ` as { id: string }[];
-  return rows.length;
+  return removeRules(companyId, ids);
 }
 
-export async function toggleRule(companyId: string, id: string, isActive: boolean): Promise<void> {
-  await sql`
-    UPDATE bank_categorisation_rules
-    SET is_active = ${isActive}
-    WHERE company_id = ${companyId}::UUID AND id = ${id}::UUID
-  `;
+export async function toggleRule(companyId: string, id: string, isActive: boolean, userId: string): Promise<RuleOutcome> {
+  return outcome(await writeRuleChange(companyId, id, { is_active: isActive }, userId));
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -256,7 +256,7 @@ describe('perform_bank_reconciliation', () => {
     const b = body(await performBankReconciliationTool.handler(base, ctx));
     expect(startReconciliation)
       .toHaveBeenCalledWith(ctx.companyId, ACC, '2026-08-31', 1000, ctx.userId);
-    expect(autoMatchTransactions).toHaveBeenCalledWith(ctx.companyId, ACC, 'rec-1');
+    expect(autoMatchTransactions).toHaveBeenCalledWith(ctx.companyId, ACC, 'rec-1', ctx.userId); // step 2: the run's person
     expect(b.auto_matched).toBe(12);
     expect(b.difference).toBe(0);
     expect(b.completed).toBe(false);

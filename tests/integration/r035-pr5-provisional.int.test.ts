@@ -10,6 +10,7 @@
  * enforcement is off.
  */
 import { afterAll, describe, expect, it } from 'vitest';
+import { setLineBatchAsImported } from './bank-controls-a.helpers';
 import supplierInvoicesAction from '../../pages/api/accounting/supplier-invoices-action';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { ApprovalRequiredError } from '@/modules/accounting/services/gl/approvalGate';
@@ -44,7 +45,7 @@ async function slipBill(total: number, provenance: 'manual' | 'import', status?:
   const doc = await seedDoc();
   const { bt } = await seedProvisional({ totalAmount: total, evidencedBy: doc });
   if (provenance === 'import') {
-    await pool.query('UPDATE bank_transactions SET import_batch_id = $2 WHERE id = $1', [bt, crypto.randomUUID()]);
+    await setLineBatchAsImported(pool, bt, crypto.randomUUID());
   }
   return seedInvoice({ documentId: doc, totalAmount: total, ...(status ? { status } : {}) });
 }

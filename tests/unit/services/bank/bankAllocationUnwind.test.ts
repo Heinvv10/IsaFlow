@@ -11,7 +11,10 @@
  *
  * Every test names the mutation it catches.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
+vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../../helpers/bankControlGateMocks')).reversalGateOpen());
 
 const { sqlMock, recomputeInvoiceStatus } = vi.hoisted(() => ({
   sqlMock: vi.fn(),
@@ -286,6 +289,10 @@ describe('unwindBankAllocationApplication — supplier side', () => {
  * function was written to prevent, reached by the function itself.
  */
 describe('reverseReconciledTransaction — ordering', () => {
+  // Warm the transform of bankAllocationService's import graph (step 2 grew it): the case below re-imports it after
+  // vi.resetModules(), and a cold transform under CPU load spent the whole 5 s budget inside the test.
+  beforeAll(async () => { await import('@/modules/accounting/services/bank/bankAllocationService'); }, 60_000);
+
   it('unwinds the application before posting the contra', async () => {
     const order: string[] = [];
     vi.resetModules();

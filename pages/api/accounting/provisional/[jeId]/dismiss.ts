@@ -14,6 +14,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { dismissProvisionalEntry } from '@/modules/accounting/services/bank/provisionalDismissService';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { ClosedFiscalPeriodError, VatPeriodLockedError } from '@/modules/accounting/services/gl/journalEntryService';
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -35,6 +36,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ? 'Provisional entry reversed'
       : 'Provisional entry dismissed; its journal was already out of the ledger');
   } catch (err) {
+    if (respondIfBankControlRefused(res, err)) return; // step 2: the allocator or an agent, refused before any write
     const msg = err instanceof Error ? err.message : 'Failed to dismiss provisional entry';
     if (/not found/i.test(msg)) return apiResponse.notFound(res, 'Journal entry', jeId);
     if (/not provisional/i.test(msg)) return apiResponse.badRequest(res, msg);
