@@ -11,6 +11,18 @@
  */
 import { notify } from '@/utils/toast';
 
+/**
+ * The part of a posting route's response this notice reads. `id` is there so a
+ * whole document (a claim) can be passed as it is; nothing here reads it.
+ */
+export interface PostingWarningsBody {
+  data?: {
+    warnings?: string[];
+    claim?: { id?: string; warnings?: string[] } | null;
+    results?: Array<{ warnings?: string[] } | null>;
+  } | null;
+}
+
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : []);
 
 /**
@@ -18,8 +30,9 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((w): w is
  * `data.claim.warnings` (expense claims) or `data.results[].warnings` (bulk
  * actions), in that order, without repeats.
  */
-export function postingWarningsIn(body: unknown): string[] {
-  const data = (body as { data?: Record<string, unknown> } | null)?.data;
+export function postingWarningsIn(body: PostingWarningsBody | null | undefined): string[] {
+  // Read as untyped: it is a server's answer, and a wrong shape must show nothing rather than throw.
+  const data = (body as { data?: Record<string, unknown> } | null | undefined)?.data;
   if (!data || typeof data !== 'object') return [];
   const results = Array.isArray(data.results) ? data.results as Array<Record<string, unknown> | null> : [];
   return [...new Set([
@@ -38,7 +51,7 @@ export function postingWarningsMessage(warnings: readonly string[]): string {
 }
 
 /** Show the notice for a response, if it carries posting warnings. Returns how many it found. */
-export function notifyPostingWarnings(body: unknown): number {
+export function notifyPostingWarnings(body: PostingWarningsBody | null | undefined): number {
   const found = postingWarningsIn(body);
   if (found.length > 0) {
     notify.warning(found.length === 1 ? 'Posted — 1 cost centre was not applied' : `Posted — ${found.length} cost centres were not applied`,
