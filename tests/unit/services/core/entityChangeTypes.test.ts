@@ -58,18 +58,22 @@ describe('888 and its TypeScript agree', () => {
   it('companies record exactly this allow-list (plus the two Netcash key digests)', () => {
     const allow = quoted(/e\.key = ANY \(ARRAY\[([\s\S]*?)\]::pg_catalog\.text\[\]\)/.exec(SQL)![1]!);
     expect([...allow].sort()).toEqual([
-      'bank_account_number', 'bank_account_type', 'bank_branch_code', 'bank_name', 'billing_email', 'chase_auto_send_enabled',
-      'client_query_whatsapp', 'credit_note_email_body', 'credit_note_email_signature', 'credit_note_email_subject',
-      'default_currency', 'email', 'email_always_cc', 'email_use_for_communication', 'entity_type', 'financial_year_start',
-      'functional_currency', 'fx_documents_enabled', 'idle_timeout_minutes', 'invoice_email_body', 'invoice_email_signature',
-      'invoice_email_subject', 'is_active', 'lockdown_date', 'lockdown_enabled', 'mobile', 'name', 'netcash_enabled',
-      'paye_reference_number', 'phone', 'portal_allow_payments', 'portal_payment_instructions', 'portal_welcome_message',
-      'quote_email_body', 'quote_email_signature', 'quote_email_subject', 'recurring_invoice_email_body',
-      'recurring_invoice_email_signature', 'recurring_invoice_email_subject', 'registered_name', 'registration_number',
+      'address_line1', 'address_line2', 'bank_account_number', 'bank_account_type', 'bank_branch_code', 'bank_name',
+      'billing_email', 'chase_auto_send_enabled', 'city', 'client_query_whatsapp', 'country', 'credit_note_email_body',
+      'credit_note_email_signature', 'credit_note_email_subject', 'default_currency', 'email', 'email_always_cc',
+      'email_use_for_communication', 'email_use_service_from', 'entity_type', 'fax', 'financial_year_start',
+      'functional_currency', 'fx_documents_enabled', 'idle_timeout_minutes', 'invoice_email_body',
+      'invoice_email_signature', 'invoice_email_subject', 'is_active', 'lockdown_date', 'lockdown_enabled', 'mobile',
+      'name', 'netcash_enabled', 'paye_reference_number', 'phone', 'physical_address_line1', 'physical_address_line2',
+      'physical_city', 'physical_postal_code', 'physical_province', 'portal_allow_payments',
+      'portal_payment_instructions', 'portal_welcome_message', 'postal_code', 'province', 'quote_email_body',
+      'quote_email_signature', 'quote_email_subject', 'recurring_invoice_email_body', 'recurring_invoice_email_signature',
+      'recurring_invoice_email_subject', 'registered_address', 'registered_name', 'registration_number',
       'sales_order_email_body', 'sales_order_email_signature', 'sales_order_email_subject', 'sdl_reference_number',
-      'share_anonymised_signals', 'statement_email_body', 'statement_email_signature', 'statement_email_subject', 'status',
-      'tax_number', 'tax_office', 'tax_practitioner_name', 'tax_practitioner_reg_number', 'trading_name',
-      'uif_reference_number', 'vat_number', 'vat_period', 'vat_period_alignment', 'vat_system_type', 'whatsapp_chase_enabled',
+      'share_anonymised_signals', 'statement_email_body', 'statement_email_signature', 'statement_email_subject',
+      'status', 'tax_number', 'tax_office', 'tax_practitioner_name', 'tax_practitioner_reg_number', 'trading_name',
+      'uif_reference_number', 'vat_number', 'vat_period', 'vat_period_alignment', 'vat_system_type', 'website',
+      'whatsapp_chase_enabled',
     ]);
   });
 

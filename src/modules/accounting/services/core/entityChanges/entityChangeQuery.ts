@@ -4,10 +4,12 @@
  * (entity_changes_read) already binds the tenant and the reader's role; the
  * `types` filter states the same rule for the caller (entityChangeTypes.ts)
  * so a narrower reader asks only for what they may see. Newest first, paged
- * by an opaque cursor: the last change's id, resolved to its position inside
- * the caller's company — `seq` is platform-wide, so returning it would let a
- * member count other tenants' writes (breaker #696 R3). Sensitive values come
- * back masked (entityChangeMasking.ts).
+ * by an opaque cursor: the last change's id, resolved to its (recorded_at, id)
+ * position among the same changes this reader may page through — `seq` and
+ * `txid` are platform-wide counters, which app_user cannot even read (breaker
+ * #696 R3). A cursor that does not resolve is refused (EntityChangeCursorError),
+ * never answered as an empty "end of history". Sensitive values come back
+ * masked (entityChangeMasking.ts).
  */
 import { sql } from '@/lib/neon';
 import { changeFields } from './entityChangeMasking';
@@ -40,6 +42,14 @@ export interface ListEntityChangesOptions {
 }
 
 export const MAX_PAGE = 100;
+
+/** A `before` cursor that is not a change this reader could page through (another company, entity or type; unknown). */
+export class EntityChangeCursorError extends Error {
+  constructor() {
+    super('This page cursor is not a change in this history; start again from the newest page.');
+    this.name = 'EntityChangeCursorError';
+  }
+}
 
 const nameOf = (p: Record<string, unknown> | null, key: string): string | null => {
   const v = p?.[key];
@@ -108,9 +118,9 @@ export async function selectEntityChanges(companyId: string, opts: {
       AND (${opts.entityType ?? null}::TEXT IS NULL OR ec.entity_type = ${opts.entityType ?? null}::TEXT)
       AND (${opts.entityId ?? null}::UUID IS NULL OR ec.entity_id = ${opts.entityId ?? null}::UUID)
       AND (${opts.changeId ?? null}::UUID IS NULL OR ec.id = ${opts.changeId ?? null}::UUID)
-      AND (${opts.before ?? null}::UUID IS NULL OR ec.seq < (
-        SELECT b.seq FROM entity_changes b WHERE b.id = ${opts.before ?? null}::UUID AND b.company_id = ${companyId}::UUID))
-    ORDER BY ec.seq DESC
+      AND (${opts.before ?? null}::UUID IS NULL OR (ec.recorded_at, ec.id) < (
+        SELECT b.recorded_at, b.id FROM entity_changes b WHERE b.id = ${opts.before ?? null}::UUID AND b.company_id = ${companyId}::UUID))
+    ORDER BY ec.recorded_at DESC, ec.id DESC
     LIMIT ${opts.limit}
   `) as EntityChangeRow[];
 }
@@ -118,6 +128,11 @@ export async function selectEntityChanges(companyId: string, opts: {
 export async function listEntityChanges(companyId: string, opts: ListEntityChangesOptions): Promise<EntityChangePage> {
   if (opts.types.length === 0) return { items: [], nextCursor: null };
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), MAX_PAGE);
+  if (opts.before) {
+    // The cursor must be one of the very changes this query pages through (RLS applies too).
+    const [hit] = await selectEntityChanges(companyId, { ...opts, before: undefined, changeId: opts.before, limit: 1 });
+    if (!hit) throw new EntityChangeCursorError();
+  }
   const rows = await selectEntityChanges(companyId, { ...opts, limit: limit + 1 });
   const page = rows.slice(0, limit);
   return {

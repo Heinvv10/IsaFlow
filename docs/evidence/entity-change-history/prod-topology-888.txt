@@ -33,3 +33,9 @@ Behaviour, as deployer (.fixture/prodtopo-smoke.sql):
 Tripwire: CREATE ROLE intruder; GRANT deployer TO intruder; re-apply 888 as deployer ->
   ERROR: migration 888: intruder still holds INSERT on entity_changes   (only session_user is exempt)
   After REVOKE/DROP intruder, 888 re-applies cleanly (idempotent).
+
+Re-verified after review round 2 (2026-10-10, renumbered 890 -> 888; app_user granted SELECT on every column but
+seq / txid; wider company allow-list): a fresh copy of master's schema at 886 on the same topology, then 884 and 888
+applied AS deployer (exit 0), 888 re-applied (exit 0, idempotent), the same smoke script: app_user reads its company's
+4 rows, its INSERT is refused 42501, the owner's direct INSERT and UPDATE are refused by the guards, the purge leaves 0
+rows. On the fixture: app_user column privileges = every column of entity_changes except seq and txid.
