@@ -217,13 +217,13 @@ const handler: NextApiHandler = async (req, res) => {
       // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
       // invitation row when the same address is re-invited, so an existing
       // member kept their old role while the invitation claimed the new one.
-      // Never an owner's role, though: an admin may invite any address at a
-      // lesser role, the owner's own included, and accepting that demoted the
-      // company's last owner (PR #691 review round 5). Still accepted below.
+      // Never an owner's role (as the 886 guard judges it: `Owner ` too). An
+      // admin may invite any address at a lesser role, the owner's own, and
+      // accepting that demoted the last owner (PR #691 round 5). Still accepted.
       `INSERT INTO company_users (company_id, user_id, role)
        VALUES ($1::uuid, $2, $3)
        ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
-         WHERE company_users.role <> 'owner'`,
+         WHERE pg_catalog.lower(pg_catalog.btrim(company_users.role)) <> 'owner'`,
       [inv.company_id, tok.user.id, inv.role]
     );
     // `users` carries users_email_key UNIQUE (email) as well as its primary
