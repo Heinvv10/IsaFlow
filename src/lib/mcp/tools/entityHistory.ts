@@ -4,14 +4,21 @@
  * decisions 2 and 3, 2026-10-10: no reveal over MCP). The same reading rules
  * as the route and RLS: one entity's timeline for whoever may read that type,
  * the company-wide feed for owner / admin only; employees also need
- * `read:payroll`.
+ * `read:payroll`, suppliers and customers `read:contacts` (as their list tools).
  */
 import type { McpTool } from '../types';
 import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, isSeqCursor, mayReadType,
+  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, mayReadType, type EntityType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+
+/** Beyond read:reports, the scope each type's own read tool needs. */
+const TYPE_SCOPE: Partial<Record<EntityType, string>> = {
+  supplier: 'read:contacts',
+  customer: 'read:contacts',
+  payroll_employee: 'read:payroll',
+};
 
 export const entityHistoryTool: McpTool = {
   name: 'entity_history',
@@ -26,7 +33,8 @@ export const entityHistoryTool: McpTool = {
     + 'still shows as changed. Netcash keys are recorded only as a sha256 digest. '
     + 'entity_id needs entity_type. Without entity_id this is the company-wide feed (optionally one entity_type), owner / '
     + 'admin only. Members, invitations, permissions, company settings, approval rules and switches: owner / admin; '
-    + 'employees: owner / admin / manager with the read:payroll scope. History starts when migration 890 was deployed; '
+    + 'employees: owner / admin / manager with the read:payroll scope; suppliers and customers need read:contacts (the '
+    + 'feed leaves out any type a scope is missing for). History starts when migration 890 was deployed; '
     + 'earlier changes were not recorded. Bank rules have their own history (list_bank_rules). '
     + `Paginate with next_cursor; at most ${MAX_PAGE} rows per page.`,
   scope: 'read:reports',
@@ -42,7 +50,7 @@ export const entityHistoryTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { uuid: ['entity_id'] });
+    const bad = guardCastableArgs(args, { uuid: ['entity_id', 'cursor'] });
     if (bad) return bad;
     const entityTypeRaw = strArg(args, 'entity_type');
     if (entityTypeRaw !== undefined && !isEntityType(entityTypeRaw)) {
@@ -51,13 +59,14 @@ export const entityHistoryTool: McpTool = {
     const entityType = entityTypeRaw as (typeof ENTITY_TYPES)[number] | undefined;
     const entityId = strArg(args, 'entity_id');
     const cursor = strArg(args, 'cursor');
-    if (cursor !== undefined && !isSeqCursor(cursor)) return toolError('invalid cursor');
     const role = ctx.companyRole ?? undefined;
     const limit = clampLimit(args, 50, MAX_PAGE);
 
-    // Employee history needs read:payroll whether one employee or the feed filtered to employees is asked for.
-    if (entityType === 'payroll_employee' && !ctx.scopes.includes('read:payroll')) {
-      return toolError('Employee history needs the read:payroll scope.');
+    // A type's history needs the scope that reads the entity itself — whether one record or the feed is asked for
+    // (security review: payroll; breaker #696 R5: list_suppliers / list_customers need read:contacts).
+    const allowed = (t: EntityType) => !TYPE_SCOPE[t] || ctx.scopes.includes(TYPE_SCOPE[t]!);
+    if (entityType && !allowed(entityType)) {
+      return toolError(`${entityType} history needs the ${TYPE_SCOPE[entityType]} scope.`);
     }
     if (entityId !== undefined) {
       if (!entityType) return toolError(`entity_id requires entity_type — one of: ${ENTITY_TYPES.join(', ')}`);
@@ -65,8 +74,7 @@ export const entityHistoryTool: McpTool = {
     } else if (!isHistoryAdmin(role)) {
       return toolError('Only an owner or admin can read the company-wide change history; pass entity_type and entity_id.');
     }
-    const types = entityType ? [entityType]
-      : ENTITY_TYPES.filter((t) => t !== 'payroll_employee' || ctx.scopes.includes('read:payroll'));
+    const types = entityType ? [entityType] : ENTITY_TYPES.filter(allowed);
     const page = await listEntityChanges(ctx.companyId, { types, entityType, entityId, before: cursor, limit });
     return ok({
       company_id: ctx.companyId,

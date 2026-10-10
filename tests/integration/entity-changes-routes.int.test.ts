@@ -83,10 +83,17 @@ describe('a supplier timeline', () => {
     const exact = await page(a, c, { entityType: 'supplier', entityId: s, limit: '3' });
     expect(exact.items).toHaveLength(3);
     expect(exact.nextCursor).toBeNull();
-    // A cursor beyond BIGINT is refused (422, validationError), not a cast error 500 (blind review L1).
+    // The cursor is a change id, never the platform-wide seq (breaker #696 R3); anything else is refused, not a 500.
+    expect(first.nextCursor).toBe(first.items[1]!.id);
+    expect(JSON.stringify(first)).not.toMatch(/"seq"/);
     expect((await get(a, c, { entityType: 'supplier', entityId: s, before: '9999999999999999999' })).state.statusCode).toBe(422);
-    const mcp = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: '9999999999999999999' });
-    expect(mcp).toMatchObject({ isError: true, content: [{ text: 'invalid cursor' }] });
+    const mcp = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: '42' },
+      ['read:reports', 'read:contacts']);
+    expect(mcp.isError).toBe(true);
+    // Another company's change id is no cursor here: the page is empty, never theirs.
+    const other = await company();
+    const theirs = (await page(o, other, { entityType: 'company_user' })).items[0]!.id;
+    expect((await page(a, c, { entityType: 'supplier', entityId: s, before: theirs })).items).toEqual([]);
   });
 });
 
@@ -108,7 +115,7 @@ describe('who reads what', () => {
   it('MCP entity_history: masked, the same rules, employees need read:payroll', async () => {
     const c = await company();
     const s = await supplierViaRoute(c);
-    const read = async (role: string, args: Record<string, unknown>, scopes = ['read:reports']) =>
+    const read = async (role: string, args: Record<string, unknown>, scopes = ['read:reports', 'read:contacts']) =>
       mcpCall(pool, role === 'viewer' ? v : a, c, role, 'entity_history', args, scopes);
     const ok = await read('viewer', { entity_type: 'supplier', entity_id: s });
     expect(ok.isError).toBeFalsy();
@@ -126,6 +133,13 @@ describe('who reads what', () => {
     expect((await read('admin', { entity_type: 'payroll_employee', entity_id: emp }, ['read:reports', 'read:payroll'])).isError).toBeFalsy();
     const feed = JSON.parse((await read('admin', {})).content[0]!.text) as { items: { entity_type: string }[] };
     expect(feed.items.some((i) => i.entity_type === 'payroll_employee')).toBe(false);
+    // Breaker #696 R5: supplier / customer history needs read:contacts, as list_suppliers / list_customers do.
+    const noContacts = await read('viewer', { entity_type: 'supplier', entity_id: s }, ['read:reports']);
+    expect(noContacts.isError).toBe(true);
+    expect(noContacts.content[0]!.text).toContain('read:contacts');
+    const feedNoContacts = JSON.parse((await read('admin', {}, ['read:reports'])).content[0]!.text) as { items: { entity_type: string }[] };
+    expect(feedNoContacts.items.some((i) => i.entity_type === 'supplier' || i.entity_type === 'customer')).toBe(false);
+    expect(feedNoContacts.items.length).toBeGreaterThan(0);
   });
 });
 
@@ -171,7 +185,7 @@ describe('reveal', () => {
     const audit = (await pool.query("SELECT user_id, action, entity_id, changes FROM audit_log WHERE company_id = $1 AND entity_type = 'entity_change'",
       [c])).rows;
     expect(audit).toEqual([{ user_id: a, action: 'export', entity_id: created!.id,
-      changes: { fields: [], metadata: { revealed: 'bank_account_number', entityType: 'supplier', entityId: s, seq: created!.seq } } }]);
+      changes: { fields: [], metadata: { revealed: 'bank_account_number', entityType: 'supplier', entityId: s } } }]);
     expect((await reveal(a, c, crypto.randomUUID())).state.statusCode).toBe(404);
   });
 

@@ -52,14 +52,6 @@ export function mayReadType(role: string | undefined, type: EntityType): boolean
   return ADMIN_ROLES.includes(role ?? '');
 }
 
-/**
- * A page cursor: a positive entity_changes.seq that fits a BIGINT. A larger
- * number would be a cast error in the query (a 500), not a 400.
- */
-export function isSeqCursor(value: string): boolean {
-  return /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
-}
-
 /** The company-wide feed (every entity) and the reveal of a masked value. */
 export const isHistoryAdmin = (role: string | undefined): boolean => ADMIN_ROLES.includes(role ?? '');
 
@@ -73,7 +65,6 @@ export interface EntityChangeField {
 
 export interface EntityChangeView {
   id: string;
-  seq: string;
   entityType: EntityType;
   entityId: string;
   /** The entity's name or code as it stood after the change (before it, for a delete). */
@@ -89,6 +80,6 @@ export interface EntityChangeView {
 
 export interface EntityChangePage {
   items: EntityChangeView[];
-  /** Pass as `before` for the next (older) page; null when there is none. */
+  /** Pass as `before` for the next (older) page — the last change's id; null when there is none. */
   nextCursor: string | null;
 }

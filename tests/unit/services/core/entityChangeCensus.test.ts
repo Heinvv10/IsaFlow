@@ -21,10 +21,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { ROOT, migrationNumber, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
+import { ROOT, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
 const HISTORY_FROM = 890;
+const HISTORY_FILE = '890_entity_change_history.sql';
 
 const S = 'src/modules/accounting/services/';
 const WRITERS: Record<string, string[]> = {
@@ -99,6 +100,13 @@ const TRACKED_TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?(?:supplie
  * write the history, or grant ON ALL TABLES / FUNCTIONS (that hands app_user
  * INSERT on the history, or EXECUTE on the capture, back).
  */
+/** A migration after 890: a higher number, or 890 itself with a suffix (`890b_`). */
+export function isLaterMigration(file: string): boolean {
+  // Every digit (sourceCensus's migrationNumber reads three, so a 1000_ file would be 0).
+  const n = Number(/^(\d+)[a-z]?_/.exec(path.basename(file))?.[1] ?? 'NaN');
+  return n > HISTORY_FROM || (n === HISTORY_FROM && path.basename(file) !== HISTORY_FILE);
+}
+
 export function laterMigrationViolates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
     || new RegExp(String.raw`\balter\s+table\s+(?:if\s+exists\s+)?${TRACKED_TABLE}\s+(?:disable|enable\s+replica)\s+trigger\b`, 'i').test(sql)
@@ -120,8 +128,14 @@ describe('entity change history (census)', () => {
   });
 
   it('no later migration touches the history or turns a capture off', () => {
-    const later = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > HISTORY_FROM);
+    const later = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && isLaterMigration(file));
     expect(later.filter(({ file, text }) => laterMigrationViolates(code(file, text))).map(({ file }) => file)).toEqual([]);
+  });
+
+  // Breaker #696 R4: an `890b_` insert (CLAUDE.md's own suffix rule) has number 890 and slipped past `> 890`.
+  it.each([['890b_drop.sql', true], ['891_x.sql', true], ['1000_x.sql', true], ['890_entity_change_history.sql', false],
+    ['889_x.sql', false], ['244b_x.sql', false]])('%s is a later migration: %s', (name, later) => {
+    expect(isLaterMigration(`${MIGRATIONS}${name}`)).toBe(later);
   });
 
   // Blind review of #696 (M1): each of these slipped past the first census.
@@ -158,7 +172,7 @@ describe('entity change history (census)', () => {
   });
 
   it('890 attaches the capture to exactly the tracked tables, ENABLE ALWAYS', () => {
-    const sql = readFileSync(path.join(ROOT, MIGRATIONS, '890_entity_change_history.sql'), 'utf8');
+    const sql = readFileSync(path.join(ROOT, MIGRATIONS, HISTORY_FILE), 'utf8');
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(sql)![1]!;
     const tables = [...values.matchAll(/\('(\w+)', '(\w+)'\)/g)].map((m) => m[1]);
     expect(tables.sort()).toEqual([...TRACKED].sort());

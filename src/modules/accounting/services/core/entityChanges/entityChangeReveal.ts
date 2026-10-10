@@ -30,10 +30,10 @@ export async function revealEntityChange(companyId: string, changeId: string, ac
       action: 'export',
       entityType: 'entity_change',
       entityId: row.id,
-      entityRef: `${row.entity_type} #${row.seq}`,
+      entityRef: row.entity_type,
       changes: {
         fields: [],
-        metadata: { revealed: revealed.join(','), entityType: row.entity_type, entityId: row.entity_id, seq: String(row.seq) },
+        metadata: { revealed: revealed.join(','), entityType: row.entity_type, entityId: row.entity_id },
       },
       ip: actor.ip,
       userAgent: actor.userAgent,

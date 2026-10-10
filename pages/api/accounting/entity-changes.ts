@@ -1,6 +1,6 @@
 /**
  * Entity change history (forensic-controls step 3, migration 890)
- * GET — newest first, paged by `before` (the previous page's nextCursor),
+ * GET — newest first, paged by `before` (the previous page's nextCursor, a change id),
  *       `limit` up to 100:
  *   - `?entityType=&entityId=` one entity's timeline: whoever may read that
  *     type (suppliers / customers / GL accounts: any member; employees: owner,
@@ -20,13 +20,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  ENTITY_TYPES, isHistoryAdmin, isSeqCursor, mayReadType,
+  ENTITY_TYPES, isHistoryAdmin, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 
 const Query = z.object({
   entityType: z.enum(ENTITY_TYPES).optional(),
   entityId: UUID.optional(),
-  before: z.string().refine(isSeqCursor, 'before must be a cursor from a previous page').optional(),
+  before: UUID.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE).default(50),
 });
 
