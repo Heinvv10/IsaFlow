@@ -28,7 +28,11 @@ import { inTx } from './helpers/l1FifoFixture';
 import { countRows, type LateFixture } from './helpers/vatLateClaimFixture';
 import { callRoute, dataOf } from './helpers/vatLateClaimRoutes';
 import { bareOn, dropPickFixture, legsOn, seedPickFixture, type PickFixture } from './helpers/costCentrePickFixture';
+import { approveSupplierInvoiceTool } from '@/lib/mcp/tools/writeSupplierInvoices';
+import { bulkApproveSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkApproveSupplierInvoices';
+import type { McpToolContext } from '@/lib/mcp/types';
 import supplierInvoicesAction from '../../pages/api/accounting/supplier-invoices-action';
+import supplierInvoicesBulkAction from '../../pages/api/accounting/supplier-invoices-bulk-action';
 import recurringJournalsAction from '../../pages/api/accounting/recurring-journals-action';
 import recurringTransactionsExecute from '../../pages/api/accounting/recurring-transactions-execute';
 
@@ -94,6 +98,48 @@ describeIfDb('cost-centre picks on stored documents and templates', () => {
     expect(await expense(viaPost.id)).toEqual([{ cc1: p.FT, cc2: null, legacy: null, net: 1000 }]);
   });
 
+  it('a project with NO FNO contradicts no CC1: placed beside the item\'s, as a new journal keeps that pair (round 5)', async () => {
+    const orphan = await bill(p.ORPHAN, { cc1Id: p.FT });
+    expect((await approve(orphan.id)).warnings).toBeUndefined();
+    expect(await expense(orphan.id)).toEqual([{ cc1: p.FT, cc2: p.ORPHAN, legacy: null, net: 1000 }]);
+    const alone = await bill(p.ORPHAN);
+    await approve(alone.id);
+    expect(await expense(alone.id)).toEqual([{ cc1: null, cc2: p.ORPHAN, legacy: null, net: 1000 }]);
+  });
+
+  it('a header project under an INACTIVE FNO follows the stored-item rule: approving refuses it, Post to GL copies it (round 5)', async () => {
+    const draft = await bill(p.PI);
+    const before = await countRows(fx);
+    const refused = await callRoute(fx, p.token, supplierInvoicesAction, { action: 'approve', invoiceId: draft.id });
+    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain('CC1 must name an active CC1 cost centre in this company');
+    expect(await countRows(fx)).toEqual(before);
+    const approved = await bill(p.PI);
+    await postToGl(approved.id);
+    expect(await expense(approved.id)).toEqual([{ cc1: p.INACTIVE, cc2: p.PI, legacy: null, net: 1000 }]);
+  });
+
+  it('the warnings reach every AP caller: the bulk route (approve and Post to GL) and both MCP approve tools', async () => {
+    const [a, b, c, d] = [await bill(p.INACTIVE), await bill(p.INACTIVE), await bill(p.INACTIVE), await bill(p.INACTIVE)];
+    const bulk = await callRoute(fx, p.token, supplierInvoicesBulkAction, { action: 'approve', invoiceIds: [a.id] });
+    expect(bulk.statusCode, JSON.stringify(bulk.body)).toBe(200);
+    expect(dataOf<{ results: Array<{ ok: boolean; warnings?: string[] }> }>(bulk).results).toMatchObject([{ ok: true, warnings: [INACTIVE] }]);
+    await sql`UPDATE supplier_invoices SET status = 'approved' WHERE id = ${b.id}::UUID`;
+    const posted = await callRoute(fx, p.token, supplierInvoicesBulkAction, { action: 'post_gl', invoiceIds: [b.id] });
+    expect(dataOf<{ results: Array<{ ok: boolean; warnings?: string[] }> }>(posted).results).toMatchObject([{ ok: true, warnings: [INACTIVE] }]);
+
+    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-ccd', scopes: [] } as unknown as McpToolContext;
+    const text = (out: unknown) => (out as { content: Array<{ text: string }> }).content[0]!.text;
+    const one = await inTx(fx, () => approveSupplierInvoiceTool.handler({ invoice_id: c.id, idempotency_key: `ccd-${c.id}` }, ctx));
+    expect((JSON.parse(text(one)) as { warnings?: string[] }).warnings).toEqual([INACTIVE]);
+    const many = await inTx(fx, () => bulkApproveSupplierInvoicesTool.handler({ invoice_ids: [d.id], idempotency_key: `ccd-${d.id}` }, ctx));
+    expect(text(many)).toContain(JSON.stringify(INACTIVE).slice(1, -1));
+    // ... and none is invented for a bill whose pick landed.
+    const clean = await bill(p.FT);
+    const none = await inTx(fx, () => approveSupplierInvoiceTool.handler({ invoice_id: clean.id, idempotency_key: `ccd-${clean.id}` }, ctx));
+    expect(JSON.parse(text(none))).not.toHaveProperty('warnings');
+  });
+
   it('a header CC1 beside an item project gives way to the stored FNO, and says so (round-3 REPRO 2)', async () => {
     const derived = await bill(p.FT, { cc2Id: p.PH });
     expect((await approve(derived.id)).warnings).toEqual([OCCUPIED('FT')]);
@@ -143,14 +189,18 @@ describeIfDb('cost-centre picks on stored documents and templates', () => {
     const warned = await callRoute(fx, p.token, recurringJournalsAction, { action: 'generate', id: withdrawn.id });
     expect(dataOf<{ warnings?: string[] }>(warned).warnings).toEqual([INACTIVE]);
 
-    const untyped = await recurring(p.UNTYPED);
+    // An untyped pick, and an active project under an inactive FNO (createJournalEntry's own refusal, a 500 here
+    // until round 5): each a 400, raised before the run is claimed.
     const before = await countRows(fx);
-    const refused = await callRoute(fx, p.token, recurringJournalsAction, { action: 'generate', id: untyped.id });
-    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
-    expect(JSON.stringify(refused.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+    for (const pick of [p.UNTYPED, p.PI]) {
+      const bad = await recurring(pick);
+      const refused = await callRoute(fx, p.token, recurringJournalsAction, { action: 'generate', id: bad.id });
+      expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
+      expect(JSON.stringify(refused.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+      const [row] = (await sql`SELECT next_run_date::TEXT AS d, run_count FROM recurring_journals WHERE id = ${bad.id}::UUID`) as Row[];
+      expect(row).toMatchObject({ d: '2026-07-15', run_count: 0 });
+    }
     expect(await countRows(fx)).toEqual(before);
-    const [row] = (await sql`SELECT next_run_date::TEXT AS d, run_count FROM recurring_journals WHERE id = ${untyped.id}::UUID`) as Row[];
-    expect(row).toMatchObject({ d: '2026-07-15', run_count: 0 });
   });
 
   const template = (pick: string) => inTx(fx, () => createRecurringTemplate(fx.companyId, fx.userId, {
@@ -169,11 +219,13 @@ describeIfDb('cost-centre picks on stored documents and templates', () => {
     const withdrawn = await template(p.INACTIVE);
     expect((await inTx(fx, () => executeRecurring(fx.companyId, withdrawn.id, fx.userId))).warnings).toEqual([INACTIVE]);
 
-    const untyped = await template(p.UNTYPED);
     const before = await countRows(fx);
-    const refused = await callRoute(fx, p.token, recurringTransactionsExecute, { templateId: untyped.id });
-    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
-    expect(JSON.stringify(refused.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+    for (const pick of [p.UNTYPED, p.PI]) {
+      const bad = await template(pick);
+      const refused = await callRoute(fx, p.token, recurringTransactionsExecute, { templateId: bad.id });
+      expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
+      expect(JSON.stringify(refused.body)).toContain(COST_CENTRE_NOT_A_CC1_OR_CC2);
+    }
     expect(await countRows(fx)).toEqual(before);
   });
 });

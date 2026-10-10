@@ -34,6 +34,7 @@ import {
 import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import { assertDocumentLineAccounts } from '@/modules/accounting/services/gl/documentLineAccountGuard';
 import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { LateClaimInfo } from '@/modules/accounting/services/gl/vatLateClaimPlan';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -586,6 +587,7 @@ export async function postClaimToGl(
 
   // Each line's centre in its CC1 / CC2 slot; a refusal lands here, before the first write.
   const placed = await placeCostCentres(companyId, lines);
+  await assertNewJournalDimensions(companyId, 'auto_expense_claim', placed.lines); // e.g. a project under an inactive FNO
   // source_document_id stays null at the header — a claim has many source docs.
   const entry = await createJournalEntry(companyId, {
     entryDate: claim.claimDate,

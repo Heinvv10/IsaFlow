@@ -18,6 +18,7 @@ import {
 import { advanceDate } from './recurringSchedule';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import { placeCostCentres } from './dimensions/costCentrePick';
+import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { templateAuthors } from './manualJournalAuthors';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -174,6 +175,7 @@ export async function runRecurringJournal(companyId: string,
   const stored: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
   // A template line's costCenterId is a pick: into its CC1 / CC2 slot, before the claim (the first write).
   const { lines, warnings } = await placeCostCentres(companyId, stored);
+  await assertNewJournalDimensions(companyId, 'auto_recurring', lines); // what createJournalEntry would refuse, before the claim
   await assertTemplateLinesPostable(companyId, lines);
 
   await assertPostablePeriod(companyId, dueDate);

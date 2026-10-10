@@ -21,14 +21,15 @@
  *    picker option on a claim or a receipt used to post (into the legacy
  *    column); refusing it now would strand the document;
  *  - anything else — another company's id, no centre at all, an untyped
- *    centre — is REFUSED (CostCentrePickRefusal, a DimensionRefusal: a 4xx).
+ *    centre — is REFUSED (CostCentrePickRefusal, a PreWriteDimensionRefusal: a 4xx).
  *
  * `storedPosting` (AP only). A bill posts what it stores, in historical-copy
  * mode, so nothing derives or checks an FNO after this. There a CC2 pick also
  * brings its FNO: on a line with no CC1 the project's FNO becomes the CC1 (what
  * a new assignment derives), and on a line that has a CC1 the project is placed
- * only when its FNO IS that CC1 — otherwise it is dropped, never stored as a
- * pair no report can reconcile.
+ * unless its FNO is ANOTHER CC1 — then it is dropped, never stored as a pair no
+ * report can reconcile. A project with no FNO at all contradicts nothing and is
+ * placed beside any CC1, exactly as derivation leaves that pair on a new line.
  *
  * EVERY DROP IS REPORTED: `warnings` names the line and the centre's code, for
  * the caller to return with its posting result, and log.warn records the ids.
@@ -37,14 +38,14 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
-import { DimensionRefusal, type DimensionIds } from './dimensionTypes';
+import { PreWriteDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveFnoId, loadCostCentreChains } from './dimensionDerivation';
 
 export const COST_CENTRE_OUTSIDE_COMPANY = 'One or more journal lines name a cost centre outside this company';
 export const COST_CENTRE_NOT_A_CC1_OR_CC2 = 'CC1 must name an active CC1 cost centre in this company';
 
 /** A pick that cannot be placed or dropped. `lineIndex` is the 0-based line it was on. */
-export class CostCentrePickRefusal extends DimensionRefusal {
+export class CostCentrePickRefusal extends PreWriteDimensionRefusal {
   constructor(message: string, readonly lineIndex: number) {
     super(message);
     this.name = 'CostCentrePickRefusal';
@@ -80,8 +81,10 @@ export function costCentreSlot(pickId: string, centre: PickedCentre | undefined,
   if (centre.ccType === 'cc1') return line.cc1Id || line.cc2Id ? { kind: 'drop', reason: 'occupied' } : { kind: 'cc1' };
   if (line.cc2Id) return { kind: 'drop', reason: 'occupied' };
   if (centre.fnoId === undefined) return { kind: 'cc2' }; // a new assignment: derivation and its conflict check follow
-  if (!line.cc1Id) return centre.fnoId ? { kind: 'cc2', cc1Id: centre.fnoId } : { kind: 'cc2' };
-  return centre.fnoId && eq(line.cc1Id, centre.fnoId) ? { kind: 'cc2' } : { kind: 'drop', reason: 'conflict' };
+  // A project whose chain reaches no FNO contradicts no CC1: it is placed, as derivation leaves such a pair alone.
+  if (!centre.fnoId) return { kind: 'cc2' };
+  if (!line.cc1Id) return { kind: 'cc2', cc1Id: centre.fnoId };
+  return eq(line.cc1Id, centre.fnoId) ? { kind: 'cc2' } : { kind: 'drop', reason: 'conflict' };
 }
 
 const DROPPED: Record<DropReason, (code: string) => string> = {
@@ -108,7 +111,8 @@ export async function placeCostCentres<T extends DimensionIds & { costCenterId?:
   opts: { storedPosting?: boolean } = {},
 ): Promise<PlacedLines<T>> {
   const picked = [...new Set(lines.map((l) => l.costCenterId).filter((id): id is string => Boolean(id)))];
-  const malformed = lines.findIndex((l) => l.costCenterId && !UUID_RE.test(l.costCenterId));
+  // Not a string (a stored template or a request body can hold anything) or not a UUID: no centre of this company.
+  const malformed = lines.findIndex((l) => l.costCenterId && (typeof l.costCenterId !== 'string' || !UUID_RE.test(l.costCenterId)));
   if (malformed >= 0) throw new CostCentrePickRefusal(COST_CENTRE_OUTSIDE_COMPANY, malformed);
   const centres = new Map<string, PickedCentre & { code: string }>();
   if (picked.length > 0) {

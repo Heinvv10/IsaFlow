@@ -185,6 +185,8 @@ export async function executeRecurring(
     const placed = await placeCostCentres(companyId, (data.lines || []) as JournalLineInput[]);
     const lines = placed.lines;
     warnings = placed.warnings;
+    const { assertNewJournalDimensions } = await import('../gl/dimensions/dimensionPolicy');
+    await assertNewJournalDimensions(companyId, 'auto_recurring', lines); // what createJournalEntry would refuse, as a 4xx
     // R-035 PR6: an autoPost run is unattended, so a journal an enforced
     // manual-journal rule governs is held — left a draft, marked, carrying the
     // template's authors, the request raised as the runner — and the schedule

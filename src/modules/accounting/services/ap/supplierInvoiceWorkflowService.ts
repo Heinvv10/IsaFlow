@@ -18,7 +18,7 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertBillApprovable, assertBillPostable } from './billPostingGuard';
-import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
+import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the legacy pick, in its slot, with its FNO
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
@@ -120,6 +120,8 @@ async function approveInner(
 
     await assertBillPostable(companyId, invoice);
     const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
+    // What the pick added follows the stored items' rule: approving refuses an inactive CC1 / CC2 (an inactive FNO too); Post to GL copies.
+    await assertPostsStoredDimensions(companyId, invoice.status, lines, (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
 
     if (invoice.taxAmount > 0) {
       lines.push({

@@ -43,6 +43,7 @@ import {
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { placeCostCentres } from '../gl/dimensions/costCentrePick';
+import { assertNewJournalDimensions } from '../gl/dimensions/dimensionPolicy';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -148,6 +149,9 @@ export async function postReceiptAsPettyCashJournal(
   // items yields subtotal + vat != total. `createJournalEntry` would reject it,
   // but as a plain `Error` that surfaces as a 500. Extracting this branch out
   // of the route left the two paths asymmetric; this restores the answer.
+  // What createJournalEntry would refuse about the dimensions (a project under an inactive FNO),
+  // here, before the claim, so the route's 4xx for it commits nothing.
+  await assertNewJournalDimensions(companyId, 'auto_expense_receipt', postableLines);
   const preCheck = validateJournalEntry(postableLines);
   if (!preCheck.valid) {
     throw new ReceiptDoesNotBalanceError(
