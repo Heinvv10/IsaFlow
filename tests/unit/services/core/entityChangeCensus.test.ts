@@ -105,6 +105,12 @@ const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(
  * the capture existed, so they reach neither. A new one is a reason to look.
  */
 const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql'];
+/**
+ * Matching only in their comments: 693 explains why ENABLE TRIGGER downgrades, 855 why it uses E'' under
+ * standard_conforming_strings, 876 why TRUNCATE ... cascade.
+ */
+const KNOWN_IN_COMMENTS = ['693_oauth_apps_trust_flags_not_app_writable.sql', '855_retire_data_archiving.sql',
+  '876_supplier_bank_verification.sql'];
 
 const TRACKED_TABLE_SQL = String.raw`(?:(?:only|if\s+exists)\s+)*(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
 
@@ -122,13 +128,21 @@ export function decodeEscapes(sql: string): string {
       .replace(/\\U([0-9a-f]{8})/g, (_x, h: string) => cp(h))
       .replace(/\\([0-7]{1,3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)))
       .replace(/\\(.)/g, '$1')}'`)
-    .replace(/\bU&(["'])((?:(?!\1).|\1\1)*)\1/gi, (_m, q: string, body: string) => `${q}${body
-      .replace(/\\\+([0-9a-f]{6})/gi, (_x, h: string) => cp(h))
-      .replace(/\\([0-9a-f]{4})/gi, (_x, h: string) => cp(h))}${q}`);
+    // U&'…' / U&"…", with UESCAPE 'c' naming another escape character (security review of d5665093).
+    .replace(/\bU&(["'])((?:(?!\1)[\s\S]|\1\1)*)\1(?:\s*uescape\s*'([^'])')?/gi,
+      (_m, q: string, body: string, esc?: string) => {
+        const e = (esc ?? '\\').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return `${q}${body
+          .replace(new RegExp(`${e}\\+([0-9a-f]{6})`, 'gi'), (_x, h: string) => cp(h))
+          .replace(new RegExp(`${e}([0-9a-f]{4})`, 'gi'), (_x, h: string) => cp(h))}${q}`;
+      });
 }
 
 function violates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
+    // With standard_conforming_strings off, a plain '…' string decodes backslash escapes too, which decodeEscapes does
+    // not (security review of d5665093): a migration may not touch the setting.
+    || /\bstandard_conforming_strings\b/i.test(sql)
     // Any trigger switch but ENABLE ALWAYS, on any table, literal or inside a format() string (blind review r2 L-3):
     // DISABLE stops a capture; a plain or REPLICA ENABLE takes it out of ALWAYS, so it no longer fires under replica.
     || /\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(sql)
@@ -177,8 +191,12 @@ describe('entity change history (census)', () => {
   // Every migration file but 888 is judged, whatever its number (blind review r2 M-1): the runner applies any
   // file not yet applied, in name order, so a new 887_ or 886b_ that lands after 888 runs after it on prod too.
   it('no other migration touches the history or turns a capture off', () => {
-    const found = sourceFiles()
-      .filter(({ file }) => file.startsWith(MIGRATIONS) && path.basename(file) !== HISTORY_FILE)
+    const others = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && path.basename(file) !== HISTORY_FILE);
+    // The raw text is judged too: comment stripping is a parser of its own, and a `--` inside a string literal must
+    // not hide the rest of its line (security review of d5665093). Only comments of 693, 855 and 876 match there.
+    expect(others.filter(({ file, text }) => laterMigrationViolates(text) && !laterMigrationViolates(code(file, text)))
+      .map(({ file }) => path.basename(file))).toEqual(KNOWN_IN_COMMENTS);
+    const found = others
       .filter(({ file, text }) => laterMigrationViolates(code(file, text)))
       .map(({ file }) => path.basename(file));
     expect(found, 'A migration other than 888 names an entity_change* object, switches a trigger other than to ENABLE '
@@ -237,6 +255,9 @@ describe('entity change history (census)', () => {
     "EXECUTE E'COMMENT ON TABLE t IS ''x''; DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
     'TRUNCATE cost_centres CASCADE',
     'TRUNCATE TABLE occupational_levels RESTART IDENTITY CASCADE',
+    // Security review of d5665093: a UESCAPE escape, and switching how plain strings parse.
+    `DROP TRIGGER U&"entity!005Fchange_capture" UESCAPE '!' ON public.companies`,
+    'SET standard_conforming_strings = off',
     "EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\u005Fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\137change_capture ON public.customers'",
