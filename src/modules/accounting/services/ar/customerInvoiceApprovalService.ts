@@ -148,7 +148,7 @@ export async function approveCustomerInvoice(
   let locked: Row[];
   try {
     locked = (await sql`
-      SELECT status, currency_code FROM customer_invoices
+      SELECT status, currency_code, total_amount FROM customer_invoices
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId} AND deleted_at IS NULL
         AND status = ANY(${APPROVABLE_STATUSES}::text[])
       FOR NO KEY UPDATE
@@ -168,6 +168,13 @@ export async function approveCustomerInvoice(
     // after the UPDATE and is re-raised below as a 5xx class.
     const lineRefusal = await storedInvoiceLinesRefusal(companyId, invoiceId);
     if (lineRefusal) throw new InvoiceLineCodingRefusal(lineRefusal);
+    // A R0.00 invoice has no journal to post (its AR line would be 0/0, which the
+    // journal validator refuses AFTER the status UPDATE, as a 500). Refused here,
+    // before any write, as bulk finalize already skips it; compared in cents.
+    if (Math.round(Number(locked[0].total_amount ?? 0) * 100) <= 0) {
+      throw new InvoiceNotApprovableError(
+        'This invoice totals 0.00, so there is nothing to post. Add a charge, or delete the draft.');
+    }
   }
 
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
