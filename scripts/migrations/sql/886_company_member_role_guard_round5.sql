@@ -18,12 +18,20 @@
 --  2. Precondition (section 0): no company_users or company_invitations row
 --   may hold an owner-ish role that is not exactly 'owner' — 886 refuses to
 --   apply, naming them; correct each by hand. It locks company_users, then
---   company_invitations — an invite acceptance's order, so the two never
---   deadlock. After it, and with every judged writer held to the exact
---   allow-lists (the invitations the accept routes copy from included), no
---   such row exists, which is why what stays exact is safe: the allow-lists,
---   the count of the OTHER owners in the last-owner rule, and the portal's
---   lock condition (blind review of #693, LOW 1–3).
+--   company_invitations — an invite acceptance's order, so a deploy waits for
+--   one instead of deadlocking with it; no app route or service (pages/,
+--   src/) writes invitations, then members. A company DELETE does — its FK
+--   cascade reaches company_invitations before company_users — and can
+--   deadlock with it: one side is cancelled (40P01) and, if it is the deploy,
+--   the migration aborts with nothing applied and is re-run. Its callers are
+--   scripts (qa-cleanup-run, large-scale-seed, stress-test) and test cleanups,
+--   none in the app. Scripts, seeds and definer functions are outside the
+--   claim (adversarial review of #693, round 3). After it, and with every
+--   judged writer held to the exact allow-lists (the invitations the accept
+--   routes copy from included), no such row exists, which is why what stays
+--   exact is safe: the allow-lists, the count of the OTHER owners in the
+--   last-owner rule, and the portal's lock condition (blind review of #693,
+--   LOW 1–3).
 --   Writers the guards do not judge are the N1 boundary, as in 883.
 --
 --  3. Only at READ COMMITTED. 883 judges under a per-company advisory lock,
@@ -72,8 +80,12 @@ BEGIN
   -- invitations: the order an invite acceptance writes them (INSERT into
   -- company_users, then UPDATE company_invitations), so a deploy waits for an
   -- acceptance in flight instead of deadlocking with it (883's order was the
-  -- reverse; blind review of #693, round 2). No writer takes them
-  -- invitations-first: the others write one of the two only.
+  -- reverse; blind review of #693, round 2). No app route or service writes
+  -- invitations, then members. A company DELETE does (its cascade reaches
+  -- company_invitations first; callers are scripts and test cleanups, none in
+  -- the app): it can deadlock with this, one side is cancelled, and a
+  -- cancelled deploy aborts with nothing applied and is re-run. Scripts, seeds
+  -- and definer functions are outside the claim.
   LOCK TABLE public.company_users IN SHARE ROW EXCLUSIVE MODE;
   LOCK TABLE public.company_invitations IN SHARE ROW EXCLUSIVE MODE;
   -- FORCE RLS applies to the owner: unless this role bypasses it, the count
