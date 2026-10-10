@@ -114,8 +114,8 @@ CREATE TABLE IF NOT EXISTS entity_changes (
 );
 -- Readers page by (recorded_at, id) — seq and txid are platform-wide counters
 -- and are not readable by app_user (below).
-CREATE INDEX IF NOT EXISTS entity_changes_entity_idx ON entity_changes (company_id, entity_type, entity_id, recorded_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS entity_changes_feed_idx ON entity_changes (company_id, recorded_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS entity_changes_entity_recorded_idx ON entity_changes (company_id, entity_type, entity_id, recorded_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS entity_changes_feed_recorded_idx ON entity_changes (company_id, recorded_at DESC, id DESC);
 
 ALTER TABLE entity_changes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entity_changes FORCE ROW LEVEL SECURITY;
