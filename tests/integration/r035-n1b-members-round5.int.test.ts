@@ -188,8 +188,10 @@ describe.each(['READ COMMITTED', 'READ UNCOMMITTED'])('%s: judged after the lock
   });
 });
 
-// Trailing/leading/inner ASCII whitespace, case, and Unicode spaces (U+00A0 and U+2007, which `\s` misses under en_US.utf8).
-const OWNERISH = ['Owner ', 'owner\t', ' Owner', 'OWNER', '\u00a0owner', 'own\u2007er'];
+// Trailing/leading/inner ASCII whitespace, case, and Unicode spaces (U+00A0, U+2007, U+200B, U+2060, U+0085 and U+180E:
+// `\s` misses them under en_US.utf8, and each is a member of the predicate's class a mutant could drop).
+const OWNERISH = ['Owner ', 'owner\t', ' Owner', 'OWNER', '\u00a0owner', 'own\u2007er',
+  'own\u200ber', 'owner\u2060', '\u0085owner', 'ow\u180ener'];
 
 describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) => {
   /** An expired owner invitation stored before the allow-list. */
@@ -235,3 +237,20 @@ describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) =>
 it.each(['owners', 'co-owner', 'own', 'owner_'])('%j is not owner-ish', async (role) => {
   expect((await pool.query('SELECT public.company_member_role_is_owner($1) AS is', [role])).rows[0].is).toBe(false);
 });
+
+/** The predicate's whitespace class: ASCII \t\n\v\f\r and space, then the listed non-ASCII members. */
+const CLASS = ['9', 'a', 'b', 'c', 'd', '20', '85', 'a0', '1680', '180e', '2000', '2001', '2002', '2003', '2004', '2005',
+  '2006', '2007', '2008', '2009', '200a', '200b', '2028', '2029', '202f', '205f', '2060', '3000', 'feff'];
+
+it.for(['default', 'C', 'en_US.utf8', 'und-x-icu'])(
+  'under the %s collation, own<c>er and OWN<c>ER are owner-ish for exactly the class (blind #693 r2: COLLATE "C")', async (collation, ctx) => {
+    const exists = collation === 'default' || (await pool.query('SELECT 1 FROM pg_collation WHERE collname = $1', [collation])).rows.length > 0;
+    ctx.skip(!exists, `no ${collation} collation on this server`);
+    const coll = collation === 'default' ? '' : ` COLLATE "${collation}"`;
+    const { rows } = await pool.query(`
+      SELECT pg_catalog.string_agg(pg_catalog.to_hex(c), ' ' ORDER BY c) AS hex FROM generate_series(1, 65533) c
+      WHERE c NOT BETWEEN 55296 AND 57343
+        AND public.company_member_role_is_owner(('own' || chr(c) || 'er')${coll})
+        AND public.company_member_role_is_owner(('OWN' || chr(c) || 'ER')${coll})`);
+    expect(rows[0].hex.split(' ')).toEqual(CLASS);
+  });

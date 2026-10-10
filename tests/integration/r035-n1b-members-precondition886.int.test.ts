@@ -66,7 +66,9 @@ const range = (n: number, make: (i: number) => Setup): Setup[] => Array.from({ l
 const named = (message: string) => [...message.matchAll(/(company_\w+) ([0-9a-f-]{36}) \(company/g)].map((m) => `${m[1]} ${m[2]}`);
 const refusal = (n: number) => new RegExp(`^migration 886: ${n} row\\(s\\) hold an owner role that is not exactly 'owner' — correct each role by hand before applying: `);
 
-const OWNERISH = ['owner\t', ' Owner', 'OWNER', 'Owner ', ' owner', 'own er', 'owner ', '﻿owner', 'owner\n'];
+// ASCII whitespace, case, and every non-ASCII member of the predicate's class that a mutant could drop.
+const OWNERISH = ['owner\t', ' Owner', 'OWNER', 'Owner ', '\u00a0owner', 'own\u2007er', 'owner\u202f', '\ufeffowner', 'owner\n',
+  'own\u200ber', 'owner\u2060', '\u0085owner', 'ow\u180ener'];
 
 describe('migration 886 section 0', () => {
   it('is the block that reads both tables (the copies are really what it reads)', () => {
@@ -128,28 +130,57 @@ describe('migration 886 section 0', () => {
     })).toMatch(/row-level security/);
   });
 
-  it('counts a row another session writes while the migration runs: it waits for it, then refuses', async () => {
+  /** Waits until backend `pid` waits on a lock. */
+  async function waiting(pid: number): Promise<void> {
+    for (let i = 0; ; i++) {
+      if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid])).rows.length) return;
+      if (i > 200) throw new Error('section 0 never waited for the uncommitted writer');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  /** `writer` and `migrator` in open transactions; both rolled back, the copies emptied, whatever happens. */
+  async function twoSessions(fn: (writer: PoolClient, migrator: PoolClient) => Promise<void>): Promise<void> {
     const writer = await pool.connect();
     const migrator = await pool.connect();
     try {
       await writer.query('BEGIN');
-      await member('Owner ')(writer);
       await migrator.query('BEGIN');
-      const pid = (await migrator.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-      const run = migrator.query(onCopy()).then(() => 'applied', (e: Error) => e.message);
-      for (let i = 0; ; i++) {
-        if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid])).rows.length) break;
-        if (i > 200) throw new Error('section 0 never waited for the uncommitted writer');
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      await writer.query('COMMIT');
-      expect(await run).toMatch(refusal(1));
+      await fn(writer, migrator);
     } finally {
       await migrator.query('ROLLBACK').catch(() => undefined);
       await writer.query('ROLLBACK').catch(() => undefined);
       await pool.query(`DELETE FROM ${S}.company_users`);
+      await pool.query(`DELETE FROM ${S}.company_invitations`);
       migrator.release();
       writer.release();
     }
+  }
+
+  it.each([
+    ['company_users', member('Owner ')],
+    ['company_invitations', invitation('owner\t')],
+  ])('counts a %s row another session writes while the migration runs: it waits for it, then refuses', async (_table, write) => {
+    await twoSessions(async (writer, migrator) => {
+      await write(writer);
+      const pid = (await migrator.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const run = migrator.query(onCopy()).then(() => 'applied', (e: Error) => e.message);
+      await waiting(pid);
+      await writer.query('COMMIT');
+      expect(await run).toMatch(refusal(1));
+    });
+  });
+
+  it('waits for an acceptance in flight (members written, then invitations) instead of deadlocking with it (blind #693 r2)', async () => {
+    await twoSessions(async (writer, migrator) => {
+      await member('Owner ')(writer); // the acceptance's INSERT into company_users ...
+      const pid = (await migrator.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const run = migrator.query(onCopy()).then(() => 'applied', (e: Error) => e.message);
+      await waiting(pid);
+      // ... then its write to company_invitations: the migration holds no lock on it yet, so this goes through.
+      expect(await invitation('viewer')(writer).then(() => 'ok', (e: { code?: string }) => e.code ?? 'error')).toBe('ok');
+      await writer.query('COMMIT');
+      expect(await run).toMatch(refusal(1));
+    });
   });
 });
