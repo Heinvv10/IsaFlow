@@ -16,7 +16,8 @@
  *    prosrc), the pinned set closed over the calls in those bodies — a weaker
  *    CREATE OR REPLACE fails here until N1b is re-reviewed and the pin moved;
  *  - no other function body names either table in a static write, and neither
- *    table carries a trigger or a rewrite rule;
+ *    table carries a trigger or a rewrite rule but 888's change-history
+ *    capture (AFTER, writes only entity_changes, returns NULL);
  *  - no view over either table, at any depth, lets another role write through
  *    its owner (an auto-updatable view checks its OWNER's rights: adversarial
  *    review of PR #690, R3-1; as 880 for audit_log).
@@ -194,14 +195,21 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
       'approval_enforcement_set', 'approval_rule_create', 'approval_rule_delete', 'approval_rule_update']);
   });
 
-  it('neither table carries a trigger or a rewrite rule', async () => {
+  // Since 888 each table carries exactly the change-history capture: AFTER
+  // INSERT OR UPDATE OR DELETE FOR EACH ROW (tgtype 29), ENABLE ALWAYS, its
+  // function the SECURITY DEFINER that writes only entity_changes and returns
+  // NULL — it cannot change the row a definer wrote. Nothing else.
+  it('neither table carries a trigger or a rewrite rule but 888\'s change-history capture', async () => {
     const { rows } = await pool.query(`
-      SELECT tgrelid::regclass::text AS t, tgname AS name FROM pg_trigger
+      SELECT tgrelid::regclass::text AS t, tgname AS name, tgfoid::regprocedure::text AS fn, tgenabled AS enabled, tgtype AS type
+      FROM pg_trigger
       WHERE tgrelid = ANY ($1::regclass[]) AND NOT tgisinternal
       UNION ALL
-      SELECT ev_class::regclass::text, rulename FROM pg_rewrite WHERE ev_class = ANY ($1::regclass[])`,
+      SELECT ev_class::regclass::text, rulename, NULL, NULL, NULL FROM pg_rewrite WHERE ev_class = ANY ($1::regclass[])
+      ORDER BY 1`,
     [TABLES.map((t) => `public.${t}`)]);
-    expect(rows).toEqual([]);
+    expect(rows).toEqual([...TABLES].sort().map((t) => (
+      { t, name: 'entity_change_capture', fn: 'entity_change_capture()', enabled: 'A', type: 29 })));
   });
 
   it.each(TABLES)('no view over %s — at any depth — lets another role write through its owner', async (table) => {

@@ -7,13 +7,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, User, MapPin, Users, Activity, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { ArrowLeft, User, MapPin, Users, Activity, History, Loader2, AlertCircle, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency } from '@/utils/formatters';
 import { DeliveryAddressesTab } from '@/components/accounting/customers/DeliveryAddressesTab';
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
+import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 
 interface Customer {
   id: string;
@@ -29,13 +30,14 @@ interface Customer {
   created_at: string;
 }
 
-type Tab = 'overview' | 'addresses' | 'contacts' | 'activity';
+type Tab = 'overview' | 'addresses' | 'contacts' | 'activity' | 'history';
 
 const TABS: { id: Tab; label: string; icon: typeof User }[] = [
   { id: 'overview', label: 'Overview', icon: User },
   { id: 'addresses', label: 'Delivery Addresses', icon: MapPin },
   { id: 'contacts', label: 'Contacts', icon: Users },
   { id: 'activity', label: 'Activity', icon: Activity },
+  { id: 'history', label: 'History', icon: History },
 ];
 
 interface ActivityRow {
@@ -290,6 +292,10 @@ export default function CustomerDetailPage() {
 
           {activeTab === 'contacts' && typeof customerId === 'string' && (
             <ContactsTab customerId={customerId} />
+          )}
+
+          {activeTab === 'history' && typeof customerId === 'string' && (
+            <EntityHistoryTimeline entityType="customer" entityId={customerId} />
           )}
 
           {activeTab === 'activity' && (

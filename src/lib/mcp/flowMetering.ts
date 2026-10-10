@@ -73,6 +73,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Same reason, and it is the reason audit_trail exists: pricing the control
   // surface the safety model depends on discourages using it.
   audit_trail: null,
+  // Who changed which master record: the same control surface.
+  entity_history: null,
   // Reading what evidence exists — and what has none — is a review surface too.
   list_documents: null,
   get_document: null,

@@ -21,6 +21,7 @@ export const toolsTab: Tab = {
       section: 'Audit & Compliance',
       items: [
         { label: 'Audit Trail', href: '/accounting/audit-log' },
+        { label: 'Change History', href: '/accounting/change-history' },
       ],
     },
     {

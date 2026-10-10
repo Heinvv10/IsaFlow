@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, ArrowDownRight, Pencil, ExternalLink, Layers } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { EntityHistoryButton } from '@/components/accounting/entity-history/EntityHistoryButton';
 
 export interface BankAccountCardData {
   id: string;
@@ -39,6 +40,9 @@ export function BankAccountCard({ acct, onEdit }: { acct: BankAccountCardData; o
       >
         <Pencil className="h-3.5 w-3.5" />
       </button>
+      <div className="absolute top-2 right-20">
+        <EntityHistoryButton entityType="gl_account" entityId={acct.id} label={`${acct.accountCode} ${acct.accountName}`} />
+      </div>
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-mono text-[var(--ff-text-tertiary)]">{acct.accountCode}</span>
         <span className={`px-2 py-0.5 rounded-full text-xs ${acct.isActive ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>
