@@ -1,17 +1,20 @@
 /**
  * R-035 N1b (C), migration 886 — adversarial review of PR #691, round 5:
  *
- *  - REPEATABLE READ: 883's last-owner lock serialises the writers, but a
- *    REPEATABLE READ writer re-reads nothing after the wait, so two of them
- *    each demoting one of two owners left none; and an owner demoted after
- *    the snapshot could still grant owner from it. Under REPEATABLE READ every
- *    owner grant, owner demotion or removal and owner-invitation write is
- *    refused (40001); a write that touches no owner is not;
+ *  - isolation: 883's last-owner lock serialises the writers, but only a READ
+ *    COMMITTED statement re-reads after the wait; a REPEATABLE READ or
+ *    SERIALIZABLE writer judges from its old snapshot, so two of them each
+ *    demoting one of two owners left none, and an owner demoted after the
+ *    snapshot could still grant owner from it (SSI does not see a READ
+ *    COMMITTED writer). At any level but READ COMMITTED (and READ UNCOMMITTED,
+ *    which Postgres runs as it) every owner grant, owner demotion or removal
+ *    and owner-invitation write is refused (40001); a write that touches no
+ *    owner is not;
  *  - owner-ness is trimmed and lower-cased: a legacy `Owner ` invitation is an
  *    owner's to re-open, and a legacy `Owner ` membership is an owner's for the
  *    last-owner rule.
  *
- * READ COMMITTED races are r035-n1b-members-takeover's, unchanged.
+ * The portal-vs-app races are r035-n1b-members-takeover's, unchanged.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -36,7 +39,7 @@ const INVITE = `INSERT INTO company_invitations(company_id,email,role,invited_by
                 VALUES($1,$2,$3,$4,$5, now() + interval '7 days')`;
 
 /** app_user under `sub`'s claims at `level`; the snapshot is taken by the first query. */
-async function session(c: string, sub: string, level = 'REPEATABLE READ'): Promise<PoolClient> {
+async function session(c: string, sub: string, level: string): Promise<PoolClient> {
   const cl = await pool.connect();
   await cl.query(`BEGIN ISOLATION LEVEL ${level}`);
   await cl.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub, session_id: crypto.randomUUID() })]);
@@ -53,49 +56,95 @@ async function finish(cl: PoolClient, statement: string, params: unknown[]): Pro
   } finally { cl.release(); }
 }
 
-describe('REPEATABLE READ (40001)', () => {
+const GRANT = "UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2";
+const REMOVE = 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2';
+const RESHAPE = "UPDATE company_invitations SET expires_at = now() + interval '30 days' WHERE company_id = $1";
+const inviteAs = (c: string, by: string, role: string) => [c, emailOf(p.x), role, by, tokenHash(crypto.randomUUID())];
+
+/** Waits until backend `pid` waits on a lock. */
+async function blocked(pid: number): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid])).rows.length) return;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  throw new Error(`backend ${pid} never blocked`);
+}
+
+describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the snapshot is not re-read after the lock', (level) => {
   it('two sessions each demoting one of two owners: both refused, the owners stay', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
-    const one = await session(c, p.a);
-    const two = await session(c, p.a); // its snapshot predates the first's commit
+    const one = await session(c, p.a, level);
+    const two = await session(c, p.a, level); // its snapshot predates the first's commit
     const first = await finish(one, DEMOTE, [c, p.o2]);
     const second = await finish(two, DEMOTE, [c, p.o]);
     expect([first, second, await owners(c)]).toEqual(['40001', '40001', 2]);
   });
 
+  it('an app (READ COMMITTED) demotion commits; the other owner\'s, from an older snapshot, is refused', async () => {
+    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
+    const stale = await session(c, p.a, level);
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o2])))).toBe('ok');
+    expect(await finish(stale, DEMOTE, [c, p.o])).toBe('40001');
+    expect(await owners(c)).toBe(1);
+  });
+
   it('the removal of an owner too', async () => {
     const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.a), 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, p.o2])).toBe('40001');
+    expect(await finish(await session(c, p.a, level), REMOVE, [c, p.o2])).toBe('40001');
     expect(await owners(c)).toBe(2);
   });
 
   it('an owner demoted after the snapshot cannot grant owner from it', async () => {
     const c = await company(pool, p, companies);
-    const stale = await session(c, p.o); // o is an owner in this snapshot
+    const stale = await session(c, p.o, level); // o is an owner in this snapshot
     expect(await outcome(asApp(c, p.o2, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('ok');
-    expect(await finish(stale, "UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('40001');
+    expect(await finish(stale, GRANT, [c, p.m])).toBe('40001');
     expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.m)]).toEqual(['admin', 'manager']);
   });
 
   it('an owner invitation is neither written nor re-shaped', async () => {
     const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.o), INVITE, [c, emailOf(p.x), 'owner', p.o, tokenHash(crypto.randomUUID())])).toBe('40001');
-    await asApp(c, p.o, (cl) => cl.query(INVITE, [c, emailOf(p.x), 'owner', p.o, tokenHash(crypto.randomUUID())]));
-    expect(await finish(await session(c, p.o),
-      "UPDATE company_invitations SET expires_at = now() + interval '30 days' WHERE company_id = $1", [c])).toBe('40001');
+    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('40001');
+    await asApp(c, p.o, (cl) => cl.query(INVITE, inviteAs(c, p.o, 'owner')));
+    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('40001');
   });
 
   it('a write that touches no owner is not refused', async () => {
     const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.a), "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('ok');
-    expect(await finish(await session(c, p.a), INVITE, [c, emailOf(p.x), 'manager', p.a, tokenHash(crypto.randomUUID())])).toBe('ok');
+    expect(await finish(await session(c, p.a, level), "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('ok');
+    expect(await finish(await session(c, p.a, level), INVITE, inviteAs(c, p.a, 'manager'))).toBe('ok');
     expect(await roleOf(pool, c, p.m)).toBe('viewer');
   });
+});
 
-  it('READ COMMITTED: the same demotion of a non-last owner goes through', async () => {
-    const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.a, 'READ COMMITTED'), DEMOTE, [c, p.o2])).toBe('ok');
+describe.each(['READ COMMITTED', 'READ UNCOMMITTED'])('%s: judged after the lock, not refused', (level) => {
+  it('two sessions each demoting one of two owners: the second waits, then is refused (RC005)', async () => {
+    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
+    const one = await session(c, p.a, level);
+    const two = await session(c, p.a, level);
+    try {
+      await one.query(DEMOTE, [c, p.o2]);
+      const pid = (await two.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const second = outcome(two.query(DEMOTE, [c, p.o]));
+      await blocked(pid);
+      await one.query('COMMIT');
+      expect(await second).toBe('RC005');
+    } finally {
+      await two.query('ROLLBACK').catch(() => undefined);
+      await one.query('ROLLBACK').catch(() => undefined);
+      one.release();
+      two.release();
+    }
     expect(await owners(c)).toBe(1);
+  });
+
+  it('an owner grants owner, writes and re-shapes an owner invitation, and removes a non-last owner', async () => {
+    const c = await company(pool, p, companies);
+    expect(await finish(await session(c, p.o, level), GRANT, [c, p.m])).toBe('ok');
+    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('ok');
+    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('ok');
+    expect(await finish(await session(c, p.o, level), REMOVE, [c, p.o2])).toBe('ok');
+    expect([await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2)]).toEqual(['owner', null]);
   });
 });
 

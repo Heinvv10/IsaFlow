@@ -3,20 +3,28 @@
 -- same grants (883 owns those); two changes in the rules they apply to
 -- app_user:
 --
---  1. Not under REPEATABLE READ. 883 judges the last owner under a per-company
+--  1. Only at READ COMMITTED. 883 judges the last owner under a per-company
 --   advisory lock, and the next writer re-reads the members after waiting for
---   it. A REPEATABLE READ transaction re-reads nothing: its snapshot is the one
---   it began with. Two such sessions each demoting one of two owners both saw
---   the other owner still there and both passed (0 owners), and an owner
---   demoted after another session's snapshot was taken could still grant
---   `owner` from it. So every app_user write that grants `owner`, demotes or
---   removes an owner, or creates or re-shapes an owner invitation is refused
---   under REPEATABLE READ with 40001 (serialization_failure — retry at READ
---   COMMITTED, the app's level; no app route writes these tables at any other).
---   The refusal follows the rule checks, so a write those refuse still gets
---   their code. READ COMMITTED is unchanged. The admin portal (platform_admin)
---   is not refused: it judges nothing from its snapshot (no last-owner rule,
---   it never grants owner) and only takes the lock for app_user's sake.
+--   it — which only a READ COMMITTED statement does. A REPEATABLE READ or
+--   SERIALIZABLE transaction re-reads nothing: its snapshot is the one it
+--   began with. Two REPEATABLE READ sessions each demoting one of two owners
+--   both saw the other owner still there and both passed (0 owners), and an
+--   owner demoted after another session's snapshot was taken could still
+--   grant `owner` from it. SERIALIZABLE does not save it: SSI only sees
+--   conflicts between two SERIALIZABLE transactions, and the app writes at
+--   READ COMMITTED, so a SERIALIZABLE demotion after an app one commits still
+--   judges from the stale snapshot. So the rule is an allow-list, failing
+--   closed: every app_user write that grants `owner`, demotes or removes an
+--   owner, or creates or re-shapes an owner invitation is refused with 40001
+--   (serialization_failure — retry at READ COMMITTED, the app's level; no app
+--   route writes these tables at any other) unless `transaction_isolation` is
+--   'read committed' or 'read uncommitted' (Postgres runs the latter as READ
+--   COMMITTED: a fresh snapshot per statement). The refusal follows the rule
+--   checks, so a write those refuse still gets their code. The admin portal
+--   (platform_admin) is not refused: it judges nothing from its snapshot (no
+--   last-owner rule, it never grants owner) and only takes the lock for
+--   app_user's sake. (Security review of round 5: the first cut refused only
+--   'repeatable read', which let SERIALIZABLE through.)
 --
 --  2. Owner-ness compared trimmed and lower-cased. 883 asked `role = 'owner'`
 --   to decide whether a row or invitation IS an owner's, so a legacy
@@ -46,7 +54,8 @@ DECLARE
   v_company pg_catalog.uuid := CASE TG_OP WHEN 'DELETE' THEN OLD.company_id ELSE NEW.company_id END;
   v_actor_role pg_catalog.text;
   v_others pg_catalog.int8;
-  v_rr pg_catalog.bool := pg_catalog.current_setting('transaction_isolation') = 'repeatable read';
+  v_isolation pg_catalog.text := pg_catalog.current_setting('transaction_isolation');
+  v_fresh pg_catalog.bool := v_isolation IN ('read committed', 'read uncommitted');
 BEGIN
   IF current_user = 'platform_admin' THEN
     -- The portal keeps its power to demote or remove an owner (no last-owner
@@ -91,8 +100,8 @@ BEGIN
         RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
       END IF;
       -- The actor's own role was read from this transaction's snapshot.
-      IF v_rr THEN
-        RAISE EXCEPTION 'Granting the owner role is not allowed under REPEATABLE READ; retry at READ COMMITTED'
+      IF NOT v_fresh THEN
+        RAISE EXCEPTION 'Granting the owner role needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
           USING ERRCODE = '40001';
       END IF;
     END IF;
@@ -109,11 +118,11 @@ BEGIN
   -- refused (adversarial review of PR #691, REPRO 3 and 4). An advisory lock,
   -- not FOR UPDATE on the owner rows: each UPDATE already holds its own row,
   -- so row locks taken in id order would deadlock the pair. The second sees
-  -- the first only at READ COMMITTED, so REPEATABLE READ is refused (886).
+  -- the first only at READ COMMITTED, so any other level is refused (886).
   IF pg_catalog.lower(pg_catalog.btrim(OLD.role)) = 'owner'
      AND (TG_OP = 'DELETE' OR pg_catalog.lower(pg_catalog.btrim(NEW.role)) IS DISTINCT FROM 'owner') THEN
-    IF v_rr THEN
-      RAISE EXCEPTION 'Demoting or removing an owner is not allowed under REPEATABLE READ; retry at READ COMMITTED'
+    IF NOT v_fresh THEN
+      RAISE EXCEPTION 'Demoting or removing an owner needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
         USING ERRCODE = '40001';
     END IF;
     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
@@ -137,7 +146,8 @@ AS $$
 DECLARE
   v_company pg_catalog.uuid := CASE TG_OP WHEN 'DELETE' THEN OLD.company_id ELSE NEW.company_id END;
   v_actor_role pg_catalog.text;
-  v_rr pg_catalog.bool := pg_catalog.current_setting('transaction_isolation') = 'repeatable read';
+  v_isolation pg_catalog.text := pg_catalog.current_setting('transaction_isolation');
+  v_fresh pg_catalog.bool := v_isolation IN ('read committed', 'read uncommitted');
 BEGIN
   IF current_user = 'platform_admin' THEN
     RAISE EXCEPTION 'The admin portal does not write invitations' USING ERRCODE = 'RC008';
@@ -163,8 +173,8 @@ BEGIN
       IF v_actor_role <> 'owner' THEN
         RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
       END IF;
-      IF v_rr THEN
-        RAISE EXCEPTION 'Writing an owner invitation is not allowed under REPEATABLE READ; retry at READ COMMITTED'
+      IF NOT v_fresh THEN
+        RAISE EXCEPTION 'Writing an owner invitation needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
           USING ERRCODE = '40001';
       END IF;
     END IF;
@@ -182,8 +192,8 @@ BEGIN
     IF v_actor_role <> 'owner' THEN
       RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
     END IF;
-    IF v_rr THEN
-      RAISE EXCEPTION 'Writing an owner invitation is not allowed under REPEATABLE READ; retry at READ COMMITTED'
+    IF NOT v_fresh THEN
+      RAISE EXCEPTION 'Writing an owner invitation needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
         USING ERRCODE = '40001';
     END IF;
   END IF;
