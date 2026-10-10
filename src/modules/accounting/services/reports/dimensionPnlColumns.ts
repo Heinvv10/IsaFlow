@@ -24,10 +24,7 @@ export function isDimensionGroupBy(v: unknown): v is DimensionGroupBy {
 }
 
 export interface DimensionFilter {
-  /**
-   * Matches a line whose EFFECTIVE CC1 — COALESCE(cc1_id, cost_center_id) — or
-   * whose CC2 is this id. See dimensionPnlService.ts.
-   */
+  /** Matches a line whose CC1 (cc1_id) or CC2 (cc2_id) is this id. See dimensionPnlService.ts. */
   costCentreId?: string;
   businessUnitId?: string;
   projectId?: string;

@@ -28,7 +28,8 @@ const GL_TRANSACTIONS: FieldDef[] = [
   { field: 'vat_type',      label: 'VAT Type',       type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'jl.vat_type' },
   // gl_journal_lines has no cost_centre_id (that reference was a 42703 on every
   // run). The canonical dimensions are cc1_id / cc2_id / bu_id (migration 285);
-  // CC1 falls back to the legacy cost_center_id the way migration 285 backfilled it.
+  // CC1 is cc1_id alone; the legacy cost_center_id is read by no report (see
+  // reports/dimensionPnlService.ts).
   // Codes, not ids, joined through the tenant-scoped masters.
   { field: 'cost_centre',   label: 'Cost Centre (CC1)', type: 'text',  sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc1.code' },
   { field: 'project_cc2',   label: 'Project (CC2)',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'cc2.code' },
@@ -129,7 +130,7 @@ export function getBaseQuery(dataSource: string): string {
       return `FROM gl_journal_entries je
         JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
         JOIN gl_accounts a ON a.id = jl.gl_account_id
-        LEFT JOIN cost_centres cc1 ON cc1.id = COALESCE(jl.cc1_id, jl.cost_center_id) AND cc1.company_id = je.company_id
+        LEFT JOIN cost_centres cc1 ON cc1.id = jl.cc1_id AND cc1.company_id = je.company_id
         LEFT JOIN cost_centres cc2 ON cc2.id = jl.cc2_id AND cc2.company_id = je.company_id
         LEFT JOIN business_units bu ON bu.id = jl.bu_id AND bu.company_id = je.company_id`;
     case 'customer_invoices':
