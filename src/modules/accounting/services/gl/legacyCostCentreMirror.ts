@@ -13,12 +13,25 @@
  * that is not `cc_type 'cc1'` in every mode, so the line could then never be
  * reversed. Anything else (an id this company does not own, a CC2 on a line
  * that already has one) is left as it was; the ownership check still refuses a
- * foreign id. Migration 887 applies the same CC1 rule to the stored lines.
+ * foreign id. The warning names the company and the cost centre only.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import type { JournalLineInput } from '../../types/gl.types';
+
+/**
+ * THE rule: which slot a legacy id moves to. `ccType` is the cc_type of the
+ * cost centre with that id IN THE LINE'S OWN COMPANY — undefined when the
+ * company has none. Its CC1 arm (own company, cc_type 'cc1') is exactly what
+ * migration 887's section 0 accepts and its backfill copies; change both
+ * together.
+ */
+export function legacyMirrorSlot(ccType: string | null | undefined, lineHasCc2: boolean): 'cc1' | 'cc2' | null {
+  if (ccType === 'cc1') return 'cc1';
+  if (ccType === 'cc2' && !lineHasCc2) return 'cc2';
+  return null;
+}
 
 export async function mirrorLegacyCostCentre(
   companyId: string,
@@ -33,14 +46,12 @@ export async function mirrorLegacyCostCentre(
     WHERE company_id = ${companyId}::UUID AND id = ANY(${legacy}::UUID[])
   `) as { id: string; cc_type: string | null }[];
   const typeOf = new Map(rows.map((r) => [r.id.toLowerCase(), r.cc_type]));
-  return lines.map((l, i) => {
+  return lines.map((l) => {
     if (!l.costCenterId || l.cc1Id) return l;
-    const type = typeOf.get(l.costCenterId.toLowerCase());
-    if (type === 'cc1') return { ...l, cc1Id: l.costCenterId };
-    if (type === 'cc2' && !l.cc2Id) return { ...l, cc2Id: l.costCenterId };
-    log.warn('Legacy cost centre not mirrored to CC1/CC2', {
-      companyId, line: i + 1, costCenterId: l.costCenterId, ccType: type ?? 'not this company',
-    }, 'accounting');
+    const slot = legacyMirrorSlot(typeOf.get(l.costCenterId.toLowerCase()), Boolean(l.cc2Id));
+    if (slot === 'cc1') return { ...l, cc1Id: l.costCenterId };
+    if (slot === 'cc2') return { ...l, cc2Id: l.costCenterId };
+    log.warn('Legacy cost centre not mirrored to CC1/CC2', { companyId, costCenterId: l.costCenterId }, 'accounting');
     return l;
   });
 }

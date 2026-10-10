@@ -10,7 +10,7 @@ const warn = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: (...a: unknown[]) => warn(...a), debug: vi.fn() } }));
 
-import { mirrorLegacyCostCentre } from '@/modules/accounting/services/gl/legacyCostCentreMirror';
+import { legacyMirrorSlot, mirrorLegacyCostCentre } from '@/modules/accounting/services/gl/legacyCostCentreMirror';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const FNO = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -51,7 +51,16 @@ describe('mirrorLegacyCostCentre', () => {
   it('an id this company does not own is left as it is (the ownership check refuses it), with a warning', async () => {
     const [out] = await mirrorLegacyCostCentre(CO, [line({ costCenterId: FOREIGN })]);
     expect(out).toEqual(line({ costCenterId: FOREIGN }));
-    expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ costCenterId: FOREIGN }), 'accounting');
+    // The company and the cost centre, and nothing else — never an amount.
+    expect(warn).toHaveBeenCalledWith(expect.any(String), { companyId: CO, costCenterId: FOREIGN }, 'accounting');
+  });
+
+  it('the one rule: CC1 of this company -> cc1; a CC2 -> cc2 only into an empty slot; else nothing', () => {
+    expect(legacyMirrorSlot('cc1', false)).toBe('cc1');
+    expect(legacyMirrorSlot('cc1', true)).toBe('cc1');
+    expect(legacyMirrorSlot('cc2', false)).toBe('cc2');
+    expect(legacyMirrorSlot('cc2', true)).toBeNull();
+    for (const other of [null, undefined, '', 'CC1', 'legacy']) expect(legacyMirrorSlot(other, false)).toBeNull();
   });
 
   it('reads only this company\'s centres, once, and not at all when no line needs it', async () => {
