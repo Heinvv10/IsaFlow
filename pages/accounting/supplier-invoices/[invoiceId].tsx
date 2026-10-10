@@ -21,6 +21,7 @@ import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { buildInvoiceTrail } from '@/components/accounting/invoiceReturnContext';
 import { useSupplierInvoiceActions } from '@/modules/accounting/hooks/useSupplierInvoiceActions';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import { SupplierInvoiceApprovalPanel } from '@/components/accounting/ap/SupplierInvoiceApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
@@ -91,7 +92,9 @@ export default function SupplierInvoiceDetailPage() {
         await assertOk(res, 'Could not complete that action - try again'); // throws: the response is not ok
         return;
       }
-      notifyLateClaims(await res.json()); // approve: VAT claimed in a later period (s16(3))
+      const json: unknown = await res.json();
+      notifyLateClaims(json); // approve: VAT claimed in a later period (s16(3))
+      notifyPostingWarnings(json); // approve: a cost centre on the bill that was not applied
       await loadInvoice();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not complete that action - try again'));
