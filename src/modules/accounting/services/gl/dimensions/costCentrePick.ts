@@ -38,6 +38,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
+import { pickDropSentence, type PickDropReason } from '@/lib/costCentrePickWording';
 import { PreWriteDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveFnoId, loadCostCentreChains } from './dimensionDerivation';
 
@@ -60,7 +61,7 @@ export interface PickedCentre {
   fnoId?: string | null;
 }
 
-export type DropReason = 'inactive' | 'occupied' | 'conflict';
+export type DropReason = PickDropReason;
 export type PickOutcome =
   | { kind: 'cc1' }
   | { kind: 'cc2'; cc1Id?: string }
@@ -87,12 +88,6 @@ export function costCentreSlot(pickId: string, centre: PickedCentre | undefined,
   if (!line.cc1Id) return { kind: 'cc2', cc1Id: centre.fnoId };
   return eq(line.cc1Id, centre.fnoId) ? { kind: 'cc2' } : { kind: 'drop', reason: 'conflict' };
 }
-
-const DROPPED: Record<DropReason, (code: string) => string> = {
-  inactive: (code) => `cost centre ${code} is inactive and was not applied — the line posts without it.`,
-  occupied: (code) => `cost centre ${code} was not applied — the line already carries its own CC1 or project.`,
-  conflict: (code) => `project ${code} was not applied — it belongs to another FNO than the line's CC1.`,
-};
 
 export interface PlacedLines<T> {
   lines: Array<Omit<T, 'costCenterId'>>;
@@ -137,7 +132,7 @@ export async function placeCostCentres<T extends DimensionIds & { costCenterId?:
     if (outcome.kind === 'refuse') throw new CostCentrePickRefusal(outcome.message, i);
     if (outcome.kind === 'same') return rest;
     if (outcome.kind === 'drop') {
-      warnings.push(`Line ${i + 1}: ${DROPPED[outcome.reason](centre!.code)}`);
+      warnings.push(pickDropSentence({ line: i + 1, reason: outcome.reason, code: centre!.code }));
       log.warn(`Cost centre pick dropped from a journal line (${outcome.reason})`, { companyId, costCentreId: costCenterId }, 'accounting');
       return rest;
     }
