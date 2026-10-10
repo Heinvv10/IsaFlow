@@ -3,10 +3,12 @@
  * file per table"): accounts, cost centres, business units, counterparties.
  * Every code a line carries resolves to a row here.
  *
- * PAGED like the lines, with a keyset over a total order — each table is
- * sorted by two text keys and its id, and the cursor is the last row's three —
- * so a company with fifty thousand customers is never one response. Every read
- * is this company's rows only.
+ * PAGED like the lines, with a keyset over a total order, so a company with
+ * fifty thousand customers is never one response. The order is the row's id
+ * (counterparties: 'Customer' rows, then 'Supplier' rows, each by id) and the
+ * cursor is that key — never a code or a name. A name in the cursor broke
+ * paging past ~280 characters (the MCP cursor is capped) and put user text on
+ * the wire (PR #688 round 2). Every read is this company's rows only.
  *
  * Counterparties carry names and VAT numbers (personal information for a sole
  * trader), so the MCP tool serves that table only to a token that also holds
@@ -27,8 +29,11 @@ export function isGlExportTable(v: unknown): v is GlExportTable {
   return typeof v === 'string' && (GL_EXPORT_TABLES as readonly string[]).includes(v);
 }
 
-/** Keyset position in a dimension table: the last row's two sort keys and id. */
-export type GlTableCursor = readonly [string, string, string];
+/** Keyset position in a dimension table: the last row's kind ('' or Customer / Supplier) and id. */
+export type GlTableCursor = readonly [string, string];
+
+/** The only kinds a table cursor can carry; anything else is not a cursor this module made. */
+export const GL_TABLE_CURSOR_KINDS: readonly string[] = ['', 'Customer', 'Supplier'];
 
 export interface DimensionTablePage {
   columns: string[];
@@ -76,25 +81,25 @@ function toTableRow(table: GlDimensionTable, r: DbRow): Record<string, ExportVal
   }
 }
 
-/** Raw rows of one page; each carries its sort keys `k1`, `k2` and text `id`. */
+/** Raw rows of one page; each carries its sort key `k1` (a fixed kind) and text `id`. */
 async function fetchTableRows(
   companyId: string,
   table: GlDimensionTable,
   cursor: GlTableCursor | null,
   pageSize: number,
 ): Promise<DbRow[]> {
-  const [c1, c2, cid] = cursor ?? [null, null, null];
+  const [c1, cid] = cursor ?? [null, null];
   if (table === 'accounts') {
     return (await sql`
       SELECT * FROM (
         SELECT account_code, account_name, account_type, account_subtype, report_class, report_category,
                statement_line, statement_group, cash_class, capex_opex, is_active,
                (account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])) AS is_bank,
-               COALESCE(account_code, '') AS k1, ''::TEXT AS k2, id::TEXT AS id
+               ''::TEXT AS k1, id::TEXT AS id
         FROM gl_accounts WHERE company_id = ${companyId}::UUID
       ) t
-      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.k2, t.id) > (${c1}::TEXT, ${c2}::TEXT, ${cid}::TEXT)
-      ORDER BY t.k1, t.k2, t.id LIMIT ${pageSize}
+      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.id) > (${c1}::TEXT, ${cid}::TEXT)
+      ORDER BY t.k1, t.id LIMIT ${pageSize}
     `) as DbRow[];
   }
   if (table === 'cost_centres') {
@@ -103,37 +108,37 @@ async function fetchTableRows(
         SELECT cc.cc_type, cc.code, cc.name, p.code AS parent_code, cc.is_active,
                (SELECT string_agg(a.alias, '|' ORDER BY a.alias) FROM cost_centre_aliases a
                  WHERE a.cost_centre_id = cc.id AND a.company_id = ${companyId}::UUID) AS aliases,
-               COALESCE(cc.cc_type, '') AS k1, COALESCE(cc.code, '') AS k2, cc.id::TEXT AS id
+               ''::TEXT AS k1, cc.id::TEXT AS id
         FROM cost_centres cc
         LEFT JOIN cost_centres p ON p.id = cc.parent_id AND p.company_id = ${companyId}::UUID
         WHERE cc.company_id = ${companyId}::UUID
       ) t
-      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.k2, t.id) > (${c1}::TEXT, ${c2}::TEXT, ${cid}::TEXT)
-      ORDER BY t.k1, t.k2, t.id LIMIT ${pageSize}
+      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.id) > (${c1}::TEXT, ${cid}::TEXT)
+      ORDER BY t.k1, t.id LIMIT ${pageSize}
     `) as DbRow[];
   }
   if (table === 'business_units') {
     return (await sql`
       SELECT * FROM (
         SELECT code, name, division, is_active,
-               COALESCE(code, '') AS k1, ''::TEXT AS k2, id::TEXT AS id
+               ''::TEXT AS k1, id::TEXT AS id
         FROM business_units WHERE company_id = ${companyId}::UUID
       ) t
-      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.k2, t.id) > (${c1}::TEXT, ${c2}::TEXT, ${cid}::TEXT)
-      ORDER BY t.k1, t.k2, t.id LIMIT ${pageSize}
+      WHERE ${cid}::TEXT IS NULL OR (t.k1, t.id) > (${c1}::TEXT, ${cid}::TEXT)
+      ORDER BY t.k1, t.id LIMIT ${pageSize}
     `) as DbRow[];
   }
   return (await sql`
     SELECT * FROM (
       SELECT COALESCE(s.company_name, s.name) AS name, 'Supplier' AS type, s.vat_number,
-             'Supplier' AS k1, COALESCE(s.company_name, s.name, '') AS k2, s.id::TEXT AS id
+             'Supplier' AS k1, s.id::TEXT AS id
       FROM suppliers s WHERE s.company_id = ${companyId}::UUID
       UNION ALL
-      SELECT c.name, 'Customer', c.vat_number, 'Customer', COALESCE(c.name, ''), c.id::TEXT
+      SELECT c.name, 'Customer', c.vat_number, 'Customer', c.id::TEXT
       FROM customers c WHERE c.company_id = ${companyId}::UUID
     ) t
-    WHERE ${cid}::TEXT IS NULL OR (t.k1, t.k2, t.id) > (${c1}::TEXT, ${c2}::TEXT, ${cid}::TEXT)
-    ORDER BY t.k1, t.k2, t.id LIMIT ${pageSize}
+    WHERE ${cid}::TEXT IS NULL OR (t.k1, t.id) > (${c1}::TEXT, ${cid}::TEXT)
+    ORDER BY t.k1, t.id LIMIT ${pageSize}
   `) as DbRow[];
 }
 
@@ -150,7 +155,7 @@ export async function getExportDimensionTablePage(
   return {
     columns: COLUMNS[table],
     rows: raw.map((r) => toTableRow(table, r)),
-    next: last === undefined || raw.length < pageSize ? null : [String(last.k1), String(last.k2), String(last.id)],
+    next: last === undefined || raw.length < pageSize ? null : [String(last.k1), String(last.id)],
   };
 }
 

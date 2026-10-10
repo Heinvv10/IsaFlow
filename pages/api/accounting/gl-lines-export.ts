@@ -17,9 +17,11 @@
  *
  * STREAMED page by page (keyset), so full history never sits in memory at
  * once, and each write waits for the socket to drain when its buffer is full.
- * A failure once the first byte has gone out cannot become a 500 any more: it
+ * The first page is read before the header row, so its failure is a 500. A
+ * failure once the first byte has gone out cannot become a 500 any more: it
  * is logged and the connection is destroyed, so the download fails visibly
- * instead of ending as a complete-looking but truncated file.
+ * instead of ending as a complete-looking but truncated file. A client that
+ * disconnects stops the export at the next write or page read.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -42,7 +44,6 @@ import {
   getExportEntity,
   getGlLineExportSummary,
   nextCursorOf,
-  type GlLineExportCursor,
   type GlLineExportOptions,
 } from '@/modules/accounting/services/reports/glLineExportService';
 import {
@@ -57,8 +58,26 @@ function one(v: string | string[] | undefined): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
-/** Write, and when the socket's buffer is full wait for 'drain' — or fail if the client went away. */
+/** The client went away (or the response already ended): stop quietly, nothing left to tell it. */
+class ClientGoneError extends Error {
+  constructor() {
+    super('client closed the connection during the export');
+  }
+}
+
+function gone(res: NextApiResponse): boolean {
+  return res.destroyed || res.writableEnded;
+}
+
+/**
+ * Write, and when the socket's buffer is full wait for 'drain' — or fail if
+ * the client went away. 'close' may already have fired before this call (a
+ * disconnect during a page query), so the state is checked, not only the
+ * event: waiting for a 'close' that has passed hung the handler, and with it
+ * withAuth's transaction and its pooled client (PR #688 round 2, REPRO A).
+ */
 function writeChunk(res: NextApiResponse, chunk: string): Promise<void> {
+  if (gone(res)) return Promise.reject(new ClientGoneError());
   if (res.write(chunk)) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const settle = (err?: Error) => {
@@ -68,29 +87,38 @@ function writeChunk(res: NextApiResponse, chunk: string): Promise<void> {
       else resolve();
     };
     const onDrain = () => settle();
-    const onClose = () => settle(new Error('client closed the connection during the export'));
+    const onClose = () => settle(new ClientGoneError());
     res.once('drain', onDrain);
     res.once('close', onClose);
   });
 }
 
 /**
- * Stream `header` then every chunk `next` yields (null ends it). An error
- * before the first byte propagates (withErrorHandler answers it); after it,
- * the connection is destroyed so the client sees a failed download.
+ * Stream `header`, then `first` and every page `after` reads (null ends it),
+ * each rendered by `render`. The first page is read by the caller BEFORE any
+ * header goes out, so a failing first read is still a clean 500. The client is
+ * checked before every write and every page read; once it has gone the export
+ * stops. A read failing after the first byte cannot become a 500 any more: it
+ * is logged and the connection destroyed, so the client sees a failed download.
  */
-async function streamCsv(
-  res: NextApiResponse, companyId: string, header: string, next: () => Promise<string | null>,
+async function streamPages<P>(
+  res: NextApiResponse, companyId: string, header: string, first: P,
+  render: (page: P) => string, after: (page: P) => Promise<P | null>,
 ): Promise<void> {
   try {
     await writeChunk(res, header);
-    for (let chunk = await next(); chunk !== null; chunk = await next()) {
-      await writeChunk(res, chunk);
+    for (let page: P | null = first; page !== null;) {
+      await writeChunk(res, render(page));
+      if (gone(res)) throw new ClientGoneError();
+      page = await after(page);
     }
     res.end();
   } catch (err) {
-    if (!res.headersSent) throw err;
-    log.error('GL lines export failed after the download started; connection destroyed', {
+    if (err instanceof ClientGoneError) {
+      log.warn('GL export stopped: the client closed the connection', { companyId }, 'accounting-api');
+      return;
+    }
+    log.error('GL export failed after the download started; connection destroyed', {
       companyId, error: err instanceof Error ? err.message : String(err),
     }, 'accounting-api');
     res.destroy(err instanceof Error ? err : new Error(String(err)));
@@ -104,20 +132,14 @@ function startCsv(res: NextApiResponse, filename: string): void {
 }
 
 async function streamTable(res: NextApiResponse, companyId: string, table: GlDimensionTable): Promise<void> {
-  // The first page is read before any header goes out, so a failing read is
-  // still a clean 500.
-  let page: DimensionTablePage | null =
-    await getExportDimensionTablePage(companyId, table, null, GL_LINE_EXPORT_MAX_PAGE);
-  const columns = page.columns;
+  const first: DimensionTablePage = await getExportDimensionTablePage(companyId, table, null, GL_LINE_EXPORT_MAX_PAGE);
+  const columns = first.columns;
   startCsv(res, `gl-export-${table}.csv`);
-  await streamCsv(res, companyId, columns.join(',') + '\n', async () => {
-    if (page === null) return null;
-    const chunk = page.rows.length === 0 ? '' : page.rows.map((r) => csvLine(columns, r)).join('\n') + '\n';
-    page = page.next === null
+  await streamPages(res, companyId, columns.join(',') + '\n', first,
+    (page) => (page.rows.length === 0 ? '' : page.rows.map((r) => csvLine(columns, r)).join('\n') + '\n'),
+    async (page) => (page.next === null
       ? null
-      : await getExportDimensionTablePage(companyId, table, page.next, GL_LINE_EXPORT_MAX_PAGE);
-    return chunk;
-  });
+      : getExportDimensionTablePage(companyId, table, page.next, GL_LINE_EXPORT_MAX_PAGE)));
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -162,21 +184,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const entity = await getExportEntity(companyId);
+  const first = await fetchGlLineExportPage(companyId, opts, null, GL_LINE_EXPORT_MAX_PAGE);
   res.setHeader('X-Control-Total', summary.controlTotal.toFixed(2));
   res.setHeader('X-Unbalanced-Txn-Count', String(summary.unbalancedTxnCount));
   startCsv(res, `gl-lines-${dateFrom ?? 'all'}-to-${dateTo ?? 'all'}.csv`);
 
-  let cursor: GlLineExportCursor | null = null;
-  let started = false;
   let written = 0;
-  await streamCsv(res, companyId, GL_LINE_EXPORT_COLUMNS.join(',') + '\n', async () => {
-    if (started && cursor === null) return null;
-    started = true;
-    const rows = await fetchGlLineExportPage(companyId, opts, cursor, GL_LINE_EXPORT_MAX_PAGE);
-    cursor = nextCursorOf(rows, GL_LINE_EXPORT_MAX_PAGE);
-    written += rows.length;
-    return rows.length === 0 ? '' : rows.map((r) => csvLine(GL_LINE_EXPORT_COLUMNS, toExportRow(r, entity))).join('\n') + '\n';
-  });
+  await streamPages(res, companyId, GL_LINE_EXPORT_COLUMNS.join(',') + '\n', first,
+    (rows) => {
+      written += rows.length;
+      return rows.length === 0 ? '' : rows.map((r) => csvLine(GL_LINE_EXPORT_COLUMNS, toExportRow(r, entity))).join('\n') + '\n';
+    },
+    async (rows) => {
+      const cursor = nextCursorOf(rows, GL_LINE_EXPORT_MAX_PAGE);
+      return cursor === null ? null : fetchGlLineExportPage(companyId, opts, cursor, GL_LINE_EXPORT_MAX_PAGE);
+    });
 
   if (res.writableEnded && written !== summary.rowCount) {
     // The manifest and the control headers came from the summary read. A

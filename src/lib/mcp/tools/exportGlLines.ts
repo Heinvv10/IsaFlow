@@ -24,6 +24,7 @@ import {
 } from '@/modules/accounting/services/reports/glLineExportService';
 import {
   GL_EXPORT_TABLES,
+  GL_TABLE_CURSOR_KINDS,
   countExportDimensionTable,
   getExportDimensionTablePage,
   isGlExportTable,
@@ -58,7 +59,7 @@ const DESCRIPTION = [
   'The flat general-ledger export for the finance model: ONE ROW PER JOURNAL LINE, every account (both sides of every transaction), in the fixed column order of the ledger brief §4 v1 contract (schema ' + GL_LINE_EXPORT_SCHEMA_VERSION + ').',
   'Columns include Line_ID, Txn_ID, Journal_Type, Document_No (with Linked_Document_Count — above 1, the journal has several documents and Document_No/counterparty show the first), Txn_Date, Period, FY and FY_Period_No on the company\'s own financial year (named by the year it ends: on a March year Mar-2025 = FY26 period 1), signed Amount_Excl_VAT (debit positive, credit negative), VAT_Code, the GL account and its reporting ladder (class, category, statement line/group, cash class, capex/opex), CC1/CC2/BU codes and names with the CC2 parent, counterparty, bank account on cash lines, Payment_Ref, Posting_Status and Period_Locked.',
   'VAT is its own row on the VAT control account, so VAT_Amount is 0.00 on every row and Amount_Incl_VAT = Amount_Excl_VAT in v1; every posted Txn_ID sums to zero.',
-  'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. Page with next_cursor. Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
+  'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. Page with next_cursor, sending the same date_from, date_to and status (a cursor is refused with any other). Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
   'table: "accounts" | "cost_centres" | "business_units" | "counterparties" returns that dimension master instead, paged the same way (limit, next_cursor; row_count on every page) — every code a line carries resolves to a row there. "counterparties" (names and VAT numbers) also needs the read:contacts scope. The same files download as CSV from /api/accounting/gl-lines-export.',
 ].join(' ');
 
@@ -71,14 +72,14 @@ async function tablePage(
   if (table === 'counterparties' && !ctx.scopes.includes(COUNTERPARTY_SCOPE)) throw new GlExportScopeRefusal();
   const limit = clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
   const rawCursor = strArg(args, 'cursor');
-  let cursor: readonly [string, string, string] | null = null;
+  let cursor: readonly [string, string] | null = null;
   let total: number;
   if (rawCursor !== undefined) {
-    const [n, k1, k2, id] = decodeCursor(rawCursor, 4)?.parts ?? [];
-    if (!isCount(n) || k1 === undefined || k2 === undefined || !UUID_RE.test(id ?? '')) {
+    const [n, kind, id] = decodeCursor(rawCursor, 3)?.parts ?? [];
+    if (!isCount(n) || kind === undefined || !GL_TABLE_CURSOR_KINDS.includes(kind) || !UUID_RE.test(id ?? '')) {
       return toolError('invalid cursor');
     }
-    cursor = [k1, k2, id!];
+    cursor = [kind, id!];
     total = Number(n);
   } else {
     total = await countExportDimensionTable(ctx.companyId, table);
@@ -131,15 +132,22 @@ export const exportGlLinesTool: McpTool = {
     const detail: DetailLevel = isDetailLevel(rawDetail) ? rawDetail : 'standard';
     const limit = clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
 
-    // Cursor parts: the first page's rowCount and as_at, then the keyset
-    // (date, entry id, line id) — the last part is the unique row id.
+    // Cursor parts: the first page's rowCount and as_at, the window it was
+    // issued for, then the keyset (date, entry id, line id) — the last part is
+    // the unique row id. The window is BOUND: rowCount and the keyset belong to
+    // it, so a cursor sent with another date_from / date_to / status is refused
+    // (it reported the first window's count as the second's).
+    const windowKey = `${dateFrom ?? ''}~${dateTo ?? ''}~${status}`;
     let cursor: GlLineExportCursor | null = null;
     let carried: { rowCount: number; asAt: string } | null = null;
     const rawCursor = strArg(args, 'cursor');
     if (rawCursor !== undefined) {
-      const [n, asAt, d, e, l] = decodeCursor(rawCursor, 5)?.parts ?? [];
+      const [n, asAt, w, d, e, l] = decodeCursor(rawCursor, 6)?.parts ?? [];
       if (!isCount(n) || !isLedgerDate(asAt) || !isLedgerDate(d) || !UUID_RE.test(e ?? '') || !UUID_RE.test(l ?? '')) {
         return toolError('invalid cursor');
+      }
+      if (w !== windowKey) {
+        return toolError('cursor belongs to another date_from / date_to / status: send the same three as the first page, or start again without a cursor');
       }
       cursor = { entryDate: d!, entryId: e!, lineId: l! };
       carried = { rowCount: Number(n), asAt: asAt! };
@@ -175,7 +183,7 @@ export const exportGlLinesTool: McpTool = {
       posted_through: postedThrough,
       next_cursor: next === null
         ? null
-        : encodeCursor({ parts: [String(rowsTotal), asAt, next.entryDate, next.entryId, next.lineId] }),
+        : encodeCursor({ parts: [String(rowsTotal), asAt, windowKey, next.entryDate, next.entryId, next.lineId] }),
     });
 
     return ok({

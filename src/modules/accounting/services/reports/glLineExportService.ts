@@ -117,12 +117,15 @@ export async function fetchGlLineExportPage(
     ),
     entries AS (SELECT DISTINCT entry_id FROM page),
     -- Per table: the first document by number then id, and how many there are.
+    -- "By number" is natural: the prefix, then the trailing digits as a number
+    -- (INV-9 before INV-10), then the whole text.
     si AS (
       SELECT DISTINCT ON (si.gl_journal_entry_id) si.gl_journal_entry_id AS entry_id,
              si.supplier_id, si.invoice_number, COUNT(*) OVER (PARTITION BY si.gl_journal_entry_id) AS n
       FROM supplier_invoices si
       WHERE si.company_id = ${companyId}::UUID AND si.gl_journal_entry_id IN (SELECT entry_id FROM entries)
-      ORDER BY si.gl_journal_entry_id, si.invoice_number, si.id
+      ORDER BY si.gl_journal_entry_id, regexp_replace(si.invoice_number, '[0-9]+$', ''),
+               substring(si.invoice_number FROM '[0-9]+$')::NUMERIC, si.invoice_number, si.id
     ),
     ci AS (
       SELECT DISTINCT ON (ci.gl_journal_entry_id) ci.gl_journal_entry_id AS entry_id,
@@ -130,7 +133,8 @@ export async function fetchGlLineExportPage(
              COUNT(*) OVER (PARTITION BY ci.gl_journal_entry_id) AS n
       FROM customer_invoices ci
       WHERE ci.company_id = ${companyId}::UUID AND ci.gl_journal_entry_id IN (SELECT entry_id FROM entries)
-      ORDER BY ci.gl_journal_entry_id, ci.invoice_number, ci.id
+      ORDER BY ci.gl_journal_entry_id, regexp_replace(ci.invoice_number, '[0-9]+$', ''),
+               substring(ci.invoice_number FROM '[0-9]+$')::NUMERIC, ci.invoice_number, ci.id
     ),
     cn AS (
       SELECT DISTINCT ON (cn.gl_journal_entry_id) cn.gl_journal_entry_id AS entry_id,
@@ -138,21 +142,24 @@ export async function fetchGlLineExportPage(
              COUNT(*) OVER (PARTITION BY cn.gl_journal_entry_id) AS n
       FROM credit_notes cn
       WHERE cn.company_id = ${companyId}::UUID AND cn.gl_journal_entry_id IN (SELECT entry_id FROM entries)
-      ORDER BY cn.gl_journal_entry_id, cn.credit_note_number, cn.id
+      ORDER BY cn.gl_journal_entry_id, regexp_replace(cn.credit_note_number, '[0-9]+$', ''),
+               substring(cn.credit_note_number FROM '[0-9]+$')::NUMERIC, cn.credit_note_number, cn.id
     ),
     sp AS (
       SELECT DISTINCT ON (sp.gl_journal_entry_id) sp.gl_journal_entry_id AS entry_id,
              sp.supplier_id, sp.payment_number, COUNT(*) OVER (PARTITION BY sp.gl_journal_entry_id) AS n
       FROM supplier_payments sp
       WHERE sp.company_id = ${companyId}::UUID AND sp.gl_journal_entry_id IN (SELECT entry_id FROM entries)
-      ORDER BY sp.gl_journal_entry_id, sp.payment_number, sp.id
+      ORDER BY sp.gl_journal_entry_id, regexp_replace(sp.payment_number, '[0-9]+$', ''),
+               substring(sp.payment_number FROM '[0-9]+$')::NUMERIC, sp.payment_number, sp.id
     ),
     cp AS (
       SELECT DISTINCT ON (cp.gl_journal_entry_id) cp.gl_journal_entry_id AS entry_id,
              cp.client_id AS customer_id, cp.payment_number, COUNT(*) OVER (PARTITION BY cp.gl_journal_entry_id) AS n
       FROM customer_payments cp
       WHERE cp.company_id = ${companyId}::UUID AND cp.gl_journal_entry_id IN (SELECT entry_id FROM entries)
-      ORDER BY cp.gl_journal_entry_id, cp.payment_number, cp.id
+      ORDER BY cp.gl_journal_entry_id, regexp_replace(cp.payment_number, '[0-9]+$', ''),
+               substring(cp.payment_number FROM '[0-9]+$')::NUMERIC, cp.payment_number, cp.id
     ),
     bt AS (
       SELECT DISTINCT ON (ml.journal_entry_id) ml.journal_entry_id AS entry_id,

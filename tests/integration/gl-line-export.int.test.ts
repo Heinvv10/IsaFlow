@@ -4,8 +4,11 @@
  * the summary's predicate and company scope, the control total over Posted
  * rows only, every join scoped to the company (accounts, cost centres,
  * business units, documents, counterparties, fiscal periods), the
- * deterministic document choice, the paged master tables, read:contacts on
- * counterparties, and FY / FY_Period_No from each company's own year start.
+ * deterministic document choice (lowest number, naturally: INV-9 before
+ * INV-10) and its count over every document kind, the bank-match join's
+ * company scope, the paged master tables (an id keyset, so names of any length
+ * and script page), read:contacts on counterparties, the MCP cursor bound to
+ * its window, and FY / FY_Period_No from each company's own year start.
  *
  * Seed and hand-worked figures: helpers/glDimensionFixture.ts. Disposable
  * databases only — the suite skips elsewhere.
@@ -128,7 +131,7 @@ describeIfDisposable('flat GL-line export on a real ledger', () => {
     expect(april.every((r) => r.FY === 'FY26' && r.FY_Period_No === 2)).toBe(true);
   });
 
-  it('master tables page to exhaustion over A\'s rows only', async () => {
+  it('master tables page to exhaustion over A\'s rows only, each once, in id order', async () => {
     const all = async (table: GlDimensionTable, limit: number) => {
       const rows: Array<Record<string, unknown>> = [];
       let cursor: GlTableCursor | null = null;
@@ -141,13 +144,14 @@ describeIfDisposable('flat GL-line export on a real ledger', () => {
       throw new Error('paging did not terminate');
     };
     const accounts = await all('accounts', 3);
-    expect(accounts.map((r) => r.GL_Account_Code)).toEqual(['1000', '2000', '4000', '4900', '5000', '6000', '6100', '7000']);
+    expect(accounts.map((r) => r.GL_Account_Code).sort()).toEqual(['1000', '2000', '4000', '4900', '5000', '6000', '6100', '7000']);
     expect(await countExportDimensionTable(f.a, 'accounts')).toBe(8);
     const ccs = await all('cost_centres', 1);
-    expect(ccs.map((r) => [r.CC_Level, r.CC_Code, r.Parent_Code])).toEqual([
+    expect(ccs.map((r) => [r.CC_Level, r.CC_Code, r.Parent_Code]).sort()).toEqual([
       ['cc1', 'FT', null], ['cc1', 'HT', null], ['cc2', 'P1', 'FT'], ['cc2', 'P2', 'HT'],
     ]);
-    expect((await all('business_units', 1)).map((r) => r.BU_Code)).toEqual(['B1', 'B2']);
+    expect(ccs.map((r) => r.CC_ID)).toEqual(ccs.map((r) => String(r.CC_ID)).sort());
+    expect((await all('business_units', 1)).map((r) => r.BU_Code).sort()).toEqual(['B1', 'B2']);
     const cps = await all('counterparties', 1);
     expect(cps.map((r) => [r.Counterparty_Type, r.Counterparty_Name])).toEqual([['Customer', 'Jane Private'], ['Supplier', 'Acme Supplies']]);
     expect(await countExportDimensionTable(f.a, 'counterparties')).toBe(2);
@@ -178,6 +182,78 @@ describeIfDisposable('flat GL-line export on a real ledger', () => {
     } while (cursor !== null);
     expect(new Set(seen).size).toBe(33);
     expect(seen.length).toBe(33);
+
+    // The cursor is bound to its window: reused with status "posted" it is refused, not miscounted.
+    const p1 = JSON.parse((await exportGlLinesTool.handler({ limit: 5 }, ctx)).content[0]!.text) as { next_cursor: string };
+    const reused = await exportGlLinesTool.handler({ limit: 5, status: 'posted', cursor: p1.next_cursor }, ctx);
+    expect(reused.isError).toBe(true);
+  });
+
+  it('documents: lowest number naturally, every kind counted, the bank match scoped; long names page', async () => {
+    const c = crypto.randomUUID();
+    const d = crypto.randomUUID();
+    const [opex, bank, sup, longSup, cus, e1, e2, l3] = Array.from({ length: 8 }, () => crypto.randomUUID());
+    // 246 characters, ~500 UTF-8 bytes: a cursor carrying it overflowed the 512-character MCP cursor.
+    const longName = `${'Ж'.repeat(120)} 有限公司 ${'م'.repeat(120)}`;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL session_replication_role = replica');
+      await client.query('INSERT INTO companies(id, name, financial_year_start) VALUES ($1, $2, 3), ($3, $4, 3)', [c, 'GLX C', d, 'GLX D']);
+      await client.query(`INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, account_subtype, normal_balance)
+                          VALUES ($1, $3, '6000', 'Opex', 'expense', NULL, 'debit'), ($2, $3, '1000', 'Bank', 'asset', 'bank', 'debit')`, [opex, bank, c]);
+      await client.query(`INSERT INTO suppliers(id, company_id, name) VALUES ($1, $3, 'Short'), ($2, $3, $4)`, [sup, longSup, c, longName]);
+      await client.query(`INSERT INTO customers(id, company_id, name) VALUES ($1, $2, $3)`, [cus, c, `${longName} K`]);
+      await client.query(`INSERT INTO gl_journal_entries(id, company_id, entry_number, entry_date, status, created_by, source)
+                          VALUES ($1, $3, 'C-1', '2025-05-10', 'posted', $4, 'manual'), ($2, $3, 'C-2', '2025-05-11', 'posted', $4, 'manual')`,
+      [e1, e2, c, f.user]);
+      // C-1 carries a line whose company is D; C's bank transaction is matched to THAT line.
+      await client.query(`INSERT INTO gl_journal_lines(id, journal_entry_id, company_id, gl_account_id, debit, credit, description)
+                          VALUES (gen_random_uuid(), $1, $2, $3, 100, 0, 'c1'), (gen_random_uuid(), $1, $2, $4, 0, 100, 'c1'),
+                                 ($5, $1, $6, $3, 5, 0, 'forged'),
+                                 (gen_random_uuid(), $7, $2, $3, 50, 0, 'c2'), (gen_random_uuid(), $7, $2, $4, 0, 50, 'c2')`,
+      [e1, c, opex, bank, l3, d, e2]);
+      await client.query(`INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, reference, matched_journal_line_id)
+                          VALUES ($1, $2, '2025-05-10', -5, 'BT-FORGED-REF', $3)`, [c, bank, l3]);
+      await client.query(`INSERT INTO supplier_invoices(company_id, invoice_number, supplier_id, invoice_date, created_by, gl_journal_entry_id)
+                          VALUES ($1, 'INV-10', $2, '2025-05-11', $3, $4), ($1, 'INV-9', $2, '2025-05-11', $3, $4)`, [c, sup, f.user, e2]);
+      await client.query(`INSERT INTO supplier_payments(company_id, supplier_id, payment_date, total_amount, created_by, payment_number, gl_journal_entry_id)
+                          VALUES ($1, $2, '2025-05-11', 50, $3, 'PAY-1', $4)`, [c, sup, f.user, e2]);
+      await client.query(`INSERT INTO customer_payments(company_id, client_id, payment_date, total_amount, created_by, payment_number, gl_journal_entry_id)
+                          VALUES ($1, $2, '2025-05-11', 50, $3, 'RCPT-1', $4)`, [c, cus, f.user, e2]);
+      await client.query('COMMIT');
+
+      const rows = await pageAll(c, {}, 5000);
+      const c1 = rows.filter((r) => r.Line_Description === 'c1');
+      expect(c1.map((r) => r.Payment_Ref)).toEqual([null, null]);
+      expect(JSON.stringify(rows)).not.toContain('BT-FORGED-REF');
+      const c2 = rows.filter((r) => r.Line_Description === 'c2');
+      expect(c2.map((r) => [r.Document_No, r.Linked_Document_Count])).toEqual([['INV-9', 4], ['INV-9', 4]]);
+
+      const ctx = { userId: f.user, companyId: c, scopes: ['read:reports', 'read:contacts'], tokenJti: null, oauthAppId: null } as McpToolContext;
+      const names: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 10; i++) {
+        const r = await exportGlLinesTool.handler({ table: 'counterparties', limit: 1, ...(cursor ? { cursor } : {}) }, ctx);
+        expect(r.isError, r.content[0]!.text.slice(0, 80)).toBeFalsy();
+        const page = JSON.parse(r.content[0]!.text) as { rows: unknown[][]; next_cursor: string | null };
+        names.push(...page.rows.map((x) => String(x[1])));
+        cursor = page.next_cursor;
+        if (cursor === null) break;
+      }
+      expect(names.sort()).toEqual(['Short', longName, `${longName} K`].sort());
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      await client.query('BEGIN');
+      await client.query('SET LOCAL session_replication_role = replica');
+      for (const t of ['bank_transactions', 'supplier_payments', 'customer_payments', 'supplier_invoices', 'gl_journal_lines',
+        'gl_journal_entries', 'suppliers', 'customers', 'gl_accounts']) {
+        await client.query(`DELETE FROM ${t} WHERE company_id = ANY($1::UUID[])`, [[c, d]]);
+      }
+      await client.query('DELETE FROM companies WHERE id = ANY($1::UUID[])', [[c, d]]);
+      await client.query('COMMIT');
+      client.release();
+    }
   });
 
   it('FY and FY_Period_No follow each company\'s financial_year_start (July, January, unset = March)', async () => {

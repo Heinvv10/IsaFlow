@@ -61,7 +61,7 @@ function ledger(n: number) {
     || String(a.entry_id).localeCompare(String(b.entry_id)) || String(a.line_id).localeCompare(String(b.line_id)));
 }
 
-/** Route the export's queries; the page query honours the cursor and LIMIT. */
+/** Route the export's queries; the page query honours the cursor and LIMIT. failPage: every page after the first fails. */
 function routeSql(rows: Array<Record<string, unknown>>, failPage = false) {
   sqlMock.mockImplementation((strings: TemplateStringsArray | undefined, ...values: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('$') : '';
@@ -74,9 +74,9 @@ function routeSql(rows: Array<Record<string, unknown>>, failPage = false) {
     }
     if (text.includes('FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd', financial_year_start: 3 }]);
     if (text.includes('WITH page AS')) {
-      if (failPage) return Promise.reject(new Error('connection terminated'));
       // Bound values: company x2, from x2, to x2, postedOnly, cDate x2, cEntry, cLine, limit, ...
       const [cDate, cEntry, cLine, limit] = [values[7], values[9], values[10], values[11]] as [string | null, string, string, number];
+      if (failPage && cDate !== null) return Promise.reject(new Error('connection terminated'));
       const after = cDate === null ? rows : rows.filter((r) =>
         [String(r.entry_date), String(r.entry_id), String(r.line_id)].join('|') > [cDate, cEntry, cLine].join('|'));
       return Promise.resolve(after.slice(0, limit));
@@ -172,21 +172,21 @@ describe('the CSV route streams with backpressure and fails loudly mid-stream', 
     expect(res.end).toHaveBeenCalled();
   });
 
-  it('waits for drain before reading the next page when the socket buffer is full', async () => {
-    routeSql(ledger(4));
+  it('reads the first page before the header, then waits for drain before reading the next', async () => {
+    routeSql(ledger(5_001));
     const res = fakeRes([false]);
     const done = run(res);
     await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 25));
-    expect(callsMatching('WITH page AS')).toBe(0);
+    expect(callsMatching('WITH page AS')).toBe(1);
     res.emit('drain');
     await done;
-    expect(callsMatching('WITH page AS')).toBe(1);
+    expect(callsMatching('WITH page AS')).toBe(2);
     expect(res.end).toHaveBeenCalled();
   });
 
   it('a page failure after the header destroys the connection and logs, instead of ending a short file', async () => {
-    routeSql(ledger(4), true);
+    routeSql(ledger(5_001), true);
     const res = fakeRes();
     await run(res);
     expect(res.destroy).toHaveBeenCalledWith(expect.any(Error));
@@ -194,15 +194,16 @@ describe('the CSV route streams with backpressure and fails loudly mid-stream', 
     expect(logError).toHaveBeenCalled();
   });
 
-  it('a client gone while waiting for drain stops the export', async () => {
-    routeSql(ledger(4));
+  it('a client gone while waiting for drain stops the export: no further read, nothing logged as a failure', async () => {
+    routeSql(ledger(5_001));
     const res = fakeRes([false]);
     const done = run(res);
     await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
     res.emit('close');
     await done;
-    expect(res.destroy).toHaveBeenCalled();
-    expect(callsMatching('WITH page AS')).toBe(0);
+    expect(callsMatching('WITH page AS')).toBe(1);
+    expect(res.end).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
   });
 
   it('a failure before the first byte propagates (the error handler answers 500)', async () => {
