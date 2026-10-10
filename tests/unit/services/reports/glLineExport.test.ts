@@ -1,21 +1,25 @@
 /**
- * Flat GL-line export (ledger brief §4 v1 / §9).
+ * Flat GL-line export (ledger brief §4 v1 / §9) — the parts that do not need a
+ * database: the row contract, the fiscal calendar per company, the CSV cell
+ * rules, the MCP tool's paging / summary / scope handling, and the CSV route's
+ * streaming (backpressure, a failure after the first byte, headers).
  *
- *   - Paging to exhaustion yields exactly the summary's rowCount — the GL line
- *     count for the window — through both the MCP tool and the CSV endpoint.
- *   - Amounts are signed (debit positive, credit negative) and written as plain
- *     decimals: the shared csvCell would prefix a credit's minus with a quote.
- *   - FY runs March–February and is named by the year it ends.
- *   - Every row satisfies incl = excl + VAT.
+ * The SQL — tenancy on every join, keyset order, the summary predicate — runs
+ * against a real database in tests/integration/gl-line-export.int.test.ts.
  */
+import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+const logError = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() }));
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: (...a: unknown[]) => logError(...a), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn().mockResolvedValue('2026-10-09T08:00:00.000Z'),
 }));
+vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: vi.fn().mockResolvedValue(true) }));
 
 import {
   GL_LINE_EXPORT_COLUMNS,
@@ -24,20 +28,23 @@ import {
   exportCell,
   fiscalOf,
   journalTypeOf,
-  nextCursorOf,
   toExportRow,
-} from '@/modules/accounting/services/reports/glLineExportService';
-import { exportGlLinesTool } from '@/lib/mcp/tools/exportGlLines';
+} from '@/modules/accounting/services/reports/glLineExportRows';
+import { nextCursorOf } from '@/modules/accounting/services/reports/glLineExportService';
+import { GlExportScopeRefusal, exportGlLinesTool } from '@/lib/mcp/tools/exportGlLines';
+import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
 import type { McpToolContext } from '@/lib/mcp/types';
+import handler from '../../../../pages/api/accounting/gl-lines-export';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const CTX = { userId: 'u1', companyId: CO, scopes: ['read:reports'], tokenJti: 'j', oauthAppId: 'a' } as McpToolContext;
 const payload = (r: unknown) =>
   JSON.parse((r as { content: Array<{ text: string }> }).content[0]!.text) as Record<string, unknown>;
-
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const sqlText = (call: unknown[]) => (Array.isArray(call[0]) ? (call[0] as string[]).join('$') : '');
+const callsMatching = (needle: string) => sqlMock.mock.calls.filter((c) => sqlText(c).includes(needle)).length;
 
-/** A synthetic ledger of `n` lines in balanced pairs, as the page query returns them. */
+/** A synthetic ledger of `n` lines in balanced pairs, in page order. */
 function ledger(n: number) {
   const rows: Array<Record<string, unknown>> = [];
   for (let i = 0; i < n; i++) {
@@ -47,77 +54,62 @@ function ledger(n: number) {
       line_id: uuid(i + 1), entry_id: uuid(10_000 + entry), entry_date: `2026-04-${String(1 + (entry % 28)).padStart(2, '0')}`,
       debit: i % 2 === 0 ? amount : 0, credit: i % 2 === 0 ? 0 : amount,
       entry_number: `JE-2026-${String(entry).padStart(5, '0')}`, source: 'manual', status: 'posted',
-      account_code: i % 2 === 0 ? '5000' : '1100', account_name: 'acc', account_type: i % 2 === 0 ? 'expense' : 'asset',
-      is_cash: i % 2 === 1, period_locked: false,
+      account_code: i % 2 === 0 ? '5000' : '1100', account_name: 'acc', is_cash: i % 2 === 1, period_locked: false,
     });
   }
-  rows.sort((a, b) => String(a.entry_date).localeCompare(String(b.entry_date))
+  return rows.sort((a, b) => String(a.entry_date).localeCompare(String(b.entry_date))
     || String(a.entry_id).localeCompare(String(b.entry_id)) || String(a.line_id).localeCompare(String(b.line_id)));
-  return rows;
 }
 
-/** Route the export's three queries; the page query honours the cursor and LIMIT. */
-function routeSql(rows: Array<Record<string, unknown>>) {
+/** Route the export's queries; the page query honours the cursor and LIMIT. */
+function routeSql(rows: Array<Record<string, unknown>>, failPage = false) {
   sqlMock.mockImplementation((strings: TemplateStringsArray | undefined, ...values: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('$') : '';
     if (text.includes('AS row_count')) {
       return Promise.resolve([{
-        row_count: rows.length, posted_row_count: rows.length,
-        txn_count: new Set(rows.map((r) => r.entry_id)).size, control_total: '0.00',
-        unbalanced_txn_count: 0, first_date: rows[0]?.entry_date ?? null, last_date: rows.at(-1)?.entry_date ?? null,
+        row_count: rows.length, posted_row_count: rows.length, txn_count: new Set(rows.map((r) => r.entry_id)).size,
+        control_total: '0.00', unbalanced_txn_count: 0,
+        first_date: rows[0]?.entry_date ?? null, last_date: rows.at(-1)?.entry_date ?? null,
       }]);
     }
-    if (text.includes('SELECT name FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd' }]);
+    if (text.includes('FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd', financial_year_start: 3 }]);
     if (text.includes('WITH page AS')) {
-      // Bound values in order: company x2, from x2, to x2, postedOnly, cDate x2, cEntry, cLine, limit, ...
-      const cDate = values[7] as string | null;
-      const cEntry = values[9] as string | null;
-      const cLine = values[10] as string | null;
-      const limit = values[11] as number;
-      const after = cDate === null
-        ? rows
-        : rows.filter((r) => [String(r.entry_date), String(r.entry_id), String(r.line_id)].join('|')
-          > [cDate, cEntry, cLine].join('|'));
+      if (failPage) return Promise.reject(new Error('connection terminated'));
+      // Bound values: company x2, from x2, to x2, postedOnly, cDate x2, cEntry, cLine, limit, ...
+      const [cDate, cEntry, cLine, limit] = [values[7], values[9], values[10], values[11]] as [string | null, string, string, number];
+      const after = cDate === null ? rows : rows.filter((r) =>
+        [String(r.entry_date), String(r.entry_id), String(r.line_id)].join('|') > [cDate, cEntry, cLine].join('|'));
       return Promise.resolve(after.slice(0, limit));
     }
     return Promise.resolve([]);
   });
 }
 
-beforeEach(() => sqlMock.mockReset());
+beforeEach(() => { sqlMock.mockReset(); logError.mockReset(); });
 
-describe('export row count equals the GL line count for the window', () => {
-  it('paging export_gl_lines to exhaustion yields exactly summary.rowCount distinct lines', async () => {
-    const rows = ledger(1_037);
-    routeSql(rows);
+describe('export_gl_lines — paging and the summary', () => {
+  it('pages to exhaustion over every line once, with the summary on the first page only', async () => {
+    routeSql(ledger(1_037));
     const seen = new Set<string>();
     let cursor: string | undefined;
     let pages = 0;
-    let rowCount = -1;
+    const summaries: unknown[] = [];
     do {
-      const body = payload(await exportGlLinesTool.handler(
-        { date_from: '2026-04-01', date_to: '2026-04-30', limit: 250, ...(cursor ? { cursor } : {}) }, CTX,
-      ));
-      rowCount = (body.summary as { rowCount: number }).rowCount;
+      const body = payload(await exportGlLinesTool.handler({ limit: 250, ...(cursor ? { cursor } : {}) }, CTX));
       expect(body.completenessFault).toBeUndefined();
-      const lineIdx = (body.columns as string[]).indexOf('Line_ID');
-      for (const r of body.rows as unknown[][]) seen.add(String(r[lineIdx]));
+      expect(body.rowsTotal).toBe(1_037);
+      summaries.push(body.summary);
+      const idx = (body.columns as string[]).indexOf('Line_ID');
+      for (const r of body.rows as unknown[][]) seen.add(String(r[idx]));
       cursor = (body.next_cursor as string | null) ?? undefined;
       pages++;
     } while (cursor !== undefined && pages < 50);
-    expect(rowCount).toBe(1_037);
     expect(seen.size).toBe(1_037);
     expect(pages).toBe(5);
-  });
-
-  it('the signed amounts of a balanced ledger sum to the zero control total', async () => {
-    const rows = ledger(40);
-    routeSql(rows);
-    const body = payload(await exportGlLinesTool.handler({ limit: 500 }, CTX));
-    const idx = (body.columns as string[]).indexOf('Amount_Excl_VAT');
-    const cents = (body.rows as unknown[][]).reduce((s, r) => s + Math.round(Number(r[idx]) * 100), 0);
-    expect(cents).toBe(0);
-    expect((body.summary as { controlTotal: number }).controlTotal).toBe(0);
+    expect((summaries[0] as { rowCount: number }).rowCount).toBe(1_037);
+    expect(summaries.slice(1)).toEqual([null, null, null, null]);
+    // The whole-window aggregate ran once, not once per page.
+    expect(callsMatching('AS row_count')).toBe(1);
   });
 
   it('detail summary returns the control block and no rows', async () => {
@@ -128,55 +120,109 @@ describe('export row count equals the GL line count for the window', () => {
     expect(body.truncated).toBe(false);
   });
 
-  it('rejects a forged cursor', async () => {
+  it('rejects a forged cursor before any query', async () => {
     routeSql(ledger(2));
     const r = await exportGlLinesTool.handler({ cursor: 'bm90LWEtY3Vyc29y' }, CTX);
     expect((r as { isError?: boolean }).isError).toBe(true);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 });
 
-describe('the CSV endpoint writes every line once', () => {
-  it('streams header + summary.rowCount lines, with the §9.2 facts as headers', async () => {
-    vi.resetModules();
-    vi.doMock('@/lib/auth', () => ({
-      withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h,
-    }));
-    vi.doMock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
-    vi.doMock('@/lib/rateLimit', () => ({ checkReportRateLimit: vi.fn().mockResolvedValue(true) }));
-    const rows = ledger(12_345);
-    routeSql(rows);
-    const { default: handler } = await import('../../../../pages/api/accounting/gl-lines-export');
-    const chunks: string[] = [];
-    const headers: Record<string, string> = {};
-    const res = {
-      setHeader: (k: string, v: string) => { headers[k] = v; return res; },
-      status: () => res,
-      write: (c: string) => { chunks.push(c); return true; },
-      end: vi.fn(),
-      send: vi.fn(),
+describe('export_gl_lines table=counterparties needs read:contacts', () => {
+  it('refuses read:reports alone with a registered code, before any query', async () => {
+    const err = await exportGlLinesTool.handler({ table: 'counterparties' }, CTX).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GlExportScopeRefusal);
+    expect(REFUSAL_CODES.has((err as GlExportScopeRefusal).code)).toBe(true);
+    expect((err as Error).message).toContain('read:contacts');
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+  // Served with read:contacts: tests/integration/gl-line-export.int.test.ts.
+});
+
+describe('the CSV route streams with backpressure and fails loudly mid-stream', () => {
+  function fakeRes(writeResults: boolean[] = []) {
+    const res = Object.assign(new EventEmitter(), {
+      headers: {} as Record<string, string>,
+      headersSent: false,
+      writableEnded: false,
+      chunks: [] as string[],
+      setHeader(k: string, v: string) { res.headers[k] = v; return res; },
+      status() { return res; },
+      write: vi.fn((c: string) => { res.headersSent = true; res.chunks.push(c); return writeResults.shift() ?? true; }),
+      end: vi.fn(() => { res.writableEnded = true; }),
+      destroy: vi.fn(),
       json: vi.fn(),
-    };
-    await (handler as (q: unknown, s: unknown) => Promise<void>)(
-      { method: 'GET', query: {}, companyId: CO }, res,
-    );
-    const lines = chunks.join('').split('\n').filter((l) => l !== '');
+    });
+    return res;
+  }
+  const run = (res: ReturnType<typeof fakeRes>, query: Record<string, string> = {}) =>
+    (handler as unknown as (q: unknown, s: unknown) => Promise<void>)({ method: 'GET', query, companyId: CO }, res);
+
+  it('writes header + every line, no X-Row-Count, Cache-Control no-store', async () => {
+    routeSql(ledger(12_345));
+    const res = fakeRes();
+    await run(res);
+    const lines = res.chunks.join('').split('\n').filter((l) => l !== '');
     expect(lines[0]).toBe(GL_LINE_EXPORT_COLUMNS.join(','));
     expect(lines.length - 1).toBe(12_345);
-    expect(headers['X-Row-Count']).toBe('12345');
-    expect(headers['X-Control-Total']).toBe('0.00');
-    expect(headers['X-Schema-Version']).toBe(GL_LINE_EXPORT_SCHEMA_VERSION);
+    expect(res.headers['X-Row-Count']).toBeUndefined();
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(res.headers['X-Control-Total']).toBe('0.00');
+    expect(res.headers['X-Schema-Version']).toBe(GL_LINE_EXPORT_SCHEMA_VERSION);
     expect(res.end).toHaveBeenCalled();
+  });
+
+  it('waits for drain before reading the next page when the socket buffer is full', async () => {
+    routeSql(ledger(4));
+    const res = fakeRes([false]);
+    const done = run(res);
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 25));
+    expect(callsMatching('WITH page AS')).toBe(0);
+    res.emit('drain');
+    await done;
+    expect(callsMatching('WITH page AS')).toBe(1);
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  it('a page failure after the header destroys the connection and logs, instead of ending a short file', async () => {
+    routeSql(ledger(4), true);
+    const res = fakeRes();
+    await run(res);
+    expect(res.destroy).toHaveBeenCalledWith(expect.any(Error));
+    expect(res.end).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalled();
+  });
+
+  it('a client gone while waiting for drain stops the export', async () => {
+    routeSql(ledger(4));
+    const res = fakeRes([false]);
+    const done = run(res);
+    await vi.waitFor(() => expect(res.write).toHaveBeenCalledTimes(1));
+    res.emit('close');
+    await done;
+    expect(res.destroy).toHaveBeenCalled();
+    expect(callsMatching('WITH page AS')).toBe(0);
+  });
+
+  it('a failure before the first byte propagates (the error handler answers 500)', async () => {
+    sqlMock.mockRejectedValue(new Error('db down'));
+    const res = fakeRes();
+    await expect(run(res)).rejects.toThrow('db down');
+    expect(res.write).not.toHaveBeenCalled();
   });
 });
 
 describe('row shape', () => {
-  it('signs, VAT identity, FY, bank account on cash lines', () => {
+  const entity = { name: 'Velocity Fibre (Pty) Ltd', fyStartMonth: 3 };
+
+  it('signs, VAT identity, FY, bank account on cash lines, linked documents', () => {
     const credit = toExportRow({
       line_id: uuid(1), entry_id: uuid(2), entry_date: '2025-03-17', debit: '0.00', credit: '1150.00',
       entry_number: 'JE-2025-00001', source: 'auto_supplier_payment', status: 'posted', vat_type: null,
       account_code: '1544331', account_name: 'Bank VF1', account_type: 'asset', is_cash: true, period_locked: true,
-      cc2_code: null, counterparty_name: 'Glowmark', counterparty_type: 'Supplier',
-    }, 'Velocity Fibre (Pty) Ltd');
+      cc2_code: null, counterparty_name: 'Glowmark', counterparty_type: 'Supplier', linked_document_count: '2',
+    }, entity);
     expect(credit.Amount_Excl_VAT).toBe(-1150);
     expect(credit.Debit_Credit).toBe('CR');
     expect(credit.Amount_Incl_VAT).toBe((credit.Amount_Excl_VAT as number) + (credit.VAT_Amount as number));
@@ -188,15 +234,32 @@ describe('row shape', () => {
     expect(credit.Posting_Status).toBe('Posted');
     expect(credit.Period_Locked).toBe(true);
     expect(credit.Txn_ID).toBe('JE-2025-00001');
+    expect(credit.Entity).toBe('Velocity Fibre (Pty) Ltd');
+    expect(credit.Linked_Document_Count).toBe(2);
     expect(credit.Schema_Version).toBe(GL_LINE_EXPORT_SCHEMA_VERSION);
     expect(credit.CC2_Code).toBeNull();
+    expect(toExportRow({ ...credit, entry_date: '2025-03-17' }, { ...entity, fyStartMonth: 7 }).FY).toBe('FY25');
+    // pgTypes parses DATE as a string; a Date (a local-midnight one, as a raw
+    // driver hands back) keeps its calendar day — on this UTC+2 host the UTC
+    // day would be the 31st of March.
+    expect(toExportRow({ ...credit, entry_date: new Date(2025, 3, 1) }, entity).Txn_Date).toBe('2025-04-01');
   });
 
-  it('FY boundaries: Feb closes the year, Mar opens the next', () => {
-    expect(fiscalOf('2026-02-28')).toEqual({ period: '2026-02-01', fy: 'FY26', fyPeriodNo: 12 });
-    expect(fiscalOf('2026-03-01')).toEqual({ period: '2026-03-01', fy: 'FY27', fyPeriodNo: 1 });
-    expect(fiscalOf('2026-10-09')).toEqual({ period: '2026-10-01', fy: 'FY27', fyPeriodNo: 8 });
-    expect(fiscalOf('2025-04-30').fyPeriodNo).toBe(2);
+  it('FY follows the company year start; named by the calendar year it ends in', () => {
+    // March (the SA default)
+    expect(fiscalOf('2026-02-28', 3)).toEqual({ period: '2026-02-01', fy: 'FY26', fyPeriodNo: 12 });
+    expect(fiscalOf('2026-03-01', 3)).toEqual({ period: '2026-03-01', fy: 'FY27', fyPeriodNo: 1 });
+    expect(fiscalOf('2026-10-09', 3)).toEqual({ period: '2026-10-01', fy: 'FY27', fyPeriodNo: 8 });
+    // July
+    expect(fiscalOf('2025-06-30', 7)).toEqual({ period: '2025-06-01', fy: 'FY25', fyPeriodNo: 12 });
+    expect(fiscalOf('2025-07-01', 7)).toEqual({ period: '2025-07-01', fy: 'FY26', fyPeriodNo: 1 });
+    expect(fiscalOf('2026-01-15', 7)).toEqual({ period: '2026-01-01', fy: 'FY26', fyPeriodNo: 7 });
+    // January: the FY is the calendar year
+    expect(fiscalOf('2025-12-31', 1)).toEqual({ period: '2025-12-01', fy: 'FY25', fyPeriodNo: 12 });
+    expect(fiscalOf('2026-01-01', 1)).toEqual({ period: '2026-01-01', fy: 'FY26', fyPeriodNo: 1 });
+    // December start: Dec opens the year ending next November
+    expect(fiscalOf('2025-12-01', 12)).toEqual({ period: '2025-12-01', fy: 'FY26', fyPeriodNo: 1 });
+    expect(fiscalOf('2025-11-30', 12)).toEqual({ period: '2025-11-01', fy: 'FY25', fyPeriodNo: 12 });
   });
 
   it('journal types per source, credit notes by side', () => {
@@ -211,8 +274,13 @@ describe('row shape', () => {
     expect(exportCell('Amount_Excl_VAT', -1150)).toBe('-1150.00');
     expect(exportCell('Amount_Excl_VAT', 0.1 + 0.2)).toBe('0.30');
     expect(exportCell('FY_Period_No', 7)).toBe('7');
+    expect(exportCell('Linked_Document_Count', 2)).toBe('2');
     expect(exportCell('Counterparty_Name', 'Say "hi", ok')).toBe('"Say ""hi"", ok"');
+    for (const lead of ['=', '+', '-', '@', '|', '\t', '\r']) {
+      expect(exportCell('Line_Description', `${lead}cmd`)).toBe(`"'${lead}cmd"`);
+    }
     expect(exportCell('Line_Description', '=HYPERLINK("x")')).toBe('"\'=HYPERLINK(""x"")"');
+    expect(exportCell('Line_Description', ' =1+1')).toBe('" =1+1"');
     expect(exportCell('CC2_Code', null)).toBe('');
     expect(exportCell('Period_Locked', false)).toBe('false');
     expect(csvLine(['a', 'b'], { a: 1, b: null })).toBe('1.00,');

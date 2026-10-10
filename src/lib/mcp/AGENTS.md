@@ -204,8 +204,16 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   `reports/dimensionPnlService.ts`. New read `export_gl_lines` (`tools/exportGlLines.ts`, registered in
   `dimensionToolSet.ts`): ledger brief §4 v1 rows, keyset-paged, with the §9 control block (rowCount,
   controlTotal, unbalancedTxnCount); same rows as `/api/accounting/gl-lines-export`. `project_profitability`
-  reads `cc2_id`. Transport refusals (rate limit, connector off, IP throttle) now echo a single request's
-  id — a null-id reply surfaced in clients as "malformed result" with the message hidden.
+  reads `cc2_id` (superseded 2026-10-10: `basis`, default jobs).
+- 2026-10-10 (#688 review round 1): `export_gl_lines` returns `summary` on the FIRST page only (no cursor);
+  the cursor carries rowsTotal and as_at to later pages. `table=accounts|cost_centres|business_units|counterparties`
+  is paged (limit, next_cursor, row_count). `table=counterparties` also needs `read:contacts` — refusal code
+  `GL_EXPORT_SCOPE_REFUSED` (`GlExportScopeRefusal`, raised before any query): names and VAT numbers are
+  what list_customers / list_suppliers serve only under that scope. `profit_and_loss`'s `cost_centre_id`
+  matches the effective CC1 (`COALESCE(cc1_id, cost_center_id)`) or the CC2; the `by_dimension` block is
+  `tools/profitAndLossByDimension.ts`, and its `ties` is an independent check only when unfiltered.
+  `project_profitability` takes `basis: jobs | cc2` (default `jobs` — the job, project_id, as before #688;
+  `cc2` the CC2 cost centre; Hein 2026-10-10), echoed in the response; the coverage follows the basis.
 
 - 2026-10-09 (forensic-controls step 2): refusal codes `IMPORTER_MAY_NOT_ALLOCATE`, `ALLOCATOR_MAY_NOT_REVERSE`, `AGENT_FORBIDDEN`. Allocate, split, apply-supplier-payment and bulk allocate refuse (or skip `approval_required: …`) a line the token's user imported while the arm's type is enforced — dry run alike; the reverse tools (single, batch, range — dry run alike) refuse an agent while the arm's type is enforced. `import_bank_statement` records the token's user as `imported_by` with `import_channel = 'mcp'` (undo keeps working). `create_bank_rule` / `update_bank_rule` may report "held for approval (change <id>)" under `bank_rule`; no tool decides a rule change.
 

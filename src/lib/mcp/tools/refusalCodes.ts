@@ -103,6 +103,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Names the document's currency; raised before any write.
   'FOREIGN_CURRENCY_SETTLEMENT',
   'GL_ACCOUNT_LOCK_TIMEOUT',
+  // export_gl_lines table=counterparties without read:contacts (tools/exportGlLines):
+  // names the missing scope and how to grant it; raised before any query.
+  'GL_EXPORT_SCOPE_REFUSED',
   // Confirming a manual journal as the correction of an auto-posted line was
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
