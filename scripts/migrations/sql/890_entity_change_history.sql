@@ -391,8 +391,11 @@ BEGIN
 
   -- A TRUNCATE fires no row trigger: no request role may erase a tracked
   -- table that way.
-  FOREACH v_table IN ARRAY ARRAY['suppliers', 'customers', 'gl_accounts', 'payroll_employees', 'company_users',
-      'company_invitations', 'company_user_permissions', 'companies', 'approval_rules', 'approval_enforcement'] LOOP
+  -- A VALUES list, not FOREACH ... ARRAY: scripts/ci/migrationRlsRule.ts reads table names out of
+  -- such an array as RLS-protected by this file, which these are not (their RLS is their own).
+  FOR v_table IN SELECT x.tbl FROM (VALUES ('suppliers'), ('customers'), ('gl_accounts'), ('payroll_employees'),
+      ('company_users'), ('company_invitations'), ('company_user_permissions'), ('companies'), ('approval_rules'),
+      ('approval_enforcement')) x(tbl) LOOP
     FOREACH v_role IN ARRAY ARRAY['app_user', 'platform_admin', 'public'] LOOP
       IF pg_catalog.has_table_privilege(v_role, 'public.' || v_table, 'TRUNCATE') THEN
         RAISE EXCEPTION 'migration 890: % may TRUNCATE % (no history would be recorded)', v_role, v_table;
