@@ -210,10 +210,16 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   is paged (limit, next_cursor, row_count). `table=counterparties` also needs `read:contacts` — refusal code
   `GL_EXPORT_SCOPE_REFUSED` (`GlExportScopeRefusal`, raised before any query): names and VAT numbers are
   what list_customers / list_suppliers serve only under that scope. `profit_and_loss`'s `cost_centre_id`
-  matches the effective CC1 (`COALESCE(cc1_id, cost_center_id)`) or the CC2; the `by_dimension` block is
+  matches the CC1 (`cc1_id` alone since round 2) or the CC2; the `by_dimension` block is
   `tools/profitAndLossByDimension.ts`, and its `ties` is an independent check only when unfiltered.
   `project_profitability` takes `basis: jobs | cc2` (default `jobs` — the job, project_id, as before #688;
   `cc2` the CC2 cost centre; Hein 2026-10-10), echoed in the response; the coverage follows the basis.
+- 2026-10-10 (#688 review round 2): `export_gl_lines` lines cursor is BOUND to its window — part 3 is
+  `date_from~date_to~status`, and a cursor sent with another window is a tool error before any query (it
+  reported the first window's rowsTotal). Table cursors are `[row_count, kind, id]` — kind '' or
+  Customer / Supplier, never a code or name (a ~280-character name overflowed the 512-character cursor);
+  tables page in id order. Document_No's "first" document is the lowest number naturally (INV-9 before
+  INV-10). `profit_and_loss` / every cost-centre filter read `cc1_id` alone (migration 887 backfills).
 
 - 2026-10-09 (forensic-controls step 2): refusal codes `IMPORTER_MAY_NOT_ALLOCATE`, `ALLOCATOR_MAY_NOT_REVERSE`, `AGENT_FORBIDDEN`. Allocate, split, apply-supplier-payment and bulk allocate refuse (or skip `approval_required: …`) a line the token's user imported while the arm's type is enforced — dry run alike; the reverse tools (single, batch, range — dry run alike) refuse an agent while the arm's type is enforced. `import_bank_statement` records the token's user as `imported_by` with `import_channel = 'mcp'` (undo keeps working). `create_bank_rule` / `update_bank_rule` may report "held for approval (change <id>)" under `bank_rule`; no tool decides a rule change.
 
