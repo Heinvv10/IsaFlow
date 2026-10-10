@@ -195,6 +195,11 @@ describeIfDisposable('P&L by dimension on a real ledger', () => {
       expect(may.openingBalance, String(postedOnly)).toBe(0);
     }
     expect((await getAccountTransactions(f.a, '1000', '2025-05-01', '2025-05-31', f.cc.FT)).openingBalance).toBe(0);
+    // E15 sits on company B's account, whose code is also 4000: never in A's 4000 (the account join is A's).
+    const sales = await getAccountTransactions(f.a, '4000', FROM, TO);
+    expect(sales.transactions.map((t) => [t.debit, t.credit])).toEqual([[100, 0]]);
+    // ... nor in its opening: March's sale (1000) less April's reversal of 100, without E15's 9.
+    expect((await getAccountTransactions(f.a, '4000', '2025-05-01', '2025-05-31')).openingBalance).toBe(900);
     // Across the March year start: E00's cleared R20 (February) closes to no one, and every page's
     // running balance is the unpaged one.
     const whole = await getAccountLedger({ companyId: f.a, accountCode: '6000', costCentreId: f.cc.FT, fromDate: '2025-02-01', toDate: TO });
