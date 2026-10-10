@@ -118,9 +118,10 @@ export function laterMigrationViolates(sql: string): boolean {
     // Swapping a tracked table out from under its capture (breaker r2 #1): rename, move or drop it.
     || new RegExp(String.raw`\balter\s+table\s+${TRACKED_TABLE_SQL}\s*\*?\s+(?:rename\s+to|set\s+schema)\b`, 'i').test(sql)
     || new RegExp(String.raw`\bdrop\s+table\b[^;]*?\b${TRACKED_TABLE_SQL}`, 'i').test(sql)
-    // TRUNCATE fires no row trigger: emptying a tracked table records nothing (breaker r3 #1). At a statement's
-    // start (or a string's, for EXECUTE), any table list, so REVOKE TRUNCATE in a grant loop is not one.
-    || new RegExp(String.raw`(?:^|[;'"(])\s*truncate\s+(?:table\s+)?(?:(?:only\s+)?[\w".]+\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
+    // TRUNCATE fires no row trigger: emptying a tracked table records nothing (breaker r3 #1) — anywhere, a DO block
+    // or a function body included (blind r4 N-3). It must be followed by its table list, so a privilege list
+    // (REVOKE …, TRUNCATE ON t) or a quoted array element ('TRUNCATE', …) is not one.
+    || new RegExp(String.raw`\btruncate\s+(?:table\s+)?(?:(?:only\s+)?[\w".]+\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
     // An escaped identifier hides a name from every pattern here: U&"…", or an E'…' string spelling characters by
     // hex, Unicode or octal escape (breaker r3 #1). E'' with only \s, \n and the like (regexes) is fine.
     || /\bu&["']/i.test(sql)
@@ -200,6 +201,11 @@ describe('entity change history (census)', () => {
     'TRUNCATE public.company_user_permissions',
     'TRUNCATE TABLE widgets, ONLY suppliers RESTART IDENTITY',
     "EXECUTE 'TRUNCATE customers'",
+    // Blind review r4 N-3: inside PL/pgSQL.
+    'DO $$ BEGIN TRUNCATE public.suppliers CASCADE; END $$;',
+    'IF true THEN TRUNCATE approval_enforcement; END IF;',
+    'FOR i IN 1..1 LOOP TRUNCATE TABLE company_users; END LOOP;',
+    'CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$TRUNCATE customers$$;',
     "EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\u005Fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\137change_capture ON public.customers'",
@@ -210,7 +216,7 @@ describe('entity change history (census)', () => {
   it.each(['CREATE TABLE widgets (id uuid)', 'ALTER TABLE suppliers ADD COLUMN x text', 'ALTER TABLE suppliers ENABLE ALWAYS TRIGGER foo',
     'CREATE TRIGGER t BEFORE UPDATE ON widgets FOR EACH ROW EXECUTE FUNCTION f()', 'DROP TABLE supplier_widgets',
     'ALTER TABLE customers_archive RENAME TO customers_old', 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO analyst',
-    'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON suppliers FROM PUBLIC', "SELECT regexp_replace(x, E'\\\\s+', ' ')",
+    'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON suppliers FROM PUBLIC', 'REVOKE TRUNCATE, TRIGGER ON public.company_users FROM app_user', "SELECT regexp_replace(x, E'\\\\s+', ' ')",
     "FOREACH p IN ARRAY ARRAY['INSERT', 'TRUNCATE'] LOOP PERFORM has_table_privilege('app_user', 'public.suppliers', p)",
     'TRUNCATE supplier_widgets'])(
     'an unrelated migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
