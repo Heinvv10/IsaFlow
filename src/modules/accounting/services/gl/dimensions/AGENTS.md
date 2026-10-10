@@ -11,7 +11,10 @@ brief §5.3–§5.5). **CC1 = FNO / client** (`cost_centres.cc_type 'cc1'`),
 whose parent is the CC1), **BU = function** (`business_units`, with `division`).
 The canonical line columns are `gl_journal_lines.cc1_id / cc2_id / bu_id`
 (migration 285); documents carry the same three (migration 870). The legacy
-`cost_center_id` / `project_id` stay readable; new code writes cc1/cc2/bu.
+`project_id` stays readable; new code writes cc1/cc2/bu. The legacy line
+`cost_center_id` is read by NO report (PR #688 round 2): migration 887 copied
+it into `cc1_id`, and `gl/legacyCostCentreMirror.ts` does the same on every
+line createJournalEntry writes (a CC1 → cc1Id, a CC2 → cc2Id).
 
 ## Caller contract
 

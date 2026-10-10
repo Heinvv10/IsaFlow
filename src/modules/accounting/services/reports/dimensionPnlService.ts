@@ -14,15 +14,18 @@
  * from before the masters existed) keeps its own column, labelled unknown —
  * merged into untagged it would hide a tag that IS there.
  *
- * THE EFFECTIVE CC1. A line has ONE CC1: `COALESCE(jl.cc1_id, jl.cost_center_id)`
- * — the canonical column, or the legacy one on a line that predates it.
- * `tag_journal_lines` rewrites cc1_id and leaves cost_center_id, so reading the
- * two as alternatives counted a re-tagged line under its old AND its new FNO.
- * Every CC1 filter and the cc1 grouping use this one expression — here, in the
- * income statement, the classification coverage, the trial balance and the
- * balance sheet — so a cost-centre filter and the cc1 column of the same
- * member always agree. `cost_centre_id` matches that effective CC1 OR the CC2,
- * so filtering on an FNO returns every line tagged to it at either level.
+ * ONE CC1: `jl.cc1_id`. The legacy `cost_center_id` is read by no report.
+ * `tag_journal_lines` rewrites cc1_id only, so a report that read the legacy
+ * column too — as an alternative, or as a COALESCE fallback — counted a
+ * re-tagged line under its old FNO, or brought back a CC1 that was cleared.
+ * Migration 887 copies the legacy id into cc1_id on every line that had only
+ * it, and createJournalEntry mirrors it on every new line, so nothing tagged is
+ * lost. Every CC1 filter and the cc1 grouping use cc1_id — here, the income
+ * statement, the classification coverage, the trial balance, the balance
+ * sheet, the ledger drill-downs and the GL-line export — so a cost-centre
+ * filter and the cc1 column of the same member always agree. `cost_centre_id`
+ * matches cc1_id OR cc2_id, so filtering on an FNO returns every line tagged
+ * to it at either level.
  */
 
 import { sql } from '@/lib/neon';
@@ -69,7 +72,7 @@ export async function fetchDimensionAccountRows(
     SELECT ga.id AS account_id, ga.account_code, ga.account_name,
            ga.account_type, ga.account_subtype,
            CASE ${g}::TEXT
-             WHEN 'cc1' THEN COALESCE(jl.cc1_id, jl.cost_center_id)
+             WHEN 'cc1' THEN jl.cc1_id
              WHEN 'cc2' THEN jl.cc2_id
              WHEN 'bu'  THEN jl.bu_id
            END AS member_id,
@@ -85,7 +88,7 @@ export async function fetchDimensionAccountRows(
       AND je.entry_date >= ${periodStart}::DATE
       AND je.entry_date <= ${periodEnd}::DATE
       AND ga.account_type IN ('revenue', 'expense')
-      AND (${ccId}::TEXT IS NULL OR COALESCE(jl.cc1_id, jl.cost_center_id) = ${ccId}::UUID
+      AND (${ccId}::TEXT IS NULL OR jl.cc1_id = ${ccId}::UUID
         OR jl.cc2_id = ${ccId}::UUID)
       AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
       AND (${projId}::TEXT IS NULL OR jl.project_id = ${projId}::UUID)

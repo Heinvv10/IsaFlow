@@ -5,11 +5,16 @@
  *
  * What A's ledger carries, and what each piece is for:
  *   - multi-tag lines (CC1 + CC2 + BU) and a cent-level split across FNOs;
- *   - E04: a LEGACY-only line (cost_center_id = FT, cc1_id NULL) — counts under
- *     FT, in the filter AND the cc1 grouping;
+ *   - CC1 is cc1_id alone; cost_center_id is legacy and read by no report
+ *     (PR #688 round 2). E04: a legacy line as migration 887 leaves it
+ *     (cost_center_id = cc1_id = FT) — counts under FT;
  *   - E14: a RE-TAGGED line (cc1_id = HT, cost_center_id still FT) — counts
  *     under HT only (REPRO 1); E00 the same in the PRIOR financial year, so the
  *     trial balance's retained brought forward is filtered too;
+ *   - CLEARED lines (cc1_id NULL, cost_center_id = FT — a CC1 untagged after
+ *     887): E13's untagged opex and its bank line, and E00's second opex line
+ *     in the prior year — never FT (REPRO B), in the P&L, the balance sheet and
+ *     the retained brought forward;
  *   - E05 / E12: B's cost centre, project and BU on A's lines (UNKNOWN members,
  *     blank in the export, never named); E05 also claims to reverse B's EB1;
  *   - E15: a line on B's revenue ACCOUNT (REPRO 3), tagged to A's project P1;
@@ -22,7 +27,8 @@
  *   - jobs (`projects`, the default Project Profitability basis): J1 on E02, J2
  *     on E10 and on E15's foreign-account line, B's JB on E12; J1 and J3 also on
  *     the forged E16 / EB2 lines, so a dropped scope shows; E04's creditors line
- *     carries a CC2 on a balance-sheet account only;
+ *     carries a CC2 and job J1 on a balance-sheet account only (never in J1's
+ *     P&L);
  *   - documents: E02 a supplier invoice (A's supplier); E09 an A invoice naming
  *     B's supplier; E10 two customer invoices; E13 an A invoice naming B's
  *     customer; B's own invoice pointing at E03;
@@ -122,11 +128,11 @@ export async function seedGlDimensionFixture(pool: Pool, tag: string): Promise<G
     const { acc, cc, bu, job } = f;
     const entries: Array<[key: string, co: string, date: string, status: string, lines: Line[], reversalOf?: string]> = [
       ['EB1', f.b, '2025-04-15', 'posted', [[acc.bBank, 5000, 0], [acc.bSales, 0, 5000, { cc1: cc.BX, desc: 'B SECRET LINE' }]]],
-      ['E00', f.a, '2025-02-15', 'posted', [[acc.opex, 50, 0, { cc1: cc.HT, lcc: cc.FT }], [acc.bank, 0, 50]]],
+      ['E00', f.a, '2025-02-15', 'posted', [[acc.opex, 50, 0, { cc1: cc.HT, lcc: cc.FT }], [acc.opex, 20, 0, { lcc: cc.FT }], [acc.bank, 0, 70]]],
       ['E01', f.a, '2025-03-31', 'posted', [[acc.bank, 1000, 0], [acc.sales, 0, 1000, { cc1: cc.FT, cc2: cc.P1, bu: bu.B1, desc: '=HYPERLINK("http://x","y")' }]]],
       ['E02', f.a, '2025-04-01', 'posted', [[acc.opex, 300, 0, { cc1: cc.HT, cc2: cc.P2, bu: bu.B2, job: job.J1, desc: '+cmd' }], [acc.cos, 200, 0, { cc1: cc.FT }], [acc.cred, 0, 500]]],
       ['E03', f.a, '2025-04-15', 'posted', [[acc.bank, 50, 0, { desc: '|cmd' }], [acc.interest, 0, 50, { desc: '@SUM(A1)' }]]],
-      ['E04', f.a, '2025-04-20', 'posted', [[acc.dep, 70, 0, { lcc: cc.FT }], [acc.cred, 0, 70, { cc2: cc.HT }]]],
+      ['E04', f.a, '2025-04-20', 'posted', [[acc.dep, 70, 0, { cc1: cc.FT, lcc: cc.FT }], [acc.cred, 0, 70, { cc2: cc.HT, job: job.J1 }]]],
       ['E05', f.a, '2025-04-25', 'posted', [[acc.fin, 30, 0, { cc1: cc.BX, bu: bu.BBX }], [acc.bank, 0, 30]], 'EB1'],
       ['E06', f.a, '2025-04-26', 'draft', [[acc.opex, 999, 0, { cc1: cc.FT }], [acc.bank, 0, 990]]],
       ['E07', f.a, '2025-04-27', 'reversed', [[acc.opex, 111, 0, { cc1: cc.FT }], [acc.bank, 0, 111]]],
@@ -137,7 +143,7 @@ export async function seedGlDimensionFixture(pool: Pool, tag: string): Promise<G
       ['E12', f.a, '2025-04-30', 'posted', [
         [acc.opex, 5, 0, { id: ordered(6) }], [acc.opex, 4, 0, { id: ordered(5) }], [acc.opex, 3, 0, { id: ordered(4) }],
         [acc.opex, 2, 0, { id: ordered(3) }], [acc.opex, 1, 0, { cc2: cc.BP, job: job.JB, id: ordered(2) }], [acc.bank, 0, 15, { id: ordered(1) }]]],
-      ['E13', f.a, '2025-04-30', 'posted', [[acc.opex, 0.01, 0, { cc1: cc.FT }], [acc.opex, 0.01, 0, { cc1: cc.HT }], [acc.opex, 0.01, 0], [acc.bank, 0, 0.03]]],
+      ['E13', f.a, '2025-04-30', 'posted', [[acc.opex, 0.01, 0, { cc1: cc.FT }], [acc.opex, 0.01, 0, { cc1: cc.HT }], [acc.opex, 0.01, 0, { lcc: cc.FT }], [acc.bank, 0, 0.03, { lcc: cc.FT }]]],
       ['E14', f.a, '2025-04-10', 'posted', [[acc.opex, 500, 0, { cc1: cc.HT, lcc: cc.FT, desc: 'retagged FT->HT' }], [acc.bank, 0, 500]]],
       ['E15', f.a, '2025-04-16', 'posted', [[acc.bSales, 0, 9, { cc2: cc.P1, job: job.J2 }], [acc.bank, 9, 0]]],
       ['E16', f.a, '2025-04-12', 'posted', [[acc.opex, 1000, 0, { cc1: cc.FT, cc2: cc.P1, bu: bu.B1, job: job.J1, co: f.b }], [acc.bank, 0, 1000, { job: job.J3, co: f.b }]]],
@@ -185,7 +191,8 @@ export async function dropGlDimensionFixture(pool: Pool, f: GlDimFixture | undef
   try {
     await client.query('BEGIN');
     await client.query('SET LOCAL session_replication_role = replica');
-    for (const t of ['gl_journal_lines', 'gl_journal_entries', 'supplier_invoices', 'customer_invoices', 'suppliers',
+    for (const t of ['dimension_tag_batch_lines', 'dimension_tag_batches', 'gl_journal_lines', 'gl_journal_entries',
+      'supplier_invoices', 'customer_invoices', 'suppliers',
       'customers', 'projects', 'fiscal_periods', 'cost_centres', 'business_units', 'gl_accounts']) {
       await client.query(`DELETE FROM ${t} WHERE company_id = ANY($1::UUID[])`, [cos]);
     }

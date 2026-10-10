@@ -124,8 +124,7 @@ export async function resolveAccountEvidence(
         AND je.company_id  = ${companyId}::uuid
         AND jl.gl_account_id = ${glAccountId}::uuid
         AND je.status = 'posted'
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND (${fromDate}::date IS NULL OR je.entry_date >= ${fromDate}::date)
         AND (${toDate}::date   IS NULL OR je.entry_date <= ${toDate}::date)

@@ -107,8 +107,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
@@ -123,8 +122,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
@@ -147,8 +145,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
@@ -161,8 +158,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
@@ -198,8 +194,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
@@ -223,8 +218,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
@@ -255,8 +249,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
@@ -271,8 +264,7 @@ export async function getAccountLedger(
           WHERE jl.company_id    = ${companyId}::UUID
             AND je.company_id    = ${companyId}::UUID
             AND jl.gl_account_id = ${resolvedAccountId}::UUID
-            AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-              OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+            AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}

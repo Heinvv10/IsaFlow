@@ -90,8 +90,7 @@ export async function getAccountTransactions(
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date < ${periodStart}
         AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
@@ -112,8 +111,7 @@ export async function getAccountTransactions(
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
