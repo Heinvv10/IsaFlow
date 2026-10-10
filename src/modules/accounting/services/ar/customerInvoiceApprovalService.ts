@@ -170,8 +170,9 @@ export async function approveCustomerInvoice(
     if (lineRefusal) throw new InvoiceLineCodingRefusal(lineRefusal);
     // A R0.00 invoice has no journal to post (its AR line would be 0/0, which the
     // journal validator refuses AFTER the status UPDATE, as a 500). Refused here,
-    // before any write, as bulk finalize already skips it; compared in cents.
-    if (Math.round(Number(locked[0].total_amount ?? 0) * 100) <= 0) {
+    // before any write, as bulk finalize already skips it; compared in cents, and
+    // `!(… > 0)` so a NaN total (only by hand: migration 692 refuses it) is refused too.
+    if (!(Math.round(Number(locked[0].total_amount ?? 0) * 100) > 0)) {
       throw new InvoiceNotApprovableError(
         'This invoice totals 0.00, so there is nothing to post. Add a charge, or delete the draft.');
     }
