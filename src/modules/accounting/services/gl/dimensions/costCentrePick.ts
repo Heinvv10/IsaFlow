@@ -46,8 +46,9 @@ export const COST_CENTRE_NOT_A_CC1_OR_CC2 = 'CC1 must name an active CC1 cost ce
 
 /** A pick that cannot be placed or dropped. `lineIndex` is the 0-based line it was on. */
 export class CostCentrePickRefusal extends PreWriteDimensionRefusal {
-  constructor(message: string, readonly lineIndex: number) {
-    super(message);
+  declare readonly lineIndex: number;
+  constructor(message: string, lineIndex: number) {
+    super(message, lineIndex);
     this.name = 'CostCentrePickRefusal';
   }
 }

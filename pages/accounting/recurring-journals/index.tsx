@@ -87,7 +87,7 @@ export default function RecurringJournalsPage() {
         credentials: 'include', body: JSON.stringify({ action, id }),
       });
       await assertOk(res, fallback);
-      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[] } } : null;
+      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[]; warnings?: string[] } } : null;
       const n = body?.data?.heldForApproval?.length ?? 0;
       // The same notice carries a template cost centre the run did not apply (the journal was generated without it).
       const notices = [...(n > 0 ? [`${n} journal held for approval — left as a draft until approved.`] : []), ...postingWarningsIn(body)];

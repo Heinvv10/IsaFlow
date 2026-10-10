@@ -30,7 +30,7 @@ const CENTRES = [
 ];
 const line = (extra: Record<string, string>) => ({ glAccountId: 'acc', debit: 5, credit: 0, ...extra });
 const refusal = (lines: Array<ReturnType<typeof line>>, source: 'manual' | 'auto_payment' = 'manual') =>
-  assertNewJournalDimensions(CO, source, lines).then(() => null, (e: unknown) => e as Error);
+  assertNewJournalDimensions(CO, source, lines).then(() => null, (e: unknown) => e as Error & { lineIndex?: number });
 
 beforeEach(() => {
   sqlMock.mockReset();
@@ -55,6 +55,17 @@ describe('assertNewJournalDimensions', () => {
     expect(conflict).toBeInstanceOf(PreWriteDimensionRefusal);
     expect(conflict!.message).toContain('project P-OLD belongs to FNO OLD, but CC1 FT was given');
     expect(await refusal([line({ cc1Id: FT })], 'auto_payment')).toBeInstanceOf(PreWriteDimensionRefusal);
+  });
+
+  it('carries the line the refusal is about — not the first tagged line — and none for a whole-journal refusal', async () => {
+    // Line 1 is fine; line 3 is the project under the inactive FNO.
+    expect((await refusal([line({ cc1Id: FT }), line({}), line({ cc2Id: P_OLD }), line({})]))!.lineIndex).toBe(2);
+    expect((await refusal([line({ cc2Id: P_FT }), line({ cc1Id: OLD })]))!.lineIndex).toBe(1);
+    // A conflict is derivation's own refusal: the index is the line its message names.
+    const conflict = await refusal([line({ cc1Id: FT }), line({ cc1Id: FT, cc2Id: P_OLD })]);
+    expect([conflict!.lineIndex, conflict!.message.startsWith('Line 2: ')]).toEqual([1, true]);
+    // Dimensions on a settlement are about the journal: no line.
+    expect((await refusal([line({}), line({ cc1Id: FT })], 'auto_payment'))!.lineIndex).toBeUndefined();
   });
 
   it('a database error is not a refusal: it propagates as it is', async () => {

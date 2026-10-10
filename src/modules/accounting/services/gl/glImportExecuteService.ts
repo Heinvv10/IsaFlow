@@ -35,9 +35,11 @@ export class ImportValidationError extends Error {
 }
 
 /**
- * Each row's cost centre in its CC1 / CC2 slot. A refusal names the row and is
- * an ImportValidationError — the file's fault, a 400 — raised while resolving,
- * before any group is written. (The code map holds active centres only, so
+ * Each row's cost centre in its CC1 / CC2 slot. A refusal is an
+ * ImportValidationError — the file's fault, a 400 — raised while resolving,
+ * before any group is written, and names the ROW the refusal is about
+ * (`lineIndex`; one line per row) with the refusal's own words, or the group
+ * when it is about no single line. (The code map holds active centres only, so
  * nothing is dropped here.)
  */
 async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
@@ -47,10 +49,16 @@ async function placeRowCentres(companyId: string, lines: JournalLineInput[], row
     return placed;
   } catch (err) {
     if (!(err instanceof PreWriteDimensionRefusal)) throw err;
-    const row = err instanceof CostCentrePickRefusal ? rows[err.lineIndex]! : rows.find((r) => r.costCentre) ?? rows[0]!;
-    throw new ImportValidationError(
-      `Import row "${row.description}" (${row.date}): cost centre "${row.costCentre ?? ''}" cannot be used — ${err.message}`,
-    );
+    const row = err.lineIndex === undefined ? undefined : rows[err.lineIndex];
+    const first = rows[0]!;
+    const where = row
+      ? `Import row "${row.description}" (${row.date})`
+      : `Import group ${first.reference ? `"${first.reference}" ` : ''}(${first.date})`;
+    // Only a pick that could not be placed is about the row's cost-centre code as such.
+    const what = row && err instanceof CostCentrePickRefusal
+      ? `cost centre "${row.costCentre ?? ''}" cannot be used — ${err.message}`
+      : err.message.replace(/^Line \d+: /, '');
+    throw new ImportValidationError(`${where}: ${what}`);
   }
 }
 

@@ -148,11 +148,17 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
     const state = await callRoute(fx, p.token, glImport, { rows, postImmediately: true });
     expect(state.statusCode, JSON.stringify(state.body)).toBe(400);
     expect(JSON.stringify(state.body)).toContain('Import row \\"untyped centre\\" (2026-07-10): cost centre \\"UNT\\" cannot be used');
-    // A project under an inactive FNO: the same 400, where the write loop used to throw a 500.
-    const underInactive = rows.map((r) => (r.costCentre ? { ...r, description: 'inactive fno', costCentre: 'PI' } : r));
+    // A project under an inactive FNO, AFTER a row whose centre is fine: a 400 (the write loop threw a 500) that
+    // names the PI row — not the first row with a centre — in the refusal's own words.
+    const underInactive = [
+      { date: DATE, reference: `${ref}-3`, description: 'fine', accountCode: '6000', debit: 3, credit: 0, costCentre: 'HT' },
+      { date: DATE, reference: `${ref}-3`, description: 'inactive fno', accountCode: '6000', debit: 2, credit: 0, costCentre: 'PI' },
+      { date: DATE, reference: `${ref}-3`, description: 'ap', accountCode: '2100', debit: 0, credit: 5 },
+    ];
     const state2 = await callRoute(fx, p.token, glImport, { rows: underInactive, postImmediately: true });
     expect(state2.statusCode, JSON.stringify(state2.body)).toBe(400);
-    expect(JSON.stringify(state2.body)).toContain('Import row \\"inactive fno\\" (2026-07-10): cost centre \\"PI\\" cannot be used');
+    expect(JSON.stringify(state2.body)).toContain(`Import row \\"inactive fno\\" (2026-07-10): ${COST_CENTRE_NOT_A_CC1_OR_CC2}`);
+    expect(JSON.stringify(state2.body)).not.toMatch(/Import row \\"fine\\"|cannot be used/);
     expect(await countRows(fx)).toEqual(counted);
   });
 

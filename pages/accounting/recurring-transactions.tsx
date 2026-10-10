@@ -128,7 +128,7 @@ export default function RecurringTransactionsPage() {
         body: JSON.stringify({ templateId: id }),
       });
       await assertOk(res, 'Could not run the template - try again');
-      const json = await res.json() as { data: { entityType: string; entityId: string; posted: boolean } };
+      const json = await res.json() as { data: { entityType: string; entityId: string; posted: boolean; warnings?: string[] } };
       setExecResults(prev => ({ ...prev, [id]: json.data }));
       notifyPostingWarnings(json); // a template cost centre the run did not apply
       await fetchTemplates();
