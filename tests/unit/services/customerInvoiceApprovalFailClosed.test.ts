@@ -25,7 +25,7 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   assertNotImpersonating: async () => undefined,
 }));
 vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn().mockResolvedValue([{ id: 'inv-1' }]), {
+  const sqlMock = Object.assign(vi.fn().mockResolvedValue([{ id: 'inv-1', total_amount: '115.00' }]), {
     transaction: vi.fn(),
     unsafe: vi.fn((s: string) => s),
   });
@@ -76,7 +76,7 @@ const snapshotMock = snapshotInvoicePdf as unknown as MockedFunction<
 
 beforeEach(() => {
   vi.clearAllMocks();
-  sqlMock.mockResolvedValue([{ id: INVOICE }]);
+  sqlMock.mockResolvedValue([{ id: INVOICE, total_amount: '115.00' }]); // the lock row carries the total (R0.00 is refused)
   postGlMock.mockResolvedValue('je-1');
   snapshotMock.mockResolvedValue({ documentId: 'doc-1', wasExisting: false });
 });
