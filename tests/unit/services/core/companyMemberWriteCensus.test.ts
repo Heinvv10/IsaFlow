@@ -90,6 +90,7 @@ const KNOWN_WRITERS = [
  * grants app_user; 352 grants platform_admin; 459, 476 and 513 are the
  * versions of create_company_with_owner (the creator as owner); 516 is
  * set_default_company (is_default only); 662 expires stale invitations once.
+ * After: 886 re-writes both guards (PR #691 review round 5), read as 883 was.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -104,6 +105,7 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '513_create_company_writes_vat_system_type.sql': ['writes'],
   '516_set_default_company_fn.sql': ['writes'],
   '662_invite_token_encoding_retire_stale.sql': ['writes'],
+  '886_company_member_role_guard_round5.sql': ['alters'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
@@ -123,7 +125,7 @@ describe('company_users / company_invitations writers (census by table)', () => 
     expect(found).toEqual([...KNOWN_WRITERS].sort());
   });
 
-  it('no migration but 883 and the pinned earlier ones turns the guards off or grants a write', () => {
+  it('no migration but 883 and the pinned others turns the guards off or grants a write', () => {
     const found = Object.fromEntries(all()
       .filter(({ file }) => isMigration(file) && path.basename(file) !== OWN)
       .map(({ file, text }) => [path.basename(file), migrationViolations(text)] as const)
