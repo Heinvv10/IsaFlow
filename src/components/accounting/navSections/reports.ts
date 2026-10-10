@@ -40,6 +40,7 @@ export const reportsTab: Tab = {
         { label: 'Journal Entries', href: '/accounting/reports/journal-entries' },
         { label: 'VAT Return', href: '/accounting/reports/vat-return' },
         { label: 'Audit Trail', href: '/accounting/audit-log' },
+        { label: 'Change History', href: '/accounting/change-history' },
       ],
     },
     {
