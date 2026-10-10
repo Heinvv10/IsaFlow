@@ -24,6 +24,14 @@ import { SYSTEM_ROLE_REFUSAL_CODES } from './systemRoleRefusalCodes';
  */
 export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ADJUSTMENT_NOT_APPROVABLE',
+  // Forensic-controls step 2 (bank/bankControlRefusal's BankControlError, whose
+  // code is a constructor argument): under enforcement an agent may not reverse a
+  // bank allocation (AGENT_FORBIDDEN), the reverser may not be its allocator
+  // (ALLOCATOR_MAY_NOT_REVERSE), nor the allocator the statement's importer
+  // (IMPORTER_MAY_NOT_ALLOCATE). Fixed messages naming no id, amount or table;
+  // raised before any write.
+  'AGENT_FORBIDDEN',
+  'ALLOCATOR_MAY_NOT_REVERSE',
   'APPROVAL_REQUEST_LOCK_TIMEOUT',
   // R-035 approval gate (gl/approvalGate): names the caller's own document
   // number, the demanded role and the rule's name; raised before any write.
@@ -63,6 +71,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'CLAIM_SOURCE_DOCUMENT_REFUSED',
   // R-161 client group fence: names only the id the caller passed; raised before any write.
   'CLIENT_GROUP_NOT_FOUND',
+  // A customer credit note's header job / CC1 / CC2 / BU refused (ar/creditNoteHeaderTags): set on a
+  // linked note, or a job not this company's / cancelled. Names only the caller's own job; pre-write.
+  'CREDIT_NOTE_DIMENSIONS_REFUSED',
   'CREDIT_NOTE_LOCK_TIMEOUT',
   // FX PR0 (shared/documentCurrency): a currency code that is not three letters. Fixed sentence; pre-write.
   'CURRENCY_CODE_INVALID',
@@ -96,6 +107,11 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
   'HAND_CORRECTION_REFUSED',
+  // The FOR SHARE read of an invoice's line accounts lost a lock race (55P03 / 40P01): says "retry".
+  'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT',
+  // A customer invoice line's revenue account, job or CC1 / CC2 / BU (with the customer's FNO) refused
+  // (ar/invoiceLineCoding): names only the caller's own account, job or cost centre.
+  'INVOICE_LINE_CODING_REFUSED',
   // Engagement Budget out of range (normaliseBudgetAmount): one fixed sentence, raised before any write.
   // No MCP tool reaches it today (no tool writes a job); registered so the census holds.
   'JOB_BUDGET_INVALID',
@@ -180,6 +196,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // R-035 review HIGH-2 (gl/approvalGateExempt): names the demanded role and the
   // caller's own; raised before an import writes anything.
   'IMPORT_APPROVAL_AUTHORITY_REQUIRED',
+  'IMPORTER_MAY_NOT_ALLOCATE',
+  // Step 2: a bank allocation's journal reversed through the GL under enforcement — reverse it from the bank line.
+  'REVERSE_FROM_BANK_LINE',
   // Link/unlink a captured document to a posted journal refused: blank
   // reason, journal not found/not posted/reversed, document not found, or
   // the document already backs another claim (gl/journalDocumentLinkService,

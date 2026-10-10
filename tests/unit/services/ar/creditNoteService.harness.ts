@@ -17,6 +17,13 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
 // R-035 PR3: the approval gate runs its own queries next; it is covered against
 // a real database by tests/integration/r035-pr3-*.int.test.ts.
 vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({ assertApprovalCleared: async () => undefined }));
+// The pre-write refusals (closed period, inactive account) have their own real-PG suite
+// (invoice-line-revenue-credit-notes.int.test.ts); the after-write wrap is pass-through here.
+vi.mock('@/modules/accounting/services/ar/creditNotePostingChecks', () => ({
+  assertCreditNoteCanPost: async () => undefined,
+  lockInvoiceCreditNotes: async () => undefined,
+  afterJournalWritten: async (_n: string, step: () => Promise<unknown>) => step(),
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });

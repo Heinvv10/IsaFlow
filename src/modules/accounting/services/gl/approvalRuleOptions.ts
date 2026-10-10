@@ -81,10 +81,16 @@ export const ENFORCEABLE_DOCUMENT_TYPES: readonly DocumentType[] = [
  * supplier-payment rules — so it never reaches the rule form.
  */
 export const SUPPLIER_BANK_DETAILS = 'supplier_bank_details' as const;
-export type EnforcementType = DocumentType | typeof SUPPLIER_BANK_DETAILS;
+/**
+ * Bank-rule change approval (forensic-controls step 2, migration 877): the
+ * same kind of switch — no rule is written for it; who approves a held rule
+ * change follows the manual-journal rules (bank/bankRuleApprovers.ts).
+ */
+export const BANK_RULE = 'bank_rule' as const;
+export type EnforcementType = DocumentType | typeof SUPPLIER_BANK_DETAILS | typeof BANK_RULE;
 
-/** Every type an Enforce switch can turn on: the document types, then supplier bank details. */
-export const ENFORCEABLE_TYPES: readonly EnforcementType[] = [...ENFORCEABLE_DOCUMENT_TYPES, SUPPLIER_BANK_DETAILS];
+/** Every type an Enforce switch can turn on: the document types, then supplier bank details and bank rules. */
+export const ENFORCEABLE_TYPES: readonly EnforcementType[] = [...ENFORCEABLE_DOCUMENT_TYPES, SUPPLIER_BANK_DETAILS, BANK_RULE];
 
 /**
  * The types the New rule form offers: the enforceable ones, and supplier

@@ -19,6 +19,7 @@
 import { withTransaction, type TxSql } from '@/lib/neon';
 import { ArRequestError } from './arErrors';
 import { isLockContention } from '../core/lockContention';
+import { moveRulesToCustomer } from '../bank/bankRuleChangeControl';
 
 /**
  * The two unique keys a concurrent writer can collide with mid-merge: the
@@ -180,7 +181,6 @@ async function moveRecords(tx: TxSql, c: string, s: string, t: string): Promise<
   // blocks the FK) makes this UPDATE raise 23505, answered 409 by
   // isMergeContention; the savepoint rolls the whole merge back.
   await tx`UPDATE customer_dunning_overrides SET customer_id = ${t}::UUID WHERE customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
-  await tx`UPDATE bank_categorisation_rules SET client_id = ${t}::UUID WHERE client_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`UPDATE practice_clients SET link_customer_id = ${t}::UUID WHERE link_customer_id = ${s}::UUID AND company_id = ${c}::UUID`;
   await tx`
     DELETE FROM entity_udf_values v
@@ -263,8 +263,7 @@ export async function mergeCustomers(
 async function mergeInSavepoint(
   tx: TxSql, companyId: string, sourceId: string, targetId: string, mergedBy: string,
 ): Promise<CustomerMergeResult> {
-  // Bounded wait; restored below on success, and by the savepoint's ROLLBACK
-  // TO on failure (SET LOCAL is subtransaction-aware).
+  // Bounded wait; restored below on success, and by the savepoint's ROLLBACK TO on failure (SET LOCAL is subtransaction-aware).
   await tx`SET LOCAL lock_timeout = '5s'`;
   // Settlement rows BEFORE the customers: a bank allocation or refund takes
   // the bank line and then the customer (lockContactForRefund FOR UPDATE, or
@@ -273,6 +272,7 @@ async function mergeInSavepoint(
   // below still precedes the first write.
   const locked = await lockSettlementRows(tx, companyId, sourceId);
   await refuseOrLock(tx, companyId, sourceId, targetId);
+  await moveRulesToCustomer(tx, companyId, sourceId, targetId); // may refuse (bank_rule): before any other write
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);

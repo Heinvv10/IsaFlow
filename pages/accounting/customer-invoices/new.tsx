@@ -5,19 +5,23 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Plus, Trash2, Loader2, Info, SlidersHorizontal, Receipt } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, Info, Receipt } from 'lucide-react';
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
 import { ScanAndFillButton } from '@/components/accounting/ScanAndFillButton';
 import { fuzzyMatchClient } from '@/modules/accounting/utils/fuzzyMatch';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
 import { toFunctional } from '@/modules/accounting/services/shared/functionalAmounts';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
-interface LineItem { key: string; description: string; quantity: number; unitPrice: number; incomeType: string; discount: number }
+type LineItem = InvoiceLine;
+const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -31,11 +35,10 @@ export default function NewCustomerInvoicePage() {
   const [saveAndNew, setSaveAndNew] = useState(false);
   const [error, setError] = useState('');
   const [scanBanner, setScanBanner] = useState<string | null>(null);
-  const [showDiscount, setShowDiscount] = useState(false);
   const today = localISODate();
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
-  const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
+  const [form, setForm] = useState({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+  const [lines, setLines] = useState<LineItem[]>([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
 
   useEffect(() => {
     apiFetch('/api/accounting/customers', { credentials: 'include' }).then(async r => { await assertOk(r, 'Could not load clients - try again'); return r.json(); }).then(json => {
@@ -48,13 +51,19 @@ export default function NewCustomerInvoicePage() {
 
   const updateLine = (key: string, field: string, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
+  // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId }]);
+  const codingOptions = useInvoiceLineCodingOptions();
+  // A line nobody has typed into yet (the initial one) follows the header project; a worked line keeps its own.
+  const pickProject = (v: string) => {
+    setLines(prev => prev.map(l => (!l.description && !l.unitPrice && l.projectId === form.projectId ? { ...l, projectId: v } : l)));
+    setForm(p => ({ ...p, projectId: v }));
+  };
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
-  const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
-  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
-  const tax = subtotal * (form.taxRate / 100);
-  const total = subtotal + tax;
+  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
+  const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
+  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
   const isFx = form.currencyCode !== 'ZAR';
   // A preview only: the stored figure is public.fx_functional's, and toFunctional is its exact twin.
   const zarTotal = Number.isFinite(total) && Number.isFinite(form.exchangeRate) ? toFunctional(total, form.exchangeRate) : 0;
@@ -70,7 +79,7 @@ export default function NewCustomerInvoicePage() {
       if (match) setForm(f => ({ ...f, clientId: String(match.id) }));
     }
     if (data.lineItems.length > 0) {
-      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0 })));
+      setLines(data.lineItems.map(li => ({ key: String(Date.now() + Math.random()), description: li.description, quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0, incomeType: 'other', discount: 0, ...UNCODED, projectId: form.projectId })));
     }
     setScanBanner(`Auto-filled (${Math.round(data.confidence * 100)}% confidence). Review all fields.`);
   }
@@ -89,8 +98,8 @@ export default function NewCustomerInvoicePage() {
       const d = json.data || json;
       if (andNew) {
         const today = localISODate();
-        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
-        setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0 }]);
+        setForm({ clientId: '', invoiceDate: today, dueDate: '', billingPeriodStart: today, billingPeriodEnd: today, taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
+        setLines([{ key: '1', description: '', quantity: 1, unitPrice: 0, incomeType: 'other', discount: 0, ...UNCODED }]);
         try { await router.push('/accounting/customer-invoices/new'); } catch (e) { log.warn('navigation failed', { error: e }, 'customer-invoices-new'); }
       } else {
         if (!d.id) throw new ApiEnvelopeError('The invoice could not be opened - check the invoice list before creating it again');
@@ -159,6 +168,10 @@ export default function NewCustomerInvoicePage() {
                       {currencies.filter(c => c.code !== 'ZAR').map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className={lbl}>Job <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <CodingPicker label="Invoice job" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No job" onChange={pickProject} />
+                  </div>
                   {isFx && (
                     <div>
                       <label className={lbl}>Exchange Rate <span className="normal-case font-normal opacity-60">({form.currencyCode} → ZAR)</span></label>
@@ -181,46 +194,8 @@ export default function NewCustomerInvoicePage() {
 
               {/* Line Items */}
               <div className={`${card} overflow-hidden`}>
-                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>Line Items</h3>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setShowDiscount(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDiscount ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`}>
-                      <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
-                    </button>
-                    <button onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
-                  </div>
-                </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
-                      <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Type</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Unit Price</th>
-                      {showDiscount && <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Disc.%</th>}
-                      <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Total</th>
-                      <th className="w-9" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {lines.map(l => (
-                      <tr key={l.key} className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                        <td className="px-3 py-2"><input name="description" value={l.description} onChange={e => updateLine(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
-                        <td className="px-3 py-2"><select name="incomeType" value={l.incomeType} onChange={e => updateLine(l.key, 'incomeType', e.target.value)} className={inp}>
-                          <option value="activation">Activation</option><option value="bonus">Bonus</option><option value="adjustment">Adjustment</option><option value="other">Other</option>
-                        </select></td>
-                        <td className="px-3 py-2"><input type="number" name="quantity" value={l.quantity} onChange={e => updateLine(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
-                        <td className="px-3 py-2"><input type="number" name="unitPrice" value={l.unitPrice} step={0.01} onChange={e => updateLine(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
-                        {showDiscount && <td className="px-3 py-2"><input type="number" min={0} max={100} step={0.1} value={l.discount || ''} onChange={e => updateLine(l.key, 'discount', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="0" className={`${inp} text-right`} /></td>}
-                        <td className="px-4 py-2 text-right">
-                          <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), form.currencyCode)}</span>
-                          {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-600 dark:text-teal-400 font-medium">-{l.discount}%</span>}
-                        </td>
-                        <td className="px-2 py-2"><button onClick={() => removeLine(l.key)} className="p-1.5 rounded-lg text-slate-700 dark:text-slate-300 dark:text-slate-700 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors opacity-0 group-hover:opacity-100"><Trash2 className="h-3.5 w-3.5" /></button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} showIncomeType />
               </div>
 
               {/* Notes */}

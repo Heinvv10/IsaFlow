@@ -10,6 +10,9 @@ vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ // R-
   handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(), handKeyedLineJournalRefusal: vi.fn(async () => null),
 }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async (orig) => ({ // step 2: reads Postgres; proven in bank-controls-importer-mcp.int
+  ...(await orig<typeof import('@/modules/accounting/services/bank/bankLineImporterGate')>()), importerHeldLineSkips: vi.fn(async () => new Map()),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';

@@ -15,6 +15,8 @@ import { mapRow } from './creditNoteMapper';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { CreditNoteDimensionRefusal, creditNoteHeaderTags } from './creditNoteHeaderTags';
+import { readCodingId } from './invoiceLineCoding';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -122,6 +124,15 @@ export async function createCreditNote(companyId: string,
     // CC1 from CC2 (conflict refused), then tenant/slot/active — no query when none is named.
     const [dims] = await deriveLineDimensions(companyId, [{ cc1Id: input.cc1Id, cc2Id: input.cc2Id, buId: input.buId }]);
     await assertDocumentDimensions(companyId, [dims!]);
+    // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, a job checked on an unlinked one.
+    const projectId = readCodingId(input.projectId);
+    if (projectId === undefined) throw new CreditNoteDimensionRefusal('projectId must be a UUID');
+    if (input.type === 'customer') {
+      await creditNoteHeaderTags(companyId, {
+        customerInvoiceId: input.customerInvoiceId || null, projectId,
+        cc1Id: dims?.cc1Id || null, cc2Id: dims?.cc2Id || null, buId: dims?.buId || null,
+      });
+    }
 
     const taxRate = input.taxRate ?? 15;
     const taxAmount = input.taxAmount != null
@@ -148,7 +159,7 @@ export async function createCreditNote(companyId: string,
         ${input.supplierInvoiceId || null},
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-        ${input.projectId || null}, ${userId}::UUID,
+        ${projectId}, ${userId}::UUID,
         ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
         ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID
       ) RETURNING *

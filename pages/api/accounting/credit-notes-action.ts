@@ -20,6 +20,8 @@ import {
   listCreditNoteAllocations,
 } from '@/modules/accounting/services/shared/creditNoteFifo';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
+import { ArPostingAfterWriteError } from '@/modules/accounting/services/ar/arErrors';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 
 const CreditNoteActionSchema = z.discriminatedUnion('action', [
@@ -93,6 +95,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (respondIfApprovalRequired(res, err)) return;
     // Any row-lock timeout (D8 round 9: the reversal chain's head, a document row) is 503 + Retry-After.
     if (respondIfLockTimeout(res, err)) return;
+    // After the journal was written: a 4xx would COMMIT the orphan draft. 5xx rolls it back.
+    if (err instanceof ArPostingAfterWriteError) throw err;
+    if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
     const message = err instanceof Error ? err.message : 'Action failed';
     log.error('Credit note action failed', { error: err }, 'accounting-api');
     return apiResponse.badRequest(res, message);

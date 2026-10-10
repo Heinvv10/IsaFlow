@@ -43,6 +43,9 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
   findBankTransactionAllocationStates,
 }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async (orig) => ({ // step 2: reads Postgres; proven in bank-controls-importer-mcp.int
+  ...(await orig<typeof import('@/modules/accounting/services/bank/bankLineImporterGate')>()), importerHeldLineSkips: vi.fn(async () => new Map()),
+}));
 
 import { partitionAllocationLines } from '@/lib/mcp/tools/bulkAllocationSkip';
 import { postAndApplyLine, signMismatchReason } from '@/lib/mcp/tools/allocationApplyRoute';

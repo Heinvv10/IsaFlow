@@ -92,6 +92,8 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/bankLinePaymentGate.ts': "exempt: reads one line's provenance (feed connection / import batch) by id for the R-035 payment gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankLineJournalGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the R-035 manual-journal gate; no total or queue scope",
+  'src/modules/accounting/services/bank/bankLineImporterGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch and its importer) by id for the step-2 importer gate; no total or queue scope",
+  'src/modules/accounting/services/bank/bankReversalGate.ts': "exempt: reads the named lines' amount and auto-post run by id for the step-2 reversal gate (MCP pre-check); no total or queue scope",
   'src/modules/accounting/services/ap/provisionalSettlementVoid.ts': "exempt: reads the settled provisional's own line by provisional_je_id, which a non-posted row cannot carry (trigger 675); no total or queue scope",
   'src/modules/accounting/services/ap/provisionalSettlementClaim.ts': "exempt: the claim joins on provisional_je_id, which a non-posted row cannot carry (trigger 675), and reads that line's provenance for the R-035 payment gate; no total or queue scope",
   'src/modules/accounting/services/ar/customerMergeService.ts': "exempt: lock-only read (SELECT id … FOR UPDATE ORDER BY id) of the merge source's suggested lines before re-pointing suggested_client_id — a suggestion, not a total/count/KPI; every feed_state moves with its customer (K-061)",
@@ -160,6 +162,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/gl/continuousCloseQueryService.ts': 'filtered',
   'src/modules/accounting/services/gl/integrityChecks/bankChecks.ts':
     "filtered (duplicateBankReferences; staleSuggestedTransactions as of round 2 — its suggestion columns are NOT trigger-guarded, round 1 wrongly assumed they were); exempt: journalDateDiffersFromBankDate keys off matched_journal_line_id (trigger 675)",
+  'src/modules/accounting/services/gl/integrityChecks/dimensionChecks.ts': "filtered (projectFnoMismatch: feed_state <> 'removed' and un-allocated only; pending rows stay in — their CC1/CC2 selection is what allocation stamps on the journal)",
   'src/modules/accounting/services/gl/integrityChecks/vatChecks.ts': "exempt: non-posted rows cannot carry matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/items/assetBankLinksService.ts': "exempt: reads only lines carrying an asset / fleet link (mig 853), and setBankLineLink writes a link only on a posted line, which never leaves posted (trigger 675); an annotation list, no total or queue scope",
   'src/modules/accounting/services/items/fleetRecordsService.ts': "exempt: counts the lines linked to a fleet record (the delete refusal and bankLinkCount) — a link is written only on a posted line (setBankLineLink), which never leaves posted (trigger 675); no total or queue scope",

@@ -1,0 +1,50 @@
+Bank controls step 2: mutation proof (index)
+
+For every guard listed here, the guard was neutralised, a named test was run and went RED, and the guard was restored.
+No mutated code is committed. The full logs are in the slice files. Each entry gives the mutation, the command, the
+failing test(s) and the assertion tail.
+
+mutation-a.txt   A importer ≠ allocator and C reversals: 21 guards.
+                 - the importer check in allocate and split;
+                 - the rule-sweep and provisional skips;
+                 - import-sweep triggeredBy;
+                 - the MCP bulk classifier and the split / apply pre-checks;
+                 - the customer-refund arm;
+                 - case-insensitive importer match;
+                 - "nobody" fails closed;
+                 - the sole approver;
+                 - OCR uploader and MCP token user as importer;
+                 - the reversal allocator check;
+                 - the agent / Login-as refusal at the choke point;
+                 - the range dry-run pre-check;
+                 - the audit row;
+                 - undoRun and undoAnyway's run-level check;
+                 - undoRun's agent refusal.
+mutation-b.txt   B bank-rule history and approval: 16 guards.
+                 - pending classification on create and on update;
+                 - proposer ≠ approver in TS and in the DB guard;
+                 - the stale check in TS and in the DB guard;
+                 - the digest check;
+                 - the agent / Login-as refusal on decide;
+                 - the approver role;
+                 - the merge refusal;
+                 - bulk delete all-or-nothing;
+                 - the rules-table backstop (trigger dropped);
+                 - the history trigger (dropped);
+                 - the writer census;
+                 - the UI held-toggle branch.
+mutation-de.txt  D auto-post settings and E transfers: 19 guards.
+                 - weakening: enabling, a cap raise, a cap set to 0, a confidence lowered;
+                 - the human session;
+                 - mayWeakenAtLevel;
+                 - payment_batch coupling;
+                 - the audit write;
+                 - the route type check;
+                 - the page re-load after a refusal;
+                 - the transfer draft branch;
+                 - the duplicate guard ahead of the decision;
+                 - the manual_journal marker;
+                 - the Login-as refusal;
+                 - the page's held state;
+                 - the held-draft duplicate arm (pending and rejected);
+                 - the censuses.

@@ -34,6 +34,7 @@ import { assertSameJournal, lockBankLegOf, lockJournalAndUnmatch, type BankLeg }
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { ReversalWithLateClaim } from '../gl/journalEntryPostingService';
 import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
+import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -70,7 +71,11 @@ async function reverseBatchInner(companyId: string, batchId: string, userId: str
   const leg = peekedJournal
     ? await lockBankLegOf(companyId, peekedJournal, `Batch ${String(peek.batch_number)}`)
     : null;
+  // Step 2: a statement line MATCHED to the batch journal makes it a bank allocation — judged as the bank line's own
+  // reverse is, before any write (the bank reversal reaches reverseBatchWithLeg already judged).
+  const auditLeg = peekedJournal && leg ? await assertMayReverseMatchedLeg(companyId, peekedJournal, leg.bankLineIds, userId) : null;
   const { reversalEntryId, billsReopened } = await reverseBatchWithLeg(companyId, batchId, userId, peekedJournal, leg);
+  await auditLeg?.();
   return { reversalEntryId, billsReopened };
 }
 

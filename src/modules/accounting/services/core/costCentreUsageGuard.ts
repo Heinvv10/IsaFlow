@@ -10,7 +10,8 @@
  * The FK-less counts take no locks, so a row written against the centre between
  * the count and the DELETE is still stranded; only more foreign keys can close
  * that window. The FK-backed columns are immune because the database re-checks
- * at delete time.
+ * at delete time — since migrations 878 (bank) and 882 (journal) that includes the journal and bank
+ * cc1_id / cc2_id (NOT VALID: checked for every new row, not for old ones).
  */
 
 import { sql } from '@/lib/neon';
@@ -113,6 +114,11 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE (tl.old_cc1_id = ${id}::UUID OR tl.old_cc2_id = ${id}::UUID)
           AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history
+      -- payroll_employee_history is deliberately NOT counted. Its old_value /
+      -- new_value hold a cost_centre_id as display-only TEXT: nothing joins it
+      -- back, posts from it or restores it, so a deleted id there strands
+      -- nothing. Counting it would make every centre ever assigned to anyone
+      -- undeletable for good (#683 review round 2).
   `) as Record<string, unknown>[];
 
   const row = usage[0] ?? {};
@@ -165,4 +171,32 @@ export async function countCc2Carriers(companyId: string, ids: string[]): Promis
           AND tb.company_id = ${companyId}::UUID) AS carriers
   `) as { carriers: unknown }[];
   return Number(row?.carriers ?? 0);
+}
+
+/**
+ * The defaults that name this cost centre, as the deactivation refusal words
+ * them ('' when none): a default pointing at an inactive centre would put it
+ * back on every new line, document and coding suggestion that takes it.
+ */
+export async function costCentreDefaultUsage(companyId: string, id: string): Promise<string> {
+  const [row] = (await sql`
+    SELECT
+      (SELECT COUNT(*) FROM customers cu
+        WHERE cu.default_cc1_id = ${id}::UUID AND cu.company_id = ${companyId}::UUID) AS customers,
+      (SELECT COUNT(*) FROM gl_accounts ga
+        WHERE (ga.default_cc1_id = ${id}::UUID OR ga.default_cc2_id = ${id}::UUID)
+          AND ga.company_id = ${companyId}::UUID) AS accounts,
+      (SELECT COUNT(*) FROM supplier_coding_rules scr
+        WHERE scr.default_cost_centre_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID) AS coding_rules
+  `) as Record<string, unknown>[];
+  return countedParts(row, [['customers', 'customer(s)'], ['accounts', 'account(s)'], ['coding_rules', 'supplier coding rule(s)']]);
+}
+
+/** "2 customer(s), 1 account(s)" from the non-zero counts, in label order. */
+export function countedParts(row: Record<string, unknown> | undefined, labels: [string, string][]): string {
+  return labels
+    .map(([key, label]) => [Number(row?.[key] ?? 0), label] as const)
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${count} ${label}`)
+    .join(', ');
 }

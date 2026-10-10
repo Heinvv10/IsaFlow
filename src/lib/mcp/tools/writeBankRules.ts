@@ -14,7 +14,7 @@
  */
 import type { McpTool } from '../types';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
-import { createRule, updateRule, toggleRule } from '@/modules/accounting/services/bank/bankRulesService';
+import { createRule, updateRule, toggleRule, type RuleOutcome } from '@/modules/accounting/services/bank/bankRulesService';
 import type {
   RuleMatchField,
   RuleMatchType,
@@ -41,11 +41,24 @@ import {
   refsBelongToCompany,
 } from './bankRuleShared';
 
+/**
+ * Under the `bank_rule` switch a change that makes a rule auto-post, or moves
+ * where an auto-posting rule posts, is HELD for a person's approval (Hein's
+ * decision 3): a result, not an error — the agent proposed it; it may never
+ * approve it (there is no decide tool).
+ */
+const HELD_HINT = 'a person must approve it on the Bank rules page before it takes effect';
+const reply = (written: RuleOutcome) => (written.status === 'pending_approval'
+  ? ok({ status: 'pending_approval', change_id: written.changeId,
+    message: `Held for approval (change ${written.changeId}) — ${HELD_HINT}. Nothing was changed yet.` })
+  : ok(compactRule(written)));
+
 export const createBankRuleTool: McpTool = {
   name: 'create_bank_rule',
   description:
     'Create a bank categorisation rule. It applies to transactions matched from now on — creating a rule does NOT post anything by itself. ' +
     'auto_create_entry=true means every future match posts a journal automatically without review; leave it false unless that is what you want. ' +
+    'Where the company requires approval of bank-rule changes, an auto-posting rule is held for a person to approve (status pending_approval). ' +
     'Check list_bank_rules first: a more specific rule with a lower priority wins, and two rules matching the same pattern is how a migration gets silently undone.',
   scope: 'write:bank-tx',
   write: true,
@@ -93,7 +106,7 @@ export const createBankRuleTool: McpTool = {
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
 
     try {
-      const rule = await createRule(
+      const written = await createRule(
         ctx.companyId,
         {
           ruleName,
@@ -109,7 +122,7 @@ export const createBankRuleTool: McpTool = {
         },
         ctx.userId,
       );
-      return ok(compactRule(rule));
+      return reply(written);
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to create bank rule.'));
     }
@@ -172,7 +185,7 @@ export const updateBankRuleTool: McpTool = {
     if (!(await refsBelongToCompany(ctx.companyId, refs))) return toolError(NOT_FOUND);
 
     try {
-      const rule = await updateRule(ctx.companyId, ruleId, {
+      const written = await updateRule(ctx.companyId, ruleId, {
         ruleName: strArg(args, 'rule_name'),
         matchField: matchField as RuleMatchField | undefined,
         matchType: matchType as RuleMatchType | undefined,
@@ -186,8 +199,8 @@ export const updateBankRuleTool: McpTool = {
         ...(typeof args.is_active === 'boolean' ? { isActive: args.is_active } : {}),
         vatCode: vatCode as RuleVatCode | undefined,
         ...(autoApply === undefined ? {} : { autoApply }),
-      });
-      return ok(compactRule(rule));
+      }, ctx.userId);
+      return reply(written);
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to update bank rule.'));
     }
@@ -226,7 +239,8 @@ export const disableBankRuleTool: McpTool = {
       return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: true });
     }
 
-    await toggleRule(ctx.companyId, ruleId, isActive);
+    const written = await toggleRule(ctx.companyId, ruleId, isActive, ctx.userId);
+    if (written.status === 'pending_approval') return reply(written);
     return ok({ id: ruleId, rule_name: rule.ruleName, is_active: isActive, already: false });
   },
 };

@@ -119,7 +119,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // state for, and asking anyway makes the all-unresolved batch depend on a
     // query whose only correct answer is "nothing".
     const { postable, skipped: stateSkipped } = prepared.resolved.length > 0
-      ? await partitionAllocationLines(ctx.companyId, prepared.resolved)
+      ? await partitionAllocationLines(ctx.companyId, prepared.resolved, ctx.userId)
       : { postable: [], skipped: [] };
     // One list for the agent, in the order it sent the lines. The two skip
     // sources answer different questions — `prepared.skipped` is "this

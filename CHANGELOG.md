@@ -8,6 +8,8 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ## Unreleased / In Flight
 
+- **Approval enforcement's last raw-SQL bypasses closed (R-035 N1b; migrations 880, 881, 883; #689, #690, #691; not deployed)** — four tables the approval decision trusts were writable by raw SQL as `app_user`. `audit_log` is now append-only (880: no UPDATE, DELETE, TRUNCATE or TRIGGER for any role but its owner; INSERT stays). `approval_rules` and `approval_enforcement` are written only through SECURITY DEFINER functions that repeat every TypeScript check, with refusals mapped back to the same errors (881). `company_users` and `company_invitations` enforce the app's role rules in BEFORE triggers (883): only an owner grants or invites `owner` — Hein's decision, so an admin's owner invitation now answers 403 — the last owner is never demoted in the app (the admin portal keeps no last-owner rule, as before), and an owner invitation cannot be re-pointed by a non-owner. Who may do what is otherwise unchanged. 883 refuses to apply while any live owner invitation exists; cancel them first. Remaining limits: `RESET ROLE` from the login role (N3), forged extra audit rows, and run-time-built SQL.
+- **Invoice lines carry their own revenue account and job (migration 874), with #663's CC1 / CC2 / BU** — a customer invoice line may name the revenue account it credits and the job (Project Profitability) its revenue belongs to, beside its CC1 / CC2 / BU; posting splits the revenue credit by line over all five, the customer's FNO on every revenue leg; a linked credit note reverses to the same legs, capped at what earlier live notes took (recorded per leg; a cancelled note's share is available again), and refuses its own job / CC1 / CC2 / BU; an unlinked note posts its header job too. An invoice with no coded line posts exactly as before. The header job is display only and is no longer guessed from the client's projects. **Changed from #663**: a discount line on its own dimensions now posts as its own debit leg (it used to collapse the invoice to one FNO-only line, dropping every CC2 / BU), and lines that do not add up to the subtotal are refused (they used to put the difference on the last group). **MCP: `create_draft_invoice` and `bulk_create_customer_invoices` now REFUSE an unknown line key** (e.g. camelCase `glAccountId`) instead of silently dropping it.
 - **Day counts are measured over the reporting period's own days (2026-10-07)** — debtor days, creditor days, inventory days and the cash conversion cycle multiplied every window's revenue or cost of sales by 365, so any period shorter than a year was overstated in proportion: earlier board, management and monthly packs, Financial Analysis and the KPI scorecard printed about twice the true figure for a six-month window, and the monthly ratio trends about twelve times. They now multiply by the days the window holds (1 March to 31 August is 184), each comparative by its own; a debtor-days target scored against the old figure may flip from MISSED to met. The ratio trends' current month ends today, inventory days are no longer taken over a rounded turnover, and the extended-ratio and KPI routes refuse a malformed or backwards window.
 - **The refund ceiling is cumulative per supplier (migration 683)** — two refund lines for one supplier, each under the ceiling but jointly over it, were both minted by a single back-fill run. The run now decides a supplier's refunds in order, carrying what each accepted refund has consumed. Also: `bank-match-confirm`'s refusal-to-status mapping moved to `bank/bankMatchRefusalStatus`, where the default is "not classified, answer 500" — the status decides whether `withAuth` commits, so a refusal is added there only by someone who can show it is raised before the first write.
 - **The refund ceiling reaches the back-fill (migration 682)** — 681 gave the live path a ceiling and left the batch path minting regardless, which is the worse half to leave ungoverned because nobody is watching it. `ap_supplier_on_account_credit` is now the one definition both read, and a line breaching it is reported under `refund_exceeds_credit` and never minted. The run also takes a single materialised snapshot of the classification instead of re-evaluating the view between writes: the payment arm's own mints raise a supplier's credit, so a line logged over-ceiling at skip time could have been minted by the same batch. On staging the one production refund lands on `refund_exceeds_credit` — Blitz Fibre held R0.00 on account on 2026-09-04 against a R160,609.85 deposit, because the FIFO back-fill had already applied all 88 of its payments — so nothing is minted there until somebody decides what that cash was.
@@ -20,6 +22,33 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 - **Phase 3b — TOTP 2FA via GoTrue native MFA** — design spec + 17-task implementation plan landed 2026-04-19 (not yet merged)
 - **Xero-parity UX roadmap** — see FEATURES.md §21.1 (Setup Guide drawer, adaptive dashboard, shared component library, breadcrumbs, invoice preview, report favouriting)
 - **L4 — decimal running balances** — customer/supplier statement and GL ledger running balances are now computed in decimal (`src/lib/money/decimalSum.ts`) and serialised to 2dp, fixing float-drift payload values like `126629.94999999995` and `-4.3655745685100555e-11`
+
+---
+
+## 2026-10-09 — Invoice Line Dimensions, Deploy Parity Gate, FX Guard, Bank Fixes
+
+**AR — Invoice Lines**
+
+- Customer invoice lines now post to their own revenue account and job alongside CC1 / CC2 / BU; discount lines post as separate debit legs with their own dimensions; linked credit notes reverse to per-leg caps; unrecognised line keys refused by `create_draft_invoice` and `bulk_create_customer_invoices` MCP tools (migration 874) (#685)
+
+**Deploy**
+
+- Migration parity gate runs first in `deploy.sh`: flags reused/duplicate pending prefixes, allowlists 13 historic prod orphans, advisory lock, cluster identity check, 15-min apply cap, real two-database integration test (#686)
+
+**Bank**
+
+- Auto-match now pairs a deposit with the bank DEBIT leg and a withdrawal with the CREDIT leg — direction-blind matching was applying cash to the wrong side (#687)
+- Bank transfers revived; matched-line probe keyed on (bank line, company) (#670)
+
+**Approvals / Security**
+
+- Migration 872 tightened: exempts only the deploy role running it, not every owner-member; N1 catalogue writer check updated to match (#680)
+
+**FX**
+
+- Foreign-currency documents refused at submission (PR0 guard) until the ledger can carry them (migration 871) (#682)
+
+Migrations: **871** (`fx_document_refusal`), **874** (`invoice_line_dimensions`)
 
 ---
 

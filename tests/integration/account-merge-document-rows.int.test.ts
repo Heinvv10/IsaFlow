@@ -1,6 +1,7 @@
 /**
  * A GL account merge repoints the DOCUMENT lines coded to the source — bill
- * lines, expense-claim lines, PO lines and capture events — in the same
+ * lines, customer invoice lines (migration 874), expense-claim lines, PO lines
+ * and capture events — in the same
  * transaction as the journal lines, and records exactly which rows moved.
  *
  * Before this, those four FK columns were caught by the configuration sweep,
@@ -44,6 +45,8 @@ async function withFixture(fn: (c: PoolClient, f: MergeFixture) => Promise<void>
 
 interface DocIds {
   supplierInvoiceItem: string;
+  customerInvoiceItem: string;
+  customerInvoice: string;
   expenseClaimLine: string;
   poItem: string;
   captureEvent: string;
@@ -76,6 +79,19 @@ async function seedDocuments(
   const supplierInvoiceItem = await one(c,
     `INSERT INTO supplier_invoice_items (supplier_invoice_id, description, quantity, unit_price, line_total, gl_account_id)
      VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [invoice, accountId]);
+  const customer = await one(c,
+    `INSERT INTO customers (company_id, name) VALUES ($1, $2) RETURNING id`, [companyId, `ZZ cust ${tag}`]);
+  // Follows the bill: a posted invoice (its journal posted) or a draft. A draft's
+  // line may not move onto a header target (account-merge-invoice-lines.int.test.ts).
+  const customerInvoice = await one(c,
+    `INSERT INTO customer_invoices (company_id, invoice_number, customer_id, client_id, subtotal, total_amount, created_by, status,
+       gl_journal_entry_id)
+     VALUES ($1, $2, $3, $3, 100, 115, $4, $5::text, CASE WHEN $5::text = 'approved' THEN (
+       SELECT id FROM gl_journal_entries WHERE company_id = $1 AND status = 'posted' ORDER BY id LIMIT 1) END)
+     RETURNING id`, [companyId, `ZZ-CI-${tag}`, customer, USER, billStatus === 'posted' ? 'approved' : 'draft']);
+  const customerInvoiceItem = await one(c,
+    `INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount, gl_account_id)
+     VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [customerInvoice, accountId]);
   const employee = await one(c,
     `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
      VALUES ($1, $2, 'Doc', 'Fixture', CURRENT_DATE) RETURNING id`, [companyId, `ZZ-${tag}`]);
@@ -94,7 +110,7 @@ async function seedDocuments(
   const captureEvent = await one(c,
     `INSERT INTO capture_events (company_id, channel, status, resolved_gl_account_id)
      VALUES ($1, 'api', 'posted', $2) RETURNING id`, [companyId, accountId]);
-  return { supplierInvoiceItem, expenseClaimLine, poItem, captureEvent };
+  return { supplierInvoiceItem, customerInvoiceItem, customerInvoice, expenseClaimLine, poItem, captureEvent };
 }
 
 /** The account each seeded row points at now, read directly — no service code involved. */
@@ -103,8 +119,9 @@ async function accountsOf(c: PoolClient, d: DocIds): Promise<string[]> {
     `SELECT (SELECT gl_account_id FROM supplier_invoice_items WHERE id = $1)::text AS a
      UNION ALL SELECT (SELECT gl_account_id FROM expense_claim_lines WHERE id = $2)::text
      UNION ALL SELECT (SELECT gl_account_id FROM po_items WHERE id = $3)::text
-     UNION ALL SELECT (SELECT resolved_gl_account_id FROM capture_events WHERE id = $4)::text`,
-    [d.supplierInvoiceItem, d.expenseClaimLine, d.poItem, d.captureEvent]);
+     UNION ALL SELECT (SELECT resolved_gl_account_id FROM capture_events WHERE id = $4)::text
+     UNION ALL SELECT (SELECT gl_account_id FROM customer_invoice_items WHERE id = $5)::text`,
+    [d.supplierInvoiceItem, d.expenseClaimLine, d.poItem, d.captureEvent, d.customerInvoiceItem]);
   return rows.map((r) => r.a);
 }
 
@@ -123,19 +140,25 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
 
       const result = await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
 
-      expect(await accountsOf(c, docs)).toEqual([f.targetId, f.targetId, f.targetId, f.targetId]);
+      expect(await accountsOf(c, docs)).toEqual([f.targetId, f.targetId, f.targetId, f.targetId, f.targetId]);
       expect(result.documentRowsRepointed).toEqual({
-        supplier_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
+        supplier_invoice_items: 1, customer_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
       });
       const { rows } = await c.query<{ moved: Record<string, string[]> }>(
         'SELECT moved_document_rows AS moved FROM gl_account_merges WHERE id = $1 AND company_id = $2',
         [result.mergeRecordId, f.companyId]);
       expect(rows[0]!.moved).toEqual({
         supplier_invoice_items: [docs.supplierInvoiceItem],
+        customer_invoice_items: [docs.customerInvoiceItem],
         expense_claim_lines: [docs.expenseClaimLine],
         po_items: [docs.poItem],
         capture_events: [docs.captureEvent],
       });
+      // The line's account is in the invoice's approval digest: the merger is now an author of it.
+      const authored = await c.query<{ a: string[] }>(
+        'SELECT content_authors AS a FROM customer_invoices WHERE id = $1 AND company_id = $2',
+        [docs.customerInvoice, f.companyId]);
+      expect(authored.rows[0]!.a).toContain(USER);
     });
   }, 120_000);
 
@@ -151,16 +174,16 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
 
       const preview = await previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId);
       expect(preview.documentRowsToRepoint).toEqual({
-        supplier_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
+        supplier_invoice_items: 1, customer_invoice_items: 1, expense_claim_lines: 1, po_items: 1, capture_events: 1,
       });
 
       await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
 
-      expect(await accountsOf(c, ours)).toEqual([f.targetId, f.targetId, f.targetId, f.targetId]);
+      expect(await accountsOf(c, ours)).toEqual([f.targetId, f.targetId, f.targetId, f.targetId, f.targetId]);
       expect(await accountsOf(c, theirs)).toEqual([
-        other.accountId, other.accountId, other.accountId, other.accountId]);
+        other.accountId, other.accountId, other.accountId, other.accountId, other.accountId]);
       expect(await accountsOf(c, forged)).toEqual([
-        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
+        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
     });
   }, 120_000);
 
@@ -185,7 +208,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
       // Only the bank rule is named: the four document tables are not configuration.
       expect(references.map((r) => r.table)).toEqual(['bank_rules']);
       expect(await accountsOf(c, docs)).toEqual([
-        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
+        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
     });
   }, 120_000);
 
@@ -199,7 +222,9 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
         [extra.captureEvent, f.companyId]);
 
       const preview = await previewAccountMerge(f.companyId, f.cleanSourceId, f.targetId);
-      const expected = { supplier_invoice_items: 3, expense_claim_lines: 3, po_items: 3, capture_events: 2 };
+      const expected = {
+        supplier_invoice_items: 3, customer_invoice_items: 3, expense_claim_lines: 3, po_items: 3, capture_events: 2,
+      };
       expect(preview.documentRowsToRepoint).toEqual(expected);
 
       const result = await mergeAccounts(f.companyId, f.cleanSourceId, f.targetId, USER);
@@ -225,7 +250,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
         expect((err as Error).message).toMatch(/ZZ-INV-/);
       }
       expect(await accountsOf(c, docs)).toEqual([
-        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
+        f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId, f.cleanSourceId]);
     });
   }, 120_000);
 
@@ -234,7 +259,7 @@ describe.skipIf(!hasDb)('mergeAccounts repoints document lines', () => {
       const docs = await seedDocuments(c, f.companyId, f.cleanSourceId, 'draft');
       await mergeAccounts(f.companyId, f.cleanSourceId, f.targetChildId, USER);
       expect(await accountsOf(c, docs)).toEqual([
-        f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId]);
+        f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId, f.targetChildId]);
     });
   }, 120_000);
 });

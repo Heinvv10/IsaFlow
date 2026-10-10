@@ -67,3 +67,36 @@ export function emitApplyToast(headline: string, parts: ApplyResultParts): void 
   if (t.kind === 'success') notify.success(headline, t.message);
   else notify.warning(headline, t.message);
 }
+
+/**
+ * A rule save the server HELD for approval (forensic-controls step 2: the
+ * `bank_rule` switch) answers { status: 'pending_approval', changeId } —
+ * nothing changed yet, so it must never read as "saved".
+ */
+export const isHeldForApproval = (data: unknown): boolean =>
+  (data as { status?: unknown } | null)?.status === 'pending_approval';
+
+export function notifyHeld(what: string): void {
+  notify.warning('Held for approval — another member must approve it',
+    `${what} takes effect once another member approves it under Pending changes on the Bank rules page.`);
+}
+
+/**
+ * The toast for a rule created (not held) by POST /api/accounting/bank-rules,
+ * which may have run the new rule at once. Returns the run's counts for the
+ * page's banner when it categorised anything, else null.
+ */
+export function reportCreated(headline: string, data: Record<string, unknown> | undefined)
+  : (ApplyResultParts & { applied: number; skipped: number }) | null {
+  const n = (k: keyof ApplyResultParts) => Number(data?.[k] ?? 0);
+  const parts = {
+    applied: n('applied'), autoPostSkippedClosedPeriod: n('autoPostSkippedClosedPeriod'),
+    autoPostSkippedNoPeriod: n('autoPostSkippedNoPeriod'), autoPostSkippedVatLocked: n('autoPostSkippedVatLocked'),
+    autoPostRulesSkippedNoBankGl: n('autoPostRulesSkippedNoBankGl'), autoPostSkippedRaced: n('autoPostSkippedRaced'),
+    autoPostSkippedLocked: n('autoPostSkippedLocked'), autoPostTruncatedRules: n('autoPostTruncatedRules'),
+  };
+  const anythingToReport = Object.values(parts).reduce((sum, v) => sum + v, 0);
+  if (anythingToReport > 0) emitApplyToast(headline, parts);
+  else notify.success(headline);
+  return parts.applied > 0 ? { ...parts, skipped: 0 } : null;
+}

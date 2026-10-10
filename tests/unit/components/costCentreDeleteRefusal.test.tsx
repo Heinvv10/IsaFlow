@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 const apiFetch = vi.fn();
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...await orig<typeof import('@/lib/apiFetch')>(), apiFetch: (...args: unknown[]) => apiFetch(...args) }));
@@ -48,6 +48,7 @@ describe('cost centres page delete refusal', () => {
     render(<CostCentresPage />);
     await screen.findByText('Fleet');
     fireEvent.click(screen.getByTitle('Delete'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(screen.getByText(REFUSAL)).toBeTruthy());
     // The row survives the refusal, and the operator now knows why.
@@ -77,6 +78,7 @@ describe('cost centres page delete refusal', () => {
     render(<CostCentresPage />);
     await screen.findByText('Fleet');
     fireEvent.click(screen.getByTitle('Delete'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => expect(screen.queryByText('Fleet')).toBeNull());
     expect(screen.queryByText(REFUSAL)).toBeNull();

@@ -3,7 +3,8 @@
  * POST — update, toggle, or delete a cost centre.
  *
  * update and toggle go through the dimension master edit (ladder, alias and
- * FNO-move rules); delete through the counted usage guard.
+ * FNO-move rules); delete through the counted usage guard. An update or toggle
+ * that changes nothing (a toggle to the state it is already in) succeeds.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,11 +14,12 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
-import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
 import {
-  applyUpdateDimensionCostCentre, planUpdateDimensionCostCentre, type UpdateDimensionCostCentreInput,
+  applyDeleteDimensionCostCentre, applyUpdateDimensionCostCentre, planDeleteDimensionCostCentre, planUpdateDimensionCostCentre,
+  type UpdateDimensionCostCentreInput,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { UUID_RE } from '@/lib/validation';
 
 /** The form's fields: absent = unchanged, '' = clear (parent detaches). */
 function updateInput(data: Record<string, unknown>): UpdateDimensionCostCentreInput {
@@ -37,6 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const { action, id, ...data } = req.body;
   if (!id) return apiResponse.badRequest(res, 'id required');
+  if (!UUID_RE.test(String(id))) return apiResponse.badRequest(res, 'id must be a cost centre UUID');
 
   try {
     switch (action) {
@@ -50,17 +53,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         await applyUpdateDimensionCostCentre(companyId, plan, userId);
         return apiResponse.success(res, { toggled: true });
       }
-      case 'delete':
-        await deleteCostCentre(companyId, id);
+      case 'delete': {
+        const target = await planDeleteDimensionCostCentre(companyId, String(id));
+        await applyDeleteDimensionCostCentre(companyId, target, userId);
         return apiResponse.success(res, { deleted: true });
+      }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
     }
   } catch (err) {
-    log.error('Cost centre action failed', { action, error: err }, 'accounting-api');
     // The guard's counted refusal is written for the operator; everything else
     // stays generic so internal detail cannot leak (pentest H16).
-    if (err instanceof CostCentreActionError || isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
+    if (err instanceof CostCentreActionError || isDimensionRefusal(err)) {
+      log.warn('Cost centre action refused', { action, reason: err.message }, 'accounting-api');
+      return apiResponse.badRequest(res, err.message);
+    }
+    log.error('Cost centre action failed', { action, error: err }, 'accounting-api');
     return apiResponse.badRequestFromError(res, err, 'Action failed');
   }
 }

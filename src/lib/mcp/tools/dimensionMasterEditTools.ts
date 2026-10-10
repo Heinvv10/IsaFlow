@@ -2,7 +2,10 @@
  * MCP edit / deactivate / delete for the dimension masters — the other half of
  * dimensionMasterTools' creates. Same scope (write:accounts) and same billing
  * (master data posts nothing). Every tool takes dry_run; every refusal comes
- * from reads before the first write.
+ * from reads before the first write, under the company's dimension-master lock
+ * (taken by each plan, dry_run included). A refusal the apply raises (a 23505 or
+ * 23503 from a writer outside the lock) is answered only after the service's
+ * own savepoint has rolled the write back, so nothing half-written survives it.
  */
 import type { McpTool, McpToolResult } from '../types';
 import {
@@ -10,10 +13,12 @@ import {
   planUpdateDimensionCostCentre, type UpdateDimensionCostCentreInput,
 } from '@/modules/accounting/services/gl/dimensions/dimensionMasterEdit';
 import {
-  applyUpdateBusinessUnit, assertBusinessUnitUnused, BusinessUnitActionError, deleteBusinessUnit, findBusinessUnit,
+  applyUpdateBusinessUnit, BusinessUnitActionError, deleteBusinessUnit, planDeleteBusinessUnit,
   planUpdateBusinessUnit, type BusinessUnitUpdate,
 } from '@/modules/accounting/services/core/businessUnitService';
 import { CostCentreActionError } from '@/modules/accounting/services/core/costCentreUsageGuard';
+import { deleteCostCentre } from '@/modules/accounting/services/core/costCentreService';
+import { inRolledBackSavepoint } from '@/modules/accounting/services/core/rolledBackSavepoint';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { ok, strArg, toolError } from './toolHelpers';
 
@@ -27,6 +32,14 @@ function refusal(err: unknown): McpToolResult {
 
 function preview(data: Record<string, unknown>): McpToolResult {
   const r = ok({ dry_run: true, ...data });
+  r.wroteNothing = true;
+  r.billable = false;
+  return r;
+}
+
+/** An edit that changes nothing succeeds, as the API routes answer it — and writes and bills nothing. */
+function unchanged(data: Record<string, unknown>): McpToolResult {
+  const r = ok({ ...data, changed: [], nothing_changed: true });
   r.wroteNothing = true;
   r.billable = false;
   return r;
@@ -49,6 +62,17 @@ function stringList(args: Record<string, unknown>, key: string): string[] | unde
 }
 
 const REF = { type: 'string', description: 'Code, UUID or alias of the cost centre.' };
+const REF_CC_TYPE = {
+  type: 'string', enum: ['cc1', 'cc2'],
+  description: 'Narrows cost_centre to one type when its code matches more than one centre (or send the UUID).',
+};
+
+/** undefined = not sent; an Error = not cc1 / cc2. */
+function refCcType(args: Record<string, unknown>): 'cc1' | 'cc2' | undefined | Error {
+  const v = args.cc_type;
+  if (v === undefined) return undefined;
+  return v === 'cc1' || v === 'cc2' ? v : new Error('cc_type must be cc1 or cc2');
+}
 
 export const updateCostCentreTool: McpTool = {
   name: 'update_cost_centre',
@@ -57,13 +81,16 @@ export const updateCostCentreTool: McpTool = {
     + 'add_aliases / remove_aliases), description, department, is_active. Send only what changes. Refused: a parent '
     + 'loop, an inactive or FNO-less parent, a code/alias already used elsewhere, deactivating a node with active '
     + 'children, and moving a CC2 to another FNO while any line, document, default or tag batch carries it (re-tag '
-    + 'first). Tagged lines keep their ids, so a rename re-labels history without moving any figure. Posts nothing.',
+    + 'first). Tagged lines keep their ids, so a rename re-labels history without moving any figure. An edit that changes '
+    + 'nothing succeeds with nothing_changed: true. A code matching more than one centre is refused: send the UUID or '
+    + 'cc_type. Posts nothing.',
   scope: 'write:accounts',
   write: true,
   inputSchema: {
     type: 'object',
     properties: {
       cost_centre: REF,
+      cc_type: REF_CC_TYPE,
       code: { type: 'string', maxLength: 20 },
       name: { type: 'string', maxLength: 255 },
       parent: { type: ['string', 'null'], description: 'CC2 only: new parent CC1 or programme CC2; null detaches.' },
@@ -92,13 +119,15 @@ export const updateCostCentreTool: McpTool = {
       addAliases: stringList(args, 'add_aliases'), removeAliases: stringList(args, 'remove_aliases'),
     };
     for (const v of Object.values(fields)) if (v instanceof Error) return toolError(v.message);
+    const ccType = refCcType(args);
+    if (ccType instanceof Error) return toolError(ccType.message);
     const input = {
       code: strArg(args, 'code'), name: strArg(args, 'name'),
       ...fields, isActive: args.is_active as boolean | undefined,
     } as UpdateDimensionCostCentreInput;
     let plan: Awaited<ReturnType<typeof planUpdateDimensionCostCentre>>;
     try {
-      plan = await planUpdateDimensionCostCentre(ctx.companyId, ref, input);
+      plan = await planUpdateDimensionCostCentre(ctx.companyId, ref, input, ccType);
     } catch (err) {
       return refusal(err);
     }
@@ -109,8 +138,13 @@ export const updateCostCentreTool: McpTool = {
       aliases_added: plan.addAliases.map((x) => x.alias), aliases_removed: plan.removeAliasKeys,
       ...(plan.warnings.length > 0 ? { warnings: plan.warnings } : {}),
     };
+    if (plan.changed.length === 0) return unchanged(summary);
     if (args.dry_run === true) return preview(summary);
-    await applyUpdateDimensionCostCentre(ctx.companyId, plan, ctx.userId);
+    try {
+      await applyUpdateDimensionCostCentre(ctx.companyId, plan, ctx.userId);
+    } catch (err) {
+      return refusal(err);
+    }
     return ok(summary);
   },
 };
@@ -120,26 +154,37 @@ export const deleteCostCentreTool: McpTool = {
   description:
     'Delete a CC1 / CC2 that nothing uses (its aliases go with it). Refused, with counts, while any journal line, '
     + 'bank line, document, child cost centre, customer/account default, payroll or asset record, or un-reversed tag '
-    + 'batch still references it — deactivate it with update_cost_centre is_active=false instead. Posts nothing.',
+    + 'batch still references it — deactivate it with update_cost_centre is_active=false instead. dry_run runs the '
+    + 'real delete and rolls it back, so it refuses exactly what the live call would. Posts nothing.',
   scope: 'write:accounts',
   write: true,
   inputSchema: {
     type: 'object',
-    properties: { cost_centre: REF, dry_run: { type: 'boolean' }, idempotency_key: { type: 'string' } },
+    properties: { cost_centre: REF, cc_type: REF_CC_TYPE, dry_run: { type: 'boolean' }, idempotency_key: { type: 'string' } },
     required: ['cost_centre', 'idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     const ref = strArg(args, 'cost_centre');
     if (!ref) return toolError('cost_centre is required');
+    const ccType = refCcType(args);
+    if (ccType instanceof Error) return toolError(ccType.message);
     let target: Awaited<ReturnType<typeof planDeleteDimensionCostCentre>>;
     try {
-      target = await planDeleteDimensionCostCentre(ctx.companyId, ref);
+      target = await planDeleteDimensionCostCentre(ctx.companyId, ref, ccType);
     } catch (err) {
       return refusal(err);
     }
     const summary = { id: target.id, code: target.code, cc_type: target.ccType, aliases: target.aliases };
-    if (args.dry_run === true) return preview(summary);
+    if (args.dry_run === true) {
+      // The real DELETE, always rolled back: the dry run meets the FKs the live call meets.
+      try {
+        await inRolledBackSavepoint('mcp_cc_delete_dry_run', () => deleteCostCentre(ctx.companyId, target.id));
+      } catch (err) {
+        return refusal(err);
+      }
+      return preview(summary);
+    }
     try {
       await applyDeleteDimensionCostCentre(ctx.companyId, target, ctx.userId);
     } catch (err) {
@@ -154,7 +199,7 @@ export const updateBusinessUnitTool: McpTool = {
   description:
     'Edit a business unit: code, name, division (null clears), description (null clears), is_active. Send only what '
     + 'changes. A code already used by another BU is refused. Tagged lines keep their ids, so a rename re-labels '
-    + 'history without moving any figure. Posts nothing.',
+    + 'history without moving any figure. An edit that changes nothing succeeds with nothing_changed: true. Posts nothing.',
   scope: 'write:accounts',
   write: true,
   inputSchema: {
@@ -195,8 +240,13 @@ export const updateBusinessUnitTool: McpTool = {
       id: plan.before.id, code: a.code, name: a.name, division: a.division, description: a.description,
       is_active: a.isActive, changed: plan.changed,
     };
+    if (plan.changed.length === 0) return unchanged(summary);
     if (args.dry_run === true) return preview(summary);
-    await applyUpdateBusinessUnit(ctx.companyId, plan);
+    try {
+      await applyUpdateBusinessUnit(ctx.companyId, plan);
+    } catch (err) {
+      return refusal(err);
+    }
     return ok(summary);
   },
 };
@@ -206,7 +256,8 @@ export const deleteBusinessUnitTool: McpTool = {
   description:
     'Delete a business unit that nothing uses. Refused, with counts, while any journal line, bank line, document '
     + 'line, account default or un-reversed tag batch still carries it — deactivate it with update_business_unit '
-    + 'is_active=false instead. Posts nothing.',
+    + 'is_active=false instead. dry_run runs the real delete and rolls it back, so it refuses exactly what the live '
+    + 'call would. Posts nothing.',
   scope: 'write:accounts',
   write: true,
   inputSchema: {
@@ -222,15 +273,22 @@ export const deleteBusinessUnitTool: McpTool = {
   handler: async (args, ctx) => {
     const ref = strArg(args, 'business_unit');
     if (!ref) return toolError('business_unit is required');
-    let bu: Awaited<ReturnType<typeof findBusinessUnit>>;
+    let bu: Awaited<ReturnType<typeof planDeleteBusinessUnit>>;
     try {
-      bu = await findBusinessUnit(ctx.companyId, ref);
-      await assertBusinessUnitUnused(ctx.companyId, bu.id);
+      bu = await planDeleteBusinessUnit(ctx.companyId, ref);
     } catch (err) {
       return refusal(err);
     }
     const summary = { id: bu.id, code: bu.code, name: bu.name };
-    if (args.dry_run === true) return preview(summary);
+    if (args.dry_run === true) {
+      // The real DELETE, always rolled back: the dry run meets the FKs the live call meets.
+      try {
+        await inRolledBackSavepoint('mcp_bu_delete_dry_run', () => deleteBusinessUnit(ctx.companyId, bu.id));
+      } catch (err) {
+        return refusal(err);
+      }
+      return preview(summary);
+    }
     try {
       await deleteBusinessUnit(ctx.companyId, bu.id);
     } catch (err) {

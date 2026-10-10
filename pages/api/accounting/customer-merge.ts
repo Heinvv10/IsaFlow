@@ -16,6 +16,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
 import { isUuidParam } from '@/lib/validation';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
+import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { mergeCustomers } from '@/modules/accounting/services/ar/customerMergeService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -35,6 +36,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     log.info('Customer merge completed', { source_id, companyId, ...result, module: 'accounting' });
     return apiResponse.success(res, result);
   } catch (err: unknown) {
+    // An auto-posting bank rule names the merged-away customer under `bank_rule` (409, nothing merged).
+    if (respondIfBankControlRefused(res, err)) return;
     if (err instanceof ArRequestError) {
       if (err.status === 409) return apiResponse.conflict(res, err.message);
       return apiResponse.badRequest(res, err.message);

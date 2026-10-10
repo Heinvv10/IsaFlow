@@ -21,6 +21,7 @@ import { splitAllocateTransaction } from '@/modules/accounting/services/bank/ban
 import { planSplitDimensionsForTransaction } from '@/modules/accounting/services/bank/bankSplitDimensions';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
@@ -141,6 +142,10 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (Math.abs(total - Math.abs(state.amount)) > 0.005) {
       return toolError(`Split lines total R${total.toFixed(2)} does not equal the transaction amount R${Math.abs(state.amount).toFixed(2)}`);
     }
+    // Step 2: the token's user importing the statement this line came from is refused by the service too — asked here
+    // so the dry run gives the same refusal.
+    const importerRefusal = await importerRefusalForLineId(ctx.companyId, resolved.id, ctx.userId, 'manual_journal');
+    if (importerRefusal) return toolError(importerRefusal.message);
 
     for (const [i, line] of lines.entries()) {
       if (!line.vatCode || line.vatCode === 'none') continue;

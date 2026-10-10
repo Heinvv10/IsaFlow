@@ -15,6 +15,15 @@
  * predicate rule edits use (R-048): a rank strictly above that rule, or owner
  * at owner level — and is audited. Otherwise an admin switches enforcement off
  * to post their own bill, the round-3 bypass by another lever.
+ *
+ * The switch row is written only by approval_enforcement_set (migration 881,
+ * R-035 N1b B): app_user can no longer delete it by raw SQL. The function
+ * repeats every check below in SQL, writes the audit rows and the supplier
+ * bank-detail baseline itself; the checks here still run first, with their
+ * error types and messages, and a SQL refusal maps back onto the same ones.
+ * `bank_rule` likewise since migration 885: the session, the approver role
+ * (RB012/RB014 → BankControlError), the weakening authority (RB011), and
+ * bankRuleAutoPostLock's exclusive lock before the row, all in the definer.
  */
 
 import { sql } from '@/lib/neon';
@@ -22,12 +31,11 @@ import { log } from '@/lib/logger';
 import type { DocumentType } from './approvalService';
 import { requiredRank } from './approvalAuthority';
 import { mayWeakenAtLevel, type RuleActor } from './approvalRuleGuards';
-import { logAuditOrThrow } from '../core/auditTrailService';
-import { ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
+import { BANK_RULE, ENFORCEABLE_TYPES, SUPPLIER_BANK_DETAILS, type EnforcementType } from './approvalRuleOptions';
 import { actorRank } from './approvalRank';
-import {
-  assertVerifyingSession, ownCompanyRole, recordBankBaseline, SupplierBankVerificationError,
-} from '../ap/supplierBankBaseline';
+import { assertVerifyingSession, ownCompanyRole, SupplierBankVerificationError } from '../ap/supplierBankBaseline';
+import { setEnforcementRows, sqlRefusal } from './approvalRuleWrites';
+import { assertHumanSession, BANK_CONTROL_FLOOR, BankControlError } from '../bank/bankControlRefusal';
 
 // The list lives in approvalRuleOptions.ts (no database import, so the rule form
 // offers the same types); re-exported for every existing import site.
@@ -55,6 +63,9 @@ export class ApprovalEnforcementAuthorityError extends Error {
     super(documentType === SUPPLIER_BANK_DETAILS
       ? `Switching supplier bank verification off lets unverified bank details be paid. Bank details are verified at the ${ruleRole} `
         + `level, so only a role above ${ruleRole} (or the owner, at owner level) may switch it off`
+      : documentType === BANK_RULE
+      ? `Switching bank-rule approval off lets a rule be made to post money unattended without a second person. Rule changes are `
+        + `approved at the ${ruleRole} level, so only a role above ${ruleRole} (or the owner, at owner level) may switch it off`
       : `Switching ${documentType} approval enforcement off weakens an active ${ruleRole}-level rule: only a role above ${ruleRole} (or the owner, for an owner-level rule) may do it`);
     this.name = 'ApprovalEnforcementAuthorityError';
   }
@@ -121,18 +132,26 @@ export async function isEnforced(companyId: string, documentType: EnforcementTyp
   return rows.length > 0;
 }
 
-async function auditEnforcement(companyId: string, actor: RuleActor, action: 'create' | 'delete',
-  row: Row, metadata: Record<string, string> = {}): Promise<void> {
-  await logAuditOrThrow({
-    companyId,
-    userId: actor.userId,
-    userEmail: actor.email,
-    action,
-    entityType: 'approval_enforcement',
-    entityId: String(row.id),
-    entityRef: String(row.document_type),
-    changes: { fields: [], metadata: { actorRole: actor.role, enforcementId: String(row.id), ...metadata } },
-  });
+/**
+ * Writes the switch through approval_enforcement_set, re-raising a SQL refusal
+ * as the error the same TypeScript check raises (RB010-RB013, migration 881).
+ */
+async function writeSwitch(companyId: string, documentType: EnforcementType, enabled: boolean,
+  actor: RuleActor): Promise<Row[]> {
+  try {
+    return await setEnforcementRows(companyId, documentType, enabled, actor);
+  } catch (error) {
+    const refusal = sqlRefusal(error, ['RB010', 'RB011', 'RB012', 'RB013', 'RB014']);
+    if (!refusal) throw error;
+    if (refusal.code === 'RB010') throw new ApprovalEnforcementUnavailableError(documentType);
+    if (refusal.code === 'RB011') throw new ApprovalEnforcementAuthorityError(documentType, refusal.detail);
+    if (documentType === BANK_RULE) {
+      throw new BankControlError(refusal.code === 'RB014' ? 'APPROVER_ROLE_REQUIRED'
+        : refusal.detail === 'impersonation' ? 'IMPERSONATION_FORBIDDEN' : 'AGENT_FORBIDDEN', refusal.message);
+    }
+    throw new SupplierBankVerificationError(
+      refusal.code === 'RB012' ? 'IMPERSONATION_FORBIDDEN' : 'VERIFIER_ROLE_REQUIRED', refusal.message);
+  }
 }
 
 /**
@@ -147,7 +166,7 @@ export function coupledTypes(documentType: EnforcementType): EnforcementType[] {
 }
 
 /** The floor of the verifier role: R-035's default (an unreadable approver_role ranks as admin), the payment starter rules' role. */
-export const SUPPLIER_BANK_VERIFIER_FLOOR = 'admin';
+export const SUPPLIER_BANK_VERIFIER_FLOOR = BANK_CONTROL_FLOOR;
 
 /**
  * Who may verify supplier bank details (decision 5): whoever may approve any
@@ -159,13 +178,27 @@ export const SUPPLIER_BANK_VERIFIER_FLOOR = 'admin';
  * on and switch off (review of PR #679, REPRO 1).
  */
 export async function supplierBankVerifierRole(companyId: string): Promise<string> {
-  let strictest = SUPPLIER_BANK_VERIFIER_FLOOR;
-  for (const type of coupledTypes('supplier_payment')) {
-    const role = await strictestActiveRuleRole(companyId, type as DocumentType);
+  return bankControlRole(companyId, coupledTypes('supplier_payment') as DocumentType[]);
+}
+
+/**
+ * The role that judges a bank control (forensic-controls steps 1 and 2): the
+ * strictest ACTIVE rule role of `types`, never below the admin floor — a rule
+ * may only RAISE it (REPRO 1 above). Bank-rule changes take the manual-journal
+ * rules (an auto-posting rule writes journals); auto-post settings take the
+ * manual-journal and supplier-payment rules.
+ */
+export async function bankControlRole(companyId: string, types: readonly DocumentType[]): Promise<string> {
+  let strictest = BANK_CONTROL_FLOOR;
+  for (const type of types) {
+    const role = await strictestActiveRuleRole(companyId, type);
     if (role !== null && requiredRank(role) > requiredRank(strictest)) strictest = role;
   }
   return strictest;
 }
+
+/** Who approves a held bank-rule change (Hein, decision 3): the manual-journal approver, never below admin. */
+export const bankRuleApproverRole = (companyId: string): Promise<string> => bankControlRole(companyId, ['manual_journal']);
 
 /**
  * Idempotent: enabling an enforced type changes and records nothing. Enables
@@ -180,6 +213,16 @@ export async function supplierBankVerifierRole(companyId: string): Promise<strin
 export async function enableEnforcement(companyId: string, documentType: EnforcementType, actor: RuleActor): Promise<void> {
   if (!ENFORCEABLE_TYPES.includes(documentType)) throw new ApprovalEnforcementUnavailableError(documentType);
   const bank = documentType === SUPPLIER_BANK_DETAILS;
+  if (documentType === BANK_RULE) {
+    // Like supplier bank details: a person, in their own session, who could approve what it holds.
+    await assertHumanSession('switch bank-rule approval on');
+    const role = await bankRuleApproverRole(companyId);
+    const own = await ownCompanyRole(companyId, actor.userId);
+    if (own === null || actorRank(own) < requiredRank(role)) {
+      throw new BankControlError('APPROVER_ROLE_REQUIRED', `Switching bank-rule approval on needs the ${role} role or above — `
+        + 'the role that approves bank-rule changes.');
+    }
+  }
   if (bank) {
     await assertVerifyingSession();
     const role = await supplierBankVerifierRole(companyId);
@@ -189,17 +232,11 @@ export async function enableEnforcement(companyId: string, documentType: Enforce
         + `every supplier's current bank details as verified, so it needs the ${role} role or above — the role that verifies them.`);
     }
   }
-  for (const type of coupledTypes(documentType)) {
-    const rows = (await sql`
-      INSERT INTO approval_enforcement (company_id, document_type, enabled_by)
-      VALUES (${companyId}::UUID, ${type}, ${actor.userId})
-      ON CONFLICT (company_id, document_type) DO NOTHING
-      RETURNING *
-    `) as Row[];
-    if (!rows[0]) continue;
-    const baseline = bank ? { baselineSuppliers: String(await recordBankBaseline(companyId, actor.userId)) } : undefined;
-    await auditEnforcement(companyId, actor, 'create', rows[0], baseline);
-    log.info('Approval enforcement enabled', { companyId, documentType: type, ...baseline }, 'accounting');
+  // Every coupled type, each new row audited and — for supplier bank details
+  // — the baseline recorded, inside approval_enforcement_set (881).
+  for (const row of await writeSwitch(companyId, documentType, true, actor)) {
+    const baseline = bank ? { baselineSuppliers: String(row.baseline_suppliers) } : undefined;
+    log.info('Approval enforcement enabled', { companyId, documentType: String(row.document_type), ...baseline }, 'accounting');
   }
 }
 
@@ -231,8 +268,11 @@ export async function disableEnforcement(companyId: string, documentType: Enforc
   const types = coupledTypes(documentType);
   // …and, like switching on, only by a person in their own session ("login as" may not weaken it either).
   if (documentType === SUPPLIER_BANK_DETAILS) await assertVerifyingSession();
-  let strictest: string | null = documentType === SUPPLIER_BANK_DETAILS ? await supplierBankVerifierRole(companyId) : null;
-  for (const type of documentType === SUPPLIER_BANK_DETAILS ? [] : types) {
+  if (documentType === BANK_RULE) await assertHumanSession('switch bank-rule approval off');
+  const control = documentType === SUPPLIER_BANK_DETAILS || documentType === BANK_RULE;
+  let strictest: string | null = documentType === SUPPLIER_BANK_DETAILS ? await supplierBankVerifierRole(companyId)
+    : documentType === BANK_RULE ? await bankRuleApproverRole(companyId) : null;
+  for (const type of control ? [] : types) {
     const role = await strictestActiveRuleRole(companyId, type as DocumentType);
     if (role !== null && (strictest === null || requiredRank(role) > requiredRank(strictest))) strictest = role;
   }
@@ -244,13 +284,7 @@ export async function disableEnforcement(companyId: string, documentType: Enforc
     }, 'accounting');
     throw new ApprovalEnforcementAuthorityError(documentType, strictest);
   }
-  for (const type of types) {
-    const rows = (await sql`
-      DELETE FROM approval_enforcement WHERE company_id = ${companyId} AND document_type = ${type}
-      RETURNING *
-    `) as Row[];
-    if (!rows[0]) continue;
-    await auditEnforcement(companyId, actor, 'delete', rows[0], strictest ? { strictestRuleRole: strictest } : {});
-    log.info('Approval enforcement disabled', { companyId, documentType: type }, 'accounting');
+  for (const row of await writeSwitch(companyId, documentType, false, actor)) {
+    log.info('Approval enforcement disabled', { companyId, documentType: String(row.document_type) }, 'accounting');
   }
 }

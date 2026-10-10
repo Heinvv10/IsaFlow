@@ -37,6 +37,8 @@ vi.mock('@/lib/neon', async (importOriginal) => ({
   fmtDate: (await importOriginal<typeof import('@/lib/neon')>()).fmtDate,
   sql: sqlMock,
   withTransaction: vi.fn(),
+  // purgeExpiredDeletes runs each table in its own savepoint; outside a request tx that is a plain call.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: logMock }));
 
@@ -410,8 +412,8 @@ describe('BL-80: purgeExpiredDeletes — per-tenant structured logging', () => {
 
     vi.mocked(sql)
       .mockResolvedValueOnce([] as never)            // customers
-      .mockResolvedValueOnce(sameCompanyRows as never) // suppliers
-      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([] as never)            // suppliers (the ids to purge: none)
+      .mockResolvedValueOnce(sameCompanyRows as never) // items
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never)
       .mockResolvedValueOnce([] as never);

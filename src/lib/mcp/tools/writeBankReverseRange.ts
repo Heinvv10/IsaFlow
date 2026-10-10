@@ -23,6 +23,7 @@
  * nothing would be the same half-done state, only harder to notice.
  */
 import type { McpTool } from '../types';
+import { agentReversalRefusal } from '@/modules/accounting/services/bank/bankReversalGate';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   findAllocatedInRange,
@@ -140,6 +141,11 @@ export const reverseAllocationsTool: McpTool = {
       allocation_batch_id: r.allocationBatchId,
       created_by_rule: r.allocationRuleName,
     }));
+
+    // Step 2 (Hein, decision 4): no agent reverses an allocation whose arm's type is enforced. Asked before the dry
+    // run answers, so the preview gives the same refusal as the live call.
+    const agentRefusal = await agentReversalRefusal(ctx.companyId, rows.map((r) => r.id));
+    if (agentRefusal) return toolError(agentRefusal.message);
 
     if (dryRun) {
       return ok({

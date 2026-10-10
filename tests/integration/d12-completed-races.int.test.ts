@@ -113,7 +113,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 races
 
   it('auto_match first (held): the completion waits, then reconciles what it matched', async () => {
     const s = await scenario();
-    const { early, out } = await bFirst(() => autoMatchTransactions(c.fx.companyId, s.bank, s.rec),
+    const { early, out } = await bFirst(() => autoMatchTransactions(c.fx.companyId, s.bank, s.rec, c.fx.userId),
       () => call(c, token, routes.recon, { action: 'complete', reconciliationId: s.rec }));
     expect(early).toBe(false);
     expect(out.status, out.body).toBe(200);

@@ -6,18 +6,24 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Plus, Trash2, Loader2, AlertCircle, Receipt, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, FileText, Loader2, AlertCircle, Receipt } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrencyAmount } from '@/modules/accounting/services/core/multiCurrencyService';
+import { discountFromAmount, previewLineAmount, previewTotals } from '@/modules/accounting/services/ar/invoiceLineAmount';
+import { CodingPicker, InvoiceLineItemsTable, type InvoiceLine } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 interface Client { id: string; name: string }
 interface Currency { code: string; name: string; symbol: string }
-// CC1 / CC2 / BU round-trip untouched (this form does not edit them); a line added here sends null for each.
-interface LineItem { key: string; description: string; quantity: number; unitPrice: number; discount: number; cc1Id?: string | null; cc2Id?: string | null; buId?: string | null }
+// CC2 / BU are edited here; CC1 follows its CC2 — re-sent only while the line's CC2 is the one it loaded with,
+// otherwise null, so derivation sets it (the project's FNO, else the customer's: dimensionKeepStored).
+type LineItem = InvoiceLine & { cc1Id?: string | null; cc2AtLoad?: string };
+const UNCODED = { glAccountId: '', projectId: '', cc2Id: '', buId: '' };
 type InvoiceItemRow = {
   description?: string; unit_price?: number | string; quantity?: number | string;
-  amount?: number | string; tax_rate?: number | string; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
+  amount?: number | string; tax_rate?: number | string;
+  gl_account_id?: string | null; project_id?: string | null; cc1_id?: string | null; cc2_id?: string | null; bu_id?: string | null;
 };
 type InvoiceDetail = {
   id: string; status: string; invoice_number: string;
@@ -25,7 +31,7 @@ type InvoiceDetail = {
   invoice_date: string; due_date?: string | null;
   billing_period_start?: string | null; billing_period_end?: string | null;
   tax_rate: number | string; notes?: string | null;
-  currency_code?: string | null; exchange_rate?: number | string | null;
+  currency_code?: string | null; exchange_rate?: number | string | null; project_id?: string | null;
   items?: InvoiceItemRow[];
 };
 
@@ -41,10 +47,9 @@ export default function EditCustomerInvoicePage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [showDiscount, setShowDiscount] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState('');
 
-  const [form, setForm] = useState({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1 });
+  const [form, setForm] = useState({ clientId: '', invoiceDate: '', dueDate: '', billingPeriodStart: '', billingPeriodEnd: '', taxRate: 15, notes: '', currencyCode: 'ZAR', exchangeRate: 1, projectId: '' });
   const [lines, setLines] = useState<LineItem[]>([]);
 
   useEffect(() => {
@@ -75,27 +80,32 @@ export default function EditCustomerInvoicePage() {
         notes: invoice.notes || '',
         currencyCode: invoice.currency_code || 'ZAR',
         exchangeRate: Number(invoice.exchange_rate ?? 1),
+        projectId: invoice.project_id ?? '',
       });
       const items = invoice.items || [];
       // The schema has no `discount` column — it is folded into `amount`.
       // Reverse-engineer percent discount from amount vs (qty × unitPrice) so a
-      // saved-then-reopened invoice round-trips without silently zeroing it.
+      // saved-then-reopened invoice round-trips without silently zeroing it —
+      // exactly, so an unchanged save re-prices to the stored amount.
       setLines(items.length > 0 ? items.map((it, i) => {
         const qty = Number(it.quantity || 1);
         const unitPrice = Number(it.unit_price || 0);
         const amount = Number(it.amount ?? qty * unitPrice);
-        const base = qty * unitPrice;
-        const discount = base > 0 && amount < base
-          ? Math.round((1 - amount / base) * 1000) / 10
-          : 0;
+        const discount = discountFromAmount(qty, unitPrice, amount);
         return {
           key: String(i),
           description: String(it.description || ''),
           quantity: qty,
           unitPrice,
-          discount, cc1Id: it.cc1_id ?? null, cc2Id: it.cc2_id ?? null, buId: it.bu_id ?? null,
+          discount,
+          glAccountId: it.gl_account_id ?? '',
+          projectId: it.project_id ?? '',
+          cc2Id: it.cc2_id ?? '',
+          buId: it.bu_id ?? '',
+          cc1Id: it.cc1_id ?? null,
+          cc2AtLoad: it.cc2_id ?? '',
         };
-      }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0 }]);
+      }) : [{ key: '1', description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: invoice.project_id ?? '' }]);
       setLoading(false);
     }).catch((err: unknown) => {
       setError(apiErrorMessage(err, 'Could not load the invoice - try again'));
@@ -105,13 +115,14 @@ export default function EditCustomerInvoicePage() {
 
   const updateLine = (key: string, field: keyof LineItem, value: string | number) =>
     setLines(prev => prev.map(l => l.key === key ? { ...l, [field]: value } : l));
-  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0}]);
+  // A new line starts on the invoice's project: a visible default the user can change, not a posting fallback.
+  const addLine = () => setLines(prev => [...prev, { key: String(Date.now()), description: '', quantity: 1, unitPrice: 0, discount: 0, ...UNCODED, projectId: form.projectId }]);
+  const codingOptions = useInvoiceLineCodingOptions([form.projectId, ...lines.map(l => l.projectId)]);
   const removeLine = (key: string) => setLines(prev => prev.length > 1 ? prev.filter(l => l.key !== key) : prev);
 
-  const lineTotal = (l: LineItem) => l.quantity * l.unitPrice * (1 - (l.discount || 0) / 100);
-  const subtotal = lines.reduce((s, l) => s + lineTotal(l), 0);
-  const tax = subtotal * (form.taxRate / 100);
-  const total = subtotal + tax;
+  // Priced as the server stores it (invoiceLineAmount.ts); a half-typed field previews as 0, not a crash.
+  const lineTotal = (l: LineItem) => previewLineAmount(l.quantity, l.unitPrice, l.discount || 0);
+  const { subtotal, tax, total } = previewTotals(lines.map(lineTotal), form.taxRate);
   const isFx = form.currencyCode !== 'ZAR';
 
   const handleSubmit = async () => {
@@ -134,10 +145,16 @@ export default function EditCustomerInvoicePage() {
           notes: form.notes || undefined,
           currencyCode: form.currencyCode,
           exchangeRate: form.exchangeRate,
+          projectId: form.projectId || null,
           items: validLines.map(l => ({
             description: l.description, quantity: l.quantity,
             unitPrice: l.unitPrice, taxRate: form.taxRate,
-            discount: l.discount || 0, cc1Id: l.cc1Id ?? null, cc2Id: l.cc2Id ?? null, buId: l.buId ?? null,
+            discount: l.discount || 0,
+            glAccountId: l.glAccountId || null,
+            projectId: l.projectId || null,
+            cc2Id: l.cc2Id || null,
+            buId: l.buId || null,
+            cc1Id: l.cc2Id === (l.cc2AtLoad ?? '') ? (l.cc1Id ?? null) : null,
           })),
         }),
       });
@@ -210,6 +227,10 @@ export default function EditCustomerInvoicePage() {
                       {currencies.filter(c => c.code !== 'ZAR').map(c => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className={lbl}>Job <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <CodingPicker label="Invoice job" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No job" onChange={v => setForm(p => ({ ...p, projectId: v }))} />
+                  </div>
                   {isFx && (
                     <div>
                       <label className={lbl}>Exchange Rate ({form.currencyCode} → ZAR)</label>
@@ -230,39 +251,8 @@ export default function EditCustomerInvoicePage() {
               </div>
 
               <div className={`${card} overflow-hidden`}>
-                <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">3</span>Line Items</h3>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setShowDiscount(v => !v)} className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDiscount ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                      <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
-                    </button>
-                    <button onClick={addLine} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
-                  </div>
-                </div>
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400">Description</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Qty</th>
-                      <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Unit Price</th>
-                      {showDiscount && <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">Disc.%</th>}
-                      <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">Total</th>
-                      <th className="w-9" />
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {lines.map(l => (
-                      <tr key={l.key}>
-                        <td className="px-3 py-2"><input value={l.description} onChange={e => updateLine(l.key, 'description', e.target.value)} placeholder="Item description" className={inp} /></td>
-                        <td className="px-3 py-2"><input type="number" value={l.quantity} onChange={e => updateLine(l.key, 'quantity', Number(e.target.value))} className={`${inp} text-right`} /></td>
-                        <td className="px-3 py-2"><input type="number" value={l.unitPrice} step={0.01} onChange={e => updateLine(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
-                        {showDiscount && <td className="px-3 py-2"><input type="number" min={0} max={100} step={0.1} value={l.discount || ''} onChange={e => updateLine(l.key, 'discount', e.target.value === '' ? 0 : Number(e.target.value))} placeholder="0" className={`${inp} text-right`} /></td>}
-                        <td className="px-4 py-2 text-right font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), form.currencyCode)}</td>
-                        <td className="px-2 py-2"><button onClick={() => removeLine(l.key)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <InvoiceLineItemsTable lines={lines} currencyCode={form.currencyCode} lineTotal={lineTotal}
+                  onUpdate={updateLine} onAdd={addLine} onRemove={removeLine} options={codingOptions} />
               </div>
 
               <div className={`${card} p-5`}>

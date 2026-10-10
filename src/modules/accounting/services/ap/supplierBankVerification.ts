@@ -178,8 +178,9 @@ export async function verifySupplierBankDetails(input: VerifyInput): Promise<{ i
  * The count beside the switch, for `viewerId`: while on, suppliers (not
  * soft-deleted) with bank details that are unverified now; while off,
  * exactly those switching on would accept as the baseline — none once it was
- * ever on, else no verification history (recordBankBaseline) and details the
- * viewer did not set.
+ * ever on, else no verification history and details the viewer did not set —
+ * the baseline approval_enforcement_set writes (migration 881);
+ * r035-n1b-rules-edges holds the two to the same count.
  */
 export async function bankDetailsPreview(companyId: string, viewerId: string): Promise<number> {
   const enforced = await isEnforced(companyId, SUPPLIER_BANK_DETAILS);

@@ -16,6 +16,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+// Step 2's bank gates read Postgres; stubbed open here, proven in tests/integration/bank-controls-*.int.test.ts.
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../../helpers/bankControlGateMocks')).importerGateOpen());
+vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (await import('../../helpers/bankControlGateMocks')).reversalGateOpen());
+vi.mock('@/modules/accounting/services/bank/bankControlResponse', () => ({ respondIfBankControlRefused: () => false }));
 import type { NextApiResponse } from 'next';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
