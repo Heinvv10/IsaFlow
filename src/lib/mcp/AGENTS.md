@@ -196,7 +196,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 
 ## Recent changes
-- 2026-10-10: **`entity_history`** (read, `read:reports`, free): who changed which supplier, customer, GL / bank account, employee, member or company setting, from what to what — the history migration 888's trigger records whoever writes. Always masked (no reveal over MCP); without `entity_id` it is the company-wide feed, owner / admin only; employees need `read:payroll` and suppliers / customers `read:contacts` too (as their list tools), the feed filtered to such a type included (security review; breaker #696 R5); the cursor is a change id, never the global `seq`. `audit_trail`'s DOES NOT COVER now points here. 74 read tools.
+- 2026-10-10: **`entity_history`** (read, `read:reports`, free): who changed which supplier, customer, GL / bank account, employee, member or company setting, from what to what — the history migration 888's trigger records whoever writes. Always masked (no reveal over MCP); without `entity_id` it is the company-wide feed, owner / admin only; employees need `read:payroll` and suppliers / customers `read:contacts` too (as their list tools), the feed filtered to such a type included (security review; breaker #696 R5); the cursor is a change id, never the global `seq`. `audit_trail`'s DOES NOT COVER now points here. 75 read tools (158 = 75 read + 83 write, with `export_gl_lines` from the 2026-10-09 entry below).
 
 - 2026-10-09: **Dimensions Phase 2 — P&L by dimension and the flat GL-line export, 1 tool (157 = 74 read + 83 write).**
   `profit_and_loss` gains `group_by: cc1|cc2|bu` (`by_dimension`: one column per member plus UNTAGGED,
