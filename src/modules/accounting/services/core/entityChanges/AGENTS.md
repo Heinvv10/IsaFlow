@@ -46,6 +46,7 @@ capture to call and none to forget.
 - The owner of `entity_changes` / the capture is the applying role — on production the app's own login — and can disable
   or drop the guards (after RESET ROLE: N3) — outside the boundary. No per-person erasure: a deleted entity's values stay until the company is purged (Hein to decide, #696 M2).
 - ~0.4 ms per tracked row written; bulk imports write one history row per row.
+- Order is by `recorded_at` (DB clock), not `seq` (hidden): a backwards server clock step could misorder two changes.
 
 ## Related
 Migration 888; routes `pages/api/accounting/entity-changes.ts`, `entity-changes-reveal.ts`; MCP

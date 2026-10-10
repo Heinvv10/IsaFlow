@@ -654,7 +654,9 @@ the owner), the mutation proof (`mutation-proof.txt`), browser screenshots. On t
 **Known limits.** The N1 boundary (raw SQL that RESETs ROLE or forges claims — N3). History starts at deploy. Writes
 with no claims (invite acceptance on the migration_admin pool, provisioning, scripts) are `db:<role>` / `system` — the
 new member is in the row itself. `payroll_bank_details` is untracked (no company_id, no app writer). Names resolve
-only for current members (`approval_company_member_name`); a platform admin behind Login-as shows as an id. Cost: about
+only for current members (`approval_company_member_name`); a platform admin behind Login-as shows as an id. Readers
+order by `recorded_at` (the database clock at capture), not the hidden platform-wide `seq`: a backwards clock step on
+the server could show two changes in the wrong order (no tie or reversal was seen in 12 000 captured rows). Cost: about
 0.4 ms per tracked row written (a 5 000-row bulk insert or update takes ~2 s instead of ~0.1 s), so the Sage, chart and
 customer imports slow down and write a history row per row.
 
