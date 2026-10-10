@@ -4,16 +4,16 @@
  *
  *  - each table carries exactly its guard: one enabled BEFORE INSERT OR
  *    UPDATE OR DELETE row trigger (and no rewrite rule);
- *  - the guards and the role lookup they share are the bodies 883 ships
- *    (md5) and SECURITY INVOKER — the guard judges `current_user`, which a
- *    DEFINER would replace with its owner;
+ *  - the guards, the role lookup and the owner predicate they share are the
+ *    bodies 883 and 886 ship (md5) and SECURITY INVOKER — the guard judges
+ *    `current_user`, which a DEFINER would replace with its owner;
  *  - TRUNCATE (which fires no row trigger) and TRIGGER are held by no role
  *    but the owner, migration_admin and the session's role through the owner;
  *  - INSERT, UPDATE and DELETE by no role the guards do not judge: only
  *    app_user, platform_admin and migration_admin (and the owner, superusers,
  *    the session's role through the owner).
  *
- * A database without 883 fails here by design, and says so.
+ * A database without 883 and 886 fails here by design, and says so.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -23,14 +23,15 @@ const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url });
 afterAll(() => pool.end());
 
-const NOT_APPLIED = 'migration 883 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
+const NOT_APPLIED = 'migration 883 or 886 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 const TABLES = ['company_users', 'company_invitations'];
 
 /** Change one and you change who may grant what: re-review N1b C, then move the pin. */
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
-  'company_users_role_guard()': '9fddbdc3367aa47a0a743c863c076ae5',
-  'company_invitations_role_guard()': '054fbd5ee30e51ec2ff0316ed16d87bf',
+  'company_member_role_is_owner(text)': '78a4144a1b43a1698868ca0dc16e76e0',
+  'company_users_role_guard()': 'ad237d957ec9972f7e9fd12b84bed1ff',
+  'company_invitations_role_guard()': '0c7cf4635edf43e1f8f80566160513a7',
 };
 
 const OTHERS = `
@@ -48,7 +49,7 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });
 
-  it('the guards and their role lookup: the bodies 883 ships, SECURITY INVOKER', async () => {
+  it('the guards and their role lookup: the bodies 883 and 886 ship, SECURITY INVOKER', async () => {
     const { rows } = await pool.query(`
       SELECT p.oid::regprocedure::text AS fn, md5(p.prosrc) AS md5, p.prosecdef FROM pg_proc p
       WHERE p.oid = ANY (SELECT to_regprocedure('public.' || f) FROM unnest($1::text[]) f) ORDER BY 1`, [Object.keys(PINNED)]);

@@ -217,9 +217,13 @@ const handler: NextApiHandler = async (req, res) => {
       // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
       // invitation row when the same address is re-invited, so an existing
       // member kept their old role while the invitation claimed the new one.
+      // Never an owner's role (886's company_member_role_is_owner, as the guards). An
+      // admin may invite any address at a lesser role, the owner's own, and
+      // accepting that demoted the last owner (PR #691 round 5). Still accepted.
       `INSERT INTO company_users (company_id, user_id, role)
        VALUES ($1::uuid, $2, $3)
-       ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+       ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
+         WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE`,
       [inv.company_id, tok.user.id, inv.role]
     );
     // `users` carries users_email_key UNIQUE (email) as well as its primary

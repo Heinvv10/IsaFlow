@@ -89,6 +89,14 @@ describe('as app_user, an admin cannot by raw SQL', () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.o, 'admin', emailOf(p.x)))))).toBe('RC009');
   });
+
+  it('but their own id in another case is themselves (invited_by and the JWT sub are text, compared case-blind)', async () => {
+    const c = await company(pool, p, companies);
+    const upper = p.a.toUpperCase();
+    await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [upper, `upper-${emailOf(p.a)}`]);
+    users.push(upper);
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, upper, 'admin', emailOf(p.x)))))).toBe('ok');
+  });
 });
 
 describe('as app_user, a manager (a member, not an admin) cannot', () => {
@@ -120,6 +128,16 @@ describe('as platform_admin, raw SQL cannot', () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asPortal(c, (cl) => cl.query(statement, [c, p.x])))).toBe('RC007');
     expect([await roleOf(pool, c, p.x), await roleOf(pool, c, p.a)]).toEqual([null, 'admin']);
+  });
+
+  it.each([
+    ['to another user', 'UPDATE company_users SET user_id = $3 WHERE company_id = $1 AND user_id = $2'],
+    ['to another company', 'UPDATE company_users SET company_id = $3::uuid WHERE company_id = $1 AND user_id = $2'],
+  ])("move a membership %s (RC004)", async (label, statement) => {
+    const c = await company(pool, p, companies);
+    const target = label === 'to another user' ? p.x : await company(pool, p, companies, []);
+    expect(await outcome(asPortal(c, (cl) => cl.query(statement, [c, p.m, target])))).toBe('RC004');
+    expect([await roleOf(pool, c, p.m), await roleOf(pool, c, p.x)]).toEqual(['manager', null]);
   });
 
   it('write an invitation (RC008)', async () => {
