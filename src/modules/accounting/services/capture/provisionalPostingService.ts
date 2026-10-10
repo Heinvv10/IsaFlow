@@ -12,6 +12,7 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
 type Row = DbRow;
 
@@ -137,7 +138,7 @@ export async function postProvisional(
 
   const je = await createJournalEntry(
     companyId,
-    { entryDate: txDate, description, source: 'auto_bank_recon', lines },
+    { entryDate: txDate, description, source: 'auto_bank_recon', lines: await placeCostCentres(companyId, lines) },
     userId,
     { postingAgent: 'ai-provisional:v1', extractionConfidence: prediction.confidence, sourceDocumentId: undefined },
   );

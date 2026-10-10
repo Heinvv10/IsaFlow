@@ -97,7 +97,7 @@ describe('report drilldown filters', () => {
 
 describe('report drilldown dimensions (Postgres)', async () => {
   const reachable = await isDbReachable();
-  // 'legacy' rows: a legacy-only line as migration 887 leaves it (cc1_id = the
+  // 'legacy' rows: a legacy line in sync with its CC1, as prod's are (cc1_id = the
   // legacy id). On 'explicit' rows cost_center_id is a drifted legacy value that
   // no report reads (PR #688 round 2: CC1 is cc1_id alone).
   it.skipIf(!reachable)('carries each centre through transaction and evidence endpoints', async () => {

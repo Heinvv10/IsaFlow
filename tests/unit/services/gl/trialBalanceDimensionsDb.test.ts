@@ -49,7 +49,7 @@ describe('trial balance dimension coverage (Postgres)', async () => {
             ${dimensioned ? legacy : null}::uuid, ${dimensioned ? cc1 : null}::uuid, ${dimensioned ? cc2 : null}::uuid,
             ${dimensioned ? bu : otherBu}::uuid)`;
         }
-        // A legacy-only line as migration 887 leaves it (cc1_id = the legacy id). The
+        // A legacy line in sync with its CC1 (cc1_id = the legacy id), as prod's are. The
         // other lines' cost_center_id is a drifted legacy value that no report reads
         // (PR #688 round 2: CC1 is cc1_id alone).
         await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, '40000000-0000-4000-8000-000000000001', ${company}::uuid, 3, 0, ${legacy}::uuid, ${legacy}::uuid, NULL, ${otherBu}::uuid)`;

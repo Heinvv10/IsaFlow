@@ -72,7 +72,7 @@ async function withLedger(run: () => Promise<void>) {
         const id = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
         await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${owner}::uuid, ${status}, ${date}::date)`;
         const buId = n === 3 ? otherBu : selectedBu;
-        // 'legacy': a legacy-only line as migration 887 leaves it (cc1_id = the
+        // 'legacy': a legacy line in sync with its CC1, as prod's are (cc1_id = the
         // legacy id). On 'explicit' lines cost_center_id is a drifted legacy value
         // that no report reads (PR #688 round 2: CC1 is cc1_id alone).
         for (const side of ['asset', type] as const) {

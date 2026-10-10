@@ -48,6 +48,7 @@ export function buildExpenseLines(
       credit: 0,
       description: item.description,
       projectId: item.projectId || invoice.projectId,
+      // The legacy pick; placeCostCentres puts it in cc1 / cc2 before posting (gl/dimensions/costCentrePick).
       costCenterId: item.costCenterId || invoice.costCenterId,
       // The canonical analysis dimensions ride on the EXPENSE leg only; the
       // AP and VAT legs the workflow adds carry none (brief §5.3).
