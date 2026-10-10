@@ -7,9 +7,17 @@
  * here. Without it the document posts and nobody learns its cost centre is
  * missing from the reports.
  *
- * The same channel as the late-claim notice (the toast), as a warning.
+ * The same channel as the late-claim notice (the toast), as a warning. The
+ * toast clips its second line to one row, so the TITLE — which wraps — says
+ * which centre and why ("Posted — cost centre OLD not applied (inactive)") and
+ * the second line only what fits: the line it was on, or how many more.
+ *
+ * COUNTED PER DOCUMENT. Two bills that each drop the same centre are two
+ * dropped picks, not one: a sentence is merged only with its own repeat inside
+ * one document.
  */
 import { notify } from '@/utils/toast';
+import { parsePickDropSentence, pickDropFact } from '@/lib/costCentrePickWording';
 
 /**
  * The part of a posting route's response this notice reads. `id` is there so a
@@ -23,39 +31,50 @@ export interface PostingWarningsBody {
   } | null;
 }
 
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : []);
+const strings = (v: unknown): string[] =>
+  [...new Set(Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : [])];
 
 /**
- * Every posting warning in an API response body: `data.warnings`,
- * `data.claim.warnings` (expense claims) or `data.results[].warnings` (bulk
- * actions), in that order, without repeats.
+ * The warnings of each document in an API response body that has any:
+ * `data.warnings`, `data.claim.warnings` (expense claims), and one entry per
+ * `data.results[]` item (bulk actions).
  */
-export function postingWarningsIn(body: PostingWarningsBody | null | undefined): string[] {
+export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
   // Read as untyped: it is a server's answer, and a wrong shape must show nothing rather than throw.
   const data = (body as { data?: Record<string, unknown> } | null | undefined)?.data;
   if (!data || typeof data !== 'object') return [];
   const results = Array.isArray(data.results) ? data.results as Array<Record<string, unknown> | null> : [];
-  return [...new Set([
-    ...strings(data.warnings),
-    ...strings((data.claim as Record<string, unknown> | undefined)?.warnings),
-    ...results.flatMap((r) => strings(r?.warnings)),
-  ])];
+  return [
+    strings(data.warnings),
+    strings((data.claim as Record<string, unknown> | undefined)?.warnings),
+    ...results.map((r) => strings(r?.warnings)),
+  ].filter((w) => w.length > 0);
 }
 
-const SHOWN = 3;
-
-/** One sentence block for a notice: the first three warnings, and how many more there are. */
-export function postingWarningsMessage(warnings: readonly string[]): string {
-  const more = warnings.length - SHOWN;
-  return warnings.slice(0, SHOWN).join(' ') + (more > 0 ? ` (+${more} more)` : '');
+/** Every posting warning in a response, document by document — the full sentences. */
+export function postingWarningsIn(body: PostingWarningsBody | null | undefined): string[] {
+  return postingWarningsByDocument(body).flat();
 }
 
-/** Show the notice for a response, if it carries posting warnings. Returns how many it found. */
+/** The notice for a response's warnings: a title that says which centre and why, and a second line that fits. */
+export function postingWarningsNotice(byDocument: readonly string[][]): { title: string; message: string } {
+  const all = byDocument.flat();
+  const first = all[0] ?? '';
+  const drop = parsePickDropSentence(first);
+  // A sentence this screen does not know still reaches the person whole: the title wraps.
+  const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
+  if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
+  const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';
+  return { title, message: `+${all.length - 1} more not applied${documents}.` };
+}
+
+/** Show the notice for a response, if it carries posting warnings. Returns how many dropped picks it found. */
 export function notifyPostingWarnings(body: PostingWarningsBody | null | undefined): number {
-  const found = postingWarningsIn(body);
-  if (found.length > 0) {
-    notify.warning(found.length === 1 ? 'Posted — 1 cost centre was not applied' : `Posted — ${found.length} cost centres were not applied`,
-      postingWarningsMessage(found));
+  const byDocument = postingWarningsByDocument(body);
+  const count = byDocument.reduce((n, w) => n + w.length, 0);
+  if (count > 0) {
+    const { title, message } = postingWarningsNotice(byDocument);
+    notify.warning(title, message || undefined);
   }
-  return found.length;
+  return count;
 }

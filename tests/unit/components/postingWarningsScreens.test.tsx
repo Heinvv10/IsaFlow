@@ -34,13 +34,19 @@ import ExpenseClaimPage from '../../../pages/accounting/expenses/[id]';
 import { BulkActionBar } from '@/components/accounting/supplier-invoices/BulkActionBar';
 
 const INACTIVE = 'Line 1: cost centre OLD is inactive and was not applied — the line posts without it.';
-const TITLE = 'Posted — 1 cost centre was not applied';
+/** The toast's body is one clipped row, so the TITLE must carry the centre and the reason. */
+const TITLE = 'Posted — cost centre OLD not applied (inactive)';
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200, headers: { 'Content-Type': 'application/json' } });
 /** Serve by URL fragment, first match wins; anything else is an empty success. */
 function serve(routes: Array<[string, unknown]>) {
   vi.mocked(apiFetch).mockImplementation(async (url) => ok(routes.find(([part]) => String(url).includes(part))?.[1] ?? {}));
 }
-const warned = () => expect(notify.warning).toHaveBeenCalledWith(TITLE, INACTIVE);
+const warned = (message = 'Line 1 posted without it.') => {
+  expect(notify.warning).toHaveBeenCalledWith(TITLE, message);
+  const [title] = vi.mocked(notify.warning).mock.calls[0]!;
+  expect(title).toContain('OLD');
+  expect(title).toContain('inactive');
+};
 
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); vi.mocked(notify.warning).mockReset(); route.query = {}; });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -78,10 +84,14 @@ describe('supplier invoice bulk bar — Approve', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(onComplete).toHaveBeenCalled());
   };
-  it('says which cost centre was not applied, once for the batch', async () => {
+  it('two bills that each drop the same centre: one toast, and it counts two', async () => {
     await run([{ invoiceId: 'b1', ok: true, warnings: [INACTIVE] }, { invoiceId: 'b2', ok: true, warnings: [INACTIVE] }]);
-    await waitFor(warned);
+    await waitFor(() => warned('+1 more not applied, in 2 documents.'));
     expect(notify.warning).toHaveBeenCalledTimes(1);
+  });
+  it('one bill of the batch: the centre, the reason and the line', async () => {
+    await run([{ invoiceId: 'b1', ok: true, warnings: [INACTIVE] }, { invoiceId: 'b2', ok: true }]);
+    await waitFor(() => warned());
   });
   it('says nothing when no bill carried a warning', async () => {
     await run([{ invoiceId: 'b1', ok: true }, { invoiceId: 'b2', ok: true }]);
@@ -153,7 +163,7 @@ describe('expense claim — Post to GL', () => {
   };
   it('says which line\'s cost centre was not applied', async () => {
     await post({ claim: claim('posted', { warnings: [INACTIVE] }) });
-    await waitFor(warned);
+    await waitFor(() => warned());
   });
   it('does not mistake the VAT advice (data.warnings) for a dropped cost centre', async () => {
     await post({ claim: claim('posted'), warnings: ['Input VAT on entertainment is denied.'] });
