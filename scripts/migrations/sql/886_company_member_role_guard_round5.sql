@@ -1,51 +1,96 @@
 -- 886: R-035 N1b (C) — 883's member and invitation guards, tightened after the
--- adversarial review of PR #691, round 5. Same two functions, same triggers,
--- same grants (883 owns those); two changes in the rules they apply to
--- app_user:
+-- adversarial review of PR #691, round 5, and the reviews of PR #693. Same
+-- two guards, same triggers, same grants (883 owns those); three changes:
 --
---  1. Only at READ COMMITTED. 883 judges the last owner under a per-company
---   advisory lock, and the next writer re-reads the members after waiting for
---   it — which only a READ COMMITTED statement does. A REPEATABLE READ or
---   SERIALIZABLE transaction re-reads nothing: its snapshot is the one it
---   began with. Two REPEATABLE READ sessions each demoting one of two owners
---   both saw the other owner still there and both passed (0 owners), and an
---   owner demoted after another session's snapshot was taken could still
---   grant `owner` from it. SERIALIZABLE does not save it: SSI only sees
---   conflicts between two SERIALIZABLE transactions, and the app writes at
---   READ COMMITTED, so a SERIALIZABLE demotion after an app one commits still
---   judges from the stale snapshot. So the rule is an allow-list, failing
---   closed: every app_user write that grants `owner`, demotes or removes an
---   owner, or creates or re-shapes an owner invitation is refused with 40001
+--  1. Owner-ness has one definition: public.company_member_role_is_owner(role)
+--   — lower-cased, with every whitespace character removed. 883 asked
+--   `role = 'owner'`, so a legacy invitation stored as `Owner ` (before the
+--   allow-lists) was not an owner's: an admin could re-open it (role
+--   unchanged, so the allow-list never ran) and the accept routes copy the
+--   role verbatim. The guards decide with it whether a row or invitation IS
+--   an owner's (NEW and OLD), and both invite-accept routes with it whether
+--   an acceptance may overwrite a member's role (never an owner's). Whitespace
+--   is an explicit class, not `\s`: what `\s` matches depends on the
+--   collation (under "C" only ASCII; under en_US.utf8 not U+00A0, U+2007,
+--   U+202F, U+200B or U+FEFF), and this must not.
+--
+--  2. Precondition (section 0): no company_users or company_invitations row
+--   may hold an owner-ish role that is not exactly 'owner' — 886 refuses to
+--   apply, naming them; correct each by hand. After it, and with every judged
+--   writer held to the exact allow-lists (the invitations the accept routes
+--   copy from included), no such row exists, which is why what stays exact is
+--   safe: the allow-lists, the count of the OTHER owners in the last-owner
+--   rule, and the portal's lock condition (blind review of #693, LOW 1–3).
+--   Writers the guards do not judge are the N1 boundary, as in 883.
+--
+--  3. Only at READ COMMITTED. 883 judges under a per-company advisory lock,
+--   and the next writer re-reads after waiting for it — which only a READ
+--   COMMITTED statement does. At REPEATABLE READ or SERIALIZABLE every check
+--   reads the snapshot the transaction began with: two sessions each demoting
+--   one of two owners left none; an owner demoted after the snapshot still
+--   granted owner; an admin removed after it still promoted an accomplice and
+--   sent invitations (adversarial #693 REPRO 1). SSI does not help: it only
+--   sees conflicts between two SERIALIZABLE transactions, and the app writes
+--   at READ COMMITTED. So EVERY app_user write is refused with 40001
 --   (serialization_failure — retry at READ COMMITTED, the app's level; no app
 --   route writes these tables at any other) unless `transaction_isolation` is
 --   'read committed' or 'read uncommitted' (Postgres runs the latter as READ
---   COMMITTED: a fresh snapshot per statement). The refusal follows the rule
---   checks, so a write those refuse still gets their code. The admin portal
---   (platform_admin) is not refused: it judges nothing from its snapshot (no
---   last-owner rule, it never grants owner) and only takes the lock for
---   app_user's sake. (Security review of round 5: the first cut refused only
---   'repeatable read', which let SERIALIZABLE through.)
---
---  2. Owner-ness compared trimmed and lower-cased. 883 asked `role = 'owner'`
---   to decide whether a row or invitation IS an owner's, so a legacy
---   invitation stored as `Owner ` (before the allow-list) was not one: an
---   admin could re-open it (expires_at, accepted_at, token — role unchanged,
---   so the allow-list never ran) and the accept routes copy the role verbatim.
---   Now `lower(btrim(role)) = 'owner'` decides it, for NEW and OLD alike: such
---   an invitation is an owner's to re-shape (RC003 otherwise), and such a
---   membership is an owner's for the last-owner rule (its demotion or removal
---   takes the lock and the count). What a write may SET stays exact — the
---   INSERT/role-change allow-lists still admit only canonical values — and so
---   does the count of the OTHER owners: a legacy `Owner ` row protects itself
---   but is not counted as the owner left behind (fails closed both ways). The
---   portal's lock stays on canonical owners: that count is all it guards.
+--   COMMITTED). The refusal comes after every rule check, so a write a rule
+--   refuses still gets its code (RC001–RC009; #693 REPRO 2). The admin
+--   portal (platform_admin) is not refused: it judges nothing from its
+--   snapshot (no last-owner rule, never owner) and takes the lock only for
+--   app_user's sake.
 --
 -- The route half of round 5 (an admin re-inviting the last owner's own address
 -- at `viewer`, which the accept routes' ON CONFLICT DO UPDATE then applied) is
--- fixed in the routes: an acceptance never overwrites an owner's role.
+-- fixed in the routes.
 --
 -- Refusal codes as 883 (RC001–RC009), plus 40001 above.
 
+-- ── 0. The owner predicate; precondition: no owner-ish role but 'owner' ─────
+CREATE OR REPLACE FUNCTION public.company_member_role_is_owner(p_role pg_catalog.text)
+RETURNS pg_catalog.bool
+LANGUAGE sql IMMUTABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT pg_catalog.lower(pg_catalog.regexp_replace(p_role,
+    '[[:space:]\u0085\u00a0\u1680\u180e\u2000-\u200b\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]', '', 'g')) = 'owner'
+$$;
+
+DO $$
+DECLARE
+  v_n pg_catalog.int8;
+  v_ids pg_catalog.text;
+BEGIN
+  -- No write between this count and the guards below; the lock order is 883's.
+  LOCK TABLE public.company_invitations IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.company_users IN SHARE ROW EXCLUSIVE MODE;
+  -- FORCE RLS applies to the owner: unless this role bypasses it, the count
+  -- would see no rows and pass. With row_security off it raises instead.
+  PERFORM pg_catalog.set_config('row_security', 'off', true);
+  -- Counted and the first ten (by table and id) named in one read, so the
+  -- refusal stays readable in a deploy log.
+  SELECT pg_catalog.count(*),
+         pg_catalog.string_agg(y.tbl || ' ' || y.id::pg_catalog.text || ' (company ' || y.company_id::pg_catalog.text || ')',
+                               ', ' ORDER BY y.tbl, y.id) FILTER (WHERE y.rn <= 10)
+  INTO v_n, v_ids
+  FROM (SELECT x.*, pg_catalog.row_number() OVER (ORDER BY x.tbl, x.id) AS rn FROM (
+          SELECT 'company_users'::pg_catalog.text AS tbl, cu.id, cu.company_id FROM public.company_users cu
+          WHERE public.company_member_role_is_owner(cu.role) AND cu.role <> 'owner'
+          UNION ALL
+          SELECT 'company_invitations', ci.id, ci.company_id FROM public.company_invitations ci
+          WHERE public.company_member_role_is_owner(ci.role) AND ci.role <> 'owner') x) y;
+  PERFORM pg_catalog.set_config('row_security', 'on', true);
+  IF v_n > 10 THEN
+    v_ids := v_ids || ' (+' || (v_n - 10)::pg_catalog.text || ' more)';
+  END IF;
+  IF v_n > 0 THEN
+    RAISE EXCEPTION 'migration 886: % row(s) hold an owner role that is not exactly ''owner'' — correct each role by hand before applying: %', v_n, v_ids
+      USING HINT = 'Set each role, by id, to ''owner'' or to the role it was meant to be; run the same check on dev and prod before deploying.';
+  END IF;
+END $$;
+
+-- ── 1. The guards ─────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
@@ -95,15 +140,8 @@ BEGIN
     IF COALESCE(NEW.role <> ALL (ARRAY['owner', 'admin', 'manager', 'viewer']::pg_catalog.text[]), true) THEN
       RAISE EXCEPTION 'Invalid role. Must be one of: owner, admin, manager, viewer' USING ERRCODE = 'RC002';
     END IF;
-    IF pg_catalog.lower(pg_catalog.btrim(NEW.role)) = 'owner' THEN
-      IF v_actor_role <> 'owner' THEN
-        RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-      END IF;
-      -- The actor's own role was read from this transaction's snapshot.
-      IF NOT v_fresh THEN
-        RAISE EXCEPTION 'Granting the owner role needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-          USING ERRCODE = '40001';
-      END IF;
+    IF public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner' THEN
+      RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
     END IF;
   END IF;
 
@@ -118,13 +156,9 @@ BEGIN
   -- refused (adversarial review of PR #691, REPRO 3 and 4). An advisory lock,
   -- not FOR UPDATE on the owner rows: each UPDATE already holds its own row,
   -- so row locks taken in id order would deadlock the pair. The second sees
-  -- the first only at READ COMMITTED, so any other level is refused (886).
-  IF pg_catalog.lower(pg_catalog.btrim(OLD.role)) = 'owner'
-     AND (TG_OP = 'DELETE' OR pg_catalog.lower(pg_catalog.btrim(NEW.role)) IS DISTINCT FROM 'owner') THEN
-    IF NOT v_fresh THEN
-      RAISE EXCEPTION 'Demoting or removing an owner needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-        USING ERRCODE = '40001';
-    END IF;
+  -- the first only at READ COMMITTED, so any other level is refused below.
+  IF public.company_member_role_is_owner(OLD.role)
+     AND (TG_OP = 'DELETE' OR public.company_member_role_is_owner(NEW.role) IS NOT TRUE) THEN
     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
     SELECT pg_catalog.count(DISTINCT pg_catalog.lower(cu.user_id::pg_catalog.text)) INTO v_others FROM public.company_users cu
     WHERE cu.company_id = OLD.company_id AND cu.role = 'owner'
@@ -134,6 +168,12 @@ BEGIN
                                ELSE 'Cannot change role: this is the last owner of the company.' END
         USING ERRCODE = 'RC005';
     END IF;
+  END IF;
+  -- Last, after every rule (a write a rule refuses gets the rule's code): the
+  -- checks above read the snapshot, which only READ COMMITTED re-takes.
+  IF NOT v_fresh THEN
+    RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
+      USING ERRCODE = '40001';
   END IF;
   RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
 END
@@ -160,7 +200,13 @@ BEGIN
   IF v_actor_role IS DISTINCT FROM 'owner' AND v_actor_role IS DISTINCT FROM 'admin' THEN
     RAISE EXCEPTION 'Only owners and admins can invite users.' USING ERRCODE = 'RC001';
   END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  IF TG_OP = 'DELETE' THEN
+    IF NOT v_fresh THEN
+      RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
+        USING ERRCODE = '40001';
+    END IF;
+    RETURN OLD;
+  END IF;
 
   IF TG_OP = 'UPDATE' AND NEW.company_id IS DISTINCT FROM OLD.company_id THEN
     RAISE EXCEPTION 'An invitation cannot be moved to another company' USING ERRCODE = 'RC004';
@@ -169,14 +215,8 @@ BEGIN
     IF COALESCE(NEW.role <> ALL (ARRAY['owner', 'admin', 'manager', 'viewer', 'storeman', 'technician']::pg_catalog.text[]), true) THEN
       RAISE EXCEPTION 'Invalid role. Must be one of: owner, admin, manager, viewer, storeman, technician' USING ERRCODE = 'RC002';
     END IF;
-    IF pg_catalog.lower(pg_catalog.btrim(NEW.role)) = 'owner' THEN
-      IF v_actor_role <> 'owner' THEN
-        RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-      END IF;
-      IF NOT v_fresh THEN
-        RAISE EXCEPTION 'Writing an owner invitation needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-          USING ERRCODE = '40001';
-      END IF;
+    IF public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner' THEN
+      RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
     END IF;
   END IF;
   -- A live owner invitation is an owner's to shape. Re-pointing one that stays
@@ -186,20 +226,19 @@ BEGIN
   -- send-status columns stay writable; turning it into a lesser invitation
   -- (a re-invite at another role) does not need an owner. `Owner ` is an owner
   -- invitation too: the accept routes copy the role verbatim (886).
-  IF TG_OP = 'UPDATE' AND pg_catalog.lower(pg_catalog.btrim(NEW.role)) = 'owner'
+  IF TG_OP = 'UPDATE' AND public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner'
      AND (NEW.email, NEW.token, NEW.gotrue_user_id, NEW.accepted_at, NEW.expires_at, NEW.invited_by)
          IS DISTINCT FROM (OLD.email, OLD.token, OLD.gotrue_user_id, OLD.accepted_at, OLD.expires_at, OLD.invited_by) THEN
-    IF v_actor_role <> 'owner' THEN
-      RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-    END IF;
-    IF NOT v_fresh THEN
-      RAISE EXCEPTION 'Writing an owner invitation needs READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-        USING ERRCODE = '40001';
-    END IF;
+    RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
   END IF;
   IF (TG_OP = 'INSERT' OR NEW.invited_by IS DISTINCT FROM OLD.invited_by)
      AND pg_catalog.lower(NEW.invited_by::pg_catalog.text) IS DISTINCT FROM pg_catalog.lower(auth.uid()) THEN
     RAISE EXCEPTION 'An invitation records the person who sent it' USING ERRCODE = 'RC009';
+  END IF;
+  -- Last, after every rule, as in company_users_role_guard().
+  IF NOT v_fresh THEN
+    RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
+      USING ERRCODE = '40001';
   END IF;
   RETURN NEW;
 END
