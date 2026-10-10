@@ -106,8 +106,10 @@ CREATE TABLE IF NOT EXISTS entity_changes (
   CONSTRAINT entity_changes_shape_ck CHECK ((op = 'create') = (before IS NULL) AND (op = 'delete') = (after IS NULL)),
   CONSTRAINT entity_changes_impersonator_ck CHECK ((channel = 'impersonation') = (impersonator IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS entity_changes_entity_idx ON entity_changes (company_id, entity_type, entity_id, seq DESC);
-CREATE INDEX IF NOT EXISTS entity_changes_feed_idx ON entity_changes (company_id, seq DESC);
+-- Readers page by (recorded_at, id) — seq and txid are platform-wide counters
+-- and are not readable by app_user (below).
+CREATE INDEX IF NOT EXISTS entity_changes_entity_idx ON entity_changes (company_id, entity_type, entity_id, recorded_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS entity_changes_feed_idx ON entity_changes (company_id, recorded_at DESC, id DESC);
 
 ALTER TABLE entity_changes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE entity_changes FORCE ROW LEVEL SECURITY;
@@ -141,7 +143,10 @@ BEGIN
   END LOOP;
   REVOKE ALL ON public.entity_changes FROM PUBLIC;
 END $$;
-GRANT SELECT ON entity_changes TO app_user;
+-- Every column but seq and txid: both count every tenant's writes, so a member
+-- reading them could count another company's activity (breaker #696 R3 / r2 #2).
+GRANT SELECT (id, company_id, entity_type, entity_id, op, changed, before, after, actor, channel, impersonator,
+              session_id, db_role, login_role, recorded_at) ON entity_changes TO app_user;
 
 -- What an inserted row is, whoever inserts it: only the capture trigger
 -- (trigger depth >= 2: the capture runs at depth >= 1 and this guard one
@@ -231,7 +236,12 @@ AS $$
          -- Where customers are told to pay, and the addresses and mail that carry it
          -- (breaker #696 R1): a changed "pay into" line is as material as the account.
          'portal_payment_instructions', 'portal_allow_payments', 'portal_welcome_message', 'email', 'billing_email',
-         'phone', 'mobile', 'email_always_cc', 'email_use_for_communication',
+         'phone', 'mobile', 'fax', 'website', 'email_always_cc', 'email_use_for_communication', 'email_use_service_from',
+         -- The address printed on every invoice and credit note (pdfShared.getCompanyDetailsFromCompany) and the
+         -- registered / physical ones (breaker #696 r2 #3).
+         'address_line1', 'address_line2', 'city', 'province', 'postal_code', 'country',
+         'physical_address_line1', 'physical_address_line2', 'physical_city', 'physical_province', 'physical_postal_code',
+         'registered_address',
          'invoice_email_subject', 'invoice_email_body', 'invoice_email_signature',
          'quote_email_subject', 'quote_email_body', 'quote_email_signature',
          'statement_email_subject', 'statement_email_body', 'statement_email_signature',
@@ -433,8 +443,10 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
-  IF NOT pg_catalog.has_table_privilege('app_user', 'public.entity_changes', 'SELECT') THEN
-    RAISE EXCEPTION 'migration 888: app_user cannot read entity_changes';
+  IF NOT pg_catalog.has_column_privilege('app_user', 'public.entity_changes', 'recorded_at', 'SELECT')
+     OR pg_catalog.has_column_privilege('app_user', 'public.entity_changes', 'seq', 'SELECT')
+     OR pg_catalog.has_column_privilege('app_user', 'public.entity_changes', 'txid', 'SELECT') THEN
+    RAISE EXCEPTION 'migration 888: app_user must read entity_changes but not seq or txid';
   END IF;
 
   -- A TRUNCATE fires no row trigger: no request role may erase a tracked

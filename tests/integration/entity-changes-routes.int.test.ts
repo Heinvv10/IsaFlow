@@ -90,10 +90,19 @@ describe('a supplier timeline', () => {
     const mcp = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: '42' },
       ['read:reports', 'read:contacts']);
     expect(mcp).toMatchObject({ isError: true, content: [{ text: 'invalid cursor' }] }); // blind r2 L-5: the uuid guard, not a SQL error
-    // Another company's change id is no cursor here: the page is empty, never theirs.
+    // A cursor that is not a change of this same history is refused, never an empty "end" (breaker r2 #4): another
+    // company's, an unknown one, another entity's, and — over MCP — the same.
     const other = await company();
     const theirs = (await page(o, other, { entityType: 'company_user' })).items[0]!.id;
-    expect((await page(a, c, { entityType: 'supplier', entityId: s, before: theirs })).items).toEqual([]);
+    const ownOtherEntity = (await page(o, c, { entityType: 'company_user' })).items[0]!.id;
+    for (const before of [theirs, crypto.randomUUID(), ownOtherEntity]) {
+      const res = await get(a, c, { entityType: 'supplier', entityId: s, before });
+      expect(res.state.statusCode, before).toBe(400);
+      expect(JSON.stringify(res.state.body)).toContain('not a change in this history');
+    }
+    const foreign = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: theirs },
+      ['read:reports', 'read:contacts']);
+    expect(foreign).toMatchObject({ isError: true, content: [{ text: 'unknown cursor — start again without one' }] });
   });
 });
 

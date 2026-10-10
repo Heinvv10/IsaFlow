@@ -615,7 +615,8 @@ and after, the changed keys, and:
   refuse it).
 
 **Append-only, stronger than 877.** The capture is SECURITY DEFINER, so nobody else needs INSERT: app_user holds
-SELECT only, platform_admin nothing, and EXECUTE on the capture and its helpers is the owner's alone (so it cannot
+SELECT only — on every column but `seq` and `txid`, platform-wide counters that would let a member count other
+tenants' writes (review rounds 1–2) — platform_admin nothing, and EXECUTE on the capture and its helpers is the owner's alone (so it cannot
 be attached to a temp table of one's own to forge a row; a trigger fires without an EXECUTE check). A BEFORE INSERT
 guard refuses any insert not made from inside a capture (trigger depth) and stamps seq / clock / txid; BEFORE UPDATE /
 DELETE / TRUNCATE refuse every role's plain statements, the owner's included, except the cascade of a purged company.
@@ -634,7 +635,8 @@ for any member, payroll employees for owner / admin / manager, the rest for owne
 `entityChangeTypes.ts` (bound to the SQL by test): `GET /api/accounting/entity-changes` (a timeline needs
 `entityType` + `entityId`; without an id it is the feed, owner / admin), `POST /api/accounting/entity-changes-reveal`
 (owner / admin, a person in their own session — Login-as and tokens refused — `audit_log` `export` /
-`entity_change` in the same transaction), MCP `entity_history` (masked always; `read:payroll` for employees, the
+`entity_change` in the same transaction); paging is newest first by `(recorded_at, id)` with the last change's id as the
+cursor, and a cursor that is not a change of the same history is refused (400 / MCP error), never an empty page; MCP `entity_history` (masked always; `read:payroll` for employees, the
 feed filtered to employees included). UI: History tab on suppliers and customers, Record changes on the employee
 page, a History drawer on every chart-of-accounts row and bank-account card, Accounting → Change History.
 

@@ -7,6 +7,7 @@
  *     admin, manager; the rest: owner, admin) — else 403;
  *   - no `entityId`: the company-wide feed (optionally one `entityType`),
  *     owner / admin only.
+ * A `before` that is not a change of this same history is 400 (never an empty page).
  * Bank account and ID / tax numbers come back masked (…1234); owner / admin
  * reveal one change through POST /api/accounting/entity-changes-reveal.
  * RLS (entity_changes_read) enforces the same reading rules underneath.
@@ -18,7 +19,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
-import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import {
+  EntityChangeCursorError, listEntityChanges, MAX_PAGE, type ListEntityChangesOptions,
+} from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
   ENTITY_TYPES, isHistoryAdmin, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
@@ -42,13 +45,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!mayReadType(companyRole, entityType)) {
       return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot view this history.`);
     }
-    return apiResponse.success(res, await listEntityChanges(companyId, { types: [entityType], entityType, entityId, before, limit }));
+    return page(res, companyId, { types: [entityType], entityType, entityId, before, limit });
   }
   if (!isHistoryAdmin(companyRole)) {
     return apiResponse.forbidden(res, 'Only an owner or admin can view the company-wide change history.');
   }
   const types = entityType ? [entityType] : ENTITY_TYPES;
-  return apiResponse.success(res, await listEntityChanges(companyId, { types, entityType, before, limit }));
+  return page(res, companyId, { types, entityType, before, limit });
+}
+
+async function page(res: NextApiResponse, companyId: string, opts: ListEntityChangesOptions) {
+  try {
+    return apiResponse.success(res, await listEntityChanges(companyId, opts));
+  } catch (err) {
+    if (err instanceof EntityChangeCursorError) return apiResponse.badRequest(res, err.message);
+    throw err;
+  }
 }
 
 export default withAuth(withErrorHandler(withCsrf(handler)));

@@ -162,11 +162,12 @@ describe('every tracked table records', () => {
     await asApp(pool, o, c, (db) => db.query("UPDATE companies SET netcash_payouts_key = 'super-secret-key-1' WHERE id = $1", [c]));
     // Breaker #696 R1: where customers are told to pay, and the mail that carries it.
     await asApp(pool, o, c, (db) => db.query(`UPDATE companies SET portal_payment_instructions = 'Pay FNB 62999999999',
-      email = 'a@x.test', billing_email = 'b@x.test', invoice_email_body = 'new banking details', chase_auto_send_enabled = true
-      WHERE id = $1`, [c]));
+      email = 'a@x.test', billing_email = 'b@x.test', invoice_email_body = 'new banking details', chase_auto_send_enabled = true,
+      phone = '+27 82 000 6666', address_line1 = '1 Elsewhere Rd', portal_allow_payments = false WHERE id = $1`, [c]));
     const rows = (await changesOf(pool, c)).filter((r) => r.op === 'update');
     expect(rows.map((r) => r.changed)).toEqual([['bank_account_number', 'vat_number'], ['netcash_payouts_key'],
-      ['billing_email', 'chase_auto_send_enabled', 'email', 'invoice_email_body', 'portal_payment_instructions']]);
+      ['address_line1', 'billing_email', 'chase_auto_send_enabled', 'email', 'invoice_email_body', 'phone', 'portal_allow_payments',
+        'portal_payment_instructions']]);
     const keyChange = rows[1]!;
     expect(JSON.stringify(keyChange)).not.toContain('super-secret-key-1');
     expect(keyChange.after!.netcash_payouts_key).toMatch(/^sha256:[0-9a-f]{12}$/);

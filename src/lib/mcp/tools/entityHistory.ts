@@ -7,9 +7,9 @@
  * `read:payroll`, suppliers and customers `read:contacts` (as their list tools).
  */
 import type { McpTool } from '../types';
-import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
+import { EntityChangeCursorError, listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, mayReadType, type EntityType,
+  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, mayReadType, type EntityChangePage, type EntityType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -75,7 +75,13 @@ export const entityHistoryTool: McpTool = {
       return toolError('Only an owner or admin can read the company-wide change history; pass entity_type and entity_id.');
     }
     const types = entityType ? [entityType] : ENTITY_TYPES.filter(allowed);
-    const page = await listEntityChanges(ctx.companyId, { types, entityType, entityId, before: cursor, limit });
+    let page: EntityChangePage;
+    try {
+      page = await listEntityChanges(ctx.companyId, { types, entityType, entityId, before: cursor, limit });
+    } catch (err) {
+      if (err instanceof EntityChangeCursorError) return toolError('unknown cursor — start again without one');
+      throw err;
+    }
     return ok({
       company_id: ctx.companyId,
       channels: CHANNELS,

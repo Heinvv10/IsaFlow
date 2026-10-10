@@ -106,12 +106,20 @@ const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(
  */
 const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql'];
 
+const TRACKED_TABLE_SQL = String.raw`(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
+
 export function laterMigrationViolates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
     // Any trigger switch but ENABLE ALWAYS, on any table, literal or inside a format() string (blind review r2 L-3):
     // DISABLE stops a capture; a plain or REPLICA ENABLE takes it out of ALWAYS, so it no longer fires under replica.
     || /\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(sql)
-    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions|routines)\s+in\s+schema\s+public\b/i.test(sql);
+    // A schema-wide grant, the schema quoted or in a list (breaker r2 #1): hands app_user INSERT or the capture back.
+    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions|routines|procedures)\s+in\s+schema\b[^;]*\bpublic\b/i.test(sql)
+    // Swapping a tracked table out from under its capture (breaker r2 #1): rename, move or drop it.
+    || new RegExp(String.raw`\balter\s+table\s+${TRACKED_TABLE_SQL}\s*\*?\s+(?:rename\s+to|set\s+schema)\b`, 'i').test(sql)
+    || new RegExp(String.raw`\bdrop\s+table\b[^;]*?\b${TRACKED_TABLE_SQL}`, 'i').test(sql)
+    // A Unicode-escaped identifier hides a name from every pattern here.
+    || /\bu&["']/i.test(sql);
 }
 
 describe('entity change history (census)', () => {
@@ -126,6 +134,16 @@ describe('entity change history (census)', () => {
     expect(touching).toEqual(['src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts']);
     const [query] = nonMigrations().filter(({ file }) => file === touching[0]);
     expect(writes('entity_changes').test(code(query!.file, query!.text))).toBe(false);
+  });
+
+  // Breaker r2 #1: a script or service that drops or alters the capture is no migration but runs SQL all the same.
+  it('no other source names any of 888\'s objects (only the query, and the reveal\'s audit entity type)', () => {
+    const naming = nonMigrations()
+      .flatMap(({ file, text }) => [...code(file, text).matchAll(/\bentity_change\w*/g)].map((m) => `${file}: ${m[0]}`));
+    expect([...new Set(naming)].sort()).toEqual([
+      'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: entity_changes',
+      'src/modules/accounting/services/core/entityChanges/entityChangeReveal.ts: entity_change',
+    ]);
   });
 
   // Every migration file but 888 is judged, whatever its number (blind review r2 M-1): the runner applies any
@@ -160,12 +178,23 @@ describe('entity change history (census)', () => {
     'ALTER TABLE suppliers ADD COLUMN y int, DISABLE TRIGGER ALL',
     'ALTER TABLE customers ENABLE TRIGGER ALL',
     "EXECUTE format('ALTER TABLE %I DISABLE TRIGGER USER', t)",
+    // Breaker r2 #1.
+    'ALTER TABLE customers * DISABLE TRIGGER USER',
+    'ALTER TABLE public.company_users ENABLE TRIGGER USER',
+    'ALTER TABLE public.approval_rules RENAME TO approval_rules_old',
+    'ALTER TABLE suppliers SET SCHEMA archive',
+    'DROP TABLE IF EXISTS public.gl_accounts CASCADE',
+    'DROP TRIGGER U&"entity\\005Fchange_capture" ON public.companies',
+    'GRANT INSERT ON ALL TABLES IN SCHEMA "public" TO app_user',
+    'GRANT INSERT ON ALL TABLES IN SCHEMA app, public TO app_user',
+    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "public" TO app_user',
   ])('a migration saying %s is refused', (stmt) => {
     expect(laterMigrationViolates(stmt)).toBe(true);
   });
 
   it.each(['CREATE TABLE widgets (id uuid)', 'ALTER TABLE suppliers ADD COLUMN x text', 'ALTER TABLE suppliers ENABLE ALWAYS TRIGGER foo',
-    'CREATE TRIGGER t BEFORE UPDATE ON widgets FOR EACH ROW EXECUTE FUNCTION f()'])(
+    'CREATE TRIGGER t BEFORE UPDATE ON widgets FOR EACH ROW EXECUTE FUNCTION f()', 'DROP TABLE supplier_widgets',
+    'ALTER TABLE customers_archive RENAME TO customers_old', 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO analyst'])(
     'an unrelated migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
 
   it('no source file turns triggers off (session_replication_role, DISABLE TRIGGER)', () => {

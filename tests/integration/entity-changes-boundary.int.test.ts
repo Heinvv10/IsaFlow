@@ -60,6 +60,11 @@ describe('append-only', () => {
     }
     expect(await outcome(as(pool, o, { role: 'platform_admin', claims: { sub: o } }, (db) => db.query('SELECT 1 FROM entity_changes'))))
       .toMatch(/^42501/);
+    // seq and txid count every tenant's writes: a member cannot read them (breaker #696 R3 / r2 #2).
+    for (const col of ['seq', 'txid', '*']) {
+      expect(await outcome(asApp(pool, o, c, (db) => db.query(`SELECT ${col} FROM entity_changes`))), col).toMatch(/^42501/);
+    }
+    expect(await outcome(asApp(pool, o, c, (db) => db.query('SELECT id, recorded_at, actor FROM entity_changes')))).toBe('ok');
     // The owner (the fixture's login role) is refused by the triggers.
     expect(await outcome(pool.query(writes[0]!))).toMatch(/^42501: .*recorded by the changed table itself/);
     expect(await outcome(pool.query(writes[1]!))).toMatch(/^42501: .*append-only \(UPDATE/);
