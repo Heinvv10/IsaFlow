@@ -114,11 +114,13 @@ describe('paths without a user JWT, as the role they write as', () => {
       'SELECT auth.set_default_company($1::UUID, $2::UUID)', [p.x, created]), true))).toBe('ok');
   });
 
-  it('invite-accept and tenant provisioning (migration_admin), where that role reaches the table', async () => {
-    const c = await company(pool, p, companies);
+  it('invite-accept and tenant provisioning (migration_admin), where that role reaches the table', async (ctx) => {
     const { rows: [can] } = await pool.query(
       "SELECT rolbypassrls OR rolsuper AS ok FROM pg_roles WHERE rolname = 'migration_admin'");
-    if (!can.ok) return; // the classic fixture's migration_admin cannot see the RLS-forced table at all
+    // Reported as skipped, never a silent pass: the classic fixture's
+    // migration_admin cannot see the RLS-forced table at all.
+    ctx.skip(!can.ok, 'migration_admin neither bypasses RLS nor is superuser here (classic fixture)');
+    const c = await company(pool, p, companies);
     const c2 = await pool.connect();
     try {
       await c2.query('BEGIN');
