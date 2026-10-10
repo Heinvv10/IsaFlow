@@ -13,6 +13,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ClaimHeaderBanners, ClaimToast } from '@/components/accounting/expense/ClaimHeaderBanners';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import {
   ChevronLeft, Loader2, AlertCircle, Send, Check, X, FileCheck,
   MapPin, Receipt, DollarSign,
@@ -189,6 +190,7 @@ export default function ExpenseClaimDetail() {
       setClaim(json.data.claim);
       showToast(`Claim ${json.data.claim.status}`, true);
       notifyLateClaims(json); // post: VAT claimed in a later period (s16(3))
+      notifyPostingWarnings({ data: { claim: json.data.claim } }); // post: a line's cost centre that was not applied
       if (endpoint === 'post') setPostMode(false);
     } catch (err) { showToast(apiErrorMessage(err, 'Could not update the claim - try again'), false); }
     finally { setBusy(false); }
