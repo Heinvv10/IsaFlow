@@ -159,9 +159,25 @@ function violates(sql: string): boolean {
     || /\btruncate\s+(?!on\b)(?:table\s+)?(?:only\s+)?[\w".]+[^;]*\bcascade\b/i.test(sql);
 }
 
-/** What another migration may not do to 888 — judged on the text as written and with its escapes spelled out. */
+/**
+ * Every backslash and U&-style escape spelled out wherever it stands, not only inside strings the patterns above
+ * recognise (blind review r5 N-4: a plain string ending in " E" makes `E'` pair the wrong quotes). Judging is
+ * additive, so decoding too much can only refuse more, never pass a statement the other views refuse.
+ */
+export function decodeEverywhere(sql: string): string {
+  const cp = (hex: string) => String.fromCodePoint(parseInt(hex, 16));
+  return sql
+    .replace(/\\x([0-9a-f]{1,2})/gi, (_x, h: string) => cp(h))
+    .replace(/\\u([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
+    .replace(/\\U([0-9a-f]{8})/g, (_x, h: string) => cp(h))
+    .replace(/\\\+([0-9a-f]{6})/gi, (_x, h: string) => cp(h))
+    .replace(/\\([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
+    .replace(/\\([0-7]{3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)));
+}
+
+/** What another migration may not do to 888 — judged as written, with its strings' escapes spelled out, and with every escape spelled out. */
 export function laterMigrationViolates(sql: string): boolean {
-  return violates(sql) || violates(decodeEscapes(sql));
+  return violates(sql) || violates(decodeEscapes(sql)) || violates(decodeEverywhere(sql));
 }
 
 describe('entity change history (census)', () => {
@@ -258,6 +274,9 @@ describe('entity change history (census)', () => {
     // Security review of d5665093: a UESCAPE escape, and switching how plain strings parse.
     `DROP TRIGGER U&"entity!005Fchange_capture" UESCAPE '!' ON public.companies`,
     'SET standard_conforming_strings = off',
+    // Blind review r5 N-4: a plain string ending in " E" before the escaped one.
+    "SELECT 'a E'; DO $$ BEGIN EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'; END $$;",
+    "SELECT 'b E'; DROP TRIGGER U&\"entity\\005Fchange_capture\" ON public.companies;",
     "EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\u005Fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\137change_capture ON public.customers'",
