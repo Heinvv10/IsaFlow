@@ -65,6 +65,11 @@ describe('append-only', () => {
       expect(await outcome(asApp(pool, o, c, (db) => db.query(`SELECT ${col} FROM entity_changes`))), col).toMatch(/^42501/);
     }
     expect(await outcome(asApp(pool, o, c, (db) => db.query('SELECT id, recorded_at, actor FROM entity_changes')))).toBe('ok');
+    // Nor the identity sequence behind seq (default privileges granted it; security review of 1753e2b0).
+    const seqName = (await pool.query("SELECT pg_get_serial_sequence('public.entity_changes', 'seq') AS s")).rows[0].s as string;
+    expect(await outcome(asApp(pool, o, c, (db) => db.query(`SELECT last_value FROM ${seqName}`)))).toMatch(/^42501/);
+    expect(await outcome(as(pool, o, { role: 'platform_admin', claims: { sub: o } }, (db) => db.query(`SELECT last_value FROM ${seqName}`))))
+      .toMatch(/^42501/);
     // The owner (the fixture's login role) is refused by the triggers.
     expect(await outcome(pool.query(writes[0]!))).toMatch(/^42501: .*recorded by the changed table itself/);
     expect(await outcome(pool.query(writes[1]!))).toMatch(/^42501: .*append-only \(UPDATE/);
