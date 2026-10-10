@@ -1,0 +1,113 @@
+Mutation proof — forensic-controls step 3 (migration 890 + read API / MCP / census), 2026-10-10
+
+Method (.fixture/mutate.py, run in a throwaway worktree at the branch head against a disposable fixture,
+container isaflow-fixture-entityhist-mut): each mutant edits ONE thing (exact string replace, asserted present;
+some also relax the migration's own assertion so the TEST must catch it), resets isaflow_schema_fixture from the
+master template, applies 890 as it then stands, runs the named suites, restores the file.
+KILLED = 890 refused to apply (its assertions) or a test went red. SURVIVED = neither.
+
+Result: 47 of 47 mutants KILLED, 0 survived. Baseline (unmutated): green.
+
+id     verdict  how                                     mutant
+BASELINE GREEN    22 passed (22), 21 passed (21)                                                                                  unmutated
+S01    KILLED   890 refused: migration 890: entity_change_capture must be SECURITY DEFINER with an owner that bypasses RLS      capture SECURITY INVOKER (app_user has no INSERT: every tracked write must still be recorded)
+S02    KILLED   2 failed | 8 passed (10)                                                                                        no-op UPDATE recorded (no-op check removed)
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records nothing for a write that changes 
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > companies: tax, VAT and bank columns are recorded; display settings are not
+S03    KILLED   1 failed | 9 passed (10)                                                                                        supplier projection keeps bank_details_setters
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records nothing for a write that changes 
+S04    KILLED   1 failed | 9 passed (10)                                                                                        Login-as recorded as session (impersonation lookup ignored)
+                red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > Login-as is `impersonation`, naming the platform admin behind it
+S05    KILLED   1 failed | 9 passed (10)                                                                                        platform_admin connection not told apart
+                red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > the platform-admin connection is `platform_admin`, with the admin as actor
+S06    KILLED   1 failed | 9 passed (10)                                                                                        token (no session id) recorded as session
+                red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > an MCP token (claims, no session id) is `token`
+S07    KILLED   5 failed | 5 passed (10)                                                                                        actor is the login role, not the JWT subject
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records create, update and delete with be
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > customers, GL accounts, payroll employees, members, invitations, permission
+S08    KILLED   3 failed | 14 passed (17)                                                                                       db_role taken from current_user (the definer owner) instead of the session role
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records create, update and delete with be
+                red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > the platform-admin connection is `platform_admin`, with the admin as actor
+S09    KILLED   2 failed | 8 passed (10)                                                                                        a row moved between companies recorded only under the new one
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > a row moved to another company is recorde
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records create, update and delete with be
+S10    KILLED   1 failed | 9 passed (10)                                                                                        Netcash key stored in clear
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > companies: tax, VAT and bank columns are recorded; display settings are not
+S11    KILLED   1 failed | 9 passed (10)                                                                                        company allow-list widened to every column (display settings recorded)
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > companies: tax, VAT and bank columns are recorded; display settings are not
+S12    KILLED   1 failed | 9 passed (10)                                                                                        invitation token recorded
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > customers, GL accounts, payroll employees, members, invitations, permission
+S13    KILLED   1 failed | 4 passed (5)                                                                                         purged-company skip removed (a purge would record into a deleted company)
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > a purged company takes its history with it; other companies keep theirs
+                red: tests/integration/entity-changes-boundary.int.test.ts [ tests/integration/entity-changes-boundary.int.test.ts ]
+S14    KILLED   890 refused: migration 890: suppliers has no ENABLE ALWAYS entity_change_capture trigger                        capture not ENABLE ALWAYS (and its assertion relaxed)
+S15    KILLED   890 refused: trigger "entity_changes_append_only" for table "entity_changes" does not exist                     append-only UPDATE/DELETE trigger dropped
+S16    KILLED   1 failed | 4 passed (5)                                                                                         purge exception removed from the append-only trigger
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > a purged company takes its history with it; other companies keep theirs
+                red: tests/integration/entity-changes-boundary.int.test.ts [ tests/integration/entity-changes-boundary.int.test.ts ]
+S17    KILLED   1 failed | 4 passed (5)                                                                                         insert guard lets a direct INSERT through (no trigger-depth check)
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > app_user and platform_admin can write nothing; the owner can only read
+S18    KILLED   890 refused: migration 890: app_user still holds INSERT on entity_changes                                       app_user granted INSERT on the history
+S19    KILLED   890 refused: migration 890: anon may execute public.entity_change_capture()                                     capture EXECUTE left to PUBLIC
+S20    KILLED   1 failed | 11 passed (12)                                                                                       RLS: payroll history readable by any member
+                red: tests/integration/entity-changes-boundary.int.test.ts > reading > follows the entity: any member reads suppliers, customers and GL accounts; payroll from manage
+S21    KILLED   1 failed | 4 passed (5)                                                                                         RLS: admin-only history readable by any member
+                red: tests/integration/entity-changes-boundary.int.test.ts > reading > follows the entity: any member reads suppliers, customers and GL accounts; payroll from manage
+S22    KILLED   1 failed | 4 passed (5)                                                                                         RLS: company GUC not bound (every company the reader belongs to)
+                red: tests/integration/entity-changes-boundary.int.test.ts > reading > never another company's: not as a non-member, not with the company GUC pointed elsewhere
+S23    KILLED   9 failed | 3 passed (12)                                                                                        RLS policy reads nothing (USING false)
+                red: tests/integration/entity-changes-boundary.int.test.ts > reading > follows the entity: any member reads suppliers, customers and GL accounts; payroll from manage
+                red: tests/integration/entity-changes-boundary.int.test.ts > reading > never another company's: not as a non-member, not with the company GUC pointed elsewhere
+S24    KILLED   890 refused: migration 890: company_users has no ENABLE ALWAYS entity_change_capture trigger                    capture trigger left off one table (company_users)
+T01    KILLED   3 failed | 4 passed (7), 1 failed | 6 passed (7)                                                                masking off (changeFields ignores sensitivity)
+                red: tests/integration/entity-changes-routes.int.test.ts > a supplier timeline > route and MCP writes are recorded with the person and channel; any member reads them
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
+T02    KILLED   1 failed | 6 passed (7)                                                                                         route: company-wide feed open to every member
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > the feed is owner / admin only; employee timelines need manager or above
+T03    KILLED   1 failed | 6 passed (7)                                                                                         route: a type the reader may not read is served
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > the feed is owner / admin only; employee timelines need manager or above
+T04    KILLED   1 failed | 6 passed (7), 1 failed | 6 passed (7)                                                                mayReadType: payroll for every role
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > the feed is owner / admin only; employee timelines need manager or above
+                red: tests/unit/services/core/entityChangeTypes.test.ts > 890 and its TypeScript agree > who reads what: the RLS policy and mayReadType
+T05    KILLED   1 failed | 6 passed (7)                                                                                         reveal: any role
+                red: tests/integration/entity-changes-routes.int.test.ts > reveal > owner / admin see the full numbers and the reveal is audited; others and Login-as are refused
+T06    KILLED   1 failed | 6 passed (7)                                                                                         reveal: Login-as not refused
+                red: tests/integration/entity-changes-routes.int.test.ts > reveal > owner / admin see the full numbers and the reveal is audited; others and Login-as are refused
+T07    KILLED   1 failed | 6 passed (7)                                                                                         reveal: no audit row
+                red: tests/integration/entity-changes-routes.int.test.ts > reveal > owner / admin see the full numbers and the reveal is audited; others and Login-as are refused
+T08    KILLED   1 failed | 6 passed (7)                                                                                         MCP: employee history without read:payroll
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
+T09    KILLED   1 failed | 6 passed (7)                                                                                         MCP: feed for any role
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
+T10    KILLED   1 failed | 6 passed (7)                                                                                         MCP: feed includes payroll without read:payroll (types filter)
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
+T11    KILLED   1 failed | 6 passed (7)                                                                                         query: types filter ignored
+                red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
+T12    KILLED   1 failed | 6 passed (7)                                                                                         reveal: values still masked (reveal flag dropped)
+                red: tests/integration/entity-changes-routes.int.test.ts > reveal > owner / admin see the full numbers and the reveal is audited; others and Login-as are refused
+T13    KILLED   1 failed | 13 passed (14)                                                                                       census: a new supplier writer appears
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > every writer of suppliers is pinned
+S01b   KILLED   10 failed (10)                                                                                                  capture SECURITY INVOKER, its assertion relaxed
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > a row moved to another company is recorde
+                red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records create, update and delete with be
+S14b   KILLED   1 failed | 9 passed (10)                                                                                        capture not ENABLE ALWAYS, its assertion relaxed
+                red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > a superuser bulk write in replica mode is still recorded (ENABLE ALWAYS)
+S15b   KILLED   1 failed | 4 passed (5)                                                                                         append-only trigger lets UPDATE and DELETE through
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > app_user and platform_admin can write nothing; the owner can only read
+S18b   KILLED   890 refused: migration 890: app_user still holds column INSERT on entity_changes                                app_user granted INSERT, its assertion relaxed
+S19b   KILLED   1 failed | 4 passed (5)                                                                                         capture EXECUTE granted to PUBLIC, its assertion relaxed
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > nobody but the owner can attach the capture to a table of their own
+S24b   KILLED   1 failed | 9 passed (10), 2 failed | 19 passed (21)                                                             capture left off company_users, its assertion relaxed
+                red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > customers, GL accounts, payroll employees, members, invitations, permission
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > 890 attaches the capture to exactly the tracked tables, ENABLE ALWAYS
+T14    KILLED   1 failed | 13 passed (14)                                                                                       census: a later migration drops the capture
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > no later migration drops the capture, rewrites the history, or grants it 
+T15    KILLED   1 failed | 13 passed (14)                                                                                       census: a later migration grants ON ALL TABLES
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > no later migration drops the capture, rewrites the history, or grants it 
+T16    KILLED   1 failed | 13 passed (14)                                                                                       census: source turns triggers off
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > no source file turns triggers off (session_replication_role, DISABLE TRIG
+S18c   KILLED   1 failed | 4 passed (5)                                                                                         app_user granted INSERT/UPDATE/DELETE, both privilege assertions relaxed
+                red: tests/integration/entity-changes-boundary.int.test.ts > append-only > app_user and platform_admin can write nothing; the owner can only read
+
+Suites: tests/integration/entity-changes-{capture,boundary,routes}.int.test.ts,
+tests/unit/services/core/entityChange{Types,Census}.test.ts. Raw per-mutant JSON: .fixture/mutation-results*.json (not committed).
