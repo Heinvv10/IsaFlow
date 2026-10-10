@@ -1,6 +1,6 @@
 /**
  * Fixture for the entity-change-history suites (forensic-controls step 3,
- * migration 890): members with signed tokens, one company per case, raw SQL
+ * migration 888): members with signed tokens, one company per case, raw SQL
  * run the way each channel runs it (withAuth's app_user + claims, the MCP
  * bearer's claims without a session id, Login-as, the platform-admin
  * connection, a script with no claims), and the history read back as the

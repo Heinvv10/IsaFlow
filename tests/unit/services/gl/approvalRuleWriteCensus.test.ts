@@ -51,7 +51,7 @@ export function violations(text: string, file = 'x.ts'): string[] {
  */
 const KNOWN = [
   'src/modules/accounting/services/ap/supplierBankBaseline.ts: names approval_rules or approval_enforcement as a string',
-  // Step 3 (890): 'approval_enforcement' is an entity_changes.entity_type, read-only; no statement.
+  // Step 3 (888): 'approval_enforcement' is an entity_changes.entity_type, read-only; no statement.
   'src/modules/accounting/services/core/entityChanges/entityChangeQuery.ts: names approval_rules or approval_enforcement as a string',
   'src/modules/accounting/services/core/entityChanges/entityChangeTypes.ts: names approval_rules or approval_enforcement as a string',
 ];

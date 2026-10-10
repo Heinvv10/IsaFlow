@@ -1,5 +1,5 @@
 /**
- * Reading entity_changes (migration 890) — the per-entity timeline and the
+ * Reading entity_changes (migration 888) — the per-entity timeline and the
  * company-wide feed. Runs as the request's app_user, so RLS
  * (entity_changes_read) already binds the tenant and the reader's role; the
  * `types` filter states the same rule for the caller (entityChangeTypes.ts)

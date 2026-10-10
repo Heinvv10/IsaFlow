@@ -16,7 +16,7 @@
  *    prosrc), the pinned set closed over the calls in those bodies — a weaker
  *    CREATE OR REPLACE fails here until N1b is re-reviewed and the pin moved;
  *  - no other function body names either table in a static write, and neither
- *    table carries a trigger or a rewrite rule but 890's change-history
+ *    table carries a trigger or a rewrite rule but 888's change-history
  *    capture (AFTER, writes only entity_changes, returns NULL);
  *  - no view over either table, at any depth, lets another role write through
  *    its owner (an auto-updatable view checks its OWNER's rights: adversarial
@@ -195,11 +195,11 @@ describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', ()
       'approval_enforcement_set', 'approval_rule_create', 'approval_rule_delete', 'approval_rule_update']);
   });
 
-  // Since 890 each table carries exactly the change-history capture: AFTER
+  // Since 888 each table carries exactly the change-history capture: AFTER
   // INSERT OR UPDATE OR DELETE FOR EACH ROW (tgtype 29), ENABLE ALWAYS, its
   // function the SECURITY DEFINER that writes only entity_changes and returns
   // NULL — it cannot change the row a definer wrote. Nothing else.
-  it('neither table carries a trigger or a rewrite rule but 890\'s change-history capture', async () => {
+  it('neither table carries a trigger or a rewrite rule but 888\'s change-history capture', async () => {
     const { rows } = await pool.query(`
       SELECT tgrelid::regclass::text AS t, tgname AS name, tgfoid::regprocedure::text AS fn, tgenabled AS enabled, tgtype AS type
       FROM pg_trigger

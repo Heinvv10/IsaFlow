@@ -1,5 +1,5 @@
 /**
- * The TypeScript statement of migration 890 (entityChangeTypes.ts,
+ * The TypeScript statement of migration 888 (entityChangeTypes.ts,
  * entityChangeMasking.ts) pinned to the migration, and the masking itself.
  */
 import { describe, expect, it } from 'vitest';
@@ -12,10 +12,10 @@ import {
 import { changeFields, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { entityLabel } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 
-const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/890_entity_change_history.sql'), 'utf8');
+const SQL = readFileSync(path.join(ROOT, 'scripts/migrations/sql/888_entity_change_history.sql'), 'utf8');
 const quoted = (block: string) => [...block.matchAll(/'(\w+)'/g)].map((m) => m[1]!);
 
-describe('890 and its TypeScript agree', () => {
+describe('888 and its TypeScript agree', () => {
   it('entity types: the CHECK, the trigger list and ENTITY_TYPES', () => {
     const check = /entity_type\s+TEXT NOT NULL CHECK \(entity_type IN \(([\s\S]*?)\)\)/.exec(SQL)![1]!;
     expect(quoted(check).sort()).toEqual([...ENTITY_TYPES].sort());
@@ -51,6 +51,26 @@ describe('890 and its TypeScript agree', () => {
     for (const fields of Object.values(SENSITIVE_FIELDS)) for (const f of fields) expect(dropped).not.toContain(f);
     const companyAllow = /e\.key = ANY \(ARRAY\[([\s\S]*?)\]::pg_catalog\.text\[\]\)/.exec(SQL)![1]!;
     for (const f of SENSITIVE_FIELDS.company) expect(quoted(companyAllow)).toContain(f);
+  });
+
+  // Blind review r2 L-1: the whole allow-list is pinned, so dropping any column fails here (not only the five the
+  // capture suite writes).
+  it('companies record exactly this allow-list (plus the two Netcash key digests)', () => {
+    const allow = quoted(/e\.key = ANY \(ARRAY\[([\s\S]*?)\]::pg_catalog\.text\[\]\)/.exec(SQL)![1]!);
+    expect([...allow].sort()).toEqual([
+      'bank_account_number', 'bank_account_type', 'bank_branch_code', 'bank_name', 'billing_email', 'chase_auto_send_enabled',
+      'client_query_whatsapp', 'credit_note_email_body', 'credit_note_email_signature', 'credit_note_email_subject',
+      'default_currency', 'email', 'email_always_cc', 'email_use_for_communication', 'entity_type', 'financial_year_start',
+      'functional_currency', 'fx_documents_enabled', 'idle_timeout_minutes', 'invoice_email_body', 'invoice_email_signature',
+      'invoice_email_subject', 'is_active', 'lockdown_date', 'lockdown_enabled', 'mobile', 'name', 'netcash_enabled',
+      'paye_reference_number', 'phone', 'portal_allow_payments', 'portal_payment_instructions', 'portal_welcome_message',
+      'quote_email_body', 'quote_email_signature', 'quote_email_subject', 'recurring_invoice_email_body',
+      'recurring_invoice_email_signature', 'recurring_invoice_email_subject', 'registered_name', 'registration_number',
+      'sales_order_email_body', 'sales_order_email_signature', 'sales_order_email_subject', 'sdl_reference_number',
+      'share_anonymised_signals', 'statement_email_body', 'statement_email_signature', 'statement_email_subject', 'status',
+      'tax_number', 'tax_office', 'tax_practitioner_name', 'tax_practitioner_reg_number', 'trading_name',
+      'uif_reference_number', 'vat_number', 'vat_period', 'vat_period_alignment', 'vat_system_type', 'whatsapp_chase_enabled',
+    ]);
   });
 
   // Hein's decision 2: exactly these are masked (blind review L3 — dropping one must fail here).

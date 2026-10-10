@@ -1,10 +1,10 @@
-Mutation proof — forensic-controls step 3 (migration 890 + read API / MCP / census)
+Mutation proof — forensic-controls step 3 (migration 888 + read API / MCP / census)
 Head: 691125c34 (after review round 1), 2026-10-10. Supersedes the run at 5c7ea23bd (47/47).
 
 Method (.fixture/mutate.py, a throwaway worktree at the head, disposable container isaflow-fixture-entityhist-mut):
-each mutant edits ONE thing (exact string replace, asserted present; the 'b'/'c' variants also relax 890's own
-assertion so that a TEST must catch it), resets isaflow_schema_fixture from master's template, applies 890 as it then
-stands, runs the named suites, restores the file. KILLED = 890 refused to apply or a test went red.
+each mutant edits ONE thing (exact string replace, asserted present; the 'b'/'c' variants also relax 888's own
+assertion so that a TEST must catch it), resets isaflow_schema_fixture from master's template, applies 888 as it then
+stands, runs the named suites, restores the file. KILLED = 888 refused to apply or a test went red.
 
 Result: 54 of 55 KILLED; 1 survivor, equivalent under RLS (below). Baseline (unmutated): green.
 
@@ -15,7 +15,7 @@ defence in depth; the RLS tenant bind itself is mutation-proven by S22 / S23.
 
 id     verdict  how                                                                                             mutant
 BASELINE GREEN    24 passed (24), 47 passed (47)                                                                                  unmutated
-S01    KILLED   890 refused: migration 890: entity_change_capture must be SECURITY DEFINER with an owner that bypasses RLS      capture SECURITY INVOKER (app_user has no INSERT: every tracked write must still be recorded)
+S01    KILLED   888 refused: migration 888: entity_change_capture must be SECURITY DEFINER with an owner that bypasses RLS      capture SECURITY INVOKER (app_user has no INSERT: every tracked write must still be recorded)
 S02    KILLED   3 failed | 9 passed (12)                                                                                        no-op UPDATE recorded (no-op check removed)
                 red: tests/integration/entity-changes-capture.int.test.ts > a supplier through its life, as a person in their own session > records nothing for a write that changes 
                 red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > an invitation re-pointed to another account or re-issued is recorded; the t
@@ -46,15 +46,15 @@ S12    KILLED   2 failed | 10 passed (12)                                       
 S13    KILLED   1 failed | 4 passed (5)                                                                                         purged-company skip removed (a purge would record into a deleted company)
                 red: tests/integration/entity-changes-boundary.int.test.ts > append-only > a purged company takes its history with it; other companies keep theirs
                 red: tests/integration/entity-changes-boundary.int.test.ts [ tests/integration/entity-changes-boundary.int.test.ts ]
-S14    KILLED   890 refused: migration 890: suppliers has no ENABLE ALWAYS entity_change_capture trigger                        capture not ENABLE ALWAYS (and its assertion relaxed)
-S15    KILLED   890 refused: trigger "entity_changes_append_only" for table "entity_changes" does not exist                     append-only UPDATE/DELETE trigger dropped
+S14    KILLED   888 refused: migration 888: suppliers has no ENABLE ALWAYS entity_change_capture trigger                        capture not ENABLE ALWAYS (and its assertion relaxed)
+S15    KILLED   888 refused: trigger "entity_changes_append_only" for table "entity_changes" does not exist                     append-only UPDATE/DELETE trigger dropped
 S16    KILLED   1 failed | 4 passed (5)                                                                                         purge exception removed from the append-only trigger
                 red: tests/integration/entity-changes-boundary.int.test.ts > append-only > a purged company takes its history with it; other companies keep theirs
                 red: tests/integration/entity-changes-boundary.int.test.ts [ tests/integration/entity-changes-boundary.int.test.ts ]
 S17    KILLED   1 failed | 4 passed (5)                                                                                         insert guard lets a direct INSERT through (no trigger-depth check)
                 red: tests/integration/entity-changes-boundary.int.test.ts > append-only > app_user and platform_admin can write nothing; the owner can only read
-S18    KILLED   890 refused: migration 890: app_user still holds INSERT on entity_changes                                       app_user granted INSERT on the history
-S19    KILLED   890 refused: migration 890: anon may execute public.entity_change_capture()                                     capture EXECUTE left to PUBLIC
+S18    KILLED   888 refused: migration 888: app_user still holds INSERT on entity_changes                                       app_user granted INSERT on the history
+S19    KILLED   888 refused: migration 888: anon may execute public.entity_change_capture()                                     capture EXECUTE left to PUBLIC
 S20    KILLED   1 failed | 11 passed (12)                                                                                       RLS: payroll history readable by any member
                 red: tests/integration/entity-changes-boundary.int.test.ts > reading > follows the entity: any member reads suppliers, customers and GL accounts; payroll from manage
 S21    KILLED   1 failed | 4 passed (5)                                                                                         RLS: admin-only history readable by any member
@@ -64,7 +64,7 @@ S22    KILLED   1 failed | 4 passed (5)                                         
 S23    KILLED   9 failed | 3 passed (12)                                                                                        RLS policy reads nothing (USING false)
                 red: tests/integration/entity-changes-boundary.int.test.ts > reading > follows the entity: any member reads suppliers, customers and GL accounts; payroll from manage
                 red: tests/integration/entity-changes-boundary.int.test.ts > reading > never another company's: not as a non-member, not with the company GUC pointed elsewhere
-S24    KILLED   890 refused: migration 890: company_users has no ENABLE ALWAYS entity_change_capture trigger                    capture trigger left off one table (company_users)
+S24    KILLED   888 refused: migration 888: company_users has no ENABLE ALWAYS entity_change_capture trigger                    capture trigger left off one table (company_users)
 T01    KILLED   3 failed | 4 passed (7), 1 failed | 7 passed (8)                                                                masking off (changeFields ignores sensitivity)
                 red: tests/integration/entity-changes-routes.int.test.ts > a supplier timeline > route and MCP writes are recorded with the person and channel; any member reads them
                 red: tests/integration/entity-changes-routes.int.test.ts > who reads what > MCP entity_history: masked, the same rules, employees need read:payroll
@@ -74,7 +74,7 @@ T03    KILLED   1 failed | 6 passed (7)                                         
                 red: tests/integration/entity-changes-routes.int.test.ts > who reads what > the feed is owner / admin only; employee timelines need manager or above
 T04    KILLED   1 failed | 6 passed (7), 1 failed | 7 passed (8)                                                                mayReadType: payroll for every role
                 red: tests/integration/entity-changes-routes.int.test.ts > who reads what > the feed is owner / admin only; employee timelines need manager or above
-                red: tests/unit/services/core/entityChangeTypes.test.ts > 890 and its TypeScript agree > who reads what: the RLS policy and mayReadType
+                red: tests/unit/services/core/entityChangeTypes.test.ts > 888 and its TypeScript agree > who reads what: the RLS policy and mayReadType
 T05    KILLED   1 failed | 6 passed (7)                                                                                         reveal: any role
                 red: tests/integration/entity-changes-routes.int.test.ts > reveal > owner / admin see the full numbers and the reveal is audited; others and Login-as are refused
 T06    KILLED   1 failed | 6 passed (7)                                                                                         reveal: Login-as not refused
@@ -116,12 +116,12 @@ S14b   KILLED   1 failed | 11 passed (12)                                       
                 red: tests/integration/entity-changes-capture.int.test.ts > the channel and the actor > a superuser bulk write in replica mode is still recorded (ENABLE ALWAYS)
 S15b   KILLED   1 failed | 4 passed (5)                                                                                         append-only trigger lets UPDATE and DELETE through
                 red: tests/integration/entity-changes-boundary.int.test.ts > append-only > app_user and platform_admin can write nothing; the owner can only read
-S18b   KILLED   890 refused: migration 890: app_user still holds column INSERT on entity_changes                                app_user granted INSERT, its assertion relaxed
+S18b   KILLED   888 refused: migration 888: app_user still holds column INSERT on entity_changes                                app_user granted INSERT, its assertion relaxed
 S19b   KILLED   1 failed | 4 passed (5)                                                                                         capture EXECUTE granted to PUBLIC, its assertion relaxed
                 red: tests/integration/entity-changes-boundary.int.test.ts > append-only > nobody but the owner can attach the capture to a table of their own
 S24b   KILLED   1 failed | 11 passed (12), 2 failed | 45 passed (47)                                                            capture left off company_users, its assertion relaxed
                 red: tests/integration/entity-changes-capture.int.test.ts > every tracked table records > customers, GL accounts, payroll employees, members, invitations, permission
-                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > 890 attaches the capture to exactly the tracked tables, ENABLE ALWAYS
+                red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > 888 attaches the capture to exactly the tracked tables, ENABLE ALWAYS
 T14    KILLED   1 failed | 38 passed (39)                                                                                       census: a later migration drops the capture
                 red: tests/unit/services/core/entityChangeCensus.test.ts > entity change history (census) > no later migration touches the history or turns a capture off
 T15    KILLED   1 failed | 38 passed (39)                                                                                       census: a later migration grants ON ALL TABLES

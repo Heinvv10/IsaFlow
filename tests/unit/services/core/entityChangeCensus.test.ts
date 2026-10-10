@@ -1,16 +1,17 @@
 /**
- * Forensic-controls step 3 (migration 890): entity change history, by census.
+ * Forensic-controls step 3 (migration 888): entity change history, by census.
  *
  *  - Every writer of a tracked table, pinned per TABLE over the source tree on
- *    disk (an untracked new writer counts). 890's trigger records every write
+ *    disk (an untracked new writer counts). 888's trigger records every write
  *    whoever makes it, so a new writer is not a hole — it is a new path whose
  *    history a reviewer should know exists (its channel, its actor: a script
  *    or a migration_admin pool records `db:<role>`, `system`). Migrations and
  *    the SQL functions they define are not pinned here; the trigger covers
  *    them too (create_company_with_owner, the 881/885 definers).
- *  - entity_changes is written by nothing but 890's capture and read only by
+ *  - entity_changes is written by nothing but 888's capture and read only by
  *    entityChangeQuery.ts.
- *  - No later migration names any of 890's objects (`entity_change…`), turns a
+ *  - No other migration — whatever its number, since the runner applies any file
+ *    not yet applied — names any of 888's objects (`entity_change…`), turns a
  *    tracked table's triggers off (DISABLE / ENABLE REPLICA), or grants ON ALL
  *    TABLES / FUNCTIONS (which would hand app_user INSERT or the capture back).
  *  - Nothing in src / pages / scripts turns triggers off.
@@ -24,8 +25,7 @@ import path from 'node:path';
 import { ROOT, sourceFiles, stripComments, withoutSqlComments } from '../../helpers/sourceCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
-const HISTORY_FROM = 890;
-const HISTORY_FILE = '890_entity_change_history.sql';
+const HISTORY_FILE = '888_entity_change_history.sql';
 
 const S = 'src/modules/accounting/services/';
 const WRITERS: Record<string, string[]> = {
@@ -91,25 +91,26 @@ const writes = (t: string) => new RegExp(
 const code = (file: string, text: string) => withoutSqlComments(stripComments(text, file));
 const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(MIGRATIONS));
 
-const TRACKED_TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?`;
 /**
- * A later migration may not name any of 890's objects at all (the table, its
+ * Another migration may not name any of 888's objects at all (the table, its
  * policy, the capture and its helpers — `entity_change…`): any change to the
  * history is a review event, so it fails here until this census is changed with
- * it. Nor may it turn triggers off on a tracked table (DISABLE, ENABLE REPLICA),
+ * it. Nor may it switch any trigger but to ENABLE ALWAYS (DISABLE, ENABLE, ENABLE REPLICA),
  * write the history, or grant ON ALL TABLES / FUNCTIONS (that hands app_user
  * INSERT on the history, or EXECUTE on the capture, back).
  */
-/** A migration after 890: a higher number, or 890 itself with a suffix (`890b_`). */
-export function isLaterMigration(file: string): boolean {
-  // Every digit (sourceCensus's migrationNumber reads three, so a 1000_ file would be 0).
-  const n = Number(/^(\d+)[a-z]?_/.exec(path.basename(file))?.[1] ?? 'NaN');
-  return n > HISTORY_FROM || (n === HISTORY_FROM && path.basename(file) !== HISTORY_FILE);
-}
+/**
+ * Migrations before 888 that match laterMigrationViolates: the schema-wide grants
+ * to app_user (348) and platform_admin (352). They ran before entity_changes and
+ * the capture existed, so they reach neither. A new one is a reason to look.
+ */
+const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql'];
 
 export function laterMigrationViolates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
-    || new RegExp(String.raw`\balter\s+table\s+(?:if\s+exists\s+)?${TRACKED_TABLE}\s+(?:disable|enable\s+replica)\s+trigger\b`, 'i').test(sql)
+    // Any trigger switch but ENABLE ALWAYS, on any table, literal or inside a format() string (blind review r2 L-3):
+    // DISABLE stops a capture; a plain or REPLICA ENABLE takes it out of ALWAYS, so it no longer fires under replica.
+    || /\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(sql)
     || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions|routines)\s+in\s+schema\s+public\b/i.test(sql);
 }
 
@@ -127,15 +128,14 @@ describe('entity change history (census)', () => {
     expect(writes('entity_changes').test(code(query!.file, query!.text))).toBe(false);
   });
 
-  it('no later migration touches the history or turns a capture off', () => {
-    const later = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && isLaterMigration(file));
-    expect(later.filter(({ file, text }) => laterMigrationViolates(code(file, text))).map(({ file }) => file)).toEqual([]);
-  });
-
-  // Breaker #696 R4: an `890b_` insert (CLAUDE.md's own suffix rule) has number 890 and slipped past `> 890`.
-  it.each([['890b_drop.sql', true], ['891_x.sql', true], ['1000_x.sql', true], ['890_entity_change_history.sql', false],
-    ['889_x.sql', false], ['244b_x.sql', false]])('%s is a later migration: %s', (name, later) => {
-    expect(isLaterMigration(`${MIGRATIONS}${name}`)).toBe(later);
+  // Every migration file but 888 is judged, whatever its number (blind review r2 M-1): the runner applies any
+  // file not yet applied, in name order, so a new 887_ or 886b_ that lands after 888 runs after it on prod too.
+  it('no other migration touches the history or turns a capture off', () => {
+    const found = sourceFiles()
+      .filter(({ file }) => file.startsWith(MIGRATIONS) && path.basename(file) !== HISTORY_FILE)
+      .filter(({ file, text }) => laterMigrationViolates(code(file, text)))
+      .map(({ file }) => path.basename(file));
+    expect(found).toEqual(KNOWN_GRANTS);
   });
 
   // Blind review of #696 (M1): each of these slipped past the first census.
@@ -156,22 +156,27 @@ describe('entity change history (census)', () => {
     'GRANT INSERT ON ALL TABLES IN SCHEMA public TO app_user',
     'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_user',
     'DROP TRIGGER entity_change_capture ON suppliers',
-  ])('a later migration saying %s is refused', (stmt) => {
+    // Blind review r2 L-3: a DISABLE after other actions, a plain ENABLE (out of ALWAYS), a run-time-built one.
+    'ALTER TABLE suppliers ADD COLUMN y int, DISABLE TRIGGER ALL',
+    'ALTER TABLE customers ENABLE TRIGGER ALL',
+    "EXECUTE format('ALTER TABLE %I DISABLE TRIGGER USER', t)",
+  ])('a migration saying %s is refused', (stmt) => {
     expect(laterMigrationViolates(stmt)).toBe(true);
   });
 
-  it.each(['CREATE TABLE widgets (id uuid)', 'ALTER TABLE suppliers ADD COLUMN x text', 'ALTER TABLE suppliers ENABLE ALWAYS TRIGGER foo'])(
-    'an unrelated later migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
+  it.each(['CREATE TABLE widgets (id uuid)', 'ALTER TABLE suppliers ADD COLUMN x text', 'ALTER TABLE suppliers ENABLE ALWAYS TRIGGER foo',
+    'CREATE TRIGGER t BEFORE UPDATE ON widgets FOR EACH ROW EXECUTE FUNCTION f()'])(
+    'an unrelated migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
 
   it('no source file turns triggers off (session_replication_role, DISABLE TRIGGER)', () => {
     const found = nonMigrations()
-      .filter(({ file, text }) => /\bsession_replication_role\b|\bdisable\s+trigger\b|\benable\s+replica\s+trigger\b/i.test(code(file, text)))
+      .filter(({ file, text }) => /\bsession_replication_role\b|\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(code(file, text)))
       .map(({ file }) => file);
     // A lint rule that names both in its messages; it turns nothing off.
     expect(found).toEqual(['scripts/ci/oauthTrustFlagRule.ts']);
   });
 
-  it('890 attaches the capture to exactly the tracked tables, ENABLE ALWAYS', () => {
+  it('888 attaches the capture to exactly the tracked tables, ENABLE ALWAYS', () => {
     const sql = readFileSync(path.join(ROOT, MIGRATIONS, HISTORY_FILE), 'utf8');
     const values = /FROM \(VALUES([\s\S]*?)\) v\(tbl, typ\)/.exec(sql)![1]!;
     const tables = [...values.matchAll(/\('(\w+)', '(\w+)'\)/g)].map((m) => m[1]);

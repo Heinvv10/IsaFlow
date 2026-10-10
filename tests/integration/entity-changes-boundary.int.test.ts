@@ -1,5 +1,5 @@
 /**
- * Migration 890 — what entity_changes refuses, and who may read it:
+ * Migration 888 — what entity_changes refuses, and who may read it:
  *  - append-only for every role: app_user and platform_admin hold no write at
  *    all, the owner's UPDATE / DELETE / TRUNCATE / direct INSERT are refused
  *    by trigger; the one delete that passes is the cascade of a purged

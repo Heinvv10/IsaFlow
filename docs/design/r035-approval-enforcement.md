@@ -588,7 +588,7 @@ posts as before.
   already running arbitrary SQL (who can reset the role or set claims).
 
 ---
-## As built: entity change history (forensic-controls step 3, migration 890)
+## As built: entity change history (forensic-controls step 3, migration 888)
 
 Hein's decisions 2026-10-10 (one batch, every recommendation taken): (1) the full master set; (2) values stored in
 full, masked to the last four for everyone, owner / admin may reveal; (3) read API + per-entity History UI + a
@@ -619,12 +619,12 @@ SELECT only, platform_admin nothing, and EXECUTE on the capture and its helpers 
 be attached to a temp table of one's own to forge a row; a trigger fires without an EXECUTE check). A BEFORE INSERT
 guard refuses any insert not made from inside a capture (trigger depth) and stamps seq / clock / txid; BEFORE UPDATE /
 DELETE / TRUNCATE refuse every role's plain statements, the owner's included, except the cascade of a purged company.
-The owner — the role that applied 890, which on production is the app's own login (`deploy.sh` migrates with the app's
+The owner — the role that applied 888, which on production is the app's own login (`deploy.sh` migrates with the app's
 `DATABASE_URL`), not `migration_admin` — can still disable or drop the guards, or forge a row from a trigger of its own
 (trigger depth is met by any trigger): injected SQL that RESETs ROLE can erase history (breaker #696 R7). That is the
 N1/N3 boundary: the same login already owns every tracked table through `migration_admin` and can switch the capture
 off. Closing it needs a history owner the login is not a member of (and, on PG < 16, a superuser to give that role
-BYPASSRLS) — part of N3, not built here. 890 asserts all of
+BYPASSRLS) — part of N3, not built here. 888 asserts all of
 it — per role, exempting only `session_user` when it inherits the owner (#680) — plus that every tracked table carries
 the capture ENABLE ALWAYS, that no request role holds TRUNCATE on a tracked table (TRUNCATE fires no row trigger),
 and that the capture's owner bypasses RLS (FORCE RLS would otherwise refuse every tracked write).
@@ -644,9 +644,9 @@ reads the request's claims, so the person is recorded; the N1b catalogue pins no
 trigger on those tables (it writes only entity_changes and returns NULL, so it cannot change a row a guard judged).
 
 **Verified:** integration suites on a disposable fixture (`entity-changes-capture`, `-boundary`, `-routes`; red
-before 890), the census and unit pins, a prod-topology copy (`docs/evidence/entity-change-history/prod-topology-890.txt`:
+before 888), the census and unit pins, a prod-topology copy (`docs/evidence/entity-change-history/prod-topology-888.txt`:
 owner `migration_admin` non-superuser, deploy role non-superuser BYPASSRLS; the tripwire refuses a second member of
-the owner), the mutation proof (`mutation-proof.txt`), browser screenshots. On the prod-topology copy the tables 890 alters are owned by
+the owner), the mutation proof (`mutation-proof.txt`), browser screenshots. On the prod-topology copy the tables 888 alters are owned by
 `migration_admin`; `entity_changes` and the capture are owned by the applying (deploy) role.
 
 **Known limits.** The N1 boundary (raw SQL that RESETs ROLE or forges claims — N3). History starts at deploy. Writes

@@ -1,5 +1,5 @@
 /**
- * Entity change history (forensic-controls step 3, migration 890)
+ * Entity change history (forensic-controls step 3, migration 888)
  * GET — newest first, paged by `before` (the previous page's nextCursor, a change id),
  *       `limit` up to 100:
  *   - `?entityType=&entityId=` one entity's timeline: whoever may read that
