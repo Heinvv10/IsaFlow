@@ -4,9 +4,9 @@
  *
  *  - each table carries exactly its guard: one enabled BEFORE INSERT OR
  *    UPDATE OR DELETE row trigger (and no rewrite rule);
- *  - the guards and the role lookup they share are the bodies 883 ships (the
- *    guards as 886 re-wrote them; md5) and SECURITY INVOKER — the guard
- *    judges `current_user`, which a DEFINER would replace with its owner;
+ *  - the guards, the role lookup and the owner predicate they share are the
+ *    bodies 883 and 886 ship (md5) and SECURITY INVOKER — the guard judges
+ *    `current_user`, which a DEFINER would replace with its owner;
  *  - TRUNCATE (which fires no row trigger) and TRIGGER are held by no role
  *    but the owner, migration_admin and the session's role through the owner;
  *  - INSERT, UPDATE and DELETE by no role the guards do not judge: only
@@ -29,8 +29,9 @@ const TABLES = ['company_users', 'company_invitations'];
 /** Change one and you change who may grant what: re-review N1b C, then move the pin. */
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
-  'company_users_role_guard()': '6a1b7d72da9e4f167212584176c64f63',
-  'company_invitations_role_guard()': '695170c119d5be5174d7c36b267f3121',
+  'company_member_role_is_owner(text)': '536560babbf2ad0ead1859707fffe97d',
+  'company_users_role_guard()': 'ad237d957ec9972f7e9fd12b84bed1ff',
+  'company_invitations_role_guard()': '0c7cf4635edf43e1f8f80566160513a7',
 };
 
 const OTHERS = `

@@ -45,7 +45,7 @@ export function violations(text: string, file = 'x.ts'): string[] {
 
 const GUARD_OFF = [
   /\b(?:drop|alter)\s+trigger\b[^;]*\bcompany_(?:users|invitations)_role_guard\b/i,
-  /\b(?:create\s+(?:or\s+replace\s+)?|alter\s+|drop\s+)function\s+(?:if\s+exists\s+)?(?:"?public"?\.)?"?(?:company_users_role_guard|company_invitations_role_guard|company_member_actor_role)\b/i,
+  /\b(?:create\s+(?:or\s+replace\s+)?|alter\s+|drop\s+)function\s+(?:if\s+exists\s+)?(?:"?public"?\.)?"?(?:company_users_role_guard|company_invitations_role_guard|company_member_actor_role|company_member_role_is_owner)\b/i,
   /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\.)?"?company_(?:users|invitations)"?\b/i,
 ];
 const GRANTED = [
@@ -90,7 +90,8 @@ const KNOWN_WRITERS = [
  * grants app_user; 352 grants platform_admin; 459, 476 and 513 are the
  * versions of create_company_with_owner (the creator as owner); 516 is
  * set_default_company (is_default only); 662 expires stale invitations once.
- * After: 886 re-writes both guards (PR #691 review round 5), read as 883 was.
+ * After: 886 re-writes both guards and adds their owner predicate (PR #691
+ * review round 5, PR #693 reviews), read as 883 was.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -152,6 +153,7 @@ describe('the census detects (counterexamples)', () => {
     'ALTER TABLE public.company_invitations DISABLE TRIGGER ALL;',
     'CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger AS $$ BEGIN RETURN NEW; END $$ LANGUAGE plpgsql;',
     'ALTER FUNCTION company_member_actor_role(uuid) SECURITY DEFINER;',
+    "CREATE OR REPLACE FUNCTION public.company_member_role_is_owner(p_role text) RETURNS bool LANGUAGE sql AS $$ SELECT false $$;",
     'GRANT TRUNCATE ON company_users TO app_user;',
     'GRANT INSERT ON public.company_invitations TO anon;',
     'GRANT ALL ON ALL TABLES IN SCHEMA public TO app_user;',
