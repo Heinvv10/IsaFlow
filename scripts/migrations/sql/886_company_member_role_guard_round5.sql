@@ -12,15 +12,18 @@
 --   an acceptance may overwrite a member's role (never an owner's). Whitespace
 --   is an explicit class, not `\s`: what `\s` matches depends on the
 --   collation (under "C" only ASCII; under en_US.utf8 not U+00A0, U+2007,
---   U+202F, U+200B or U+FEFF), and this must not.
+--   U+202F, U+200B or U+FEFF), and this must not; the whole test runs under
+--   COLLATE "C", so lower() cannot depend on it either.
 --
 --  2. Precondition (section 0): no company_users or company_invitations row
 --   may hold an owner-ish role that is not exactly 'owner' — 886 refuses to
---   apply, naming them; correct each by hand. After it, and with every judged
---   writer held to the exact allow-lists (the invitations the accept routes
---   copy from included), no such row exists, which is why what stays exact is
---   safe: the allow-lists, the count of the OTHER owners in the last-owner
---   rule, and the portal's lock condition (blind review of #693, LOW 1–3).
+--   apply, naming them; correct each by hand. It locks company_users, then
+--   company_invitations — an invite acceptance's order, so the two never
+--   deadlock. After it, and with every judged writer held to the exact
+--   allow-lists (the invitations the accept routes copy from included), no
+--   such row exists, which is why what stays exact is safe: the allow-lists,
+--   the count of the OTHER owners in the last-owner rule, and the portal's
+--   lock condition (blind review of #693, LOW 1–3).
 --   Writers the guards do not judge are the N1 boundary, as in 883.
 --
 --  3. Only at READ COMMITTED. 883 judges under a per-company advisory lock,
@@ -53,7 +56,10 @@ RETURNS pg_catalog.bool
 LANGUAGE sql IMMUTABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT pg_catalog.lower(pg_catalog.regexp_replace(p_role,
+  -- COLLATE "C": neither [[:space:]] nor lower() may depend on the database's
+  -- collation, so IMMUTABLE is true (blind review of #693, round 2). Under "C"
+  -- [[:space:]] is ASCII only; the rest of the class is listed.
+  SELECT pg_catalog.lower(pg_catalog.regexp_replace(p_role COLLATE pg_catalog."C",
     '[[:space:]\u0085\u00a0\u1680\u180e\u2000-\u200b\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]', '', 'g')) = 'owner'
 $$;
 
@@ -62,9 +68,14 @@ DECLARE
   v_n pg_catalog.int8;
   v_ids pg_catalog.text;
 BEGIN
-  -- No write between this count and the guards below; the lock order is 883's.
-  LOCK TABLE public.company_invitations IN SHARE ROW EXCLUSIVE MODE;
+  -- No write between this count and the guards below. Members first, then
+  -- invitations: the order an invite acceptance writes them (INSERT into
+  -- company_users, then UPDATE company_invitations), so a deploy waits for an
+  -- acceptance in flight instead of deadlocking with it (883's order was the
+  -- reverse; blind review of #693, round 2). No writer takes them
+  -- invitations-first: the others write one of the two only.
   LOCK TABLE public.company_users IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.company_invitations IN SHARE ROW EXCLUSIVE MODE;
   -- FORCE RLS applies to the owner: unless this role bypasses it, the count
   -- would see no rows and pass. With row_security off it raises instead.
   PERFORM pg_catalog.set_config('row_security', 'off', true);
