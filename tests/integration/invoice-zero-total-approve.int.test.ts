@@ -42,7 +42,10 @@ describeIfDisposable('approving a customer invoice that totals R0.00', () => {
   it.each([
     ['every line discounted 100%', [{ description: 'Waived', unitPrice: 500, quantity: 1, discount: 100 }]],
     ['a zero-price line', [{ description: 'Free', unitPrice: 0, quantity: 1 }]],
-  ])('%s: refused as not approvable, before the status moves, and posts nothing', async (_label, items) => {
+  ])('%s: refused as not approvable, and no journal is posted', async (_label, items) => {
+    // inTx rolls back on a throw, so the state read below cannot tell a refusal BEFORE the
+    // status UPDATE from one after it; the route unit test (customerInvoiceDetailAction)
+    // pins that no UPDATE is issued, in the default CI gate.
     const id = await draft(items);
     const before = await journals();
 

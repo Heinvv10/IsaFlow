@@ -189,6 +189,17 @@ describe('customer-invoices-detail POST action guards', () => {
     expect(postGlMock).not.toHaveBeenCalled();
   });
 
+  it('a legacy NEGATIVE total is not refused as "totals 0.00": bulk finalize skips only zero, and so does approve', async () => {
+    sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '-50.00' }]).mockResolvedValueOnce([{ id: INV_ID }]);
+    postGlMock.mockResolvedValueOnce('je-123');
+    snapshotMock.mockResolvedValueOnce({ documentId: 'doc-1', wasExisting: false });
+
+    await call({ id: INV_ID, action: 'approve' });
+
+    expect(apiResponse.badRequest).not.toHaveBeenCalled();
+    expectApproveGuard(sqlMock.mock.calls[1]!);
+  });
+
   it('migration 874: a line refusal raised by posting AFTER the status UPDATE is a 5xx class, never the pre-write 400', async () => {
     sqlMock.mockResolvedValueOnce([{ status: 'draft', total_amount: '115.00' }]).mockResolvedValueOnce([{ id: INV_ID }]);
     postGlMock.mockRejectedValueOnce(new InvoiceLineCodingRefusal('Invoice INV-1: cost centre CC2 is inactive.'));

@@ -76,7 +76,8 @@ export async function postCustomerInvoiceToGL(
     // A 0.00 invoice has no journal: its AR line would be 0/0, which the journal
     // validator refuses with a message naming no invoice. approveCustomerInvoice
     // refuses it before its status moves; this is Post to GL's (and an import's) twin.
-    if (!(Math.round(Number(inv.total_amount ?? 0) * 100) > 0)) {
+    const cents = Math.round(Number(inv.total_amount ?? 0) * 100);
+    if (cents === 0 || Number.isNaN(cents)) {
       throw new Error('This invoice totals 0.00, so there is nothing to post.');
     }
 

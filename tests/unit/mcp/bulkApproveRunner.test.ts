@@ -188,6 +188,7 @@ describe('partitionDocuments — faults in the DATA skip', () => {
     ]);
   });
 
+
   it('does not ask for a period verdict on a zero-total document', async () => {
     await partitionDocuments(
       'company-1', [ID(1), ID(2)],
@@ -464,8 +465,8 @@ describe('partitionDocuments — an undated document is skipped, not fatal', () 
     const { postable, skipped } = await partitionDocuments(
       'company-1', [ID(1), ID(2)],
       adapterOver([
-        { id: ID(1), status: 'draft', entryDate: null as unknown as string },
-        { id: ID(2), status: 'draft', entryDate: '2026-09-01' },
+        { id: ID(1), status: 'draft', entryDate: null as unknown as string, totalAmount: 115 },
+        { id: ID(2), status: 'draft', entryDate: '2026-09-01', totalAmount: 115 },
       ]),
     );
     expect(postable.map((p) => p.id)).toEqual([ID(2)]);
