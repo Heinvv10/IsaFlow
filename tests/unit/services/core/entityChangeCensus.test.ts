@@ -106,7 +106,7 @@ const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(
  */
 const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.sql'];
 
-const TRACKED_TABLE_SQL = String.raw`(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
+const TRACKED_TABLE_SQL = String.raw`(?:(?:only|if\s+exists)\s+)*(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
 
 export function laterMigrationViolates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
@@ -114,7 +114,7 @@ export function laterMigrationViolates(sql: string): boolean {
     // DISABLE stops a capture; a plain or REPLICA ENABLE takes it out of ALWAYS, so it no longer fires under replica.
     || /\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(sql)
     // A schema-wide grant, the schema quoted or in a list (breaker r2 #1): hands app_user INSERT or the capture back.
-    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions|routines|procedures)\s+in\s+schema\b[^;]*\bpublic\b/i.test(sql)
+    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|sequences|functions|routines|procedures)\s+in\s+schema\b[^;]*\bpublic\b/i.test(sql)
     // Swapping a tracked table out from under its capture (breaker r2 #1): rename, move or drop it.
     || new RegExp(String.raw`\balter\s+table\s+${TRACKED_TABLE_SQL}\s*\*?\s+(?:rename\s+to|set\s+schema)\b`, 'i').test(sql)
     || new RegExp(String.raw`\bdrop\s+table\b[^;]*?\b${TRACKED_TABLE_SQL}`, 'i').test(sql)
@@ -188,6 +188,9 @@ describe('entity change history (census)', () => {
     'GRANT INSERT ON ALL TABLES IN SCHEMA "public" TO app_user',
     'GRANT INSERT ON ALL TABLES IN SCHEMA app, public TO app_user',
     'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "public" TO app_user',
+    // Blind review r3: the seq counter's sequence, and Postgres's own IF EXISTS ONLY order.
+    'GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user',
+    'ALTER TABLE IF EXISTS ONLY public.suppliers RENAME TO suppliers_old',
   ])('a migration saying %s is refused', (stmt) => {
     expect(laterMigrationViolates(stmt)).toBe(true);
   });
