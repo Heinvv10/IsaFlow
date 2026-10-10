@@ -73,6 +73,12 @@
 -- tax numbers included) until its company is purged; there is no per-person
 -- erasure path. Hein to decide whether POPIA needs one (review of PR #696, M2).
 --
+-- Not closed here: Postgres's statistics views (pg_stat_user_tables.n_tup_ins,
+-- pg_class.reltuples) are readable by every role and count every tenant's rows
+-- in every table of this shared schema — entity_changes is no different from
+-- suppliers there. The history's own counters (seq, txid, the seq sequence) are
+-- not readable by app_user.
+--
 -- Cost: about 0.4 ms per tracked row written (5 000-row bulk INSERT / UPDATE:
 -- ~2 s with capture, ~0.1 s without, measured on a fixture). TRUNCATE of a tracked table
 -- fires no row trigger; no role but their owners holds TRUNCATE on them
@@ -143,6 +149,25 @@ BEGIN
   END LOOP;
   REVOKE ALL ON public.entity_changes FROM PUBLIC;
 END $$;
+-- The identity sequence behind seq: default privileges (348) give app_user and
+-- platform_admin USAGE / SELECT on new sequences, and its last_value is the same
+-- platform-wide counter (security review of 1753e2b0) — nobody but the owner.
+DO $$
+DECLARE
+  v_seq pg_catalog.regclass := pg_catalog.pg_get_serial_sequence('public.entity_changes', 'seq')::pg_catalog.regclass;
+  r RECORD;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT pg_catalog.pg_get_userbyid(a.grantee) AS grantee
+    FROM pg_catalog.pg_class c
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('S', c.relowner))) a
+    WHERE c.oid = v_seq AND a.grantee <> c.relowner AND a.grantee <> 0
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I', v_seq, r.grantee);
+  END LOOP;
+  EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC', v_seq);
+END $$;
+
 -- Every column but seq and txid: both count every tenant's writes, so a member
 -- reading them could count another company's activity (breaker #696 R3 / r2 #2).
 GRANT SELECT (id, company_id, entity_type, entity_id, op, changed, before, after, actor, channel, impersonator,
@@ -448,6 +473,14 @@ BEGIN
      OR pg_catalog.has_column_privilege('app_user', 'public.entity_changes', 'txid', 'SELECT') THEN
     RAISE EXCEPTION 'migration 888: app_user must read entity_changes but not seq or txid';
   END IF;
+  -- The request roles (a maintenance role in pg_read_all_data reads every
+  -- sequence and table by design, as it reads seq itself).
+  FOREACH v_role IN ARRAY ARRAY['app_user', 'platform_admin', 'public'] LOOP
+    IF pg_catalog.has_sequence_privilege(v_role, pg_catalog.pg_get_serial_sequence('public.entity_changes', 'seq'), 'SELECT')
+       OR pg_catalog.has_sequence_privilege(v_role, pg_catalog.pg_get_serial_sequence('public.entity_changes', 'seq'), 'USAGE') THEN
+      RAISE EXCEPTION 'migration 888: % may read the entity_changes seq sequence', v_role;
+    END IF;
+  END LOOP;
 
   -- A TRUNCATE fires no row trigger: no request role may erase a tracked
   -- table that way.
