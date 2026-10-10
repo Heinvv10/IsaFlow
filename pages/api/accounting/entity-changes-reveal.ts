@@ -12,6 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { getClientIp } from '@/lib/rateLimit';
 import { UUID } from '@/lib/schemas/common';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
@@ -32,8 +33,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfBankControlRefused(res, err)) return;
     throw err;
   }
-  const forwardedFor = req.headers['x-forwarded-for'];
-  const ip = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() || req.socket?.remoteAddress;
+  // The proxy-appended address, not the client-supplied first hop (H8).
+  const ip = getClientIp(req);
   const change = await revealEntityChange(companyId, parsed.data.changeId, {
     userId: user.id, userEmail: user.email, ip, userAgent: req.headers['user-agent'],
   });

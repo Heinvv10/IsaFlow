@@ -111,6 +111,10 @@ describe('who reads what', () => {
     const emp = (await pool.query(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, employment_type,
       start_date) VALUES($1,'M1','Mc','Pee','permanent','2026-01-01') RETURNING id`, [c])).rows[0].id;
     expect((await read('admin', { entity_type: 'payroll_employee', entity_id: emp })).isError).toBe(true);
+    // Nor the feed filtered to employees (security review of f0d905b8).
+    const filtered = await read('admin', { entity_type: 'payroll_employee' });
+    expect(filtered.isError).toBe(true);
+    expect(filtered.content[0]!.text).toContain('read:payroll');
     expect((await read('admin', { entity_type: 'payroll_employee', entity_id: emp }, ['read:reports', 'read:payroll'])).isError).toBeFalsy();
     const feed = JSON.parse((await read('admin', {})).content[0]!.text) as { items: { entity_type: string }[] };
     expect(feed.items.some((i) => i.entity_type === 'payroll_employee')).toBe(false);

@@ -35,6 +35,10 @@
 --   a definer (881's approval_enforcement_set, 883's guards, …) auth.uid() is
 --   still the request's subject, so the person is recorded, never the owner.
 --
+--   Every trigger here is ENABLE ALWAYS: it fires under
+--   session_replication_role = replica too (a superuser's bulk load), as the
+--   OAuth trust-flag guard does (scripts/ci/oauthTrustFlagRule.ts).
+--
 --   No-op writes record nothing: an UPDATE whose projection (the row minus
 --   created_at / updated_at and each table's derived or secret columns) is
 --   unchanged. Secrets are never stored: the Netcash keys are recorded as a
@@ -172,6 +176,9 @@ DROP TRIGGER IF EXISTS entity_changes_no_truncate ON entity_changes;
 CREATE TRIGGER entity_changes_no_truncate
   BEFORE TRUNCATE ON entity_changes
   FOR EACH STATEMENT EXECUTE FUNCTION public.entity_changes_append_only();
+ALTER TABLE entity_changes ENABLE ALWAYS TRIGGER entity_changes_insert_guard;
+ALTER TABLE entity_changes ENABLE ALWAYS TRIGGER entity_changes_append_only;
+ALTER TABLE entity_changes ENABLE ALWAYS TRIGGER entity_changes_no_truncate;
 
 -- ── 2. What is recorded of a row ──────────────────────────────────────────
 -- A Netcash key is a credential: record that it changed, never what it is.
@@ -319,6 +326,7 @@ BEGIN
     EXECUTE pg_catalog.format(
       'CREATE TRIGGER entity_change_capture AFTER INSERT OR UPDATE OR DELETE ON public.%I '
       'FOR EACH ROW EXECUTE FUNCTION public.entity_change_capture(%L)', t.tbl, t.typ);
+    EXECUTE pg_catalog.format('ALTER TABLE public.%I ENABLE ALWAYS TRIGGER entity_change_capture', t.tbl);
   END LOOP;
 END $$;
 
@@ -393,11 +401,15 @@ BEGIN
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_trigger t
       WHERE t.tgrelid = ('public.' || v_table)::pg_catalog.regclass AND t.tgname = 'entity_change_capture'
-        AND t.tgenabled = 'O' AND t.tgfoid = 'public.entity_change_capture()'::pg_catalog.regprocedure
+        AND t.tgenabled = 'A' AND t.tgfoid = 'public.entity_change_capture()'::pg_catalog.regprocedure
     ) THEN
-      RAISE EXCEPTION 'migration 890: % has no enabled entity_change_capture trigger', v_table;
+      RAISE EXCEPTION 'migration 890: % has no ENABLE ALWAYS entity_change_capture trigger', v_table;
     END IF;
   END LOOP;
+  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_trigger t
+      WHERE t.tgrelid = 'public.entity_changes'::pg_catalog.regclass AND NOT t.tgisinternal AND t.tgenabled = 'A') <> 3 THEN
+    RAISE EXCEPTION 'migration 890: entity_changes must carry exactly its three ENABLE ALWAYS guards';
+  END IF;
 
   -- FORCE RLS binds the capture's owner too: one without BYPASSRLS would be
   -- refused the insert and every tracked write would fail.
