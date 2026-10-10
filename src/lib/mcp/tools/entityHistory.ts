@@ -55,12 +55,13 @@ export const entityHistoryTool: McpTool = {
     const role = ctx.companyRole ?? undefined;
     const limit = clampLimit(args, 50, MAX_PAGE);
 
+    // Employee history needs read:payroll whether one employee or the feed filtered to employees is asked for.
+    if (entityType === 'payroll_employee' && !ctx.scopes.includes('read:payroll')) {
+      return toolError('Employee history needs the read:payroll scope.');
+    }
     if (entityId !== undefined) {
       if (!entityType) return toolError(`entity_id requires entity_type — one of: ${ENTITY_TYPES.join(', ')}`);
       if (!mayReadType(role, entityType)) return toolError(`Your role (${role ?? 'unknown'}) cannot view ${entityType} history.`);
-      if (entityType === 'payroll_employee' && !ctx.scopes.includes('read:payroll')) {
-        return toolError('Employee history needs the read:payroll scope.');
-      }
     } else if (!isHistoryAdmin(role)) {
       return toolError('Only an owner or admin can read the company-wide change history; pass entity_type and entity_id.');
     }

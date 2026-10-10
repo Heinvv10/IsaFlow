@@ -106,6 +106,16 @@ describe('the channel and the actor', () => {
     const login = (await pool.query('SELECT session_user AS u')).rows[0].u as string;
     expect((await changesOf(pool, s)).at(-1)).toMatchObject({ channel: 'system', actor: `db:${login}`, db_role: login });
   });
+
+  it('a superuser bulk write in replica mode is still recorded (ENABLE ALWAYS)', async () => {
+    const c = await company();
+    const s = await newSupplier(c);
+    await as(pool, a, { role: null, claims: null }, async (db) => {
+      await db.query('SET LOCAL session_replication_role = replica');
+      await db.query("UPDATE suppliers SET bank_account_number = '7777000011' WHERE id = $1", [s]);
+    });
+    expect((await changesOf(pool, s)).at(-1)).toMatchObject({ op: 'update', changed: ['bank_account_number'], channel: 'system' });
+  });
 });
 
 describe('every tracked table records', () => {
