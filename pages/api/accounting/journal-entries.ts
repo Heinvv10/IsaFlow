@@ -97,7 +97,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       source,
       sourceDocumentId,
       fiscalPeriodId,
-      lines: placed,
+      lines: placed.lines,
       // A person drafting: a journal dated in a filed VAT period whose only VAT
       // is input tax may be drafted; posting it claims the VAT late (s16(3)).
     }, userId, undefined, { allowLateInputClaim: true }));
@@ -105,7 +105,7 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // R-035 PR6: a person composed it — marked under manual-journal enforcement.
     await markCreatedManualJournal(companyId, entry.id);
 
-    return apiResponse.success(res, entry);
+    return apiResponse.success(res, placed.warnings.length > 0 ? { ...entry, warnings: placed.warnings } : entry);
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     // A driver error (5-character SQLSTATE) quotes the value and names the type

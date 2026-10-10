@@ -17,6 +17,7 @@ import {
   RecurringJournalRequestError,
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
+import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
 /** Detect by SQLSTATE + constraint name; pg localises and rewords messages. */
 function isDuplicateEntryNumber(err: unknown): boolean {
@@ -50,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // heldForApproval (R-035 PR6): the journal left a draft awaiting approval, or nothing.
         const run = await withJournalDateRefusal(res, () => runRecurringJournal(companyId, id, userId));
         if (run === JOURNAL_DATE_REFUSED) return;
-        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval });
+        return apiResponse.success(res, { journalId: run.journalId, heldForApproval: run.heldForApproval, ...(run.warnings ? { warnings: run.warnings } : {}) });
       }
       default:
         return apiResponse.badRequest(res, `Unknown action: ${action}`);
@@ -80,6 +81,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       log.warn('Recurring journal action refused', { message: err.message }, 'accounting-api');
       return apiResponse.badRequest(res, err.message);
     }
+    // A template line's cost centre cannot be used: refused before the run is claimed (nothing written).
+    if (err instanceof CostCentrePickRefusal) return apiResponse.badRequest(res, err.message);
     // A duplicate entry_number is the other transient refusal, and it belongs
     // with the 409 rather than the 500 for exactly the same reason: the same
     // request succeeds on retry. `generate_journal_entry_number` computes

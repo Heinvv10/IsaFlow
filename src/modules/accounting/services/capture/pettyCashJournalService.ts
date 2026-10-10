@@ -130,7 +130,7 @@ export async function postReceiptAsPettyCashJournal(
   // makes live.
   // The picked centre goes on the EXPENSE leg only, into its CC1 / CC2 slot —
   // never on the bank or VAT legs, which carry no dimensions (brief §5.3).
-  const postableLines = await placeCostCentres(companyId, journalInput.lines
+  const { lines: postableLines, warnings: pickWarnings } = await placeCostCentres(companyId, journalInput.lines
     .filter(l => l.debit !== 0 || l.credit !== 0)
     .map(l => ({
       glAccountId: l.accountId,
@@ -255,6 +255,6 @@ export async function postReceiptAsPettyCashJournal(
     merchant: extracted.vendorName,
     amount: extracted.totalAmount,
     inputVatDenied: journalInput.inputVatDenied,
-    warnings: journalInput.inputVatDenied ? [INPUT_VAT_DENIED_ADVICE] : [],
+    warnings: [...(journalInput.inputVatDenied ? [INPUT_VAT_DENIED_ADVICE] : []), ...pickWarnings],
   };
 }

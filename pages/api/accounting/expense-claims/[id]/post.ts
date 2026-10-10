@@ -8,6 +8,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
+import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,6 +71,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (err instanceof ClaimNotPostableError) {
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
+    // A line's cost centre cannot be used (another company's, or untyped): raised before the first write.
+    if (err instanceof CostCentrePickRefusal) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }
