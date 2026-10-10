@@ -14,11 +14,10 @@
 import type { McpTool } from '../types';
 import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
 import {
-  PROJECT_BASES,
   getProjectProfitability,
   getProjectTaggingCoverage,
-  isProjectBasis,
 } from '@/modules/accounting/services/reports/projectProfitabilityService';
+import { PROJECT_BASES, isProjectBasis } from '@/modules/accounting/services/reports/projectBasis';
 import { getWipByClient } from '@/modules/accounting/services/practice/practiceWipService';
 import { buildEnvelope, figureBasis, isDetailLevel } from '../contracts';
 import type { DetailLevel, ExcludedRow } from '../contracts';

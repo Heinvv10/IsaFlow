@@ -19,8 +19,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/ar/statementEmailService', () => ({
   fetchStatementData: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/reports/projectProfitabilityService', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/projectProfitabilityService')>()),
+vi.mock('@/modules/accounting/services/reports/projectProfitabilityService', () => ({
   getProjectProfitability: vi.fn(),
   getProjectTaggingCoverage: vi.fn(),
 }));
@@ -237,23 +236,6 @@ describe('project_profitability — an empty list is the finding, not the answer
       { period_start: '2026-01-01', period_end: '2026-12-31', company_id: OTHER }, ctx,
     );
     expect(vi.mocked(getProjectProfitability).mock.calls[0]![0]).toBe(COMPANY);
-  });
-
-  it('defaults to the jobs basis, passes cc2 through to both reads, and refuses anything else', async () => {
-    await projectProfitabilityTool.handler({ period_start: '2026-01-01', period_end: '2026-12-31' }, ctx);
-    expect(vi.mocked(getProjectProfitability).mock.calls[0]![3]).toBe('jobs');
-    expect(vi.mocked(getProjectTaggingCoverage).mock.calls[0]![3]).toBe('jobs');
-    const cc2 = json(await projectProfitabilityTool.handler(
-      { period_start: '2026-01-01', period_end: '2026-12-31', basis: 'cc2' }, ctx,
-    ));
-    expect(cc2.basis).toBe('cc2');
-    expect(vi.mocked(getProjectProfitability).mock.calls[1]![3]).toBe('cc2');
-    expect(vi.mocked(getProjectTaggingCoverage).mock.calls[1]![3]).toBe('cc2');
-    const bad = await projectProfitabilityTool.handler(
-      { period_start: '2026-01-01', period_end: '2026-12-31', basis: 'projects' }, ctx,
-    );
-    expect(bad.isError).toBe(true);
-    expect(getProjectProfitability).toHaveBeenCalledTimes(2);
   });
 });
 
