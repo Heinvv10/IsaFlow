@@ -108,24 +108,46 @@ const KNOWN_GRANTS = ['348_rls_and_auth_helpers.sql', '352_platform_admin_role.s
 
 const TRACKED_TABLE_SQL = String.raw`(?:(?:only|if\s+exists)\s+)*(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?(?![\w"])`;
 
-export function laterMigrationViolates(sql: string): boolean {
+/**
+ * Escaped text spelled back out (breaker r3–r4): E'…' strings (\xHH, \uXXXX, \UXXXXXXXX, octal, '') and U&"…" /
+ * U&'…' (\XXXX, \+XXXXXX), so a name hidden behind escapes meets the same rules as one written plainly — and a
+ * harmless escape (E'\x1f') meets them as the harmless character it is.
+ */
+export function decodeEscapes(sql: string): string {
+  const cp = (hex: string) => String.fromCodePoint(parseInt(hex, 16));
+  return sql
+    .replace(/\bE'((?:[^'\\]|\\.|'')*)'/gi, (_m, body: string) => `'${body
+      .replace(/\\x([0-9a-f]{1,2})/gi, (_x, h: string) => cp(h))
+      .replace(/\\u([0-9a-f]{4})/gi, (_x, h: string) => cp(h))
+      .replace(/\\U([0-9a-f]{8})/g, (_x, h: string) => cp(h))
+      .replace(/\\([0-7]{1,3})/g, (_x, o: string) => String.fromCharCode(parseInt(o, 8)))
+      .replace(/\\(.)/g, '$1')}'`)
+    .replace(/\bU&(["'])((?:(?!\1).|\1\1)*)\1/gi, (_m, q: string, body: string) => `${q}${body
+      .replace(/\\\+([0-9a-f]{6})/gi, (_x, h: string) => cp(h))
+      .replace(/\\([0-9a-f]{4})/gi, (_x, h: string) => cp(h))}${q}`);
+}
+
+function violates(sql: string): boolean {
   return /\bentity_change/i.test(sql)
     // Any trigger switch but ENABLE ALWAYS, on any table, literal or inside a format() string (blind review r2 L-3):
     // DISABLE stops a capture; a plain or REPLICA ENABLE takes it out of ALWAYS, so it no longer fires under replica.
     || /\b(?:disable|enable(?!\s+always\b))(?:\s+replica)?\s+trigger\b/i.test(sql)
-    // A schema-wide grant, the schema quoted or in a list (breaker r2 #1): hands app_user INSERT or the capture back.
-    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|sequences|functions|routines|procedures)\s+in\s+schema\b[^;]*\bpublic\b/i.test(sql)
+    // A schema-wide grant whose schema list holds public, quoted or not (breaker r2 #1, r4: public as the grantee is
+    // not one): hands app_user INSERT, the capture or the seq sequence back.
+    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|sequences|functions|routines|procedures)\s+in\s+schema\s+(?:"?\w+"?\s*,\s*)*"?public"?(?![\w"])/i.test(sql)
     // Swapping a tracked table out from under its capture (breaker r2 #1): rename, move or drop it.
     || new RegExp(String.raw`\balter\s+table\s+${TRACKED_TABLE_SQL}\s*\*?\s+(?:rename\s+to|set\s+schema)\b`, 'i').test(sql)
     || new RegExp(String.raw`\bdrop\s+table\b[^;]*?\b${TRACKED_TABLE_SQL}`, 'i').test(sql)
     // TRUNCATE fires no row trigger: emptying a tracked table records nothing (breaker r3 #1) — anywhere, a DO block
-    // or a function body included (blind r4 N-3). It must be followed by its table list, so a privilege list
-    // (REVOKE …, TRUNCATE ON t) or a quoted array element ('TRUNCATE', …) is not one.
-    || new RegExp(String.raw`\btruncate\s+(?:table\s+)?(?:(?:only\s+)?[\w".]+\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
-    // An escaped identifier hides a name from every pattern here: U&"…", or an E'…' string spelling characters by
-    // hex, Unicode or octal escape (breaker r3 #1). E'' with only \s, \n and the like (regexes) is fine.
-    || /\bu&["']/i.test(sql)
-    || /\bE'(?:[^'\\]|\\.)*?\\(?:x[0-9a-f]|u[0-9a-f]{4}|U[0-9a-f]{8}|[0-7])/i.test(sql);
+    // or a function body included (blind r4 N-3) — and TRUNCATE … CASCADE empties every table referencing the named
+    // one, tracked tables included (breaker r4). A privilege list (REVOKE …, TRUNCATE ON t … CASCADE) is not one.
+    || new RegExp(String.raw`\btruncate\s+(?!on\b)(?:table\s+)?(?:(?:only\s+)?[\w".]+\s*\*?\s*,\s*)*${TRACKED_TABLE_SQL}`, 'i').test(sql)
+    || /\btruncate\s+(?!on\b)(?:table\s+)?(?:only\s+)?[\w".]+[^;]*\bcascade\b/i.test(sql);
+}
+
+/** What another migration may not do to 888 — judged on the text as written and with its escapes spelled out. */
+export function laterMigrationViolates(sql: string): boolean {
+  return violates(sql) || violates(decodeEscapes(sql));
 }
 
 describe('entity change history (census)', () => {
@@ -159,7 +181,11 @@ describe('entity change history (census)', () => {
       .filter(({ file }) => file.startsWith(MIGRATIONS) && path.basename(file) !== HISTORY_FILE)
       .filter(({ file, text }) => laterMigrationViolates(code(file, text)))
       .map(({ file }) => path.basename(file));
-    expect(found).toEqual(KNOWN_GRANTS);
+    expect(found, 'A migration other than 888 names an entity_change* object, switches a trigger other than to ENABLE '
+      + 'ALWAYS (on ANY table — the rule cannot tell tracked from untracked inside format()), truncates / renames / drops a '
+      + 'tracked table, TRUNCATEs with CASCADE, or grants ON ALL … IN SCHEMA public. If it is safe for the change history '
+      + '(migration 888), add it to KNOWN_GRANTS with the reason; otherwise it would silently stop or open the history.')
+      .toEqual(KNOWN_GRANTS);
   });
 
   // Blind review of #696 (M1): each of these slipped past the first census.
@@ -206,6 +232,11 @@ describe('entity change history (census)', () => {
     'IF true THEN TRUNCATE approval_enforcement; END IF;',
     'FOR i IN 1..1 LOOP TRUNCATE TABLE company_users; END LOOP;',
     'CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$TRUNCATE customers$$;',
+    // Breaker review r4.
+    'DO $q$ BEGIN TRUNCATE company_user_permissions; END $q$;',
+    "EXECUTE E'COMMENT ON TABLE t IS ''x''; DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
+    'TRUNCATE cost_centres CASCADE',
+    'TRUNCATE TABLE occupational_levels RESTART IDENTITY CASCADE',
     "EXECUTE E'DROP TRIGGER entity\\x5fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\u005Fchange_capture ON public.customers'",
     "EXECUTE E'DROP TRIGGER entity\\137change_capture ON public.customers'",
@@ -218,7 +249,11 @@ describe('entity change history (census)', () => {
     'ALTER TABLE customers_archive RENAME TO customers_old', 'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO analyst',
     'REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON suppliers FROM PUBLIC', 'REVOKE TRUNCATE, TRIGGER ON public.company_users FROM app_user', "SELECT regexp_replace(x, E'\\\\s+', ' ')",
     "FOREACH p IN ARRAY ARRAY['INSERT', 'TRUNCATE'] LOOP PERFORM has_table_privilege('app_user', 'public.suppliers', p)",
-    'TRUNCATE supplier_widgets'])(
+    'TRUNCATE supplier_widgets',
+    // Breaker review r4 false positives: a harmless escape, PUBLIC as the grantee.
+    "UPDATE t SET name = replace(name, E'\\x1f', ' ')", "COPY t FROM STDIN WITH (DELIMITER E'\\x1f')", "SELECT U&'\\20AC'",
+    'GRANT SELECT ON ALL TABLES IN SCHEMA reporting TO PUBLIC',
+    "EXECUTE pg_catalog.format('REVOKE TRUNCATE, TRIGGER ON public.%I FROM %s CASCADE', t, g)"])(
     'an unrelated migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
 
   it('no source file turns triggers off (session_replication_role, DISABLE TRIGGER)', () => {
