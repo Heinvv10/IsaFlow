@@ -4,7 +4,10 @@
  * (entity_changes_read) already binds the tenant and the reader's role; the
  * `types` filter states the same rule for the caller (entityChangeTypes.ts)
  * so a narrower reader asks only for what they may see. Newest first, paged
- * by `seq`. Sensitive values come back masked (entityChangeMasking.ts).
+ * by an opaque cursor: the last change's id, resolved to its position inside
+ * the caller's company — `seq` is platform-wide, so returning it would let a
+ * member count other tenants' writes (breaker #696 R3). Sensitive values come
+ * back masked (entityChangeMasking.ts).
  */
 import { sql } from '@/lib/neon';
 import { changeFields } from './entityChangeMasking';
@@ -12,7 +15,6 @@ import type { Channel, EntityChangePage, EntityChangeView, EntityType } from './
 
 export interface EntityChangeRow {
   id: string;
-  seq: string;
   entity_type: EntityType;
   entity_id: string;
   op: 'create' | 'update' | 'delete';
@@ -32,7 +34,7 @@ export interface ListEntityChangesOptions {
   types: readonly EntityType[];
   entityType?: EntityType;
   entityId?: string;
-  /** Only changes older than this seq (the previous page's nextCursor). */
+  /** Only changes older than this change id (the previous page's nextCursor). */
   before?: string;
   limit?: number;
 }
@@ -71,7 +73,6 @@ export function entityLabel(type: EntityType, row: Pick<EntityChangeRow, 'before
 export function toView(row: EntityChangeRow, reveal = false): EntityChangeView {
   return {
     id: row.id,
-    seq: String(row.seq),
     entityType: row.entity_type,
     entityId: row.entity_id,
     entityLabel: entityLabel(row.entity_type, row),
@@ -94,7 +95,7 @@ export async function selectEntityChanges(companyId: string, opts: {
   types: readonly EntityType[]; entityType?: EntityType; entityId?: string; before?: string; changeId?: string; limit: number;
 }): Promise<EntityChangeRow[]> {
   return (await sql`
-    SELECT ec.id, ec.seq::TEXT AS seq, ec.entity_type, ec.entity_id, ec.op, ec.changed, ec.before, ec.after,
+    SELECT ec.id, ec.entity_type, ec.entity_id, ec.op, ec.changed, ec.before, ec.after,
            ec.actor, ec.channel, ec.impersonator, ec.recorded_at,
            CASE WHEN ec.actor LIKE 'db:%' THEN NULL
                 ELSE public.approval_company_member_name(ec.company_id, ec.actor) END AS actor_name,
@@ -107,7 +108,8 @@ export async function selectEntityChanges(companyId: string, opts: {
       AND (${opts.entityType ?? null}::TEXT IS NULL OR ec.entity_type = ${opts.entityType ?? null}::TEXT)
       AND (${opts.entityId ?? null}::UUID IS NULL OR ec.entity_id = ${opts.entityId ?? null}::UUID)
       AND (${opts.changeId ?? null}::UUID IS NULL OR ec.id = ${opts.changeId ?? null}::UUID)
-      AND (${opts.before ?? null}::BIGINT IS NULL OR ec.seq < ${opts.before ?? null}::BIGINT)
+      AND (${opts.before ?? null}::UUID IS NULL OR ec.seq < (
+        SELECT b.seq FROM entity_changes b WHERE b.id = ${opts.before ?? null}::UUID AND b.company_id = ${companyId}::UUID))
     ORDER BY ec.seq DESC
     LIMIT ${opts.limit}
   `) as EntityChangeRow[];
@@ -120,6 +122,6 @@ export async function listEntityChanges(companyId: string, opts: ListEntityChang
   const page = rows.slice(0, limit);
   return {
     items: page.map((r) => toView(r)),
-    nextCursor: rows.length > limit ? String(page[page.length - 1]!.seq) : null,
+    nextCursor: rows.length > limit ? page[page.length - 1]!.id : null,
   };
 }

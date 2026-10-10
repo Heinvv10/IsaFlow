@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT } from '../../helpers/sourceCensus';
 import {
-  ADMIN_ROLES, CHANNELS, ENTITY_TYPES, isHistoryAdmin, isSeqCursor, mayReadType,
+  ADMIN_ROLES, CHANNELS, ENTITY_TYPES, isHistoryAdmin, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { changeFields, maskValue, SENSITIVE_FIELDS } from '@/modules/accounting/services/core/entityChanges/entityChangeMasking';
 import { entityLabel } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
@@ -69,10 +69,6 @@ describe('890 and its TypeScript agree', () => {
     });
   });
 
-  it('a page cursor is a seq that fits a BIGINT', () => {
-    for (const ok of ['1', '42', '9223372036854775807']) expect(isSeqCursor(ok), ok).toBe(true);
-    for (const bad of ['0', '-1', '01', '1.5', '9223372036854775808', '9999999999999999999', '']) expect(isSeqCursor(bad), bad).toBe(false);
-  });
 });
 
 describe('masking', () => {

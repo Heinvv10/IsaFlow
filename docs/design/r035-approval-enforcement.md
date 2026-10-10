@@ -619,9 +619,12 @@ SELECT only, platform_admin nothing, and EXECUTE on the capture and its helpers 
 be attached to a temp table of one's own to forge a row; a trigger fires without an EXECUTE check). A BEFORE INSERT
 guard refuses any insert not made from inside a capture (trigger depth) and stamps seq / clock / txid; BEFORE UPDATE /
 DELETE / TRUNCATE refuse every role's plain statements, the owner's included, except the cascade of a purged company.
-The owner — the role that applied 890, the deploy role on production, not `migration_admin` — can still disable or
-drop the guards, or forge a row from a trigger of its own (trigger depth is met by any trigger): it is outside the
-boundary, with N3. 890 asserts all of
+The owner — the role that applied 890, which on production is the app's own login (`deploy.sh` migrates with the app's
+`DATABASE_URL`), not `migration_admin` — can still disable or drop the guards, or forge a row from a trigger of its own
+(trigger depth is met by any trigger): injected SQL that RESETs ROLE can erase history (breaker #696 R7). That is the
+N1/N3 boundary: the same login already owns every tracked table through `migration_admin` and can switch the capture
+off. Closing it needs a history owner the login is not a member of (and, on PG < 16, a superuser to give that role
+BYPASSRLS) — part of N3, not built here. 890 asserts all of
 it — per role, exempting only `session_user` when it inherits the owner (#680) — plus that every tracked table carries
 the capture ENABLE ALWAYS, that no request role holds TRUNCATE on a tracked table (TRUNCATE fires no row trigger),
 and that the capture's owner bypasses RLS (FORCE RLS would otherwise refuse every tracked write).

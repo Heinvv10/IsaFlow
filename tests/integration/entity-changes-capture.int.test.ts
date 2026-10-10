@@ -151,20 +151,55 @@ describe('every tracked table records', () => {
     expect(roleChange).toMatchObject({ entity_type: 'company_user', op: 'update', changed: ['role'], actor: o });
     expect(roleChange.before).toMatchObject({ role: 'admin', user_id: a });
     const invitation = (await changesOf(pool, ids.company_invitation))[0]!;
-    expect(invitation.after).not.toHaveProperty('token');
+    expect(invitation.after!.token).toMatch(/^sha256:[0-9a-f]{12}$/);
+    expect(JSON.stringify(invitation)).not.toContain('tok-hash');
   });
 
-  it('companies: tax, VAT and bank columns are recorded; display settings are not; Netcash keys only as a digest', async () => {
+  it('companies: tax, VAT, bank, pay-to and mail settings are recorded; display settings are not; Netcash keys only as a digest', async () => {
     const c = await company();
     await asApp(pool, o, c, (db) => db.query("UPDATE companies SET vat_number = '4111111111', bank_account_number = '123456789' WHERE id = $1", [c]));
-    await asApp(pool, o, c, (db) => db.query("UPDATE companies SET currency_symbol = 'X', invoice_email_body = 'hi' WHERE id = $1", [c]));
+    await asApp(pool, o, c, (db) => db.query("UPDATE companies SET currency_symbol = 'X', portal_primary_color = '#000' WHERE id = $1", [c]));
     await asApp(pool, o, c, (db) => db.query("UPDATE companies SET netcash_payouts_key = 'super-secret-key-1' WHERE id = $1", [c]));
+    // Breaker #696 R1: where customers are told to pay, and the mail that carries it.
+    await asApp(pool, o, c, (db) => db.query(`UPDATE companies SET portal_payment_instructions = 'Pay FNB 62999999999',
+      email = 'a@x.test', billing_email = 'b@x.test', invoice_email_body = 'new banking details', chase_auto_send_enabled = true
+      WHERE id = $1`, [c]));
     const rows = (await changesOf(pool, c)).filter((r) => r.op === 'update');
-    expect(rows.map((r) => r.changed)).toEqual([['bank_account_number', 'vat_number'], ['netcash_payouts_key']]);
+    expect(rows.map((r) => r.changed)).toEqual([['bank_account_number', 'vat_number'], ['netcash_payouts_key'],
+      ['billing_email', 'chase_auto_send_enabled', 'email', 'invoice_email_body', 'portal_payment_instructions']]);
     const keyChange = rows[1]!;
     expect(JSON.stringify(keyChange)).not.toContain('super-secret-key-1');
     expect(keyChange.after!.netcash_payouts_key).toMatch(/^sha256:[0-9a-f]{12}$/);
     expect(keyChange.before!.netcash_payouts_key).toBeNull();
     expect(keyChange.entity_type).toBe('company');
+  });
+
+  it('an invitation re-pointed to another account or re-issued is recorded; the token only as a digest (breaker #696 R6)', async () => {
+    const c = await company();
+    const inv = await asApp(pool, o, c, async (db) => (await db.query(`INSERT INTO company_invitations(company_id, email, role,
+      invited_by, token, expires_at) VALUES($1,'r6@x.test','manager',$2,'tok-one',now() + interval '1 day') RETURNING id`, [c, o])).rows[0].id);
+    const account = crypto.randomUUID();
+    await asApp(pool, o, c, (db) => db.query("UPDATE company_invitations SET gotrue_user_id = $2, token = 'tok-two' WHERE id = $1", [inv, account]));
+    await asApp(pool, o, c, (db) => db.query("UPDATE company_invitations SET email_sent_at = now() WHERE id = $1", [inv]));
+    const rows = await changesOf(pool, inv);
+    expect(rows.map((r) => [r.op, r.changed])).toEqual([
+      ['create', ['company_id', 'email', 'expires_at', 'invited_by', 'role', 'token']], ['update', ['gotrue_user_id', 'token']]]);
+    expect(rows[1]!.after).toMatchObject({ gotrue_user_id: account });
+    expect(rows[1]!.after!.token).toMatch(/^sha256:[0-9a-f]{12}$/);
+    expect(JSON.stringify(rows)).not.toMatch(/tok-one|tok-two/);
+  });
+
+  it('a re-keyed row is recorded under both ids (breaker #696 R2)', async () => {
+    const c = await company();
+    const s = await newSupplier(c);
+    const moved = crypto.randomUUID();
+    await asApp(pool, a, c, (db) => db.query('UPDATE suppliers SET id = $2 WHERE id = $1', [s, moved]));
+    const [old] = (await changesOf(pool, s)).filter((r) => r.op === 'update');
+    const [now] = await changesOf(pool, moved);
+    for (const r of [old, now]) {
+      expect(r).toMatchObject({ op: 'update', changed: ['id'], before: { id: s }, after: { id: moved }, actor: a });
+    }
+    expect(old!.entity_id).toBe(s);
+    expect(now!.entity_id).toBe(moved);
   });
 });

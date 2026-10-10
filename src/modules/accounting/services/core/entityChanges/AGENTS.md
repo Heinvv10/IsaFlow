@@ -25,10 +25,13 @@ capture to call and none to forget.
   admin), `token` (claims without session_id: MCP / PAT / extension), `platform_admin`, `system` (no claims). A
   write inside a SECURITY DEFINER (881/885, create_company_with_owner) is still attributed to the person.
 - No-op writes record nothing (projection drops id, created_at, updated_at, suppliers.bank_details_setters,
-  company_users.is_default, invitation token / mail state). Netcash keys: a 12-hex sha256 digest only.
+  company_users.is_default, invitation mail state). Netcash keys and invitation tokens: a 12-hex sha256 digest only. A
+  re-keyed row is recorded under both ids. Companies: an allow-list incl. payment instructions, emails, mail bodies.
+- Paging cursor = the last change's id (resolved in the caller's company); `seq` is platform-wide and never returned.
 - Reading: suppliers / customers / GL accounts any member; payroll employees owner / admin / manager; everything
   else and the company-wide feed owner / admin. Masked for everyone (last four): bank account, ID / passport / tax /
-  UIF / PAYE / SDL numbers (`SENSITIVE_FIELDS`); MCP never reveals and needs `read:payroll` for employees.
+  UIF / PAYE / SDL numbers (`SENSITIVE_FIELDS`); MCP never reveals, needs `read:payroll` for employees and
+  `read:contacts` for suppliers / customers (as their list tools).
 - Append-only for every role (grant: app_user SELECT only; triggers refuse UPDATE / DELETE / TRUNCATE and any
   direct INSERT). Retention: until the company is purged (the FK cascade, 877's recipe). A deleted entity keeps
   its history.
@@ -39,8 +42,8 @@ capture to call and none to forget.
   (no request role holds TRUNCATE on them; 890 asserts it).
 - Writes with no claims (invite acceptance, provisioning, scripts) record `db:<role>` — the person is in the row.
 - `payroll_bank_details` is untracked (no company_id, no app writer).
-- The owner of `entity_changes` / the capture (the applying deploy role) can disable or drop the guards — outside the
-  boundary. No per-person erasure: a deleted entity's values stay until the company is purged (Hein to decide, #696 M2).
+- The owner of `entity_changes` / the capture is the applying role — on production the app's own login — and can disable
+  or drop the guards (after RESET ROLE: N3) — outside the boundary. No per-person erasure: a deleted entity's values stay until the company is purged (Hein to decide, #696 M2).
 - ~0.4 ms per tracked row written; bulk imports write one history row per row.
 
 ## Related

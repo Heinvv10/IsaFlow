@@ -41,8 +41,9 @@
 --
 --   No-op writes record nothing: an UPDATE whose projection (the row minus
 --   created_at / updated_at and each table's derived or secret columns) is
---   unchanged. Secrets are never stored: the Netcash keys are recorded as a
---   short sha256 digest, so a change is visible and the key is not.
+--   unchanged. Secrets are never stored: the Netcash keys and an invitation's
+--   token are recorded as a short sha256 digest, so a change is visible and the
+--   secret is not. A row whose id changes is recorded under both ids.
 --
 --   Retention: kept until the company is purged (877's recipe — the history
 --   cascades with its company, the one delete the append-only trigger lets
@@ -59,10 +60,14 @@
 -- app_user, so injected SQL can RESET ROLE or forge its claims. These objects
 -- bind application code paths and app_user / platform_admin statements, not
 -- an attacker already running arbitrary SQL. Nor the OWNER: the table and the
--- capture are owned by the role that applies this migration (the deploy role
--- on production), which can disable or drop the guards, or forge a row from a
--- trigger of its own; the guards refuse its plain UPDATE / DELETE / INSERT, so
--- an accident is refused, not a deliberate owner.
+-- capture are owned by the role that applies this migration — on production
+-- the app's own login (deploy.sh migrates with the app's DATABASE_URL) — which
+-- can disable or drop the guards, or forge a row from a trigger of its own; so
+-- injected SQL that RESETs ROLE can erase history (breaker #696 R7). The guards
+-- refuse its plain UPDATE / DELETE / INSERT: an accident is refused, a
+-- deliberate owner is not. That login already owns, through migration_admin,
+-- every tracked table and so can switch the capture off; closing this means a
+-- history owner the login is not a member of, which is N3's work.
 --
 -- Erasure: the history keeps a deleted entity's values (bank account, ID and
 -- tax numbers included) until its company is purged; there is no per-person
@@ -222,7 +227,18 @@ AS $$
          'sdl_reference_number', 'uif_reference_number', 'tax_practitioner_reg_number', 'tax_practitioner_name',
          'financial_year_start', 'lockdown_enabled', 'lockdown_date', 'default_currency', 'functional_currency',
          'fx_documents_enabled', 'bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type',
-         'netcash_enabled', 'status', 'is_active', 'idle_timeout_minutes']::pg_catalog.text[]))
+         'netcash_enabled', 'status', 'is_active', 'idle_timeout_minutes',
+         -- Where customers are told to pay, and the addresses and mail that carry it
+         -- (breaker #696 R1): a changed "pay into" line is as material as the account.
+         'portal_payment_instructions', 'email', 'billing_email', 'email_always_cc', 'email_use_for_communication',
+         'invoice_email_subject', 'invoice_email_body', 'invoice_email_signature',
+         'quote_email_subject', 'quote_email_body', 'quote_email_signature',
+         'statement_email_subject', 'statement_email_body', 'statement_email_signature',
+         'credit_note_email_subject', 'credit_note_email_body', 'credit_note_email_signature',
+         'sales_order_email_subject', 'sales_order_email_body', 'sales_order_email_signature',
+         'recurring_invoice_email_subject', 'recurring_invoice_email_body', 'recurring_invoice_email_signature',
+         'chase_auto_send_enabled', 'whatsapp_chase_enabled', 'client_query_whatsapp',
+         'share_anonymised_signals']::pg_catalog.text[]))
       || pg_catalog.jsonb_build_object(
            'netcash_service_key', public.entity_change_secret_digest(p_row ->> 'netcash_service_key'),
            'netcash_payouts_key', public.entity_change_secret_digest(p_row ->> 'netcash_payouts_key'))
@@ -231,9 +247,14 @@ AS $$
       WHEN 'supplier' THEN ARRAY['bank_details_setters']::pg_catalog.text[]
       -- A member's own default company: their preference, not an access change.
       WHEN 'company_user' THEN ARRAY['is_default']::pg_catalog.text[]
-      -- The token hash is a credential; the rest is mail delivery state.
-      WHEN 'company_invitation' THEN ARRAY['token', 'email_sent_at', 'email_error', 'gotrue_user_id']::pg_catalog.text[]
+      -- Mail delivery state. The token (a credential) is replaced by its digest
+      -- below; gotrue_user_id is the account acceptance sets a password on, so it
+      -- is recorded (breaker #696 R6).
+      WHEN 'company_invitation' THEN ARRAY['token', 'email_sent_at', 'email_error']::pg_catalog.text[]
       ELSE ARRAY[]::pg_catalog.text[] END
+      || CASE WHEN p_type = 'company_invitation'
+           THEN pg_catalog.jsonb_build_object('token', public.entity_change_secret_digest(p_row ->> 'token'))
+           ELSE '{}'::pg_catalog.jsonb END
   END
 $$;
 
@@ -271,6 +292,8 @@ DECLARE
   v_impersonator pg_catalog.text;
   v_company pg_catalog.uuid;
   v_companies pg_catalog.uuid[];
+  v_entity pg_catalog.uuid;
+  v_entities pg_catalog.uuid[];
 BEGIN
   IF TG_OP <> 'INSERT' THEN
     v_old := pg_catalog.to_jsonb(OLD);
@@ -279,6 +302,13 @@ BEGIN
   IF TG_OP <> 'DELETE' THEN
     v_new := pg_catalog.to_jsonb(NEW);
     v_after := public.entity_change_projection(v_type, v_new);
+  END IF;
+  -- A re-keyed row (its id changed): the projection drops id, so put both ids
+  -- in, and record the change under each (breaker #696 R2) — the old id's
+  -- timeline ends with it and the new one's starts with it.
+  IF TG_OP = 'UPDATE' AND v_old ->> 'id' IS DISTINCT FROM v_new ->> 'id' THEN
+    v_before := v_before || pg_catalog.jsonb_build_object('id', v_old -> 'id');
+    v_after := v_after || pg_catalog.jsonb_build_object('id', v_new -> 'id');
   END IF;
   IF TG_OP = 'UPDATE' AND v_before = v_after THEN
     RETURN NULL;
@@ -309,16 +339,21 @@ BEGIN
     v_channel := CASE WHEN v_impersonator IS NULL THEN 'session' ELSE 'impersonation' END;
   END IF;
 
+  SELECT pg_catalog.array_agg(DISTINCT e::pg_catalog.uuid) INTO v_entities
+  FROM pg_catalog.unnest(ARRAY[v_old ->> 'id', v_new ->> 'id']) AS e WHERE e IS NOT NULL;
+
   FOREACH v_company IN ARRAY COALESCE(v_companies, ARRAY[]::pg_catalog.uuid[]) LOOP
     CONTINUE WHEN NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = v_company);
+    FOREACH v_entity IN ARRAY v_entities LOOP
     INSERT INTO public.entity_changes (company_id, entity_type, entity_id, op, changed, before, after, actor, channel,
                                        impersonator, session_id, db_role, login_role, txid, recorded_at)
-    VALUES (v_company, v_type, (COALESCE(v_new, v_old) ->> 'id')::pg_catalog.uuid,
+    VALUES (v_company, v_type, v_entity,
             CASE TG_OP WHEN 'INSERT' THEN 'create' WHEN 'DELETE' THEN 'delete' ELSE 'update' END,
             public.entity_change_keys(v_before, v_after), v_before, v_after,
             COALESCE(v_subject, 'db:' || session_user), v_channel,
             CASE WHEN v_channel = 'impersonation' THEN v_impersonator END, v_sid, v_role, session_user,
             0, pg_catalog.clock_timestamp());
+    END LOOP;
   END LOOP;
   RETURN NULL;
 END
