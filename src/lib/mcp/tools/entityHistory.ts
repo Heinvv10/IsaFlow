@@ -9,7 +9,7 @@
 import type { McpTool } from '../types';
 import { listEntityChanges, MAX_PAGE } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import {
-  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, mayReadType,
+  CHANNELS, ENTITY_TYPES, isEntityType, isHistoryAdmin, isSeqCursor, mayReadType,
 } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -51,7 +51,7 @@ export const entityHistoryTool: McpTool = {
     const entityType = entityTypeRaw as (typeof ENTITY_TYPES)[number] | undefined;
     const entityId = strArg(args, 'entity_id');
     const cursor = strArg(args, 'cursor');
-    if (cursor !== undefined && !/^[1-9][0-9]{0,18}$/.test(cursor)) return toolError('invalid cursor');
+    if (cursor !== undefined && !isSeqCursor(cursor)) return toolError('invalid cursor');
     const role = ctx.companyRole ?? undefined;
     const limit = clampLimit(args, 50, MAX_PAGE);
 

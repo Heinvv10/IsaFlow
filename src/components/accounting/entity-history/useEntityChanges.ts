@@ -61,6 +61,5 @@ export function useEntityChanges(query: EntityChangesQuery) {
     items, loading, error, replace,
     hasMore: cursor !== null,
     loadMore: () => { if (cursor) void load(cursor); },
-    reload: () => { void load(null); },
   };
 }

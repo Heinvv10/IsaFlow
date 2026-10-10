@@ -10,9 +10,9 @@
  *    them too (create_company_with_owner, the 881/885 definers).
  *  - entity_changes is written by nothing but 890's capture and read only by
  *    entityChangeQuery.ts.
- *  - No later migration drops or disables the capture, alters, re-grants or
- *    views the history, or grants ON ALL TABLES (which would hand app_user
- *    INSERT back).
+ *  - No later migration names any of 890's objects (`entity_change…`), turns a
+ *    tracked table's triggers off (DISABLE / ENABLE REPLICA), or grants ON ALL
+ *    TABLES / FUNCTIONS (which would hand app_user INSERT or the capture back).
  *  - Nothing in src / pages / scripts turns triggers off.
  *
  * A TEXT check: a statement built at run time slips past it (the dynamic
@@ -90,6 +90,21 @@ const writes = (t: string) => new RegExp(
 const code = (file: string, text: string) => withoutSqlComments(stripComments(text, file));
 const nonMigrations = () => sourceFiles().filter(({ file }) => !file.startsWith(MIGRATIONS));
 
+const TRACKED_TABLE = String.raw`(?:only\s+)?(?:"?public"?\s*\.\s*)?"?(?:suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?`;
+/**
+ * A later migration may not name any of 890's objects at all (the table, its
+ * policy, the capture and its helpers — `entity_change…`): any change to the
+ * history is a review event, so it fails here until this census is changed with
+ * it. Nor may it turn triggers off on a tracked table (DISABLE, ENABLE REPLICA),
+ * write the history, or grant ON ALL TABLES / FUNCTIONS (that hands app_user
+ * INSERT on the history, or EXECUTE on the capture, back).
+ */
+export function laterMigrationViolates(sql: string): boolean {
+  return /\bentity_change/i.test(sql)
+    || new RegExp(String.raw`\balter\s+table\s+(?:if\s+exists\s+)?${TRACKED_TABLE}\s+(?:disable|enable\s+replica)\s+trigger\b`, 'i').test(sql)
+    || /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions|routines)\s+in\s+schema\s+public\b/i.test(sql);
+}
+
 describe('entity change history (census)', () => {
   it.each(TRACKED)('every writer of %s is pinned', (t) => {
     const re = writes(t);
@@ -104,26 +119,39 @@ describe('entity change history (census)', () => {
     expect(writes('entity_changes').test(code(query!.file, query!.text))).toBe(false);
   });
 
-  it('no later migration drops the capture, rewrites the history, or grants it back', () => {
-    const REFUSED = [
-      /\bdrop\s+trigger\b[^;]*\bentity_change/i,
-      /\b(?:disable|enable(?!\s+always))\s+trigger\b[^;]*\bentity_change/i,
-      /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:public\.)?"?(?:entity_changes|suppliers|customers|gl_accounts|payroll_employees|company_users|company_invitations|company_user_permissions|companies|approval_rules|approval_enforcement)"?\s+disable\s+trigger\b/i,
-      /\bgrant\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:public\.)?"?entity_changes\b/i,
-      /\bgrant\b[^;]*\bon\s+all\s+(?:tables|functions)\s+in\s+schema\s+public\b/i,
-      /\balter\s+(?:table|function)\s+[^;]*\bentity_change\w*\b[^;]*\bowner\b/i,
-      /\bcreate\s+(?:or\s+replace\s+)?(?:(?:temp|temporary|recursive|materialized)\s+)*view\b[^;]*\bentity_changes\b/i,
-      /\bcreate\s+(?:or\s+replace\s+)?function\s+(?:public\.)?entity_change/i,
-      writes('entity_changes'),
-    ];
+  it('no later migration touches the history or turns a capture off', () => {
     const later = sourceFiles().filter(({ file }) => file.startsWith(MIGRATIONS) && migrationNumber(file) > HISTORY_FROM);
-    const found = later.filter(({ file, text }) => REFUSED.some((re) => re.test(code(file, text)))).map(({ file }) => file);
-    expect(found).toEqual([]);
+    expect(later.filter(({ file, text }) => laterMigrationViolates(code(file, text))).map(({ file }) => file)).toEqual([]);
   });
+
+  // Blind review of #696 (M1): each of these slipped past the first census.
+  it.each([
+    'ALTER TABLE suppliers ENABLE REPLICA TRIGGER entity_change_capture',
+    'ALTER TABLE customers ENABLE REPLICA TRIGGER ALL',
+    'ALTER TABLE ONLY public.gl_accounts DISABLE TRIGGER USER',
+    'DROP FUNCTION public.entity_change_capture() CASCADE',
+    'ALTER TABLE entity_changes DISABLE ROW LEVEL SECURITY',
+    'ALTER TABLE entity_changes NO FORCE ROW LEVEL SECURITY',
+    'CREATE POLICY wide ON entity_changes FOR SELECT TO app_user USING (true)',
+    'DROP POLICY entity_changes_read ON entity_changes',
+    'ALTER FUNCTION public.entity_change_capture() SECURITY INVOKER',
+    "CREATE OR REPLACE TRIGGER entity_change_capture AFTER INSERT ON suppliers FOR EACH ROW EXECUTE FUNCTION noop()",
+    'GRANT EXECUTE ON FUNCTION public.entity_change_capture() TO app_user',
+    'DROP TABLE entity_changes',
+    'ALTER TABLE entity_changes ALTER COLUMN actor DROP NOT NULL',
+    'GRANT INSERT ON ALL TABLES IN SCHEMA public TO app_user',
+    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_user',
+    'DROP TRIGGER entity_change_capture ON suppliers',
+  ])('a later migration saying %s is refused', (stmt) => {
+    expect(laterMigrationViolates(stmt)).toBe(true);
+  });
+
+  it.each(['CREATE TABLE widgets (id uuid)', 'ALTER TABLE suppliers ADD COLUMN x text', 'ALTER TABLE suppliers ENABLE ALWAYS TRIGGER foo'])(
+    'an unrelated later migration (%s) passes', (stmt) => { expect(laterMigrationViolates(stmt)).toBe(false); });
 
   it('no source file turns triggers off (session_replication_role, DISABLE TRIGGER)', () => {
     const found = nonMigrations()
-      .filter(({ file, text }) => /\bsession_replication_role\b|\bdisable\s+trigger\b/i.test(code(file, text)))
+      .filter(({ file, text }) => /\bsession_replication_role\b|\bdisable\s+trigger\b|\benable\s+replica\s+trigger\b/i.test(code(file, text)))
       .map(({ file }) => file);
     // A lint rule that names both in its messages; it turns nothing off.
     expect(found).toEqual(['scripts/ci/oauthTrustFlagRule.ts']);

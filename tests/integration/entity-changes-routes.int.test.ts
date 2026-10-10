@@ -79,6 +79,14 @@ describe('a supplier timeline', () => {
     const rest = await page(a, c, { entityType: 'supplier', entityId: s, limit: '2', before: first.nextCursor! });
     expect(rest.items.map((i) => i.op)).toEqual(['create']);
     expect(rest.nextCursor).toBeNull();
+    // A page that holds exactly the rest has no older page (blind review L2: `>=` would offer an empty one).
+    const exact = await page(a, c, { entityType: 'supplier', entityId: s, limit: '3' });
+    expect(exact.items).toHaveLength(3);
+    expect(exact.nextCursor).toBeNull();
+    // A cursor beyond BIGINT is refused (422, validationError), not a cast error 500 (blind review L1).
+    expect((await get(a, c, { entityType: 'supplier', entityId: s, before: '9999999999999999999' })).state.statusCode).toBe(422);
+    const mcp = await mcpCall(pool, a, c, 'admin', 'entity_history', { entity_type: 'supplier', entity_id: s, cursor: '9999999999999999999' });
+    expect(mcp).toMatchObject({ isError: true, content: [{ text: 'invalid cursor' }] });
   });
 });
 

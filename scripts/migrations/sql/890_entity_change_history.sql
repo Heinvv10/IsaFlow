@@ -58,7 +58,18 @@
 -- Boundary (as N1, 876, 877): the app connects as a login role that drops to
 -- app_user, so injected SQL can RESET ROLE or forge its claims. These objects
 -- bind application code paths and app_user / platform_admin statements, not
--- an attacker already running arbitrary SQL. TRUNCATE of a tracked table
+-- an attacker already running arbitrary SQL. Nor the OWNER: the table and the
+-- capture are owned by the role that applies this migration (the deploy role
+-- on production), which can disable or drop the guards, or forge a row from a
+-- trigger of its own; the guards refuse its plain UPDATE / DELETE / INSERT, so
+-- an accident is refused, not a deliberate owner.
+--
+-- Erasure: the history keeps a deleted entity's values (bank account, ID and
+-- tax numbers included) until its company is purged; there is no per-person
+-- erasure path. Hein to decide whether POPIA needs one (review of PR #696, M2).
+--
+-- Cost: about 0.4 ms per tracked row written (5 000-row bulk INSERT / UPDATE:
+-- ~2 s with capture, ~0.1 s without, measured on a fixture). TRUNCATE of a tracked table
 -- fires no row trigger; no role but their owners holds TRUNCATE on them
 -- (asserted below).
 
@@ -151,9 +162,10 @@ CREATE TRIGGER entity_changes_insert_guard
   BEFORE INSERT ON entity_changes
   FOR EACH ROW EXECUTE FUNCTION public.entity_changes_insert_guard();
 
--- Append-only for every role, the owner included. The one exception is the
--- cascade from a purged company (876/877's recipe): by then the company row
--- is gone.
+-- Append-only for every role, the owner's plain statements included (the owner
+-- can still disable the trigger: see the boundary above). The one exception is
+-- the cascade from a purged company (876/877's recipe): by then the company
+-- row is gone.
 CREATE OR REPLACE FUNCTION public.entity_changes_append_only() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
