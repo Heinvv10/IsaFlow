@@ -11,6 +11,11 @@
 -- cc1_id on every new line (gl/legacyCostCentreMirror.ts). This file does the
 -- same for the lines already stored, so no tagged line drops out of a report.
 --
+-- ONE RULE. Sections 0 and 1 use the predicate of
+-- gl/legacyCostCentreMirror.ts#legacyMirrorSlot, its CC1 arm: a cost centre of
+-- the line's OWN company whose cc_type is 'cc1'. The writer applies it to every
+-- new line; this file applies it to the stored ones. Change both together.
+--
 --  0. Precondition: every line with cost_center_id set and cc1_id NULL must
 --     name a cost centre of the line's OWN company whose cc_type is 'cc1'.
 --     Anything else refuses the whole file, naming the first ten lines:

@@ -119,8 +119,13 @@ it('a reversal of a pre-887 legacy-only line: the contra carries cc1_id; a legac
   const seen = await inRequestTx(async (client) => {
     const r1 = await reverseJournalEntry(company, legacyCc1Entry, user);
     const r2 = await reverseJournalEntry(company, legacyCc2Entry, user);
-    return { cc1: await linesOf(client, r1.id), cc2: await linesOf(client, r2.id) };
+    const status = (await client.query(
+      'SELECT status FROM gl_journal_entries WHERE company_id = $1 AND id = ANY($2::UUID[]) ORDER BY status',
+      [company, [r1.id, r2.id]])).rows.map((r) => r.status);
+    return { status, cc1: await linesOf(client, r1.id), cc2: await linesOf(client, r2.id) };
   });
+  // Both reversals post — the CC2 one too, as it did before the mirror existed.
+  expect(seen.status).toEqual(['posted', 'posted']);
   expect(seen.cc1.find((l) => String(l.description).includes('legacy-debit')))
     .toMatchObject({ cost_center_id: fno, cc1_id: fno, cc2_id: null });
   expect(seen.cc2.find((l) => String(l.description).includes('legacy-debit')))
