@@ -2,6 +2,12 @@
  * Journal Entries API
  * GET  /api/accounting/journal-entries - List entries (with filters)
  * POST /api/accounting/journal-entries - Create draft entry with lines
+ *
+ * POST body: { entryDate, description?, fiscalPeriodId?, sourceDocumentId?, lines: [{ glAccountId, debit, credit,
+ * description?, vatType?, projectId?, cc1Id?, cc2Id?, buId?, costCenterId? }] }. A line's `costCenterId` is a PICK
+ * (a string id): it is stored as the line's CC1 or CC2 (gl/dimensions/costCentrePick), never in a column of its own.
+ * POST answers `JournalEntryCreateResponse`: the entry, plus `warnings` — one sentence per pick that was NOT applied
+ * (an inactive centre, a slot the line already fills) — only when there is one. The entry is created either way.
  */
 
 import type { NextApiResponse } from 'next';
@@ -19,9 +25,20 @@ import {
   getJournalEntries,
   createJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
+import type { GLEntryStatus, GLEntrySource, JournalEntry, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
 import { markCreatedManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
+
+/** Why `lines` is not a list of line objects, or null. `costCenterId`, when sent, must be a string id. */
+function lineShapeProblem(lines: unknown[]): string | null {
+  for (const [i, line] of lines.entries()) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line)) return `lines[${i}] must be a journal line object`;
+    const pick = (line as { costCenterId?: unknown }).costCenterId;
+    if (pick !== undefined && pick !== null && typeof pick !== 'string') return `lines[${i}].costCenterId must be a cost centre id (a string)`;
+  }
+  return null;
+}
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -40,6 +57,9 @@ async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse
     return apiResponse.badRequest(res, 'Failed to get journal entries');
   }
 }
+
+/** What POST answers in `data`: the draft entry, and the picks that were not applied (absent when every pick landed). */
+export type JournalEntryCreateResponse = JournalEntry & { warnings?: string[] };
 
 async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -87,13 +107,20 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
 
+    // The body is whatever the caller sent: a line that is not an object, or a pick that is not a string, used to
+    // answer with the TypeError it caused further down. Named here instead.
+    const shape = lineShapeProblem(lines);
+    if (shape) return apiResponse.badRequest(res, shape);
+    // A line's costCenterId is a pick: it goes into its CC1 / CC2 slot
+    // (gl/dimensions/costCentrePick), never into the legacy column.
+    const placed = await placeCostCentres(companyId, lines as JournalLineInput[]);
     const entry = await withJournalDateRefusal(res, () => createJournalEntry(companyId, {
       entryDate,
       description,
       source,
       sourceDocumentId,
       fiscalPeriodId,
-      lines,
+      lines: placed.lines,
       // A person drafting: a journal dated in a filed VAT period whose only VAT
       // is input tax may be drafted; posting it claims the VAT late (s16(3)).
     }, userId, undefined, { allowLateInputClaim: true }));
@@ -101,7 +128,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // R-035 PR6: a person composed it — marked under manual-journal enforcement.
     await markCreatedManualJournal(companyId, entry.id);
 
-    return apiResponse.success(res, entry);
+    const created: JournalEntryCreateResponse = placed.warnings.length > 0 ? { ...entry, warnings: placed.warnings } : entry;
+    return apiResponse.success(res, created);
   } catch (err) {
     if (respondIfLockTimeout(res, err)) return;
     // A driver error (5-character SQLSTATE) quotes the value and names the type

@@ -8,6 +8,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
 import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
+import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -70,6 +71,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (err instanceof ClaimNotPostableError) {
       return apiResponse.badRequestFromError(res, err, 'Request failed');
     }
+    // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
+    if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }

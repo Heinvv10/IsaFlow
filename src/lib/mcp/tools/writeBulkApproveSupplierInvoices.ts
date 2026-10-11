@@ -120,6 +120,7 @@ const adapter: BulkApproveAdapter<ApprovedRow> = {
       status: updated.status,
       total_amount: updated.totalAmount,
       gl_journal_entry_id: updated.glJournalEntryId ?? null,
+      ...(updated.warnings ? { warnings: updated.warnings } : {}),
     };
   },
 };

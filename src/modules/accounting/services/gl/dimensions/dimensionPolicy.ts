@@ -15,7 +15,7 @@
 import { sql } from '@/lib/neon';
 import { canonicalSubtype, rawSubtypesFor } from '../accountSubtypes';
 import type { GLEntrySource, JournalLineInput } from '../../../types/gl.types';
-import { DimensionRefusal, hasDimensions, type DimensionIds } from './dimensionTypes';
+import { DimensionRefusal, PreWriteDimensionRefusal, hasDimensions, isDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveLineDimensions } from './dimensionDerivation';
 import { assertJournalAnalysisDimensions } from '../journalCostCentreValidation';
 
@@ -54,6 +54,53 @@ export async function applyJournalDimensionPolicy(
 ): Promise<JournalLineInput[]> {
   assertNoSettlementDimensions(source, lines);
   return deriveLineDimensions(companyId, lines);
+}
+
+/**
+ * The dimension checks createJournalEntry will run on a NEW journal, for a
+ * caller that must refuse BEFORE its first write (a recurring run claims its
+ * schedule first; a route may only answer 4xx for a request that wrote
+ * nothing). Every refusal — a settlement carrying dimensions, a project under
+ * another FNO, an inactive or foreign CC1 / CC2 / BU, an inactive FNO derived
+ * from an active project — is a PreWriteDimensionRefusal. createJournalEntry
+ * raises the last kind as a plain Error, which no route can tell from a fault.
+ * The refusal carries the line it is about (`lineIndex`), so a caller can name
+ * that line; the settlement refusal is about the whole journal and carries none.
+ */
+export async function assertNewJournalDimensions(
+  companyId: string,
+  source: GLEntrySource | undefined,
+  lines: JournalLineInput[],
+): Promise<void> {
+  let at: number | undefined;
+  try {
+    assertNoSettlementDimensions(source, lines);
+    // The same two steps as applyJournalDimensionPolicy; the label is how derivation says which line it refused.
+    const derived = await deriveLineDimensions(companyId, lines, (i) => { at = i; return `Line ${i + 1}`; });
+    try {
+      await assertDocumentDimensions(companyId, derived);
+    } catch (err) {
+      if (isDimensionRefusal(err)) at = await firstRefusedLine(companyId, derived);
+      throw err;
+    }
+  } catch (err) {
+    if (isDimensionRefusal(err)) throw new PreWriteDimensionRefusal(err.message, at);
+    throw err;
+  }
+}
+
+/** The first line the slot / active / tenant check refuses on its own — asked only once the whole journal was refused. */
+async function firstRefusedLine(companyId: string, lines: readonly DimensionIds[]): Promise<number | undefined> {
+  for (const [i, line] of lines.entries()) {
+    if (!hasDimensions(line)) continue;
+    try {
+      await assertDocumentDimensions(companyId, [line]);
+    } catch (err) {
+      if (isDimensionRefusal(err)) return i;
+      throw err;
+    }
+  }
+  return undefined;
 }
 
 /**

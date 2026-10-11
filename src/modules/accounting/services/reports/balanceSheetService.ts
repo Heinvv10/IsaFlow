@@ -34,8 +34,8 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string,
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
       AND ga.account_type IN ('revenue', 'expense')
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
-        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cc1_id = ${ccId}::UUID
+        OR jl.cc2_id = ${ccId}::UUID)
       AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
   `) as Row[];
 
@@ -93,8 +93,8 @@ export async function getEquityBases(
         AND ga.company_id = ${companyId}::UUID
         AND je.entry_date <= ${asAtDate}
         AND ga.account_type = 'equity'
-        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
-        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+        AND (${ccId}::TEXT IS NULL OR jl.cc1_id = ${ccId}::UUID
+        OR jl.cc2_id = ${ccId}::UUID)
         AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
     `) as Row[];
 
@@ -139,8 +139,8 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
             AND child.company_id = ${companyId}::UUID
         )
       )
-      AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID
-        OR jl.cc1_id = ${ccId}::UUID OR jl.cc2_id = ${ccId}::UUID)
+      AND (${ccId}::TEXT IS NULL OR jl.cc1_id = ${ccId}::UUID
+        OR jl.cc2_id = ${ccId}::UUID)
       AND (${buId}::TEXT IS NULL OR jl.bu_id = ${buId}::UUID)
     GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
     ORDER BY ga.account_code

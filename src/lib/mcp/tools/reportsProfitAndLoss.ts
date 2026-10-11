@@ -47,8 +47,15 @@ import {
   priorYearPeriod,
   type PeriodWindow,
 } from '@/modules/accounting/services/reports/priorPeriod';
+import { getDimensionPnl, getFilteredPeriodFigures } from '@/modules/accounting/services/reports/dimensionPnlService';
+import {
+  isDimensionGroupBy,
+  DIMENSION_GROUP_BYS,
+  type DimensionFilter,
+} from '@/modules/accounting/services/reports/dimensionPnlColumns';
 import { buildEnvelope, figureBasis, isDetailLevel, type DetailLevel } from '@/lib/mcp/contracts';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { byDimensionOut } from './profitAndLossByDimension';
 
 /** Above this share of unclassified value, the bands are not worth acting on. */
 const RELIABLE_THRESHOLD = 0.1;
@@ -66,7 +73,8 @@ function share(side: CoverageSide): number {
 
 const DESCRIPTION = [
   'Income statement for a date range, LAYERED: turnover, other income, cost of sales, operating expenses, and finance cost / tax reported below the operating line — so operatingProfit means what it says and other income never reaches gross profit.',
-  'IMPLEMENTATION. This wraps gl/accountClassification#aggregateFigures, the classifier AFS uses. The income-statement PAGE consumes reports/incomeStatementService#getIncomeStatement, and the two now AGREE band for band — turnover, other income, cost of sales, operating expenses, other expenses, gross profit, operating profit and net profit — because both band through the same exported expenseBand/revenueBand and incomeStatementConvergence.test.ts asserts every band. They previously diverged: the page counted other income as turnover and put finance cost and tax inside operating expenses, so it reported a different GROSS profit while the registry claimed the two agreed to the cent (true of net, false of gross). That was finding B75 and it is fixed; do not reconcile a difference that no longer exists. What still differs is scope, not banding: this tool has no project or cost-centre filter, so a filtered page cannot be compared to it.',
+  'IMPLEMENTATION. This wraps gl/accountClassification#aggregateFigures, the classifier AFS uses. The income-statement PAGE consumes reports/incomeStatementService#getIncomeStatement, and the two now AGREE band for band — turnover, other income, cost of sales, operating expenses, other expenses, gross profit, operating profit and net profit — because both band through the same exported expenseBand/revenueBand and incomeStatementConvergence.test.ts asserts every band. They previously diverged: the page counted other income as turnover and put finance cost and tax inside operating expenses, so it reported a different GROSS profit while the registry claimed the two agreed to the cent (true of net, false of gross). That was finding B75 and it is fixed; do not reconcile a difference that no longer exists. What still differs is scope: this tool has no legacy project_id filter, which the page has. cost_centre_id and business_unit_id RESTRICT every figure, including the comparative and the coverage: cost_centre_id matches a line whose CC1 (cc1_id) or CC2 is that id (the same predicate as the income-statement page and the cc1 grouping), so an FNO filter returns all of its projects and a re-tagged line counts only under its new FNO. Before this the filter reached only the coverage and every band was whole-company.',
+  'group_by: "cc1" | "cc2" | "bu" adds by_dimension: one column per member (code, name, CC2 parent code, line count and every band) plus an UNTAGGED column for lines with no member, so the columns PARTITION the statement. by_dimension.residual is the ungrouped figure above minus the sum of the columns, per band, to the cent — it must be zero, and ties is the flag. A member id with no master row is its own UNKNOWN column, never merged into untagged. Filters apply before grouping. Unfiltered, the figures above come from a different query, so ties is an independent check; with a filter they come from the same filtered query ungrouped, so ties then proves only that every filtered line landed in exactly one column.',
   'classificationCoverage is MANDATORY and present at every detail level, because every band above is chosen from account_subtype and on these books the subtypes barely exist. On one production company 100% of revenue and 97.6% of expenses sit on accounts with no classification, and its classified cost of sales is 2.4% of total costs — so its gross profit is revenue less 2.4% of what it spent. That figure is not a bug; the code did what the chart of accounts told it. READ THE COVERAGE BEFORE ACTING ON ANY BAND. reliable is false when more than 10% of either side is unclassified. Nothing is excluded from any total: an unclassified expense is still an expense, and the classification is the finding rather than a filter.',
   'compare: "prior_period" is the preceding whole calendar period (March compares to February, Q2 to Q1), and "prior_year" is the same window one year earlier. Or pass compare_start and compare_end explicitly. This is NOT a rolling window: the page computes its comparative in milliseconds and compares March against 29 January to 28 February, so February never appears as itself.',
 ].join(' ');
@@ -88,7 +96,16 @@ export const profitAndLossTool: McpTool = {
       },
       compare_start: { type: 'string', format: 'date', description: 'Explicit comparative start.' },
       compare_end: { type: 'string', format: 'date', description: 'Explicit comparative end.' },
-      cost_centre_id: { type: 'string', description: 'Restrict every figure to one cost centre.' },
+      cost_centre_id: {
+        type: 'string',
+        description: 'Restrict every figure to one cost centre: lines whose CC1 (cc1_id) or CC2 is this id.',
+      },
+      business_unit_id: { type: 'string', description: 'Restrict every figure to one business unit.' },
+      group_by: {
+        type: 'string',
+        enum: [...DIMENSION_GROUP_BYS],
+        description: 'Add by_dimension: one column per CC1, CC2 or BU member plus an untagged column, tied to the ungrouped figures.',
+      },
       detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
     },
     required: ['period_start', 'period_end'],
@@ -103,7 +120,7 @@ export const profitAndLossTool: McpTool = {
     // Casts validated BEFORE any query: a read tool runs with no savepoint.
     const bad = guardCastableArgs(args, {
       date: ['period_start', 'period_end', 'compare_start', 'compare_end'],
-      uuid: ['cost_centre_id'],
+      uuid: ['cost_centre_id', 'business_unit_id'],
     });
     if (bad) return bad;
     if (periodEnd < periodStart) return toolError('period_end must not precede period_start');
@@ -129,6 +146,14 @@ export const profitAndLossTool: McpTool = {
     }
 
     const costCentreId = strArg(args, 'cost_centre_id');
+    const businessUnitId = strArg(args, 'business_unit_id');
+    const rawGroupBy = strArg(args, 'group_by');
+    if (rawGroupBy !== undefined && !isDimensionGroupBy(rawGroupBy)) {
+      return toolError('group_by must be one of cc1, cc2, bu');
+    }
+    const groupBy = rawGroupBy ?? null;
+    const filter: DimensionFilter = { costCentreId, businessUnitId };
+    const filtered = costCentreId !== undefined || businessUnitId !== undefined;
     const rawDetail = strArg(args, 'detail');
     const detail: DetailLevel = isDetailLevel(rawDetail) ? rawDetail : 'standard';
 
@@ -136,14 +161,23 @@ export const profitAndLossTool: McpTool = {
     // holds, and issuing a query on a client already executing one is
     // deprecated in node-postgres and corrupts the savepoint stack here.
     // companyId from ctx ONLY.
-    const current = (await getFinancialFigures(ctx.companyId, periodStart, periodEnd)).period;
+    // A filtered statement folds the SAME classifier over the filtered lines;
+    // getFinancialFigures has no dimension predicate and is the whole company.
+    const current = filtered
+      ? await getFilteredPeriodFigures(ctx.companyId, periodStart, periodEnd, filter)
+      : (await getFinancialFigures(ctx.companyId, periodStart, periodEnd)).period;
     const prior =
       comparative === null
         ? null
-        : (await getFinancialFigures(ctx.companyId, comparative.start, comparative.end)).period;
+        : filtered
+          ? await getFilteredPeriodFigures(ctx.companyId, comparative.start, comparative.end, filter)
+          : (await getFinancialFigures(ctx.companyId, comparative.start, comparative.end)).period;
     const coverage = await getClassificationCoverage(
-      ctx.companyId, periodStart, periodEnd, costCentreId,
+      ctx.companyId, periodStart, periodEnd, costCentreId, businessUnitId,
     );
+    const dimension = groupBy === null
+      ? null
+      : await getDimensionPnl(ctx.companyId, periodStart, periodEnd, groupBy, filter);
     const postedThrough = await getLedgerPostedThrough(ctx.companyId, periodEnd);
 
     // From the classifier, not recomputed here: a local copy of the formula is
@@ -193,6 +227,7 @@ export const profitAndLossTool: McpTool = {
       period_start: periodStart,
       period_end: periodEnd,
       cost_centre_id: costCentreId ?? null,
+      business_unit_id: businessUnitId ?? null,
       turnover: round2(current.revenue),
       otherIncome: round2(current.otherIncome),
       costOfSales: round2(current.costOfSales),
@@ -203,6 +238,7 @@ export const profitAndLossTool: McpTool = {
       /** Finance cost, tax and other expense — the band below operating. */
       otherExpenses: round2(current.otherExpenses),
       netProfit: round2(current.netProfit),
+      ...(dimension === null ? {} : { by_dimension: byDimensionOut(current, dimension) }),
       classificationCoverage: {
         revenue: sideOut(coverage.revenue),
         expense: sideOut(coverage.expense),

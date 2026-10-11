@@ -12,6 +12,7 @@ import { isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { handKeyedLineJournalRefusal } from '../bank/bankLineJournalGate';
 import { importerAllocationRefusal, importerArmOf } from '../bank/bankLineImporterGate';
 import { predictFromHistory, type CodingPrediction } from './provisionalPrediction';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the predicted centre, in its slot
 
 type Row = DbRow;
 
@@ -31,7 +32,7 @@ export async function postProvisional(
   bankTxId: string,
   userId: string,
   opts: { minConfidence?: number; triggeredBy?: string } = {}, // triggeredBy: who ran the sweep (default userId)
-): Promise<{ journalEntryId: string | null; prediction: CodingPrediction; skipped?: string }> {
+): Promise<{ journalEntryId: string | null; prediction: CodingPrediction; skipped?: string; warnings?: string[] }> {
   const minConfidence = opts.minConfidence ?? 0.7;
 
   // Load bank transaction
@@ -135,9 +136,10 @@ export async function postProvisional(
 
   lines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description });
 
+  const placed = await placeCostCentres(companyId, lines);
   const je = await createJournalEntry(
     companyId,
-    { entryDate: txDate, description, source: 'auto_bank_recon', lines },
+    { entryDate: txDate, description, source: 'auto_bank_recon', lines: placed.lines },
     userId,
     { postingAgent: 'ai-provisional:v1', extractionConfidence: prediction.confidence, sourceDocumentId: undefined },
   );
@@ -170,6 +172,6 @@ export async function postProvisional(
     jeId: je.id,
   }, 'provisional-posting');
 
-  return { journalEntryId: je.id, prediction };
+  return { journalEntryId: je.id, prediction, ...(placed.warnings.length > 0 ? { warnings: placed.warnings } : {}) };
 }
 

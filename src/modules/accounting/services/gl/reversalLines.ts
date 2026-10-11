@@ -40,12 +40,17 @@
  * On a REVERSAL only the CONTRA is written. The original posted line is
  * deliberately left untouched and KEEPS its foreign tag, so the pair sits in
  * TWO buckets and does NOT net. For every report that reads a dimension only
- * through a filter the user supplies — trial balance, balance sheet, income
- * statement — that is invisible, because an id this company does not own
- * matches no filter it can run. The one exception is `getProjectProfitability`,
- * which enumerates `DISTINCT jl.project_id` and excludes untagged lines: the
- * original keeps its unnamed foreign bucket at the FULL amount and the contra
- * lands in no bucket at all, so reversing does not take that bucket to zero.
+ * through a filter the user supplies — trial balance, balance sheet, the
+ * ungrouped income statement — that is invisible, because an id this company
+ * does not own matches no filter it can run. The exceptions are the reports
+ * that ENUMERATE raw ids instead: `getProjectProfitability` (one bucket per
+ * tagged project, untagged lines excluded) and the P&L by dimension
+ * (`group_by` cc1 / cc2 / bu on the income statement, its xlsx and
+ * `profit_and_loss` — reports/dimensionPnlService), where a foreign id is its
+ * own UNKNOWN column. There the original keeps its foreign bucket at the FULL
+ * amount and the contra lands in another one (untagged, or no bucket at all in
+ * project profitability), so reversing does not take that bucket to zero.
+ * Totals still tie: the pair nets across the columns, not within one.
  * Carrying the tag instead is not available — `assertJournalLinesOwned` refuses
  * it and migration 664's composite FK refuses the row — and refusing the
  * reversal costs the operator the only remedy they have. The residual is

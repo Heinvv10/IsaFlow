@@ -73,8 +73,7 @@ export async function loadYearEndCloses(
     WHERE jl.company_id    = ${companyId}::UUID
       AND je.company_id    = ${companyId}::UUID
       AND jl.gl_account_id = ${accountId}::UUID
-      AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-        OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+      AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
       AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
       AND (${postedOnly}::boolean = false OR je.status = 'posted')
       AND je.entry_date >= ${openingFloor}::date
@@ -128,8 +127,7 @@ export async function netOfFirstLines(scope: LedgerScope, n: number): Promise<nu
       WHERE jl.company_id    = ${companyId}::UUID
         AND je.company_id    = ${companyId}::UUID
         AND jl.gl_account_id = ${accountId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND (${postedOnly}::boolean = false OR je.status = 'posted')
         AND je.entry_date >= ${fromDate}

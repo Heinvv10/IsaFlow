@@ -67,7 +67,7 @@ async function withLedger(run: () => Promise<void>) {
         await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${headerOwner}::uuid, ${status}, ${date}::date,
           ${String(n)}, 'Fixture', '', 'manual', ${date}::timestamp + ${n} * interval '1 minute', NULL, NULL, NULL)`;
         await sql`INSERT INTO gl_journal_lines VALUES (${lineOwner}::uuid, ${id}::uuid, ${account}::uuid, ${amount}, 0,
-          ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : null}::uuid,
+          ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : dimension === 'legacy' ? legacy : null}::uuid,
           ${dimension === 'explicit' ? cc2 : null}::uuid,
           ${dimension === 'explicit' ? bu : dimension === 'legacy' ? otherBu : null}::uuid)`;
       }
@@ -97,10 +97,13 @@ describe('report drilldown filters', () => {
 
 describe('report drilldown dimensions (Postgres)', async () => {
   const reachable = await isDbReachable();
-  it.skipIf(!reachable)('carries each independent centre through transaction and evidence endpoints', async () => {
+  // 'legacy' rows: a legacy line in sync with its CC1, as prod's are (cc1_id = the
+  // legacy id). On 'explicit' rows cost_center_id is a drifted legacy value that
+  // no report reads (PR #688 round 2: CC1 is cc1_id alone).
+  it.skipIf(!reachable)('carries each centre through transaction and evidence endpoints', async () => {
     await withLedger(async () => {
       for (const [selected, net, count, opening] of [[cc1, 36, 2, 11], [cc2, 36, 2, 11],
-        [legacy, 39, 3, 11], [undefined, 139, 4, 111], [foreign, 0, 0, 0]] as const) {
+        [legacy, 3, 1, 0], [undefined, 139, 4, 111], [foreign, 0, 0, 0]] as const) {
         const tx = await call(transactions, { cost_centre_id: selected });
         expect(tx.json.mock.calls[0]?.[0].data).toMatchObject({ openingBalance: opening, closingBalance: opening + net });
         const ev = await call(evidence as typeof transactions, { cost_centre_id: selected });
@@ -146,14 +149,15 @@ describe('report drilldown dimensions (Postgres)', async () => {
     await withLedger(async () => {
       for (const postedOnly of [true, false]) {
         for (const [selected, net, count, opening] of [[cc1, 36, 2, 11], [cc2, 36, 2, 11],
-          [legacy, 39, 3, 11], [undefined, 139, 4, 111], [foreign, 0, 0, 0]] as const) {
-          const draft = !postedOnly && selected !== foreign ? 5 : 0;
+          [legacy, 3, 1, 0], [undefined, 139, 4, 111], [foreign, 0, 0, 0]] as const) {
+          // The draft (row 9) is an 'explicit' line: not the legacy id's.
+          const draft = !postedOnly && selected !== foreign && selected !== legacy ? 5 : 0;
           const res = await call(ledger, { cost_centre_id: selected, posted_only: String(postedOnly), limit: '1', offset: '1' });
           expect(res.json.mock.calls[0]?.[0].data).toMatchObject({ openingBalance: opening,
             total: count + (draft ? 1 : 0), periodNet: net + draft, periodClosingBalance: opening + net + draft });
           const report = await getAccountLedger({ companyId: company, accountId: account, fromDate: range.from,
             toDate: range.to, postedOnly, costCentreId: selected, limit: 1, offset: 1 });
-          expect(report.rows.map(row => row.debit)).toEqual(count ? [selected ? 19 : 100] : []);
+          expect(report.rows.map(row => row.debit)).toEqual(count > 1 ? [selected ? 19 : 100] : []);
         }
       }
     });

@@ -42,6 +42,8 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { VatPeriodLockedError, assertJournalVatPeriodOpen } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { newManualJournalGate, settleUnattendedJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick';
+import { assertNewJournalDimensions } from '../gl/dimensions/dimensionPolicy';
 
 export interface PettyCashJournalInput {
   companyId: string;
@@ -127,16 +129,18 @@ export async function postReceiptAsPettyCashJournal(
   // Pre-existing here (this path was already dead on the source CHECK, so it
   // never surfaced); fixed alongside receipt-to-journal.ts, which migration 509
   // makes live.
-  const postableLines = journalInput.lines
+  // The picked centre goes on the EXPENSE leg only, into its CC1 / CC2 slot —
+  // never on the bank or VAT legs, which carry no dimensions (brief §5.3).
+  const { lines: postableLines, warnings: pickWarnings } = await placeCostCentres(companyId, journalInput.lines
     .filter(l => l.debit !== 0 || l.credit !== 0)
     .map(l => ({
       glAccountId: l.accountId,
       debit: l.debit,
       credit: l.credit,
       description: l.description,
-      costCenterId: costCentreId,
+      costCenterId: l.accountId === resolvedGlAccountId ? costCentreId : undefined,
       vatType: l.vatType,
-    }));
+    })));
 
   // Balance-check BEFORE the first write, the same pre-check
   // `receipt-to-journal.ts` runs and for the same reason: the legs come from
@@ -145,6 +149,9 @@ export async function postReceiptAsPettyCashJournal(
   // items yields subtotal + vat != total. `createJournalEntry` would reject it,
   // but as a plain `Error` that surfaces as a 500. Extracting this branch out
   // of the route left the two paths asymmetric; this restores the answer.
+  // What createJournalEntry would refuse about the dimensions (a project under an inactive FNO),
+  // here, before the claim, so the route's 4xx for it commits nothing.
+  await assertNewJournalDimensions(companyId, 'auto_expense_receipt', postableLines);
   const preCheck = validateJournalEntry(postableLines);
   if (!preCheck.valid) {
     throw new ReceiptDoesNotBalanceError(
@@ -252,6 +259,6 @@ export async function postReceiptAsPettyCashJournal(
     merchant: extracted.vendorName,
     amount: extracted.totalAmount,
     inputVatDenied: journalInput.inputVatDenied,
-    warnings: journalInput.inputVatDenied ? [INPUT_VAT_DENIED_ADVICE] : [],
+    warnings: [...(journalInput.inputVatDenied ? [INPUT_VAT_DENIED_ADVICE] : []), ...pickWarnings],
   };
 }

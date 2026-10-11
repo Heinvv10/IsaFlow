@@ -49,6 +49,7 @@ import {
 } from '@/modules/accounting/services/expense/expenseClaimService';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { documentLineAccountRefusal } from '@/modules/accounting/services/gl/documentLineAccountGuard';
+import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 interface PostExpenseBody {
   employeeId?: string;
@@ -271,6 +272,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (err instanceof ReceiptDoesNotBalanceError) {
       return apiResponse.badRequest(res, err.message);
     }
+    // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
+    if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
     // The service claims the document after its last SELECT, so this is a 4xx
     // that commits nothing either.
     if (err instanceof CapturedDocumentAlreadyPostedError) {

@@ -72,10 +72,13 @@ async function withLedger(run: () => Promise<void>) {
         const id = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
         await sql`INSERT INTO gl_journal_entries VALUES (${id}::uuid, ${owner}::uuid, ${status}, ${date}::date)`;
         const buId = n === 3 ? otherBu : selectedBu;
+        // 'legacy': a legacy line in sync with its CC1, as prod's are (cc1_id = the
+        // legacy id). On 'explicit' lines cost_center_id is a drifted legacy value
+        // that no report reads (PR #688 round 2: CC1 is cc1_id alone).
         for (const side of ['asset', type] as const) {
           await sql`INSERT INTO gl_journal_lines VALUES (${owner}::uuid, ${id}::uuid, ${accountIds[side]}::uuid,
             ${side === 'asset' ? amount : 0}, ${side === 'asset' ? 0 : amount},
-            ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : null}::uuid,
+            ${dimension === 'none' ? null : legacy}::uuid, ${dimension === 'explicit' ? cc1 : dimension === 'legacy' ? legacy : null}::uuid,
             ${dimension === 'explicit' ? cc2 : null}::uuid, ${project}::uuid, ${buId}::uuid)`;
         }
       }
@@ -88,14 +91,14 @@ async function withLedger(run: () => Promise<void>) {
 
 describe('financial statement dimensions (Postgres)', async () => {
   const reachable = await isDbReachable();
-  it.skipIf(!reachable)('includes explicit and independent legacy attribution in current and prior income', async () => {
+  it.skipIf(!reachable)('includes CC1 / CC2 attribution in current and prior income; a drifted legacy id is read by nothing', async () => {
     await withLedger(async () => {
-      for (const [selected, expected] of [[cc2, 17], [cc1, 17], [legacy, 20], [undefined, 120]] as const) {
+      for (const [selected, expected, prior] of [[cc2, 17, 11], [cc1, 17, 11], [legacy, 3, 0], [undefined, 120, 11]] as const) {
         const report = await getIncomeStatement(company, '2026-04-01', '2026-04-30',
           { costCentreId: selected, projectId: project }, { start: '2026-02-01', end: '2026-02-28' });
         expect(report.netProfit, selected).toBe(expected);
-        expect(report.priorNetProfit).toBe(11);
-        expect(report.revenue[0]).toMatchObject({ amount: expected, priorAmount: 11 });
+        expect(report.priorNetProfit, selected).toBe(prior);
+        expect(report.revenue[0], selected).toMatchObject({ amount: expected, priorAmount: prior });
       }
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
         { costCentreId: cc2, projectId: foreign })).netProfit).toBe(0);
@@ -111,7 +114,7 @@ describe('financial statement dimensions (Postgres)', async () => {
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
         { businessUnitId: selectedBu, costCentreId: cc2, projectId: project })).netProfit).toBe(17);
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
-        { businessUnitId: selectedBu, costCentreId: legacy, projectId: project })).netProfit).toBe(20);
+        { businessUnitId: selectedBu, costCentreId: legacy, projectId: project })).netProfit).toBe(3);
       expect((await getIncomeStatement(company, '2026-04-01', '2026-04-30',
         { businessUnitId: otherBu, costCentreId: cc2, projectId: project })).netProfit).toBe(0);
     });
@@ -138,14 +141,16 @@ describe('financial statement dimensions (Postgres)', async () => {
   });
   it.skipIf(!reachable)('keeps current/prior balances, retained earnings and posted equity on the same centre', async () => {
     await withLedger(async () => {
-      for (const [selected, profit] of [[cc2, 28], [cc1, 28], [legacy, 31], [undefined, 131]] as const) {
+      // The legacy id is CC1 only on the legacy-only revenue line (R3): none of
+      // the equity, liability or February lines, whose legacy id has drifted.
+      for (const [selected, profit, other, prior] of [[cc2, 28, 12, 11], [cc1, 28, 12, 11], [legacy, 3, 0, 0], [undefined, 131, 12, 11]] as const) {
         const report = await getBalanceSheet(company, '2026-04-30', selected, '2026-02-28');
-        expect(report.totalAssets, selected).toBe(profit + 12);
-        expect(report.totalLiabilities).toBe(7);
-        expect(report.totalEquity).toBe(profit + 5);
-        expect(report.equity.find(r => r.accountCode === '3100')).toMatchObject({ balance: profit, priorBalance: 11 });
-        expect(report).toMatchObject({ priorTotalAssets: 11, priorTotalLiabilities: 0, priorTotalEquity: 11 });
-        expect(await getEquityBases(company, '2026-04-30', selected)).toEqual({ posted: 5, derivedRetainedEarnings: profit });
+        expect(report.totalAssets, selected).toBe(profit + other);
+        expect(report.totalLiabilities, selected).toBe(other ? 7 : 0);
+        expect(report.totalEquity, selected).toBe(profit + (other ? 5 : 0));
+        expect(report.equity.find(r => r.accountCode === '3100'), selected).toMatchObject({ balance: profit, priorBalance: prior });
+        expect(report, selected).toMatchObject({ priorTotalAssets: prior, priorTotalLiabilities: 0, priorTotalEquity: prior });
+        expect(await getEquityBases(company, '2026-04-30', selected)).toEqual({ posted: other ? 5 : 0, derivedRetainedEarnings: profit });
       }
     });
   });

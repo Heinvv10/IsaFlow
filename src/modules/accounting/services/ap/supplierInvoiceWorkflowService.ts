@@ -18,7 +18,8 @@ import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { releaseCapturedDocumentPostingClaim } from '../capture/capturePostingClaimRelease';
 import { buildExpenseLines } from './supplierInvoiceExpenseLines';
 import { assertBillApprovable, assertBillPostable } from './billPostingGuard';
-import { POST_AS_STORED } from '../gl/dimensions/dimensionStoredPosting';
+import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
+import { placeCostCentres } from '../gl/dimensions/costCentrePick'; // the legacy pick, in its slot, with its FNO
 import { planSupplierInvoiceCancel, SupplierInvoiceCancelRefusal } from './supplierInvoiceCancelPlan';
 import { lockStandingChainHead } from '../shared/journalChainHead';
 import { documentInPopulation } from '../shared/documentPopulation';
@@ -42,7 +43,7 @@ export async function approveSupplierInvoice(
   // 'mcp:%'. That review surface is the control the whole agent-write model
   // rests on. `allowLateInputClaim`: human-initiated callers only (gl/vatLateClaimPlan.ts).
   opts?: PostingActorOpts & PostJournalOpts,
-): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo; warnings?: string[] }> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing (R-127): the provisional settlement runs AFTER the journal and
   // the status UPDATE, and every route answers a throw 4xx, which withAuth COMMITs.
@@ -51,7 +52,7 @@ export async function approveSupplierInvoice(
 
 async function approveInner(
   companyId: string, id: string, userId: string, opts?: PostingActorOpts & PostJournalOpts,
-): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo }> {
+): Promise<SupplierInvoice & { lateClaim?: LateClaimInfo; warnings?: string[] }> {
   try {
     // Serialise concurrent approvals of the SAME invoice before reading its
     // status. Without this the check-then-act window below is wide open: two
@@ -118,7 +119,9 @@ async function approveInner(
     const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
     await assertBillPostable(companyId, invoice);
-    const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
+    const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
+    // What the pick added follows the stored items' rule: approving refuses an inactive CC1 / CC2 (an inactive FNO too); Post to GL copies.
+    await assertPostsStoredDimensions(companyId, invoice.status, lines, (i) => `Supplier invoice ${invoice.invoiceNumber} line ${i + 1}`);
 
     if (invoice.taxAmount > 0) {
       lines.push({
@@ -159,7 +162,7 @@ async function approveInner(
     const settled = await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
     log.info('Approved supplier invoice', { id, journalEntryId: journalEntry.id }, 'accounting');
-    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}) };
+    return { ...mapInvoiceRow(settled ?? updated[0]!), ...(posted.lateClaim ? { lateClaim: posted.lateClaim } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
   } catch (err) {
     log.error('Failed to approve supplier invoice', { id, error: err }, 'accounting');
     throw err;
@@ -175,7 +178,7 @@ export async function postSupplierInvoiceToGL(
   id: string,
   userId: string,
   opts?: PostingActorOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[] }> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // All-or-nothing, as approveSupplierInvoice (R-127).
   return withSavepoint('post_supplier_invoice_gl', () => postToGLInner(companyId, id, userId, opts));
@@ -183,7 +186,7 @@ export async function postSupplierInvoiceToGL(
 
 async function postToGLInner(
   companyId: string, id: string, userId: string, opts?: PostingActorOpts,
-): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
+): Promise<{ journalEntryId: string; alreadyPosted: boolean; warnings?: string[] }> {
   // Same check-then-act window approveSupplierInvoice closes at :95, and the
   // same reason: this function decides on `glJournalEntryId` below and then
   // overwrites it. Unlocked, two overlapping "Post to GL" calls both read NULL,
@@ -238,7 +241,7 @@ async function postToGLInner(
   const defaultExpenseAccount = await getSystemAccount('default_expense', companyId);
 
   await assertBillPostable(companyId, invoice);
-  const lines: JournalLineInput[] = buildExpenseLines(invoice, defaultExpenseAccount.id);
+  const { lines, warnings } = await placeCostCentres(companyId, buildExpenseLines(invoice, defaultExpenseAccount.id), { storedPosting: true });
 
   if (invoice.taxAmount > 0) {
     lines.push({
@@ -277,7 +280,7 @@ async function postToGLInner(
   await settleClaimedProvisional(companyId, provisional, invoice, apAccount.id, userId, opts);
 
   log.info('Backfilled supplier invoice GL', { id, journalEntryId: journalEntry.id }, 'accounting');
-  return { journalEntryId: journalEntry.id, alreadyPosted: false };
+  return { journalEntryId: journalEntry.id, alreadyPosted: false, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 export async function cancelSupplierInvoice(

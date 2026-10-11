@@ -12,7 +12,9 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { apiLogger } from '@/lib/logger';
-import { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
+import { getIncomeStatement, getIncomeStatementByDimension } from '@/modules/accounting/services/reports/financialReportingService';
+import { isDimensionGroupBy } from '@/modules/accounting/services/reports/dimensionPnlColumns';
+import { addDimensionSheet } from '@/modules/accounting/services/reports/incomeStatementDimensionSheet';
 import { isUuidParam } from '@/lib/validation';
 
 type Row = Record<string, unknown>;
@@ -254,6 +256,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { period_start: start, period_end: end } = req.query as Record<string, string>;
   const ccId = req.query.cost_centre_id;
   const businessUnitId = req.query.business_unit_id;
+  const groupBy = req.query.group_by;
 
   if (!start || !end) {
     res.status(400).json({ success: false, error: 'period_start and period_end are required' });
@@ -266,22 +269,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'business_unit_id must be a valid UUID');
   }
 
-  apiLogger.info({ companyId, start, end }, 'Income statement xlsx export requested');
+  if (groupBy !== undefined && !isDimensionGroupBy(groupBy)) {
+    return apiResponse.badRequest(res, 'group_by must be one of cc1, cc2, bu');
+  }
 
-  const [companyRows, report] = await Promise.all([
-    sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<Row[]>,
-    getIncomeStatement(companyId, start, end, {
-      costCentreId: ccId || undefined,
-      businessUnitId,
-    }),
-  ]);
+  apiLogger.info({ companyId, start, end, groupBy }, 'Income statement xlsx export requested');
+
+  const opts = { costCentreId: ccId || undefined, businessUnitId };
+  const companyRows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1`) as Row[];
+  // Under group_by the matrix carries the ungrouped report it ties to: one
+  // computation, and the two sheets are the same statement by construction.
+  const matrix = groupBy === undefined ? null
+    : await getIncomeStatementByDimension(companyId, start, end, groupBy, opts);
+  const report = matrix?.report ?? await getIncomeStatement(companyId, start, end, opts);
 
   const companyName = String(companyRows[0]?.name ?? 'Company');
   const today = new Date().toISOString().slice(0, 10);
 
   const wb = await buildIncomeStatementWorkbook(report, companyName, today);
+  if (matrix !== null) addDimensionSheet(wb, matrix);
 
-  const filename = `income-statement-${start}-to-${end}.xlsx`;
+  const filename = `income-statement-${start}-to-${end}${groupBy ? `-by-${groupBy}` : ''}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 

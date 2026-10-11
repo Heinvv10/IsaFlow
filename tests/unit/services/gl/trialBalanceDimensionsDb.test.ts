@@ -24,7 +24,7 @@ const otherBu = '30000000-0000-4000-8000-000000000005';
 // ledger fixtures from all shared dev data. The real report and CSV SQL run.
 describe('trial balance dimension coverage (Postgres)', async () => {
   const reachable = await isDbReachable();
-  it.skipIf(!reachable)('filters explicit and independent legacy dimensions in balances, brought-forward profit and CSV', async () => {
+  it.skipIf(!reachable)('filters CC1, CC2 and BU in balances, brought-forward profit and CSV; a legacy cost_center_id is read by nothing', async () => {
     assertNotProductionDb('Temporary-table trial balance regression');
     const client = await getPoolForTests().connect();
     try {
@@ -49,12 +49,14 @@ describe('trial balance dimension coverage (Postgres)', async () => {
             ${dimensioned ? legacy : null}::uuid, ${dimensioned ? cc1 : null}::uuid, ${dimensioned ? cc2 : null}::uuid,
             ${dimensioned ? bu : otherBu}::uuid)`;
         }
-        // A legacy-only line remains visible after introducing explicit fields.
-        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, '40000000-0000-4000-8000-000000000001', ${company}::uuid, 3, 0, ${legacy}::uuid, NULL, NULL, ${otherBu}::uuid)`;
-        for (const [selected, movement] of [[legacy, 20], [cc1, 17], [cc2, 17]] as const) {
+        // A legacy line in sync with its CC1 (cc1_id = the legacy id), as prod's are. The
+        // other lines' cost_center_id is a drifted legacy value that no report reads
+        // (PR #688 round 2: CC1 is cc1_id alone).
+        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, '40000000-0000-4000-8000-000000000001', ${company}::uuid, 3, 0, ${legacy}::uuid, ${legacy}::uuid, NULL, ${otherBu}::uuid)`;
+        for (const [selected, movement, broughtForward] of [[legacy, 3, undefined], [cc1, 17, 11], [cc2, 17, 11]] as const) {
           const report = await getTrialBalanceReport(company, period, { costCentreId: selected });
           expect(report.rows.find(r => r.accountCode === '5000'), selected).toMatchObject({ debitBalance: movement, periodDebit: movement });
-          expect(report.rows.find(r => r.accountCode === 'RE-BF'), selected).toMatchObject({ debitBalance: 11 });
+          expect(report.rows.find(r => r.accountCode === 'RE-BF')?.debitBalance, selected).toBe(broughtForward);
         }
         expect((await getTrialBalanceReport(company, period)).rows.find(r => r.accountCode === '5000')).toMatchObject({ debitBalance: 120 });
         const byBu = await getTrialBalanceReport(company, period, { businessUnitId: bu });

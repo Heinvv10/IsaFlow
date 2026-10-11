@@ -196,7 +196,31 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 
 ## Recent changes
-- 2026-10-10: **`entity_history`** (read, `read:reports`, free): who changed which supplier, customer, GL / bank account, employee, member or company setting, from what to what — the history migration 888's trigger records whoever writes. Always masked (no reveal over MCP); without `entity_id` it is the company-wide feed, owner / admin only; employees need `read:payroll` and suppliers / customers `read:contacts` too (as their list tools), the feed filtered to such a type included (security review; breaker #696 R5); the cursor is a change id, never the global `seq`. `audit_trail`'s DOES NOT COVER now points here. 74 read tools.
+- 2026-10-10: **`entity_history`** (read, `read:reports`, free): who changed which supplier, customer, GL / bank account, employee, member or company setting, from what to what — the history migration 888's trigger records whoever writes. Always masked (no reveal over MCP); without `entity_id` it is the company-wide feed, owner / admin only; employees need `read:payroll` and suppliers / customers `read:contacts` too (as their list tools), the feed filtered to such a type included (security review; breaker #696 R5); the cursor is a change id, never the global `seq`. `audit_trail`'s DOES NOT COVER now points here. 75 read tools (158 = 75 read + 83 write, with `export_gl_lines` from the 2026-10-09 entry below).
+
+- 2026-10-09: **Dimensions Phase 2 — P&L by dimension and the flat GL-line export, 1 tool (157 = 74 read + 83 write).**
+  `profit_and_loss` gains `group_by: cc1|cc2|bu` (`by_dimension`: one column per member plus UNTAGGED,
+  `residual` = ungrouped figures − Σ columns per band, `ties`) and `business_unit_id`; `cost_centre_id`
+  now restricts every band (it reached only the coverage before) — both via
+  `reports/dimensionPnlService.ts`. New read `export_gl_lines` (`tools/exportGlLines.ts`, registered in
+  `dimensionToolSet.ts`): ledger brief §4 v1 rows, keyset-paged, with the §9 control block (rowCount,
+  controlTotal, unbalancedTxnCount); same rows as `/api/accounting/gl-lines-export`. `project_profitability`
+  reads `cc2_id` (superseded 2026-10-10: `basis`, default jobs).
+- 2026-10-10 (#688 review round 1): `export_gl_lines` returns `summary` on the FIRST page only (no cursor);
+  the cursor carries rowsTotal and as_at to later pages. `table=accounts|cost_centres|business_units|counterparties`
+  is paged (limit, next_cursor, row_count). `table=counterparties` also needs `read:contacts` — refusal code
+  `GL_EXPORT_SCOPE_REFUSED` (`GlExportScopeRefusal`, raised before any query): names and VAT numbers are
+  what list_customers / list_suppliers serve only under that scope. `profit_and_loss`'s `cost_centre_id`
+  matches the CC1 (`cc1_id` alone since round 2) or the CC2; the `by_dimension` block is
+  `tools/profitAndLossByDimension.ts`, and its `ties` is an independent check only when unfiltered.
+  `project_profitability` takes `basis: jobs | cc2` (default `jobs` — the job, project_id, as before #688;
+  `cc2` the CC2 cost centre; Hein 2026-10-10), echoed in the response; the coverage follows the basis.
+- 2026-10-10 (#688 review round 2): `export_gl_lines` lines cursor is BOUND to its window — part 3 is
+  `date_from~date_to~status`, and a cursor sent with another window is a tool error before any query (it
+  reported the first window's rowsTotal). Table cursors are `[row_count, kind, id]` — kind '' or
+  Customer / Supplier, never a code or name (a ~280-character name overflowed the 512-character cursor);
+  tables page in id order. Document_No's "first" document is the lowest number naturally (INV-9 before
+  INV-10). `profit_and_loss` / every cost-centre filter read `cc1_id` alone.
 
 - 2026-10-09 (forensic-controls step 2): refusal codes `IMPORTER_MAY_NOT_ALLOCATE`, `ALLOCATOR_MAY_NOT_REVERSE`, `AGENT_FORBIDDEN`. Allocate, split, apply-supplier-payment and bulk allocate refuse (or skip `approval_required: …`) a line the token's user imported while the arm's type is enforced — dry run alike; the reverse tools (single, batch, range — dry run alike) refuse an agent while the arm's type is enforced. `import_bank_statement` records the token's user as `imported_by` with `import_channel = 'mcp'` (undo keeps working). `create_bank_rule` / `update_bank_rule` may report "held for approval (change <id>)" under `bank_rule`; no tool decides a rule change.
 

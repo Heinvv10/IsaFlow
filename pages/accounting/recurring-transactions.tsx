@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useCompany } from '@/contexts/CompanyContext';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 import { log } from '@/lib/logger';
 import { RefreshCw, Plus, Play, Trash2, Edit2, Loader2, AlertCircle, CheckCircle, XCircle, Calendar } from 'lucide-react';
 import {
@@ -127,8 +128,9 @@ export default function RecurringTransactionsPage() {
         body: JSON.stringify({ templateId: id }),
       });
       await assertOk(res, 'Could not run the template - try again');
-      const json = await res.json() as { data: { entityType: string; entityId: string; posted: boolean } };
+      const json = await res.json() as { data: { entityType: string; entityId: string; posted: boolean; warnings?: string[] } };
       setExecResults(prev => ({ ...prev, [id]: json.data }));
+      notifyPostingWarnings(json); // a template cost centre the run did not apply
       await fetchTemplates();
     } catch (err) {
       log.error('Failed to execute recurring template', { error: err }, 'recurring-page');
