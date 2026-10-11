@@ -14,6 +14,7 @@ import { executeRecurring } from '@/modules/accounting/services/core/recurringTr
 import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, RecurringTemplateNotFoundError, RecurringTemplateTotalsMismatchError } from '@/modules/accounting/services/core/recurringTransactionErrors';
 import { NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -70,6 +71,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (err instanceof NegativeDocumentTotalError) {
       return apiResponse.badRequest(res, err.message);
     }
+    // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
+    if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }

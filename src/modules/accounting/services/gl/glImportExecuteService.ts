@@ -13,6 +13,9 @@ import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { ledgerDaysOf } from './journalDateGuard';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
+import { CostCentrePickRefusal, placeCostCentres } from './dimensions/costCentrePick';
+import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
+import { PreWriteDimensionRefusal } from './dimensions/dimensionTypes';
 type Row = DbRow;
 
 /**
@@ -28,6 +31,34 @@ export class ImportValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ImportValidationError';
+  }
+}
+
+/**
+ * Each row's cost centre in its CC1 / CC2 slot. A refusal is an
+ * ImportValidationError — the file's fault, a 400 — raised while resolving,
+ * before any group is written, and names the ROW the refusal is about
+ * (`lineIndex`; one line per row) with the refusal's own words, or the group
+ * when it is about no single line. (The code map holds active centres only, so
+ * nothing is dropped here.)
+ */
+async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
+  try {
+    const placed = (await placeCostCentres(companyId, lines)).lines;
+    await assertNewJournalDimensions(companyId, 'auto_gl_import', placed); // e.g. a project under an inactive FNO
+    return placed;
+  } catch (err) {
+    if (!(err instanceof PreWriteDimensionRefusal)) throw err;
+    const row = err.lineIndex === undefined ? undefined : rows[err.lineIndex];
+    const first = rows[0]!;
+    const where = row
+      ? `Import row "${row.description}" (${row.date})`
+      : `Import group ${first.reference ? `"${first.reference}" ` : ''}(${first.date})`;
+    // Only a pick that could not be placed is about the row's cost-centre code as such.
+    const what = row && err instanceof CostCentrePickRefusal
+      ? `cost centre "${row.costCentre ?? ''}" cannot be used — ${err.message}`
+      : err.message.replace(/^Line \d+: /, '');
+    throw new ImportValidationError(`${where}: ${what}`);
   }
 }
 
@@ -153,7 +184,7 @@ export async function importJournalEntries(
           ? `${firstRow.reference}: ${firstRow.description}`
           : firstRow.description,
         ...(firstRow.reference ? { reference: firstRow.reference } : {}),
-        lines,
+        lines: await placeRowCentres(companyId, lines, groupRows), // each row's centre in its slot, before any write
         totalDebit,
       });
     }

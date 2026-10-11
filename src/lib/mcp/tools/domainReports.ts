@@ -17,6 +17,7 @@ import {
   getProjectProfitability,
   getProjectTaggingCoverage,
 } from '@/modules/accounting/services/reports/projectProfitabilityService';
+import { PROJECT_BASES, isProjectBasis } from '@/modules/accounting/services/reports/projectBasis';
 import { getWipByClient } from '@/modules/accounting/services/practice/practiceWipService';
 import { buildEnvelope, figureBasis, isDetailLevel } from '../contracts';
 import type { DetailLevel, ExcludedRow } from '../contracts';
@@ -98,8 +99,9 @@ export const customerStatementTool: McpTool = {
 export const projectProfitabilityTool: McpTool = {
   name: 'project_profitability',
   description:
-    'Per-project profit and loss over a date range, built from posted journal lines that carry a project reference: revenue, direct cost, profit and margin for each project, with the account-level lines behind them. ' +
-    'READ THE COVERAGE BEFORE THE ROWS. Only journal lines tagged with a project_id can appear here, and an untagged ledger produces an EMPTY result that looks identical to a company with no unprofitable projects. project_tag_coverage reports how many P&L lines in the range are tagged, how many are not, and what the untagged movement is worth. It sits OUTSIDE the completeness envelope on purpose: untagged lines are not projects, so they are a disclosure about data this report could not attribute rather than rows excluded from its universe. On the books this was built against, that total is 100% of P&L. ' +
+    'Per-project profit and loss over a date range, built from posted journal lines tagged with a project: revenue, direct cost, profit and margin for each project, with the account-level lines behind them. ' +
+    'basis picks WHICH project: "jobs" (the default) is the job a line carries (project_id, a projects row — what invoices, WIP and time use; project_name is the job name); "cc2" is the CC2 cost-centre dimension (project_id is the CC2 cost-centre id, project_name "<code> — <name>"; for the same split as columns that tie to the statement, use profit_and_loss with group_by cc2). The two are different ids and are never mixed; the coverage is on the same basis. ' +
+    'READ THE COVERAGE BEFORE THE ROWS. Only journal lines tagged on the chosen basis can appear here, and an untagged ledger produces an EMPTY result that looks identical to a company with no unprofitable projects. project_tag_coverage reports how many P&L lines in the range are tagged, how many are not, and what the untagged movement is worth. It sits OUTSIDE the completeness envelope on purpose: untagged lines are not projects, so they are a disclosure about data this report could not attribute rather than rows excluded from its universe. On the books this was built against, that total is 100% of P&L. ' +
     'It draws only on the general ledger. Time entries, work items and purchase orders that have never been journalised do not appear, so a project can look costless because nobody posted its costs. It is not a job-cost report and it does not accrue work in progress — see wip_report for unbilled time. ' +
     'as_at is the END of the range. Margin is profit as a percentage of revenue, and is zero when there is no revenue rather than infinite.',
   scope: 'read:reports',
@@ -109,6 +111,7 @@ export const projectProfitabilityTool: McpTool = {
     properties: {
       period_start: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
       period_end: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
+      basis: { type: 'string', enum: [...PROJECT_BASES], description: 'jobs (default): the job (project_id); cc2: the CC2 cost centre.' },
       detail: { type: 'string', enum: ['summary', 'standard', 'full'] },
     },
     required: ['period_start', 'period_end'],
@@ -121,11 +124,13 @@ export const projectProfitabilityTool: McpTool = {
     const end = strArg(args, 'period_end');
     if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
     if (end < start) return toolError('period_end must not precede period_start');
+    const basis = strArg(args, 'basis') ?? 'jobs';
+    if (!isProjectBasis(basis)) return toolError(`basis must be one of ${PROJECT_BASES.join(', ')}`);
 
     const detail = detailOf(args);
     const [reports, coverage] = await Promise.all([
-      getProjectProfitability(ctx.companyId, start, end),
-      getProjectTaggingCoverage(ctx.companyId, start, end),
+      getProjectProfitability(ctx.companyId, start, end, basis),
+      getProjectTaggingCoverage(ctx.companyId, start, end, basis),
     ]);
 
     const rows = reports.map((r) => ({
@@ -163,6 +168,7 @@ export const projectProfitabilityTool: McpTool = {
       ...envelope,
       period_start: start,
       period_end: end,
+      basis,
       project_tag_coverage: {
         tagged_lines: coverage.taggedLines,
         untagged_lines: coverage.untaggedLines,

@@ -39,7 +39,8 @@ beforeAll(async () => {
     const je = crypto.randomUUID();
     await pool.query(`INSERT INTO gl_journal_entries(id,company_id,entry_date,created_by,status,description,fiscal_period_id,entry_number)
       VALUES($1,$2,'2026-04-10',$3,'posted',$4,$5,$6)`, [je, company, user, `Sale ${n}`, period, `D2-${n}`]);
-    await pool.query(`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,cost_center_id)
+    // CC1 is cc1_id: the legacy cost_center_id is read by no report (PR #688 round 2).
+    await pool.query(`INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit,cc1_id)
       VALUES($1,$2,$3,$5,0,$6),($1,$2,$4,0,$5,$6)`, [company, je, bank, sales, amount, cc]);
   }
 });

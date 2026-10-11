@@ -38,6 +38,22 @@ export class DimensionRefusal extends Error {
   }
 }
 
+/**
+ * A dimension refusal raised by a check the caller runs BEFORE ITS FIRST WRITE
+ * (a cost-centre pick that cannot be placed, the dimension checks a new journal
+ * will meet). A route may answer it 400 knowing the request has written
+ * nothing — withAuth commits a 4xx — which is not true of a DimensionRefusal
+ * that surfaces from inside a posting. `lineIndex` is the 0-based line the
+ * refusal is about; undefined when it is about the journal as a whole (a
+ * settlement carrying dimensions).
+ */
+export class PreWriteDimensionRefusal extends DimensionRefusal {
+  constructor(message: string, readonly lineIndex?: number) {
+    super(message);
+    this.name = 'PreWriteDimensionRefusal';
+  }
+}
+
 export function isDimensionRefusal(err: unknown): err is DimensionRefusal {
   return err instanceof Error && (err as { code?: unknown }).code === 'DIMENSION_REFUSED';
 }

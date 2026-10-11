@@ -11,7 +11,11 @@ brief §5.3–§5.5). **CC1 = FNO / client** (`cost_centres.cc_type 'cc1'`),
 whose parent is the CC1), **BU = function** (`business_units`, with `division`).
 The canonical line columns are `gl_journal_lines.cc1_id / cc2_id / bu_id`
 (migration 285); documents carry the same three (migration 870). The legacy
-`cost_center_id` / `project_id` stay readable; new code writes cc1/cc2/bu.
+`project_id` stays readable; new code writes cc1/cc2/bu. The legacy line
+`cost_center_id` is read by NO report (PR #688 round 2). Writers that take a
+cost-centre pick put it in its slot with `costCentrePick.placeCostCentres`
+(round 3) and never write the legacy column; a historical copy carries
+cc1/cc2 exactly as stored.
 
 ## Caller contract
 
@@ -30,6 +34,9 @@ The canonical line columns are `gl_journal_lines.cc1_id / cc2_id / bu_id`
 
 ```typescript
 resolveDimensionRefs(companyId, refs[], label?)      // code | UUID | alias -> ids (dimensionRefResolver)
+placeCostCentres(companyId, lines, { storedPosting? }) // a costCenterId pick -> cc1Id / cc2Id; returns { lines, warnings } (costCentrePick)
+assertNewJournalDimensions(companyId, source, lines) // what createJournalEntry would refuse, as PreWriteDimensionRefusal, before the first write
+pickDropSentence / parsePickDropSentence / pickDropFact // lib/costCentrePickWording: the warning sentence, and the reader the screens' notice uses on it
 deriveLineDimensions(companyId, lines, label?)       // CC2 -> CC1, conflict refused (dimensionDerivation)
 deriveRevenueDimensions(companyId, customerId, lines)// + customer FNO default / conflict
 applyJournalDimensionPolicy(companyId, source, lines)// createJournalEntry hook (dimensionPolicy)

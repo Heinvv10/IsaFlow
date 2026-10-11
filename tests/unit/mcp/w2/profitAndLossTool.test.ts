@@ -208,8 +208,11 @@ describe('profit_and_loss', () => {
     expect(d).toContain('AGREE band for band');
     expect(d).not.toContain('BOTTOM LINE to the cent');
     expect(d).not.toContain('counts other income as turnover');
-    // The one real remaining difference is scope, not banding.
-    expect(d).toMatch(/project or cost-centre filter/i);
+    // The one real remaining difference is scope, not banding — and since the
+    // dimensions PR it is only the legacy project filter: cost_centre_id and
+    // business_unit_id now restrict every figure.
+    expect(d).toMatch(/no legacy project_id filter/i);
+    expect(d).toMatch(/cost_centre_id and business_unit_id RESTRICT every figure/);
   });
 
   it('names the three new figure ids, all owned by the classifier', async () => {

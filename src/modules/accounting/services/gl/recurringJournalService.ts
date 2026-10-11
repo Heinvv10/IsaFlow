@@ -17,6 +17,8 @@ import {
 } from './recurringJournalGuards';
 import { advanceDate } from './recurringSchedule';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
+import { placeCostCentres } from './dimensions/costCentrePick';
+import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { templateAuthors } from './manualJournalAuthors';
 import type { RecurringJournal, RecurringJournalCreateInput, JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -27,6 +29,8 @@ export { RecurringJournalRequestError, RecurringJournalLockTimeoutError, Recurri
 export interface RecurringJournalRun {
   journalId: string;
   heldForApproval: string[];
+  /** A template line's cost-centre pick the run dropped (dimensions/costCentrePick); absent when none. */
+  warnings?: string[];
 }
 
 export async function getRecurringJournals(companyId: string, filters?: {
@@ -168,7 +172,10 @@ export async function runRecurringJournal(companyId: string,
     );
   }
 
-  const lines: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
+  const stored: JournalLineInput[] = Array.isArray(rj.lines) ? rj.lines as JournalLineInput[] : JSON.parse(typeof rj.lines === 'string' ? rj.lines : '[]');
+  // A template line's costCenterId is a pick: into its CC1 / CC2 slot, before the claim (the first write).
+  const { lines, warnings } = await placeCostCentres(companyId, stored);
+  await assertNewJournalDimensions(companyId, 'auto_recurring', lines); // what createJournalEntry would refuse, before the claim
   await assertTemplateLinesPostable(companyId, lines);
 
   await assertPostablePeriod(companyId, dueDate);
@@ -207,7 +214,7 @@ export async function runRecurringJournal(companyId: string,
 
     log.info('Generated journal from recurring',
       { recurringId: id, journalId: je.id, runDate: dueDate, heldForApproval: approval.held }, 'accounting');
-    return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [] };
+    return { journalId: je.id, heldForApproval: approval.held ? [je.id] : [], ...(warnings.length > 0 ? { warnings } : {}) };
   });
 }
 

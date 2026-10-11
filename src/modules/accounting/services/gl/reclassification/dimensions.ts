@@ -20,11 +20,12 @@
  * So the foreign id is dropped, per LINE and per DIMENSION, before the drafts
  * are built. What that costs is nothing this company can see: an id it does not
  * own matches no dimension filter it can run, so there is no dimension report
- * it can meaningfully run on the original. (`getProjectProfitability` is the
- * one report that enumerates raw `jl.project_id` values instead of the
- * company's own projects, so a foreign tag does get an unnamed bucket there;
- * after a drop that bucket keeps the pre-reclassification classification while
- * both new legs post untagged.) And because BOTH legs get the
+ * it can meaningfully run on the original. (The reports that enumerate raw
+ * ids instead of filtering by one — `getProjectProfitability` and the P&L by
+ * dimension, `group_by` cc1 / cc2 / bu in reports/dimensionPnlService — do
+ * give a foreign tag its own unnamed / UNKNOWN bucket; after a drop that
+ * bucket keeps the pre-reclassification classification while both new legs
+ * post untagged.) And because BOTH legs get the
  * same treatment, the contra and the re-application land in the same
  * (untagged) bucket and net to zero there — no figure a reader has moves.
  *

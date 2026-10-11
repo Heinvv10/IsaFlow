@@ -15,6 +15,7 @@ import {
   mintRecurringCustomerInvoice,
   mintRecurringSupplierInvoice,
 } from './recurringTransactionInvoices';
+import type { JournalLineInput } from '../../types/gl.types';
 
 
 export interface RecurringTemplate {
@@ -152,7 +153,7 @@ export async function executeRecurring(
   companyId: string,
   templateId: string,
   userId: string,
-): Promise<{ entityType: string; entityId: string; posted: boolean; heldForApproval: string[] }> {
+): Promise<{ entityType: string; entityId: string; posted: boolean; heldForApproval: string[]; warnings?: string[] }> {
   const row = await lockRecurringTransactionTemplate(companyId, templateId);
   if (!row) throw new RecurringTemplateNotFoundError(templateId);
   // THE SCHEDULE IS THE IDEMPOTENCY KEY. Without this check `executeRecurring`
@@ -172,13 +173,20 @@ export async function executeRecurring(
   let entityId: string;
   let posted = false;
   const heldForApproval: string[] = [];
+  let warnings: string[] = [];
 
   if (template.entityType === 'journal_entry') {
     const { createJournalEntry, postJournalEntry } =
       await import('../gl/journalEntryService');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = template.templateData as any;
-    const lines = data.lines || [];
+    // A template line's costCenterId is a pick: into its CC1 / CC2 slot, before anything is written.
+    const { placeCostCentres } = await import('../gl/dimensions/costCentrePick');
+    const placed = await placeCostCentres(companyId, (data.lines || []) as JournalLineInput[]);
+    const lines = placed.lines;
+    warnings = placed.warnings;
+    const { assertNewJournalDimensions } = await import('../gl/dimensions/dimensionPolicy');
+    await assertNewJournalDimensions(companyId, 'auto_recurring', lines); // what createJournalEntry would refuse, as a 4xx
     // R-035 PR6: an autoPost run is unattended, so a journal an enforced
     // manual-journal rule governs is held — left a draft, marked, carrying the
     // template's authors, the request raised as the runner — and the schedule
@@ -215,7 +223,7 @@ export async function executeRecurring(
   `;
 
   log.info('Recurring template executed', { templateId, entityId, entityType: template.entityType }, 'recurring');
-  return { entityType: template.entityType, entityId, posted, heldForApproval };
+  return { entityType: template.entityType, entityId, posted, heldForApproval, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 export async function getUpcomingRecurring(

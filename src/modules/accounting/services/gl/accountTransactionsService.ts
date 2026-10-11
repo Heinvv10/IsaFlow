@@ -86,12 +86,11 @@ export async function getAccountTransactions(
         COALESCE(SUM(jl.credit), 0) AS total_credit
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date < ${periodStart}
         AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
@@ -108,12 +107,11 @@ export async function getAccountTransactions(
         jl.debit, jl.credit
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
       WHERE je.status = 'posted'
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
-        AND (${cc}::uuid IS NULL OR jl.cost_center_id = ${cc}::uuid
-          OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
+        AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}

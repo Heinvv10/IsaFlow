@@ -20,7 +20,9 @@ describe('custom report gl_transactions fields', () => {
     expect(getFieldDef('gl_transactions', 'project_cc2')?.sqlExpr).toBe('cc2.code');
     expect(getFieldDef('gl_transactions', 'business_unit')?.sqlExpr).toBe('bu.code');
     const q = getBaseQuery('gl_transactions');
-    expect(q).toMatch(/LEFT JOIN cost_centres cc1 ON cc1\.id = COALESCE\(jl\.cc1_id, jl\.cost_center_id\) AND cc1\.company_id = je\.company_id/);
+    expect(q).toMatch(/LEFT JOIN cost_centres cc1 ON cc1\.id = jl\.cc1_id AND cc1\.company_id = je\.company_id/);
+    // CC1 is cc1_id alone: the legacy cost_center_id is read by no report (PR #688 round 2).
+    expect(q).not.toMatch(/cost_center_id/);
     expect(q).toMatch(/LEFT JOIN cost_centres cc2 ON cc2\.id = jl\.cc2_id AND cc2\.company_id = je\.company_id/);
     expect(q).toMatch(/LEFT JOIN business_units bu ON bu\.id = jl\.bu_id AND bu\.company_id = je\.company_id/);
   });

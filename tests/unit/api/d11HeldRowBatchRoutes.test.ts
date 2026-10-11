@@ -18,6 +18,8 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', async
 import { sql } from '@/lib/neon';
 import { runRecurringInvoice } from '@/modules/accounting/services/ar/recurringInvoiceService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
+/** What Post to GL returns for a bill it posted (the route reads its `warnings`). */
+const POSTED = { journalEntryId: 'je-1', alreadyPosted: false };
 import { CustomerInvoiceLockTimeoutError } from '@/modules/accounting/services/ar/customerInvoiceLock';
 import recurringRun from '../../../pages/api/accounting/recurring-invoices-run';
 import bulk from '../../../pages/api/accounting/supplier-invoices-bulk-action';
@@ -85,14 +87,14 @@ describe('mixed batches show NEUTRAL text for a raw held-row item, ok items unch
     expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
   });
   it('supplier-invoices-bulk-action', async () => {
-    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(raw());
+    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(POSTED).mockRejectedValueOnce(raw());
     const r = await call(bulk, { action: 'post_gl', invoiceIds: [A, B] });
     expect(r.statusCode).toBe(200); clean(r);
     expect(r.sent).toMatchObject({ data: { succeeded: 1, failed: 1 } });
     expect(JSON.stringify(r.sent)).toMatch(/retry in a moment/);
   });
   it('an ordinary item failure keeps its own text', async () => {
-    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(new Error('not approved'));
+    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(POSTED).mockRejectedValueOnce(new Error('not approved'));
     expect(JSON.stringify((await call(bulk, { action: 'post_gl', invoiceIds: [A, B] })).sent)).toMatch(/not approved/);
   });
 });
@@ -107,7 +109,7 @@ describe('supplier-invoices-bulk-action', () => {
     held(await call(bulk, { action: 'post_gl', invoiceIds: [A, B] }));
   });
   it('mixed (one ok, one held) keeps 200 per-item', async () => {
-    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(undefined as never).mockRejectedValueOnce(heldErr());
+    vi.mocked(postSupplierInvoiceToGL).mockResolvedValueOnce(POSTED).mockRejectedValueOnce(heldErr());
     const r = await call(bulk, { action: 'post_gl', invoiceIds: [A, B] });
     expect(r.statusCode).toBe(200); expect(r.headers['Retry-After']).toBeUndefined();
     expect(r.sent).toMatchObject({ data: { succeeded: 1, failed: 1 } });

@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RotateCcw, Plus, Pause, Play, XCircle, Zap, Loader2, Trash2, Pencil, Save, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice';
 import { localISODate } from '@/lib/dateUtils';
 
 interface RecurringJournal {
@@ -33,7 +34,7 @@ export default function RecurringJournalsPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  /** R-035 PR6: a generate whose journal an approval rule holds as a draft. */
+  /** A generate's non-blocking notice: its journal held as a draft by an approval rule (R-035 PR6), a cost centre not applied. */
   const [held, setHeld] = useState('');
   const [editId, setEditId] = useState('');
   const [form, setForm] = useState({ templateName: '', description: '', frequency: 'monthly', nextRunDate: '' });
@@ -86,9 +87,11 @@ export default function RecurringJournalsPage() {
         credentials: 'include', body: JSON.stringify({ action, id }),
       });
       await assertOk(res, fallback);
-      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[] } } : null;
+      const body = action === 'generate' ? await res.json() as { data?: { heldForApproval?: string[]; warnings?: string[] } } : null;
       const n = body?.data?.heldForApproval?.length ?? 0;
-      if (n > 0) setHeld(`${n} journal held for approval — left as a draft until approved.`);
+      // The same notice carries a template cost centre the run did not apply (the journal was generated without it).
+      const notices = [...(n > 0 ? [`${n} journal held for approval — left as a draft until approved.`] : []), ...postingWarningsIn(body)];
+      if (notices.length > 0) setHeld(notices.join(' '));
       await load();
     } catch (err) {
       setError(apiErrorMessage(err, fallback));
