@@ -92,6 +92,7 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
 
 ## Recent changes
 
+- 2026-10-12 (migration 889): `dimensionBankSync.ts` copies a journal's tags onto the bank row allocated to it (`bank_transactions.matched_journal_line_id` → its journal; the non-bank lines carrying a dimension must agree on one (cc1, cc2, bu) set). `applyDimensionTags` calls it for the batch's journals; `applyBankSyncBatch` back-fills a date window as its own batch (line_count 0). Old/new per bank row in `dimension_tag_batch_bank_rows`; `planTagBatchReversal` refuses on bank-row drift, `applyTagBatchReversal` restores them. Dimension columns only — trigger 675 guards none of them.
 - 2026-10-08 (#663 review): FNO stored at save by every revenue writer, posting adds nothing (`dimensionStoredPosting`); 873 re-binds only dimension-free documents and locks the document tables first.
 - 2026-10-08: `loadCostCentreChains` leaves a non-UUID id out of its query, so 'not-a-uuid' gets the slot refusal an unknown id gets (it was a Postgres cast error, or a hung aborted transaction under load).
 - 2026-10-08: `dimensionKeepStored` — draft edits stopped stripping cc1/cc2/bu; the approval digest hashes them (873).

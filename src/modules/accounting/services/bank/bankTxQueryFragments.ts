@@ -103,6 +103,38 @@ const ALLOCATED_ACCOUNT_LATERAL = `
     LIMIT 1
   ) aa ON TRUE`;
 
+// The dimensions the screen shows. The bank row's own cc1/cc2/bu when it has
+// any; otherwise its allocation journal's — the lines other than the bank leg
+// that carry a dimension (the dimension back-tag writes those, not the bank
+// row). One agreed set → 'journal'; more than one (a split across projects)
+// → 'split' with no single value; none → nothing. A supplier payment's
+// journal is AP + bank, both untagged by design: its dimensions are on the bill.
+const DIMENSION_JOINS = `
+  LEFT JOIN LATERAL (
+    SELECT (array_agg(dl.cc1_id))[1] AS cc1, (array_agg(dl.cc2_id))[1] AS cc2, (array_agg(dl.bu_id))[1] AS bu,
+           COUNT(DISTINCT ROW(dl.cc1_id, dl.cc2_id, dl.bu_id)) AS sets
+    FROM gl_journal_lines dbl
+    JOIN gl_journal_lines dl
+      ON dl.journal_entry_id = dbl.journal_entry_id
+     AND dl.company_id       = dbl.company_id
+     AND dl.id <> dbl.id
+    WHERE dbl.id = bt.matched_journal_line_id
+      AND dbl.company_id = bt.company_id
+      AND (dl.cc1_id IS NOT NULL OR dl.cc2_id IS NOT NULL OR dl.bu_id IS NOT NULL)
+  ) jd ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE WHEN bt.cc1_id IS NOT NULL OR bt.cc2_id IS NOT NULL OR bt.bu_id IS NOT NULL THEN 'bank'
+           WHEN jd.sets = 1 THEN 'journal'
+           WHEN jd.sets > 1 THEN 'split' END AS src
+  ) dsrc ON TRUE
+  LEFT JOIN cost_centres dcc1 ON dcc1.company_id = bt.company_id
+    AND dcc1.id = CASE dsrc.src WHEN 'bank' THEN bt.cc1_id WHEN 'journal' THEN jd.cc1 END
+  LEFT JOIN cost_centres dcc2 ON dcc2.company_id = bt.company_id
+    AND dcc2.id = CASE dsrc.src WHEN 'bank' THEN bt.cc2_id WHEN 'journal' THEN jd.cc2 END
+  LEFT JOIN business_units dbu ON dbu.company_id = bt.company_id
+    AND dbu.id = CASE dsrc.src WHEN 'bank' THEN bt.bu_id WHEN 'journal' THEN jd.bu END`;
+
 // The asset / fleet link (mig 853, an annotation) and what it is labelled with: the asset itself, or the asset the
 // fuel / service record belongs to. Company-scoped on every join, like the FKs that hold them.
 const LINK_JOINS = `
@@ -122,6 +154,10 @@ export const TX_SELECT = `
     bt.suggested_supplier_id, bt.suggested_client_id,
     bt.suggested_vat_code, bt.suggested_confidence, bt.suggested_strategy,
     bt.cc1_id, bt.cc2_id, bt.bu_id,
+    dsrc.src AS dimension_source,
+    dcc1.code AS cc1_code, dcc1.name AS cc1_name,
+    dcc2.code AS cc2_code, dcc2.name AS cc2_name,
+    dbu.code AS bu_code, dbu.name AS bu_name,
     bt.allocation_type, bt.allocated_entity_name,
     bt.allocation_rule_id, bt.allocation_rule_name,
     bt.created_at, bt.updated_at,
@@ -145,6 +181,7 @@ export const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
   ${ALLOCATED_ACCOUNT_LATERAL}
   LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE
+  ${DIMENSION_JOINS}
   ${LINK_JOINS}
 `;
 

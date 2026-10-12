@@ -97,12 +97,36 @@ describe('applyDimensionTags — writes dimensions and nothing else', () => {
       }],
       unchanged: [], isRestatement: true, warnings: [],
     }, { idempotencyKey: 'k1', reason: 'FY26 back-tag', userId: 'user-1' });
-    expect(out).toEqual({ batchId: BATCH, lineCount: 1, isRestatement: true });
+    expect(out).toEqual({ batchId: BATCH, lineCount: 1, isRestatement: true, bankRowCount: 0 });
     expect(sqlText(0)).toMatch(/INSERT INTO dimension_tag_batches/);
     expect(sqlText(1)).toMatch(/INSERT INTO dimension_tag_batch_lines[\s\S]*old_cc1_id[\s\S]*new_cc1_id/);
     const update = sqlText(2);
     expect(update).toMatch(/UPDATE gl_journal_lines jl\s+SET cc1_id = bl\.new_cc1_id, cc2_id = bl\.new_cc2_id, bu_id = bl\.new_bu_id\s+FROM/);
     expect(update).not.toMatch(/debit|credit|gl_account_id|entry_date|description|vat_type/);
+    // Write-through: the bank rows of the journals this batch touched, only where the journal agrees on one set.
+    expect(sqlText(3)).toMatch(/FROM bank_transactions bt[\s\S]*matched_journal_line_id[\s\S]*COUNT\(DISTINCT ROW\(al\.cc1_id, al\.cc2_id, al\.bu_id\)\) = 1[\s\S]*dimension_tag_batch_lines/);
+    expect(mockSql).toHaveBeenCalledTimes(4);
+  });
+
+  it('copies the journal\'s tags onto its bank row, recording the old values, and touches nothing else', async () => {
+    const BANK = '33333333-3333-4333-8333-333333333333';
+    mockSql
+      .mockResolvedValueOnce([{ id: BATCH }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ bank_id: BANK, tx_date: '2026-10-02', amount: -5500, description: 'CASUAL',
+        o1: null, o2: null, ob: null, n1: FT, n2: LAWLEY, nb: null }])
+      .mockResolvedValue([]);
+    const out = await applyDimensionTags(COMPANY, {
+      lines: [{ journalLineId: LINE, entryNumber: 'JE-1', accountCode: '5100', old: {}, next: { cc1Id: FT, cc2Id: LAWLEY },
+        unallocatedReason: null, periodClosed: false }],
+      unchanged: [], isRestatement: false, warnings: [],
+    }, { idempotencyKey: 'k2', userId: 'user-1' });
+    expect(out.bankRowCount).toBe(1);
+    expect(sqlText(4)).toMatch(/INSERT INTO dimension_tag_batch_bank_rows[\s\S]*old_cc1_id[\s\S]*new_cc1_id/);
+    const bankUpdate = sqlText(5);
+    expect(bankUpdate).toMatch(/UPDATE bank_transactions bt\s+SET cc1_id = br\.new_cc1_id, cc2_id = br\.new_cc2_id, bu_id = br\.new_bu_id\s+FROM/);
+    expect(bankUpdate).not.toMatch(/status|amount|matched_journal_line_id|allocation_type|feed_state|reconciliation_id/);
   });
 });
 
@@ -116,14 +140,24 @@ describe('reverse_dimension_tag_batch', () => {
     await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/re-tagged after it/);
   });
 
-  it('restores the OLD values and marks the batch reversed', async () => {
+  it('refuses when a bank row of the batch was re-tagged since', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: false }])
+      .mockResolvedValueOnce([{ n: 0 }])
+      .mockResolvedValueOnce([{ n: 2 }]);
+    await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/2 bank transaction\(s\) of batch .* re-tagged after it/);
+  });
+
+  it('restores the OLD values on the lines AND the bank rows, then marks the batch reversed', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: true }])
+      .mockResolvedValueOnce([{ n: 0 }])
       .mockResolvedValueOnce([{ n: 0 }])
       .mockResolvedValue([]);
     const plan = await planTagBatchReversal(COMPANY, BATCH);
     await applyTagBatchReversal(COMPANY, plan, { userId: 'user-1' });
-    expect(sqlText(2)).toMatch(/SET cc1_id = bl\.old_cc1_id, cc2_id = bl\.old_cc2_id, bu_id = bl\.old_bu_id/);
-    expect(sqlText(3)).toMatch(/UPDATE dimension_tag_batches\s+SET reversed_at = NOW\(\)/);
+    expect(sqlText(3)).toMatch(/SET cc1_id = bl\.old_cc1_id, cc2_id = bl\.old_cc2_id, bu_id = bl\.old_bu_id/);
+    expect(sqlText(4)).toMatch(/UPDATE bank_transactions bt\s+SET cc1_id = br\.old_cc1_id, cc2_id = br\.old_cc2_id, bu_id = br\.old_bu_id/);
+    expect(sqlText(5)).toMatch(/UPDATE dimension_tag_batches\s+SET reversed_at = NOW\(\)/);
   });
 });

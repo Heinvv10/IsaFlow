@@ -10,14 +10,20 @@
  * has been re-tagged since (its current values no longer equal the batch's
  * new ones), because restoring then would silently undo the later batch. The
  * later batch is reversed first.
+ *
+ * Both halves carry the bank rows along (dimensionBankSync.ts): a batch copies
+ * the tags onto the bank row allocated to each journal it touched, and its
+ * reversal restores those rows, so the Banking screen never disagrees with the
+ * journal.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal } from './dimensionTypes';
 import type { TagPlan } from './dimensionTagPlan';
+import { applyBankSync, countBankRowDrift, restoreBankRows } from './dimensionBankSync';
 
-export interface AppliedTagBatch { batchId: string; lineCount: number; isRestatement: boolean }
+export interface AppliedTagBatch { batchId: string; lineCount: number; isRestatement: boolean; bankRowCount?: number }
 
 /** An earlier batch under the same key, if any — the replay answer. */
 export async function findTagBatchByKey(companyId: string, key: string): Promise<AppliedTagBatch | null> {
@@ -64,10 +70,11 @@ export async function applyDimensionTags(
     WHERE bl.batch_id = ${batchId}::UUID AND bl.company_id = ${companyId}::UUID
       AND jl.id = bl.journal_line_id AND jl.company_id = ${companyId}::UUID
   `;
+  const bankRowCount = await applyBankSync(companyId, batchId, { tagBatchId: batchId });
   log.info('Dimension tag batch applied', {
-    companyId, batchId, lineCount: plan.lines.length, isRestatement: plan.isRestatement,
+    companyId, batchId, lineCount: plan.lines.length, bankRowCount, isRestatement: plan.isRestatement,
   }, 'accounting');
-  return { batchId, lineCount: plan.lines.length, isRestatement: plan.isRestatement };
+  return { batchId, lineCount: plan.lines.length, isRestatement: plan.isRestatement, bankRowCount };
 }
 
 export interface TagBatchReversalPlan { batchId: string; lineCount: number; isRestatement: boolean }
@@ -94,6 +101,12 @@ export async function planTagBatchReversal(companyId: string, batchId: string): 
       `${Number(drift!.n)} line(s) of batch ${batchId} were re-tagged after it; reverse the later batch first.`,
     );
   }
+  const bankDrift = await countBankRowDrift(companyId, batchId);
+  if (bankDrift > 0) {
+    throw new DimensionRefusal(
+      `${bankDrift} bank transaction(s) of batch ${batchId} were re-tagged after it; reverse the later batch first.`,
+    );
+  }
   return { batchId, lineCount: Number(batch.line_count), isRestatement: batch.is_restatement === true };
 }
 
@@ -107,6 +120,7 @@ export async function applyTagBatchReversal(
     WHERE bl.batch_id = ${plan.batchId}::UUID AND bl.company_id = ${companyId}::UUID
       AND jl.id = bl.journal_line_id AND jl.company_id = ${companyId}::UUID
   `;
+  await restoreBankRows(companyId, plan.batchId);
   await sql`
     UPDATE dimension_tag_batches
     SET reversed_at = NOW(), reversed_by = ${opts.userId}, reversal_reason = ${opts.reason ?? null}
