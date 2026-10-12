@@ -25,8 +25,7 @@ import { approveClaim, createClaim, postClaimToGl, submitClaim } from '@/modules
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 import { postReceiptAsPettyCashJournal } from '@/modules/accounting/services/capture/pettyCashJournalService';
 import { importJournalEntries, ImportValidationError } from '@/modules/accounting/services/gl/glImportExecuteService';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
-import { postJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { planDimensionTags } from '@/modules/accounting/services/gl/dimensions/dimensionTagPlan';
 import { applyDimensionTags } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import {
@@ -38,7 +37,7 @@ import { isDisposableDb } from '../helpers/assertDisposableDb';
 import { inTx, seedBankTx } from './helpers/l1FifoFixture';
 import { countRows, type LateFixture } from './helpers/vatLateClaimFixture';
 import { callRoute, dataOf } from './helpers/vatLateClaimRoutes';
-import { bareOn, dropPickFixture, legsOn, seedPickFixture, type PickFixture } from './helpers/costCentrePickFixture';
+import { bareOn, dropPickFixture, legsOn, seedHistoricEntry, seedPickFixture, type PickFixture } from './helpers/costCentrePickFixture';
 import journalEntries from '../../pages/api/accounting/journal-entries';
 import expenseClaimPost from '../../pages/api/accounting/expense-claims/[id]/post';
 import glImport from '../../pages/api/accounting/gl-import';
@@ -238,24 +237,14 @@ describeIfDb('cost-centre picks land in their slot on every writer path', () => 
 
   it('a reversal after a CC1 clear nets to zero: the contra copies what is stored, and re-derives nothing', async () => {
     // A line as the old writers left it: the legacy column AND cc1 both name FT.
-    const entry = await inTx(fx, async () => {
-      const e = await createJournalEntry(fx.companyId, {
-        entryDate: DATE, description: 'CCP clear then reverse', lines: [
-          { glAccountId: fx.expenseId, debit: 250, credit: 0, costCenterId: p.FT, cc1Id: p.FT },
-          { glAccountId: fx.apId, debit: 0, credit: 250 },
-        ],
-      }, fx.userId);
-      await postJournalEntry(fx.companyId, e.id, fx.userId);
-      return e;
-    });
-    const [line] = (await sql`
-      SELECT id::TEXT AS id FROM gl_journal_lines WHERE journal_entry_id = ${entry.id}::UUID AND gl_account_id = ${fx.expenseId}::UUID`) as Row[];
+    const { entryId, lineId } = await seedHistoricEntry(p, DATE, fx.expenseId, 250, p.FT);
+    const entry = { id: entryId };
     await inTx(fx, async () => {
-      const plan = await planDimensionTags(fx.companyId, [{ journalLineId: String(line!.id), cc1: null, unallocatedReason: 'not an FNO cost' }]);
+      const plan = await planDimensionTags(fx.companyId, [{ journalLineId: lineId, cc1: null, unallocatedReason: 'not an FNO cost' }]);
       await applyDimensionTags(fx.companyId, plan, { idempotencyKey: `ccp-clear-${entry.id}`, userId: fx.userId });
     });
     const contra = await inTx(fx, () => reverseJournalEntry(fx.companyId, entry.id, fx.userId));
-    expect(await legsOn(p, contra.id, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: p.FT, net: -250 }]);
+    expect(await legsOn(p, contra.id, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: -250 }]);
     const byCc1 = (await sql`
       SELECT jl.cc1_id::TEXT AS cc1, SUM(jl.debit - jl.credit)::FLOAT8 AS net
       FROM gl_journal_lines jl

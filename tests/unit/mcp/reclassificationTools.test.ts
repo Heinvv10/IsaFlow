@@ -65,7 +65,7 @@ function account(id: string, code: string, name: string, subtype: string | null)
 function plan(over: Record<string, unknown> = {}) {
   const movable = [{
     lineId: 'l1', journalEntryId: 'e1', entryNumber: 'JE-1', entryDate: '2026-04-15',
-    debit: 1000, credit: 0, description: 'cable', projectId: null, costCenterId: null,
+    debit: 1000, credit: 0, description: 'cable', projectId: null,
   }];
   return {
     source: account(SRC, '49775627', 'Unallocated Expense', null),

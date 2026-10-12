@@ -15,6 +15,7 @@ vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import { assertNewJournalDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
+import { CostCentrePickRefusal } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
 const CO = '11111111-1111-4111-8111-111111111111';
@@ -66,6 +67,16 @@ describe('assertNewJournalDimensions', () => {
     expect([conflict!.lineIndex, conflict!.message.startsWith('Line 2: ')]).toEqual([1, true]);
     // Dimensions on a settlement are about the journal: no line.
     expect((await refusal([line({}), line({ cc1Id: FT })], 'auto_payment'))!.lineIndex).toBeUndefined();
+  });
+
+  it('a line still carrying a bare costCenterId is a CostCentrePickRefusal naming it, raised before any database read', async () => {
+    const err = await refusal([line({ cc1Id: FT }), line({ costCenterId: FT })]);
+    expect(err).toBeInstanceOf(CostCentrePickRefusal);
+    expect(err).toBeInstanceOf(PreWriteDimensionRefusal);
+    expect([err!.lineIndex, err!.message.startsWith('Line 2: ')]).toEqual([1, true]);
+    // First, ahead of the settlement check (which has no line): the pick is the more specific refusal.
+    expect(await refusal([line({ costCenterId: FT })], 'auto_payment')).toBeInstanceOf(CostCentrePickRefusal);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('a database error is not a refusal: it propagates as it is', async () => {

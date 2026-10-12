@@ -10,6 +10,7 @@ import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus,
 import { assertJournalLinesOwned } from './journalLineOwnership';
 import type { DimensionAssignmentMode } from './journalCostCentreValidation';
 import { applyJournalDimensionPolicy } from './dimensions/dimensionPolicy';
+import { assertCostCentresPlaced } from './dimensions/costCentrePick';
 import { defaultHumanMeta, type JournalEntryMeta } from './journalEntryMeta';
 import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
@@ -215,6 +216,7 @@ async function createJournalEntryInTransaction(
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
+    assertCostCentresPlaced(input.lines); // a pick goes through placeCostCentres; the legacy column is never written
     // Settlements carry no dimensions; CC1 is derived from CC2 (dimensions/dimensionPolicy.ts). New lines only.
     if ((opts?.dimensionAssignmentMode ?? 'new-assignment') === 'new-assignment') {
       input = { ...input, lines: await applyJournalDimensionPolicy(companyId, input.source, input.lines) };
@@ -292,13 +294,12 @@ async function createJournalEntryInTransaction(
       ...input.lines.map((line) => sql`
         INSERT INTO gl_journal_lines (
           journal_entry_id, gl_account_id, debit, credit,
-          description, project_id, cost_center_id, cc1_id, cc2_id, bu_id, vat_type, company_id
+          description, project_id, cc1_id, cc2_id, bu_id, vat_type, company_id
         ) VALUES (
           ${entryId}::UUID, ${line.glAccountId}::UUID,
           ${line.debit ?? 0}, ${line.credit ?? 0},
           ${line.description || null},
           ${line.projectId || null},
-          ${line.costCenterId || null},
           ${line.cc1Id || null}::UUID,
           ${line.cc2Id || null}::UUID,
           ${line.buId || null}::UUID,
