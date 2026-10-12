@@ -241,16 +241,15 @@ by `accountTrendsContraAccounts.int.test.ts` against any company in the
 database that has one (2026-10-07, PR #662: the balance sheet had added
 Dividends Declared to equity, and the trend copied the same sign).
 
-Know how that test reaches you. The FILE refuses to skip: with no real
-`DATABASE_URL` its `beforeAll` throws and the suite fails rather than
-reporting green on nothing. But the CI STEP that runs it is itself gated —
-`scripts/ci/run-ci.sh` runs `test:integration` only when `DATABASE_URL` is
-set, and prints `[skip] integration-tests` otherwise. So it runs in GitHub CI,
-where the connection string is a secret, and a local `bun run ci` skips it
-silently. Locally it has to be asked for:
+Know how that test reaches you. It reads the real tenants in isaflow_dev, so
+it runs only when `DATABASE_URL` names isaflow_dev (`tests/helpers/onIsaflowDev.ts`)
+and skips everywhere else. `bun run ci`'s integration step
+(`scripts/ci/integration/run.sh`) runs on disposable databases with no
+tenants, so there it skips, and the step prints it by name with the reason
+from its `ci-integration-skip:` comment. Against dev it has to be asked for:
 
 ```bash
-DATABASE_URL=... bun run test:integration
+DATABASE_URL=<isaflow_dev URL> node_modules/.bin/vitest run --config vitest.integration.config.ts tests/integration/accountTrends.int.test.ts
 ```
 
 **Follow-up:** extract the leaf predicate and the sign expression into one
