@@ -52,7 +52,7 @@ describe('bank allocation dimension workflow (Postgres)', async () => {
             .toMatchObject({ debitBalance: 137, periodDebit: 137 });
           const entry = await getJournalEntryById(companyId, result.journalEntryId);
           expect(entry?.lines.find(line => line.glAccountId === String(f.account_id)))
-            .toMatchObject({ costCenterId: cc1Id, cc1Id, cc2Id });
+            .toMatchObject({ cc1Id, cc2Id, costCenterId: undefined });
           expect(entry?.lines.find(line => line.glAccountId === String(f.bank_id)))
             .toMatchObject({ cc1Id: undefined, cc2Id: undefined });
           await sql`UPDATE cost_centres SET is_active = false

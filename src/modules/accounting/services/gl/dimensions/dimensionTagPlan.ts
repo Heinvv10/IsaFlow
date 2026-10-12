@@ -61,6 +61,11 @@ interface LineRow {
 
 const same = (a?: string | null, b?: string | null): boolean => (a ?? '').toLowerCase() === (b ?? '').toLowerCase();
 
+/**
+ * The lines are locked here, in id order (ORDER BY jl.id, whatever order the caller listed them in or the planner
+ * scans them): every path that locks journal lines for tagging (this plan, the reversal's lockBatchJournalLines) takes
+ * them lowest id first and then the bank rows lowest id first, so two of them cannot deadlock (40P01).
+ */
 export async function planDimensionTags(companyId: string, items: readonly TagLineInput[]): Promise<TagPlan> {
   if (items.length === 0 || items.length > MAX_TAG_LINES) {
     throw new DimensionRefusal(`lines must hold 1 to ${MAX_TAG_LINES} entries`);
@@ -80,6 +85,7 @@ export async function planDimensionTags(companyId: string, items: readonly TagLi
     JOIN gl_accounts a ON a.id = jl.gl_account_id AND a.company_id = jl.company_id
     LEFT JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id AND fp.company_id = je.company_id
     WHERE jl.company_id = ${companyId}::UUID AND jl.id = ANY(${ids}::UUID[])
+    ORDER BY jl.id
     FOR UPDATE OF jl
   `) as LineRow[];
   const byId = new Map(rows.map((r) => [r.id.toLowerCase(), r]));
