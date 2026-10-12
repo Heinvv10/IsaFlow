@@ -26,4 +26,18 @@ describe('ImportWarningsNote', () => {
     fireEvent.click(screen.getByRole('button', { name: /Imported with problems — 8 messages/ }));
     expect(screen.getAllByRole('listitem')).toHaveLength(8);
   });
+
+  it('renders at most 50 messages when open, and says how many more', () => {
+    render(<ImportWarningsNote warnings={msgs(5000)} />);
+    fireEvent.click(screen.getByRole('button', { name: /Imported with problems — 5000 messages/ }));
+    expect(screen.getAllByRole('listitem')).toHaveLength(51); // 50 + the "and N more" line
+    expect(screen.getByText('… and 4950 more')).toBeTruthy();
+  });
+
+  it('a list of exactly 50 shows all of it, with no "and more" line', () => {
+    render(<ImportWarningsNote warnings={msgs(50)} />);
+    fireEvent.click(screen.getByRole('button', { name: /50 messages/ }));
+    expect(screen.getAllByRole('listitem')).toHaveLength(50);
+    expect(screen.queryByText(/and \d+ more/)).toBeNull();
+  });
 });

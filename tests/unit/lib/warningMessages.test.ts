@@ -13,10 +13,20 @@ describe('warningMessages', () => {
   });
 
   it('objects by their error or message, else as JSON; other scalars as text', () => {
-    expect(warningMessages([{ error: 'E1' }, { message: 'M1' }, { code: 7 }, 7, true])).toEqual(['E1', 'M1', '{"code":7}', '7', 'true']);
+    expect(warningMessages([{ error: 'E1' }, { message: 'M1' }, { code: 7 }, 7])).toEqual(['E1', 'M1', '{"code":7}', '7']);
   });
 
-  it.each([[undefined], [null], [''], ['   '], [{}], [[]], [[[]]], [[{}]], [false], [0], [[null, '', ' ', {}, false, 0]]])('%j says nothing', (v) => {
+  it.each([[undefined], [null], [''], ['   '], [{}], [[]], [[[]]], [[{}]], [false], [true], [[true, false]], [0], [[null, '', ' ', {}, false, 0]], [{ warnings: [] }], [{ error: '', message: '  ' }], [{ a: { b: [] }, c: '' }], [{ ok: true }]])('%j says nothing', (v) => {
     expect(warningMessages(v)).toEqual([]);
+  });
+
+  it('takes the first NON-EMPTY of error and message', () => {
+    expect(warningMessages({ error: '', message: 'x' })).toEqual(['x']);
+    expect(warningMessages({ error: '  ', message: ' y ' })).toEqual(['y']);
+    expect(warningMessages({ error: 'E', message: 'M' })).toEqual(['E']);
+  });
+
+  it('an object with real content elsewhere is kept as JSON', () => {
+    expect(warningMessages({ warnings: ['W'] })).toEqual(['{"warnings":["W"]}']);
   });
 });
