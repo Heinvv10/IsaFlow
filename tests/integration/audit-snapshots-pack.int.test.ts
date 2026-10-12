@@ -53,6 +53,18 @@ const build = (user: string, c: string, body: Record<string, unknown>) =>
   callRoute(auditExports, tokens[user]!, c, 'POST', body, '/api/accounting/audit-exports');
 const bytesOf = (r: { state: { body: unknown } }) => r.state.body as Buffer;
 
+/** The owner disabling the pack guard to re-point a ready pack's hash (what injected SQL after RESET ROLE could do). */
+async function ownerRepoint(id: string, sha: string) {
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await db.query('ALTER TABLE audit_trail_exports DISABLE TRIGGER audit_trail_export_pack_guard');
+    await db.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [id, sha]);
+    await db.query('ALTER TABLE audit_trail_exports ENABLE ALWAYS TRIGGER audit_trail_export_pack_guard');
+    await db.query('COMMIT');
+  } finally { db.release(); }
+}
+
 /** The test response with `send` (the download routes send bytes, not JSON). */
 function sendable() {
   const r = response();
@@ -138,6 +150,11 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     // The ZIP carries the snapshot's ledger rows: a viewer may not download it; a manager may.
     expect((await download(v, c, ex.id)).state.statusCode).toBe(403);
     expect((await download(m, c, ex.id)).state.statusCode).toBe(200);
+    // Nor read a pack's metadata or its auditor sessions; only owner / admin hand a pack to an outsider.
+    expect((await callRoute(auditExport, tokens[v]!, c, 'GET', undefined, '/x', { id: ex.id })).state.statusCode).toBe(403);
+    expect((await callRoute(exportSessions, tokens[v]!, c, 'GET', undefined, '/x', { id: ex.id })).state.statusCode).toBe(403);
+    expect((await callRoute(exportSessions, tokens[m]!, c, 'POST', { auditorEmail: 'a@example.test' }, '/x', { id: ex.id })).state.statusCode).toBe(403);
+    expect((await callRoute(exportSessions, tokens[m]!, c, 'GET', undefined, '/x', { id: ex.id })).state.statusCode).toBe(200);
   });
 
   it('the manifest is sealed: an edited CSV with a recomputed manifest and zip hash is invalid; a ZIP without a manifest is invalid, not a crash', async () => {
@@ -153,7 +170,11 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     zip.file('manifest.json', JSON.stringify(manifest, null, 2));
     const forged = await zip.generateAsync({ type: 'nodebuffer' });
     storage.files.set(key, forged);
-    await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(forged)]);
+    // A ready pack's pointers are fixed: the UPDATE is refused, even for the table owner's plain statement ...
+    expect(await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(forged)])
+      .then(() => 'ok', (e: { code?: string }) => e.code)).toBe('42501');
+    // ... so the forger disables the guard as the owner — and the manifest seal still refuses it.
+    await ownerRepoint(ex.id, sha256Hex(forged));
     const verify = () => callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: ex.id, verify: '1' });
     expect(dataOf<{ verification: { status: string; manifestSeal: string; zipMatches: boolean } }>(await verify()).verification)
       .toMatchObject({ status: 'invalid', manifestSeal: 'invalid', zipMatches: true });
@@ -161,7 +182,7 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     bare.file('journals.csv', 'x');
     const bareBytes = await bare.generateAsync({ type: 'nodebuffer' });
     storage.files.set(key, bareBytes);
-    await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(bareBytes)]);
+    await ownerRepoint(ex.id, sha256Hex(bareBytes));
     const r = await verify();
     expect(r.state.statusCode).toBe(200);
     expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(r).verification).toMatchObject({ status: 'invalid', manifestSeal: 'missing' });

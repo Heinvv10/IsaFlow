@@ -16,7 +16,8 @@ import { ISODate } from '@/lib/schemas/common';
 import { isRealCalendarDate } from '@/lib/validation';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { SigningKeyMissingError } from './seal';
-import { SnapshotTooLargeError } from './snapshotService';
+import { SnapshotTimeBudgetError, SnapshotTooLargeError } from './snapshotService';
+import { SnapshotBusyError } from './auditTx';
 import { ComparisonError } from './comparisonService';
 import { PackRefusedError } from './packExport';
 
@@ -29,13 +30,15 @@ export const AUDIT_TAKE_ROLES = ['owner', 'admin'] as const;
 export const mayReadAudit = (role: string | null | undefined): boolean => (AUDIT_READ_ROLES as readonly string[]).includes(role ?? '');
 export const mayTakeAudit = (role: string | null | undefined): boolean => (AUDIT_TAKE_ROLES as readonly string[]).includes(role ?? '');
 
-export type AuditRefusal = { status: 400 | 403 | 404 | 413 | 503; code: string; message: string; details?: Record<string, unknown> };
+export type AuditRefusal = { status: 400 | 403 | 404 | 409 | 413 | 503; code: string; message: string; details?: Record<string, unknown> };
 
 /** A typed refusal for the errors the audit services raise on purpose; null for anything else (rethrow it). */
 export function auditRefusal(err: unknown): AuditRefusal | null {
   if (err instanceof SnapshotTooLargeError) {
     return { status: 413, code: 'SNAPSHOT_TOO_LARGE', message: err.message, details: { lines: err.lines, max: err.max } };
   }
+  if (err instanceof SnapshotTimeBudgetError) return { status: 413, code: 'SNAPSHOT_TOO_SLOW', message: err.message };
+  if (err instanceof SnapshotBusyError) return { status: 409, code: 'SNAPSHOT_BUSY', message: err.message };
   if (err instanceof SigningKeyMissingError) return { status: 503, code: 'SIGNING_KEY_MISSING', message: err.message };
   if (err instanceof ComparisonError) return { status: 400, code: 'COMPARISON_REFUSED', message: err.message };
   if (err instanceof PackRefusedError) return { status: 400, code: 'PACK_REFUSED', message: err.message };
@@ -44,7 +47,7 @@ export function auditRefusal(err: unknown): AuditRefusal | null {
 }
 
 const CODE_FOR: Record<AuditRefusal['status'], ErrorCode> = {
-  400: ErrorCode.BAD_REQUEST, 403: ErrorCode.FORBIDDEN, 404: ErrorCode.NOT_FOUND, 413: ErrorCode.PAYLOAD_TOO_LARGE,
+  400: ErrorCode.BAD_REQUEST, 403: ErrorCode.FORBIDDEN, 404: ErrorCode.NOT_FOUND, 409: ErrorCode.CONFLICT, 413: ErrorCode.PAYLOAD_TOO_LARGE,
   503: ErrorCode.SERVICE_UNAVAILABLE,
 };
 

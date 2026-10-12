@@ -710,6 +710,22 @@ cascade from a purged company. RLS forced: owner / admin / manager of the compan
 Assertions per role with the `session_user` exemption only (#680), writers' owners must bypass RLS, `pg_temp` last.
 No mention of the change-history objects (the 888 census holds).
 
+**Chain, one at a time, no duplicate copies (review round 1).** Every sealed snapshot of a company is numbered
+(`seq` 1, 2, 3, …) and its HMAC signs its seq and the previous sealed snapshot's hmac (`prev_hmac`); the writer
+refuses any seal that is not the next link. `?chain=1` / MCP `verify_chain` checks the chain: a gap, a wrong link or
+a bad seal is `broken`, so removing or replacing a snapshot in the middle is visible even with the guards turned off
+by the owner. The LATEST link can only be checked against the chain head the app logs on every seal (journalctl).
+One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
+reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
+per process (a slot each), a 120 s budget per snapshot. An automatic snapshot whose ledger fingerprint — every
+journal and line material hash and the TB, sealed in each snapshot's totals — reads the same as the newest sealed
+snapshot at that cutoff is recorded as `unchanged`, pointing at it (close then lock, close / reopen / close). A key id
+the server never listed is `invalid`; only `AUDIT_SNAPSHOT_RETIRED_KEY_IDS` read `unknown_key`. A comparison verifies
+both sides first and refuses an altered one. Journal and line rows freeze the VAT / intercompany / evidence columns
+too (`late_claim_base`, `is_intercompany`, `external_document_number`, …); a column census fails when a new
+journal or line column is neither frozen nor named as not material. The audit routes share a 30-per-minute bucket per
+company. A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
+
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the
 request's after-commit list and never throws. After COMMIT the snapshot is taken as the person who locked; a lock
@@ -718,9 +734,10 @@ attempt with the reason, shown on Evidence Packs. One request queues one snapsho
 (bulk close of twelve periods → one). The census pins every statement that closes or locks and every function that
 schedules.
 
-**Comparison.** Pure set logic over ids and material hashes (`comparisonDiff.ts`): new journals dated ≤ cutoff —
-backdated when created or posted after `taken_at` (string order of the database's fixed-width UTC timestamps is time
-order) — changed (field-level before / after, line changes folded into their journal), removed (with their status
+**Comparison.** Pure set logic over ids and material hashes (`comparisonDiff.ts`): every journal dated ≤ cutoff that
+the snapshot did not hold entered the frozen period after the freeze and is listed as backdated; those whose own
+timestamps predate the snapshot (re-dated into the period, committed late, flipped to posted without a posting time)
+are flagged as such, never filed as harmless — changed (field-level before / after, line changes folded into their journal), removed (with their status
 now: deleted, draft, re-dated), reversed after the snapshot; closing balance per account that moved; against today,
 master-data changes since `taken_at` (`listEntityChanges` gained a `since` bound; the reader's own RLS). Snapshot vs
 snapshot reads both at the earlier cutoff, closings from the lines. Lists capped at 500, counts never.
@@ -746,7 +763,8 @@ manifest's SHA-256, export id, cutoff and taken_at), `trial_balance.csv`, `journ
 snapshot's own rows. Download (owner / admin / manager — the ZIP carries ledger rows) and the auditor portal serve the
 ZIP; older packs still serve their PDF. `?verify=1` re-reads the ZIP against its manifest and verifies the snapshot.
 
-**Who.** Read / verify / compare: owner, admin, manager. Take / run / build: owner, admin — on the web a person in
+**Who.** Read / verify / compare / list packs / see auditor sessions: owner, admin, manager. Invite an auditor:
+owner, admin. Take / run / build: owner, admin — on the web a person in
 their own session (Login-as and tokens refused); over MCP `take_audit_snapshot` for owner / admin token holders with
 `write:journals` (the scope that already closes periods, which take a snapshot anyway — no new scope, no re-grant);
 `audit_snapshots` and `compare_audit_snapshot` are `read:reports`.

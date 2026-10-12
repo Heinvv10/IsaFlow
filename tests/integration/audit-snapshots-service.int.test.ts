@@ -14,10 +14,10 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, payload, plantJournal, plantLedger, recordSnapshot, type Ledger } from './audit-snapshots.helpers';
 import { SnapshotTooLargeError, takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
-import { verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
+import { verifyChain, verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
 import { SigningKeyMissingError } from '../../src/modules/accounting/services/audit/seal';
 import { getCheckRun, snapshotTb } from '../../src/modules/accounting/services/audit/snapshotRead';
-import { runAuditTx, type AuditPrincipal } from '../../src/modules/accounting/services/audit/auditTx';
+import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from '../../src/modules/accounting/services/audit/auditTx';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -129,7 +129,9 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('invalid');
     // Untouched, under another key id: unknown, not invalid.
     const t = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
-    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('unknown_key');
+    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated', retiredKeyIds: [KEY.keyId] })))!.status).toBe('unknown_key');
+    // An untouched snapshot under a key id this server never listed is a forgery's key id: invalid.
+    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('invalid');
   });
 
   it('a row moved by its filing column (a line to another journal, a journal to another date, a TB row to another account) is invalid', async () => {
@@ -177,13 +179,52 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect([v.status, v.seal]).toEqual(['invalid', 'invalid']);
   });
 
-  it('a snapshot recorded through the writer without the key never verifies; another key id is unknown', async () => {
+  it('a snapshot recorded through the writer without the key never verifies; a retired key id is unknown, an unlisted one invalid', async () => {
     const { c } = await books();
     const forged = await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
     expect((await read(c, () => verifySnapshot(c, forged, KEY)))!.status).toBe('invalid');
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
-    expect((await read(c, () => verifySnapshot(c, s.id, { ...KEY, keyId: 'other' })))!.status).toBe('unknown_key');
+    expect((await read(c, () => verifySnapshot(c, s.id, { ...KEY, keyId: 'other', retiredKeyIds: [KEY.keyId] })))!.status).toBe('unknown_key');
+    expect((await read(c, () => verifySnapshot(c, s.id, { ...KEY, keyId: 'other' })))!.status).toBe('invalid');
     expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('t'.repeat(48)), keyId: KEY.keyId })))!.status).toBe('invalid');
+  });
+});
+
+describe('the chain', { timeout: 120_000 }, () => {
+  it('numbers each company\'s sealed snapshots and links each to the one before; a removed middle one breaks it', async () => {
+    const { c } = await books();
+    const ids: string[] = [];
+    for (const cutoff of ['2026-04-30', '2026-05-31', '2026-06-30']) ids.push((await takeSnapshot(principal(c), { cutoff, trigger: 'manual' })).id);
+    const { rows } = await pool.query("SELECT id::text AS id, seq, prev_hmac, hmac FROM audit_snapshots WHERE company_id = $1 ORDER BY seq", [c]);
+    expect(rows.map((r) => r.seq)).toEqual([1, 2, 3]);
+    expect([rows[0].prev_hmac, rows[1].prev_hmac, rows[2].prev_hmac]).toEqual([null, rows[0].hmac, rows[1].hmac]);
+    expect((await read(c, () => verifyChain(c, KEY))).status).toBe('valid');
+    // The owner removes the May snapshot with the guards off (what injected SQL after RESET ROLE could do).
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      for (const t of ['audit_snapshots', 'audit_snapshot_tb', 'audit_snapshot_journals', 'audit_snapshot_lines']) {
+        await db.query(`ALTER TABLE ${t} DISABLE TRIGGER ${t}_append_only`);
+      }
+      await db.query('DELETE FROM audit_snapshots WHERE id = $1', [ids[1]]);
+      for (const t of ['audit_snapshots', 'audit_snapshot_tb', 'audit_snapshot_journals', 'audit_snapshot_lines']) {
+        await db.query(`ALTER TABLE ${t} ENABLE ALWAYS TRIGGER ${t}_append_only`);
+      }
+      await db.query('COMMIT');
+    } finally { db.release(); }
+    const chain = await read(c, () => verifyChain(c, KEY));
+    expect(chain.status).toBe('broken');
+    expect(chain.breaks.map((b) => b.seq)).toEqual([3, 3]);
+    // Each remaining snapshot on its own still verifies: only the chain shows the removal.
+    expect((await read(c, () => verifySnapshot(c, ids[2]!, KEY)))!.status).toBe('valid');
+  });
+
+  it('a second snapshot asked for by hand while one runs for the company is refused, not queued', async () => {
+    const { c } = await books();
+    const first = takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    await new Promise((r) => setTimeout(r, 150));
+    await expect(takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' })).rejects.toBeInstanceOf(SnapshotBusyError);
+    await first;
   });
 });
 

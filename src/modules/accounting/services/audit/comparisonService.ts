@@ -18,6 +18,7 @@ import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
 import { getSnapshot, snapshotRows, snapshotTb, type SnapshotRecord, type StoredRow } from './snapshotRead';
 import { journalRows, lineRows, tbRows } from './snapshotRows';
 import { sumMoney } from './documents';
+import { verifySnapshot } from './snapshotVerify';
 import { diffSets, recordedAfter, tbDeltas, type FieldDiff, type Keyed, type TbDelta } from './comparisonDiff';
 
 /** Rows listed per category; counts are never capped. */
@@ -28,13 +29,24 @@ export interface JournalItem {
   id: string; entryNumber: string | null; entryDate: string | null; createdBy: string | null; createdAt: string | null;
   postedBy: string | null; postedAt: string | null; reversedAt: string | null; fields: FieldDiff[];
   lines: { added: number; removed: number; changed: { id: string; fields: FieldDiff[] }[] };
+  /**
+   * For a journal that entered the frozen period after the snapshot: created or posted after it was taken (true), or
+   * recorded before it — re-dated into the period, committed late, or flipped to posted without a posting time (false).
+   */
+  recordedAfter?: boolean;
 }
 
 export interface Comparison {
   base: { id: string; cutoff: string; takenAt: string };
   against: { kind: 'live' | 'snapshot'; id: string | null; takenAt: string };
-  counts: { backdated: number; added: number; changed: number; removed: number; reversedAfter: number; linesChanged: number; accountsMoved: number };
-  backdated: JournalItem[]; added: JournalItem[]; changed: JournalItem[];
+  /** Whether each side verified before it was compared (a side that does not verify is refused). */
+  verification: { base: string; against: string | null };
+  /**
+   * backdated: every journal dated on or before the cutoff that was not in the snapshot — it entered the frozen period
+   * after the freeze, whatever its timestamps say (recordedBefore of them carry timestamps from before the snapshot).
+   */
+  counts: { backdated: number; recordedBefore: number; changed: number; removed: number; reversedAfter: number; linesChanged: number; accountsMoved: number };
+  backdated: JournalItem[]; changed: JournalItem[];
   removed: (JournalItem & { statusNow: string | null })[]; reversedAfter: string[];
   tb: TbDelta[];
   /** Display names of the people who created or posted a listed journal (current members only). */
@@ -74,9 +86,7 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
   for (const x of l.changed) bucket(journalOf.get(x.after.id)!).changed.push({ id: x.after.id, fields: x.fields });
   const none = { added: 0, removed: 0, changed: [] };
 
-  const added = j.added.map((r) => item(r, [], lineChanges.get(r.id) ?? none));
-  const backdated = added.filter((x, i) => recordedAfter(j.added[i]!.row, base.takenAt));
-  const backdatedIds = new Set(backdated.map((x) => x.id));
+  const backdated = j.added.map((r) => ({ ...item(r, [], lineChanges.get(r.id) ?? none), recordedAfter: recordedAfter(r.row, base.takenAt) }));
   const changedIds = new Set(j.changed.map((c) => c.after.id));
   const afterById = new Map(after.journals.map((x) => [x.id, x]));
   const beforeIds = new Set(before.journals.map((x) => x.id));
@@ -90,10 +100,10 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
   const tb = tbDeltas(before.tb, after.tb);
   return {
     base: { id: base.id, cutoff: base.cutoff, takenAt: base.takenAt }, against,
-    counts: { backdated: backdated.length, added: added.length - backdated.length, changed: changed.length, removed: j.removed.length,
+    verification: { base: 'valid', against: null },
+    counts: { backdated: backdated.length, recordedBefore: backdated.filter((x) => !x.recordedAfter).length, changed: changed.length, removed: j.removed.length,
       reversedAfter: reversedAfter.length, linesChanged: l.added.length + l.removed.length + l.changed.length, accountsMoved: tb.length },
     backdated: backdated.slice(0, MAX_LISTED),
-    added: added.filter((x) => !backdatedIds.has(x.id)).slice(0, MAX_LISTED),
     changed: changed.slice(0, MAX_LISTED),
     removed: j.removed.slice(0, MAX_LISTED).map((r) => ({ ...item(r, [], lineChanges.get(r.id) ?? none), statusNow: null })),
     reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, names: {}, masterData: null,
@@ -102,7 +112,7 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
 
 /** Names for every person a listed journal was created or posted by. */
 async function withNames(companyId: string, c: Comparison): Promise<Comparison> {
-  const ids = [...new Set([...c.backdated, ...c.added, ...c.changed, ...c.removed]
+  const ids = [...new Set([...c.backdated, ...c.changed, ...c.removed]
     .flatMap((j) => [j.createdBy, j.postedBy]).filter((x): x is string => !!x))];
   if (ids.length === 0) return c;
   const rows = (await sql`
@@ -138,11 +148,16 @@ function closingFromLines(lines: Side['lines']): Side['tb'] {
   });
 }
 
-async function sealedSnapshot(companyId: string, id: string): Promise<SnapshotRecord> {
+/** A sealed snapshot that verifies (or is sealed under a retired key): nothing is compared against an altered one. */
+async function sealedSnapshot(companyId: string, id: string): Promise<{ s: SnapshotRecord; verified: string }> {
   const s = await getSnapshot(companyId, id);
   if (!s) throw new ComparisonError('Snapshot not found.');
-  if (s.status !== 'sealed') throw new ComparisonError('This snapshot attempt failed and holds no books to compare.');
-  return s;
+  if (s.status !== 'sealed') throw new ComparisonError('This snapshot attempt holds no books of its own to compare.');
+  const v = await verifySnapshot(companyId, id);
+  if (v?.status !== 'valid' && v?.status !== 'unknown_key') {
+    throw new ComparisonError(`Snapshot ${id} does not verify (${v?.status ?? 'unknown'}): its stored rows or seal do not match, so it is not compared.`);
+  }
+  return { s, verified: v.status };
 }
 
 async function masterDataSince(companyId: string, role: string | undefined, since: string): Promise<NonNullable<Comparison['masterData']>> {
@@ -165,7 +180,7 @@ async function masterDataSince(companyId: string, role: string | undefined, sinc
 
 export async function compareSnapshotToLive(p: AuditPrincipal, snapshotId: string): Promise<Comparison> {
   return runAuditTx(p, 'REPEATABLE READ', async (client) => {
-    const base = await sealedSnapshot(p.companyId, snapshotId);
+    const { s: base, verified } = await sealedSnapshot(p.companyId, snapshotId);
     const fyStart = String(base.totals.fy_start ?? base.cutoff);
     const live: Side = {
       journals: keyed((await journalRows(p.companyId, base.cutoff)).map((r) => ({ id: r.journalId, row: r.row, materialHash: r.materialHash }))),
@@ -174,6 +189,7 @@ export async function compareSnapshotToLive(p: AuditPrincipal, snapshotId: strin
     };
     const out = await withNames(p.companyId,
       compare(base, await storedSide(p.companyId, base), live, { kind: 'live', id: null, takenAt: await transactionNow(client) }));
+    out.verification = { base: verified, against: null };
     if (out.removed.length > 0) {
       const now = (await sql`
         SELECT id::TEXT AS id, status, entry_date::TEXT AS d FROM gl_journal_entries
@@ -194,11 +210,22 @@ export async function compareSnapshotToLive(p: AuditPrincipal, snapshotId: strin
  */
 export async function compareSnapshots(p: AuditPrincipal, a: string, b: string): Promise<Comparison> {
   return runAuditTx(p, 'REPEATABLE READ', async () => {
-    const base = await sealedSnapshot(p.companyId, a);
-    const other = await sealedSnapshot(p.companyId, b);
+    const { s: base, verified } = await sealedSnapshot(p.companyId, a);
+    const { s: other, verified: otherVerified } = await sealedSnapshot(p.companyId, b);
     if (other.cutoff < base.cutoff) throw new ComparisonError('Compare against a snapshot at the same or a later cutoff.');
     if (other.takenAt <= base.takenAt) throw new ComparisonError('Compare an earlier snapshot against a later one.');
-    return withNames(p.companyId, compare(base, await storedSide(p.companyId, base, base.cutoff),
+    const out = await withNames(p.companyId, compare(base, await storedSide(p.companyId, base, base.cutoff),
       await storedSide(p.companyId, other, base.cutoff), { kind: 'snapshot', id: other.id, takenAt: other.takenAt }));
+    out.verification = { base: verified, against: otherVerified };
+    if (out.removed.length > 0) {
+      // What the later snapshot holds for each, read from its own rows (it may have been re-dated past the cutoff).
+      const later = new Map((await snapshotRows(p.companyId, other.id, 'journals')).map((j) => [j.id, j.row]));
+      for (const r of out.removed) {
+        const row = later.get(r.id);
+        r.statusNow = !row ? 'not in the later snapshot (deleted or no longer posted)'
+          : (row.entry_date ?? '') > base.cutoff ? `${row.status ?? '?'} (redated ${row.entry_date})` : (row.status ?? null);
+      }
+    }
+    return out;
   });
 }

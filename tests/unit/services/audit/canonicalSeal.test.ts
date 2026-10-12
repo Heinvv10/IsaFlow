@@ -62,9 +62,18 @@ describe('seal', () => {
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, 'not-hex', keyId, KEY)).toBe('invalid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, { key: Buffer.from('z'.repeat(40)), keyId })).toBe('invalid');
   });
-  it('a seal made under another key id is unknown, not invalid', () => {
+  it('a seal under a retired key id is unknown; under any other key id it is invalid (the writer chooses the id)', () => {
     const { hmac } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
-    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, 'old-key', KEY)).toBe('unknown_key');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, 'old-key', { ...KEY, retiredKeyIds: ['old-key'] })).toBe('unknown_key');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, 'old-key', KEY)).toBe('invalid');
+  });
+  it('the chain position is signed: another seq or previous link does not verify', () => {
+    const chained = { ...fields, chain: { seq: 2, prevHmac: 'c'.repeat(64) } };
+    const { hmac, keyId } = sign(SNAPSHOT_SEAL_DOMAIN, chained, KEY);
+    expect(sealMessage(SNAPSHOT_SEAL_DOMAIN, chained)).toMatch(/\|2\|c{64}$/);
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, chained, hmac, keyId, KEY)).toBe('valid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, { ...fields, chain: { seq: 3, prevHmac: 'c'.repeat(64) } }, hmac, keyId, KEY)).toBe('invalid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, { ...fields, chain: { seq: 2, prevHmac: null } }, hmac, keyId, KEY)).toBe('invalid');
   });
   it('the key comes from the environment and must be long enough and named', () => {
     process.env.AUDIT_SNAPSHOT_SIGNING_KEY = 'short';
@@ -74,6 +83,7 @@ describe('seal', () => {
     process.env.AUDIT_SNAPSHOT_KEY_ID = ' ';
     expect(() => signingKey()).toThrow(SigningKeyMissingError);
     process.env.AUDIT_SNAPSHOT_KEY_ID = 'k2';
-    expect(signingKey().keyId).toBe('k2');
+    process.env.AUDIT_SNAPSHOT_RETIRED_KEY_IDS = ' k0 , k1,,k2 ';
+    expect(signingKey()).toMatchObject({ keyId: 'k2', retiredKeyIds: ['k0', 'k1'] });
   });
 });

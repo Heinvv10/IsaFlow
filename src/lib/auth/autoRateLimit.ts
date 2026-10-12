@@ -16,6 +16,8 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 export const AUTO_RATE_LIMIT: ReadonlyArray<{ prefix: string; key: string; max: number; windowSecs: number }> = [
   { prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
+  // Audit snapshots, verify, compare, check runs and packs: each can read a whole ledger (forensic step 4).
+  { prefix: '/api/accounting/audit-', key: 'audit', max: 30, windowSecs: 60 },
 ];
 
 /** False when the request's path has a bucket and the company is over it. */

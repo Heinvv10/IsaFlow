@@ -8,6 +8,7 @@
  *   ?id=&section=journals&page=&size=   its journals, paged
  *   ?id=&section=lines&journalId=       one journal's lines
  *   ?id=&verify=1                       recompute every hash and check the seal
+ *   ?chain=1                            check the company's chain of sealed snapshots (gaps, broken links, seals)
  * POST { cutoff } (owner / admin, a person in their own session) — take a snapshot now.
  * RLS (890) enforces the same reading rules underneath; the writer the same taking rules.
  */
@@ -24,7 +25,7 @@ import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/mo
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
 import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, unrecordedLocks } from '@/modules/accounting/services/audit/snapshotRead';
-import { verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
+import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 
 const Query = z.object({
   id: UUID.optional(),
@@ -33,6 +34,7 @@ const Query = z.object({
   page: z.coerce.number().int().min(1).default(1),
   size: z.coerce.number().int().min(1).max(500).default(100),
   verify: z.enum(['1']).optional(),
+  chain: z.enum(['1']).optional(),
 });
 const Body = z.object({ cutoff: AuditDate }).strict();
 
@@ -40,6 +42,7 @@ async function get(req: NextApiRequest, res: NextApiResponse, companyId: string)
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   const q = parsed.data;
+  if (q.chain) return apiResponse.success(res, { chain: await verifyChain(companyId) });
   if (!q.id) return apiResponse.success(res, { snapshots: await listSnapshots(companyId), unrecorded: await unrecordedLocks(companyId) });
   const snapshot = await getSnapshot(companyId, q.id);
   if (!snapshot) return apiResponse.notFound(res, 'Audit snapshot');

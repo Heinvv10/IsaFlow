@@ -42,6 +42,11 @@ database state.
 - Bulk reads and the check run run with nested loops off (`bulkPlan`): stale statistics after a bulk load made
   50 000 lines take 65 s. Measured cap and storage: `docs/evidence/audit-snapshots/size-cap-measurement.txt`.
 
+- Chain: sealed snapshots carry `seq` + `prev_hmac`, both signed; `verifyChain` finds a missing or replaced link.
+  One snapshot per company at a time (`runAuditTx` chainLock, before BEGIN), two per process (`snapshotSlots`).
+- Automatic snapshots of an unchanged ledger record `unchanged` (`snapshotAttempts.unchangedSince`, ledger fingerprint).
+- Unlisted key ids are `invalid`; `AUDIT_SNAPSHOT_RETIRED_KEY_IDS` lists the ones that read `unknown_key`.
+
 ## Known limits
 - The N1/N3 boundary (raw SQL that RESETs ROLE; the owner can disable guards) — but no one without the key can make a
   seal verify. Only the current key verifies; a rotated key reads `unknown_key`.

@@ -12,7 +12,11 @@ type Row = Record<string, unknown>;
 
 export interface SnapshotRecord {
   id: string; companyId: string; cutoff: string; takenAt: string; takenBy: string; takenByName: string | null;
-  channel: string; trigger: string; status: 'sealed' | 'failed'; failureReason: string | null;
+  channel: string; trigger: string; status: 'sealed' | 'failed' | 'unchanged'; failureReason: string | null;
+  /** The chain: this company's sealed snapshots are numbered 1, 2, 3, … and each names the one before it. */
+  seq: number | null; prevHmac: string | null;
+  /** An 'unchanged' attempt: the sealed snapshot whose ledger still read the same. */
+  sameAsSnapshotId: string | null;
   canonicalHash: string | null; hmac: string | null; keyId: string | null; masterDataHighWater: string | null;
   totals: Record<string, unknown>; caveat: string; checkRunId: string | null;
 }
@@ -25,6 +29,8 @@ function mapSnapshot(r: Row): SnapshotRecord {
     canonicalHash: (r.canonical_hash as string | null) ?? null, hmac: (r.hmac as string | null) ?? null,
     keyId: (r.key_id as string | null) ?? null, masterDataHighWater: (r.high_water as string | null) ?? null,
     totals: (r.totals as Record<string, unknown>) ?? {}, caveat: String(r.caveat), checkRunId: (r.check_run_id as string | null) ?? null,
+    seq: r.seq === null || r.seq === undefined ? null : Number(r.seq), prevHmac: (r.prev_hmac as string | null) ?? null,
+    sameAsSnapshotId: (r.same_as as string | null) ?? null,
   };
 }
 
@@ -35,7 +41,8 @@ async function selectSnapshots(companyId: string, id: string | null, limit: numb
            public.approval_company_member_name(s.company_id, s.taken_by) AS taken_by_name,
            s.channel, s.trigger, s.status, s.failure_reason, s.canonical_hash, s.hmac, s.key_id,
            to_char(s.master_data_high_water AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS high_water,
-           s.totals, s.caveat, s.check_run_id::TEXT AS check_run_id
+           s.totals, s.caveat, s.check_run_id::TEXT AS check_run_id, s.seq, s.prev_hmac,
+           s.same_as_snapshot_id::TEXT AS same_as
     FROM audit_snapshots s
     WHERE s.company_id = ${companyId}::UUID AND (${id}::UUID IS NULL OR s.id = ${id}::UUID)
     ORDER BY s.taken_at DESC, s.id DESC
@@ -44,7 +51,8 @@ async function selectSnapshots(companyId: string, id: string | null, limit: numb
   return rows.map(mapSnapshot);
 }
 
-export const listSnapshots = (companyId: string, limit = 100) => selectSnapshots(companyId, null, Math.min(Math.max(limit, 1), 200));
+/** Newest first; `limit` up to 200 for a screen, 10 000 for the chain check. */
+export const listSnapshots = (companyId: string, limit = 100) => selectSnapshots(companyId, null, Math.min(Math.max(limit, 1), 10_000));
 
 export async function getSnapshot(companyId: string, id: string): Promise<SnapshotRecord | null> {
   return (await selectSnapshots(companyId, id, 1))[0] ?? null;

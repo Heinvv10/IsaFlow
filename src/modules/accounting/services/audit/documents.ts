@@ -8,7 +8,8 @@ import { canonicalJson, sha256Hex } from './canonical';
 import type { CheckResult } from './checks/checkTypes';
 import type { CanonicalRow } from './snapshotRows';
 
-export const DOCUMENT_VERSION = 1;
+/** 2: journal and line rows freeze the VAT / intercompany / evidence columns too (breaker r1 F2). */
+export const DOCUMENT_VERSION = 2;
 export const SNAPSHOT_CAVEAT = 'Current values of records dated on or before the cutoff, as at taken_at — not the historical database state.';
 
 export interface CheckRunHeader {
@@ -45,6 +46,19 @@ export function snapshotHash(h: SnapshotHeader, tb: { accountId: string; row: Ca
     trial_balance: [...tb].sort(byKey((t) => t.accountId)).map((t) => t.row),
     journals: [...journals].sort(byKey((j) => j.journalId)).map((j) => [j.journalId, j.materialHash]),
     lines: [...lines].sort(byKey((l) => l.lineId)).map((l) => [l.lineId, l.materialHash]),
+  }));
+}
+
+/**
+ * What a snapshot froze of the ledger, in one hash: every journal's and line's material hash and the trial balance.
+ * Sealed in the snapshot's totals; an automatic snapshot whose ledger reads the same is recorded as 'unchanged'.
+ */
+export function ledgerFingerprint(tb: { accountId: string; row: CanonicalRow }[], journals: { journalId: string; materialHash: string }[],
+  lines: { lineId: string; materialHash: string }[]): string {
+  return sha256Hex(canonicalJson({
+    tb: [...tb].sort(byKey((t) => t.accountId)).map((t) => t.row),
+    journals: [...journals].sort(byKey((j) => j.journalId)).map((j) => j.materialHash),
+    lines: [...lines].sort(byKey((l) => l.lineId)).map((l) => l.materialHash),
   }));
 }
 

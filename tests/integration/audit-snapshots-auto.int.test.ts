@@ -60,7 +60,11 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(s).toMatchObject({ trigger: 'period_close', status: 'sealed', cutoff: '2026-01-31', taken_by: o, channel: 'session' });
     const lock = await action(o, c, { action: 'lock', id: periods[0] });
     expect(lock.state.statusCode).toBe(200);
-    expect((await waitForSnapshots(pool, c, 2)).map((x) => x.cutoff)).toEqual(['2026-01-31', '2026-01-31']);
+    // Nothing moved between the close and the lock: the lock records 'unchanged', pointing at the close's snapshot.
+    const both = await waitForSnapshots(pool, c, 2);
+    expect(both.map((x) => [x.cutoff, x.status])).toEqual([['2026-01-31', 'sealed'], ['2026-01-31', 'unchanged']]);
+    const { rows: [u] } = await pool.query('SELECT same_as_snapshot_id::text AS s FROM audit_snapshots WHERE id = $1', [both[1]!.id]);
+    expect(u.s).toBe(s!.id);
   });
 
   it('a bulk close takes one snapshot at the latest end date; close_year one more', async () => {
@@ -158,6 +162,41 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect((await action(o, c, { action: 'close', id: periods[1] })).state.statusCode).toBe(200);
     await waitForSnapshots(pool, c, 2);
     expect(await listed()).toEqual([]);
+  });
+
+  it('closing and reopening over and over stores one snapshot, then references; a posting in between stores a new one', async () => {
+    const { c, l, periods } = await company();
+    for (let i = 0; i < 3; i++) {
+      expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+      await waitForSnapshots(pool, c, i + 1);
+      expect((await action(o, c, { action: 'reopen', id: periods[0] })).state.statusCode).toBe(200);
+    }
+    await plantJournal(pool, c, { date: '2026-01-20', amount: 5, debit: l.bank, credit: l.sales, by: o });
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    const all = await waitForSnapshots(pool, c, 4);
+    expect(all.map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
+  });
+
+  it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {
+    const { c, periods } = await company();
+    const client = await pool.connect();
+    const claims = { sub: o, session_id: crypto.randomUUID() };
+    const ctx = { client, userId: o, companyId: c, claims, afterCommit: [] } as unknown as RequestContext;
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await als.run(ctx, async () => {
+        await closePeriod(c, periods[0]!, o);
+        await withSavepoint('undone_second', async () => { await closePeriod(c, periods[1]!, o); throw new Error('undo'); })
+          .catch(() => undefined);
+      });
+      ctx.finished = true;
+      await client.query('COMMIT');
+    } finally { client.release(); }
+    await ctx.afterCommit![0]!.fn();
+    expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([expect.objectContaining({ cutoff: '2026-01-31', status: 'sealed' })]);
   });
 
   it('a refused close takes nothing', async () => {

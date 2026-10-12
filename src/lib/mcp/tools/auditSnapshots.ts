@@ -12,7 +12,7 @@ import { auditRefusal, mayReadAudit, mayTakeAudit } from '@/modules/accounting/s
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
 import { getCheckRun, getSnapshot, listSnapshots } from '@/modules/accounting/services/audit/snapshotRead';
-import { verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
+import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -31,7 +31,9 @@ export const auditSnapshotsTool: McpTool = {
   description:
     'SEALED AUDIT SNAPSHOTS OF THE BOOKS. Without snapshot_id: the company\'s snapshots, newest first — cutoff, when and '
     + 'by whom taken, trigger (manual / period_close / vat_lock / year_close), status (sealed, or failed with the reason), '
-    + 'canonical hash. With snapshot_id: that snapshot\'s header and totals plus its check run (15 integrity checks, the '
+    + 'canonical hash; status unchanged = the ledger read the same as an earlier sealed snapshot (same_as_snapshot_id). '
+    + 'verify_chain: true checks the company\'s numbered chain of sealed snapshots for a missing or replaced link. '
+    + 'With snapshot_id: that snapshot\'s header and totals plus its check run (15 integrity checks, the '
     + 'anomaly scan and the journal-risk leads, each with status pass / fail / unknown and its findings). With verify: '
     + 'true: recompute every row hash and the canonical hash from what is stored and check the HMAC seal — status valid, '
     + `invalid, unknown_key (sealed under another key) or not_sealed. ${CAVEAT} Owner, admin or manager.`,
@@ -42,6 +44,7 @@ export const auditSnapshotsTool: McpTool = {
     properties: {
       snapshot_id: { type: 'string', description: 'Id from this tool\'s list.' },
       verify: { type: 'boolean', description: 'With snapshot_id: verify the seal from the stored rows.' },
+      verify_chain: { type: 'boolean', description: 'Without snapshot_id: check the company\'s chain of sealed snapshots (gaps, broken links, seals).' },
     },
     additionalProperties: false,
   },
@@ -51,6 +54,7 @@ export const auditSnapshotsTool: McpTool = {
     if (!mayReadAudit(ctx.companyRole)) return toolError(`Your role (${ctx.companyRole ?? 'unknown'}) cannot view audit snapshots.`);
     const id = strArg(args, 'snapshot_id');
     try {
+      if (!id && args.verify_chain === true) return ok({ chain: await verifyChain(ctx.companyId) });
       if (!id) return ok({ snapshots: await listSnapshots(ctx.companyId), caveat: CAVEAT });
       const snapshot = await getSnapshot(ctx.companyId, id);
       if (!snapshot) return toolError('Not found');

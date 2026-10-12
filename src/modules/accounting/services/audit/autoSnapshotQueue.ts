@@ -8,16 +8,16 @@
  * VAT services do not import the snapshot machinery.
  *
  * One request that closes many periods (bulk close, close year) queues ONE
- * snapshot per trigger, at the latest cutoff it closed.
+ * snapshot per trigger: every cutoff is kept, and the run snapshots the latest
+ * whose lock still stands (a later close undone in a savepoint does not cost
+ * the earlier, standing one its snapshot).
  */
 import { als, type RequestContext } from '@/lib/als';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 
 export type AutoTrigger = 'period_close' | 'vat_lock' | 'year_close';
-interface Pending { trigger: AutoTrigger; cutoff: string }
-
-const queued = new WeakMap<RequestContext, Map<AutoTrigger, Pending>>();
+const queued = new WeakMap<RequestContext, Map<AutoTrigger, Set<string>>>();
 
 export function scheduleAutoSnapshot(trigger: AutoTrigger, cutoff: string): void {
   try {
@@ -28,17 +28,18 @@ export function scheduleAutoSnapshot(trigger: AutoTrigger, cutoff: string): void
     }
     let pending = queued.get(store);
     if (!pending) {
-      const items = new Map<AutoTrigger, Pending>();
+      const items = new Map<AutoTrigger, Set<string>>();
       const principal = { userId: store.userId, companyId: store.companyId, claims: { ...store.claims } };
       runAfterCommit('audit-auto-snapshot', async () => {
         const { runAutoSnapshots } = await import('./autoSnapshot');
-        await runAutoSnapshots(principal, [...items.values()]);
+        await runAutoSnapshots(principal, [...items.entries()].map(([trigger, cutoffs]) => ({ trigger, cutoffs: [...cutoffs] })));
       });
       queued.set(store, items);
       pending = items;
     }
-    const prev = pending.get(trigger);
-    if (!prev || cutoff > prev.cutoff) pending.set(trigger, { trigger, cutoff });
+    const cutoffs = pending.get(trigger) ?? new Set<string>();
+    cutoffs.add(cutoff);
+    pending.set(trigger, cutoffs);
   } catch (err) {
     log.error('audit: could not queue the automatic snapshot', { trigger, cutoff,
       error: err instanceof Error ? err.message : String(err) }, 'audit');
