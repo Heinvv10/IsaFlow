@@ -5,11 +5,13 @@
  * `balanceSheetService` and `trendRowsService` both select an account only when
  * `level >= 3 OR it has no children` — a level 1 or 2 account WITH children is
  * a header, and every rand posted on it is silently absent from both reports
- * while the trial balance still foots. Three CHART edits can put existing money
- * there: `assertParentUsable` guards create-a-child and reparent, and this file
- * guards the two that were missing it — an account merge that reparents
- * children onto a summary target (K-051) and a reclassification aimed at a
- * header (K-052). New journal lines are refused by `headerAccountGuard` (below).
+ * while the trial balance still foots. CHART edits that can put existing money
+ * there are guarded where they happen: `assertParentUsable` (create a child,
+ * reparent), this file's two (an account merge that reparents children onto a
+ * summary target, K-051; a reclassification aimed at a header, K-052),
+ * `assertNoPostedParentHidden` (a move up that re-levels a posted level-3
+ * parent to 2) and the bank grouping PUT. New journal lines are refused by
+ * `headerAccountGuard` (below).
  *
  * Note the SCOPE of the rule. Both readers also filter
  * `account_type IN ('asset','liability','equity')`, and `incomeStatementService`
@@ -22,7 +24,7 @@
  * it refuses posting to any parent account, of any type and any level
  * (migration 484). The two are not in conflict: a direct post is a choice the
  * user makes line by line and "pick a leaf account" is cheap advice at that
- * moment, whereas these three chart guards decide whether a bulk move of existing
+ * moment, whereas these chart guards decide whether a bulk move of existing
  * lines may proceed at all, and refusing one costs the accountant a chart tidy
  * that loses nothing. Where the reports cannot lose the money, these admit it.
  *
