@@ -78,18 +78,19 @@ beforeAll(async () => {
     [foreignBu, otherCompany]);
   // The posted history: two lines on the source account, one tagged to another
   // company's three dimensions (no FK stops it, and none ever did), one tagged
-  // to this company's own cost centre.
+  // to this company's own cost centre. A cost centre is in BOTH cost_center_id
+  // and cc1_id: the historic shape (no new line writes cost_center_id, D4 2026-10-12).
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_at)
      VALUES($1,$2,'K051D-JE-1',$3::date,$4,'K051D history','manual','posted',$5,NOW())`,
     [entry, company, DATE, fp[0].id, user]);
   await pool.query(
-    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,project_id,cost_center_id,bu_id)
-     VALUES($1,$2,$3,$4,1000,0,'foreign-tagged',$5,$6,$7)`,
+    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,project_id,cost_center_id,cc1_id,bu_id)
+     VALUES($1,$2,$3,$4,1000,0,'foreign-tagged',$5,$6,$6,$7)`,
     [foreignLine, company, entry, source, foreignProject, foreignCc, foreignBu]);
   await pool.query(
-    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,cost_center_id)
-     VALUES($1,$2,$3,$4,400,0,'own-tagged',$5)`,
+    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,cost_center_id,cc1_id)
+     VALUES($1,$2,$3,$4,400,0,'own-tagged',$5,$5)`,
     [ownLine, company, entry, source, ownCc]);
   await pool.query(
     `INSERT INTO gl_journal_lines(company_id,journal_entry_id,gl_account_id,debit,credit)
@@ -142,7 +143,7 @@ it('posts the batch, dropping only the dimensions this company does not own', as
 
     const { rows: legs } = await client.query(
       `SELECT jl.gl_account_id, jl.debit::float8 AS debit, jl.credit::float8 AS credit,
-              jl.project_id, jl.cost_center_id, jl.bu_id, jl.description
+              jl.project_id, jl.cost_center_id, jl.cc1_id, jl.bu_id, jl.description
          FROM gl_journal_lines jl
         WHERE jl.company_id = $1 AND jl.journal_entry_id = ANY($2::uuid[])
         ORDER BY jl.description, jl.gl_account_id`,
@@ -154,7 +155,7 @@ it('posts the batch, dropping only the dimensions this company does not own', as
         WHERE jl.company_id = $1 AND jl.gl_account_id = $2 AND je.status = 'posted'`,
       [company, source]);
     const { rows: original } = await client.query(
-      'SELECT project_id, cost_center_id, bu_id FROM gl_journal_lines WHERE id = $1', [foreignLine]);
+      'SELECT project_id, cost_center_id, cc1_id, bu_id FROM gl_journal_lines WHERE id = $1', [foreignLine]);
 
     return { plan, warned, result, legs, sourceNet: Number(net[0].n), original: original[0] };
   });
@@ -171,15 +172,20 @@ it('posts the batch, dropping only the dimensions this company does not own', as
   for (const leg of fromForeign) {
     expect(leg.project_id).toBeNull();
     expect(leg.cost_center_id).toBeNull();
+    expect(leg.cc1_id).toBeNull();
     expect(leg.bu_id).toBeNull();
   }
   expect(fromForeign.reduce((t, l) => t + l.debit - l.credit, 0)).toBeCloseTo(0, 2);
 
-  // The OWN cost centre is carried forward untouched: this drops what is
-  // foreign, not what is tagged.
+  // The OWN cost centre is carried forward in its slot: this drops what is
+  // foreign, not what is tagged. The legacy column is never carried (it stays
+  // on the source line only).
   const fromOwn = seen.legs.filter((l) => String(l.description).includes('own-tagged'));
   expect(fromOwn).toHaveLength(2);
-  for (const leg of fromOwn) expect(leg.cost_center_id).toBe(ownCc);
+  for (const leg of fromOwn) {
+    expect(leg.cc1_id).toBe(ownCc);
+    expect(leg.cost_center_id).toBeNull();
+  }
 
   // The ledger duties: every journal balances, the source account nets to zero
   // after its own contras, and the posted history is untouched.
@@ -190,5 +196,6 @@ it('posts the batch, dropping only the dimensions this company does not own', as
   expect(seen.sourceNet).toBeCloseTo(0, 2);
   expect(seen.original.project_id).toBe(foreignProject);
   expect(seen.original.cost_center_id).toBe(foreignCc);
+  expect(seen.original.cc1_id).toBe(foreignCc);
   expect(seen.original.bu_id).toBe(foreignBu);
 }, 60_000);
