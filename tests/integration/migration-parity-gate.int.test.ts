@@ -7,7 +7,8 @@
  * real-database tests use throwaway parity_prod_t / parity_dev_t through the `expect` override.
  * The default-name refusal tests only connect to those throwaways and assert they are refused.
  *
- * Run it on any change to scripts/lib/migrationParityRun.ts (ci does not run it). Start your own
+ * `bun run ci`'s integration step runs it (scripts/ci/integration/run.sh points both URLs at other
+ * shards' throwaway clusters). To run it alone on a change to scripts/lib/migrationParityRun.ts, start your own
  * Postgres on a free loopback port (`ss -ltn` first), never one of 7770-7776:
  *   docker run -d --name parity-test-pg -e POSTGRES_PASSWORD=<throwaway> -p 127.0.0.1:<port>:5432 postgres:16
  *   PARITY_TEST_PG_DISPOSABLE=1 PARITY_TEST_PG_URL=<loopback URL of that container, database postgres, sslmode off> \
