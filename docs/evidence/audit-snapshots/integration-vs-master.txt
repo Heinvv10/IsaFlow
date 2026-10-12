@@ -26,3 +26,13 @@ w3-01-reversal-guard-locks.int.test.ts ::       Tests  3 passed (3)
 w3-01-rounding-cent-reopen.int.test.ts ::       Tests  3 passed (3)
 
 # Result: 23/23 pass alone — parallel-load interference, not the branch. Master-only failing files (also load): 21.
+
+# Dev-only suites (133 files that refuse a fixture DB; step 3's list) against isaflow_dev — 890 NOT applied to dev:
+#   branch: 11 failed files / 36 failed tests; master: 8 / 33. Branch-only: 3 files, 3 tests; each re-run alone on both sides:
+d10-mcp-void branch ::       Tests  6 passed (6)
+d10-mcp-void master ::       Tests  6 passed (6)
+d8-r16-lock-timeout-trail branch ::       Tests  15 passed (15)
+d8-r16-lock-timeout-trail master ::       Tests  15 passed (15)
+d8-r4-matrix branch ::       Tests  40 passed (40)
+d8-r4-matrix master ::       Tests  40 passed (40)
+# Result: branch failures minus load flakes ⊂ master's.
