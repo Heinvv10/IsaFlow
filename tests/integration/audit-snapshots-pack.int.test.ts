@@ -202,6 +202,52 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     }
   });
 
+  it('nothing is inflated past its size, a file the manifest does not list fails it, and a retired key is judged by built_at', async () => {
+    const c = await company();
+    const ex = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).export;
+    const key = `captured-documents/${c}/audit-${ex.id}.zip`;
+    const genuine = storage.files.get(key)!;
+    const verify = async () => dataOf<{ verification: { status: string; manifestSeal: string; files: { name: string; ok: boolean }[] } }>(
+      await callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: ex.id, verify: '1' })).verification;
+    const store = async (bytes: Buffer) => { storage.files.set(key, bytes); await ownerRepoint(ex.id, sha256Hex(bytes)); };
+    // A well-formed manifest padded past 1 MiB is not read at all (missing), not inflated and then refused (invalid).
+    const padded = await JSZip.loadAsync(genuine);
+    padded.file('manifest.json', `${' '.repeat(2 * 1024 * 1024)}${await padded.file('manifest.json')!.async('string')}`);
+    await store(await padded.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+    expect(await verify()).toMatchObject({ status: 'invalid', manifestSeal: 'missing' });
+    // The genuine ZIP plus a file the manifest does not list: the seal holds, the extra file fails the pack.
+    const extra = await JSZip.loadAsync(genuine);
+    extra.file('extra.csv', '=cmd');
+    await store(await extra.generateAsync({ type: 'nodebuffer' }));
+    const v = await verify();
+    expect(v).toMatchObject({ status: 'invalid', manifestSeal: 'valid' });
+    expect(v.files).toContainEqual({ name: 'extra.csv', ok: false });
+    await store(genuine);
+    expect((await verify()).status).toBe('valid');
+    // A later pack from the same snapshot: its manifest's taken_at (the snapshot's) predates its built_at.
+    await new Promise((r) => setTimeout(r, 50));
+    const later = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', snapshotId: ex.snapshotId })).export;
+    const verifyLater = async () => dataOf<{ verification: { manifestSeal: string } }>(
+      await callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: later.id, verify: '1' })).verification;
+    const { rows: [t] } = await pool.query(
+      'SELECT s.taken_at, e.built_at FROM audit_trail_exports e JOIN audit_snapshots s ON s.id = e.snapshot_id WHERE e.id = $1', [later.id]);
+    expect(t.taken_at.getTime()).toBeLessThan(t.built_at.getTime());
+    const rotate = (retiredAt: Date) => Object.assign(process.env, { AUDIT_SNAPSHOT_KEY_ID: 'pack-test-2',
+      AUDIT_SNAPSHOT_SIGNING_KEY: 'q'.repeat(48), AUDIT_SNAPSHOT_RETIRED_KEYS: `pack-test=${'p'.repeat(48)}@${retiredAt.toISOString()}` });
+    try {
+      // Rotated away from the pack's key after it was built: still valid.
+      rotate(new Date(t.built_at.getTime() + 3_600_000));
+      expect((await verifyLater()).manifestSeal).toBe('valid');
+      // Retired after the snapshot was taken but before the pack was built: the manifest's own time would pass it;
+      // the database's built_at does not.
+      rotate(new Date(t.built_at.getTime() - 1));
+      expect(t.taken_at.getTime()).toBeLessThan(t.built_at.getTime() - 1);
+      expect((await verifyLater()).manifestSeal).toBe('invalid');
+    } finally {
+      Object.assign(process.env, { AUDIT_SNAPSHOT_KEY_ID: 'pack-test', AUDIT_SNAPSHOT_SIGNING_KEY: 'p'.repeat(48), AUDIT_SNAPSHOT_RETIRED_KEYS: '' });
+    }
+  });
+
   it('an older PDF-only pack (built before 890) still downloads as its PDF', async () => {
     const c = await company();
     storage.files.set(`captured-documents/${c}/legacy.pdf`, Buffer.from('%PDF-legacy'));
@@ -233,6 +279,8 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     expect(await code(asManager((db) => db.query('DELETE FROM audit_trail_exports WHERE id = $1', [genuine.id])))).toBe('42501');
     expect(await code(asManager((db) => db.query(
       `UPDATE audit_trail_exports SET pdf_storage_bucket = 'elsewhere' WHERE id = $1`, [genuine.id])))).toBe('42501');
+    expect(await code(asManager((db) => db.query(
+      `UPDATE audit_trail_exports SET built_at = now() - interval '1 year' WHERE id = $1`, [genuine.id])))).toBe('42501');
     // A failed export moved to ready without a snapshot and ZIP: refused.
     const failed = (await asManager((db) => db.query(
       `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status) VALUES($1, '2026-01-01', '2026-06-30', 'failed')
@@ -251,7 +299,10 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     storage.files.set(`captured-documents/${c}/forged.zip`, forged);
     expect(await code(asManager((db) => db.query(
       `UPDATE audit_trail_exports SET status = 'ready', snapshot_id = $2, zip_storage_bucket = 'captured-documents',
-         zip_storage_path = $3, zip_sha256 = $4 WHERE id = $1`, [failed, genuine.snapshotId, `${c}/forged.zip`, sha256Hex(forged)])))).toBe('ok');
+         zip_storage_path = $3, zip_sha256 = $4, built_at = '2020-01-01' WHERE id = $1`, [failed, genuine.snapshotId, `${c}/forged.zip`, sha256Hex(forged)])))).toBe('ok');
+    // Its built_at is the database's clock at the move, whatever the forger wrote: a key retired before then fails it.
+    const { rows: [stamp] } = await pool.query("SELECT built_at > now() - interval '1 minute' AS fresh FROM audit_trail_exports WHERE id = $1", [failed]);
+    expect(stamp.fresh).toBe(true);
     const dl = await download(o, c, failed);
     expect([dl.state.statusCode, (dl.state.body as { error?: { details?: { reason?: string } } }).error?.details?.reason]).toEqual([400, 'PACK_REFUSED']);
     const session = dataOf<{ session: { id: string }; accessToken: string }>(await callRoute(exportSessions, tokens[o]!, c, 'POST',

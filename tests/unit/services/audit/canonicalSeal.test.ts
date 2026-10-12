@@ -84,6 +84,12 @@ describe('seal', () => {
     // Retired before this seal's taken_at: whoever signed it held a key that was already retired.
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt(fields.takenAt))).toBe('invalid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2020-01-01T00:00:00Z'))).toBe('invalid');
+    // A pack passes the database's built_at: the taken_at inside its manifest is the forger's to write.
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2027-01-01T00:00:00Z'), '2027-06-01T00:00:00Z')).toBe('invalid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2027-01-01T00:00:00Z'), '2026-12-31T23:59:59Z')).toBe('valid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2027-01-01T00:00:00Z'), '')).toBe('invalid');
+    // The current key does not care when.
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, KEY, '2099-01-01T00:00:00Z')).toBe('valid');
   });
   it('the chain position is signed: another seq or previous link does not verify', () => {
     const chained = { ...fields, chain: { seq: 2, prevHmac: 'c'.repeat(64) } };

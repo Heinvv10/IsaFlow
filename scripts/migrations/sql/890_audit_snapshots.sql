@@ -193,15 +193,19 @@ BEGIN
     RETURN OLD;
   END IF;
   -- Into ready: only a pack built from a snapshot (a ZIP the download routes can verify), never a bare file pointer.
-  IF NEW.status = 'ready' AND OLD.status IS DISTINCT FROM 'ready'
-     AND (NEW.snapshot_id IS NULL OR NEW.zip_storage_path IS NULL OR NEW.zip_sha256 IS NULL) THEN
-    RAISE EXCEPTION 'audit_trail_exports: a pack is ready only with its snapshot and ZIP' USING ERRCODE = '42501';
+  IF NEW.status = 'ready' AND OLD.status IS DISTINCT FROM 'ready' THEN
+    IF NEW.snapshot_id IS NULL OR NEW.zip_storage_path IS NULL OR NEW.zip_sha256 IS NULL THEN
+      RAISE EXCEPTION 'audit_trail_exports: a pack is ready only with its snapshot and ZIP' USING ERRCODE = '42501';
+    END IF;
+    -- When it became ready, by the database's clock: a retired key vouches only for packs built before it was retired.
+    NEW.built_at := pg_catalog.now();
   END IF;
   IF OLD.status = 'ready' AND (NEW.status IS DISTINCT FROM OLD.status
       OR NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id OR NEW.zip_storage_bucket IS DISTINCT FROM OLD.zip_storage_bucket
       OR NEW.zip_storage_path IS DISTINCT FROM OLD.zip_storage_path OR NEW.zip_sha256 IS DISTINCT FROM OLD.zip_sha256
       OR NEW.pdf_storage_bucket IS DISTINCT FROM OLD.pdf_storage_bucket
-      OR NEW.pdf_storage_path IS DISTINCT FROM OLD.pdf_storage_path OR NEW.pdf_sha256 IS DISTINCT FROM OLD.pdf_sha256) THEN
+      OR NEW.pdf_storage_path IS DISTINCT FROM OLD.pdf_storage_path OR NEW.pdf_sha256 IS DISTINCT FROM OLD.pdf_sha256
+      OR NEW.built_at IS DISTINCT FROM OLD.built_at) THEN
     RAISE EXCEPTION 'audit_trail_exports: a ready pack''s snapshot and files are fixed' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
