@@ -4,7 +4,7 @@
  * FNOs with a project each and two business units, and the three MCP tools
  * the sync touches, run the way the bearer pipeline runs them.
  */
-import type { Pool } from 'pg';
+import { Pool } from 'pg';
 import { McpRegistry } from '../../src/lib/mcp/registry';
 import type { McpTool } from '../../src/lib/mcp/types';
 import { allocateBankTransactionTool } from '../../src/lib/mcp/tools/writeBankAllocate';
@@ -229,4 +229,53 @@ export async function cleanupSync(pool: Pool, companies: string[], users: string
   await pool.query('DELETE FROM business_units WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM cost_centres WHERE company_id = ANY($1)', [companies]);
   await cleanupBankControlsA(pool, companies, users);
+}
+
+// ── Lock-wait probes: they THROW when nothing ever blocked, so a lock-order assertion can never pass unexercised ──
+
+const NEVER_BLOCKED = 'the session under test never blocked on the lock; the lock-order premise was not exercised';
+
+/** The pid of a checked-out connection. */
+export const pidOf = async (c: { query: (t: string) => Promise<{ rows: { pid: number }[] }> }): Promise<number> =>
+  (await c.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
+
+/** Wait (up to 5s) until a session is blocked by `blockerPid`; THROWS if none ever is. `db` must not be a pool whose connections are all checked out. */
+export async function waitBlockedBy(db: Pool, blockerPid: number): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    const waiting = await db.query('SELECT 1 FROM pg_stat_activity WHERE $1::INT = ANY(pg_blocking_pids(pid))', [blockerPid]);
+    if (waiting.rowCount) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`${NEVER_BLOCKED} (nothing blocked by pid ${blockerPid} within 5s)`);
+}
+
+/** Wait (up to 5s) until a session of application `appName` waits on a lock; THROWS if none ever does. */
+export async function waitForLockWaitBy(db: Pool, appName: string): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    const waiting = await db.query("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND application_name = $1", [appName]);
+    if (waiting.rowCount) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`${NEVER_BLOCKED} (no ${appName} session waited on a lock within 5s)`);
+}
+
+/**
+ * Sessions that cannot walk the primary key: with index and bitmap scans off, an UNORDERED locking select returns (and so
+ * locks) rows in physical order. Per-connection startup options, so no other session or file is touched.
+ */
+export const physicalPool = (appName: string): Pool => new Pool({
+  connectionString: process.env.DATABASE_URL, max: 3, application_name: appName,
+  options: '-c enable_indexscan=off -c enable_bitmapscan=off -c enable_indexonlyscan=off',
+});
+
+/** The ids an UNORDERED locking select returns in a `physical` session, i.e. the order it would lock them. */
+export async function unorderedLockOrder(physical: Pool, text: string, values: unknown[]): Promise<string[]> {
+  const c = await physical.connect();
+  try {
+    await c.query('BEGIN');
+    return (await c.query(text, values)).rows.map((r: { id: string }) => r.id);
+  } finally {
+    await c.query('ROLLBACK');
+    c.release();
+  }
 }
