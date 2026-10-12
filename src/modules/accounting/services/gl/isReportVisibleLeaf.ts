@@ -26,12 +26,12 @@
  * lines may proceed at all, and refusing one costs the accountant a chart tidy
  * that loses nothing. Where the reports cannot lose the money, these admit it.
  *
- * BUT IT IS NOT A GENERAL SAFETY NET, and no comment here may lean on it as
- * one. It has exactly two call sites, both in
- * `pages/api/accounting/expense-claims/[id]/post.ts`. There is no trigger on
- * `gl_journal_lines` enforcing it, and neither `createJournalEntry` nor the MCP
- * journal tools call it — ordinary journal posting to a header account is
- * refused nowhere. So these guards are the control, not a second line of one.
+ * Ordinary posting is guarded separately, by the same predicate:
+ * `headerAccountGuard.assertNoHeaderAccountLines` (D1, 2026-10-12) refuses a
+ * NEW journal line on a header in every writer of `gl_journal_lines`
+ * (`journalLineWriterCensus.test.ts`). There is still no trigger, and the
+ * guard exempts contra legs (reversals, a reclassification's source), so lines
+ * already on a header stay where they are until someone moves them.
  */
 import { sql } from '@/lib/neon';
 
