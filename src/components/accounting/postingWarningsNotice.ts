@@ -18,6 +18,7 @@
  */
 import { notify } from '@/utils/toast';
 import { parsePickDropSentence, pickDropFact } from '@/lib/costCentrePickWording';
+import { listNames } from '@/components/accounting/noticeLine';
 
 /**
  * The part of a posting route's response this notice reads. `id` is there so a
@@ -66,27 +67,6 @@ export function postingWarningsIn(body: PostingWarningsBody | null | undefined):
   return postingWarningsByDocument(body).flat();
 }
 
-/** The toast clips its second line to one row of ~280px: longer than this and it is cut off. */
-export const NOTICE_LINE_FITS = 45;
-
-/**
- * "+3 more, in INV-1, INV-2, INV-3" — and when the numbers do not fit the row,
- * the first few then "and k more", then (a number alone too long, or one not
- * known) just how many documents. The title carries the fact either way.
- */
-function moreInDocuments(more: number, names: ReadonlyArray<string | undefined>): string {
-  const head = `+${more} more, in `;
-  if (names.every((n): n is string => !!n)) {
-    const full = head + names.join(', ');
-    if (full.length <= NOTICE_LINE_FITS) return full;
-    for (let shown = names.length - 1; shown >= 1; shown--) {
-      const cut = `${head}${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
-      if (cut.length <= NOTICE_LINE_FITS) return cut;
-    }
-  }
-  return `${head}${names.length} documents`;
-}
-
 /**
  * The notice for a response's warnings: a title that says which centre and why,
  * and a second line that fits. `names` are the documents' numbers, one per
@@ -102,7 +82,9 @@ export function postingWarningsNotice(
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   if (byDocument.length > 1) {
-    return { title, message: moreInDocuments(all.length - 1, byDocument.map((_, i) => names[i])) };
+    // The count is of warnings (the title says the first); the list is of the documents they were on.
+    const count = `${all.length} not applied`;
+    return { title, message: listNames(`${count}: `, byDocument.map((_, i) => names[i]), `${count}, in ${byDocument.length} documents`) };
   }
   return { title, message: `+${all.length - 1} more not applied.` };
 }

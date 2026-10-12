@@ -4,7 +4,7 @@
  * back from the screen: the bulk supplier-invoice bar names the bills, and the
  * late-claim notice says what happened in its title. Not a spy on `notify`.
  */
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +36,7 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true, warnings: [INACTIVE] },
     ]);
     expect(await screen.findByText('Posted — cost centre OLD not applied (inactive)')).toBeTruthy();
-    expect(screen.getByText('+1 more, in QAF4-12, QAF4-13')).toBeTruthy();
+    expect(screen.getByText('2 not applied: QAF4-12, QAF4-13')).toBeTruthy();
   });
 
   it('says what happened to the VAT in the title, not in the clipped line', async () => {
@@ -44,8 +44,18 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b1', invoiceNumber: 'QAF4-12', ok: true, lateClaim: lc(150) },
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true },
     ]);
-    expect(await screen.findByText('Input VAT of R150.00 claimed late, from 2026-07-01')).toBeTruthy();
+    expect(await screen.findByText('Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01')).toBeTruthy();
     expect(screen.getByText('Period 2026-05-01 to 2026-06-30 is filed.')).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText(/was claimed late, in the VAT period/)).toBeNull());
+    // The title is on screen, so the old sentence being absent is a fact about the toast, not about a page not yet rendered.
+    expect(screen.queryByText(/was claimed late, in the VAT period starting/)).toBeNull();
+  });
+
+  it('names the bills whose VAT was claimed late when several were', async () => {
+    await approve([
+      { invoiceId: 'b1', invoiceNumber: 'QAF4-12', ok: true, lateClaim: lc(150) },
+      { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true, lateClaim: lc(30) },
+    ]);
+    expect(await screen.findByText("2 documents' input VAT of R180.00 claimed late, in the VAT period from 2026-07-01")).toBeTruthy();
+    expect(screen.getByText('Bills: QAF4-12, QAF4-13')).toBeTruthy();
   });
 });
