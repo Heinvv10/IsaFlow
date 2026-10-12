@@ -16,6 +16,7 @@ import { BankControlError } from '@/modules/accounting/services/bank/bankControl
 import { SigningKeyMissingError } from './seal';
 import { SnapshotTooLargeError } from './snapshotService';
 import { ComparisonError } from './comparisonService';
+import { PackRefusedError } from './packExport';
 
 export const AUDIT_READ_ROLES = ['owner', 'admin', 'manager'] as const;
 export const AUDIT_TAKE_ROLES = ['owner', 'admin'] as const;
@@ -32,6 +33,7 @@ export function auditRefusal(err: unknown): AuditRefusal | null {
   }
   if (err instanceof SigningKeyMissingError) return { status: 503, code: 'SIGNING_KEY_MISSING', message: err.message };
   if (err instanceof ComparisonError) return { status: 400, code: 'COMPARISON_REFUSED', message: err.message };
+  if (err instanceof PackRefusedError) return { status: 400, code: 'PACK_REFUSED', message: err.message };
   if (err instanceof BankControlError) return { status: 403, code: err.code, message: err.message };
   return null;
 }
