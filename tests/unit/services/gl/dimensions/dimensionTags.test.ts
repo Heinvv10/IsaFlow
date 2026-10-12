@@ -10,7 +10,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 // tests/integration/bank-dimension-sync*.int.test.ts; here only what dimensionTagApply asks of it.
 vi.mock('@/modules/accounting/services/gl/dimensions/dimensionBankSync', () => ({
   applyBankSync: vi.fn(async () => 0), countBankRowDrift: vi.fn(async () => 0),
-  countBankRows: vi.fn(async () => 0), restoreBankRows: vi.fn(async () => undefined),
+  countBankRows: vi.fn(async () => 0), lockBatchBankRows: vi.fn(async () => undefined), restoreBankRows: vi.fn(async () => undefined),
 }));
 
 import { sql } from '@/lib/neon';
@@ -19,7 +19,7 @@ import {
   applyDimensionTags, applyTagBatchReversal, assertKeyIsFor, findTagBatchByKey, planTagBatchReversal,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import {
-  applyBankSync, countBankRowDrift, countBankRows, restoreBankRows,
+  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows,
 } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -42,6 +42,7 @@ beforeEach(() => {
   vi.mocked(applyBankSync).mockReset().mockResolvedValue(0);
   vi.mocked(countBankRowDrift).mockReset().mockResolvedValue(0);
   vi.mocked(countBankRows).mockReset().mockResolvedValue(0);
+  vi.mocked(lockBatchBankRows).mockReset().mockResolvedValue(undefined);
   vi.mocked(restoreBankRows).mockReset().mockResolvedValue(undefined);
 });
 
@@ -180,6 +181,15 @@ describe('reverse_dimension_tag_batch', () => {
       .mockResolvedValueOnce([{ n: 0 }]);
     vi.mocked(countBankRowDrift).mockResolvedValueOnce(2);
     await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/2 bank transaction\(s\) of batch .* re-tagged after it/);
+  });
+
+  it('locks the batch\'s bank rows BEFORE it checks them for drift', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: false }])
+      .mockResolvedValueOnce([{ n: 0 }]);
+    await planTagBatchReversal(COMPANY, BATCH);
+    expect(lockBatchBankRows).toHaveBeenCalledWith(COMPANY, BATCH);
+    expect(vi.mocked(lockBatchBankRows).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(countBankRowDrift).mock.invocationCallOrder[0]!);
   });
 
   it('plans the line count AND the bank-row count (a sync batch has no lines)', async () => {

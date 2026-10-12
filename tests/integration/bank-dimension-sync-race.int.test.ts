@@ -148,3 +148,69 @@ describe('a row that changed since it was planned is never overwritten', () => {
     expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
   });
 });
+
+describe('reversal locks the batch\'s bank rows before it checks them (follow-up)', () => {
+  const reverse = (f: SyncFixture, batch: string) =>
+    mcp(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: batch, idempotency_key: newKey('rev') });
+
+  it('a writer that tries a bank row between the drift check and the restore is made to wait; the reversal lands whole', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const batch = json<{ batch_id: string }>(await mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, idempotency_key: newKey('s') })).batch_id;
+    let outcome = 'not run';
+    hooks.fired = 0;
+    hooks.afterCandidateSelect = async () => {
+      const c = await other.connect();
+      try {
+        await c.query("SET lock_timeout = '400ms'");
+        await c.query('UPDATE bank_transactions SET bu_id = $2 WHERE id = $1', [a.tx, f.bu.B2]);
+        outcome = 'updated';
+      } catch (err) {
+        outcome = (err as { code?: string }).code ?? String(err);
+      } finally {
+        await c.query('RESET lock_timeout');
+        c.release();
+      }
+    };
+    const res = await reverse(f, batch);
+    expect(hooks.fired).toBe(1);
+    expect(outcome).toBe('55P03');
+    expect(res.isError, res.content[0]!.text).toBeFalsy();
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+
+  it('locks in id order: a reversal waiting on the LATER row already holds the EARLIER one', async () => {
+    const f = await fresh();
+    const later = await allocate(pool, f, { cc2: code(f, 'P1'), txId: 'ffffffff-0000-4000-8000-000000000002' });
+    const earlier = await allocate(pool, f, { cc2: code(f, 'P2'), txId: '00000000-0000-4000-8000-000000000002' });
+    const batch = json<{ batch_id: string }>(await mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, idempotency_key: newKey('s') })).batch_id;
+    const blocker = await other.connect();
+    const probe = await other.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE', [later.tx]);
+      const reversing = reverse(f, batch);
+      for (let i = 0; i < 100; i += 1) {
+        const waiting = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF bt%' AND datname = current_database()");
+        if (waiting.rowCount) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      let probed = 'acquired';
+      try {
+        await probe.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE NOWAIT', [earlier.tx]);
+      } catch (err) {
+        probed = (err as { code?: string }).code ?? String(err);
+      }
+      await blocker.query('COMMIT');
+      expect(probed).toBe('55P03');
+      const res = await reversing;
+      expect(res.isError, res.content[0]!.text).toBeFalsy();
+      expect(json<{ bank_rows_restored: number }>(res).bank_rows_restored).toBe(2);
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined);
+      blocker.release();
+      probe.release();
+    }
+  });
+});

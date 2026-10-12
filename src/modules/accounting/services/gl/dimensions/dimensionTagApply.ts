@@ -21,7 +21,7 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal } from './dimensionTypes';
 import type { TagPlan } from './dimensionTagPlan';
-import { applyBankSync, countBankRowDrift, countBankRows, restoreBankRows } from './dimensionBankSync';
+import { applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows } from './dimensionBankSync';
 import { BankDimensionSyncRefusal } from './dimensionBankSyncTypes';
 
 export interface AppliedTagBatch {
@@ -133,6 +133,8 @@ export async function planTagBatchReversal(companyId: string, batchId: string): 
       `${Number(drift!.n)} line(s) of batch ${batchId} were re-tagged after it; reverse the later batch first.`,
     );
   }
+  // Locked before the drift check, held to commit: nothing can change a bank row between the check and the restore.
+  await lockBatchBankRows(companyId, batchId);
   const bankDrift = await countBankRowDrift(companyId, batchId);
   if (bankDrift > 0) {
     throw new DimensionRefusal(
