@@ -14,7 +14,7 @@ import {
   parseCategorizationResponse,
   type ChartOfAccountEntry,
 } from '@/modules/accounting/services/core/aiCategorizationService';
-import { sweep as gateSweep, getAutoPostSettings } from './autoPostGateService';
+import { sweep as gateSweep, getAutoPostSettings, type SweepResult } from './autoPostGateService';
 
 // ─── Residual selector ────────────────────────────────────────────────────────
 
@@ -113,7 +113,7 @@ export interface RunDeps {
   loadAccounts: () => Promise<Array<ChartOfAccountEntry & { id?: string }>>;
   loadCandidates: () => Promise<LlmTxContext[]>;
   persist: (txId: string, r: LlmCatResult) => Promise<void>;
-  sweep: (txIds: string[]) => Promise<{ runId: string | null; posted: number; skipped: unknown[] }>;
+  sweep: (txIds: string[]) => Promise<Pick<SweepResult, 'runId' | 'posted' | 'warnings'> & { skipped: unknown[] }>;
   /** Optional override seam — injected by tests instead of spying the module export. */
   categorizeOne?: (
     tx: LlmTxContext,
@@ -161,7 +161,13 @@ export async function runLlmResidualPass(
     if (failures > 0) {
       log.warn('LLM pass: some residual items failed', { companyId, failures, attempted: residualIds.length }, 'llm-pass');
     }
-    if (tagged.length > 0) await deps.sweep(tagged);
+    if (tagged.length > 0) {
+      // After COMMIT with nobody waiting on a response: a pick the sweep dropped can only reach the log.
+      const swept = await deps.sweep(tagged);
+      if (swept.warnings.length > 0) {
+        log.warn('LLM pass: auto-post dropped cost-centre picks', { companyId, warnings: swept.warnings }, 'llm-pass');
+      }
+    }
   } catch (err) {
     log.warn(
       'LLM residual pass aborted',

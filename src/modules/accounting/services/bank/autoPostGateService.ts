@@ -3,8 +3,8 @@
  * Single eligibility authority for silent bank-transaction JE auto-posting.
  * Mirrors the capture-side autoPublishGateService decision-ladder shape.
  *
- * evaluate() is PURE — the primary TDD target. Later tasks append the
- * orchestration and settings logic to this file.
+ * The pure decision (`evaluate`) and the types live in `autoPostGate`; this
+ * file is the orchestration (`sweep`) plus re-exports.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -16,6 +16,8 @@ import { postProvisional } from '../capture/provisionalPostingService';
 import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
 import { feedStateOf } from './bankFeedStateGuard';
 import { BankControlError } from './bankControlRefusal';
+import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
+import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -30,84 +32,17 @@ export {
 
 type Row = DbRow;
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-export interface GateTx {
-  status: string;
-  amount: number;
-  suggestedGlAccountId: string | null;
-}
-
-export type GateDecision = { outcome: 'post' } | { outcome: 'skip'; reason: string };
-
-export type AutoPostSource = 'import' | 'categorization' | 'manual';
-
-export interface SweepResult {
-  runId: string | null;
-  posted: number;
-  skipped: Array<{ txId: string; reason: string }>;
-  /** Lines posted gross because s17(2)(a) denied the input tax. */
-  vatDenied?: number;
-  /** Lines posted gross because no supply can arise on the account. */
-  nonSupplyCoerced?: number;
-}
-
-export const AUTO_POST_AGENT = 'ai:auto-post:v1';
-
-// ── Pure gate ────────────────────────────────────────────────────────────────
-
-/**
- * Decision ladder, first failure wins. The status check (rung 2) now runs
- * BEFORE any feature-flag check so it always applies to both tiers.
- *
- * `strategy === 'llm'` routes through the fully-separate LLM tier: the
- * standard enabled/minConfidence/amountCap settings have NO effect here.
- * The LLM tier only posts when `llmEnabled && confidence >= llmMinConfidence
- * && within llmAmountCap`.
- *
- * `confidence === null` is the provisional path (source='import'): the
- * predictor's score is only known inside postProvisional, so rungs 3
- * (confidence) and 5 (target) defer to it; rung 2 and the amount cap
- * still apply up front.
- */
-export function evaluate(
-  tx: GateTx,
-  confidence: number | null,
-  settings: AutoPostSettings,
-  strategy: string | null,
-): GateDecision {
-  const isProvisionalPath = confidence === null;
-  const isLlm = strategy === 'llm';
-
-  // Rung 2 always applies: tx must be in the 'imported' state.
-  if (tx.status !== 'imported') return { outcome: 'skip', reason: 'not eligible' };
-
-  if (isLlm) {
-    // LLM tier — fully separate from the standard gate.
-    if (!settings.llmEnabled) return { outcome: 'skip', reason: 'llm disabled' };
-    if (confidence == null || confidence < settings.llmMinConfidence) {
-      return { outcome: 'skip', reason: 'llm confidence too low' };
-    }
-    if (settings.llmAmountCap > 0 && Math.abs(tx.amount) > settings.llmAmountCap) {
-      return { outcome: 'skip', reason: 'llm over amount cap' };
-    }
-    if (tx.suggestedGlAccountId == null) return { outcome: 'skip', reason: 'no target' };
-    return { outcome: 'post' };
-  }
-
-  // Standard tier (rules/patterns/history, or provisional import path).
-  if (!settings.enabled) return { outcome: 'skip', reason: 'disabled' };
-  if (!isProvisionalPath && confidence < settings.minConfidence) {
-    return { outcome: 'skip', reason: 'confidence too low' };
-  }
-  if (settings.amountCap > 0 && Math.abs(tx.amount) > settings.amountCap) {
-    return { outcome: 'skip', reason: 'over amount cap' };
-  }
-  if (!isProvisionalPath && tx.suggestedGlAccountId == null) {
-    return { outcome: 'skip', reason: 'no target' };
-  }
-  return { outcome: 'post' };
-}
+// The gate and its types live in `autoPostGate`; re-exported because every
+// caller has always imported them from this file.
+export {
+  evaluate,
+  AUTO_POST_AGENT,
+  type GateTx,
+  type GateDecision,
+  type AutoPostSource,
+  type SweepResult,
+  type SweepWarning,
+} from './autoPostGate';
 
 // ── Sweep ────────────────────────────────────────────────────────────────────
 
@@ -143,7 +78,7 @@ export async function sweep(
 ): Promise<SweepResult> {
   const settings = await getAutoPostSettings(companyId);
   if ((!settings.enabled && !settings.llmEnabled) || txIds.length === 0) {
-    return { runId: null, posted: 0, skipped: [] };
+    return { runId: null, posted: 0, skipped: [], warnings: [] };
   }
 
   const rows = (await sql`
@@ -168,6 +103,9 @@ export async function sweep(
   // every run is how a misconfiguration survives unnoticed.
   let vatDenied = 0;
   let nonSupplyCoerced = 0;
+  // Picks a posting dropped, kept per bank transaction. Reported, never silent:
+  // the line posts without the centre and this is the only place its owner hears.
+  const warnings: SweepWarning[] = [];
 
   async function ensureRun(strategy: string | null): Promise<string> {
     if (runId) return runId;
@@ -215,6 +153,8 @@ export async function sweep(
     // in-memory id pointing at a row that no longer exists — which the next row
     // would write into `auto_post_run_id`.
     const runIdBeforeRow: string | null = runId;
+    let rowWarnings: string[] = []; // taken only once the row's savepoint has released with the post in it
+    let rowJournalId = '';
     try {
       const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
         if (isImport) {
@@ -222,6 +162,8 @@ export async function sweep(
           if (!res.journalEntryId) {
             return res.skipped ?? 'no target';
           }
+          rowWarnings = res.warnings ?? [];
+          rowJournalId = res.journalEntryId;
         } else {
           // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
           // ATTENDED path and deliberately coerces nothing — the screen warned
@@ -268,6 +210,7 @@ export async function sweep(
         continue;
       }
       posted += 1;
+      if (rowWarnings.length > 0) warnings.push({ txId: String(row.id), journalEntryId: rowJournalId, warnings: rowWarnings });
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
       // The savepoint took the JE and the run-tag back together, so the
@@ -288,7 +231,7 @@ export async function sweep(
     `;
   }
 
-  log.info('Auto-post sweep complete', { companyId, source, posted, skipped: skipped.length, runId }, 'auto-post-gate');
+  log.info('Auto-post sweep complete', { companyId, source, posted, skipped: skipped.length, warnings: warnings.length, runId }, 'auto-post-gate');
   if (vatDenied > 0 || nonSupplyCoerced > 0) {
     log.warn(
       'Auto-post gate dropped VAT claims before posting',
@@ -296,5 +239,5 @@ export async function sweep(
       'autoPostGateService',
     );
   }
-  return { runId, posted, skipped, vatDenied, nonSupplyCoerced };
+  return { runId, posted, skipped, vatDenied, nonSupplyCoerced, warnings };
 }

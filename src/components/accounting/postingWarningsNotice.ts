@@ -28,6 +28,8 @@ export interface PostingWarningsBody {
     warnings?: string[];
     claim?: { id?: string; warnings?: string[] } | null;
     results?: Array<{ warnings?: string[] } | null>;
+    /** An auto-post sweep's answer: one entry per bank transaction that posted without a pick (bank import, smart-categorize). */
+    autoPost?: { warnings?: Array<{ warnings?: string[] } | null> } | null;
   } | null;
 }
 
@@ -37,17 +39,21 @@ const strings = (v: unknown): string[] =>
 /**
  * The warnings of each document in an API response body that has any:
  * `data.warnings`, `data.claim.warnings` (expense claims), and one entry per
- * `data.results[]` item (bulk actions).
+ * `data.results[]` item (bulk actions) and per `data.autoPost.warnings[]`
+ * item (an auto-post sweep: one per bank transaction).
  */
 export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
   // Read as untyped: it is a server's answer, and a wrong shape must show nothing rather than throw.
   const data = (body as { data?: Record<string, unknown> } | null | undefined)?.data;
   if (!data || typeof data !== 'object') return [];
   const results = Array.isArray(data.results) ? data.results as Array<Record<string, unknown> | null> : [];
+  const swept = (data.autoPost as { warnings?: unknown } | null | undefined)?.warnings;
+  const sweptTxs = Array.isArray(swept) ? swept as Array<Record<string, unknown> | null> : [];
   return [
     strings(data.warnings),
     strings((data.claim as Record<string, unknown> | undefined)?.warnings),
     ...results.map((r) => strings(r?.warnings)),
+    ...sweptTxs.map((t) => strings(t?.warnings)),
   ].filter((w) => w.length > 0);
 }
 

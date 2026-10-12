@@ -329,6 +329,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // transfer counterpart pass that failed. Reported so the user is not told
       // the import was clean when part of it was not.
       warnings: result.errors.map((e) => e.error),
+      // Cost-centre picks the import's auto-post could not apply (the line posted without the centre), per bank
+      // transaction — the shape smart-categorize's `autoPost` has, which postingWarningsNotice reads.
+      autoPost: { warnings: result.autoPostWarnings ?? [] },
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {
