@@ -1,0 +1,183 @@
+/**
+ * The batches behind the bank-row sync (PR #698 round 2), against a real
+ * database: reverse_dimension_tag_batch counting and restoring bank rows as well
+ * as lines, the idempotency key refusing a batch of another kind or window, the
+ * row cap, and the tenant fence.
+ */
+import { afterAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { asToken } from './bank-controls-a.helpers';
+import {
+  allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
+} from './bank-dimension-sync.helpers';
+import { syncBankDimensionsTool } from '../../src/lib/mcp/tools/writeBankDimensionSync';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const companies: string[] = [];
+const users: string[] = [];
+const tokens: Record<string, string> = {};
+const mcp = mcpAs(pool);
+afterAll(() => cleanupSync(pool, companies, users));
+
+const WINDOW = { date_from: '2026-01-01', date_to: '2026-12-31' };
+async function fresh(): Promise<SyncFixture> {
+  const f = await syncFixture(pool, tokens, companies);
+  users.push(f.user);
+  return f;
+}
+const code = (f: SyncFixture, k: string) => `${k}${f.c.slice(0, 6)}`;
+const sync = (f: SyncFixture, dry: boolean, extra: Record<string, unknown> = {}) =>
+  mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, dry_run: dry, idempotency_key: newKey('sync'), ...extra });
+const tag = (f: SyncFixture, lines: Record<string, unknown>[], key = newKey('tag')) =>
+  mcp(f.user, f.c, 'tag_journal_lines', { lines, idempotency_key: key });
+const reverse = (f: SyncFixture, batch: string, dry: boolean) =>
+  mcp(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: batch, dry_run: dry, idempotency_key: newKey('rev') });
+const callHandler = (f: SyncFixture, args: Record<string, unknown>) => asToken(pool, f.user, f.c, () => syncBankDimensionsTool.handler(
+  args, { userId: f.user, companyId: f.c, scopes: ['write:journals'], tokenJti: 'bds', oauthAppId: null }));
+
+describe('reverse_dimension_tag_batch counts and restores the bank rows (blind MEDIUM 3)', () => {
+  it('a tag batch: lines and bank rows, dry run and live', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, {});
+    const b = await allocate(pool, f, {});
+    const done = json<{ batch_id: string; bank_rows_synced: number }>(await tag(f, [
+      { journal_line_id: (await lineOn(pool, a.journal, f.expA)).id, cc2: code(f, 'P1') },
+      { journal_line_id: (await lineOn(pool, b.journal, f.expA)).id, cc2: code(f, 'P2'), bu: code(f, 'B1') }]));
+    expect(done.bank_rows_synced).toBe(2);
+
+    const dry = json<Record<string, unknown>>(await reverse(f, done.batch_id, true));
+    expect(dry).toMatchObject({ would_restore: 2, would_restore_bank_rows: 2 });
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F1, cc2: f.cc.P1, bu: null });
+
+    const live = json<Record<string, unknown>>(await reverse(f, done.batch_id, false));
+    expect(live).toMatchObject({ restored: 2, bank_rows_restored: 2 });
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+    expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+    expect((await lineOn(pool, a.journal, f.expA)).cc2).toBeNull();
+  });
+
+  it('a sync batch has no lines: restored 0 lines, and the bank rows it changed', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const b = await allocate(pool, f, { cc2: code(f, 'P2') });
+    const done = json<{ batch_id: string }>(await sync(f, false));
+    expect(json<Record<string, unknown>>(await reverse(f, done.batch_id, true)))
+      .toMatchObject({ would_restore: 0, would_restore_bank_rows: 2 });
+    expect(json<Record<string, unknown>>(await reverse(f, done.batch_id, false)))
+      .toMatchObject({ restored: 0, bank_rows_restored: 2 });
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+    expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+
+  it('is refused when a bank row of the batch was changed since, and writes nothing', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const done = json<{ batch_id: string }>(await sync(f, false));
+    await setBankDims(pool, a.tx, { cc1: f.cc.F2, cc2: f.cc.P2 });
+    const refused = await reverse(f, done.batch_id, false);
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toMatch(/1 bank transaction\(s\) .* re-tagged after it/);
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F2, cc2: f.cc.P2, bu: null });
+  });
+});
+
+describe('the idempotency key names one batch of one kind and window (blind LOW)', () => {
+  it('sync_bank_dimensions with the key of a tag_journal_lines batch is refused, and writes nothing', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, {});
+    const b = await allocate(pool, f, { cc2: code(f, 'P2') });
+    const key = newKey('shared');
+    await tag(f, [{ journal_line_id: (await lineOn(pool, a.journal, f.expA)).id, cc2: code(f, 'P1') }], key);
+    const refused = await mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, idempotency_key: key });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toMatch(/idempotency_key .* tag_journal_lines batch/);
+    expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+
+  it('tag_journal_lines with the key of a sync batch is refused', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const b = await allocate(pool, f, {});
+    const key = newKey('shared');
+    await mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, idempotency_key: key });
+    const refused = await tag(f, [{ journal_line_id: (await lineOn(pool, b.journal, f.expA)).id, cc2: code(f, 'P2') }], key);
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toMatch(/idempotency_key .* sync_bank_dimensions batch/);
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F1, cc2: f.cc.P1, bu: null });
+    expect((await lineOn(pool, b.journal, f.expA)).cc2).toBeNull();
+  });
+
+  it('the same sync window under the same key replays; another window under it is refused', async () => {
+    const f = await fresh();
+    await allocate(pool, f, { cc2: code(f, 'P1') });
+    const key = newKey('win');
+    const first = json<{ batch_id: string }>(await mcp(f.user, f.c, 'sync_bank_dimensions', { ...WINDOW, idempotency_key: key }));
+    const replay = json<{ batch_id: string; replayed?: boolean }>(await callHandler(f, { ...WINDOW, idempotency_key: key }));
+    expect(replay).toEqual({ batch_id: first.batch_id, replayed: true });
+    await expect(callHandler(f, { date_from: '2026-03-01', date_to: '2026-03-31', idempotency_key: key }))
+      .rejects.toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED' });
+  });
+});
+
+describe('the row cap (blind LOW)', () => {
+  const ROWS = 2001;
+  async function plantRows(f: SyncFixture): Promise<void> {
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query('SET LOCAL session_replication_role = replica');
+      await db.query(`CREATE TEMP TABLE cap ON COMMIT DROP AS SELECT i, gen_random_uuid() je, gen_random_uuid() l_exp,
+                        gen_random_uuid() l_bank, gen_random_uuid() bt FROM generate_series(1, $1::INT) i`, [ROWS]);
+      await db.query(`INSERT INTO gl_journal_entries(id, company_id, entry_number, entry_date, description, source, status, created_by)
+                      SELECT je, $1, 'CAP-' || i, DATE '2026-11-01', 'cap', 'manual', 'posted', $2 FROM cap`, [f.c, f.user]);
+      await db.query(`INSERT INTO gl_journal_lines(id, journal_entry_id, company_id, gl_account_id, debit, credit, cc1_id, cc2_id)
+                      SELECT l_exp, je, $1::UUID, $2::UUID, 10, 0, $4::UUID, $5::UUID FROM cap
+                      UNION ALL SELECT l_bank, je, $1::UUID, $3::UUID, 0, 10, NULL::UUID, NULL::UUID FROM cap`, [f.c, f.expA, f.bank, f.cc.F1, f.cc.P1]);
+      await db.query(`INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status, matched_journal_line_id)
+                      SELECT bt, $1, $2, DATE '2026-11-01', -10, 'cap', 'allocated', l_bank FROM cap`, [f.c, f.bank]);
+      await db.query('COMMIT');
+    } catch (err) {
+      await db.query('ROLLBACK');
+      throw err;
+    } finally { db.release(); }
+  }
+
+  it('the dry run reports the total and the cap; the live call refuses and writes nothing', async () => {
+    const f = await fresh();
+    await plantRows(f);
+    const window = { date_from: '2026-11-01', date_to: '2026-11-01' };
+    const dry = json<{ would_sync: number; max_rows: number; over_max_rows: boolean; sample: unknown[] }>(
+      await mcp(f.user, f.c, 'sync_bank_dimensions', { ...window, dry_run: true, idempotency_key: newKey('cap') }));
+    expect(dry).toMatchObject({ would_sync: ROWS, max_rows: 2000, over_max_rows: true });
+    expect(dry.sample.length).toBeLessThanOrEqual(25);
+
+    const live = await mcp(f.user, f.c, 'sync_bank_dimensions', { ...window, idempotency_key: newKey('cap') });
+    expect(live.isError).toBe(true);
+    expect(live.content[0]!.text).toMatch(/more than 2000 bank transactions: narrow date_from \/ date_to/);
+    const [r] = (await pool.query(
+      `SELECT (SELECT COUNT(*) FROM bank_transactions WHERE company_id = $1 AND cc1_id IS NOT NULL)::INT AS tagged,
+              (SELECT COUNT(*) FROM dimension_tag_batches WHERE company_id = $1)::INT AS batches`, [f.c])).rows;
+    expect(r).toEqual({ tagged: 0, batches: 0 });
+  }, 120_000);
+});
+
+describe('the tenant fence', () => {
+  it('another company cannot see or reverse a batch, and its sync touches none of the first company\'s rows', async () => {
+    const f1 = await fresh();
+    const f2 = await fresh();
+    const a = await allocate(pool, f1, {});
+    const done = json<{ batch_id: string }>(await tag(f1, [
+      { journal_line_id: (await lineOn(pool, a.journal, f1.expA)).id, cc2: code(f1, 'P1') }]));
+    const other = await reverse(f2, done.batch_id, false);
+    expect(other.isError).toBe(true);
+    expect(other.content[0]!.text).toMatch(/not found/i);
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: f1.cc.F1, cc2: f1.cc.P1, bu: null });
+
+    const b = await allocate(pool, f1, { cc2: code(f1, 'P2') });
+    expect(json<{ would_sync: number }>(await sync(f2, true)).would_sync).toBe(0);
+    expect(json<{ bank_rows_synced: number }>(await sync(f2, false)).bank_rows_synced).toBe(0);
+    expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+});

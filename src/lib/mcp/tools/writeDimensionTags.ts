@@ -18,11 +18,9 @@
 import type { McpTool } from '../types';
 import { planDimensionTags, MAX_TAG_LINES, type TagLineInput } from '@/modules/accounting/services/gl/dimensions/dimensionTagPlan';
 import {
-  applyDimensionTags, applyTagBatchReversal, findTagBatchByKey, planTagBatchReversal,
+  applyDimensionTags, applyTagBatchReversal, assertKeyIsFor, findTagBatchByKey, planTagBatchReversal,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
-import { applyBankSyncBatch, previewBankSync } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
-import { isLedgerDate, LEDGER_DATE_MESSAGE } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 const TOP_KEYS = new Set(['lines', 'reason', 'dry_run', 'idempotency_key']);
@@ -78,9 +76,10 @@ export const tagJournalLinesTool: McpTool = {
     + 'conflicting cc1 is refused. Control-account lines (bank, AP, AR, VAT, payroll clearing) and settlement, '
     + 'receipt, transfer and VAT-payment journals are refused — the cost line carries the dimensions. Lines in a '
     + 'closed period are allowed and the batch is flagged a restatement. The bank transaction allocated to each '
-    + 'journal touched gets the same CC1/CC2/BU when that journal\'s tagged lines agree on one set '
-    + '(bank_rows_synced). Returns a batch_id; undo it (lines and bank rows) with reverse_dimension_tag_batch. '
-    + 'Use dry_run first.',
+    + 'journal touched MIRRORS that journal\'s CC1/CC2/BU when its dimension lines (every line but the bank leg '
+    + 'that is not on a control account) agree on one set, NULLs included: a journal whose tags were all cleared '
+    + 'clears the bank row (bank_rows_synced). Returns a batch_id; undo it (lines and bank rows) with '
+    + 'reverse_dimension_tag_batch. Use dry_run first.',
   scope: 'write:journals',
   write: true,
   requiresPost: true,
@@ -120,7 +119,10 @@ export const tagJournalLinesTool: McpTool = {
     if (!key) return toolError('idempotency_key is required');
 
     const prior = await findTagBatchByKey(ctx.companyId, key);
-    if (prior) return ok({ batch_id: prior.batchId, tagged: prior.lineCount, is_restatement: prior.isRestatement, replayed: true });
+    if (prior) {
+      assertKeyIsFor(prior, key, 'tag_journal_lines');
+      return ok({ batch_id: prior.batchId, tagged: prior.lineCount, is_restatement: prior.isRestatement, replayed: true });
+    }
 
     let plan: Awaited<ReturnType<typeof planDimensionTags>>;
     try {
@@ -155,69 +157,6 @@ export const tagJournalLinesTool: McpTool = {
   },
 };
 
-const SYNC_KEYS = new Set(['date_from', 'date_to', 'reason', 'dry_run', 'idempotency_key']);
-
-export const syncBankDimensionsTool: McpTool = {
-  name: 'sync_bank_dimensions',
-  description:
-    'Copy the CC1 / CC2 / BU of each ALLOCATED bank transaction\'s journal onto the bank transaction itself, so '
-    + 'the Banking screen shows what the ledger carries (journal lines tagged before tag_journal_lines wrote '
-    + 'through to the bank row). A bank row changes only when its journal\'s tagged lines (never the bank leg) '
-    + 'agree on ONE set and it differs from the row; a journal split across projects is left alone. date_from / '
-    + 'date_to (bank transaction_date, inclusive) are required, so a whole-history run is explicit. DIMENSIONS ONLY — no amount, status or allocation '
-    + 'moves. dry_run returns the count and a sample. The live call records every row\'s old values under a '
-    + 'batch_id; undo it with reverse_dimension_tag_batch.',
-  scope: 'write:journals',
-  write: true,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      date_from: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
-      date_to: { type: 'string', format: 'date', description: 'Inclusive YYYY-MM-DD.' },
-      reason: { type: 'string' },
-      dry_run: { type: 'boolean' },
-      idempotency_key: { type: 'string' },
-    },
-    required: ['date_from', 'date_to', 'idempotency_key'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const extra = Object.keys(args).filter((k) => !SYNC_KEYS.has(k));
-    if (extra.length > 0) return toolError(`Unknown argument(s): ${extra.join(', ')}. sync_bank_dimensions changes dimensions only.`);
-    const key = strArg(args, 'idempotency_key');
-    if (!key) return toolError('idempotency_key is required');
-    const dateFrom = strArg(args, 'date_from');
-    const dateTo = strArg(args, 'date_to');
-    if (dateFrom === undefined || dateTo === undefined) return toolError('date_from and date_to are required (bank transaction_date window)');
-    if (!isLedgerDate(dateFrom) || !isLedgerDate(dateTo)) return toolError(`date_from and date_to ${LEDGER_DATE_MESSAGE}`);
-    if (dateFrom > dateTo) return toolError('date_from must not be after date_to');
-
-    const prior = await findTagBatchByKey(ctx.companyId, key);
-    if (prior) return ok({ batch_id: prior.batchId, replayed: true });
-
-    const scope = { dateFrom, dateTo };
-    if (args.dry_run === true) {
-      const p = await previewBankSync(ctx.companyId, scope);
-      const preview = ok({
-        dry_run: true, batch_id: null, would_sync: p.count,
-        sample: p.sample.map((s) => ({
-          bank_transaction_id: s.bankTransactionId, date: s.transactionDate, amount: s.amount, description: s.description,
-          old: { cc1_id: s.old.cc1Id, cc2_id: s.old.cc2Id, bu_id: s.old.buId },
-          new: { cc1_id: s.next.cc1Id, cc2_id: s.next.cc2Id, bu_id: s.next.buId },
-        })),
-      });
-      preview.wroteNothing = true;
-      preview.billable = false;
-      return preview;
-    }
-    // No catch: a failure after the first write must reach the registry's savepoint.
-    const applied = await applyBankSyncBatch(ctx.companyId, scope, {
-      idempotencyKey: key, reason: strArg(args, 'reason'), userId: ctx.userId,
-    });
-    return ok({ batch_id: applied.batchId, bank_rows_synced: applied.bankRowCount });
-  },
-};
-
 export const reverseDimensionTagBatchTool: McpTool = {
   name: 'reverse_dimension_tag_batch',
   description:
@@ -249,12 +188,17 @@ export const reverseDimensionTagBatchTool: McpTool = {
       throw err;
     }
     if (args.dry_run === true) {
-      const preview = ok({ dry_run: true, batch_id: plan.batchId, would_restore: plan.lineCount, is_restatement: plan.isRestatement });
+      const preview = ok({
+        dry_run: true, batch_id: plan.batchId, would_restore: plan.lineCount, would_restore_bank_rows: plan.bankRowCount,
+        is_restatement: plan.isRestatement,
+      });
       preview.wroteNothing = true;
       preview.billable = false;
       return preview;
     }
     await applyTagBatchReversal(ctx.companyId, plan, { userId: ctx.userId, reason: strArg(args, 'reason') });
-    return ok({ batch_id: plan.batchId, restored: plan.lineCount, is_restatement: plan.isRestatement });
+    return ok({
+      batch_id: plan.batchId, restored: plan.lineCount, bank_rows_restored: plan.bankRowCount, is_restatement: plan.isRestatement,
+    });
   },
 };

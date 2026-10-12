@@ -10,7 +10,8 @@ import {
 import {
   setBankAccountDefaultDimensionsTool, setCustomerDefaultFnoTool, setGlAccountReportingAttributesTool,
 } from './dimensionDefaultsTools';
-import { reverseDimensionTagBatchTool, syncBankDimensionsTool, tagJournalLinesTool } from './writeDimensionTags';
+import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
+import { syncBankDimensionsTool } from './writeBankDimensionSync';
 import { splitAllocateBankTransactionTool } from './writeBankSplit';
 
 export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool, exportGlLinesTool] as const;

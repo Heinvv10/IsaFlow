@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), {
     transaction: vi.fn(),
+    unsafe: vi.fn(() => []), // the sync_bank_dimensions dry run splices its shared lateral
   });
   return {
     sql: sqlFn,
