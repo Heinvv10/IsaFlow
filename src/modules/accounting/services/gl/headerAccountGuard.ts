@@ -34,7 +34,7 @@
  * to 2) take FOR UPDATE on the account and then refuse when it has lines. This
  * takes FOR KEY SHARE on every account it judges BEFORE reading children and
  * level, in ascending id order like
- * `lockGlAccountsForUpdate`, so it serialises with those three: whichever
+ * `lockGlAccountsForUpdate`, so it serialises with those: whichever
  * commits second sees the other. FOR KEY SHARE is the lock the line INSERT's
  * foreign key takes on the same row anyway, held to commit; this only takes it
  * earlier, and only on the accounts the rule can bite or a move can make it
