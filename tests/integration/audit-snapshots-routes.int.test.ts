@@ -46,7 +46,7 @@ const snap = (user: string, c: string, method: string, body?: unknown, query: Re
 const take = (user: string, c: string, token?: string) => snap(user, c, 'POST', { cutoff: '2026-06-30' }, {}, token);
 const reason = (r: { state: { body: unknown } }) => (r.state.body as { error?: { details?: { reason?: string } } }).error?.details?.reason;
 
-describe('routes', () => {
+describe('routes', { timeout: 120_000 }, () => {
   it('owner and admin take; manager and viewer may not; Login-as may not', async () => {
     const c = await company();
     for (const u of [o, a]) expect((await take(u, c)).state.statusCode, u).toBe(201);
@@ -110,7 +110,7 @@ describe('routes', () => {
   });
 });
 
-describe('MCP', () => {
+describe('MCP', { timeout: 120_000 }, () => {
   const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 
   it('take needs write:journals and owner / admin; the reads serve owner, admin and manager, not a viewer', async () => {

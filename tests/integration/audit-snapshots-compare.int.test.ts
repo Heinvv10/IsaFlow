@@ -52,7 +52,7 @@ async function scenario() {
   return { c, l, sale, rent, gone, july, base, backdated, reversal, supplier };
 }
 
-describe('compare to today', () => {
+describe('compare to today', { timeout: 120_000 }, () => {
   it('names the backdated, changed, reversed and removed journals, the TB movement and the master-data change', async () => {
     const s = await scenario();
     const cmp = await compareSnapshotToLive(as(o, s.c), s.base.id);

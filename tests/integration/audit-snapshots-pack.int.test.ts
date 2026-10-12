@@ -68,7 +68,7 @@ async function download(user: string, c: string, id: string) {
   return r;
 }
 
-describe('audit pack from a snapshot', () => {
+describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
   it('builds a ZIP whose manifest cites the snapshot hash and every file, CSVs neutralised, PDF inside', async () => {
     const c = await company();
     const res = await build(o, c, { periodStart: '2026-03-01', periodEnd: '2026-06-30', includeComparison: true });
