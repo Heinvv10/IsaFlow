@@ -17,11 +17,16 @@ const NOT_A_COLUMN = new Set(['constraint', 'primary', 'foreign', 'unique', 'che
 
 const stripComments = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
 
-/** Where the statement starting at `from` ends: the first ';' outside a '…' string literal. */
+/** Where the statement starting at `from` ends: the first ';' outside a '…' literal and a $tag$…$tag$ body. */
 function statementEnd(sql: string, from: number): number {
   let quoted = false;
   for (let i = from; i < sql.length; i++) {
-    if (sql[i] === "'") quoted = !quoted; // '' inside a literal toggles twice: still inside
+    const dollar = !quoted && sql[i] === '$' ? /^\$[a-z_]*\$/i.exec(sql.slice(i)) : null;
+    if (dollar) {
+      const close = sql.indexOf(dollar[0], i + dollar[0].length);
+      if (close < 0) return sql.length;
+      i = close + dollar[0].length - 1;
+    } else if (sql[i] === "'") quoted = !quoted; // '' inside a literal toggles twice: still inside
     else if (sql[i] === ';' && !quoted) return i;
   }
   return sql.length;
@@ -53,11 +58,37 @@ function addedColumns(files: string[]): Record<Table, Set<string>> {
   return out;
 }
 
-/** Dynamic SQL naming either table (EXECUTE / format with the name in a literal): the census cannot read it. */
-function dynamicAlters(files: { name: string; sql: string }[]): string[] {
-  return files.filter(({ sql }) => /\bEXECUTE\b[\s\S]{0,600}?'[^']*\b(gl_journal_entries|gl_journal_lines)\b[^']*'/i.test(stripComments(sql))
-    && /\bALTER\s+TABLE\b/i.test(sql)).map(({ name }) => name);
+/**
+ * Migrations the census cannot read: dynamic SQL (EXECUTE) in a file that mentions a journal at all (a table name can
+ * be built with ||), or a U&"…" identifier. Named limit: a name split inside the word itself is not caught; every
+ * migration is still reviewed. The ones that exist were read by hand and pinned; a new one fails
+ * until someone confirms it adds no ledger column and pins it.
+ */
+function unreadable(files: { name: string; sql: string }[]): string[] {
+  return files.filter(({ sql }) => {
+    const code = stripComments(sql);
+    return (/\bEXECUTE\b/i.test(code) && /journal/i.test(code)) || /\bU&"/i.test(code);
+  }).map(({ name }) => name);
 }
+
+/**
+ * Read by hand (2026-10-12): none of their EXECUTEs adds or renames a column of gl_journal_entries / gl_journal_lines.
+ */
+const READ_BY_HAND = new Set([
+  '000_users_and_auth.sql', '200_accounting_foundation.sql', '201_accounts_payable.sql',
+  '202_accounts_receivable.sql', '203_bank_reconciliation.sql', '206_phase1_sage_alignment.sql',
+  '240_group_companies.sql', '244_fixed_assets.sql', '414_provisional_je_bank_first.sql', '421_expense_claims.sql',
+  '499_gl_account_balances_status_trigger.sql', '500_widen_journal_entry_number.sql',
+  '501_je_fiscal_period_autoresolve.sql', '653_soft_delete_journal_reversals.sql',
+  '675_bank_feed_canonical_ingestion.sql', '701_vat_input_late_claim_account.sql',
+  '708_approval_enforcement_infra.sql', '711_supplier_payment_settles_provisional.sql',
+  '855_retire_data_archiving.sql', '862_credit_note_approval_enforcement.sql',
+  '867_supplier_payment_approval_enforcement.sql', '869_manual_journal_approval_enforcement.sql',
+  '871_fx_pr0_refuse_foreign_currency.sql', '872_approval_request_definer_writes.sql',
+  '876_supplier_bank_verification.sql', '877_bank_controls_step2.sql',
+  '881_approval_rule_enforcement_definer_writes.sql', '884_validate_dimension_fks.sql',
+  '885_bank_rule_switch_definer.sql', '890_audit_snapshots.sql'
+]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */
 function frozenColumns(): Record<Table, Set<string>> {
@@ -86,15 +117,21 @@ describe('frozen columns, read from the migrations', () => {
       'ALTER TABLE "gl_journal_lines" ADD COLUMN q1 NUMERIC;',
       'ALTER TABLE public."gl_journal_entries" ADD COLUMN q2 NUMERIC;',
       "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT 'n/a;', ADD COLUMN q3 NUMERIC;",
+      // Breaker r4 L5: a ';' inside a $$ body.
+      "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT $$n/a;$$, ADD COLUMN q4 NUMERIC;",
     ]);
-    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn', 'q1', 'q3']);
+    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn', 'q1', 'q3', 'q4']);
     expect([...got.gl_journal_entries].sort()).toEqual(['c', 'q2']);
-    expect(dynamicAlters([{ name: 'x.sql', sql: "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ADD COLUMN z NUMERIC', 'gl_journal_lines'); END $$;" }]))
-      .toEqual(['x.sql']);
+    expect(unreadable([
+      { name: 'format.sql', sql: "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ADD COLUMN z NUMERIC', 'gl_journal_lines'); END $$;" },
+      { name: 'split.sql', sql: "DO $$ BEGIN EXECUTE 'ALTER TABLE gl_' || 'journal_lines ADD COLUMN z NUMERIC'; END $$;" },
+      { name: 'unicode.sql', sql: 'ALTER TABLE U&"gl\\005fjournal_lines" ADD COLUMN z NUMERIC;' },
+      { name: 'plain.sql', sql: 'ALTER TABLE gl_journal_lines ADD COLUMN z NUMERIC;' },
+    ])).toEqual(['format.sql', 'split.sql', 'unicode.sql']);
   });
 
-  it('no migration alters the two tables through dynamic SQL the census cannot read', () => {
-    expect(dynamicAlters(migrationFiles())).toEqual([]);
+  it('no new migration uses dynamic SQL near the journal tables, or a U& identifier, the census cannot read', () => {
+    expect(unreadable(migrationFiles()).filter((name) => !READ_BY_HAND.has(name))).toEqual([]);
   });
 
   it('every column a migration adds to gl_journal_entries / gl_journal_lines is frozen or named as not material', () => {

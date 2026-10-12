@@ -30,35 +30,46 @@ async function triggerHolds(p: AuditPrincipal, trigger: AutoTrigger, cutoff: str
   return runAuditTx(p, 'READ COMMITTED', (client) => lockStands(client, p.companyId, trigger, cutoff));
 }
 
-/** One snapshot per trigger, at the latest queued cutoff whose lock stands (it covers every earlier one). */
+async function recordFailure(p: AuditPrincipal, trigger: AutoTrigger, cutoff: string, err: unknown): Promise<void> {
+  const reason = failureReason(err);
+  log.warn('audit: automatic snapshot not taken', { companyId: p.companyId, trigger, cutoff, reason }, 'audit');
+  try {
+    await recordSnapshotAttempt(p, { cutoff, trigger, status: 'failed', reason });
+  } catch (recordErr) {
+    log.error('audit: could not record the failed automatic snapshot', { companyId: p.companyId, trigger,
+      reason, error: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'audit');
+  }
+}
+
+/**
+ * One snapshot per trigger, at the latest queued cutoff whose lock stands (it covers every earlier one). If that lock
+ * is undone while the snapshot waits its turn (lock_gone), the next latest standing cutoff is snapshotted instead, so
+ * closing January and February together and reopening February still freezes January.
+ */
 export async function runAutoSnapshots(p: AuditPrincipal, items: { trigger: AutoTrigger; cutoffs: string[] }[]): Promise<void> {
   for (const { trigger, cutoffs } of items) {
-    let cutoff: string | null = null;
-    try {
-      for (const c of [...cutoffs].sort().reverse()) {
-        if (await triggerHolds(p, trigger, c)) { cutoff = c; break; }
-      }
-      if (!cutoff) {
-        log.info('audit: automatic snapshot skipped — no queued lock stood', { companyId: p.companyId, trigger, cutoffs }, 'audit');
-        continue;
-      }
-      const s = await takeAutoSnapshot(p, { cutoff, trigger });
-      if (s.status === 'unchanged') {
-        log.info('audit: automatic snapshot unchanged', { companyId: p.companyId, trigger, cutoff, sameAs: s.sameAs }, 'audit');
-      } else {
-        // The chain head, outside the database too: a removed latest snapshot is visible against this log.
-        log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger, cutoff, seq: s.seq,
-          hash: s.canonicalHash, lines: s.lines, durationMs: s.durationMs }, 'audit');
-      }
-    } catch (err) {
-      const reason = failureReason(err);
-      log.warn('audit: automatic snapshot not taken', { companyId: p.companyId, trigger, cutoff, reason }, 'audit');
+    const latestFirst = [...new Set(cutoffs)].sort().reverse();
+    let took = false;
+    for (const cutoff of latestFirst) {
       try {
-        await recordSnapshotAttempt(p, { cutoff: cutoff ?? [...cutoffs].sort().reverse()[0]!, trigger, status: 'failed', reason });
-      } catch (recordErr) {
-        log.error('audit: could not record the failed automatic snapshot', { companyId: p.companyId, trigger,
-          reason, error: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'audit');
+        if (!(await triggerHolds(p, trigger, cutoff))) continue;
+        const s = await takeAutoSnapshot(p, { cutoff, trigger });
+        took = true;
+        if (s.status === 'unchanged') {
+          log.info('audit: automatic snapshot unchanged', { companyId: p.companyId, trigger, cutoff, sameAs: s.sameAs }, 'audit');
+        } else {
+          // The chain head, outside the database too: a removed latest snapshot is visible against this log.
+          log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger, cutoff, seq: s.seq,
+            hash: s.canonicalHash, lines: s.lines, durationMs: s.durationMs }, 'audit');
+        }
+        break;
+      } catch (err) {
+        await recordFailure(p, trigger, cutoff, err);
+        took = true;
+        if (!(err instanceof LockGoneError)) break; // the next cutoff would fail the same way (no key, too large, busy)
+        took = false;
       }
     }
+    if (!took) log.info('audit: automatic snapshot skipped — no queued lock stood', { companyId: p.companyId, trigger, cutoffs }, 'audit');
   }
 }

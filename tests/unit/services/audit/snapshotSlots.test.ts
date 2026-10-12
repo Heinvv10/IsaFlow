@@ -1,9 +1,9 @@
 /**
- * Whole-ledger audit jobs: at most MAX_CONCURRENT_SNAPSHOTS at once, at most PER_COMPANY for one company. By hand the
- * next is refused; automatic ones wait — and one company cannot hold every slot.
+ * Whole-ledger audit jobs: at most MAX_CONCURRENT_SNAPSHOTS at once, at most PER_COMPANY for one company, PER_USER for
+ * one person, MAX_AUTOMATIC automatic. By hand the next is refused; automatic ones wait, people in turn.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_CONCURRENT_SNAPSHOTS, MAX_WAITING_PER_USER, PER_COMPANY, PER_USER, SLOT_WAIT_MS, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
+import { MAX_AUTOMATIC, MAX_CONCURRENT_SNAPSHOTS, MAX_WAITING_PER_USER, PER_COMPANY, PER_USER, SLOT_WAIT_MS, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
@@ -12,7 +12,7 @@ describe('withSnapshotSlot', () => {
   it('one company gets one slot; another company the second; a third waits or is refused', async () => {
     expect([MAX_CONCURRENT_SNAPSHOTS, PER_COMPANY]).toEqual([2, 1]);
     const release: Record<string, () => void> = {};
-    const hold = (c: string) => withSnapshotSlot(c, true, () => new Promise<void>((r) => { release[c] = r; }));
+    const hold = (c: string) => withSnapshotSlot(c, false, () => new Promise<void>((r) => { release[c] = r; }));
     const a = hold('A');
     await tick();
     // Company A already holds its share: refused by hand even though a slot is free; its automatic job waits.
@@ -63,6 +63,36 @@ describe('withSnapshotSlot', () => {
     await held;
     await Promise.all(queued);
     expect(ran).toHaveLength(MAX_WAITING_PER_USER);
+  });
+
+  it('automatic jobs hold at most MAX_AUTOMATIC slots: what a person asks for still finds one (breaker r4 L4)', async () => {
+    expect(MAX_AUTOMATIC).toBe(1);
+    let release = () => {};
+    const auto1 = withSnapshotSlot('Q1', true, () => new Promise<void>((r) => { release = r; }), 'u1');
+    await tick();
+    let auto2Ran = false;
+    const auto2 = withSnapshotSlot('Q2', true, async () => { auto2Ran = true; }, 'u2');
+    await tick();
+    expect(auto2Ran).toBe(false); // a slot is free, but not for a second automatic job
+    expect(await withSnapshotSlot('M', false, async () => 'manual', 'u3')).toBe('manual');
+    release();
+    await auto1;
+    await auto2;
+    expect(auto2Ran).toBe(true);
+  });
+
+  it('the automatic queue takes people in turn, not in arrival order (breaker r4 L4)', async () => {
+    let release = () => {};
+    const holder = withSnapshotSlot('R0', true, () => new Promise<void>((r) => { release = r; }), 'z');
+    await tick();
+    const order: string[] = [];
+    const jobs = [['X1', 'x'], ['X2', 'x'], ['X3', 'x'], ['Y1', 'y']].map(([c, u]) =>
+      withSnapshotSlot(c!, true, async () => { order.push(c!); await tick(); }, u!));
+    release();
+    await holder;
+    await Promise.all(jobs);
+    // x was first in the queue and runs first; then y (not served yet) before x's next jobs.
+    expect(order).toEqual(['X1', 'Y1', 'X2', 'X3']);
   });
 
   afterEach(() => { vi.useRealTimers(); });

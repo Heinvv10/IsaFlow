@@ -5,6 +5,7 @@
  * was changed. Arrays are ordered here, never by the caller.
  */
 import { canonicalJson, sha256Hex } from './canonical';
+import { ATTEMPT_SEAL_DOMAIN, checkSeal, type SealCheck, type SigningKey } from './seal';
 import type { CheckResult } from './checks/checkTypes';
 import type { CanonicalRow } from './snapshotRows';
 
@@ -91,4 +92,20 @@ export function sumMoney(values: (string | null | undefined)[]): string {
   const neg = cents < 0n;
   const abs = neg ? -cents : cents;
   return `${neg ? '-' : ''}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}`;
+}
+
+/** What an attempt (failed / unchanged) records, in one hash: its status, trigger and reason, or its twin and run. */
+export function attemptHash(a: { status: string; trigger: string; failureReason: string | null; sameAsSnapshotId: string | null;
+  checkRunId: string | null }): string {
+  return sha256Hex(canonicalJson({ kind: 'audit_snapshot_attempt', status: a.status, trigger: a.trigger,
+    failure_reason: a.failureReason, same_as_snapshot_id: a.sameAsSnapshotId, check_run_id: a.checkRunId }));
+}
+
+/** Whether an attempt row's seal verifies over what the row records (recomputed, never the stored hash). */
+export function attemptSeal(companyId: string, a: { id: string; cutoff: string; takenAt: string; status: string; trigger: string;
+  failureReason: string | null; sameAsSnapshotId: string | null; checkRunId: string | null; hmac: string | null; keyId: string | null },
+key: SigningKey): SealCheck {
+  if (!a.hmac || !a.keyId) return 'invalid';
+  return checkSeal(ATTEMPT_SEAL_DOMAIN, { companyId, id: a.id, canonicalHash: attemptHash(a), cutoff: a.cutoff, takenAt: a.takenAt },
+    a.hmac, a.keyId, key);
 }

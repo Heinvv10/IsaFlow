@@ -20,10 +20,11 @@ import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriod
 import { als, type RequestContext } from '../../src/lib/als';
 import { withSavepoint } from '../../src/lib/neon';
 import { closePeriod } from '../../src/modules/accounting/services/gl/fiscalPeriodService';
-import { unrecordedLocks } from '../../src/modules/accounting/services/audit/snapshotRead';
+import { unrecordedLocks } from '../../src/modules/accounting/services/audit/unrecordedLocks';
 import { takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
 import { runAuditTx } from '../../src/modules/accounting/services/audit/auditTx';
 import { verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
+import { recordSnapshotAttempt } from '../../src/modules/accounting/services/audit/snapshotAttempts';
 import { withSnapshotSlot } from '../../src/modules/accounting/services/audit/snapshotSlots';
 
 assertDisposable();
@@ -170,9 +171,9 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31', pending: true })]);
     // ... until longer ago than an automatic snapshot can take (after the company's first attempt, which is moved back too).
     await pool.query(`INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, failure_reason, totals, caveat)
-                      VALUES (gen_random_uuid(), $1, DATE '2025-06-30', now() - interval '2 hours', $2, 'session', 'vat_lock', 'failed',
+                      VALUES (gen_random_uuid(), $1, DATE '2025-06-30', now() - interval '3 hours', $2, 'session', 'vat_lock', 'failed',
                               'error: planted', '{}', 'x')`, [c, o]);
-    await pool.query("UPDATE fiscal_periods SET closed_at = now() - interval '1 hour' WHERE id = $1", [periods[0]]);
+    await pool.query("UPDATE fiscal_periods SET closed_at = now() - interval '2 hours' WHERE id = $1", [periods[0]]);
     expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31', pending: false })]);
     // Closing the next period through the route snapshots at 28 Feb, which also covers January's books.
     expect((await action(o, c, { action: 'close', id: periods[1] })).state.statusCode).toBe(200);
@@ -272,7 +273,8 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     const forged = crypto.randomUUID();
     await pool.query(
       `INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, totals, caveat,
-         check_run_id, same_as_snapshot_id) VALUES ($1, $2, '2026-01-31', now(), $3, 'session', 'period_close', 'unchanged', '{}', 'c', $4, $5)`,
+         check_run_id, same_as_snapshot_id, canonical_hash, hmac, key_id)
+       VALUES ($1, $2, '2026-01-31', now(), $3, 'session', 'period_close', 'unchanged', '{}', 'c', $4, $5, repeat('a', 64), repeat('b', 64), 'auto-test')`,
       [forged, c, m, s!.check_run_id, s!.id]);
     // Past the writer without a run at all: the shape CHECK refuses it.
     expect(await code(pool.query(
@@ -333,6 +335,59 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     } finally { client.release(); }
     await ctx.afterCommit![0]!.fn();
     expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([expect.objectContaining({ cutoff: '2026-01-31', status: 'sealed' })]);
+  });
+
+  it('Jan and Feb closed together, Feb reopened while the snapshot queued: Jan is still snapshotted (breaker r4 L1)', async () => {
+    const { c, periods } = await company();
+    const client = await pool.connect();
+    const claims = { sub: o, session_id: crypto.randomUUID() };
+    const ctx = { client, userId: o, companyId: c, claims, afterCommit: [] } as unknown as RequestContext;
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await als.run(ctx, async () => { await closePeriod(c, periods[0]!, o); await closePeriod(c, periods[1]!, o); });
+      ctx.finished = true;
+      await client.query('COMMIT');
+    } finally { client.release(); }
+    // The closer holds their one slot elsewhere: the run (one snapshot, at Feb) queues; Feb is reopened meanwhile.
+    let free = () => {};
+    const held = withSnapshotSlot(crypto.randomUUID(), true, () => new Promise<void>((r) => { free = r; }), o);
+    const run = ctx.afterCommit![0]!.fn();
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect((await action(o, c, { action: 'reopen', id: periods[1] })).state.statusCode).toBe(200);
+    free();
+    await held;
+    await run;
+    const rows = await waitForSnapshots(pool, c, 2, 0);
+    expect(rows.map((x) => [x.cutoff, x.status])).toEqual([['2026-02-28', 'failed'], ['2026-01-31', 'sealed']]);
+    expect(String(rows[0]!.failure_reason)).toMatch(/^lock_gone:/);
+  });
+
+  it('an attempt written past the app does not cover a lost close: only rows whose seal verifies do (breaker r4 L2)', async () => {
+    const { c, periods } = await company();
+    const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
+    await takeSnapshot(p, { cutoff: '2025-12-31', trigger: 'manual' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(p.claims)]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await als.run({ client, userId: o, companyId: c, claims: p.claims } as unknown as RequestContext, () => closePeriod(c, periods[0]!, o));
+      await client.query('COMMIT');
+    } finally { client.release(); }
+    const listed = () => runAuditTx(p, 'READ COMMITTED', () => unrecordedLocks(c));
+    expect(await listed()).toEqual([expect.objectContaining({ cutoff: '2026-01-31' })]);
+    // A manager records a 'failed' attempt for it through the writer: unsealed, so the close stays listed ...
+    const forged = await recordSnapshot(pool, m, c, (t) => payload(c, m, t, { trigger: 'period_close', status: 'failed',
+      failure_reason: 'error: nothing to see', canonical_hash: null, hmac: null, key_id: null, cutoff: '2026-01-31' }));
+    expect(await listed()).toEqual([expect.objectContaining({ cutoff: '2026-01-31' })]);
+    expect(await runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, forged))).toMatchObject({ status: 'not_sealed', seal: 'invalid' });
+    // ... while the app's own sealed failed attempt does cover it.
+    await recordSnapshotAttempt(p, { cutoff: '2026-01-31', trigger: 'period_close', status: 'failed', reason: 'error: real' });
+    expect(await listed()).toEqual([]);
   });
 
   it('a refused close takes nothing', async () => {

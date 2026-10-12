@@ -2,30 +2,46 @@
  * Automatic snapshot attempts that store no books: 'failed' (with why) and 'unchanged' (pointing at the sealed
  * snapshot at the same cutoff whose books — ledger, ageing and control totals — hash the same, with a sealed check
  * run of its own: closing then locking a period, or closing it again after a reopen, does not store a second copy).
- * Neither carries rows or a seal of its own; the snapshots list shows both.
+ * Neither carries rows; each carries an attempt seal. The snapshots list shows both.
  */
 import type { PoolClient } from 'pg';
 import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
-import { SNAPSHOT_CAVEAT } from './documents';
+import { SNAPSHOT_CAVEAT, attemptHash } from './documents';
 import type { SnapshotTrigger } from './snapshotService';
 import { verifySnapshot } from './snapshotVerify';
 import { sealedChain } from './snapshotRead';
-import { SNAPSHOT_SEAL_DOMAIN, checkSeal, type SigningKey } from './seal';
+import { ATTEMPT_SEAL_DOMAIN, SNAPSHOT_SEAL_DOMAIN, SigningKeyMissingError, checkSeal, sign, signingKey, type SigningKey } from './seal';
 
 type AutoTrigger = Exclude<SnapshotTrigger, 'manual'>;
 type Attempt = { cutoff: string; trigger: AutoTrigger; status: 'failed'; reason: string }
   | { cutoff: string; trigger: AutoTrigger; status: 'unchanged'; sameAs: string; checkRunId: string };
 
-/** Records the attempt in the caller's audit transaction. */
+/**
+ * Records the attempt in the caller's audit transaction, sealed (ATTEMPT_SEAL_DOMAIN) when the server has its key — a
+ * row written past the app carries no seal that verifies, so it never covers a lock (unrecordedLocks) or vouches for
+ * a twin. A failed attempt for a missing / malformed key is recorded unsealed.
+ */
 export async function recordAttempt(client: PoolClient, p: AuditPrincipal, input: Attempt): Promise<string> {
   const id = crypto.randomUUID();
+  const takenAt = await transactionNow(client);
+  const fields = { status: input.status, trigger: input.trigger,
+    failureReason: input.status === 'failed' ? input.reason.slice(0, 500) : null,
+    sameAsSnapshotId: input.status === 'unchanged' ? input.sameAs : null,
+    checkRunId: input.status === 'unchanged' ? input.checkRunId : null };
+  const canonicalHash = attemptHash(fields);
+  let seal: { hmac: string; keyId: string } | null = null;
+  try {
+    seal = sign(ATTEMPT_SEAL_DOMAIN, { companyId: p.companyId, id, canonicalHash, cutoff: input.cutoff, takenAt }, signingKey());
+  } catch (err) {
+    if (!(err instanceof SigningKeyMissingError) || input.status !== 'failed') throw err;
+  }
   await client.query('SELECT public.audit_snapshot_record($1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb)', [
     JSON.stringify({
-      id, company_id: p.companyId, cutoff: input.cutoff, taken_at: await transactionNow(client), taken_by: p.userId,
-      trigger: input.trigger, status: input.status, failure_reason: input.status === 'failed' ? input.reason.slice(0, 500) : null,
-      canonical_hash: null, hmac: null, key_id: null, master_data_high_water: null, totals: {}, caveat: SNAPSHOT_CAVEAT,
-      check_run_id: input.status === 'unchanged' ? input.checkRunId : null,
-      same_as_snapshot_id: input.status === 'unchanged' ? input.sameAs : null,
+      id, company_id: p.companyId, cutoff: input.cutoff, taken_at: takenAt, taken_by: p.userId,
+      trigger: input.trigger, status: input.status, failure_reason: fields.failureReason,
+      canonical_hash: seal ? canonicalHash : null, hmac: seal?.hmac ?? null, key_id: seal?.keyId ?? null,
+      master_data_high_water: null, totals: {}, caveat: SNAPSHOT_CAVEAT,
+      check_run_id: fields.checkRunId, same_as_snapshot_id: fields.sameAsSnapshotId,
     }), '[]', '[]', '[]',
   ]);
   return id;

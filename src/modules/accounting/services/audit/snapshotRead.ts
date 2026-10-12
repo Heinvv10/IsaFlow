@@ -159,20 +159,15 @@ export async function getCheckRun(companyId: string, id: string): Promise<CheckR
 }
 
 /**
- * `pending`: younger than an automatic snapshot can take (both bounded waits plus the time budget) — it may still be
- * running, so it is not reported as lost yet.
+ * `pending`: younger than an automatic snapshot can take (its queue and lock waits plus the time budget) — it may still
+ * be running, so it is not reported as lost yet.
  */
 export interface UnrecordedLock { trigger: 'period_close' | 'vat_lock'; cutoff: string; lockedAt: string; pending: boolean }
 
 export const AUTO_SNAPSHOT_MAX_MS = SLOT_WAIT_MS + AUDIT_WAIT_MS + SNAPSHOT_TIME_BUDGET_MS;
 
-/**
- * Closes and VAT locks with no snapshot attempt recorded after them — the automatic snapshot runs after COMMIT in the
- * web process, so a restart (or a caller with no after-commit owner) can lose it without a 'failed' row. Covered by any
- * snapshot or failed attempt of the same kind at the same or a later cutoff taken after the lock. Only locks since the
- * company's first snapshot attempt count (nothing earlier was ever snapshotted).
- */
-export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock[]> {
+/** Standing closes and VAT locks made since the company's first snapshot attempt (nothing earlier was snapshotted). */
+export async function standingLocks(companyId: string): Promise<UnrecordedLock[]> {
   const rows = (await sql`
     WITH first AS (SELECT min(taken_at) AS t FROM audit_snapshots WHERE company_id = ${companyId}::UUID),
     locks AS (
@@ -186,11 +181,7 @@ export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock
            l.at > now() - make_interval(secs => ${AUTO_SNAPSHOT_MAX_MS / 1000}) AS pending
     FROM locks l, first f
     WHERE f.t IS NOT NULL AND l.at >= f.t
-      AND NOT EXISTS (
-        SELECT 1 FROM audit_snapshots s
-        WHERE s.company_id = ${companyId}::UUID AND s.cutoff >= l.cutoff AND s.taken_at >= l.at
-          AND (CASE WHEN l.trigger = 'vat_lock' THEN s.trigger = 'vat_lock' ELSE s.trigger IN ('period_close', 'year_close') END))
-    ORDER BY l.at DESC LIMIT 50
+    ORDER BY l.at DESC LIMIT 200
   `) as { trigger: UnrecordedLock['trigger']; cutoff: string; locked_at: string; pending: boolean }[];
   return rows.map((r) => ({ trigger: r.trigger, cutoff: r.cutoff, lockedAt: r.locked_at, pending: r.pending === true }));
 }

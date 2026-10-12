@@ -11,7 +11,7 @@
  */
 import { materialHash } from './canonical';
 import { CHECK_RUN_SEAL_DOMAIN, SNAPSHOT_SEAL_DOMAIN, checkSeal, signingKey, type SealCheck, type SigningKey } from './seal';
-import { checkRunHash, snapshotHash } from './documents';
+import { attemptSeal, checkRunHash, snapshotHash } from './documents';
 import { getCheckRun, getSnapshot, sealedChain, snapshotRows, snapshotTb, type StoredRow } from './snapshotRead';
 
 export interface SnapshotVerification {
@@ -66,8 +66,11 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
     const twin = s.status === 'unchanged' && s.sameAsSnapshotId ? await getSnapshot(companyId, s.sameAsSnapshotId) : null;
     const runBad = s.status === 'unchanged' && !(run?.hashMatches && run.seal === 'valid' && record?.purpose === 'snapshot'
       && record.asAt === s.cutoff && record.takenAt === s.takenAt && twin?.status === 'sealed' && twin.cutoff === s.cutoff);
-    return { snapshotId: id, status: s.status !== 'unchanged' ? 'not_sealed' : runBad ? 'invalid' : 'unchanged',
-      sameAsSnapshotId: s.sameAsSnapshotId, canonicalHash: null, recomputedHash: null, seal: null, checkRun: run,
+    // Every attempt carries its own attempt seal (a failed one for a missing key excepted): a row written past the app
+    // does not verify.
+    const seal = attemptSeal(companyId, s, key);
+    return { snapshotId: id, status: s.status !== 'unchanged' ? 'not_sealed' : runBad || seal !== 'valid' ? 'invalid' : 'unchanged',
+      sameAsSnapshotId: s.sameAsSnapshotId, canonicalHash: s.canonicalHash, recomputedHash: null, seal, checkRun: run,
       rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
   }
   const bad: Mismatch[] = [];

@@ -25,7 +25,8 @@ import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/mo
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
 import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
-import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, unrecordedLocks } from '@/modules/accounting/services/audit/snapshotRead';
+import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb } from '@/modules/accounting/services/audit/snapshotRead';
+import { unrecordedLocks } from '@/modules/accounting/services/audit/unrecordedLocks';
 import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 
 const Query = z.object({
