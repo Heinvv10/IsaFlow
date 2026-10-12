@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { check } = vi.hoisted(() => ({ check: vi.fn() }));
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: check }));
 
-import { AUTO_RATE_LIMIT, checkAutoRateLimit } from '@/lib/auth/autoRateLimit';
+import { AUTO_RATE_LIMIT, chargeAuditJob, checkAutoRateLimit } from '@/lib/auth/autoRateLimit';
 
 const read = (file: string) => readFileSync(path.resolve(__dirname, '../../..', file), 'utf8');
 
@@ -51,6 +51,11 @@ describe('checkAutoRateLimit (R-175)', () => {
       ['GET', '/api/accounting/audit-exports/e1/sessions']];
     for (const [method, path] of free) expect(await checkAutoRateLimit(path, 'co-9', 'u-1', method)).toBe(true);
     expect(check).not.toHaveBeenCalled();
+  });
+
+  it('chargeAuditJob charges the same per-member audit bucket the routes do (the MCP tools)', async () => {
+    expect(await chargeAuditJob('co-9', 'u-1')).toBe(true);
+    expect(check.mock.calls).toEqual([['audit:co-9:u-1', { max: 30, windowSecs: 60 }]]);
   });
 
   it('answers false when the bucket refuses', async () => {

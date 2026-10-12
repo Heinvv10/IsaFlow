@@ -11,6 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import JSZip from 'jszip';
+import { execFileSync } from 'node:child_process';
 import auditExports from '../../pages/api/accounting/audit-exports/index';
 import auditExport from '../../pages/api/accounting/audit-exports/[id]/index';
 import exportDownload from '../../pages/api/accounting/audit-exports/[id]/download';
@@ -23,6 +24,20 @@ import { as, members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantJournal, plantLedger } from './audit-snapshots.helpers';
 import { startFakeStorage, type FakeStorage } from './audit-snapshots-storage.helpers';
 import { sha256Hex } from '../../src/modules/accounting/services/audit/canonical';
+import { PACK_ZIP_SEAL_DOMAIN, sign } from '../../src/modules/accounting/services/audit/seal';
+
+/** Reads a ZIP on stdin, writes it back with a forged journals.csv entry first (same name), to stdout. */
+const DUPLICATE_ENTRY = `
+import io, sys, zipfile, warnings
+warnings.simplefilter('ignore')
+src = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
+out = io.BytesIO()
+with zipfile.ZipFile(out, 'w') as z:
+    z.writestr('journals.csv', b'"journal_id"\\r\\n"FORGED"\\r\\n')
+    for i in src.infolist():
+        z.writestr(i, src.read(i.filename))
+sys.stdout.buffer.write(out.getvalue())
+`;
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -54,13 +69,24 @@ const build = (user: string, c: string, body: Record<string, unknown>) =>
   callRoute(auditExports, tokens[user]!, c, 'POST', body, '/api/accounting/audit-exports');
 const bytesOf = (r: { state: { body: unknown } }) => r.state.body as Buffer;
 
-/** The owner disabling the pack guard to re-point a ready pack's hash (what injected SQL after RESET ROLE could do). */
-async function ownerRepoint(id: string, sha: string) {
+/**
+ * The owner disabling the pack guard to re-point a ready pack's hash (what injected SQL after RESET ROLE could do).
+ * `reseal`: also re-sign the ZIP seal with the pack key — an attacker who holds the key, to reach the checks behind it.
+ */
+async function ownerRepoint(id: string, sha: string, reseal = false) {
   const db = await pool.connect();
   try {
     await db.query('BEGIN');
     await db.query('ALTER TABLE audit_trail_exports DISABLE TRIGGER audit_trail_export_pack_guard');
     await db.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [id, sha]);
+    if (reseal) {
+      const { rows: [r] } = await db.query(
+        `SELECT e.company_id::text AS c, e.period_end::text AS end, to_char(s.taken_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t
+         FROM audit_trail_exports e JOIN audit_snapshots s ON s.id = e.snapshot_id WHERE e.id = $1`, [id]);
+      const seal = sign(PACK_ZIP_SEAL_DOMAIN, { companyId: r.c, id, canonicalHash: sha, cutoff: r.end, takenAt: r.t },
+        { key: Buffer.from('p'.repeat(48)), keyId: 'pack-test' });
+      await db.query('UPDATE audit_trail_exports SET zip_hmac = $2, zip_key_id = $3 WHERE id = $1', [id, seal.hmac, seal.keyId]);
+    }
     await db.query('ALTER TABLE audit_trail_exports ENABLE ALWAYS TRIGGER audit_trail_export_pack_guard');
     await db.query('COMMIT');
   } finally { db.release(); }
@@ -182,16 +208,20 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     // A ready pack's pointers are fixed: the UPDATE is refused, even for the table owner's plain statement ...
     expect(await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(forged)])
       .then(() => 'ok', (e: { code?: string }) => e.code)).toBe('42501');
-    // ... so the forger disables the guard as the owner — and the manifest seal still refuses it.
+    // ... so the forger disables the guard as the owner — and the ZIP's own seal refuses it before anything is parsed.
     await ownerRepoint(ex.id, sha256Hex(forged));
     const verify = () => callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: ex.id, verify: '1' });
-    expect(dataOf<{ verification: { status: string; manifestSeal: string; zipMatches: boolean } }>(await verify()).verification)
-      .toMatchObject({ status: 'invalid', manifestSeal: 'invalid', zipMatches: true });
+    expect(dataOf<{ verification: { status: string; zipSeal: string; manifestSeal: string; zipMatches: boolean } }>(await verify()).verification)
+      .toMatchObject({ status: 'invalid', zipSeal: 'invalid', manifestSeal: 'missing', zipMatches: true });
+    // A forger who could re-sign the ZIP seal is still stopped by the manifest's seal.
+    await ownerRepoint(ex.id, sha256Hex(forged), true);
+    expect(dataOf<{ verification: { status: string; zipSeal: string; manifestSeal: string } }>(await verify()).verification)
+      .toMatchObject({ status: 'invalid', zipSeal: 'valid', manifestSeal: 'invalid' });
     const bare = new JSZip();
     bare.file('journals.csv', 'x');
     const bareBytes = await bare.generateAsync({ type: 'nodebuffer' });
     storage.files.set(key, bareBytes);
-    await ownerRepoint(ex.id, sha256Hex(bareBytes));
+    await ownerRepoint(ex.id, sha256Hex(bareBytes), true);
     const r = await verify();
     expect(r.state.statusCode).toBe(200);
     expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(r).verification).toMatchObject({ status: 'invalid', manifestSeal: 'missing' });
@@ -202,7 +232,7 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
       bad.file('manifest.sig.json', JSON.stringify({ hmac: 'a'.repeat(64), key_id: 'k' }));
       const badBytes = await bad.generateAsync({ type: 'nodebuffer' });
       storage.files.set(key, badBytes);
-      await ownerRepoint(ex.id, sha256Hex(badBytes));
+      await ownerRepoint(ex.id, sha256Hex(badBytes), true);
       const res = await verify();
       expect(res.state.statusCode).toBe(200);
       expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(res).verification)
@@ -217,7 +247,8 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     const genuine = storage.files.get(key)!;
     const verify = async () => dataOf<{ verification: { status: string; manifestSeal: string; files: { name: string; ok: boolean }[] } }>(
       await callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: ex.id, verify: '1' })).verification;
-    const store = async (bytes: Buffer) => { storage.files.set(key, bytes); await ownerRepoint(ex.id, sha256Hex(bytes)); };
+    // Re-sealed: these reach the checks behind the ZIP seal (what a key holder's forgery would meet).
+    const store = async (bytes: Buffer) => { storage.files.set(key, bytes); await ownerRepoint(ex.id, sha256Hex(bytes), true); };
     // A well-formed manifest padded past 1 MiB is not read at all (missing), not inflated and then refused (invalid).
     const padded = await JSZip.loadAsync(genuine);
     padded.file('manifest.json', `${' '.repeat(2 * 1024 * 1024)}${await padded.file('manifest.json')!.async('string')}`);
@@ -230,12 +261,26 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     const v = await verify();
     expect(v).toMatchObject({ status: 'invalid', manifestSeal: 'valid' });
     expect(v.files).toContainEqual({ name: 'extra.csv', ok: false });
+    // A directory entry named like a file (one parser skips it, another extracts it): fails (breaker r3 P1).
+    const shadowDir = await JSZip.loadAsync(genuine);
+    shadowDir.folder('journals.csv');
+    await store(await shadowDir.generateAsync({ type: 'nodebuffer' }));
+    const d = await verify();
+    expect(d).toMatchObject({ status: 'invalid', manifestSeal: 'valid' });
+    expect(d.files).toContainEqual({ name: 'journals.csv/', ok: false });
+    // A second entry with the same name, forged, BEFORE the genuine one (a reader keeping the last sees the genuine):
+    // the central directory holds one entry more than the manifest lists, so it fails.
+    const dup = execFileSync('python3', ['-c', DUPLICATE_ENTRY], { input: genuine, maxBuffer: 64 * 1024 * 1024 });
+    await store(dup);
+    const u = await verify();
+    expect(u).toMatchObject({ status: 'invalid', manifestSeal: 'valid' });
+    expect(u.files).toContainEqual({ name: '(central directory)', ok: false });
     await store(genuine);
     expect((await verify()).status).toBe('valid');
     // A later pack from the same snapshot: its manifest's taken_at (the snapshot's) predates its built_at.
     await new Promise((r) => setTimeout(r, 50));
     const later = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', snapshotId: ex.snapshotId })).export;
-    const verifyLater = async () => dataOf<{ verification: { manifestSeal: string } }>(
+    const verifyLater = async () => dataOf<{ verification: { zipSeal: string; manifestSeal: string } }>(
       await callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: later.id, verify: '1' })).verification;
     const { rows: [t] } = await pool.query(
       'SELECT s.taken_at, e.built_at FROM audit_trail_exports e JOIN audit_snapshots s ON s.id = e.snapshot_id WHERE e.id = $1', [later.id]);
@@ -250,7 +295,7 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
       // the database's built_at does not.
       rotate(new Date(t.built_at.getTime() - 1));
       expect(t.taken_at.getTime()).toBeLessThan(t.built_at.getTime() - 1);
-      expect((await verifyLater()).manifestSeal).toBe('invalid');
+      expect((await verifyLater()).zipSeal).toBe('invalid');
     } finally {
       Object.assign(process.env, { AUDIT_SNAPSHOT_KEY_ID: 'pack-test', AUDIT_SNAPSHOT_SIGNING_KEY: 'p'.repeat(48), AUDIT_SNAPSHOT_RETIRED_KEYS: '' });
     }
@@ -289,6 +334,10 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
       `UPDATE audit_trail_exports SET pdf_storage_bucket = 'elsewhere' WHERE id = $1`, [genuine.id])))).toBe('42501');
     expect(await code(asManager((db) => db.query(
       `UPDATE audit_trail_exports SET built_at = now() - interval '1 year' WHERE id = $1`, [genuine.id])))).toBe('42501');
+    // Every column of a ready pack is fixed: what it covers and its totals too (breaker r3 P2).
+    for (const set of ['je_count = 999', 'total_debits = 123456789', "period_start = '2025-01-01'", "period_end = '2026-12-31'"]) {
+      expect(await code(asManager((db) => db.query(`UPDATE audit_trail_exports SET ${set} WHERE id = $1`, [genuine.id]))), set).toBe('42501');
+    }
     // A failed export moved to ready without a snapshot and ZIP: refused.
     const failed = (await asManager((db) => db.query(
       `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status) VALUES($1, '2026-01-01', '2026-06-30', 'failed')
@@ -307,7 +356,8 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     storage.files.set(`captured-documents/${c}/forged.zip`, forged);
     expect(await code(asManager((db) => db.query(
       `UPDATE audit_trail_exports SET status = 'ready', snapshot_id = $2, zip_storage_bucket = 'captured-documents',
-         zip_storage_path = $3, zip_sha256 = $4, built_at = '2020-01-01' WHERE id = $1`, [failed, genuine.snapshotId, `${c}/forged.zip`, sha256Hex(forged)])))).toBe('ok');
+         zip_storage_path = $3, zip_sha256 = $4, zip_hmac = $5, zip_key_id = 'pack-test', built_at = '2020-01-01' WHERE id = $1`,
+      [failed, genuine.snapshotId, `${c}/forged.zip`, sha256Hex(forged), 'f'.repeat(64)])))).toBe('ok');
     // Its built_at is the database's clock at the move, whatever the forger wrote: a key retired before then fails it.
     const { rows: [stamp] } = await pool.query("SELECT built_at > now() - interval '1 minute' AS fresh FROM audit_trail_exports WHERE id = $1", [failed]);
     expect(stamp.fresh).toBe(true);

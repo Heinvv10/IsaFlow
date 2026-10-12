@@ -17,26 +17,46 @@ const NOT_A_COLUMN = new Set(['constraint', 'primary', 'foreign', 'unique', 'che
 
 const stripComments = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
 
+/** Where the statement starting at `from` ends: the first ';' outside a '…' string literal. */
+function statementEnd(sql: string, from: number): number {
+  let quoted = false;
+  for (let i = from; i < sql.length; i++) {
+    if (sql[i] === "'") quoted = !quoted; // '' inside a literal toggles twice: still inside
+    else if (sql[i] === ';' && !quoted) return i;
+  }
+  return sql.length;
+}
+
+const TABLE = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:"?public"?\s*\.\s*)?"?(gl_journal_entries|gl_journal_lines)"?(?![\w"])/gi;
+const IDENT = '"?([a-z_][a-z0-9_]*)"?';
+
 /** The columns migrations add to the two tables (in file order: added, renamed to, dropped). */
 function addedColumns(files: string[]): Record<Table, Set<string>> {
   const out: Record<Table, Set<string>> = { gl_journal_entries: new Set(), gl_journal_lines: new Set() };
-  const stmt = /\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?(gl_journal_entries|gl_journal_lines)\b([^;]*)/gi;
-  for (const sql of files) {
-    for (const [, table, body] of stripComments(sql).matchAll(stmt)) {
-      const cols = out[table!.toLowerCase() as Table];
-      for (const [, name] of body!.matchAll(/\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi)) {
+  for (const raw of files) {
+    const sql = stripComments(raw);
+    for (const m of sql.matchAll(TABLE)) {
+      const cols = out[m[1]!.toLowerCase() as Table];
+      const body = sql.slice(m.index! + m[0].length, statementEnd(sql, m.index! + m[0].length));
+      for (const [, name] of body.matchAll(new RegExp(`\\bADD\\s+(?:COLUMN\\s+)?(?:IF\\s+NOT\\s+EXISTS\\s+)?${IDENT}`, 'gi'))) {
         if (!NOT_A_COLUMN.has(name!.toLowerCase())) cols.add(name!.toLowerCase());
       }
-      for (const [, from, to] of body!.matchAll(/\bRENAME\s+(?:COLUMN\s+)?"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi)) {
+      for (const [, from, to] of body.matchAll(new RegExp(`\\bRENAME\\s+(?:COLUMN\\s+)?${IDENT}\\s+TO\\s+${IDENT}`, 'gi'))) {
         cols.delete(from!.toLowerCase());
         cols.add(to!.toLowerCase());
       }
-      for (const [, name] of body!.matchAll(/\bDROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi)) {
+      for (const [, name] of body.matchAll(new RegExp(`\\bDROP\\s+(?:COLUMN\\s+)?(?:IF\\s+EXISTS\\s+)?${IDENT}`, 'gi'))) {
         if (!NOT_A_COLUMN.has(name!.toLowerCase())) cols.delete(name!.toLowerCase());
       }
     }
   }
   return out;
+}
+
+/** Dynamic SQL naming either table (EXECUTE / format with the name in a literal): the census cannot read it. */
+function dynamicAlters(files: { name: string; sql: string }[]): string[] {
+  return files.filter(({ sql }) => /\bEXECUTE\b[\s\S]{0,600}?'[^']*\b(gl_journal_entries|gl_journal_lines)\b[^']*'/i.test(stripComments(sql))
+    && /\bALTER\s+TABLE\b/i.test(sql)).map(({ name }) => name);
 }
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */
@@ -50,8 +70,9 @@ function frozenColumns(): Record<Table, Set<string>> {
   return { gl_journal_entries: rowOf('journalRows', 'je'), gl_journal_lines: rowOf('lineRows', 'jl') };
 }
 
-const migrations = () => readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()
-  .map((f) => readFileSync(path.join(MIGRATIONS, f), 'utf8'));
+const migrationFiles = () => readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()
+  .map((name) => ({ name, sql: readFileSync(path.join(MIGRATIONS, name), 'utf8') }));
+const migrations = () => migrationFiles().map((f) => f.sql);
 
 describe('frozen columns, read from the migrations', () => {
   it('reads ADD / RENAME / DROP COLUMN in any spelling the migrations use', () => {
@@ -61,9 +82,19 @@ describe('frozen columns, read from the migrations', () => {
       "-- ALTER TABLE gl_journal_entries ADD COLUMN commented_out TEXT;\nALTER TABLE ONLY gl_journal_entries ALTER COLUMN a DROP DEFAULT;",
       'ALTER TABLE gl_journal_entries RENAME COLUMN b TO c; ALTER TABLE IF EXISTS gl_journal_entries DROP COLUMN IF EXISTS a;',
       "DO $$ BEGIN EXECUTE 'ALTER TABLE gl_journal_lines ADD COLUMN dyn TEXT'; END $$;",
+      // Breaker r3 C1's spellings: quoted names, public."…", and a ';' inside a literal before the ADD.
+      'ALTER TABLE "gl_journal_lines" ADD COLUMN q1 NUMERIC;',
+      'ALTER TABLE public."gl_journal_entries" ADD COLUMN q2 NUMERIC;',
+      "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT 'n/a;', ADD COLUMN q3 NUMERIC;",
     ]);
-    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn']);
-    expect([...got.gl_journal_entries].sort()).toEqual(['c']);
+    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn', 'q1', 'q3']);
+    expect([...got.gl_journal_entries].sort()).toEqual(['c', 'q2']);
+    expect(dynamicAlters([{ name: 'x.sql', sql: "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ADD COLUMN z NUMERIC', 'gl_journal_lines'); END $$;" }]))
+      .toEqual(['x.sql']);
+  });
+
+  it('no migration alters the two tables through dynamic SQL the census cannot read', () => {
+    expect(dynamicAlters(migrationFiles())).toEqual([]);
   });
 
   it('every column a migration adds to gl_journal_entries / gl_journal_lines is frozen or named as not material', () => {

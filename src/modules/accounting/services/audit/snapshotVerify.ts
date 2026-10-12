@@ -62,8 +62,10 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
     // sealed, and made in the attempt's own transaction (same cutoff, same now(), purpose 'snapshot') — a run borrowed
     // from elsewhere, or none at all, is not this attempt's evidence.
     const { run, record } = s.status === 'unchanged' && s.checkRunId ? await verifyRun(companyId, s.checkRunId, key) : { run: null, record: null };
+    // ... and it points at a sealed snapshot at its own cutoff.
+    const twin = s.status === 'unchanged' && s.sameAsSnapshotId ? await getSnapshot(companyId, s.sameAsSnapshotId) : null;
     const runBad = s.status === 'unchanged' && !(run?.hashMatches && run.seal === 'valid' && record?.purpose === 'snapshot'
-      && record.asAt === s.cutoff && record.takenAt === s.takenAt);
+      && record.asAt === s.cutoff && record.takenAt === s.takenAt && twin?.status === 'sealed' && twin.cutoff === s.cutoff);
     return { snapshotId: id, status: s.status !== 'unchanged' ? 'not_sealed' : runBad ? 'invalid' : 'unchanged',
       sameAsSnapshotId: s.sameAsSnapshotId, canonicalHash: null, recomputedHash: null, seal: null, checkRun: run,
       rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
@@ -122,7 +124,11 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
     const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash, cutoff: s.cutoff,
       takenAt: s.takenAt, chain: { seq: s.seq, prevHmac: s.prevHmac } }, s.hmac, s.keyId, key);
     if (seal !== 'valid') { forged.push({ seq: s.seq, snapshotId: s.id }); continue; }
-    if (s.prevHmac !== (last?.hmac ?? null)) {
+    if (!last && s.prevHmac === null && s.seq > 1) {
+      // The first verifying link names nothing although rows precede it: the chain restarted after rows that no
+      // longer verify (a key dropped from rotation, or forged rows) — a break, not a fresh start.
+      breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'names no earlier snapshot although rows precede it' });
+    } else if (s.prevHmac !== (last?.hmac ?? null)) {
       breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot (one was removed or replaced)' });
     }
     // The writer stamps now(): a later link taken no later than the one before it was written past the writer

@@ -162,4 +162,15 @@ describe('MCP', { timeout: 120_000 }, () => {
     const viewer = await mcpRun(pool, TOOLS, v, c, 'viewer', 'audit_snapshots', {}, ['read:reports']);
     expect(viewer.isError).toBe(true);
   });
+
+  it('the audit tools charge the member\'s audit bucket, like the web routes (breaker r3 R1)', async () => {
+    const c = await company();
+    const errors: boolean[] = [];
+    for (let i = 0; i < 31; i++) {
+      errors.push(!!(await mcpRun(pool, TOOLS, m, c, 'manager', 'audit_snapshots', { verify_chain: true }, ['read:reports'])).isError);
+    }
+    expect(errors).toEqual([...Array(30).fill(false), true]);
+    // Listing is not a whole-ledger job and is not charged.
+    expect((await mcpRun(pool, TOOLS, m, c, 'manager', 'audit_snapshots', {}, ['read:reports'])).isError).toBeFalsy();
+  });
 });

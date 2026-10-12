@@ -255,19 +255,46 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(await verify()).toMatchObject({ status: 'invalid', checkRun: { hashMatches: false } });
   });
 
-  it("a forged 'unchanged' attempt does not verify: it needs a check run of its own, made in its own transaction (blind r3 M1)", async () => {
+  it("a forged 'unchanged' attempt is refused by the writer, and one written past it does not verify (blind r3 M1, breaker r3 U1)", async () => {
     const { c, periods } = await company();
     expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
     const [s] = await waitForSnapshots(pool, c, 1);
-    const unchanged = (run: string | null) => (t: string) => payload(c, m, t, { trigger: 'period_close', status: 'unchanged',
-      canonical_hash: null, hmac: null, key_id: null, cutoff: '2026-01-31', same_as_snapshot_id: String(s!.id), check_run_id: run });
-    // With a manager's claims: without a run the writer refuses it; with the sealed snapshot's own (genuine) run borrowed,
-    // it is written — and verifies invalid, the run being another transaction's.
-    expect(await recordSnapshot(pool, m, c, unchanged(null)).then(() => 'ok', (e: { code?: string }) => e.code)).toBe('23514');
-    const forged = await recordSnapshot(pool, m, c, unchanged(String(s!.check_run_id)));
+    const unchanged = (run: string | null, sameAs: string, cutoff = '2026-01-31') => (t: string) => payload(c, m, t, {
+      trigger: 'period_close', status: 'unchanged', canonical_hash: null, hmac: null, key_id: null, cutoff,
+      same_as_snapshot_id: sameAs, check_run_id: run });
+    const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: { code?: string }) => e.code);
+    // With a manager's claims: no run, a run from another transaction, or a twin at another cutoff — all refused.
+    expect(await code(recordSnapshot(pool, m, c, unchanged(null, String(s!.id))))).toBe('22023'); // the writer; the shape CHECK backs it
+    expect(await code(recordSnapshot(pool, m, c, unchanged(String(s!.check_run_id), String(s!.id))))).toBe('22023');
+    expect(await code(recordSnapshot(pool, m, c, unchanged(String(s!.check_run_id), String(s!.id), '2026-02-28')))).toBe('22023');
+    // Written past the writer (the owner's plain INSERT), borrowing the sealed snapshot's genuine run: invalid.
+    const forged = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, totals, caveat,
+         check_run_id, same_as_snapshot_id) VALUES ($1, $2, '2026-01-31', now(), $3, 'session', 'period_close', 'unchanged', '{}', 'c', $4, $5)`,
+      [forged, c, m, s!.check_run_id, s!.id]);
+    // Past the writer without a run at all: the shape CHECK refuses it.
+    expect(await code(pool.query(
+      `INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, totals, caveat, same_as_snapshot_id)
+       VALUES (gen_random_uuid(), $1, '2026-01-31', now(), $2, 'session', 'period_close', 'unchanged', '{}', 'c', $3)`, [c, m, s!.id]))).toBe('23514');
     const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
     expect(await runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, forged)))
       .toMatchObject({ status: 'invalid', checkRun: { hashMatches: true, seal: 'valid' } });
+  });
+
+  it('a forged sealed row carrying the genuine fingerprint does not hide the genuine twin (breaker r3 U2)', async () => {
+    const { c, periods } = await company();
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    const [s] = await waitForSnapshots(pool, c, 1);
+    const { rows: [t] } = await pool.query("SELECT totals->>'content_fingerprint' AS fp FROM audit_snapshots WHERE id = $1", [s!.id]);
+    await recordSnapshot(pool, m, c, (at) => payload(c, m, at, { trigger: 'period_close', cutoff: '2026-01-31',
+      totals: { content_fingerprint: t.fp } }));
+    expect((await action(o, c, { action: 'reopen', id: periods[0] })).state.statusCode).toBe(200);
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    const all = await waitForSnapshots(pool, c, 3);
+    expect(all.map((x) => x.status)).toEqual(['sealed', 'sealed', 'unchanged']);
+    const { rows: [u] } = await pool.query('SELECT same_as_snapshot_id::text AS s FROM audit_snapshots WHERE id = $1', [all[2]!.id]);
+    expect(u.s).toBe(s!.id);
   });
 
   it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {
