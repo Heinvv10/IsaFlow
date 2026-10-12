@@ -21,7 +21,7 @@ const stripComments = (sql: string) => sql.replace(/\/\*[\s\S]*?\*\//g, ' ').rep
 function statementEnd(sql: string, from: number): number {
   let quoted = false;
   for (let i = from; i < sql.length; i++) {
-    const dollar = !quoted && sql[i] === '$' ? /^\$[a-z_]*\$/i.exec(sql.slice(i)) : null;
+    const dollar = !quoted && sql[i] === '$' ? /^\$(?:[a-z_][a-z0-9_]*)?\$/i.exec(sql.slice(i)) : null;
     if (dollar) {
       const close = sql.indexOf(dollar[0], i + dollar[0].length);
       if (close < 0) return sql.length;
@@ -67,7 +67,10 @@ function addedColumns(files: string[]): Record<Table, Set<string>> {
 function unreadable(files: { name: string; sql: string }[]): string[] {
   return files.filter(({ sql }) => {
     const code = stripComments(sql);
-    return (/\bEXECUTE\b/i.test(code) && /journal/i.test(code)) || /\bU&"/i.test(code);
+    return (/\bEXECUTE\b/i.test(code) && /journal/i.test(code)) || /\bU&"/i.test(code)
+      // a rebuilt table: CREATE … (LIKE gl_journal_…) or a rename swapped into its place (breaker r5 N2)
+      || /\bLIKE\s+(?:"?public"?\s*\.\s*)?"?gl_journal_(?:entries|lines)\b/i.test(code)
+      || /\bRENAME\s+TO\s+"?gl_journal_(?:entries|lines)\b/i.test(code);
   }).map(({ name }) => name);
 }
 
@@ -119,15 +122,19 @@ describe('frozen columns, read from the migrations', () => {
       "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT 'n/a;', ADD COLUMN q3 NUMERIC;",
       // Breaker r4 L5: a ';' inside a $$ body.
       "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT $$n/a;$$, ADD COLUMN q4 NUMERIC;",
+      // Breaker r5 N2: a dollar tag with digits.
+      "ALTER TABLE gl_journal_lines ALTER COLUMN description SET DEFAULT $t1$n/a;$t1$, ADD COLUMN q5 NUMERIC;",
     ]);
-    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn', 'q1', 'q3', 'q4']);
+    expect([...got.gl_journal_lines].sort()).toEqual(['brk_new_amount', 'dyn', 'q1', 'q3', 'q4', 'q5']);
     expect([...got.gl_journal_entries].sort()).toEqual(['c', 'q2']);
     expect(unreadable([
       { name: 'format.sql', sql: "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ADD COLUMN z NUMERIC', 'gl_journal_lines'); END $$;" },
       { name: 'split.sql', sql: "DO $$ BEGIN EXECUTE 'ALTER TABLE gl_' || 'journal_lines ADD COLUMN z NUMERIC'; END $$;" },
       { name: 'unicode.sql', sql: 'ALTER TABLE U&"gl\\005fjournal_lines" ADD COLUMN z NUMERIC;' },
       { name: 'plain.sql', sql: 'ALTER TABLE gl_journal_lines ADD COLUMN z NUMERIC;' },
-    ])).toEqual(['format.sql', 'split.sql', 'unicode.sql']);
+      { name: 'like.sql', sql: 'CREATE TABLE gl_journal_lines_new (LIKE gl_journal_lines INCLUDING ALL, z NUMERIC);' },
+      { name: 'swap.sql', sql: 'ALTER TABLE gl_journal_lines_new RENAME TO gl_journal_lines;' },
+    ])).toEqual(['format.sql', 'split.sql', 'unicode.sql', 'like.sql', 'swap.sql']);
   });
 
   it('no new migration uses dynamic SQL near the journal tables, or a U& identifier, the census cannot read', () => {
