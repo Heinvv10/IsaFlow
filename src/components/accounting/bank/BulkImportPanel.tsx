@@ -301,7 +301,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             dropped.push(...lines);
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
+              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines,
             } : r));
           } else if (data.status === 'skipped') {
             skipped++;
@@ -326,7 +326,6 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
 
     setIsCommitting(false);
     setSummary({ bulkImportId, imported, skipped, failed, totalTransactions });
-    notifyPostingWarnings({ data: { autoPost: { warnings: dropped } } }); // once for the run, not once per file
 
     if (failed === 0 && imported > 0) {
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
@@ -336,6 +335,8 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     } else if (failed > 0) {
       notify.error('Import failed', `${failed} file(s) could not be imported.`);
     }
+    // After the run's own toast; once for the run, not once per file. The lines are listed under their files.
+    notifyPostingWarnings({ data: { autoPost: { warnings: dropped } } });
   }, [bankAccountId, rows, applyBankRules]);
 
   // ── Render ────────────────────────────────────────────────────────────────

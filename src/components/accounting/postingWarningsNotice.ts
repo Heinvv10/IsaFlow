@@ -69,41 +69,20 @@ export function postingWarningsIn(body: PostingWarningsBody | null | undefined):
   return postingWarningsByDocument(body).flat();
 }
 
-/** The toast's second line is one row of ~280px: longer than this and it is cut off. */
-const LINE2_MAX = 45;
-
-/**
- * Line 2 for documents that are bank lines (an auto-post sweep): names the lines
- * after the first one — "+1 more: 2026-09-12 R 1 234 567,89" — as many as fit,
- * then "… and N more"; when even one name will not fit beside that, the name and
- * a bare "…". The journal line number is not printed: it is the provisional
- * journal's expense line (always 1), which beside "bank line …" reads as the
- * statement's line 1.
- */
-function bankLinesMessage(rest: readonly string[], more: number): string {
-  const head = `+${more} more: `;
-  const fit = (suffixOf: (left: number) => string): string[] => {
-    const shown: string[] = [];
-    for (const label of rest) {
-      const left = more - (shown.length + 1);
-      if (`${head}${[...shown, label].join(', ')}${suffixOf(left)}`.length > LINE2_MAX) break;
-      shown.push(label);
-    }
-    return shown;
-  };
-  const suffixes = [(left: number) => (left > 0 ? ` … and ${left} more` : ''), (left: number) => (left > 0 ? ' …' : '')];
-  for (const suffixOf of suffixes) {
-    const shown = fit(suffixOf);
-    if (shown.length > 0) return `${head}${shown.join(', ')}${suffixOf(more - shown.length)}`;
-  }
-  return `+${more} more not applied.`;
+/** What one warning sentence says, short: "cost centre OLD not applied (inactive)". */
+export function postingWarningFact(sentence: string): string {
+  const drop = parsePickDropSentence(sentence);
+  return drop ? pickDropFact(drop) : sentence.replace(/^Line \d+: /, '');
 }
 
 /**
  * The notice for a response's warnings: a title that says which centre and why,
  * and a second line that fits. `labels` (parallel to `byDocument`) are the bank
- * lines of an auto-post sweep's documents; the first goes in the title, which
- * wraps, because the toast clips its second line.
+ * lines of an auto-post sweep's documents: the first goes in the title, which
+ * wraps, because the toast clips its second line. Bank lines are LISTED by the
+ * screen that imported them (BulkImportFileRow), so line 2 is only a pointer —
+ * short and without digits that could overflow the one row — and counts every
+ * warning, not every bank line: one line can carry several.
  */
 export function postingWarningsNotice(
   byDocument: readonly string[][], labels: ReadonlyArray<string | undefined> = [],
@@ -115,8 +94,7 @@ export function postingWarningsNotice(
   // A sentence this screen does not know still reaches the person whole: the title wraps.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}${firstLabel ? `, bank line ${firstLabel}` : ''}`;
   if (firstLabel) {
-    const rest = labels.slice(1).filter((l): l is string => !!l);
-    return { title, message: byDocument.length > 1 ? bankLinesMessage(rest, byDocument.length - 1) : '' };
+    return { title, message: all.length > 1 ? `+${all.length - 1} more — see the list below` : 'See the list below.' };
   }
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';

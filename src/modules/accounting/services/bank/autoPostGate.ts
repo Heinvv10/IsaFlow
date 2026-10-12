@@ -27,6 +27,8 @@ export interface SweepWarning {
   journalEntryId: string;
   /** The bank line in a few characters — "2026-10-02 R230.00" — so a screen can say which one. */
   label: string;
+  /** The bank line's description, so two same-day same-amount lines can be told apart. */
+  description: string | null;
   warnings: string[];
 }
 
