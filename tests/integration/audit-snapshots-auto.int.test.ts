@@ -245,7 +245,26 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     const [, u] = await waitForSnapshots(pool, c, 2);
     const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
     const verify = () => runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, String(u!.id)));
-    expect(await verify()).toMatchObject({ status: 'unchanged', checkRun: { hashMatches: true, seal: 'valid' } });
+    expect(await verify()).toMatchObject({ status: 'unchanged', seal: 'valid', checkRun: { hashMatches: true, seal: 'valid' } });
+    const dbA = await pool.connect();
+    try {
+      await dbA.query('BEGIN');
+      // Its own attempt seal: re-pointed at the same twin with a different reason it no longer verifies.
+      await dbA.query('ALTER TABLE audit_snapshots DISABLE TRIGGER audit_snapshots_append_only');
+      await dbA.query(`UPDATE audit_snapshots SET trigger = 'year_close' WHERE id = $1`, [u!.id]);
+      await dbA.query('ALTER TABLE audit_snapshots ENABLE ALWAYS TRIGGER audit_snapshots_append_only');
+      await dbA.query('COMMIT');
+    } finally { dbA.release(); }
+    expect(await verify()).toMatchObject({ status: 'invalid', seal: 'invalid', checkRun: { hashMatches: true, seal: 'valid' } });
+    const db2 = await pool.connect();
+    try {
+      await db2.query('BEGIN');
+      await db2.query('ALTER TABLE audit_snapshots DISABLE TRIGGER audit_snapshots_append_only');
+      await db2.query(`UPDATE audit_snapshots SET trigger = 'period_close' WHERE id = $1`, [u!.id]);
+      await db2.query('ALTER TABLE audit_snapshots ENABLE ALWAYS TRIGGER audit_snapshots_append_only');
+      await db2.query('COMMIT');
+    } finally { db2.release(); }
+    expect(await verify()).toMatchObject({ status: 'unchanged' });
     const db = await pool.connect();
     try {
       await db.query('BEGIN');
