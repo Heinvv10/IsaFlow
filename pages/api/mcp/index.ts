@@ -32,10 +32,17 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { log } from '@/lib/logger';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import type { McpToolContext } from '@/lib/mcp/types';
+import {
+  companyRateLimited,
+  connectorNotEnabled,
+  ipThrottled,
+} from '@/lib/mcp/transportRefusals';
 import { skippedForRoleLock } from '@/lib/mcp/batchSkip';
 import { isRoleLockRefusal } from '@/modules/accounting/services/gl/systemRoleWriteLock';
 import {
   CLIENT_MCP_TOOL_NAMES,
+  appOrigin,
+  serverIcons,
   MCP_AUTH_SERVER_METADATA_PATH,
   MCP_PATH,
   MCP_PROD_ENDPOINT,
@@ -71,47 +78,6 @@ const MAX_BATCH_SIZE = 20;
 export const config = {
   api: { bodyParser: { sizeLimit: '1mb' } },
 };
-
-function appOrigin(): string {
-  // Trailing slash would double up in every `${base}/path` below.
-  return (process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za').replace(/\/+$/, '');
-}
-
-/**
- * Server branding for the client's connector list (SEP-973, spec revision
- * 2025-11-25 — declared ahead of MCP_PROTOCOL_VERSION; the 2025-06-18
- * Implementation schema sets no additionalProperties:false, so clients that
- * predate the field pass it through). Absolute URIs: a remote client has no
- * base to resolve a relative path against. Both PNGs are the white-on-teal
- * mark from public/icons/, which reads on light and dark, so no `theme` split.
- *
- * Motivation: with no server-supplied icon, a client falls back to scraping a
- * favicon off the domain. On 2026-08-09 claude.ai's connector list rendered the
- * .co.za registry's logo (ZA Central Registry) next to IsaFlow — the icon was
- * byte-matched to registry.net.za's favicon. Our own /favicon.ico is correct
- * and served, so the fallback, not our assets, produced it.
- */
-function serverIcons(): Array<{ src: string; mimeType: string; sizes: string[] }> {
-  const base = appOrigin();
-  return [
-    { src: `${base}/icons/icon-192.png`, mimeType: 'image/png', sizes: ['192x192'] },
-    { src: `${base}/icons/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] },
-  ];
-}
-
-/**
- * The id to answer a transport-level refusal with. JSON-RPC lets a server reply
- * `id: null` only when it cannot determine the request id — but a single
- * request's id is right there in the body, and a null-id reply to a request
- * that carried one is what MCP clients report as a "malformed result" with the
- * real message (rate limit, connector off) never shown. A batch has no single
- * id, so it keeps null.
- */
-function refusalId(body: unknown): JsonRpcRequest['id'] {
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
-  const id = (body as JsonRpcRequest).id;
-  return typeof id === 'string' || typeof id === 'number' ? id : null;
-}
 
 function setCors(res: NextApiResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -181,9 +147,7 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
 
   const enabled = await hasFeature(req.companyId, 'mcp_connector');
   if (!enabled) {
-    res.status(200).json(
-      rpcError(refusalId(req.body), RPC_CODES.NOT_ENABLED, 'MCP connector not enabled for this company'),
-    );
+    res.status(200).json(connectorNotEnabled(req.body));
     return;
   }
 
@@ -208,12 +172,7 @@ const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Prom
     return;
   }
   if (rpcCount > 0 && !(await checkRateLimit(`mcp:${req.companyId}`, { max: 120, windowSecs: 60, cost: rpcCount }))) {
-    res.status(200).json(
-      rpcError(refusalId(body), RPC_CODES.SERVER_ERROR, 'Rate limit exceeded. Slow down and retry.', {
-        limitPerMinute: 120,
-        retryAfterSeconds: 60,
-      }),
-    );
+    res.status(200).json(companyRateLimited(body));
     return;
   }
 
@@ -306,7 +265,7 @@ const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) 
   const ip = getClientIp(req);
   if (!(await checkRateLimit(`mcp-ip:${ip}`, { max: 300, windowSecs: 60 }))) {
     setCors(res);
-    res.status(429).json(rpcError(refusalId(req.body), RPC_CODES.SERVER_ERROR, 'Too many requests. Slow down and retry.'));
+    res.status(429).json(ipThrottled(req.body));
     return;
   }
 

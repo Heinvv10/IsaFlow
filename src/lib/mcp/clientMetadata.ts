@@ -181,3 +181,30 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'tag_journal_lines',
   'reverse_dimension_tag_batch',
 ] as const;
+
+export function appOrigin(): string {
+  // Trailing slash would double up in every `${base}/path` below.
+  return (process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za').replace(/\/+$/, '');
+}
+
+/**
+ * Server branding for the client's connector list (SEP-973, spec revision
+ * 2025-11-25 — declared ahead of MCP_PROTOCOL_VERSION; the 2025-06-18
+ * Implementation schema sets no additionalProperties:false, so clients that
+ * predate the field pass it through). Absolute URIs: a remote client has no
+ * base to resolve a relative path against. Both PNGs are the white-on-teal
+ * mark from public/icons/, which reads on light and dark, so no `theme` split.
+ *
+ * Motivation: with no server-supplied icon, a client falls back to scraping a
+ * favicon off the domain. On 2026-08-09 claude.ai's connector list rendered the
+ * .co.za registry's logo (ZA Central Registry) next to IsaFlow — the icon was
+ * byte-matched to registry.net.za's favicon. Our own /favicon.ico is correct
+ * and served, so the fallback, not our assets, produced it.
+ */
+export function serverIcons(): Array<{ src: string; mimeType: string; sizes: string[] }> {
+  const base = appOrigin();
+  return [
+    { src: `${base}/icons/icon-192.png`, mimeType: 'image/png', sizes: ['192x192'] },
+    { src: `${base}/icons/icon-512.png`, mimeType: 'image/png', sizes: ['512x512'] },
+  ];
+}
