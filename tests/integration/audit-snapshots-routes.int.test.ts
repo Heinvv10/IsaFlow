@@ -20,6 +20,7 @@ import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantJournal, plantLedger } from './audit-snapshots.helpers';
 import { mcpRun } from './audit-snapshots-mcp.helpers';
 import { auditSnapshotsTool, compareAuditSnapshotTool, takeAuditSnapshotTool } from '../../src/lib/mcp/tools/auditSnapshots';
+import { withSnapshotSlot } from '../../src/modules/accounting/services/audit/snapshotSlots';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -101,6 +102,23 @@ describe('routes', { timeout: 120_000 }, () => {
     // A well-formed but impossible day is refused before the ::DATE cast, not a 500.
     expect((await snap(o, c, 'POST', { cutoff: '2026-02-30' })).state.statusCode).toBe(422);
     expect((await callRoute(auditCheckRuns, tokens[o]!, c, 'POST', { asAt: '2026-04-31' }, '/x')).state.statusCode).toBe(422);
+  });
+
+  it('a verify or comparison while the company\'s audit slot is taken is refused (409), not queued', async () => {
+    const c = await company();
+    const id = (dataOf<{ snapshot: { id: string } }>(await take(o, c))).snapshot.id;
+    let release = () => {};
+    const held = withSnapshotSlot(c, true, () => new Promise<void>((r) => { release = r; }));
+    try {
+      const cmp = await callRoute(auditComparisons, tokens[o]!, c, 'GET', undefined, '/x', { snapshotId: id });
+      expect([cmp.state.statusCode, reason(cmp)]).toEqual([409, 'SNAPSHOT_BUSY']);
+      const ver = await snap(o, c, 'GET', undefined, { id, verify: '1' });
+      expect([ver.state.statusCode, reason(ver)]).toEqual([409, 'SNAPSHOT_BUSY']);
+      // Another company is not held up by this one.
+      const other = await company();
+      const otherId = (dataOf<{ snapshot: { id: string } }>(await take(o, other))).snapshot.id;
+      expect((await snap(o, other, 'GET', undefined, { id: otherId, verify: '1' })).state.statusCode).toBe(200);
+    } finally { release(); await held; }
   });
 
   it('check runs: owner runs one on its own; manager reads it; viewer neither', async () => {

@@ -68,6 +68,10 @@ describe('seal', () => {
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, rotated)).toBe('valid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, { ...fields, cutoff: '2026-07-01' }, hmac, keyId, rotated)).toBe('invalid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, { ...rotated, retired: new Map() })).toBe('invalid');
+    // Signed with the CURRENT key but naming a key id the server does not hold: the id picks the key, so invalid.
+    const underCurrent = sign(SNAPSHOT_SEAL_DOMAIN, fields, rotated).hmac;
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, underCurrent, 'never-issued', rotated)).toBe('invalid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, underCurrent, 'test-2', rotated)).toBe('valid');
     // The same retired id with a different secret (a forger naming a real id) does not verify either.
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, sign(SNAPSHOT_SEAL_DOMAIN, fields, { key: Buffer.from('f'.repeat(40)), keyId }).hmac,
       keyId, rotated)).toBe('invalid');
