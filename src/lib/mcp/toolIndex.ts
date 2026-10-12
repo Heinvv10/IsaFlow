@@ -41,6 +41,7 @@ import { linkDocumentToJournalTool } from './tools/journalDocumentLink';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
 import { entityHistoryTool } from './tools/entityHistory';
+import { auditSnapshotsTool, compareAuditSnapshotTool, takeAuditSnapshotTool } from './tools/auditSnapshots';
 import {
   listDocumentsTool,
   getDocumentTool,
@@ -187,6 +188,9 @@ export const MCP_TOOLS = [
   auditTrailTool,
   // Forensic-controls step 3: master-data change history (migration 888).
   entityHistoryTool,
+  // Forensic-controls step 4: sealed audit snapshots and comparisons (migration 889).
+  auditSnapshotsTool,
+  compareAuditSnapshotTool,
   listDocumentsTool,
   getDocumentTool,
   listUnsupportedTransactionsTool,
@@ -323,6 +327,8 @@ export const MCP_TOOLS = [
   // requiresPost — it never posts a journal) because it freezes a filed
   // return: a control an agent can set without that scope is not one.
   lockVatPeriodTool,
+  // Forensic-controls step 4: an append-only sealed snapshot. Owner / admin; requiresScope write:journals.
+  takeAuditSnapshotTool,
   // Marks/unmarks a document "VAT declared outside IsaFlow" — never posts to
   // the GL. requiresScope 'write:vat' (NOT requiresPost) because it changes
   // what blocks a VAT period lock.
