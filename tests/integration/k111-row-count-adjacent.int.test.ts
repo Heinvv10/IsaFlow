@@ -76,7 +76,7 @@ it('counts only this tenant\'s rows and leaves the other tenant alone', async ()
 
 it('a repeated merge is refused because the duplicate is already soft-deleted', async () => {
   await expect(mergeEntities(company, 'supplier', primary, duplicate, user))
-    .rejects.toThrow('One or both suppliers not found for this company');
+    .rejects.toThrow('One or both suppliers not found or do not belong to this company');
 });
 
 it('counts the status predicate, not the length of the id list', async () => {

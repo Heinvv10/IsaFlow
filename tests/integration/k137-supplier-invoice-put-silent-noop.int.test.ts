@@ -18,6 +18,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { als } from '@/lib/als';
 
 vi.mock('@/lib/auth', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
@@ -52,9 +53,22 @@ function mockRes() {
   return res as unknown as NextApiResponse & typeof res;
 }
 
+/**
+ * withAuth is mocked away, so this stands in for the request transaction it
+ * opens: the edit path locks the bill FOR UPDATE and refuses to run outside one.
+ * Like withAuth, a 5xx rolls back and anything else commits.
+ */
 async function put(body: unknown) {
   const res = mockRes();
-  await route({ method: 'PUT', body, query: {}, headers: {}, companyId: COMPANY, user: { id: USER } } as unknown as NextApiRequest, res);
+  const client = await admin.connect();
+  try {
+    await client.query('BEGIN');
+    await als.run({ client, userId: USER, companyId: COMPANY, claims: {} } as never, () =>
+      route({ method: 'PUT', body, query: {}, headers: {}, companyId: COMPANY, user: { id: USER } } as unknown as NextApiRequest, res));
+    await client.query(res.statusCode >= 500 ? 'ROLLBACK' : 'COMMIT');
+  } finally {
+    client.release();
+  }
   return res;
 }
 

@@ -71,8 +71,8 @@ pg_cluster_init "$WORK"
 PORT=$(pg_cluster_start "$WORK")
 PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
 
-"${PSQL[@]}" -d postgres -c "CREATE ROLE app_user NOLOGIN" -c "CREATE ROLE migration_admin NOLOGIN" \
-  -c "CREATE ROLE platform_admin NOLOGIN BYPASSRLS" -c "CREATE DATABASE isaflow_baseline"
+pg_create_roles "$PORT"
+"${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_baseline"
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-schema.sql" > /dev/null
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-tracking.sql" > /dev/null
 

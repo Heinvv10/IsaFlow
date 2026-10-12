@@ -10,7 +10,10 @@
 # COPY ... PROGRAM as the user who started it, so trust auth is not an option.
 #
 # Durability is off (fsync, full_page_writes, synchronous_commit): the data is
-# thrown away when the run ends.
+# thrown away when the run ends. Locale en_US.UTF-8 and timezone UTC are
+# isaflow_dev's (Supabase) settings; initdb would otherwise take this
+# machine's Africa/Johannesburg, and `'2026-11-11'::date::timestamptz` would
+# land two hours before what dev and production store.
 
 PG_BIN=${PG_BIN:-/usr/lib/postgresql/16/bin}
 
@@ -25,7 +28,7 @@ pg_cluster_init() {
   local dir=$1
   printf '%s\n' "$PGPASSWORD" > "$dir/pwfile"
   "$PG_BIN/initdb" -D "$dir/data" -U postgres --auth=scram-sha-256 --pwfile="$dir/pwfile" \
-    -E UTF8 --locale=C.UTF-8 > "$dir/initdb.log" 2>&1 || { cat "$dir/initdb.log" >&2; return 1; }
+    -E UTF8 --locale=en_US.UTF-8 > "$dir/initdb.log" 2>&1 || { cat "$dir/initdb.log" >&2; return 1; }
   rm -f "$dir/pwfile"
 }
 
@@ -36,6 +39,7 @@ pg_cluster_start() {
     port=$(free_port) || return 1
     if "$PG_BIN/pg_ctl" -D "$dir/data" -l "$dir/server.log" -w -t 120 -o "-p $port \
         -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c max_connections=200 \
+        -c timezone=UTC -c log_timezone=UTC \
         -c fsync=off -c full_page_writes=off -c synchronous_commit=off" start > /dev/null; then
       echo "$port"
       return 0
@@ -50,6 +54,17 @@ pg_cluster_start() {
 pg_cluster_stop() {
   [ -f "$1/data/postmaster.pid" ] || return 0
   "$PG_BIN/pg_ctl" -D "$1/data" -m immediate stop > /dev/null 2>&1 || true
+}
+
+# pg_create_roles <port>: the application roles the schema's grants, policies
+# and owners name, with isaflow_dev's attributes (migration_admin and
+# platform_admin bypass RLS: SECURITY DEFINER functions owned by
+# migration_admin read through FORCE RLS on that basis). No passwords; NOLOGIN.
+pg_create_roles() {
+  "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U postgres -X -q -v ON_ERROR_STOP=1 -d postgres \
+    -c "CREATE ROLE app_user NOLOGIN" \
+    -c "CREATE ROLE migration_admin NOLOGIN BYPASSRLS" \
+    -c "CREATE ROLE platform_admin NOLOGIN BYPASSRLS"
 }
 
 # pg_require_extensions: fail, saying how to fix it, when the server lacks an
