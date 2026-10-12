@@ -185,10 +185,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
     } finally {
       await dog.stop();
     }
-  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }),
-  // Automatic jobs are not a person's own load (bounded by the company slot and the process cap): no per-person cap,
-  // so one bookkeeper closing many companies does not queue their snapshots behind each other.
-  wait ? null : p.userId);
+  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }), p.userId);
   if (taken.status === 'sealed') {
     // The chain head, written outside the database as well (the journal keeps it): a removed latest snapshot shows here.
     log.info('audit: snapshot sealed', { companyId: p.companyId, snapshotId: taken.id, seq: taken.seq, hash: taken.canonicalHash,

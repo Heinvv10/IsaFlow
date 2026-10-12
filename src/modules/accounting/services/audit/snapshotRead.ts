@@ -6,6 +6,7 @@
  */
 import { sql } from '@/lib/neon';
 import { AUDIT_WAIT_MS, SNAPSHOT_TIME_BUDGET_MS } from './auditTx';
+import { SLOT_WAIT_MS } from './snapshotSlots';
 import type { CanonicalRow } from './snapshotRows';
 import type { CheckResult } from './checks/checkTypes';
 
@@ -163,7 +164,7 @@ export async function getCheckRun(companyId: string, id: string): Promise<CheckR
  */
 export interface UnrecordedLock { trigger: 'period_close' | 'vat_lock'; cutoff: string; lockedAt: string; pending: boolean }
 
-export const AUTO_SNAPSHOT_MAX_MS = 2 * AUDIT_WAIT_MS + SNAPSHOT_TIME_BUDGET_MS;
+export const AUTO_SNAPSHOT_MAX_MS = SLOT_WAIT_MS + AUDIT_WAIT_MS + SNAPSHOT_TIME_BUDGET_MS;
 
 /**
  * Closes and VAT locks with no snapshot attempt recorded after them — the automatic snapshot runs after COMMIT in the

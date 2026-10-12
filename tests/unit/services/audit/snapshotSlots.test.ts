@@ -3,8 +3,8 @@
  * next is refused; automatic ones wait — and one company cannot hold every slot.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_CONCURRENT_SNAPSHOTS, PER_COMPANY, PER_USER, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
-import { AUDIT_WAIT_MS, SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
+import { MAX_CONCURRENT_SNAPSHOTS, MAX_WAITING_PER_USER, PER_COMPANY, PER_USER, SLOT_WAIT_MS, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
+import { SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
 
@@ -49,15 +49,31 @@ describe('withSnapshotSlot', () => {
     expect(await withSnapshotSlot('P2', false, async () => 'free', 'person')).toBe('free');
   });
 
+  it('a person\'s automatic jobs queue behind each other, not refused, and at most MAX_WAITING_PER_USER wait (security review)', async () => {
+    let release = () => {};
+    const held = withSnapshotSlot('W0', true, () => new Promise<void>((r) => { release = r; }), 'bookkeeper');
+    await tick();
+    const ran: string[] = [];
+    const queued = Array.from({ length: MAX_WAITING_PER_USER }, (_, i) =>
+      withSnapshotSlot(`W${i + 1}`, true, async () => { ran.push(`W${i + 1}`); }, 'bookkeeper'));
+    await expect(withSnapshotSlot('W-over', true, async () => 'x', 'bookkeeper')).rejects.toBeInstanceOf(SnapshotBusyError);
+    // Their jobs never hold the second slot together: another person still gets it.
+    expect(await withSnapshotSlot('X', false, async () => 'other', 'someone-else')).toBe('other');
+    release();
+    await held;
+    await Promise.all(queued);
+    expect(ran).toHaveLength(MAX_WAITING_PER_USER);
+  });
+
   afterEach(() => { vi.useRealTimers(); });
 
-  it('an automatic job waits at most AUDIT_WAIT_MS behind a holder that hangs, then is refused and leaves the queue', async () => {
+  it('an automatic job waits at most SLOT_WAIT_MS behind a holder that hangs, then is refused and leaves the queue', async () => {
     vi.useFakeTimers();
     let release = () => {};
     const hung = withSnapshotSlot('H', true, () => new Promise<void>((r) => { release = r; }));
     let ran = false;
     const waiter = withSnapshotSlot('H', true, async () => { ran = true; }).catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(AUDIT_WAIT_MS - 1);
+    await vi.advanceTimersByTimeAsync(SLOT_WAIT_MS - 1);
     expect(ran).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     expect(await waiter).toBeInstanceOf(SnapshotBusyError);
