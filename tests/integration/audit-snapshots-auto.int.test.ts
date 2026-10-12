@@ -385,7 +385,10 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
       failure_reason: 'error: nothing to see', canonical_hash: null, hmac: null, key_id: null, cutoff: '2026-01-31' }));
     expect(await listed()).toEqual([expect.objectContaining({ cutoff: '2026-01-31' })]);
     expect(await runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, forged))).toMatchObject({ status: 'not_sealed', seal: 'invalid' });
-    // ... while the app's own sealed failed attempt does cover it.
+    // A genuine failed attempt at a LATER cutoff froze nothing, so it covers nothing earlier ...
+    await recordSnapshotAttempt(p, { cutoff: '2026-02-28', trigger: 'period_close', status: 'failed', reason: 'error: real' });
+    expect(await listed()).toEqual([expect.objectContaining({ cutoff: '2026-01-31' })]);
+    // ... while the app's own sealed failed attempt at its cutoff does cover it.
     await recordSnapshotAttempt(p, { cutoff: '2026-01-31', trigger: 'period_close', status: 'failed', reason: 'error: real' });
     expect(await listed()).toEqual([]);
     // However many rows come after it (a flood of unsealed ones, one statement), the genuine one still covers (blind r5 L1).
