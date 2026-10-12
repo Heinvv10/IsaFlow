@@ -15,7 +15,8 @@ import { BankAccountSelector, type BankAccountOption } from './BankAccountSelect
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
 import type { BulkPreviewResponse } from './bulkImportTypes';
 import { localISODate } from '@/lib/dateUtils';
-import { commitStatement } from './commitStatement';
+import { commitStatement, type DroppedPickLine } from './commitStatement';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
@@ -276,6 +277,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     let skipped = 0;
     let failed = 0;
     let totalTransactions = 0;
+    const dropped: DroppedPickLine[] = []; // bank lines that auto-posted without their cost centre, over every file
 
     await runWithConcurrency(
       eligible.map((r, i) => ({ row: r, sequence: i + 1 })),
@@ -290,12 +292,13 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           return;
         }
         try {
-          const data = await commitStatement({
+          const { data, dropped: lines } = await commitStatement({
             bankAccountId, bulkImportId, bulkSequence: sequence, collected: collectedFile, applyBankRules,
             statementDate: row.dateRange?.to ?? localISODate(),
           });
           if (data.status === 'imported') {
             imported++;
+            dropped.push(...lines);
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
@@ -323,6 +326,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
 
     setIsCommitting(false);
     setSummary({ bulkImportId, imported, skipped, failed, totalTransactions });
+    notifyPostingWarnings({ data: { autoPost: { warnings: dropped } } }); // once for the run, not once per file
 
     if (failed === 0 && imported > 0) {
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,

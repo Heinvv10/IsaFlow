@@ -65,7 +65,7 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
       { txId: 't2', journalEntryId: 'je-2', label: '2026-10-03 R115.00', warnings: [INACTIVE] },
     ] }));
     expect(notify.warning).toHaveBeenCalledWith(
-      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', '+1 more not applied, in 2 documents.',
+      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', '+1 more: 2026-10-03 R115.00',
     );
   });
 
@@ -91,7 +91,33 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
     ));
     expect(notify.warning).toHaveBeenCalledTimes(1);
     expect(notify.warning).toHaveBeenCalledWith(
-      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', 'Line 1 posted without it.',
+      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', undefined,
     );
+  });
+
+  it('a many-file import shows ONE toast, naming the bank lines of every file', async () => {
+    const line = (day: string, amt: string) => ({ txId: `t-${day}`, journalEntryId: `je-${day}`, label: `${day} ${amt}`, warnings: [INACTIVE] });
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      const name = init?.body ? (JSON.parse(String(init.body)) as { filename?: string }).filename ?? 'a.csv' : 'a.csv';
+      if (String(url).includes('bulk-preview')) return ok({ ...preview, filename: name, rowHashes: [`h-${name}`] });
+      if (String(url).includes('bulk-commit')) {
+        return ok(commit({ warnings: [name === 'a.csv' ? line('2026-10-02', 'R230.00') : line('2026-10-09', 'R115.00')] }));
+      }
+      return ok([]);
+    });
+    const { container } = render(<BulkImportPanel />);
+    const input = container.querySelector('input[accept]') as HTMLInputElement;
+    const files = ['a.csv', 'b.csv'].map((n) => new File(['Date,Description,Amount\n2026-09-08,Acme,-5.00\n'], n, { type: 'text/csv' }));
+    fireEvent.change(input, { target: { files } });
+    const button = await screen.findByRole('button', { name: /Import 2 statements/ });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(notify.success).toHaveBeenCalled());
+    expect(notify.warning).toHaveBeenCalledTimes(1);
+    const [title, message] = vi.mocked(notify.warning).mock.calls[0]!;
+    expect(title).toMatch(/cost centre OLD not applied \(inactive\), bank line 2026-10-0[29] R(230|115)\.00$/);
+    expect(message).toMatch(/^\+1 more: 2026-10-0[29] R(230|115)\.00$/);
+    expect(`${title} ${message}`).toContain('R230.00');
+    expect(`${title} ${message}`).toContain('R115.00');
   });
 });

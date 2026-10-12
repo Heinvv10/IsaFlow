@@ -69,14 +69,55 @@ export function postingWarningsIn(body: PostingWarningsBody | null | undefined):
   return postingWarningsByDocument(body).flat();
 }
 
-/** The notice for a response's warnings: a title that says which centre and why, and a second line that fits. */
-export function postingWarningsNotice(byDocument: readonly string[][], firstLabel?: string): { title: string; message: string } {
+/** The toast's second line is one row of ~280px: longer than this and it is cut off. */
+const LINE2_MAX = 45;
+
+/**
+ * Line 2 for documents that are bank lines (an auto-post sweep): names the lines
+ * after the first one — "+1 more: 2026-09-12 R 1 234 567,89" — as many as fit,
+ * then "… and N more"; when even one name will not fit beside that, the name and
+ * a bare "…". The journal line number is not printed: it is the provisional
+ * journal's expense line (always 1), which beside "bank line …" reads as the
+ * statement's line 1.
+ */
+function bankLinesMessage(rest: readonly string[], more: number): string {
+  const head = `+${more} more: `;
+  const fit = (suffixOf: (left: number) => string): string[] => {
+    const shown: string[] = [];
+    for (const label of rest) {
+      const left = more - (shown.length + 1);
+      if (`${head}${[...shown, label].join(', ')}${suffixOf(left)}`.length > LINE2_MAX) break;
+      shown.push(label);
+    }
+    return shown;
+  };
+  const suffixes = [(left: number) => (left > 0 ? ` … and ${left} more` : ''), (left: number) => (left > 0 ? ' …' : '')];
+  for (const suffixOf of suffixes) {
+    const shown = fit(suffixOf);
+    if (shown.length > 0) return `${head}${shown.join(', ')}${suffixOf(more - shown.length)}`;
+  }
+  return `+${more} more not applied.`;
+}
+
+/**
+ * The notice for a response's warnings: a title that says which centre and why,
+ * and a second line that fits. `labels` (parallel to `byDocument`) are the bank
+ * lines of an auto-post sweep's documents; the first goes in the title, which
+ * wraps, because the toast clips its second line.
+ */
+export function postingWarningsNotice(
+  byDocument: readonly string[][], labels: ReadonlyArray<string | undefined> = [],
+): { title: string; message: string } {
   const all = byDocument.flat();
   const first = all[0] ?? '';
   const drop = parsePickDropSentence(first);
+  const firstLabel = labels[0];
   // A sentence this screen does not know still reaches the person whole: the title wraps.
-  // `firstLabel`: the bank line of the first document (an auto-post sweep), in the title because the toast clips line 2.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}${firstLabel ? `, bank line ${firstLabel}` : ''}`;
+  if (firstLabel) {
+    const rest = labels.slice(1).filter((l): l is string => !!l);
+    return { title, message: byDocument.length > 1 ? bankLinesMessage(rest, byDocument.length - 1) : '' };
+  }
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';
   return { title, message: `+${all.length - 1} more not applied${documents}.` };
@@ -88,7 +129,7 @@ export function notifyPostingWarnings(body: PostingWarningsBody | null | undefin
   const byDocument = documents.map((d) => d.warnings);
   const count = byDocument.reduce((n, w) => n + w.length, 0);
   if (count > 0) {
-    const { title, message } = postingWarningsNotice(byDocument, documents[0]?.label);
+    const { title, message } = postingWarningsNotice(byDocument, documents.map((d) => d.label));
     notify.warning(title, message || undefined);
   }
   return count;

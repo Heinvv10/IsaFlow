@@ -9,6 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { formatCurrency } from '@/utils/formatters';
 import bulkCommit from '../../pages/api/accounting/bank-transactions-bulk-commit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -66,7 +67,7 @@ describe('bulk-commit answers with the picks its auto-post could not apply', () 
     expect(lines.map((l) => l.status)).toEqual(['provisional', 'provisional']);
     expect(lines.map((l) => l.day)).toEqual(['2026-09-08', '2026-09-09']); // the labels below are of THESE lines
     expect([...data.autoPost.warnings].sort((a, b) => a.txId.localeCompare(b.txId))).toEqual(
-      lines.map((l) => ({ txId: l.id, journalEntryId: l.je, label: `${l.day} R${l.amt.toFixed(2)}`, warnings: [INACTIVE_WARNING] })).sort((a, b) => a.txId.localeCompare(b.txId)));
+      lines.map((l) => ({ txId: l.id, journalEntryId: l.je, label: `${l.day} ${formatCurrency(l.amt)}`, warnings: [INACTIVE_WARNING] })).sort((a, b) => a.txId.localeCompare(b.txId)));
     const { rows: [carried] } = await pool.query(
       'SELECT count(*)::INT AS n FROM gl_journal_lines WHERE company_id = $1 AND cc1_id IS NOT NULL', [f.c]);
     expect(carried.n).toBe(0);
