@@ -12,6 +12,8 @@ import {
   allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
 import { syncBankDimensionsTool } from '../../src/lib/mcp/tools/writeBankDimensionSync';
+import { planTagBatchReversal } from '../../src/modules/accounting/services/gl/dimensions/dimensionTagApply';
+import { previewBankSync } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -179,5 +181,18 @@ describe('the tenant fence', () => {
     expect(json<{ would_sync: number }>(await sync(f2, true)).would_sync).toBe(0);
     expect(json<{ bank_rows_synced: number }>(await sync(f2, false)).bank_rows_synced).toBe(0);
     expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+
+  it('the query itself scopes by company, not only the row-level security the tool runs under', async () => {
+    const f1 = await fresh();
+    const f2 = await fresh();
+    await allocate(pool, f1, { cc2: code(f1, 'P1') });
+    const window = { dateFrom: '2026-01-01', dateTo: '2026-12-31' };
+    // Outside a request transaction the service runs as the fixture's superuser: RLS does not apply.
+    expect((await previewBankSync(f1.c, window)).count).toBe(1);
+    expect((await previewBankSync(f2.c, window)).count).toBe(0);
+    const batch = json<{ batch_id: string }>(await sync(f1, false)).batch_id;
+    expect((await planTagBatchReversal(f1.c, batch)).bankRowCount).toBe(1);
+    await expect(planTagBatchReversal(f2.c, batch)).rejects.toThrow('Not found');
   });
 });
