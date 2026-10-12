@@ -370,4 +370,12 @@ describe('/api/mcp transport', () => {
     expect((res.body as { id: unknown }).id).toBe(1);
     expect(seenContexts).toHaveLength(0); // never reached a tool
   });
+
+  it('pre-auth per-IP throttle does not echo an oversized id', async () => {
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp-ip:'));
+    const res = makeRes();
+    await route(makeReq('POST', { ...rpc('ping'), id: 'x'.repeat(201) }) as never, res);
+    expect(res.statusCode).toBe(429);
+    expect((res.body as { id: unknown }).id).toBeNull();
+  });
 });
