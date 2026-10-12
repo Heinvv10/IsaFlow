@@ -15,6 +15,7 @@ import {
   COST_CENTRE_NOT_A_CC1_OR_CC2,
   COST_CENTRE_OUTSIDE_COMPANY,
   CostCentrePickRefusal,
+  assertCostCentresPlaced,
   costCentreSlot,
   placeCostCentres,
 } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
@@ -184,5 +185,39 @@ describe('placeCostCentres', () => {
     sqlMock.mockClear();
     expect((await placeCostCentres(CO, [line({ cc1Id: FNO }), line({})], { storedPosting: true })).lines).toEqual([line({ cc1Id: FNO }), line({})]);
     expect(sqlMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertCostCentresPlaced — createJournalEntry refuses a pick that never went through placeCostCentres', () => {
+  const refused = (lines: { costCenterId?: unknown }[]): CostCentrePickRefusal | undefined => {
+    try { assertCostCentresPlaced(lines); } catch (err) { return err as CostCentrePickRefusal; }
+    return undefined;
+  };
+
+  it('lets a line with no pick through: undefined, null and the empty string', () => {
+    expect(() => assertCostCentresPlaced([{}, { costCenterId: undefined }, { costCenterId: null }, { costCenterId: '' }])).not.toThrow();
+    expect(() => assertCostCentresPlaced([])).not.toThrow();
+  });
+
+  it('refuses a uuid, naming the line (1-based in the message, 0-based lineIndex)', () => {
+    const err = refused([{}, { costCenterId: FNO }]);
+    expect(err).toBeInstanceOf(CostCentrePickRefusal);
+    expect(err).toBeInstanceOf(PreWriteDimensionRefusal);
+    expect(isDimensionRefusal(err)).toBe(true);
+    expect(err!.lineIndex).toBe(1);
+    expect(err!.message).toMatch(/^Line 2: /);
+    expect(err!.message).toContain('never placed in a CC1 or CC2 slot');
+  });
+
+  it('refuses a value of any other type: a number, an object', () => {
+    for (const pick of [7, {}]) {
+      const err = refused([{ costCenterId: pick }]);
+      expect([err?.lineIndex, err?.message.slice(0, 7)], JSON.stringify(pick)).toEqual([0, 'Line 1:']);
+    }
+  });
+
+  it('names the FIRST offending line, not a later one', () => {
+    const err = refused([{ costCenterId: '' }, { costCenterId: PRJ }, { costCenterId: FNO }, { costCenterId: 7 }]);
+    expect([err?.lineIndex, err?.message.slice(0, 7)]).toEqual([1, 'Line 2:']);
   });
 });
