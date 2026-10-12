@@ -4,9 +4,13 @@
  * a few report suites assert on. Anywhere else, including the disposable
  * databases of the CI integration gate (scripts/ci/integration/run.sh), those
  * suites skip; each says so in a `ci-integration-skip:` comment, which the
- * gate prints.
+ * gate prints, and this says so on stderr for a run by hand.
  */
 export function onIsaflowDev(url: string | undefined = process.env.DATABASE_URL): boolean {
-  if (!url || !URL.canParse(url)) return false;
-  return new URL(url).pathname.replace(/^\//, '') === 'isaflow_dev';
+  const onDev = !!url && URL.canParse(url) && new URL(url).pathname.replace(/^\//, '') === 'isaflow_dev';
+  if (!onDev) {
+    process.stderr.write("[skip] DATABASE_URL does not name isaflow_dev: this suite reads dev's real tenants "
+      + 'and posted history, so it skips.\n');
+  }
+  return onDev;
 }

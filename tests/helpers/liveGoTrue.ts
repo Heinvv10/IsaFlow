@@ -10,10 +10,20 @@
  * which the gate prints for every suite it saw skip.
  *
  * Any HTTP response counts, a 401 from the Supabase gateway included: the
- * question is whether a server is there, not whether /health is open.
+ * question is whether a server is there, not whether /health is open. When
+ * nothing answers it says so on stderr, so a run by hand shows why the suite
+ * skipped (vitest names the file the line came from).
  */
 export async function liveGoTrue(): Promise<boolean> {
-  const base = process.env.GOTRUE_URL;
+  const live = await answers(process.env.GOTRUE_URL);
+  if (!live) {
+    process.stderr.write(`[skip] no GoTrue answers at ${process.env.GOTRUE_URL ?? '(GOTRUE_URL unset)'}: `
+      + 'this suite needs a live one (sign-in, TOTP enrolment or the admin user API), so it skips.\n');
+  }
+  return live;
+}
+
+async function answers(base: string | undefined): Promise<boolean> {
   if (!base) return false;
   const health = new URL(`${new URL(base).pathname.replace(/\/$/, '')}/health`, base);
   try {
