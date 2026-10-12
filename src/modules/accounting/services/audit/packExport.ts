@@ -14,6 +14,7 @@
  * snapshot the manifest cites verified from its stored rows.
  */
 import JSZip from 'jszip';
+import { z } from 'zod';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { downloadCapturedDocument, uploadCapturedDocument } from '@/lib/supabaseStorage';
@@ -70,6 +71,7 @@ function comparisonCsv(c: Comparison): string {
   add('changed', c.changed);
   add('removed', c.removed);
   for (const t of c.tb) rows.push(['tb_movement', t.accountId, t.code, '', '', '', '', '', 'closing', t.before, t.after]);
+  for (const [kind, fields] of Object.entries(c.notCompared)) for (const f of fields) rows.push(['column_not_compared', kind, '', '', '', '', '', '', f, '', '']);
   return toCsv(['category', 'id', 'entry_number', 'entry_date', 'created_by', 'created_at', 'posted_by', 'posted_at', 'field', 'before', 'after'], rows);
 }
 
@@ -145,28 +147,60 @@ export async function storePack(exportRow: AuditExport, snapshotId: string, pack
 export interface PackVerification {
   status: 'valid' | 'invalid'; zipMatches: boolean; files: { name: string; ok: boolean }[];
   snapshotId: string | null; snapshotStatus: string | null; manifestCitesSnapshot: boolean;
-  /** The manifest's own seal; `missing` for a ZIP without manifest.json or manifest.sig.json. */
+  /** The manifest's own seal; `missing` for a ZIP without a readable manifest.json or manifest.sig.json. */
   manifestSeal: SealCheck | 'missing';
+}
+
+const Manifest = z.object({
+  period: z.object({ end: z.string() }),
+  snapshot: z.object({ id: z.string(), canonical_hash: z.string(), taken_at: z.string() }),
+  files: z.array(z.object({ name: z.string(), sha256: z.string() })),
+});
+const Sig = z.object({ hmac: z.string(), key_id: z.string() });
+
+function parsed<T>(schema: z.ZodType<T>, text: string | undefined): T | null {
+  if (!text) return null;
+  try {
+    const r = schema.safeParse(JSON.parse(text));
+    return r.success ? r.data : null;
+  } catch (err) {
+    log.warn('audit pack: unreadable manifest', { error: err instanceof Error ? err.message : String(err) }, 'audit');
+    return null;
+  }
+}
+
+/** A verify holds a whole-ledger slot: the stored ZIP must arrive within this, or the verify fails. */
+export const PACK_DOWNLOAD_TIMEOUT_MS = 60_000;
+
+async function download(bucket: string, path: string): Promise<Buffer> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the stored pack did not download within ${PACK_DOWNLOAD_TIMEOUT_MS / 1000} s`)), PACK_DOWNLOAD_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([downloadCapturedDocument(bucket, path), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
   const e = await getExport(exportId, companyId);
   if (!e || !e.zipStoragePath || !e.snapshotId) return null;
-  const buf = await downloadCapturedDocument(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
+  const buf = await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
   const zipMatches = sha256Hex(buf) === e.zipSha256;
   const zip = await JSZip.loadAsync(buf);
   const manifestText = await zip.file('manifest.json')?.async('string');
-  const sigText = await zip.file('manifest.sig.json')?.async('string');
+  const manifest = parsed(Manifest, manifestText);
+  const sig = parsed(Sig, await zip.file('manifest.sig.json')?.async('string'));
   const snapshotStatus = (await verifySnapshot(companyId, e.snapshotId))?.status ?? null;
-  if (!manifestText || !sigText) {
+  // A missing, unreadable or malformed manifest or seal: invalid, never an error.
+  if (!manifestText || !manifest || !sig) {
     return { status: 'invalid', zipMatches, files: [], snapshotId: e.snapshotId, snapshotStatus, manifestCitesSnapshot: false,
       manifestSeal: 'missing' };
   }
-  const manifest = JSON.parse(manifestText) as {
-    period: { end: string }; snapshot: { id: string; canonical_hash: string; taken_at: string }; files: { name: string; sha256: string }[] };
-  const sig = JSON.parse(sigText) as { hmac: string; key_id: string };
   const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: exportId, canonicalHash: sha256Hex(manifestText),
-    cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, String(sig.hmac), String(sig.key_id));
+    cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, sig.hmac, sig.key_id);
   const files = await Promise.all(manifest.files.map(async (f) => {
     const b = await zip.file(f.name)?.async('nodebuffer');
     return { name: f.name, ok: !!b && sha256Hex(b) === f.sha256 };

@@ -20,11 +20,16 @@ const VERDICT: Record<Verification['status'], { text: string; cls: string }> = {
   unchanged: { text: 'Unchanged — verify the snapshot it points to', cls: 'text-slate-400' },
 };
 
+/** A close or VAT lock with no snapshot recorded after it; `pending` while its automatic snapshot may still be running. */
+interface Unrecorded { trigger: string; cutoff: string; lockedAt: string; pending?: boolean }
+
 interface ChainResult { status: 'valid' | 'broken' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[] }
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [rows, setRows] = useState<SnapshotSummary[]>([]);
-  const [unrecorded, setUnrecorded] = useState<{ trigger: string; cutoff: string; lockedAt: string }[]>([]);
+  const [unrecorded, setUnrecorded] = useState<Unrecorded[]>([]);
+  const lost = unrecorded.filter((u) => !u.pending);
+  const pending = unrecorded.filter((u) => u.pending);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [cutoff, setCutoff] = useState(() => localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 0)));
@@ -35,7 +40,7 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const d = await getData<{ snapshots?: SnapshotSummary[]; unrecorded?: { trigger: string; cutoff: string; lockedAt: string }[] }>('/api/accounting/audit-snapshots', 'Could not load the audit snapshots - try again');
+      const d = await getData<{ snapshots?: SnapshotSummary[]; unrecorded?: Unrecorded[] }>('/api/accounting/audit-snapshots', 'Could not load the audit snapshots - try again');
       if (!Array.isArray(d?.snapshots)) throw new Error('unexpected response');
       setRows(d.snapshots);
       setUnrecorded(d.unrecorded ?? []);
@@ -119,10 +124,15 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
           {chain.status === 'broken' && `CHAIN BROKEN: ${chain.breaks.map((b) => `#${b.seq ?? '?'} ${b.reason}`).join('; ')}`}
         </div>
       )}
-      {unrecorded.length > 0 && (
+      {lost.length > 0 && (
         <div className="px-6 py-3 border-b border-[rgba(255,255,255,0.06)] text-xs text-amber-300">
-          No snapshot was recorded after {unrecorded.length === 1 ? 'this lock' : `these ${unrecorded.length} locks`} (the automatic snapshot was lost — take one by hand):{' '}
-          {unrecorded.map((u) => `${TRIGGER_LABEL[u.trigger] ?? u.trigger} ${u.cutoff} (${fmtAt(u.lockedAt)})`).join(' · ')}
+          No snapshot was recorded after {lost.length === 1 ? 'this lock' : `these ${lost.length} locks`} (the automatic snapshot was lost — take one by hand):{' '}
+          {lost.map((u) => `${TRIGGER_LABEL[u.trigger] ?? u.trigger} ${u.cutoff} (${fmtAt(u.lockedAt)})`).join(' · ')}
+        </div>
+      )}
+      {pending.length > 0 && (
+        <div className="px-6 py-3 border-b border-[rgba(255,255,255,0.06)] text-xs text-slate-400">
+          Automatic snapshot in progress for {pending.map((u) => `${TRIGGER_LABEL[u.trigger] ?? u.trigger} ${u.cutoff}`).join(' · ')} — refresh in a minute.
         </div>
       )}
       {loading ? (

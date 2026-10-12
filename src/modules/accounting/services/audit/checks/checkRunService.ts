@@ -15,7 +15,7 @@ import { ANOMALY_CHECK_VERSION, runAnomalyChecks } from './anomalyAdapter';
 import { JOURNAL_RISK_CHECK_VERSION, runJournalRiskChecks } from './journalRiskChecks';
 import { result, type CheckResult, type CheckWindow } from './checkTypes';
 import { CHECK_RUN_SEAL_DOMAIN, sign, signingKey, type SigningKey } from '../seal';
-import { checkRunHash, type CheckRunHeader } from '../documents';
+import { DOCUMENT_VERSION, checkRunHash, type CheckRunHeader } from '../documents';
 import { runAuditTx, transactionNow, type AuditPrincipal } from '../auditTx';
 import { withSnapshotSlot } from '../snapshotSlots';
 import { bulkPlan, fiscalYearStart } from '../snapshotRows';
@@ -34,13 +34,19 @@ async function family(name: string, ids: string[], version: number, fam: CheckRe
   }
 }
 
-/** Every check over the window, set-wise plans (bulkPlan): a check that still errors is recorded `unknown`. */
-export async function runAllChecks(w: CheckWindow): Promise<CheckResult[]> {
-  return bulkPlan(async () => [
-    ...await runIntegrity(w),
-    ...await family('anomaly', ANOMALY_IDS, ANOMALY_CHECK_VERSION, 'anomaly', () => runAnomalyChecks(w)),
-    ...await family('journal_risk', JOURNAL_RISK_IDS, JOURNAL_RISK_CHECK_VERSION, 'journal_risk', () => runJournalRiskChecks(w)),
-  ]);
+/**
+ * Every check over the window, set-wise plans (bulkPlan): a check that still errors is recorded `unknown`.
+ * `step` runs before each check and family, outside its savepoint (a snapshot's time budget: its refusal propagates).
+ */
+export async function runAllChecks(w: CheckWindow, step?: (name: string) => Promise<void>): Promise<CheckResult[]> {
+  return bulkPlan(async () => {
+    const integrity = await runIntegrity(w, step);
+    await step?.('the anomaly checks');
+    const anomaly = await family('anomaly', ANOMALY_IDS, ANOMALY_CHECK_VERSION, 'anomaly', () => runAnomalyChecks(w));
+    await step?.('the journal-risk checks');
+    const risk = await family('journal_risk', JOURNAL_RISK_IDS, JOURNAL_RISK_CHECK_VERSION, 'journal_risk', () => runJournalRiskChecks(w));
+    return [...integrity, ...anomaly, ...risk];
+  });
 }
 
 export function checkTotals(results: CheckResult[]): Record<string, number> {
@@ -60,7 +66,8 @@ export async function recordCheckRun(client: PoolClient, p: AuditPrincipal, inpu
 }): Promise<RecordedRun> {
   const header: CheckRunHeader = {
     id: crypto.randomUUID(), companyId: p.companyId, asAt: input.asAt, periodStart: input.periodStart,
-    takenAt: await transactionNow(client), takenBy: p.userId, purpose: input.purpose, totals: checkTotals(input.results),
+    takenAt: await transactionNow(client), takenBy: p.userId, purpose: input.purpose,
+    totals: { ...checkTotals(input.results), document_version: DOCUMENT_VERSION },
   };
   const canonicalHash = checkRunHash(header, input.results);
   const seal = sign(CHECK_RUN_SEAL_DOMAIN, {

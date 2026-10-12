@@ -205,7 +205,7 @@ export async function runBearerRequest(
     // The same per-company rate limit as withAuth, from the same table, so
     // Bearer-authed reports calls don't bypass the limiter that protects the
     // pool from full-GL aggregations.
-    if (!(await checkAutoRateLimit(req.url, ctx.companyId, ctx.userId))) {
+    if (!(await checkAutoRateLimit(req.url, ctx.companyId, ctx.userId, req.method))) {
       unusable = await rollbackFailed(client, 'bearerPipeline');
       res.status(429).json({
         success: false,

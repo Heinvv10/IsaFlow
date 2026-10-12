@@ -26,9 +26,10 @@ function toResult(r: IntegrityCheckResult): CheckResult {
   return { ...out, findingCount: r.count, status: r.count > 0 ? 'fail' : 'pass' };
 }
 
-export async function runIntegrity(w: CheckWindow): Promise<CheckResult[]> {
+export async function runIntegrity(w: CheckWindow, step?: (name: string) => Promise<void>): Promise<CheckResult[]> {
   const out: CheckResult[] = [];
   for (const id of INTEGRITY_CHECK_IDS) {
+    await step?.(`the integrity check ${id}`);
     try {
       const r = await withSavepoint(`audit_integrity_${INTEGRITY_CHECK_IDS.indexOf(id)}`, async () => {
         const report = await runIntegrityChecks(w.companyId, { checks: [id], asAt: w.to, limit: SAMPLE_LIMIT });

@@ -13,22 +13,41 @@ import type { CanonicalRow } from './snapshotRows';
 export interface Keyed { id: string; row: CanonicalRow; materialHash: string }
 export interface FieldDiff { field: string; before: string | null; after: string | null }
 export interface RowChange { id: string; fields: FieldDiff[] }
-export interface SetDiff { added: Keyed[]; removed: Keyed[]; changed: { before: Keyed; after: Keyed; fields: FieldDiff[] }[] }
+export interface SetDiff {
+  added: Keyed[]; removed: Keyed[]; changed: { before: Keyed; after: Keyed; fields: FieldDiff[] }[];
+  /**
+   * Columns only one side froze (a snapshot taken before a column was frozen, compared with today's rows or a later
+   * snapshot): not compared, so a column frozen later never reads as a change to every row.
+   */
+  notCompared: string[];
+}
 
-export function fieldDiff(before: CanonicalRow, after: CanonicalRow): FieldDiff[] {
-  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+export function fieldDiff(before: CanonicalRow, after: CanonicalRow, keys: string[]): FieldDiff[] {
   return keys.filter((k) => (before[k] ?? null) !== (after[k] ?? null))
     .map((k) => ({ field: k, before: before[k] ?? null, after: after[k] ?? null }));
 }
 
+/** Every column some row of the set carries. */
+function shape(rows: Keyed[]): Set<string> {
+  const keys = new Set<string>();
+  for (const r of rows) for (const k of Object.keys(r.row)) keys.add(k);
+  return keys;
+}
+
+/** Changed: a row in both sets whose value differs in a column BOTH sets froze. */
 export function diffSets(base: Keyed[], other: Keyed[]): SetDiff {
   const b = new Map(base.map((r) => [r.id, r]));
   const o = new Map(other.map((r) => [r.id, r]));
-  const out: SetDiff = { added: [], removed: [], changed: [] };
+  const [bk, ok] = [shape(base), shape(other)];
+  const shared = [...bk].filter((k) => ok.has(k)).sort();
+  const out: SetDiff = { added: [], removed: [], changed: [],
+    notCompared: [...new Set([...bk, ...ok])].filter((k) => !(bk.has(k) && ok.has(k))).sort() };
   for (const r of other) {
     const was = b.get(r.id);
-    if (!was) out.added.push(r);
-    else if (was.materialHash !== r.materialHash) out.changed.push({ before: was, after: r, fields: fieldDiff(was.row, r.row) });
+    if (!was) { out.added.push(r); continue; }
+    if (was.materialHash === r.materialHash) continue;
+    const fields = fieldDiff(was.row, r.row, shared);
+    if (fields.length > 0) out.changed.push({ before: was, after: r, fields });
   }
   for (const r of base) if (!o.has(r.id)) out.removed.push(r);
   const byId = (x: { id: string }, y: { id: string }) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);

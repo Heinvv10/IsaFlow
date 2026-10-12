@@ -4,9 +4,10 @@
  * company's whole ledger (seconds to tens of seconds) on connections the pool shares with every request's after-commit
  * work and the public routes, so this bounds their load however many members send requests (the rate limit is per
  * member, for fairness, not for the pool), and one company can never hold every slot and starve the others.
- * Automatic snapshots wait for a slot; anything asked for by a person or an agent is refused (409) while none is free.
+ * Automatic snapshots wait for a slot (at most AUDIT_WAIT_MS, then refused: a holder that hangs cannot stall them for
+ * ever); anything asked for by a person or an agent is refused (409) while none is free.
  */
-import { SnapshotBusyError } from './auditTx';
+import { AUDIT_WAIT_MS, SnapshotBusyError } from './auditTx';
 
 export const MAX_CONCURRENT_SNAPSHOTS = 2;
 export const PER_COMPANY = 1;
@@ -42,7 +43,17 @@ export async function withSnapshotSlot<T>(companyId: string, wait: boolean, fn: 
       throw new SnapshotBusyError('An audit job (snapshot, verify or comparison) is already running for this company, or the '
         + 'server is running the most it runs at once. Try again shortly.');
     }
-    await new Promise<void>((go) => waiting.push({ companyId, go })); // the slot is taken for us before we are woken
+    // The slot is taken for us before we are woken; past AUDIT_WAIT_MS we leave the queue and are refused.
+    await new Promise<void>((go, refuse) => {
+      const timer = setTimeout(() => {
+        const at = waiting.indexOf(me);
+        if (at < 0) return;
+        waiting.splice(at, 1);
+        refuse(new SnapshotBusyError(`No audit slot came free for this company within ${AUDIT_WAIT_MS / 60_000} minutes.`));
+      }, AUDIT_WAIT_MS);
+      const me = { companyId, go: () => { clearTimeout(timer); go(); } };
+      waiting.push(me);
+    });
   }
   try {
     return await fn();

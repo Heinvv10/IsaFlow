@@ -23,6 +23,12 @@ import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotServic
 import { getSnapshot } from '@/modules/accounting/services/audit/snapshotRead';
 import { compareSnapshotToLive } from '@/modules/accounting/services/audit/comparisonService';
 import { buildSnapshotPack, storePack } from '@/modules/accounting/services/audit/packExport';
+import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
+
+/** The build failed after its draft was created (and marked failed): answered as a refusal or a 400. */
+class PackBuildFailed extends Error {
+  constructor(message: string, readonly reason: unknown) { super(message); this.name = 'PackBuildFailed'; }
+}
 
 const Body = z.object({
   periodStart: AuditDate,
@@ -51,25 +57,36 @@ async function build(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
   if (body.periodStart > snapshot.cutoff) return apiResponse.badRequest(res, 'periodStart is after the snapshot\'s cutoff.');
 
-  const draft = await createExport({
-    companyId, periodStart: body.periodStart, periodEnd: snapshot.cutoff, includeSourceDocs: body.includeSourceDocs,
-    requestedBy: req.user?.id ?? null, expiresAt: body.expiresAt ?? null,
-  });
+  // The build reads the whole ledger (verify, optional comparison, the pack's rows): it holds one of the process's
+  // audit slots, refused (409) while none is free — before a draft export is created.
+  let draftId: string;
   try {
-    await withSavepoint('audit_pack_build', async () => {
-      const [company] = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID`) as { name: string }[];
-      const comparison = body.includeComparison ? await compareSnapshotToLive(principal, snapshotId) : null;
-      const pack = await buildSnapshotPack(draft, snapshotId, company?.name ?? 'ISAFlow', comparison);
-      await storePack(draft, snapshotId, pack);
+    draftId = await withSnapshotSlot(companyId, false, async () => {
+      const draft = await createExport({
+        companyId, periodStart: body.periodStart, periodEnd: snapshot.cutoff, includeSourceDocs: body.includeSourceDocs,
+        requestedBy: req.user?.id ?? null, expiresAt: body.expiresAt ?? null,
+      });
+      try {
+        await withSavepoint('audit_pack_build', async () => {
+          const [company] = (await sql`SELECT name FROM companies WHERE id = ${companyId}::UUID`) as { name: string }[];
+          const comparison = body.includeComparison ? await compareSnapshotToLive(principal, snapshotId) : null;
+          const pack = await buildSnapshotPack(draft, snapshotId, company?.name ?? 'ISAFlow', comparison);
+          await storePack(draft, snapshotId, pack);
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await sql`UPDATE audit_trail_exports SET status = 'failed', error = ${msg}, snapshot_id = ${snapshotId}::UUID
+                  WHERE id = ${draft.id}::UUID AND company_id = ${companyId}::UUID`;
+        throw new PackBuildFailed(msg, err);
+      }
+      return draft.id;
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await sql`UPDATE audit_trail_exports SET status = 'failed', error = ${msg}, snapshot_id = ${snapshotId}::UUID
-              WHERE id = ${draft.id}::UUID AND company_id = ${companyId}::UUID`;
-    if (respondAuditRefusal(res, err)) return;
-    return apiResponse.badRequest(res, `Build failed: ${msg}`);
+    if (respondAuditRefusal(res, err instanceof PackBuildFailed ? err.reason : err)) return;
+    if (err instanceof PackBuildFailed) return apiResponse.badRequest(res, `Build failed: ${err.message}`);
+    throw err;
   }
-  return apiResponse.created(res, { export: await getExport(draft.id, companyId) });
+  return apiResponse.created(res, { export: await getExport(draftId, companyId) });
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {

@@ -10,8 +10,8 @@ import { log } from '@/lib/logger';
 import { SigningKeyMissingError } from './seal';
 import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from './auditTx';
 import type { AutoTrigger } from './autoSnapshotQueue';
-import { SnapshotTimeBudgetError, SnapshotTooLargeError, takeSnapshot } from './snapshotService';
-import { recordSnapshotAttempt, unchangedSince } from './snapshotAttempts';
+import { SnapshotTimeBudgetError, SnapshotTooLargeError, takeAutoSnapshot } from './snapshotService';
+import { recordSnapshotAttempt } from './snapshotAttempts';
 
 export function failureReason(err: unknown): string {
   if (err instanceof SnapshotTooLargeError) return `too_large: ${err.lines} journal lines (the cap is ${err.max})`;
@@ -48,16 +48,14 @@ export async function runAutoSnapshots(p: AuditPrincipal, items: { trigger: Auto
         log.info('audit: automatic snapshot skipped — no queued lock stood', { companyId: p.companyId, trigger, cutoffs }, 'audit');
         continue;
       }
-      const same = await unchangedSince(p, cutoff);
-      if (same) {
-        await recordSnapshotAttempt(p, { cutoff, trigger, status: 'unchanged', sameAs: same });
-        log.info('audit: automatic snapshot unchanged', { companyId: p.companyId, trigger, cutoff, sameAs: same }, 'audit');
-        continue;
+      const s = await takeAutoSnapshot(p, { cutoff, trigger });
+      if (s.status === 'unchanged') {
+        log.info('audit: automatic snapshot unchanged', { companyId: p.companyId, trigger, cutoff, sameAs: s.sameAs }, 'audit');
+      } else {
+        // The chain head, outside the database too: a removed latest snapshot is visible against this log.
+        log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger, cutoff, seq: s.seq,
+          hash: s.canonicalHash, lines: s.lines, durationMs: s.durationMs }, 'audit');
       }
-      const s = await takeSnapshot(p, { cutoff, trigger });
-      // The chain head, outside the database too: a removed latest snapshot is visible against this log.
-      log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger, cutoff, seq: s.seq,
-        hash: s.canonicalHash, lines: s.lines, durationMs: s.durationMs }, 'audit');
     } catch (err) {
       const reason = failureReason(err);
       log.warn('audit: automatic snapshot not taken', { companyId: p.companyId, trigger, cutoff, reason }, 'audit');

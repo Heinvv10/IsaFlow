@@ -33,6 +33,7 @@ function Journal({ j, extra, names }: { j: JournalItem; extra?: string | null; n
 }
 
 export function ComparisonView({ c }: { c: Comparison }) {
+  const notCompared = [...(c.notCompared?.journals ?? []).map((f) => `journal ${f}`), ...(c.notCompared?.lines ?? []).map((f) => `line ${f}`)];
   return (
     <div className="p-4 space-y-3">
       <p className="text-xs text-slate-500">
@@ -40,6 +41,9 @@ export function ComparisonView({ c }: { c: Comparison }) {
         Backdated = dated on or before the cutoff but not in the snapshot: it entered the frozen period after the freeze.
         Both sides verified before comparing ({c.verification.base}{c.verification.against ? ` / ${c.verification.against}` : ''}).
       </p>
+      {notCompared.length > 0 && (
+        <p className="text-xs text-amber-300">Not compared (frozen by only one side, e.g. a snapshot taken before these columns were frozen): {notCompared.join(', ')}.</p>
+      )}
       <Section title="Journals that entered the frozen period after the snapshot (backdated)" count={c.counts.backdated ?? 0}>
         {c.backdated.map((j) => <Journal key={j.id} j={j} names={c.names}
           extra={j.recordedAfter ? null : 'recorded BEFORE the snapshot — re-dated into the period, committed late or flipped to posted'} />)}

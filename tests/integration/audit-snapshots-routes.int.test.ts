@@ -13,6 +13,7 @@ import { Pool } from 'pg';
 import auditSnapshots from '../../pages/api/accounting/audit-snapshots';
 import auditCheckRuns from '../../pages/api/accounting/audit-check-runs';
 import auditComparisons from '../../pages/api/accounting/audit-comparisons';
+import auditExports from '../../pages/api/accounting/audit-exports';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf, impersonationToken } from './r035-pr2.helpers';
@@ -104,7 +105,7 @@ describe('routes', { timeout: 120_000 }, () => {
     expect((await callRoute(auditCheckRuns, tokens[o]!, c, 'POST', { asAt: '2026-04-31' }, '/x')).state.statusCode).toBe(422);
   });
 
-  it('a verify or comparison while the company\'s audit slot is taken is refused (409), not queued', async () => {
+  it('a verify, comparison or pack build while the company\'s audit slot is taken is refused (409), not queued', async () => {
     const c = await company();
     const id = (dataOf<{ snapshot: { id: string } }>(await take(o, c))).snapshot.id;
     let release = () => {};
@@ -114,6 +115,11 @@ describe('routes', { timeout: 120_000 }, () => {
       expect([cmp.state.statusCode, reason(cmp)]).toEqual([409, 'SNAPSHOT_BUSY']);
       const ver = await snap(o, c, 'GET', undefined, { id, verify: '1' });
       expect([ver.state.statusCode, reason(ver)]).toEqual([409, 'SNAPSHOT_BUSY']);
+      // A pack build reads the whole ledger too: refused, and no draft export is left behind.
+      const pack = await callRoute(auditExports, tokens[o]!, c, 'POST', { periodStart: '2026-01-01', snapshotId: id }, '/api/accounting/audit-exports');
+      expect([pack.state.statusCode, reason(pack)]).toEqual([409, 'SNAPSHOT_BUSY']);
+      const { rows: [drafts] } = await pool.query('SELECT count(*)::int AS n FROM audit_trail_exports WHERE company_id = $1', [c]);
+      expect(drafts.n).toBe(0);
       // Another company is not held up by this one.
       const other = await company();
       const otherId = (dataOf<{ snapshot: { id: string } }>(await take(o, other))).snapshot.id;

@@ -40,6 +40,7 @@ export interface Comparison {
   verification: { base: string; against: string | null };
   backdated: JournalItem[]; changed: JournalItem[]; removed: (JournalItem & { statusNow: string | null })[];
   reversedAfter: string[];
+  notCompared?: { journals: string[]; lines: string[] };
   tb: { accountId: string; code: string | null; name: string | null; before: string; after: string; delta: string }[];
   names: Record<string, string>;
   masterData: { since: string; total: number; truncated: boolean; byType: Record<string, number>;

@@ -32,7 +32,7 @@ export const auditSnapshotsTool: McpTool = {
   description:
     'SEALED AUDIT SNAPSHOTS OF THE BOOKS. Without snapshot_id: the company\'s snapshots, newest first — cutoff, when and '
     + 'by whom taken, trigger (manual / period_close / vat_lock / year_close), status (sealed, or failed with the reason), '
-    + 'canonical hash; status unchanged = the ledger read the same as an earlier sealed snapshot (same_as_snapshot_id). '
+    + 'canonical hash; status unchanged = the books (ledger, ageing and control totals) read the same as an earlier sealed snapshot (same_as_snapshot_id), with its own sealed check run. '
     + 'verify_chain: true checks the company\'s numbered chain of sealed snapshots for a missing or replaced link. '
     + 'With snapshot_id: that snapshot\'s header and totals plus its check run (15 integrity checks, the '
     + 'anomaly scan and the journal-risk leads, each with status pass / fail / unknown and its findings). With verify: '

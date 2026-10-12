@@ -113,6 +113,9 @@ export async function cleanupAudit(pool: Pool, companies: string[], users: strin
     await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM audit_trail_exports WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM vat_period_locks WHERE company_id = ANY($1)', [companies]);
+    await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
+    await pool.query('DELETE FROM customer_invoices WHERE company_id = ANY($1)', [companies]);
+    await pool.query('DELETE FROM customers WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_account_balances WHERE fiscal_period_id IN (SELECT id FROM fiscal_periods WHERE company_id = ANY($1))', [companies]);
@@ -134,7 +137,7 @@ export async function waitForSnapshots(pool: Pool, company: string, n: number, t
   const until = Date.now() + timeoutMs;
   for (;;) {
     const { rows } = await pool.query(
-      `SELECT id, trigger, status, cutoff::text AS cutoff, failure_reason, channel, taken_by FROM audit_snapshots
+      `SELECT id, trigger, status, cutoff::text AS cutoff, failure_reason, channel, taken_by, check_run_id::text AS check_run_id FROM audit_snapshots
        WHERE company_id = $1 ORDER BY taken_at`, [company]);
     if (rows.length >= n || Date.now() > until) return rows;
     await new Promise((r) => setTimeout(r, 200));

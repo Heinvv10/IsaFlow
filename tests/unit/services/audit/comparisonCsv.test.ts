@@ -19,8 +19,18 @@ describe('diffSets', () => {
     expect(diffSets([k('a', { x: '1', y: '2' })], [k('a', { y: '2', x: '1' })]).changed).toEqual([]);
   });
   it('fieldDiff treats a missing key as null', () => {
-    expect(fieldDiff({ a: '1' }, { a: '1', b: null })).toEqual([]);
-    expect(fieldDiff({ a: '1' }, {})).toEqual([{ field: 'a', before: '1', after: null }]);
+    expect(fieldDiff({ a: '1' }, { a: '1', b: null }, ['a', 'b'])).toEqual([]);
+    expect(fieldDiff({ a: '1' }, {}, ['a'])).toEqual([{ field: 'a', before: '1', after: null }]);
+  });
+  it('a column frozen after the base was taken is not a change to every row (blind r2 M2)', () => {
+    // The base froze {x}; today's rows carry a newly frozen column too, set on some rows and null on others.
+    const before = [k('a', { x: '1' }), k('b', { x: '2' }), k('c', { x: '3' })];
+    const after = [k('a', { x: '1', vat: 'S' }, 'a2'), k('b', { x: '2', vat: null }, 'b2'), k('c', { x: '7', vat: 'Z' }, 'c2')];
+    const d = diffSets(before, after);
+    expect(d.changed.map((c) => [c.after.id, c.fields])).toEqual([['c', [{ field: 'x', before: '3', after: '7' }]]]);
+    expect(d.notCompared).toEqual(['vat']);
+    expect(diffSets(after, before).notCompared).toEqual(['vat']);
+    expect(diffSets([k('a', { x: '1' })], [k('a', { x: '1' })]).notCompared).toEqual([]);
   });
 });
 

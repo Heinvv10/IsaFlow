@@ -717,14 +717,23 @@ a bad seal is `broken`, so removing or replacing a snapshot in the middle is vis
 by the owner. The LATEST link can only be checked against the chain head the app logs on every seal (journalctl).
 One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
-per process (a slot each), a 120 s budget per snapshot. An automatic snapshot whose ledger fingerprint — every
-journal and line material hash and the TB, sealed in each snapshot's totals — reads the same as the newest sealed
-snapshot at that cutoff is recorded as `unchanged`, pointing at it (close then lock, close / reopen / close). A key id
+per process (a slot each), a 120 s budget per snapshot — a bound, not a check afterwards: before each step, check and
+total the time left is checked and statement_timeout tightened to it. Automatic jobs wait at most five minutes for a
+slot and again for the company's lock, then record a `busy` failure. An automatic snapshot whose books fingerprint
+— every journal and line material hash, the TB and the ageing and control totals, sealed in each snapshot's totals —
+matches a sealed snapshot at that cutoff that still verifies is recorded as `unchanged`, pointing at it (close then
+lock, close / reopen / close), with a sealed check run of its own: the checks read state the books do not (the
+period's status, bank lines), so they are frozen afresh every time. An invoice that moves no journal but moves the
+ageing seals a new copy.
+Each snapshot and check run stores the document version it was sealed under (`document_version`, in its sealed
+totals) and is always verified under that version, so a later bump never turns earlier snapshots invalid; a
+comparison compares only the columns both sides froze and lists the others as not compared. A key id
 the server holds no key for is `invalid` (retired keys are kept for verification). A comparison verifies
 both sides first and refuses an altered one. Journal and line rows freeze the VAT / intercompany / evidence columns
 too (`late_claim_base`, `is_intercompany`, `external_document_number`, …); a column census fails when a new
-journal or line column is neither frozen nor named as not material. The audit routes are rate-limited at 30 a minute per member
-(each member's own bucket, so one member cannot lock the others out). A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
+journal or line column is neither frozen nor named as not material. The whole-ledger audit requests (take, verify,
+chain, compare, check run, pack build and pack verify) are rate-limited at 30 a minute per member (each member's own
+bucket, so one member cannot lock the others out); browsing a snapshot, the audit log and the trail export are not. A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the
