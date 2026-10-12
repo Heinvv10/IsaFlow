@@ -111,3 +111,50 @@ r09  KILLED   comparison of a snapshot that does not verify              by: aud
 # c11 (manual snapshot queues behind another) was killed at 061200239. Since 3892e287a the per-company slot refuses
 #   the second manual snapshot first within one process; the chain lock stays as the cross-process guard, so c11 is now
 #   equivalent inside a single process (named, not chased).
+
+## Round 4 — blind review r2 fixes (a00efab49; mutants-round4.json; baseline green: 33 integration + 17 unit)
+baseline  SURVIVED unmutated baseline  []
+s01       KILLED   every audit- request charged (audit log throttled again)  [autoRateLimit.test.ts]
+s02       KILLED   cookie path does not pass the method (POST takes go uncharged)  [autoRateLimit.test.ts]
+s03       SURVIVED snapshot rebuilt under the current version (a bump invalidates old snapshots)  []
+s04       SURVIVED check run rebuilt under the current version  []
+s05       KILLED   snapshot does not record its document version  [audit-snapshots-versions.int.test.ts]
+s06       KILLED   columns frozen later compared (every journal changed)  [audit-snapshots-versions.int.test.ts, comparisonCsv.test.ts]
+s07       KILLED   budget only checked between steps (no statement bound)  [audit-snapshots-versions.int.test.ts]
+s08       KILLED   a cut-off statement is reported as an error, not too_slow  [audit-snapshots-versions.int.test.ts]
+s09       KILLED   budget not checked between check families  [audit-snapshots-versions.int.test.ts]
+s10       KILLED   slot waiters effectively never time out  [snapshotSlots.test.ts]
+s11       KILLED   chain-lock wait unbounded  [audit-snapshots-versions.int.test.ts, audit-snapshots-versions.int.test.ts ]]
+s12       KILLED   pack build without a slot  [audit-snapshots-routes.int.test.ts]
+s13       KILLED   malformed manifest crashes verify (500)  [audit-snapshots-pack.int.test.ts]
+s14       KILLED   chain check reads no / a bounded window of sealed rows  [audit-snapshots-routes.int.test.ts, audit-snapshots-versions.int.test.ts]
+s15       KILLED   a just-made lock is reported lost  [audit-snapshots-auto.int.test.ts]
+s16       KILLED   unchanged ignores the ageing and control totals  [audit-snapshots-auto.int.test.ts]
+s17       KILLED   unchanged attempt freezes no checks of its own  [audit-snapshots-auto.int.test.ts]
+s18       KILLED   an unchanged attempt's altered check run passes  [audit-snapshots-auto.int.test.ts]
+Round 4: 16/18 killed. s03/s04 survived: the versions test mocks DOCUMENT_VERSION for importers only, so documents.ts reading its own constant went unseen; documentVersion.test.ts pins the hashed version to the stored one, and round 5 re-ran both (s03b, s04b).
+
+## Round 5 — breaker r2 + security review fixes (67a293d72; mutants-round5.json; the run was interrupted by a terminal crash after t06 and resumed from t07)
+baseline  SURVIVED unmutated baseline  []
+s03b      KILLED   snapshot rebuilt under the current version (a bump invalidates old snapshots)  [documentVersion.test.ts]
+s04b      KILLED   check run rebuilt under the current version  [documentVersion.test.ts]
+t01       KILLED   a retired key verifies seals taken after it was retired  [canonicalSeal.test.ts]
+t02       KILLED   a retired key without a retirement instant is held  [canonicalSeal.test.ts]
+t03       KILLED   a new link chains to a forged head  [audit-snapshots-service.int.test.ts]
+t04       KILLED   verifyChain does not skip forged rows  [audit-snapshots-service.int.test.ts]
+t05       KILLED   writer accepts a prev_hmac naming no row  [audit-snapshots-db.int.test.ts]
+t06       KILLED   a row may be INSERTed ready  [audit-snapshots-pack.int.test.ts]
+t07       KILLED   a ready pack may be deleted  [audit-snapshots-pack.int.test.ts]
+t08       KILLED   a bare file pointer may be made ready  [audit-snapshots-pack.int.test.ts]
+t09       KILLED   a ready pack's pdf bucket may change  [audit-snapshots-pack.int.test.ts]
+t10       KILLED   guard on UPDATE only (890 must refuse to apply)  [889 refused to apply]
+t11       KILLED   owner download serves an unverified ZIP  [audit-snapshots-pack.int.test.ts]
+t12       KILLED   portal serves an unverified ZIP  [audit-snapshots-pack.int.test.ts]
+t13       KILLED   one person may hold every slot  [snapshotSlots.test.ts]
+t14       KILLED   a migration-added column stops being frozen (unit census)  [snapshotColumnMigrationCensus.test.ts]
+u01       KILLED   entries inflated past their cap  [audit-snapshots-pack.int.test.ts]
+u02       KILLED   a file the manifest does not list passes  [audit-snapshots-pack.int.test.ts]
+u03       KILLED   a retired pack key judged by the manifest's own time  [audit-snapshots-pack.int.test.ts]
+u04       KILLED   built_at is the writer's, not the database's clock  [audit-snapshots-pack.int.test.ts]
+u05       KILLED   a ready pack's built_at may change  [audit-snapshots-pack.int.test.ts]
+Round 5: 21/21 killed.
