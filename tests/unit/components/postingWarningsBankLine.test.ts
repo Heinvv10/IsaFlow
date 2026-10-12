@@ -39,13 +39,13 @@ describe('posting warnings notice — the bank line', () => {
 
   it('line 2 stays within 40 characters for any count', () => {
     for (const n of [1, 2, 9, 10, 99, 100, 999, 9999, 99999]) {
-      expect(postingWarningsNotice([[W1], ...Array.from({ length: n }, () => [W1])], Array.from({ length: n + 1 }, () => '2026-09-08 R 500,00')).message.length, `${n}`).toBeLessThanOrEqual(FITS);
+      expect(postingWarningsNotice([[W1], ...Array.from({ length: n }, () => [W1])], [], Array.from({ length: n + 1 }, () => '2026-09-08 R 500,00')).message.length, `${n}`).toBeLessThanOrEqual(FITS);
     }
   });
 
   it('counts every warning: a bank line with two is "+1 more", not nothing', () => {
-    expect(postingWarningsNotice([[W1, W2]], ['2026-09-08 R 500,00']).message).toBe('+1 more warning — listed below');
-    expect(postingWarningsNotice([[W1, W2], [W1]], ['2026-09-08 R 500,00', '2026-09-09 R 1,00']).message).toBe('+2 more warnings — listed below');
+    expect(postingWarningsNotice([[W1, W2]], [], ['2026-09-08 R 500,00']).message).toBe('+1 more warning — listed below');
+    expect(postingWarningsNotice([[W1, W2], [W1]], [], ['2026-09-08 R 500,00', '2026-09-09 R 1,00']).message).toBe('+2 more warnings — listed below');
   });
 
   it('names the first document that has warnings, not the first in the list', () => {
@@ -75,5 +75,18 @@ describe('posting warnings notice — the bank line', () => {
 
   it('keeps the document-by-document reading unchanged', () => {
     expect(postingWarningsByDocument(body(swept('t1', 'x'), swept('t2', 'y', [])))).toEqual([[W1]]);
+  });
+
+  it('both wordings hold side by side: bills keep their naming, bank lines keep the pointer', () => {
+    const bills = { data: { results: [{ invoiceNumber: 'INV-12', warnings: [W1] }, { invoiceNumber: 'INV-13', warnings: [W1] }] } };
+    notifyPostingWarnings(bills as never);
+    expect(shown()).toEqual([`Posted — ${FACT}`, '2 bills: INV-12, INV-13']);
+    vi.mocked(notify.warning).mockReset();
+    notifyPostingWarnings({ data: { results: [{ invoiceNumber: 'INV-12', warnings: [W1] }] } } as never);
+    expect(shown()).toEqual([`Posted — ${FACT}`, 'INV-12: line 1 posted without it.']);
+    vi.mocked(notify.warning).mockReset();
+    // a bank line of a sweep never takes bill wording, even with an invoiceNumber-shaped field around
+    notifyPostingWarnings({ data: { autoPost: { warnings: [swept('t1', '2026-09-08 R 5,00'), swept('t2', '2026-09-09 R 6,00')] } } } as never);
+    expect(shown()).toEqual([`Posted — ${FACT}, bank line 2026-09-08 R 5,00`, '+1 more warning — listed below']);
   });
 });

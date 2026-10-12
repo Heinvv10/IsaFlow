@@ -3,6 +3,7 @@
  * late (s16(3)); `expense-claims/[id]/post` returns `claim.lateClaim`, and the
  * claim page must tell the person (review round 2).
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -26,7 +27,7 @@ const lateClaim = { claimDate: '2026-07-01', lockPeriod: { start: '2026-05-01', 
 async function post(response: Response) {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(ok({ claim: claim('approved') }))
-    .mockResolvedValueOnce(ok({ accounts: [{ id: 'a1', code: '2300', name: 'Reimbursements' }] }))
+    .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements', { accountType: 'liability' })]))
     .mockResolvedValueOnce(response);
   render(<Page />);
   fireEvent.click(await screen.findByText('Post to GL'));
@@ -43,7 +44,7 @@ describe('expense claim page — late claim notice', () => {
   it('tells the person the VAT was claimed in a later period', async () => {
     await post(ok({ claim: claim('posted', { lateClaim }) }));
     await waitFor(() => expect(notify.info).toHaveBeenCalledWith(
-      'VAT claimed in a later period', expect.stringContaining('R15.00')));
+      'Input VAT of R15.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.'));
   });
 
   it('says nothing for an ordinary post', async () => {
