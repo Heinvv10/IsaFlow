@@ -86,7 +86,7 @@ describe('supplier invoice bulk bar — Approve', () => {
   };
   it('two bills that each drop the same centre: one toast, and it counts two', async () => {
     await run([{ invoiceId: 'b1', ok: true, warnings: [INACTIVE] }, { invoiceId: 'b2', ok: true, warnings: [INACTIVE] }]);
-    await waitFor(() => warned('2 not applied, in 2 documents'));
+    await waitFor(() => warned('2 bills'));
     expect(notify.warning).toHaveBeenCalledTimes(1);
   });
   it('one bill of the batch: the centre, the reason and the line', async () => {

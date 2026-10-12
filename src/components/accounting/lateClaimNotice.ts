@@ -8,6 +8,7 @@
  * One channel (the toast), so the notice reads the same wherever it appears.
  */
 import { notify } from '@/utils/toast';
+import { fmtDate } from '@/lib/fmtDate';
 import { NOTICE_LINE_FITS, listNames } from '@/components/accounting/noticeLine';
 
 export interface LateClaimNotice {
@@ -16,28 +17,46 @@ export interface LateClaimNotice {
   inputTax: number;
 }
 
-function isLateClaim(v: unknown): v is LateClaimNotice {
-  const o = v as Partial<LateClaimNotice> | null;
-  return !!o && typeof o.claimDate === 'string' && typeof o.inputTax === 'number'
-    && !!o.lockPeriod && typeof o.lockPeriod.start === 'string';
+/** A date as YYYY-MM-DD, whichever shape it arrived in (a Date, an ISO string, or another date string); null when it is none. */
+function isoDay(v: unknown): string | null {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : fmtDate(v);
+  if (typeof v !== 'string') return null;
+  const iso = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(v);
+  if (iso) return iso[1]!;
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? null : fmtDate(new Date(t));
+}
+
+/** The late claim in a response's `lateClaim` field, with its dates as YYYY-MM-DD, or null when it is not one. */
+function readLateClaim(v: unknown): LateClaimNotice | null {
+  const o = v as { claimDate?: unknown; lockPeriod?: { start?: unknown; end?: unknown }; inputTax?: unknown } | null;
+  if (!o || typeof o.inputTax !== 'number' || !o.lockPeriod) return null;
+  const claimDate = isoDay(o.claimDate);
+  const start = isoDay(o.lockPeriod.start);
+  const end = isoDay(o.lockPeriod.end);
+  return claimDate && start && end ? { claimDate, lockPeriod: { start, end }, inputTax: o.inputTax } : null;
 }
 
 /**
  * The toast clips its second line to one row (~45 characters), so the FACT —
  * how much VAT, claimed late, in which VAT period — is the TITLE, which wraps
  * (the same as postingWarningsNotice); the second line holds only what fits:
- * the filed period for one claim, the bills' numbers (`names`, one per claim,
- * when the response carried them) for several.
+ * the filed period for one claim (with its bill's number when that fits), the
+ * bills' numbers (`names`, one per claim, when the response carried them) for
+ * several. Dates are YYYY-MM-DD (lateClaimDocuments normalises them).
  */
 export function lateClaimNotice(
   found: readonly LateClaimNotice[], names: ReadonlyArray<string | undefined> = [],
 ): { title: string; message: string } {
   const first = found[0]!;
   if (found.length === 1) {
-    const period = `Period ${first.lockPeriod.start} to ${first.lockPeriod.end} is filed.`;
+    const { start, end } = first.lockPeriod;
+    // A bulk run names the bill when the name still fits beside the period.
+    const candidates = [names[0] ? `${names[0]}: ${start} to ${end} is filed.` : '', `Period ${start} to ${end} is filed.`]
+      .filter((c) => c !== '' && c.length <= NOTICE_LINE_FITS);
     return {
       title: `Input VAT of R${first.inputTax.toFixed(2)} claimed late, in the VAT period from ${first.claimDate}`,
-      message: period.length <= NOTICE_LINE_FITS ? period : 'Its VAT period is filed.',
+      message: candidates[0] ?? 'Its VAT period is filed.',
     };
   }
   const total = found.reduce((s, l) => s + l.inputTax, 0);
@@ -61,10 +80,10 @@ export function lateClaimDocuments(body: unknown): LateClaimDocument[] {
   const results = Array.isArray(data.results) ? data.results as Record<string, unknown>[] : [];
   const name = (r: Record<string, unknown>) => (typeof r?.invoiceNumber === 'string' && r.invoiceNumber !== '' ? r.invoiceNumber : undefined);
   return [
-    { claim: data.lateClaim },
-    { claim: (data.claim as Record<string, unknown> | undefined)?.lateClaim },
-    ...results.map((r) => ({ claim: r?.lateClaim, name: name(r) })),
-  ].filter((d): d is LateClaimDocument => isLateClaim(d.claim));
+    { claim: readLateClaim(data.lateClaim) },
+    { claim: readLateClaim((data.claim as Record<string, unknown> | undefined)?.lateClaim) },
+    ...results.map((r) => ({ claim: readLateClaim(r?.lateClaim), name: name(r) })),
+  ].filter((d): d is LateClaimDocument => d.claim !== null);
 }
 
 /** The late claims in a response body, without the bills' numbers. */

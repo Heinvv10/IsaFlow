@@ -43,16 +43,35 @@ describe('late claim notice', () => {
     expect(lateClaimNotice([b, a]).title).toBe("2 documents' input VAT of R300.00 claimed late, in the VAT period from 2026-08-01");
   });
 
+  it('reads a date whichever shape it arrives in, so the earliest is the earliest', () => {
+    const shaped = (claimDate: unknown) => ({ claimDate, lockPeriod: { start: new Date(2026, 4, 1), end: '2026-06-30T00:00:00.000Z' }, inputTax: 10 });
+    const docs = lateClaimsIn({ data: { results: [
+      { lateClaim: shaped('2026-10-01') }, { lateClaim: shaped(new Date(2026, 7, 1)) },
+      { lateClaim: shaped('Sat Aug 01 2026 00:00:00 GMT+0200') }, { lateClaim: shaped('not a date') }, { lateClaim: shaped(undefined) },
+    ] } });
+    expect(docs.map((d) => d.claimDate)).toEqual(['2026-10-01', '2026-08-01', '2026-08-01']);
+    expect(docs[0]!.lockPeriod).toEqual({ start: '2026-05-01', end: '2026-06-30' });
+    // 'Oct 1' written as a non-ISO string sorts AFTER 'Aug 1' only once both are read as dates.
+    notifyLateClaims({ data: { results: [{ lateClaim: shaped('Thu Oct 01 2026 00:00:00 GMT+0200') }, { lateClaim: shaped(new Date(2026, 7, 1)) }] } });
+    expect(vi.mocked(notify.info).mock.calls.at(-1)![0]).toContain('from 2026-08-01');
+  });
+
   it('several claims name their bills in line 2, falling back when the numbers do not fit; one claim keeps its period', () => {
     expect(lateClaimNotice([lc, lc], ['INV-12', 'INV-13']).message).toBe('Bills: INV-12, INV-13');
     expect(lateClaimNotice([lc, lc], ['INV-12', undefined]).message).toBe('Their VAT periods are filed.');
+    expect(lateClaimNotice([lc, lc], ['INV-1', 'INV-1']).message).toBe('Bills: INV-1 (×2)');
     const many = Array.from({ length: 50 }, (_, i) => `INV-${i + 1}`);
     const n = lateClaimNotice(many.map(() => lc), many);
     expect(n.message).toBe('Bills: INV-1, INV-2, INV-3, INV-4 and 46 more');
     expect(n.message.length).toBeLessThanOrEqual(NOTICE_LINE_FITS);
-    // One late claim in a bulk run: line 2 holds the filed period (the fact needs the room), not the bill.
+    // One late claim in a bulk run: the bill is named when the name fits beside the period, else the period alone.
     expect(notifyLateClaims({ data: { results: [{ invoiceNumber: 'INV-12', lateClaim: lc }, { invoiceNumber: 'INV-13' }] } })).toBe(1);
-    expect(notify.info).toHaveBeenLastCalledWith(expect.stringContaining('R150.00 claimed late'), 'Period 2026-05-01 to 2026-06-30 is filed.');
+    expect(notify.info).toHaveBeenLastCalledWith(expect.stringContaining('R150.00 claimed late'), 'INV-12: 2026-05-01 to 2026-06-30 is filed.');
+    notifyLateClaims({ data: { results: [{ invoiceNumber: 'QAF4-LONG-0001', lateClaim: lc }] } });
+    expect(notify.info).toHaveBeenLastCalledWith(expect.anything(), 'Period 2026-05-01 to 2026-06-30 is filed.');
+    // A single claim outside a bulk run has no bill to name.
+    notifyLateClaims({ data: { lateClaim: lc } });
+    expect(notify.info).toHaveBeenLastCalledWith(expect.anything(), 'Period 2026-05-01 to 2026-06-30 is filed.');
     vi.mocked(notify.info).mockReset();
     notifyLateClaims({ data: { results: [{ invoiceNumber: 'INV-12', lateClaim: lc }, { invoiceNumber: 'INV-14' }, { invoiceNumber: 'INV-13', lateClaim: lc }] } });
     expect(vi.mocked(notify.info).mock.calls[0]![1]).toBe('Bills: INV-12, INV-13');

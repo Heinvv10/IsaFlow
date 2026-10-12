@@ -49,7 +49,7 @@ describe('posting warnings notice', () => {
     expect(postingWarningsNotice([[W3]]).title).toBe('Posted — cost centre FT not applied (the line has its own)');
     expect(postingWarningsNotice([[W1, W2, W3]])).toEqual({ title: 'Posted — cost centre OLD not applied (inactive)', message: '+2 more not applied.' });
     const many = postingWarningsNotice(Array.from({ length: 100 }, () => [W1, W2]));
-    expect(many.message).toBe('200 not applied, in 100 documents');
+    expect(many.message).toBe('100 bills');
     for (const n of [postingWarningsNotice([[W1]]), postingWarningsNotice([[W1, W2, W3]]), many]) expect(n.message.length).toBeLessThanOrEqual(FITS);
   });
 
@@ -64,7 +64,7 @@ describe('posting warnings notice', () => {
     // Two bills, the identical sentence: two dropped picks.
     expect(notifyPostingWarnings({ data: { results: [{ warnings: [W1] }, { warnings: [W1] }] } })).toBe(2);
     expect(notify.warning).toHaveBeenCalledTimes(1);
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '2 not applied, in 2 documents');
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '2 bills');
     // One document, two picks: two as well (the count is of picks, not of documents).
     expect(notifyPostingWarnings({ data: { warnings: [W1, W2] } })).toBe(2);
     expect(notify.warning).toHaveBeenLastCalledWith('Posted — cost centre OLD not applied (inactive)', '+1 more not applied.');
@@ -77,14 +77,14 @@ describe('posting warnings notice', () => {
     const docs = (n: number) => Array.from({ length: n }, () => [W1]);
     const name = (n: number) => Array.from({ length: n }, (_, i) => `INV-${i + 1}`);
     const line = (n: number, names: Array<string | undefined>) => postingWarningsNotice(docs(n), names).message;
-    expect(line(2, name(2))).toBe('2 not applied: INV-1, INV-2');
-    expect(line(3, name(3))).toBe('3 not applied: INV-1, INV-2, INV-3');
-    expect(line(5, name(5))).toBe('5 not applied: INV-1, INV-2, INV-3 and 2 more');
-    expect(line(8, name(8))).toBe('8 not applied: INV-1, INV-2, INV-3 and 5 more');
-    expect(line(100, name(100))).toBe('100 not applied: INV-1, INV-2 and 98 more');
+    expect(line(2, name(2))).toBe('2 bills: INV-1, INV-2');
+    expect(line(3, name(3))).toBe('3 bills: INV-1, INV-2, INV-3');
+    expect(line(5, name(5))).toBe('5 bills: INV-1, INV-2, INV-3, INV-4, INV-5');
+    expect(line(8, name(8))).toBe('8 bills: INV-1, INV-2, INV-3 and 5 more');
+    expect(line(100, name(100))).toBe('100 bills: INV-1, INV-2, INV-3 and 97 more');
     // A number too long to share the row, and a number the response did not carry: just how many.
-    expect(line(2, ['SUPPLIER-ACCOUNT-2026-10-INVOICE-0001', 'B'])).toBe('2 not applied, in 2 documents');
-    expect(line(2, ['INV-1', undefined])).toBe('2 not applied, in 2 documents');
+    expect(line(2, ['SUPPLIER-ACCOUNT-2026-10-INVOICE-0001', 'B'])).toBe('2 bills');
+    expect(line(2, ['INV-1', undefined])).toBe('2 bills');
     for (const names of [name(2), name(3), name(8), name(100), ['X'.repeat(80), 'Y'.repeat(80)]]) {
       const n = postingWarningsNotice(docs(names.length), names);
       expect(n.message.length, n.message).toBeLessThanOrEqual(FITS);
@@ -92,15 +92,25 @@ describe('posting warnings notice', () => {
     }
   });
 
-  it('counts warnings and lists bills separately: three warnings on two bills', () => {
-    const n = postingWarningsNotice([[W1, W2], [W1]], ['INV-12', 'INV-13']);
-    expect(n.message).toBe('3 not applied: INV-12, INV-13');
+  it('line 2 counts bills and lists bills: three warnings on two bills is "2 bills"', () => {
+    expect(postingWarningsNotice([[W1, W2], [W1]], ['INV-12', 'INV-13']).message).toBe('2 bills: INV-12, INV-13');
+    expect(postingWarningsNotice([[W1, W2], [W1]]).message).toBe('2 bills');
+  });
+
+  it('two bills with the same number (unique per supplier, not per company) are named once and still counted twice', () => {
+    expect(postingWarningsNotice([[W1], [W1]], ['INV-1', 'INV-1']).message).toBe('2 bills: INV-1 (×2)');
+    expect(postingWarningsNotice([[W1], [W1], [W1]], ['INV-1', 'INV-2', 'INV-1']).message).toBe('3 bills: INV-1 (×2), INV-2');
+    // "k more" counts bills, not distinct numbers: three of the five hidden bills share a number.
+    const names = ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-9', 'INV-9', 'INV-9', 'INV-9'];
+    const n = postingWarningsNotice(names.map(() => [W1]), names).message;
+    expect(n).toBe('8 bills: INV-1, INV-2, INV-3 and 5 more');
+    expect(n.length).toBeLessThanOrEqual(FITS);
   });
 
   it('reads the number each bulk result carries, per document', () => {
     notifyPostingWarnings({ data: { results: [
       { invoiceNumber: 'INV-12', warnings: [W1] }, { invoiceNumber: 'INV-99' }, { invoiceNumber: 'INV-13', warnings: [W1] },
     ] } });
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '2 not applied: INV-12, INV-13');
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '2 bills: INV-12, INV-13');
   });
 });

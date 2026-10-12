@@ -210,7 +210,7 @@ describe('supplier-invoices-bulk-action', () => {
     // ...and the screen words the unnamed results by count.
     const { postingWarningsNotice } = await import('@/components/accounting/postingWarningsNotice');
     expect(postingWarningsNotice([['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'], ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.']],
-      data.results.map((r) => r.invoiceNumber ?? undefined)).message).toBe('2 not applied, in 2 documents');
+      data.results.map((r) => r.invoiceNumber ?? undefined)).message).toBe('2 bills');
   });
 
   it('routes action=cancel to cancelSupplierInvoice', async () => {
