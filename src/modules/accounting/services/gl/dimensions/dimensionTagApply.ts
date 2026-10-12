@@ -21,9 +21,8 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal } from './dimensionTypes';
 import type { TagPlan } from './dimensionTagPlan';
-import {
-  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows, withBoundedStatements,
-} from './dimensionBankSync';
+import { applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows } from './dimensionBankSync';
+import { withBoundedStatements } from './boundedStatements';
 import { BankDimensionSyncRefusal } from './dimensionBankSyncTypes';
 
 export interface AppliedTagBatch {

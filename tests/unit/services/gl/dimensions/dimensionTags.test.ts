@@ -8,10 +8,12 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 // The bank-row SQL (lock, mirror, guarded write) is proven against a real database in
 // tests/integration/bank-dimension-sync*.int.test.ts; here only what dimensionTagApply asks of it.
+vi.mock('@/modules/accounting/services/gl/dimensions/boundedStatements', () => ({
+  withBoundedStatements: vi.fn(async (fn: () => Promise<unknown>) => fn()),
+}));
 vi.mock('@/modules/accounting/services/gl/dimensions/dimensionBankSync', () => ({
   applyBankSync: vi.fn(async () => 0), countBankRowDrift: vi.fn(async () => 0),
   countBankRows: vi.fn(async () => 0), lockBatchBankRows: vi.fn(async () => undefined), restoreBankRows: vi.fn(async () => undefined),
-  withBoundedStatements: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 import { sql } from '@/lib/neon';
@@ -20,8 +22,9 @@ import {
   applyDimensionTags, applyTagBatchReversal, assertKeyIsFor, findTagBatchByKey, planTagBatchReversal,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import {
-  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows, withBoundedStatements,
+  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows,
 } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { withBoundedStatements } from '@/modules/accounting/services/gl/dimensions/boundedStatements';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const COMPANY = '11111111-1111-4111-8111-111111111111';

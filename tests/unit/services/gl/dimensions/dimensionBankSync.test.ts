@@ -10,8 +10,10 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { sql } from '@/lib/neon';
 import {
-  applyBankSyncBatch, applyBankSync, previewBankSync, writeBankRows, withBoundedStatements, MAX_BANK_SYNC_ROWS,
+  applyBankSyncBatch, applyBankSync, previewBankSync, writeBankRows, MAX_BANK_SYNC_ROWS,
 } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { withBoundedStatements } from '@/modules/accounting/services/gl/dimensions/boundedStatements';
+import { log } from '@/lib/logger';
 import { blankedSlots, BankDimensionSyncRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionBankSyncTypes';
 import { isControlSubtypeSql } from '@/modules/accounting/services/gl/dimensions/journalDimensionSetSql';
 import { CONTROL_RAW_SUBTYPES } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
@@ -169,17 +171,39 @@ describe('the statement bound', () => {
     expect(sets[1]!.slice(1)).toEqual(['0ms', 'on']);
   });
 
-  it('a restore that fails (an aborted transaction) is logged and never replaces the error that caused it', async () => {
-    const boom = new Error('original');
+  const failingRestore = (code: string) => {
     let restores = 0;
     mockSql.mockImplementation(async (...args: unknown[]) => {
       const text = (args[0] as string[]).join('?');
       if (text.includes('pg_settings')) return [{ timeout_ms: '0', jit: 'on' }];
-      if (text.includes('set_config') && (restores += 1) === 2) throw Object.assign(new Error('current transaction is aborted'), { code: '25P02' });
+      if (text.includes('set_config') && (restores += 1) === 2) throw Object.assign(new Error('restore failed'), { code });
       return [];
     });
+    return () => restores;
+  };
+
+  it('a restore that fails because the transaction is aborted (25P02) is debug noise, and never replaces the original error', async () => {
+    vi.mocked(log.warn).mockClear();
+    vi.mocked(log.debug).mockClear();
+    const boom = new Error('original');
+    const restores = failingRestore('25P02');
     await expect(withBoundedStatements(async () => { throw boom; })).rejects.toBe(boom);
-    expect(restores).toBe(2);
+    expect(restores()).toBe(2);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.debug).toHaveBeenCalledTimes(1);
+  });
+
+  it('any OTHER restore failure after an error stays a warning, and still does not replace the original error', async () => {
+    vi.mocked(log.warn).mockClear();
+    const boom = new Error('original');
+    failingRestore('08006');
+    await expect(withBoundedStatements(async () => { throw boom; })).rejects.toBe(boom);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a restore that fails after SUCCESS is not swallowed', async () => {
+    failingRestore('08006');
+    await expect(withBoundedStatements(async () => 'ok')).rejects.toMatchObject({ code: '08006' });
   });
 
   it('turns a cancelled statement (57014) into the typed refusal naming the remedy, and re-throws anything else', async () => {
