@@ -4,7 +4,7 @@
 // as the API's own GLAccount, so a change to the response type breaks compile here.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { chartAccount } from '../helpers/chartAccount';
@@ -19,10 +19,22 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
-import ExpenseClaimDetail from '../../../pages/accounting/expenses/[id]';
-import PurchaseOrderDetailPage from '../../../pages/accounting/purchase-orders/[poId]';
-import NewItemPage from '../../../pages/accounting/items/new';
-import { AccountReportingGroupModal } from '@/components/accounting/AccountReportingGroupModal';
+type Page = () => JSX.Element | null;
+type Modal = typeof import('@/components/accounting/AccountReportingGroupModal').AccountReportingGroupModal;
+let ExpenseClaimDetail: Page; let PurchaseOrderDetailPage: Page; let NewItemPage: Page; let AccountReportingGroupModal: Modal;
+
+// Each page pulls a large module graph; a cold first load under CI load outlasted the 1s-ish test budget.
+// Load them here, under their own budget, so each test only pays for rendering.
+beforeAll(async () => {
+  const [e, p, n, m] = await Promise.all([
+    import('../../../pages/accounting/expenses/[id]'),
+    import('../../../pages/accounting/purchase-orders/[poId]'),
+    import('../../../pages/accounting/items/new'),
+    import('@/components/accounting/AccountReportingGroupModal'),
+  ]);
+  ExpenseClaimDetail = e.default as Page; PurchaseOrderDetailPage = p.default as Page;
+  NewItemPage = n.default as Page; AccountReportingGroupModal = m.AccountReportingGroupModal;
+}, 60_000);
 
 const json = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
 afterEach(() => { vi.mocked(apiFetch).mockReset(); });
@@ -109,5 +121,35 @@ describe('chart-of-accounts consumers read the real response shape', () => {
     render(<AccountReportingGroupModal group={null} onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(await screen.findByText('Employee Reimbursements')).toBeTruthy();
     expect(screen.getByText('2100')).toBeTruthy();
+  });
+
+  // A member deactivated since it was added: the default GET (active only) would hide it from the panel while it
+  // stayed in the saved member list, invisible and unremovable. The modal asks for inactive rows too.
+  describe('reporting group modal and a deactivated member', () => {
+    const group = { id: 'g1', name: 'QAF1 group', report_type: 'both' as const, display_order: 0,
+      members: [{ gl_account_id: 'a-inactive', account_code: '5900', account_name: 'Inactive Expense' }] };
+    const serve = () => vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      String(url).includes('chart-of-accounts')
+        ? json(String(url).includes('includeInactive=true') ? chart : chart.filter(a => a.isActive))
+        : json({}));
+
+    it('shows the inactive member, marked inactive, and lets it be removed', async () => {
+      serve();
+      render(<AccountReportingGroupModal group={group} onClose={vi.fn()} onSaved={vi.fn()} />);
+      const member = await screen.findByRole('button', { name: /5900.*Inactive Expense.*inactive/i });
+      expect(screen.getByText('In Group (1)')).toBeTruthy();
+      fireEvent.click(member);
+      expect(screen.getByText('In Group (0)')).toBeTruthy();
+    });
+
+    it('does not offer inactive accounts as new members', async () => {
+      serve();
+      render(<AccountReportingGroupModal group={group} onClose={vi.fn()} onSaved={vi.fn()} />);
+      await screen.findByRole('button', { name: /5900.*Inactive Expense/ });
+      expect(screen.queryByRole('button', { name: /2190|1190/ })).toBeNull();
+      expect(screen.getByRole('button', { name: /5000.*Purchases Expense/ })).toBeTruthy();
+      // the member itself is not also listed as available
+      expect(screen.getAllByRole('button', { name: /5900/ })).toHaveLength(1);
+    });
   });
 });
