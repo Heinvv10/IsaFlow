@@ -13,7 +13,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asToken } from './bank-controls-a.helpers';
 import {
-  allocate, bankDims, cleanupSync, json, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
+  allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
 import { applyBankSyncBatch, writeBankRows } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { sql } from '../../src/lib/neon';
@@ -26,7 +26,10 @@ vi.mock('@/lib/neon', async (orig) => {
   const wrapped = (strings: TemplateStringsArray, ...values: unknown[]) => {
     const hook = hooks.afterCandidateSelect;
     const text = strings.join('?');
-    if (!hook || !text.includes('FROM bank_transactions bt') || !text.includes('ORDER BY bt.id')) return realSql(strings, ...values);
+    // The candidate SELECT (its ORDER BY / FOR UPDATE are spliced in, so match what stays in the template) or the batch's bank-row lock.
+    const isCandidateRead = text.includes('FROM bank_transactions bt') && text.includes('jd.sets = 1');
+    const isBankRowLock = text.includes('FROM bank_transactions bt') && text.includes('dimension_tag_batch_bank_rows br');
+    if (!hook || !(isCandidateRead || isBankRowLock)) return realSql(strings, ...values);
     hooks.afterCandidateSelect = null;
     return (async () => {
       const rows = await realSql(strings, ...values);
@@ -146,6 +149,36 @@ describe('a row that changed since it was planned is never overwritten', () => {
     expect(await counts(f)).toEqual({ batches: 0, bank_rows: 0 });
     expect(await bankDims(pool, a.tx)).toEqual({ cc1: null, cc2: null, bu: f.bu.B2 });
     expect(await bankDims(pool, b.tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+});
+
+describe('tag and reverse take their locks in one order: lines, then bank rows (breaker REPRO 2)', () => {
+  it('a tag of the same line, begun while the reversal holds the bank rows, does not deadlock with it (40P01)', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const line = (await lineOn(pool, a.journal, f.expA)).id;
+    const first = json<{ batch_id: string }>(await mcp(f.user, f.c, 'tag_journal_lines', {
+      lines: [{ journal_line_id: line, cc2: code(f, 'P2') }], idempotency_key: newKey('dl1') }));
+    let tagging: Promise<{ isError?: boolean; content: { text: string }[] }> | null = null;
+    hooks.fired = 0;
+    // The reversal has just locked the batch's bank rows (and, fixed, its lines before them). A second tag of the
+    // same line now starts: it locks the line, then wants the bank row. Wait until it is blocked on someone.
+    hooks.afterCandidateSelect = async () => {
+      tagging = mcp(f.user, f.c, 'tag_journal_lines', {
+        lines: [{ journal_line_id: line, bu: code(f, 'B1') }], idempotency_key: newKey('dl2') });
+      for (let i = 0; i < 100; i += 1) {
+        const waiting = await other.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()");
+        if (waiting.rowCount) return;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    };
+    const reversed = await mcp(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: first.batch_id, idempotency_key: newKey('dlr') });
+    const tagged = await tagging!;
+    expect(reversed.isError, reversed.content[0]!.text).toBeFalsy();
+    expect(hooks.fired).toBe(1);
+    expect(tagged.isError, tagged.content[0]!.text).toBeFalsy();
+    expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F1, cc2: f.cc.P1, bu: f.bu.B1 });
   });
 });
 

@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn(() => ({})) }) }));
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import { sql } from '@/lib/neon';
 import {
@@ -59,21 +60,39 @@ describe('the control-account predicate is built from the one control vocabulary
     const text = isControlSubtypeSql('x.account_subtype');
     for (const raw of CONTROL_RAW_SUBTYPES) expect(text).toContain(`'${raw}'`);
     expect(CONTROL_RAW_SUBTYPES).toEqual(expect.arrayContaining(['bank', 'payable', 'receivable', 'vat_input', 'vat_output', 'vat_input_late_claim', 'payroll_liability']));
-    expect(text).toMatch(/^COALESCE\(regexp_replace\(lower\(btrim\(x\.account_subtype\)\)/);
+    // canonicalSubtype: trim(), toLowerCase(), replace(/[\s-]+/g, '_') — JS whitespace (NBSP, U+2028, BOM ...), not btrim's.
+    expect(text).toMatch(/^COALESCE\(regexp_replace\(regexp_replace\(lower\(x\.account_subtype\), '\^\[/);
+    expect(text).not.toMatch(/btrim|\[\[:space:\]\]/);
+    for (const unicodeSpace of ['\\u00a0', '\\u2028', '\\u3000', '\\ufeff', '\\n', '\\r']) expect(text).toContain(unicodeSpace);
   });
 });
 
 describe('previewBankSync', () => {
-  it('reports the total, sorts by date, samples, and lists EVERY row that would lose a value', async () => {
+  it('reports the total, samples the first rows as the database ordered them, and lists EVERY row that would lose a value', async () => {
     queued([
-      row(3, { tx_date: '2026-10-09', total: 3, o1: F1, o2: P1, n2: null }),
-      row(1, { tx_date: '2026-10-05', total: 3 }),
       row(2, { tx_date: '2026-10-02', total: 3, ob: B1, n1: null, n2: null }),
+      row(1, { tx_date: '2026-10-05', total: 3 }),
+      row(3, { tx_date: '2026-10-09', total: 3, o1: F1, o2: P1, n2: null }),
     ]);
     const p = await previewBankSync(COMPANY, WINDOW, { sample: 2 });
     expect(p).toMatchObject({ count: 3, overMaxRows: false, maxRows: MAX_BANK_SYNC_ROWS });
     expect(p.sample.map((r) => r.description)).toEqual(['tx 2', 'tx 1']);
     expect(p.blanking.map((r) => [r.description, r.blanks])).toEqual([['tx 2', ['bu']], ['tx 3', ['cc2']]]);
+  });
+
+  it('asks for the EARLIEST rows of the whole window (date, id) before it cuts; the locking read uses id order', async () => {
+    const spliced = () => vi.mocked((sql as unknown as { unsafe: (t: string) => unknown }).unsafe).mock.calls.map((c) => String(c[0]));
+    vi.mocked((sql as unknown as { unsafe: (t: string) => unknown }).unsafe).mockClear();
+    queued([]);
+    await previewBankSync(COMPANY, WINDOW);
+    expect(spliced()).toContain('ORDER BY bt.transaction_date, bt.id');
+    expect(spliced()).not.toContain('FOR UPDATE OF bt');
+    vi.mocked((sql as unknown as { unsafe: (t: string) => unknown }).unsafe).mockClear();
+    queued([]);
+    await applyBankSync(COMPANY, BATCH, { tagBatchId: BATCH });
+    expect(spliced()).toContain('ORDER BY bt.id');
+    expect(spliced()).toContain('FOR UPDATE OF bt');
+    expect(spliced()).not.toContain('ORDER BY bt.transaction_date, bt.id');
   });
 
   it('over the cap: the total is reported, the list is cut to the cap, and the flag says the live call would refuse', async () => {
@@ -139,6 +158,28 @@ describe('the statement bound', () => {
     bound('600000');
     await withBoundedStatements(async () => 'ok', 5000);
     expect(applied()[0]).toBe('5000ms');
+  });
+
+  it('restores statement_timeout AND jit after a non-timeout error, then re-throws that error untouched (item 5)', async () => {
+    bound('0');
+    const boom = Object.assign(new Error('boom'), { code: '23505' });
+    await expect(withBoundedStatements(async () => { throw boom; }, 5000)).rejects.toBe(boom);
+    const sets = mockSql.mock.calls.filter((c) => (c[0] as string[]).join('?').includes('set_config'));
+    expect(sets).toHaveLength(2);
+    expect(sets[1]!.slice(1)).toEqual(['0ms', 'on']);
+  });
+
+  it('a restore that fails (an aborted transaction) is logged and never replaces the error that caused it', async () => {
+    const boom = new Error('original');
+    let restores = 0;
+    mockSql.mockImplementation(async (...args: unknown[]) => {
+      const text = (args[0] as string[]).join('?');
+      if (text.includes('pg_settings')) return [{ timeout_ms: '0', jit: 'on' }];
+      if (text.includes('set_config') && (restores += 1) === 2) throw Object.assign(new Error('current transaction is aborted'), { code: '25P02' });
+      return [];
+    });
+    await expect(withBoundedStatements(async () => { throw boom; })).rejects.toBe(boom);
+    expect(restores).toBe(2);
   });
 
   it('turns a cancelled statement (57014) into the typed refusal naming the remedy, and re-throws anything else', async () => {

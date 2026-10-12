@@ -11,6 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/modules/accounting/services/gl/dimensions/dimensionBankSync', () => ({
   applyBankSync: vi.fn(async () => 0), countBankRowDrift: vi.fn(async () => 0),
   countBankRows: vi.fn(async () => 0), lockBatchBankRows: vi.fn(async () => undefined), restoreBankRows: vi.fn(async () => undefined),
+  withBoundedStatements: vi.fn(async (fn: () => Promise<unknown>) => fn()),
 }));
 
 import { sql } from '@/lib/neon';
@@ -19,7 +20,7 @@ import {
   applyDimensionTags, applyTagBatchReversal, assertKeyIsFor, findTagBatchByKey, planTagBatchReversal,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import {
-  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows,
+  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows, withBoundedStatements,
 } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -43,6 +44,7 @@ beforeEach(() => {
   vi.mocked(countBankRowDrift).mockReset().mockResolvedValue(0);
   vi.mocked(countBankRows).mockReset().mockResolvedValue(0);
   vi.mocked(lockBatchBankRows).mockReset().mockResolvedValue(undefined);
+  vi.mocked(withBoundedStatements).mockReset().mockImplementation(async (fn) => fn());
   vi.mocked(restoreBankRows).mockReset().mockResolvedValue(undefined);
 });
 
@@ -166,51 +168,60 @@ describe('an idempotency key names one batch of one kind and window', () => {
 });
 
 describe('reverse_dimension_tag_batch', () => {
+  // sql call 0 = the batch row, 1 = the batch's journal-line lock, 2 = the line drift count.
+  const batchRow = (over: Record<string, unknown> = {}) => ({ id: BATCH, reversed_at: null, line_count: 1, is_restatement: false, ...over });
+
   it('refuses an already reversed batch and one whose lines were re-tagged since', async () => {
-    mockSql.mockResolvedValueOnce([{ id: BATCH, reversed_at: new Date(), line_count: 1, is_restatement: false }]);
+    mockSql.mockResolvedValueOnce([batchRow({ reversed_at: new Date() })]);
     await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/already reversed/);
-    mockSql
-      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 2, is_restatement: false }])
-      .mockResolvedValueOnce([{ n: 1 }]);
+    mockSql.mockResolvedValueOnce([batchRow({ line_count: 2 })]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 1 }]);
     await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/re-tagged after it/);
   });
 
   it('refuses when a bank row of the batch was re-tagged since', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: false }])
-      .mockResolvedValueOnce([{ n: 0 }]);
+    mockSql.mockResolvedValueOnce([batchRow()]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 0 }]);
     vi.mocked(countBankRowDrift).mockResolvedValueOnce(2);
     await expect(planTagBatchReversal(COMPANY, BATCH)).rejects.toThrow(/2 bank transaction\(s\) of batch .* re-tagged after it/);
   });
 
-  it('locks the batch\'s bank rows BEFORE it checks them for drift', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: false }])
-      .mockResolvedValueOnce([{ n: 0 }]);
+  it('locks the batch\'s LINES, then its bank rows (the order tagging writes them in), before any drift check', async () => {
+    mockSql.mockResolvedValueOnce([batchRow()]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 0 }]);
     await planTagBatchReversal(COMPANY, BATCH);
+    expect(sqlText(1)).toMatch(/SELECT jl\.id FROM gl_journal_lines jl[\s\S]*ORDER BY jl\.id\s+FOR UPDATE OF jl/);
     expect(lockBatchBankRows).toHaveBeenCalledWith(COMPANY, BATCH);
-    expect(vi.mocked(lockBatchBankRows).mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(countBankRowDrift).mock.invocationCallOrder[0]!);
+    const bankLock = vi.mocked(lockBatchBankRows).mock.invocationCallOrder[0]!;
+    expect(mockSql.mock.invocationCallOrder[1]!).toBeLessThan(bankLock);
+    expect(bankLock).toBeLessThan(mockSql.mock.invocationCallOrder[2]!);
+    expect(bankLock).toBeLessThan(vi.mocked(countBankRowDrift).mock.invocationCallOrder[0]!);
+  });
+
+  it('takes both locks inside the tighten-only statement bound, worded for a reversal', async () => {
+    mockSql.mockResolvedValueOnce([batchRow()]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 0 }]);
+    await planTagBatchReversal(COMPANY, BATCH);
+    expect(withBoundedStatements).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(withBoundedStatements).mock.calls[0]![2]).toMatchObject({ what: 'reversal lock wait' });
+    // The lines' lock is made INSIDE the bound: the bound ran before the first statement after the batch row.
+    expect(vi.mocked(withBoundedStatements).mock.invocationCallOrder[0]!).toBeLessThan(mockSql.mock.invocationCallOrder[1]!);
   });
 
   it('plans the line count AND the bank-row count (a sync batch has no lines)', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 0, is_restatement: false }])
-      .mockResolvedValueOnce([{ n: 0 }]);
+    mockSql.mockResolvedValueOnce([batchRow({ line_count: 0 })]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 0 }]);
     vi.mocked(countBankRows).mockResolvedValueOnce(7);
     expect(await planTagBatchReversal(COMPANY, BATCH)).toEqual({ batchId: BATCH, lineCount: 0, bankRowCount: 7, isRestatement: false });
   });
 
   it('restores the OLD values on the lines AND the bank rows, then marks the batch reversed', async () => {
     mockSql
-      .mockResolvedValueOnce([{ id: BATCH, reversed_at: null, line_count: 1, is_restatement: true }])
+      .mockResolvedValueOnce([batchRow({ is_restatement: true })])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ n: 0 }])
       .mockResolvedValue([]);
     const plan = await planTagBatchReversal(COMPANY, BATCH);
     await applyTagBatchReversal(COMPANY, plan, { userId: 'user-1' });
-    expect(sqlText(2)).toMatch(/SET cc1_id = bl\.old_cc1_id, cc2_id = bl\.old_cc2_id, bu_id = bl\.old_bu_id/);
+    expect(sqlText(3)).toMatch(/SET cc1_id = bl\.old_cc1_id, cc2_id = bl\.old_cc2_id, bu_id = bl\.old_bu_id/);
     expect(restoreBankRows).toHaveBeenCalledWith(COMPANY, BATCH);
-    expect(vi.mocked(restoreBankRows).mock.invocationCallOrder[0]!).toBeGreaterThan(mockSql.mock.invocationCallOrder[2]!);
-    expect(sqlText(3)).toMatch(/UPDATE dimension_tag_batches\s+SET reversed_at = NOW\(\)/);
-    expect(vi.mocked(restoreBankRows).mock.invocationCallOrder[0]!).toBeLessThan(mockSql.mock.invocationCallOrder[3]!);
+    expect(vi.mocked(restoreBankRows).mock.invocationCallOrder[0]!).toBeGreaterThan(mockSql.mock.invocationCallOrder[3]!);
+    expect(sqlText(4)).toMatch(/UPDATE dimension_tag_batches\s+SET reversed_at = NOW\(\)/);
+    expect(vi.mocked(restoreBankRows).mock.invocationCallOrder[0]!).toBeLessThan(mockSql.mock.invocationCallOrder[4]!);
   });
 });

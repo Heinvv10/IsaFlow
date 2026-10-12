@@ -170,6 +170,48 @@ describe('the row cap (blind LOW)', () => {
   });
 });
 
+describe('the dry-run sample is the EARLIEST rows of the window, whatever their ids (blind LOW)', () => {
+  it('ids sort against the dates: the cut and the sample still take the earliest dates', async () => {
+    const f = await fresh();
+    // id order is the reverse of date order.
+    const rows = [
+      { id: 'ffffffff-0000-4000-8000-0000000000a1', date: '2026-02-01' },
+      { id: 'cccccccc-0000-4000-8000-0000000000a1', date: '2026-04-01' },
+      { id: '99999999-0000-4000-8000-0000000000a1', date: '2026-06-01' },
+      { id: '00000000-0000-4000-8000-0000000000a1', date: '2026-08-01' },
+    ];
+    for (const r of rows) await allocate(pool, f, { cc2: code(f, 'P1'), txId: r.id, date: r.date });
+    const p = await previewBankSync(f.c, { dateFrom: '2026-01-01', dateTo: '2026-12-31' }, { sample: 2, maxRows: 3 });
+    expect(p).toMatchObject({ count: 4, overMaxRows: true, maxRows: 3 });
+    expect(p.sample.map((r) => r.transactionDate)).toEqual(['2026-02-01', '2026-04-01']);
+    expect(p.blanking).toEqual([]);
+    const tool = json<{ sample: { date: string }[] }>(await sync(f, true));
+    expect(tool.sample.map((r) => r.date)).toEqual(['2026-02-01', '2026-04-01', '2026-06-01', '2026-08-01']);
+  });
+});
+
+describe('the reversal\'s lock wait is bounded like the forward path (blind LOW)', () => {
+  it('a bank row held by another session makes the reversal plan fail as the typed refusal, not hang or leak a raw cancel', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const batch = json<{ batch_id: string }>(await sync(f, false)).batch_id;
+    const blocker = await pool.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE', [a.tx]);
+      const started = Date.now();
+      await expect(asToken(pool, f.user, f.c, async () => {
+        await sql`SET LOCAL statement_timeout = '500ms'`;
+        return planTagBatchReversal(f.c, batch);
+      })).rejects.toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED', message: expect.stringMatching(/reversal lock wait ran longer than 0\.5s and was cancelled: another request/) });
+      expect(Date.now() - started).toBeLessThan(5000);
+    } finally {
+      await blocker.query('ROLLBACK');
+      blocker.release();
+    }
+  });
+});
+
 describe('the server-side bound on the candidate read', () => {
   it('cancels a read that outruns it as the typed refusal, and puts the caller\'s own settings back', async () => {
     const f = await fresh();
