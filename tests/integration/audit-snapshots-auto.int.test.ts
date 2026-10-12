@@ -18,7 +18,6 @@ import { cleanupAudit, plantFiscalYear, plantJournal, plantLedger, waitForSnapsh
 import { mcpRun } from './audit-snapshots-mcp.helpers';
 import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriods';
 import { als, type RequestContext } from '../../src/lib/als';
-import { drainAfterCommit } from '../../src/lib/afterCommit';
 import { withSavepoint } from '../../src/lib/neon';
 import { closePeriod } from '../../src/modules/accounting/services/gl/fiscalPeriodService';
 
@@ -129,8 +128,8 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
       await client.query('COMMIT');
     } finally { client.release(); }
     expect(ctx.afterCommit).toHaveLength(1);
-    drainAfterCommit(ctx);
-    await new Promise((r) => setTimeout(r, 2500));
+    // Run the queued work itself and wait for it (drainAfterCommit detaches it; a snapshot takes seconds under load).
+    await ctx.afterCommit![0]!.fn();
     expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([]);
     const { rows: [p] } = await pool.query('SELECT status FROM fiscal_periods WHERE id = $1', [periods[0]]);
     expect(p.status).toBe('open');
