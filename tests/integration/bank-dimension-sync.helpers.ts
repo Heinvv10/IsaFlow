@@ -69,17 +69,18 @@ export async function syncFixture(pool: Pool, tokens: Record<string, string>, co
 }
 
 /** A hand-keyed bank row (imported, unallocated) of `amount` on `date`. */
-export async function plantBankTx(pool: Pool, f: SyncFixture, amount: number, date = '2026-09-01'): Promise<string> {
+export async function plantBankTx(pool: Pool, f: SyncFixture, amount: number, date = '2026-09-01', id?: string): Promise<string> {
   return (await pool.query(
-    `INSERT INTO bank_transactions(company_id, bank_account_id, transaction_date, amount, description, status)
-     VALUES($1,$2,$3::DATE,$4,'BDS line','imported') RETURNING id`, [f.c, f.bank, date, amount])).rows[0].id as string;
+    `INSERT INTO bank_transactions(id, company_id, bank_account_id, transaction_date, amount, description, status)
+     VALUES(COALESCE($5::UUID, gen_random_uuid()),$1,$2,$3::DATE,$4,'BDS line','imported') RETURNING id`,
+    [f.c, f.bank, date, amount, id ?? null])).rows[0].id as string;
 }
 
-export interface AllocOpts { amount?: number; date?: string; vat?: 'standard'; cc1?: string; cc2?: string; bu?: string; account?: string }
+export interface AllocOpts { txId?: string; amount?: number; date?: string; vat?: 'standard'; cc1?: string; cc2?: string; bu?: string; account?: string }
 
 /** A bank row allocated by allocate_bank_transaction to one expense account; returns the row and its journal. */
 export async function allocate(pool: Pool, f: SyncFixture, opts: AllocOpts = {}): Promise<{ tx: string; journal: string }> {
-  const tx = await plantBankTx(pool, f, opts.amount ?? -1150, opts.date);
+  const tx = await plantBankTx(pool, f, opts.amount ?? -1150, opts.date, opts.txId);
   const res = await mcpAs(pool)(f.user, f.c, 'allocate_bank_transaction', {
     transaction_id: tx, alloc_type: 'account', contra_account_id: opts.account ?? f.expA,
     ...(opts.vat ? { vat_code: opts.vat } : {}),

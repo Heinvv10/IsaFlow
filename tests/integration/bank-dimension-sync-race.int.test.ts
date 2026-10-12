@@ -15,7 +15,7 @@ import { asToken } from './bank-controls-a.helpers';
 import {
   allocate, bankDims, cleanupSync, json, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
-import { writeBankRows } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { applyBankSyncBatch, writeBankRows } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { sql } from '../../src/lib/neon';
 
 const hooks = vi.hoisted(() => ({ afterCandidateSelect: null as null | (() => Promise<void>), fired: 0 }));
@@ -84,6 +84,42 @@ describe('the candidate rows are locked from the read to the commit', () => {
     expect(res.isError, res.content[0]!.text).toBeFalsy();
     expect(json<{ bank_rows_synced: number }>(res).bank_rows_synced).toBe(1);
     expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F1, cc2: f.cc.P1, bu: null });
+  });
+});
+
+describe('candidate rows are locked in id order, so two syncs cannot deadlock (breaker H3)', () => {
+  it('a sync waiting on the LATER row already holds the EARLIER one', async () => {
+    const f = await fresh();
+    // Planted later-id first, so an unordered scan would reach it first.
+    const later = await allocate(pool, f, { cc2: code(f, 'P1'), txId: 'ffffffff-0000-4000-8000-000000000001' });
+    const earlier = await allocate(pool, f, { cc2: code(f, 'P2'), txId: '00000000-0000-4000-8000-000000000001' });
+    const blocker = await other.connect();
+    const probe = await other.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE', [later.tx]);
+      const syncing = asToken(pool, f.user, f.c, () => applyBankSyncBatch(
+        f.c, { dateFrom: '2026-01-01', dateTo: '2026-12-31' }, { idempotencyKey: newKey('order'), userId: f.user }));
+      for (let i = 0; i < 100; i += 1) {
+        const waiting = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF bt%' AND datname = current_database()");
+        if (waiting.rowCount) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      let probed = 'acquired';
+      try {
+        await probe.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE NOWAIT', [earlier.tx]);
+      } catch (err) {
+        probed = (err as { code?: string }).code ?? String(err);
+      }
+      await blocker.query('COMMIT');
+      expect(probed).toBe('55P03');
+      expect((await syncing).bankRowCount).toBe(2);
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined);
+      blocker.release();
+      probe.release();
+    }
   });
 });
 
