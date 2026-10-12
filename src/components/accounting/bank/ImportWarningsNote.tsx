@@ -3,6 +3,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 
 /** More messages than this start collapsed. */
 const OPEN_UP_TO = 3;
+/** An open list shows at most this many, then how many more (a bad statement can raise thousands). */
+const SHOW_AT_MOST = 50;
 
 /**
  * The import's own problems for one file — a failed auto-post ("… still
@@ -27,7 +29,8 @@ export function ImportWarningsNote({ warnings }: { warnings: readonly string[] }
       )}
       {open && (
         <ul className="mt-1 space-y-0.5 break-words">
-          {warnings.map((w, i) => <li key={i}>{w}</li>)}
+          {warnings.slice(0, SHOW_AT_MOST).map((w, i) => <li key={i}>{w}</li>)}
+          {warnings.length > SHOW_AT_MOST && <li>… and {warnings.length - SHOW_AT_MOST} more</li>}
         </ul>
       )}
     </div>
