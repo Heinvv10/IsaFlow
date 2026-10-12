@@ -6,10 +6,12 @@
  *
  * Key: AUDIT_SNAPSHOT_SIGNING_KEY (≥ 32 characters) + AUDIT_SNAPSHOT_KEY_ID.
  * Rotation keeps the old keys for verification: AUDIT_SNAPSHOT_RETIRED_KEYS is
- * `id=secret,id=secret` (each secret ≥ 32 characters, no commas). A seal under the
- * current or a retired key verifies against that key; under any other key id it
- * is `invalid` — the key id is the writer's input, so one the server holds no key
- * for proves nothing and must not read as "cannot tell".
+ * `id=secret@retired-at,…` (each secret ≥ 32 characters, no commas; retired-at an
+ * ISO instant, e.g. 2026-10-12T14:00:00Z). A seal under a retired key verifies only
+ * when it was taken BEFORE that instant: rotating away from a leaked key stops
+ * forgeries under it (taken_at is the writer's now(), not the caller's). Under any
+ * other key id a seal is `invalid` — the key id is the writer's input, so one the
+ * server holds no key for proves nothing and must not read as "cannot tell".
  */
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -25,19 +27,29 @@ export class SigningKeyMissingError extends Error {
   }
 }
 
-export interface SigningKey { key: Buffer; keyId: string; retired?: ReadonlyMap<string, Buffer> }
+/** A retired key: verifies seals taken before `retiredAt` (epoch ms) only. */
+export interface RetiredKey { key: Buffer; retiredAt: number }
+
+export interface SigningKey { key: Buffer; keyId: string; retired?: ReadonlyMap<string, RetiredKey> }
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 export function signingKey(): SigningKey {
   const raw = process.env.AUDIT_SNAPSHOT_SIGNING_KEY ?? '';
   const keyId = (process.env.AUDIT_SNAPSHOT_KEY_ID ?? '').trim();
   if (raw.length < MIN_KEY_LENGTH || keyId === '') throw new SigningKeyMissingError();
-  const retired = new Map<string, Buffer>();
+  const retired = new Map<string, RetiredKey>();
   for (const entry of (process.env.AUDIT_SNAPSHOT_RETIRED_KEYS ?? '').split(',')) {
-    const at = entry.indexOf('=');
-    const id = entry.slice(0, at).trim();
-    const secret = entry.slice(at + 1);
-    // A malformed entry is left out: its seals then read invalid (fail closed), never valid.
-    if (at > 0 && id !== keyId && secret.length >= MIN_KEY_LENGTH) retired.set(id, Buffer.from(secret, 'utf8'));
+    const eq = entry.indexOf('=');
+    const stamp = entry.lastIndexOf('@');
+    const id = entry.slice(0, eq).trim();
+    const secret = entry.slice(eq + 1, stamp);
+    const when = entry.slice(stamp + 1).trim();
+    const retiredAt = ISO_INSTANT.test(when) ? Date.parse(when) : NaN;
+    // A malformed entry (no instant included) is left out: its seals then read invalid (fail closed), never valid.
+    if (eq > 0 && stamp > eq && id !== keyId && secret.length >= MIN_KEY_LENGTH && Number.isFinite(retiredAt)) {
+      retired.set(id, { key: Buffer.from(secret, 'utf8'), retiredAt });
+    }
   }
   return { key: Buffer.from(raw, 'utf8'), keyId, retired };
 }
@@ -64,7 +76,10 @@ export type SealCheck = 'valid' | 'invalid';
 
 /** Timing-safe: the comparison does not stop at the first differing byte. */
 export function checkSeal(domain: string, f: SealFields, hmac: string, keyId: string, k: SigningKey = signingKey()): SealCheck {
-  const key = keyId === k.keyId ? k.key : k.retired?.get(keyId);
+  const old = keyId === k.keyId ? null : k.retired?.get(keyId);
+  // A retired key vouches only for what was sealed before it was retired.
+  if (old && !(Date.parse(f.takenAt) < old.retiredAt)) return 'invalid';
+  const key = keyId === k.keyId ? k.key : old?.key;
   if (!key) return 'invalid';
   const expected = Buffer.from(hmacHex(key, sealMessage(domain, f)), 'hex');
   const given = Buffer.from(/^[0-9a-f]{64}$/.test(hmac) ? hmac : '', 'hex');

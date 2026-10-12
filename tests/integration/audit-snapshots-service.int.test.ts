@@ -126,7 +126,7 @@ describe('verifying', { timeout: 120_000 }, () => {
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
     const { rows: [line] } = await pool.query("SELECT line_id FROM audit_snapshot_lines WHERE snapshot_id = $1 AND row->>'debit' <> '0.00' LIMIT 1", [s.id]);
     await alter('audit_snapshot_lines', `UPDATE audit_snapshot_lines SET row = jsonb_set(row, '{debit}', '"1.00"') WHERE snapshot_id = $1 AND line_id = $2`, [s.id, line.line_id]);
-    const rotated = { key: Buffer.from('n'.repeat(48)), keyId: 'rotated', retired: new Map([[KEY.keyId, KEY.key]]) };
+    const rotated = { key: Buffer.from('n'.repeat(48)), keyId: 'rotated', retired: new Map([[KEY.keyId, { key: KEY.key, retiredAt: Date.now() + 3_600_000 }]]) };
     expect((await read(c, () => verifySnapshot(c, s.id, rotated)))!.status).toBe('invalid');
     // Untouched: verifies under the retired key after rotation; without that key held, it cannot be vouched for.
     const t = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
@@ -184,7 +184,7 @@ describe('verifying', { timeout: 120_000 }, () => {
     const forged = await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
     expect((await read(c, () => verifySnapshot(c, forged, KEY)))!.status).toBe('invalid');
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
-    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('o'.repeat(48)), keyId: 'other', retired: new Map([[KEY.keyId, KEY.key]]) })))!.status).toBe('valid');
+    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('o'.repeat(48)), keyId: 'other', retired: new Map([[KEY.keyId, { key: KEY.key, retiredAt: Date.now() + 3_600_000 }]]) })))!.status).toBe('valid');
     expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('o'.repeat(48)), keyId: 'other' })))!.status).toBe('invalid');
     expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('t'.repeat(48)), keyId: KEY.keyId })))!.status).toBe('invalid');
   });
@@ -214,9 +214,23 @@ describe('the chain', { timeout: 120_000 }, () => {
     } finally { db.release(); }
     const chain = await read(c, () => verifyChain(c, KEY));
     expect(chain.status).toBe('broken');
-    expect(chain.breaks.map((b) => b.seq)).toEqual([3, 3]);
+    expect(chain.breaks.map((b) => b.seq)).toEqual([3]);
     // Each remaining snapshot on its own still verifies: only the chain shows the removal.
     expect((await read(c, () => verifySnapshot(c, ids[2]!, KEY)))!.status).toBe('valid');
+  });
+
+  it('a forged link written through the writer is skipped: the next genuine one names the last verifying link (breaker r2 N2)', async () => {
+    const { c } = await books();
+    const first = await takeSnapshot(principal(c), { cutoff: '2026-04-30', trigger: 'manual' });
+    // Through the writer with the owner's claims but without the key: numbered 2, naming link 1 — its seal is made up.
+    const forged = await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
+    const second = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const { rows } = await pool.query('SELECT id::text AS id, seq, prev_hmac, hmac FROM audit_snapshots WHERE company_id = $1 ORDER BY seq', [c]);
+    expect(rows.map((r) => [r.id, r.seq])).toEqual([[first.id, 1], [forged, 2], [second.id, 3]]);
+    expect(rows[2].prev_hmac).toBe(rows[0].hmac);
+    const chain = await read(c, () => verifyChain(c, KEY));
+    expect(chain).toMatchObject({ status: 'valid', length: 2, head: { seq: 3, snapshotId: second.id }, breaks: [],
+      forged: [{ seq: 2, snapshotId: forged }] });
   });
 
   it('a second snapshot asked for by hand while one runs for the company is refused, not queued', async () => {

@@ -91,34 +91,39 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
 }
 
 export interface ChainVerification {
-  /** valid: links 1..n, each naming the one before, every seal good. broken: a gap, a wrong link or a bad seal. */
+  /**
+   * valid: every sealed row whose seal verifies names the verifying row before it (the first names none).
+   * broken: one names a row that is missing or not the previous verifying one — a link was removed or replaced.
+   */
   status: 'valid' | 'broken' | 'empty';
   length: number;
   head: { seq: number; snapshotId: string; hmac: string } | null;
   breaks: { seq: number | null; snapshotId: string; reason: string }[];
+  /** Sealed rows whose seal does not verify — written without the key; the chain skips them. */
+  forged: { seq: number; snapshotId: string }[];
 }
 
 /**
- * The company's chain of sealed snapshots, link by link: seq 1, 2, 3, … with no gap, each prev_hmac the previous
- * snapshot's hmac, and each seal good over its STORED canonical hash and chain position (cheap: no rows are read —
- * whether a snapshot's rows match its hash is verifySnapshot's question). A removed or replaced snapshot inside the
- * chain breaks it; a removed LATEST one is visible only against the chain head the app logs on every seal.
+ * The company's chain of sealed snapshots, link by link (cheap: no rows are read — whether a snapshot's rows match
+ * its hash is verifySnapshot's question). Each row's seal is checked over its STORED canonical hash and chain
+ * position; a row that does not verify is forged and skipped (the app never chains to one), and each verifying row
+ * must name the verifying row before it. A removed or replaced link breaks the chain; a removed LATEST one is visible
+ * only against the chain head the app logs on every seal.
  */
 export async function verifyChain(companyId: string, key: SigningKey = signingKey()): Promise<ChainVerification> {
-  const sealed = await sealedChain(companyId);
   const breaks: ChainVerification['breaks'] = [];
-  sealed.forEach((s, i) => {
-    const expected = i + 1;
-    if (s.seq !== expected) breaks.push({ seq: s.seq, snapshotId: s.id, reason: `expected seq ${expected} (a snapshot is missing before it)` });
-    const prev = sealed[i - 1];
-    if ((s.prevHmac ?? null) !== (prev?.hmac ?? null)) breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot' });
+  const forged: ChainVerification['forged'] = [];
+  let last: { seq: number; snapshotId: string; hmac: string } | null = null;
+  let length = 0;
+  for (const s of await sealedChain(companyId)) {
     const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash, cutoff: s.cutoff,
       takenAt: s.takenAt, chain: { seq: s.seq, prevHmac: s.prevHmac } }, s.hmac, s.keyId, key);
-    if (seal === 'invalid') breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'seal does not verify' });
-  });
-  const last = sealed[sealed.length - 1];
-  return {
-    status: sealed.length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid',
-    length: sealed.length, head: last ? { seq: last.seq, snapshotId: last.id, hmac: last.hmac } : null, breaks,
-  };
+    if (seal !== 'valid') { forged.push({ seq: s.seq, snapshotId: s.id }); continue; }
+    if (s.prevHmac !== (last?.hmac ?? null)) {
+      breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot (one was removed or replaced)' });
+    }
+    last = { seq: s.seq, snapshotId: s.id, hmac: s.hmac };
+    length += 1;
+  }
+  return { status: length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid', length, head: last, breaks, forged };
 }

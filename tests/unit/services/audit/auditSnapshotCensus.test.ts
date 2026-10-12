@@ -36,14 +36,13 @@ const AUDIT_TABLE = /\baudit_(?:snapshots|snapshot_tb|snapshot_journals|snapshot
 
 describe('the audit tables', () => {
   it('only the audit readers name them outside 890 (the writers are definers); the MCP tool shares one name', () => {
-    // snapshotRead: every read; snapshotService: the chain's last link; snapshotAttempts: the 'unchanged' check.
+    // snapshotRead: every read (the chain's links included); snapshotAttempts: the 'unchanged' twin.
     expect(filesMatching(AUDIT_TABLE)).toEqual([
       'src/lib/mcp/clientMetadata.ts',
       'src/lib/mcp/flowMetering.ts',
       'src/lib/mcp/tools/auditSnapshots.ts',
       'src/modules/accounting/services/audit/snapshotAttempts.ts',
       'src/modules/accounting/services/audit/snapshotRead.ts',
-      'src/modules/accounting/services/audit/snapshotService.ts',
     ]);
     // In those three the only mention is the tool's name — never a table in SQL (FROM / JOIN / INTO / UPDATE / TABLE).
     for (const f of code().filter(({ file }) => file.startsWith('src/lib/mcp/'))) {

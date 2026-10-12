@@ -3,8 +3,8 @@
  *
  * Read-only auditor endpoint. Validates the bearer token against the
  * bcrypt hash stored on audit_portal_sessions, then streams the pack
- * associated with the referenced export — the snapshot pack's ZIP, or an
- * older pack's PDF. No company session required —
+ * associated with the referenced export — the snapshot pack's ZIP (only when
+ * its sealed manifest verifies), or an older pack's PDF. No company session required —
  * the auditor is not an ISAFlow user. Bumps last_used_at + use_count.
  */
 
@@ -17,6 +17,8 @@ import {
   getExport,
   exportDownload,
 } from '@/modules/accounting/services/capture/auditTrailExportService';
+import { respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
+import { verifiedPackZip } from '@/modules/accounting/services/audit/packExport';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -33,17 +35,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const file = ex ? exportDownload(ex) : null;
   if (!ex || !file) return apiResponse.notFound(res, 'Audit export', verified.exportId);
 
-  res.setHeader('Content-Type', file.contentType);
-  res.setHeader('Content-Disposition', `${file.contentType === 'application/pdf' ? 'inline' : 'attachment'}; filename="${file.filename}"`);
-  res.setHeader('X-Content-SHA256', file.sha256);
+  const headers = () => {
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `${file.contentType === 'application/pdf' ? 'inline' : 'attachment'}; filename="${file.filename}"`);
+    res.setHeader('X-Content-SHA256', file.sha256);
+  };
 
   // HEAD — validate access + surface headers without hitting object storage
   if (req.method === 'HEAD') {
+    headers();
     res.status(200).end();
     return;
   }
 
-  res.status(200).send(await downloadCapturedDocument(file.bucket, file.path));
+  let bytes: Buffer;
+  try {
+    // A snapshot pack's ZIP is served only when its sealed manifest verifies: the auditor holds no key to check it.
+    bytes = file.contentType === 'application/zip'
+      ? await verifiedPackZip(verified.companyId, ex) : await downloadCapturedDocument(file.bucket, file.path);
+  } catch (err) {
+    if (respondAuditRefusal(res, err)) return;
+    throw err;
+  }
+  headers();
+  res.status(200).send(bytes);
 }
 
 export default withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]);

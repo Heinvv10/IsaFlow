@@ -2,7 +2,7 @@
  * Column census for the frozen journal and line rows (breaker r1 F2): every column of gl_journal_entries and
  * gl_journal_lines is either in the snapshot's canonical row — so a later change to it shows as "changed" and
  * breaks the material hash — or named here as not material, with the reason. A column added later fails this until
- * someone decides which.
+ * someone decides which. The decisions live in tests/helpers/auditSnapshotColumns.ts (the unit census reads them too).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -11,6 +11,7 @@ import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantJournal, plantLedger } from './audit-snapshots.helpers';
 import { runAuditTx } from '../../src/modules/accounting/services/audit/auditTx';
 import { journalRows, lineRows } from '../../src/modules/accounting/services/audit/snapshotRows';
+import { NOT_MATERIAL, RENAMED } from '../helpers/auditSnapshotColumns';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -19,24 +20,6 @@ const tokens: Record<string, string> = {};
 let o = '';
 beforeAll(async () => { [o] = await members(pool, tokens, 1); });
 afterAll(() => cleanupAudit(pool, companies, [o]));
-
-/** Column → the canonical row key it is frozen under, where the names differ. */
-const RENAMED: Record<string, string> = { journal_entry_id: 'journal_id', gl_account_id: 'account_id' };
-
-const NOT_MATERIAL: Record<string, Record<string, string>> = {
-  gl_journal_entries: {
-    company_id: 'the snapshot is one company\'s; the row cannot move tenants unseen (RLS, composite keys)',
-    updated_at: 'bookkeeping: changes with any touch; every material column is frozen itself',
-    cost_center_id: 'legacy CC1 column, read by nothing (cc1_id on the lines is the one CC1)',
-    extraction_confidence: 'capture AI score; says nothing about what was posted',
-  },
-  gl_journal_lines: {
-    company_id: 'as on the journal',
-    created_at: 'the line is created with its journal; the journal\'s created_at / posted_at are frozen',
-    updated_at: 'bookkeeping',
-    cost_center_id: 'legacy CC1 column, read by nothing (cc1_id is frozen)',
-  },
-};
 
 async function columns(table: string): Promise<string[]> {
   const { rows } = await pool.query(

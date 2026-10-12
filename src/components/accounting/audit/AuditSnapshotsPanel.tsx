@@ -23,7 +23,10 @@ const VERDICT: Record<Verification['status'], { text: string; cls: string }> = {
 /** A close or VAT lock with no snapshot recorded after it; `pending` while its automatic snapshot may still be running. */
 interface Unrecorded { trigger: string; cutoff: string; lockedAt: string; pending?: boolean }
 
-interface ChainResult { status: 'valid' | 'broken' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[] }
+interface ChainResult {
+  status: 'valid' | 'broken' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[];
+  forged?: { seq: number }[];
+}
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [rows, setRows] = useState<SnapshotSummary[]>([]);
@@ -119,9 +122,14 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
       </div>
       {chain && (
         <div className={`px-6 py-2 border-b border-[rgba(255,255,255,0.06)] text-xs ${chain.status === 'broken' ? 'text-red-400' : chain.status === 'valid' ? 'text-teal-300' : 'text-slate-400'}`}>
-          {chain.status === 'valid' && `Chain intact: ${chain.length} sealed snapshots, numbered without a gap, each naming the one before.`}
+          {chain.status === 'valid' && `Chain intact: ${chain.length} sealed snapshots, each naming the one before.`}
           {chain.status === 'empty' && 'No sealed snapshots yet.'}
           {chain.status === 'broken' && `CHAIN BROKEN: ${chain.breaks.map((b) => `#${b.seq ?? '?'} ${b.reason}`).join('; ')}`}
+          {(chain.forged?.length ?? 0) > 0 && (
+            <span className="block text-amber-300">
+              {`${chain.forged!.length} sealed row(s) do not verify — written without the signing key — and are not part of the chain: ${chain.forged!.map((f) => `#${f.seq}`).join(', ')}.`}
+            </span>
+          )}
         </div>
       )}
       {lost.length > 0 && (

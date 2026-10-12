@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS audit_snapshots (
     REFERENCES audit_check_runs (company_id, id) ON DELETE CASCADE,
   CONSTRAINT audit_snapshots_shape_ck CHECK (
     (status = 'sealed' AND failure_reason IS NULL AND canonical_hash IS NOT NULL AND hmac IS NOT NULL AND key_id IS NOT NULL
-      AND seq IS NOT NULL AND (seq = 1) = (prev_hmac IS NULL) AND same_as_snapshot_id IS NULL)
+      AND seq IS NOT NULL AND (seq > 1 OR prev_hmac IS NULL) AND same_as_snapshot_id IS NULL)
     OR (status = 'failed' AND failure_reason IS NOT NULL AND canonical_hash IS NULL AND hmac IS NULL AND check_run_id IS NULL
       AND seq IS NULL AND prev_hmac IS NULL AND same_as_snapshot_id IS NULL)
     OR (status = 'unchanged' AND same_as_snapshot_id IS NOT NULL AND failure_reason IS NULL AND canonical_hash IS NULL
@@ -171,16 +171,36 @@ BEGIN
   END IF;
 END $$;
 
--- A ready pack is what the auditor downloads: its snapshot and ZIP pointers are fixed from the moment it is ready
--- (re-pointing pack B at pack A's ZIP, or at another uploaded file, by one UPDATE is refused).
+-- A ready pack is what the auditor downloads: its snapshot and file pointers are fixed from the moment it is ready
+-- (re-pointing pack B at pack A's ZIP, or at another uploaded file, by one UPDATE is refused); a row cannot be
+-- INSERTed already ready (a pack becomes ready only by being built), and a ready pack is not deleted except with
+-- its company. Defence in depth: the download routes verify the ZIP's sealed manifest before serving it anyway.
 CREATE OR REPLACE FUNCTION public.audit_trail_export_pack_guard() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status = 'ready' THEN
+      RAISE EXCEPTION 'audit_trail_exports: a pack is ready only once built' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.status = 'ready' AND EXISTS (SELECT 1 FROM public.companies c WHERE c.id = OLD.company_id) THEN
+      RAISE EXCEPTION 'audit_trail_exports: a ready pack is kept (removed only with its company)' USING ERRCODE = '42501';
+    END IF;
+    RETURN OLD;
+  END IF;
+  -- Into ready: only a pack built from a snapshot (a ZIP the download routes can verify), never a bare file pointer.
+  IF NEW.status = 'ready' AND OLD.status IS DISTINCT FROM 'ready'
+     AND (NEW.snapshot_id IS NULL OR NEW.zip_storage_path IS NULL OR NEW.zip_sha256 IS NULL) THEN
+    RAISE EXCEPTION 'audit_trail_exports: a pack is ready only with its snapshot and ZIP' USING ERRCODE = '42501';
+  END IF;
   IF OLD.status = 'ready' AND (NEW.status IS DISTINCT FROM OLD.status
       OR NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id OR NEW.zip_storage_bucket IS DISTINCT FROM OLD.zip_storage_bucket
       OR NEW.zip_storage_path IS DISTINCT FROM OLD.zip_storage_path OR NEW.zip_sha256 IS DISTINCT FROM OLD.zip_sha256
+      OR NEW.pdf_storage_bucket IS DISTINCT FROM OLD.pdf_storage_bucket
       OR NEW.pdf_storage_path IS DISTINCT FROM OLD.pdf_storage_path OR NEW.pdf_sha256 IS DISTINCT FROM OLD.pdf_sha256) THEN
     RAISE EXCEPTION 'audit_trail_exports: a ready pack''s snapshot and files are fixed' USING ERRCODE = '42501';
   END IF;
@@ -188,7 +208,7 @@ BEGIN
 END
 $$;
 DROP TRIGGER IF EXISTS audit_trail_export_pack_guard ON audit_trail_exports;
-CREATE TRIGGER audit_trail_export_pack_guard BEFORE UPDATE ON audit_trail_exports
+CREATE TRIGGER audit_trail_export_pack_guard BEFORE INSERT OR UPDATE OR DELETE ON audit_trail_exports
   FOR EACH ROW EXECUTE FUNCTION public.audit_trail_export_pack_guard();
 ALTER TABLE audit_trail_exports ENABLE ALWAYS TRIGGER audit_trail_export_pack_guard;
 REVOKE ALL ON FUNCTION public.audit_trail_export_pack_guard() FROM PUBLIC;
@@ -364,13 +384,16 @@ BEGIN
       OR pg_catalog.jsonb_array_length(COALESCE(p_journals, '[]')) > 0 OR pg_catalog.jsonb_array_length(COALESCE(p_lines, '[]')) > 0) THEN
     RAISE EXCEPTION 'audit snapshot: a failed or unchanged attempt records no rows' USING ERRCODE = '22023';
   END IF;
-  -- The chain: one link per sealed snapshot, in order, each naming the one before it.
+  -- The chain: one numbered row per sealed snapshot, in order, each naming an earlier sealed row (or none). The app
+  -- names the newest earlier row whose seal VERIFIES — the database cannot check an HMAC, so a forged row written
+  -- here is skipped by the next genuine link rather than becoming its predecessor; verifyChain reports it as forged.
   IF v_status = 'sealed' THEN
     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('audit_snapshot_chain:' || v_company::pg_catalog.text));
-    SELECT s.seq, s.hmac INTO v_prev_seq, v_prev_hmac FROM public.audit_snapshots s
-    WHERE s.company_id = v_company AND s.status = 'sealed' ORDER BY s.seq DESC LIMIT 1;
+    SELECT max(s.seq) INTO v_prev_seq FROM public.audit_snapshots s WHERE s.company_id = v_company AND s.status = 'sealed';
+    v_prev_hmac := p_snapshot ->> 'prev_hmac';
     IF (p_snapshot ->> 'seq')::pg_catalog.int4 IS DISTINCT FROM COALESCE(v_prev_seq, 0) + 1
-       OR (p_snapshot ->> 'prev_hmac') IS DISTINCT FROM v_prev_hmac THEN
+       OR (v_prev_hmac IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.audit_snapshots s
+             WHERE s.company_id = v_company AND s.status = 'sealed' AND s.hmac = v_prev_hmac)) THEN
       RAISE EXCEPTION 'audit snapshot: not the next link of this company''s chain (expected seq %)', COALESCE(v_prev_seq, 0) + 1
         USING ERRCODE = '40001';
     END IF;
@@ -473,8 +496,9 @@ BEGIN
   END LOOP;
 
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = 'public.audit_trail_exports'::pg_catalog.regclass
-                 AND t.tgname = 'audit_trail_export_pack_guard' AND t.tgenabled = 'A') THEN
-    RAISE EXCEPTION 'migration 890: audit_trail_exports must carry its ENABLE ALWAYS pack guard';
+                 AND t.tgname = 'audit_trail_export_pack_guard' AND t.tgenabled = 'A'
+                 AND (t.tgtype::pg_catalog.int4 & 28) = 28) THEN  -- INSERT (4), DELETE (8) and UPDATE (16)
+    RAISE EXCEPTION 'migration 890: audit_trail_exports must carry its ENABLE ALWAYS pack guard on INSERT, UPDATE and DELETE';
   END IF;
 
   -- FORCE RLS binds the writers' owner too: one without BYPASSRLS would be refused every insert.

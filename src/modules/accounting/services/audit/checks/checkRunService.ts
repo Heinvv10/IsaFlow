@@ -94,5 +94,5 @@ export async function takeCheckRun(p: AuditPrincipal, asAt: string): Promise<Rec
     const from = await fiscalYearStart(p.companyId, asAt);
     const results = await runAllChecks({ companyId: p.companyId, from, to: asAt });
     return recordCheckRun(client, p, { asAt, periodStart: from, purpose: 'standalone', results, key });
-  }));
+  }), p.userId);
 }
