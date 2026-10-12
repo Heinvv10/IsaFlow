@@ -659,6 +659,8 @@ describe('write-tool manifest invariants', () => {
       // lock_vat_period refuses on the missing period before reading anything;
       // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
       lock_vat_period: { ...KEY },
+      // Refused before reading anything: the scan's context holds no owner / admin role (and no cutoff is given).
+      take_audit_snapshot: { ...KEY },
       // Refuses on the missing action/kind/invoice_ids/reason before any
       // service call; behaviour in vatDeclaredElsewhereTool.test.ts.
       mark_vat_declared_elsewhere: { ...KEY },
