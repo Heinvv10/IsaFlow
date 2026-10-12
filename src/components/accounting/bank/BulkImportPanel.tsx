@@ -47,6 +47,7 @@ interface BulkSummary {
   imported: number;
   skipped: number;
   failed: number;
+  withProblems: number; // imported files whose own warnings (a failed auto-post, a parse error) are in their row
   totalTransactions: number;
 }
 
@@ -277,6 +278,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     let skipped = 0;
     let failed = 0;
     let totalTransactions = 0;
+    let withProblems = 0;
     const droppedByFile: DroppedPickLine[][] = []; // bank lines that auto-posted without their cost centre, by file (sequence)
 
     await runWithConcurrency(
@@ -298,6 +300,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           });
           if (data.status === 'imported') {
             imported++;
+            if (importWarnings.length > 0) withProblems++;
             droppedByFile[sequence - 1] = lines;
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
@@ -325,9 +328,11 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     );
 
     setIsCommitting(false);
-    setSummary({ bulkImportId, imported, skipped, failed, totalTransactions });
+    setSummary({ bulkImportId, imported, skipped, failed, withProblems, totalTransactions });
 
-    if (failed === 0 && imported > 0) {
+    if (failed === 0 && withProblems > 0) {
+      notify.warning(`Imported ${imported} statement${imported === 1 ? '' : 's'} — ${withProblems} with problems`, 'See the file rows below.');
+    } else if (failed === 0 && imported > 0) {
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
         `${totalTransactions} transactions added.`);
     } else if (imported > 0) {
@@ -481,14 +486,15 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       {summary && (
         <div className="rounded-xl border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] p-4">
           <div className="flex items-center gap-3">
-            {summary.failed === 0 ? (
+            {summary.failed === 0 && summary.withProblems === 0 ? (
               <CheckCircle2 className="h-6 w-6 text-emerald-500" />
             ) : (
               <AlertTriangle className="h-6 w-6 text-amber-500" />
             )}
             <div>
               <p className="text-base font-medium text-[var(--ff-text-primary)]">
-                {summary.failed === 0 ? 'Bulk import complete' : 'Bulk import finished with issues'}
+                {summary.failed > 0 ? 'Bulk import finished with issues' : summary.withProblems > 0
+                  ? `Bulk import complete — ${summary.withProblems} file${summary.withProblems === 1 ? ' has' : 's have'} problems` : 'Bulk import complete'}
               </p>
               <p className="text-xs text-[var(--ff-text-muted)]">
                 {summary.imported} imported · {summary.skipped} skipped · {summary.failed} failed
