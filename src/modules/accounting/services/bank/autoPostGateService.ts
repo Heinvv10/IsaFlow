@@ -11,6 +11,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { formatCurrency } from '@/utils/formatters';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
@@ -212,7 +213,14 @@ export async function sweep(
         continue;
       }
       posted += 1;
-      if (rowWarnings.length > 0) warnings.push({ txId: String(row.id), journalEntryId: rowJournalId, label: `${fmtDate(row.transaction_date)} R${Math.abs(Number(row.amount)).toFixed(2)}`.trim(), warnings: rowWarnings });
+      if (rowWarnings.length > 0) {
+        warnings.push({
+          txId: String(row.id),
+          journalEntryId: rowJournalId,
+          label: `${fmtDate(row.transaction_date)} ${formatCurrency(Math.abs(Number(row.amount)))}`.trim(),
+          warnings: rowWarnings,
+        });
+      }
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
       // The savepoint took the JE and the run-tag back together, so the

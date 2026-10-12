@@ -1,7 +1,7 @@
 /**
  * What `sweep` reports of the cost-centre picks `postProvisional` could not
  * apply (PR #688 follow-up F3): one entry per posted bank transaction, with its
- * journal and a short label of the bank line (date and amount) so a screen can
+ * journal and a short label of the bank line (date and amount in the app's currency format) so a screen can
  * say WHICH line; nothing for a row whose post was rolled back. The rollback is
  * proved against a real database in
  * tests/integration/autopost-sweep-pick-warnings.int.test.ts.
@@ -19,6 +19,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({ allocateTransaction: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/provisionalPostingService', () => ({ postProvisional: vi.fn() }));
 
+import { formatCurrency } from '@/utils/formatters';
 import { sweep } from '@/modules/accounting/services/bank/autoPostGateService';
 import { postProvisional } from '@/modules/accounting/services/capture/provisionalPostingService';
 
@@ -58,8 +59,8 @@ describe('sweep — cost-centre picks the provisional path dropped', () => {
 
     expect(r.posted).toBe(3);
     expect(r.warnings).toEqual([
-      { txId: 't1', journalEntryId: 'je-1', label: '2026-10-02 R230.00', warnings: [W] },
-      { txId: 't3', journalEntryId: 'je-3', label: '2026-10-03 R1150.50', warnings: [W, W.replace('Line 1', 'Line 2')] },
+      { txId: 't1', journalEntryId: 'je-1', label: `2026-10-02 ${formatCurrency(230)}`, warnings: [W] },
+      { txId: 't3', journalEntryId: 'je-3', label: `2026-10-03 ${formatCurrency(1150.5)}`, warnings: [W, W.replace('Line 1', 'Line 2')] },
     ]);
   });
 
@@ -72,6 +73,6 @@ describe('sweep — cost-centre picks the provisional path dropped', () => {
 
     expect(r.skipped).toEqual([{ txId: 't1', reason: 'tag failed' }]);
     expect(r.posted).toBe(1);
-    expect(r.warnings).toEqual([{ txId: 't2', journalEntryId: 'je-2', label: '2026-10-03 R115.00', warnings: [W] }]);
+    expect(r.warnings).toEqual([{ txId: 't2', journalEntryId: 'je-2', label: `2026-10-03 ${formatCurrency(115)}`, warnings: [W] }]);
   });
 });
