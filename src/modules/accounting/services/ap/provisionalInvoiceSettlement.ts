@@ -96,6 +96,8 @@ export async function settleInvoiceFromProvisional(
     // The lines are the provisional's, carried forward as a reversal carries them:
     // an account or cost centre retired since it posted must not refuse the reclass.
     dimensionAssignmentMode: 'historical-copy',
+    // Those carried lines are contras of the provisional's; the AP leg is still judged (headerAccountGuard.ts).
+    contraAccountIds: reclass.lines.map((l) => l.glAccountId),
   });
   await postJournalEntry(companyId, journal.id, userId);
 

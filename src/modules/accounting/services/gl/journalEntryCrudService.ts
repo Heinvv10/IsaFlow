@@ -16,6 +16,7 @@ import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { planLockedVatPosting } from './vatLateClaimPlan';
 import { assertNoLateClaimClearingLines } from './lateClaimClearingGuard';
 import { assertDocumentNotAlreadyPosted } from './documentJournalClaimGuard';
+import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { ledgerEntryDay } from './journalDateGuard'; // S4: the date window, first, on the day Postgres stores
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -210,11 +211,14 @@ async function createJournalEntryInTransaction(
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
-  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean;
+    /** Accounts this journal's contra legs sit on — exempt from the header rule (headerAccountGuard.ts). */
+    contraAccountIds?: readonly string[] },
 ): Promise<JournalEntry> {
   try {
     const validation = validateJournalEntry(input.lines);
     if (!validation.valid) throw new Error(`Invalid journal entry: ${validation.errors.join('; ')}`);
+    await assertNoHeaderAccountLines(companyId, input.lines, { contraAccountIds: opts?.contraAccountIds }); // D1
     // Settlements carry no dimensions; CC1 is derived from CC2 (dimensions/dimensionPolicy.ts). New lines only.
     if ((opts?.dimensionAssignmentMode ?? 'new-assignment') === 'new-assignment') {
       input = { ...input, lines: await applyJournalDimensionPolicy(companyId, input.source, input.lines) };
@@ -333,7 +337,9 @@ export async function createJournalEntry(
   input: JournalEntryCreateInput,
   userId: string,
   meta?: JournalEntryMeta,
-  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean },
+  opts?: { dimensionAssignmentMode?: DimensionAssignmentMode; allowLateInputClaim?: boolean; reversal?: boolean;
+    /** Accounts this journal's contra legs sit on — exempt from the header rule (headerAccountGuard.ts). */
+    contraAccountIds?: readonly string[] },
 ): Promise<JournalEntry> {
   return withAlsTransaction({ companyId, userId }, async () => createJournalEntryInTransaction(
     companyId, { ...input, entryDate: await ledgerEntryDay(input.entryDate) }, userId, meta, opts));

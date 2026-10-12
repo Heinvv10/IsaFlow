@@ -1,0 +1,98 @@
+/**
+ * No NEW journal line lands on a balance-sheet header (Hein, D1 2026-10-12).
+ *
+ * The rule is the balance sheet's own (isReportVisibleLeaf.ts): an asset,
+ * liability or equity account below level 3 that has sub-accounts is a header,
+ * and `balanceSheetService` / `trendRowsService` select nothing posted on it.
+ * A line there vanishes from both while the trial balance still foots. Revenue
+ * and expense headers are NOT refused: the income statement has no level filter
+ * and carries them. This is deliberately the looser rule — `validateLeafAccount`
+ * (any parent, any type) stays on the expense-claim route only.
+ *
+ * WHO CALLS IT. Every writer of `gl_journal_lines` under src/ and pages/:
+ * `createJournalEntryInTransaction` (and through it recurring journals, MCP,
+ * imports, bank and document postings), `assetDepreciationPosting`, and
+ * `yearEndJournalPoster`. `tests/unit/guards/journalLineWriterCensus.test.ts`
+ * goes red when a new writer appears without it. It runs before the writer's
+ * first INSERT; whether that is before the REQUEST's first write depends on the
+ * route, which is why routes that answer it 4xx check it up front
+ * (`assertNoHeaderAccountLines` from the route's own service) and every other
+ * route lets it propagate as a 500, which rolls back.
+ *
+ * CONTRAS STAY POSSIBLE. A reversal, a reclassification's source leg and a
+ * provisional's settled lines mirror lines already posted; refusing them would
+ * leave a historic header line with no way out (the reversalLines.ts
+ * principle). Those callers name the accounts their contra legs sit on in
+ * `contraAccountIds`, and only those accounts are exempt — every other leg of
+ * the same journal is still checked.
+ *
+ * THE RACE with a chart edit. `assertParentUsable` (a new child) and
+ * `admitReclassification` (a moved account) take FOR UPDATE on the parent and
+ * then refuse when it has lines. This takes FOR KEY SHARE on every account it
+ * judges BEFORE reading children, in ascending id order like
+ * `lockGlAccountsForUpdate`, so the two serialise: whichever commits second
+ * sees the other. FOR KEY SHARE is the lock the line INSERT's foreign key takes
+ * on the same row anyway, held to commit; this only takes it earlier, and only
+ * on the accounts the rule can bite (a level 1-2 asset/liability/equity).
+ */
+import { sql } from '@/lib/neon';
+import type { SqlExec } from './journalVatLockGuard';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES } from './isReportVisibleLeaf';
+
+/** A journal line refused because its account is a balance-sheet header. Raised before the writer's first INSERT. */
+export class HeaderAccountRefusal extends Error {
+  readonly code = 'HEADER_ACCOUNT_REFUSED';
+  constructor(message: string, readonly lineIndex: number) {
+    super(message);
+    this.name = 'HeaderAccountRefusal';
+  }
+}
+
+export function isHeaderAccountRefusal(err: unknown): err is HeaderAccountRefusal {
+  return err instanceof Error && (err as { code?: unknown }).code === 'HEADER_ACCOUNT_REFUSED';
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface HeaderRow { id: string; account_code: string; account_name: string }
+
+/**
+ * @param contraAccountIds accounts whose lines in this journal are contras of lines already posted (see header).
+ * @throws HeaderAccountRefusal naming the first refused line.
+ */
+export async function assertNoHeaderAccountLines(
+  companyId: string,
+  lines: readonly { glAccountId: string }[],
+  opts?: { contraAccountIds?: readonly string[]; q?: SqlExec },
+): Promise<void> {
+  const exempt = new Set(opts?.contraAccountIds ?? []);
+  // A malformed id is left to the writer's own checks; cast here it would abort the transaction (22P02).
+  const ids = [...new Set(lines.map((l) => l.glAccountId).filter((id) => UUID.test(id ?? '') && !exempt.has(id)))].sort();
+  if (ids.length === 0) return;
+  const q = opts?.q ?? sql;
+  // Lock first (see THE RACE), then ask about children in a fresh statement, which under READ COMMITTED sees a
+  // child committed while this waited.
+  const subject = (await q`
+    SELECT id FROM gl_accounts
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND level < ${BALANCE_SHEET_LEAF_LEVEL}
+     ORDER BY id
+       FOR KEY SHARE
+  `) as { id: string }[];
+  if (subject.length === 0) return;
+  const headers = (await q`
+    SELECT ga.id, ga.account_code, ga.account_name FROM gl_accounts ga
+     WHERE ga.company_id = ${companyId}::UUID AND ga.id = ANY(${subject.map((r) => r.id)}::UUID[])
+       AND EXISTS (SELECT 1 FROM gl_accounts ch
+                    WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
+  `) as HeaderRow[];
+  if (headers.length === 0) return;
+  const byId = new Map(headers.map((h) => [String(h.id), h]));
+  const at = lines.findIndex((l) => byId.has(l.glAccountId) && !exempt.has(l.glAccountId));
+  const h = byId.get(lines[at]!.glAccountId)!;
+  throw new HeaderAccountRefusal(
+    `Line ${at + 1}: ${h.account_code} ${h.account_name} is a header with sub-accounts; post to one of them. `
+      + 'The balance sheet leaves out anything posted to a header.',
+    at,
+  );
+}
