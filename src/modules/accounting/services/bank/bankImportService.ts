@@ -173,7 +173,7 @@ export async function importParsedTransactions(
           // Posted as the system user, as ever; run FOR the importer, whose own lines it skips under enforcement (step 2).
           const systemUser = '00000000-0000-0000-0000-000000000000';
           const swept = await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser);
-          autoPostWarnings = swept.warnings;
+          autoPostWarnings = swept.warnings ?? []; // reporting only: its absence must not fail (and roll back) the posts
         }
       });
     } catch (provErr) {
@@ -185,6 +185,7 @@ export async function importParsedTransactions(
       // assertTxUsable rethrows carrying the original cause.
       assertTxUsable();
       autoPostFailed = true;
+      autoPostWarnings = []; // the journals they name went back with the savepoint
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
 

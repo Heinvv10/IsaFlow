@@ -34,9 +34,9 @@ const preview = {
   dateRange: { from: '2026-09-08', to: '2026-09-09' }, totalParsed: 2, duplicatesVsDb: 0, rowHashes: ['h1', 'h2'],
   sampleTransactions: [], warnings: [],
 };
-const commit = (autoPost: unknown) => ({
+const commit = (autoPost: unknown, warnings: string[] = []) => ({
   filename: 'sept.csv', status: 'imported', bulkImportId: 'b', bulkSequence: 1, batchId: 'batch-1',
-  transactionCount: 2, duplicateCount: 0, totalParsed: 2, appliedRules: 0, autoPostSkippedLocked: 0, warnings: [], autoPost,
+  transactionCount: 2, duplicateCount: 0, totalParsed: 2, appliedRules: 0, autoPostSkippedLocked: 0, warnings, autoPost,
 });
 
 async function importOneFile(commitAnswer: unknown) {
@@ -70,5 +70,24 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
   it('says nothing when every pick landed', async () => {
     await importOneFile(commit({ warnings: [] }));
     expect(notify.warning).not.toHaveBeenCalled();
+  });
+
+  it('does not toast the import\'s own `warnings` (parse errors, a failed auto-post) as a posting', async () => {
+    // bulk-commit's data.warnings are the import's swallowed problems. "Posted — <error>" would read a failed
+    // auto-post ("still unposted") as a success.
+    await importOneFile(commit({ warnings: [] }, [
+      'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.',
+      'Row 3: could not read the date',
+    ]));
+    expect(notify.warning).not.toHaveBeenCalled();
+  });
+
+  it('with both, shows only the dropped picks', async () => {
+    await importOneFile(commit(
+      { warnings: [{ txId: 't1', journalEntryId: 'je-1', warnings: [INACTIVE] }] },
+      ['Row 3: could not read the date'],
+    ));
+    expect(notify.warning).toHaveBeenCalledTimes(1);
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', 'Line 1 posted without it.');
   });
 });

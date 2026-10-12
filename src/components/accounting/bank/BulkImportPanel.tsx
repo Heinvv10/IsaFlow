@@ -311,7 +311,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
             imported++;
-            notifyPostingWarnings(json); // an auto-posted line whose cost centre could not be applied
+            notifyPostingWarnings({ data: { autoPost: json?.data?.autoPost } }); // a dropped cost centre — not data.warnings, the import's own problems
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
