@@ -24,11 +24,11 @@ export type CanonicalRow = Record<string, string | null>;
 export async function bulkPlan<T>(fn: () => Promise<T>): Promise<T> {
   const [prev] = (await sql`SELECT current_setting('enable_nestloop') AS v`) as { v: string }[];
   await sql`SELECT set_config('enable_nestloop', 'off', true)`;
-  try {
-    return await fn();
-  } finally {
-    await sql`SELECT set_config('enable_nestloop', ${prev!.v}, true)`;
-  }
+  // Restored only on success: after a failed statement the transaction is aborted, a restore would throw 25P02 over
+  // the real error, and the local setting dies with the rollback anyway.
+  const out = await fn();
+  await sql`SELECT set_config('enable_nestloop', ${prev!.v}, true)`;
+  return out;
 }
 export interface JournalRow { journalId: string; entryDate: string; row: CanonicalRow; materialHash: string }
 export interface LineRow { lineId: string; journalId: string; row: CanonicalRow; materialHash: string }
@@ -84,7 +84,6 @@ export async function lineRows(companyId: string, cutoff: string): Promise<LineR
     const rows = (await sql`
       SELECT jl.id::TEXT AS id, jl.journal_entry_id::TEXT AS j, jsonb_build_object(
         'id', jl.id::TEXT, 'journal_id', jl.journal_entry_id::TEXT, 'account_id', jl.gl_account_id::TEXT,
-        'account_code', ga.account_code, 'account_type', ga.account_type,
         'debit', round(COALESCE(jl.debit, 0), 2)::TEXT, 'credit', round(COALESCE(jl.credit, 0), 2)::TEXT,
         'description', jl.description, 'vat_type', jl.vat_type, 'cc1_id', jl.cc1_id::TEXT, 'cc2_id', jl.cc2_id::TEXT,
         'bu_id', jl.bu_id::TEXT, 'project_id', jl.project_id::TEXT,
@@ -92,7 +91,6 @@ export async function lineRows(companyId: string, cutoff: string): Promise<LineR
       ) AS row
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
-      LEFT JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
       WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date <= ${cutoff}::DATE
       ORDER BY jl.id
     `) as { id: string; j: string; row: CanonicalRow }[];

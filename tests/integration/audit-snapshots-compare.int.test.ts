@@ -93,6 +93,17 @@ describe('compare to today', { timeout: 120_000 }, () => {
     await expect(compareSnapshots(as(o, s.c), later.id, s.base.id)).rejects.toBeInstanceOf(ComparisonError);
   });
 
+  it('renaming or retyping an account is master data, not a changed journal', async () => {
+    const c = await newCompany(pool, [[o, 'owner']], companies);
+    const l = await plantLedger(pool, c);
+    await plantJournal(pool, c, { date: '2026-03-10', amount: 10, debit: l.expense, credit: l.bank, by: o });
+    const base = await takeSnapshot(as(o, c), { cutoff: '2026-06-30', trigger: 'manual' });
+    await asApp(pool, o, c, (db) => db.query("UPDATE gl_accounts SET account_type = 'asset', account_code = '6999' WHERE id = $1", [l.expense]));
+    const cmp = await compareSnapshotToLive(as(o, c), base.id);
+    expect(cmp.counts).toMatchObject({ changed: 0, linesChanged: 0 });
+    expect(cmp.masterData).toMatchObject({ byType: { gl_account: 1 } });
+  });
+
   it('nothing changed reads as nothing; a manager compares too', async () => {
     const c = await newCompany(pool, [[o, 'owner'], [m, 'manager']], companies);
     const l = await plantLedger(pool, c);

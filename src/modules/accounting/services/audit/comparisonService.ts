@@ -57,7 +57,11 @@ function item(r: Keyed, fields: FieldDiff[], lines: JournalItem['lines']): Journ
     fields, lines };
 }
 
-interface Side { journals: Keyed[]; lines: (Keyed & { journalId: string })[]; tb: { accountId: string; row: Keyed['row'] }[] }
+interface Side {
+  journals: Keyed[];
+  lines: (Keyed & { journalId: string; account?: StoredRow['account'] })[];
+  tb: { accountId: string; row: Keyed['row'] }[];
+}
 
 function compare(base: SnapshotRecord, before: Side, after: Side, against: Comparison['against']): Comparison {
   const j = diffSets(before.journals, after.journals);
@@ -72,13 +76,15 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
 
   const added = j.added.map((r) => item(r, [], lineChanges.get(r.id) ?? none));
   const backdated = added.filter((x, i) => recordedAfter(j.added[i]!.row, base.takenAt));
+  const backdatedIds = new Set(backdated.map((x) => x.id));
   const changedIds = new Set(j.changed.map((c) => c.after.id));
+  const afterById = new Map(after.journals.map((x) => [x.id, x]));
+  const beforeIds = new Set(before.journals.map((x) => x.id));
   // A journal whose header is unchanged but whose lines moved is a changed journal too.
-  const lineOnly = [...lineChanges.keys()].filter((id) => !changedIds.has(id) && after.journals.some((x) => x.id === id)
-    && before.journals.some((x) => x.id === id));
+  const lineOnly = [...lineChanges.keys()].filter((id) => !changedIds.has(id) && afterById.has(id) && beforeIds.has(id));
   const changed = [
     ...j.changed.map((c) => item(c.after, c.fields, lineChanges.get(c.after.id) ?? none)),
-    ...lineOnly.map((id) => item(after.journals.find((x) => x.id === id)!, [], lineChanges.get(id)!)),
+    ...lineOnly.map((id) => item(afterById.get(id)!, [], lineChanges.get(id)!)),
   ];
   const reversedAfter = j.changed.filter((c) => (c.after.row.reversed_at ?? '') > base.takenAt).map((c) => c.after.id);
   const tb = tbDeltas(before.tb, after.tb);
@@ -87,7 +93,7 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
     counts: { backdated: backdated.length, added: added.length - backdated.length, changed: changed.length, removed: j.removed.length,
       reversedAfter: reversedAfter.length, linesChanged: l.added.length + l.removed.length + l.changed.length, accountsMoved: tb.length },
     backdated: backdated.slice(0, MAX_LISTED),
-    added: added.filter((x) => !backdated.includes(x)).slice(0, MAX_LISTED),
+    added: added.filter((x) => !backdatedIds.has(x.id)).slice(0, MAX_LISTED),
     changed: changed.slice(0, MAX_LISTED),
     removed: j.removed.slice(0, MAX_LISTED).map((r) => ({ ...item(r, [], lineChanges.get(r.id) ?? none), statusNow: null })),
     reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, names: {}, masterData: null,
@@ -112,7 +118,7 @@ async function storedSide(companyId: string, s: SnapshotRecord, cutoff?: string)
     .filter((j) => !cutoff || (j.row.entry_date ?? '') <= cutoff);
   const kept = new Set(journals.map((j) => j.id));
   const lines = (await snapshotRows(companyId, s.id, 'lines')).filter((r) => kept.has(r.journalId))
-    .map((r) => ({ id: r.id, row: r.row, materialHash: r.materialHash, journalId: r.journalId }));
+    .map((r) => ({ id: r.id, row: r.row, materialHash: r.materialHash, journalId: r.journalId, account: r.account }));
   return { journals, lines, tb: cutoff ? closingFromLines(lines) : await snapshotTb(companyId, s.id) };
 }
 
@@ -121,7 +127,7 @@ function closingFromLines(lines: Side['lines']): Side['tb'] {
   const by = new Map<string, { row: Keyed['row']; values: string[]; neg: string[] }>();
   for (const l of lines) {
     const id = l.row.account_id ?? '';
-    const e = by.get(id) ?? { row: { account_code: l.row.account_code ?? null, account_name: null }, values: [], neg: [] };
+    const e = by.get(id) ?? { row: { account_code: l.account?.code ?? null, account_name: l.account?.name ?? null }, values: [], neg: [] };
     e.values.push(l.row.debit ?? '0.00');
     e.neg.push(l.row.credit ?? '0.00');
     by.set(id, e);

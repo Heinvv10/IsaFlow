@@ -12,11 +12,16 @@
 import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
+import { ISODate } from '@/lib/schemas/common';
+import { isRealCalendarDate } from '@/lib/validation';
 import { BankControlError } from '@/modules/accounting/services/bank/bankControlRefusal';
 import { SigningKeyMissingError } from './seal';
 import { SnapshotTooLargeError } from './snapshotService';
 import { ComparisonError } from './comparisonService';
 import { PackRefusedError } from './packExport';
+
+/** YYYY-MM-DD that is also a real day: 2026-02-30 is a 422, not a 500 from the ::DATE cast. */
+export const AuditDate = ISODate.refine(isRealCalendarDate, 'Must be a real calendar date');
 
 export const AUDIT_READ_ROLES = ['owner', 'admin', 'manager'] as const;
 export const AUDIT_TAKE_ROLES = ['owner', 'admin'] as const;

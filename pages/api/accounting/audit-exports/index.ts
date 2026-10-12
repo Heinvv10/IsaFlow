@@ -14,10 +14,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql, withSavepoint } from '@/lib/neon';
-import { ISODate, UUID } from '@/lib/schemas/common';
+import { UUID } from '@/lib/schemas/common';
 import { listExports, createExport, getExport } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
-import { mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
+import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
 import { getSnapshot } from '@/modules/accounting/services/audit/snapshotRead';
@@ -25,8 +25,8 @@ import { compareSnapshotToLive } from '@/modules/accounting/services/audit/compa
 import { buildSnapshotPack, storePack } from '@/modules/accounting/services/audit/packExport';
 
 const Body = z.object({
-  periodStart: ISODate,
-  periodEnd: ISODate.optional(),
+  periodStart: AuditDate,
+  periodEnd: AuditDate.optional(),
   snapshotId: UUID.optional(),
   includeComparison: z.boolean().optional(),
   includeSourceDocs: z.boolean().optional(),
@@ -74,6 +74,7 @@ async function build(req: CompanyAuthedRequest, res: NextApiResponse) {
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
+    if (!mayReadAudit(req.companyRole)) return apiResponse.forbidden(res, `Your role (${req.companyRole ?? 'unknown'}) cannot view audit packs.`);
     const exports = await listExports(req.companyId);
     return apiResponse.success(res, { exports, total: exports.length });
   }

@@ -689,7 +689,12 @@ the check run's own canonical hash — hashed with SHA-256; HMAC-SHA256 over `is
 id | hash | cutoff | taken_at` with `AUDIT_SNAPSHOT_SIGNING_KEY` (≥ 32 chars) under `AUDIT_SNAPSHOT_KEY_ID`; the check
 run the same under `isaflow:audit-check-run:v1`. Verify recomputes every row hash, the run hash and the canonical
 hash from the stored rows and checks the seals against THOSE (timing-safe): an edited row, an edited hash column or a
-forged snapshot is `invalid`; a seal under another key id is `unknown_key`. The key is the app's alone: storing a hash
+forged snapshot is `invalid`; a seal under another key id is `unknown_key` — but only when the rows themselves prove
+nothing: what needs no key (row hashes, the canonical hash, the run hash) is decided first, so a rotated key never hides
+tampering. The filing columns consumers read — a line's `journal_id`, a journal's `entry_date`, a TB row's
+`account_id` — must equal the sealed row's own values. A line row carries its account id only; code, name and type come
+from the snapshot's own trial balance, so reclassifying an account is a master-data change, not thousands of changed
+journals. The key is the app's alone: storing a hash
 beside mutable rows is not tamper protection, which is why the rows are also append-only.
 
 **890.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
@@ -728,9 +733,15 @@ close, a manual journal posted outside 08:00–18:00 SAST or at a weekend, rever
 possible split of a manual-journal approval threshold (≥ 2 by one person on one SAST day, each under, together over).
 Status pass / fail / unknown (unknown = did not answer, never clean); findings keyed stably, capped at 200, count not.
 
+**Lost automatic snapshots.** The snapshot runs after COMMIT in the web process; a restart (or a caller with no
+after-commit owner) can lose it without a `failed` row. The snapshots list therefore also returns `unrecorded`: closes
+and VAT locks since the company's first snapshot attempt with no snapshot or attempt of the same kind, at the same or a
+later cutoff, taken after them — shown on Evidence Packs.
+
 **Pack.** Building an evidence pack (owner / admin, own session) takes a snapshot at the period end or uses a chosen
 one, refuses one that does not verify, and stores a ZIP: `manifest.json` (snapshot id, canonical hash, HMAC, key id,
-cutoff, taken_at, every file's SHA-256), `trial_balance.csv`, `journals.csv`, `journal_lines.csv`, `checks.csv`,
+cutoff, taken_at, every file's SHA-256) sealed by `manifest.sig.json` (HMAC under `isaflow:audit-pack:v1` over the
+manifest's SHA-256, export id, cutoff and taken_at), `trial_balance.csv`, `journals.csv`, `journal_lines.csv`, `checks.csv`,
 `findings.csv`, optional `comparison.csv` (cells formula-neutralised), and the existing PDF rendered from the
 snapshot's own rows. Download (owner / admin / manager — the ZIP carries ledger rows) and the auditor portal serve the
 ZIP; older packs still serve their PDF. `?verify=1` re-reads the ZIP against its manifest and verifies the snapshot.

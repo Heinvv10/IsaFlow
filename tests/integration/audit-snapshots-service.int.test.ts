@@ -121,6 +121,33 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect((await read(c, () => verifySnapshot(c, s.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatchCount: 1 });
   });
 
+  it('a rotated key never hides tampering the stored rows prove (integrity before key)', async () => {
+    const { c } = await books();
+    const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const { rows: [line] } = await pool.query("SELECT line_id FROM audit_snapshot_lines WHERE snapshot_id = $1 AND row->>'debit' <> '0.00' LIMIT 1", [s.id]);
+    await alter('audit_snapshot_lines', `UPDATE audit_snapshot_lines SET row = jsonb_set(row, '{debit}', '"1.00"') WHERE snapshot_id = $1 AND line_id = $2`, [s.id, line.line_id]);
+    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('invalid');
+    // Untouched, under another key id: unknown, not invalid.
+    const t = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('unknown_key');
+  });
+
+  it('a row moved by its filing column (a line to another journal, a journal to another date, a TB row to another account) is invalid', async () => {
+    const { c, j } = await books();
+    const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const { rows: [line] } = await pool.query('SELECT line_id, journal_id FROM audit_snapshot_lines WHERE snapshot_id = $1 AND journal_id = $2 LIMIT 1', [s.id, j[0]]);
+    await alter('audit_snapshot_lines', 'UPDATE audit_snapshot_lines SET journal_id = $3 WHERE snapshot_id = $1 AND line_id = $2', [s.id, line.line_id, j[1]]);
+    expect((await read(c, () => verifySnapshot(c, s.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatches: [{ kind: 'line', id: line.line_id }] });
+    const s2 = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    await alter('audit_snapshot_journals', "UPDATE audit_snapshot_journals SET entry_date = '2026-01-01' WHERE snapshot_id = $1 AND journal_id = $2", [s2.id, j[0]]);
+    expect((await read(c, () => verifySnapshot(c, s2.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatches: [{ kind: 'journal', id: j[0] }] });
+    const s3 = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const other = crypto.randomUUID();
+    const { rows: [tbRow] } = await pool.query('SELECT account_id FROM audit_snapshot_tb WHERE snapshot_id = $1 LIMIT 1', [s3.id]);
+    await alter('audit_snapshot_tb', 'UPDATE audit_snapshot_tb SET account_id = $3 WHERE snapshot_id = $1 AND account_id = $2', [s3.id, tbRow.account_id, other]);
+    expect((await read(c, () => verifySnapshot(c, s3.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatches: [{ kind: 'account', id: other }] });
+  });
+
   it('an altered check result or trial balance row is invalid', async () => {
     const { c } = await books();
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });

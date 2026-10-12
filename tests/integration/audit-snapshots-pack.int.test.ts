@@ -132,9 +132,39 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     expect((await build(m, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).state.statusCode).toBe(403);
     const ex = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).export;
     expect((await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-05-31', snapshotId: ex.snapshotId })).state.statusCode).toBe(400);
+    // A viewer may not list packs either (L7), nor build one with an impossible date.
+    expect((await callRoute(auditExports, tokens[v]!, c, 'GET', undefined, '/api/accounting/audit-exports')).state.statusCode).toBe(403);
+    expect((await build(o, c, { periodStart: '2026-02-30', periodEnd: '2026-06-30' })).state.statusCode).toBe(422);
     // The ZIP carries the snapshot's ledger rows: a viewer may not download it; a manager may.
     expect((await download(v, c, ex.id)).state.statusCode).toBe(403);
     expect((await download(m, c, ex.id)).state.statusCode).toBe(200);
+  });
+
+  it('the manifest is sealed: an edited CSV with a recomputed manifest and zip hash is invalid; a ZIP without a manifest is invalid, not a crash', async () => {
+    const c = await company();
+    const ex = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).export;
+    const key = `captured-documents/${c}/audit-${ex.id}.zip`;
+    const zip = await JSZip.loadAsync(storage.files.get(key)!);
+    expect(zip.file('manifest.sig.json')).toBeTruthy();
+    // Forge: change a CSV, rebuild the manifest's file hashes, store the ZIP and its hash — everything but the key.
+    zip.file('journals.csv', '"journal_id"\r\n"forged"\r\n');
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+    for (const f of manifest.files) f.sha256 = sha256Hex(await zip.file(f.name)!.async('nodebuffer'));
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    const forged = await zip.generateAsync({ type: 'nodebuffer' });
+    storage.files.set(key, forged);
+    await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(forged)]);
+    const verify = () => callRoute(auditExport, tokens[o]!, c, 'GET', undefined, '/x', { id: ex.id, verify: '1' });
+    expect(dataOf<{ verification: { status: string; manifestSeal: string; zipMatches: boolean } }>(await verify()).verification)
+      .toMatchObject({ status: 'invalid', manifestSeal: 'invalid', zipMatches: true });
+    const bare = new JSZip();
+    bare.file('journals.csv', 'x');
+    const bareBytes = await bare.generateAsync({ type: 'nodebuffer' });
+    storage.files.set(key, bareBytes);
+    await pool.query('UPDATE audit_trail_exports SET zip_sha256 = $2 WHERE id = $1', [ex.id, sha256Hex(bareBytes)]);
+    const r = await verify();
+    expect(r.state.statusCode).toBe(200);
+    expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(r).verification).toMatchObject({ status: 'invalid', manifestSeal: 'missing' });
   });
 
   it('an older PDF-only pack still downloads as its PDF', async () => {
