@@ -187,6 +187,8 @@ export async function executeRecurring(
     warnings = placed.warnings;
     const { assertNewJournalDimensions } = await import('../gl/dimensions/dimensionPolicy');
     await assertNewJournalDimensions(companyId, 'auto_recurring', lines); // what createJournalEntry would refuse, as a 4xx
+    const { assertNoHeaderAccountLines } = await import('../gl/headerAccountGuard');
+    await assertNoHeaderAccountLines(companyId, lines); // D1, likewise
     // R-035 PR6: an autoPost run is unattended, so a journal an enforced
     // manual-journal rule governs is held — left a draft, marked, carrying the
     // template's authors, the request raised as the runner — and the schedule

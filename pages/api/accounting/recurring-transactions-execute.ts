@@ -15,6 +15,7 @@ import { RecurringTemplateLineAccountError, RecurringTemplateNotDueError, Recurr
 import { NegativeDocumentTotalError } from '@/modules/accounting/services/shared/documentTotalSign';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -73,6 +74,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
     if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
+    // A line on a balance-sheet header (D1): the service asks before its first write.
+    if (isHeaderAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;
   }
 }
