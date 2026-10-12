@@ -11,6 +11,8 @@ import { useRouter } from 'next/router';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
+import { chartAccountOptions } from '@/lib/chartAccountOptions';
+import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import {
   ItemDetailsSection,
   PricingSection,
@@ -79,7 +81,8 @@ export default function NewItemPage() {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' });
       await assertOk(res, 'Could not load the accounts - try again');
-      setAccounts((await res.json()).data || []);
+      const json = await res.json() as { data?: ChartGLAccount[] };
+      setAccounts(chartAccountOptions(json.data).map(a => ({ id: a.id, account_number: a.code, name: a.name })));
     } catch (err) {
       log.error('Failed to load chart of accounts', { error: err }, 'new-item-page');
       setAccounts([]); setError(apiErrorMessage(err, 'Could not load the accounts - try again'));

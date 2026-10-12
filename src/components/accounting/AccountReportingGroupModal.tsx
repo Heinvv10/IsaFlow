@@ -6,12 +6,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, ChevronRight, ChevronLeft, Search, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 
 interface GlAccount {
   id: string;
   code: string;
   name: string;
-  account_type: string;
+  isActive: boolean;
 }
 
 interface GroupMember {
@@ -44,14 +45,10 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
   const isNew = !group?.id;
 
   const [name, setName] = useState(group?.name ?? '');
-  const [reportType, setReportType] = useState<'balance_sheet' | 'income_statement' | 'both'>(
-    group?.report_type ?? 'balance_sheet'
-  );
+  const [reportType, setReportType] = useState<AccountReportingGroup['report_type']>(group?.report_type ?? 'balance_sheet');
   const [displayOrder, setDisplayOrder] = useState(group?.display_order ?? 0);
   const [allAccounts, setAllAccounts] = useState<GlAccount[]>([]);
-  const [memberIds, setMemberIds] = useState<Set<string>>(
-    new Set(group?.members.map(m => m.gl_account_id) ?? [])
-  );
+  const [memberIds, setMemberIds] = useState<Set<string>>(new Set(group?.members.map(m => m.gl_account_id) ?? []));
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -59,10 +56,13 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?flat=true&active_only=true');
+      const res = await apiFetch('/api/accounting/chart-of-accounts?includeInactive=true');
       await assertOk(res, 'Could not load accounts - try again');
       const json = await res.json();
-      setAllAccounts(json.data?.items ?? json.data ?? []);
+      // Inactive rows are fetched so a member deactivated since it was added stays visible (and removable);
+      // they are never offered as new members (see `available`).
+      const rows = Array.isArray(json.data) ? json.data as ChartGLAccount[] : [];
+      setAllAccounts(rows.map(a => ({ id: a.id, code: a.accountCode, name: a.accountName, isActive: a.isActive })));
     } catch (err) {
       setAllAccounts([]); setError(apiErrorMessage(err, 'Could not load accounts - try again'));
     } finally {
@@ -75,15 +75,13 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
   const available = useMemo(() => {
     const q = search.toLowerCase();
     return allAccounts.filter(a =>
-      !memberIds.has(a.id) &&
+      a.isActive && !memberIds.has(a.id) &&
       (!q || a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q))
     );
   }, [allAccounts, memberIds, search]);
 
-  const members = useMemo(() =>
-    allAccounts.filter(a => memberIds.has(a.id)).sort((a, b) => a.code.localeCompare(b.code)),
-    [allAccounts, memberIds]
-  );
+  const members = useMemo(
+    () => allAccounts.filter(a => memberIds.has(a.id)).sort((a, b) => a.code.localeCompare(b.code)), [allAccounts, memberIds]);
 
   function addAccount(id: string) {
     setMemberIds(prev => new Set([...prev, id]));
@@ -267,6 +265,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
                       <span className="text-[var(--ff-text-secondary)]">
                         <span className="font-mono text-[var(--ff-text-tertiary)] mr-2">{a.code}</span>
                         {a.name}
+                        {!a.isActive && <span className="ml-2 text-amber-500">(inactive)</span>}
                       </span>
                       <ChevronLeft className="h-3 w-3 text-red-400 opacity-0 group-hover:opacity-100" />
                     </button>

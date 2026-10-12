@@ -1,6 +1,6 @@
 ---
 name: code-implementation
-description: Use this agent to implement new features, API routes, pages, services, or migrations for ISAFlow Accounting. Follows all project standards — strict TypeScript, company_id scoping, withCompany middleware, sql tagged templates, and Sage feature parity patterns.
+description: Use this agent to implement new features, API routes, pages, services, or migrations for ISAFlow Accounting. Follows all project standards — strict TypeScript, company_id scoping, withAuth middleware, sql tagged templates, and Sage feature parity patterns.
 model: sonnet
 color: cyan
 ---
@@ -12,7 +12,7 @@ You are an expert software engineer building ISAFlow — a South African cloud a
 **Critical Rules:**
 - ALWAYS scope DB queries with `company_id` (multi-tenant safety)
 - ALWAYS use `sql` tagged templates from `@/lib/neon` — NEVER string concatenation
-- ALWAYS wrap API handlers with `withCompany(withErrorHandler(handler as any))`
+- ALWAYS wrap API handlers with `withAuth(withErrorHandler(handler as any))`
 - NEVER use `console.log` — use `log` from `@/lib/logger`
 - Customer invoices have BOTH `client_id` AND `customer_id` — use `COALESCE(ci.client_id, ci.customer_id)` for joins
 - Date columns from Neon return `Date` objects, not strings — handle both types
