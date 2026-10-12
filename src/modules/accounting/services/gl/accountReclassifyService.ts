@@ -22,7 +22,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
-import { ParentAccountError, assertParentUsable } from './accountParentRules';
+import { ParentAccountError, assertNoPostedParentHidden, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCacheAfterCommit } from './systemAccountResolver';
 import { boundedRowWait, lockSystemRoleWrites } from './systemRoleWriteLock';
 import { assertRolesKept, snapshotRoles } from './systemRoleInvariant';
@@ -232,6 +232,15 @@ async function reclassifyUnderLock(
     newLevel = input.parentAccountId === null
       ? 1
       : await assertParentAllowed(companyId, account, input.parentAccountId!);
+  }
+
+  if (changingParent && newLevel < account.level) {
+    try {
+      await assertNoPostedParentHidden(companyId, id, newLevel - account.level);
+    } catch (err) {
+      if (err instanceof ParentAccountError) throw new ReclassifyError(err.message);
+      throw err;
+    }
   }
 
   const nextSubtype = changingSubtype ? (input.accountSubtype ?? null) : account.account_subtype;

@@ -17,7 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
@@ -155,4 +155,34 @@ export async function assertParentUsable(
     );
   }
   return { childLevel };
+}
+
+/**
+ * Moving an account UP re-levels it and its whole subtree. A posted asset, liability or equity
+ * parent that crosses from level 3 to below it becomes a header the balance sheet drops
+ * (isReportVisibleLeaf), so the move is refused, as `assertParentUsable` refuses a child on one.
+ * An account that was already a header is not newly hidden and does not block. Named limit: the
+ * subtree is read without row locks; only the moved account and its target parent are locked.
+ */
+export async function assertNoPostedParentHidden(companyId: string, id: string, delta: number): Promise<void> {
+  const hidden = (await sql`
+    WITH RECURSIVE subtree AS (
+      SELECT id, 1 AS depth FROM gl_accounts WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT ch.id, s.depth + 1 FROM gl_accounts ch JOIN subtree s ON ch.parent_account_id = s.id
+       WHERE ch.company_id = ${companyId}::UUID AND s.depth < ${MAX_TREE_DEPTH}
+    )
+    SELECT ga.account_code FROM subtree s JOIN gl_accounts ga ON ga.id = s.id AND ga.company_id = ${companyId}::UUID
+     WHERE ga.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
+       AND ga.level >= ${BALANCE_SHEET_LEAF_LEVEL} AND ga.level + ${delta} < ${BALANCE_SHEET_LEAF_LEVEL}
+       AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
+       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID)
+     ORDER BY ga.account_code LIMIT 1
+  `) as { account_code: string }[];
+  if (hidden[0]) {
+    throw new ParentAccountError(
+      `Moving this account would put ${hidden[0].account_code} above level ${BALANCE_SHEET_LEAF_LEVEL}. It has sub-accounts and `
+        + 'journal lines posted to it, so it would become a header and its balance would leave the balance sheet.',
+    );
+  }
 }
