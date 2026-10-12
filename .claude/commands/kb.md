@@ -1,3 +1,6 @@
+---
+description: Update the ISAFlow knowledge base by scanning modules, services, API routes, and pages, then refreshing the context files.
+---
 # /kb - Knowledge Base Update
 
 Update the ISAFlow knowledge base by scanning modules, services, API routes, and pages — then refreshing context files.
