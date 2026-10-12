@@ -84,15 +84,28 @@ pg_create_roles "$PORT"
 with_db "$PORT" isaflow_schema_fixture \
   env "DATABASE_URL=postgresql://postgres@127.0.0.1:$PORT/isaflow_schema_fixture?sslmode=disable" \
   bun scripts/apply-migrations.ts
+# A schema-only dump leaves every materialized view unpopulated, and reading
+# one then errors; populate them (empty) as a deploy would have.
+"${PSQL[@]}" -d isaflow_schema_fixture -At \
+  -c "SELECT format('REFRESH MATERIALIZED VIEW %I.%I', schemaname, matviewname) FROM pg_matviews" \
+  | "${PSQL[@]}" -d isaflow_schema_fixture
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_test TEMPLATE isaflow_schema_fixture"
 pg_cluster_stop "$WORK/c1"
 echo "[integration] schema built in $(( $(date +%s) - START ))s"
 
-# 2. Shards.
+# 2. Shards: SHARDS copies of the stopped template, each on its own port.
 for i in $(seq 2 "$SHARDS"); do mkdir "$WORK/c$i"; cp -a "$WORK/c1/data" "$WORK/c$i/data"; done
+declare -a PORTS=()
+for i in $(seq 1 "$SHARDS"); do PORTS+=("$(pg_cluster_start "$WORK/c$i")"); done
+
+# migration-parity-gate.int.test.ts needs a throwaway server that is NOT the one
+# DATABASE_URL names (and optionally a second): the next shards' clusters. It
+# only creates and drops its own parity_* databases there.
 declare -a PIDS=()
 for i in $(seq 1 "$SHARDS"); do
-  port=$(pg_cluster_start "$WORK/c$i")
+  port=${PORTS[$((i - 1))]}
+  parity="postgresql://postgres@127.0.0.1:${PORTS[$((i % SHARDS))]}/postgres"
+  parity2="postgresql://postgres@127.0.0.1:${PORTS[$(((i + 1) % SHARDS))]}/postgres"
   (
     rc=0
     for db in isaflow_schema_fixture isaflow_test; do
@@ -100,14 +113,16 @@ for i in $(seq 1 "$SHARDS"); do
       [ "${#files[@]}" -eq 0 ] && continue
       log="$WORK/c$i/$db.log"
       t0=$(date +%s)
-      with_db "$port" "$db" node_modules/.bin/vitest run --config vitest.integration.config.ts \
+      with_db "$port" "$db" env PARITY_TEST_PG_DISPOSABLE=1 "PARITY_TEST_PG_URL=$parity" "PARITY_TEST_PG_URL_2=$parity2" \
+        node_modules/.bin/vitest run --config vitest.integration.config.ts \
         --no-file-parallelism --silent=passed-only "${files[@]}" > "$log" 2>&1 || rc=1
+      # vitest drops a path it cannot find without failing: count what it ran.
       ran=$(grep -E '^ +Test Files ' "$log" | grep -oE '\(([0-9]+)\)' | tr -d '()' || true)
       if [ "$ran" != "${#files[@]}" ]; then
         echo "[integration] shard $i $db: vitest ran ${ran:-no} files of ${#files[@]}" >> "$log"
         rc=1
       fi
-      echo "[integration] shard $i $db: ${#files[@]} files, $(( $(date +%s) - t0 ))s, exit $rc" >> "$WORK/c$i/summary"
+      echo "[integration] shard $i/$SHARDS $db: ${#files[@]} files, $(( $(date +%s) - t0 ))s, exit $rc" >> "$WORK/c$i/summary"
     done
     exit "$rc"
   ) &
@@ -115,9 +130,9 @@ for i in $(seq 1 "$SHARDS"); do
 done
 
 FAILED=0
-for i in $(seq 1 "$SHARDS"); do wait "${PIDS[$((i - 1))]}" || FAILED=1; done
+for pid in "${PIDS[@]}"; do wait "$pid" || FAILED=1; done
 
-# 3. Report.
+# 3. Report: every shard's log, then which suites skipped and why.
 for i in $(seq 1 "$SHARDS"); do
   for db in isaflow_schema_fixture isaflow_test; do
     [ -f "$WORK/c$i/$db.log" ] || continue
@@ -126,6 +141,8 @@ for i in $(seq 1 "$SHARDS"); do
     cat "$WORK/c$i/$db.log"
   done
 done
+echo ""
+bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log || FAILED=1
 echo ""
 cat "$WORK"/c*/summary
 echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"

@@ -1,24 +1,33 @@
 /**
- * report-skipped-integration — prints which integration suites this
- * `bun run ci` did not run and why. Informational: it never fails the gate.
- * The wording lives in ./skippedIntegrationSuites.ts.
+ * report-skipped-integration — prints which integration suites the CI
+ * integration gate saw skip, and why; exits 1 when a suite skipped every test
+ * without saying why. The rules live in ./skippedIntegrationSuites.ts.
  *
- * The URL comes from CI_DATABASE_URL, which run-ci.sh sets to the DATABASE_URL
- * its own shell has: bun loads .env.local into process.env.DATABASE_URL, so
- * that variable is not the one run-ci.sh decided on.
+ * Also names the tests/integration files the gate does not run at all: it
+ * runs *.int.test.ts only, and the older *.test.ts files there (several drive
+ * a running server over HTTP) are run by hand with `bun run test:integration`.
  *
- * Run: CI_DATABASE_URL="${DATABASE_URL:-}" bun scripts/ci/report-skipped-integration.ts
+ * Run: bun scripts/ci/report-skipped-integration.ts <vitest log>...
+ * (scripts/ci/integration/run.sh passes every shard's log.)
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { skippedIntegrationNotice } from './skippedIntegrationSuites';
+import { skipNotice, skippedSuites } from './skippedIntegrationSuites';
 
-const DIR = 'tests/integration';
+const read = (file: string): string | undefined => (existsSync(file) ? readFileSync(file, 'utf8') : undefined);
 
-const suites = readdirSync(DIR, { recursive: true, encoding: 'utf8' })
-  .filter((f) => f.endsWith('.int.test.ts'))
-  .sort()
-  .map((f) => join(DIR, f))
-  .map((file) => ({ file, disposableOnly: readFileSync(file, 'utf8').includes('isDisposableDb(') }));
+const logs = process.argv.slice(2).map((f) => readFileSync(f, 'utf8')).join('\n');
+const { lines, unexplained } = skipNotice(skippedSuites(logs, read));
 
-for (const line of skippedIntegrationNotice(process.env.CI_DATABASE_URL, suites)) process.stdout.write(`${line}\n`);
+const notRun = readdirSync('tests/integration', { recursive: true, encoding: 'utf8' })
+  .filter((f) => f.endsWith('.test.ts') && !f.endsWith('.int.test.ts'))
+  .map((f) => join('tests/integration', f))
+  .sort();
+if (notRun.length > 0) {
+  lines.push(`[skip] not part of this gate (it runs *.int.test.ts only; run these with bun run test:integration): `
+    + `${notRun.length} file(s)`);
+  lines.push(...notRun.map((f) => `[skip]   ${f}`));
+}
+
+for (const line of lines) process.stdout.write(`${line}\n`);
+process.exit(unexplained.length > 0 ? 1 : 0);
