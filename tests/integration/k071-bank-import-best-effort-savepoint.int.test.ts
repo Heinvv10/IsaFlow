@@ -26,7 +26,7 @@ vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: async () => {
     const { sql } = await import('@/lib/neon');
     await sql`SELECT 1 / 0`;
-    return { runId: null, posted: 0, skipped: [] };
+    return { runId: null, posted: 0, skipped: [], warnings: [] };
   },
 }));
 
