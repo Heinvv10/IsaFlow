@@ -28,6 +28,9 @@
  * is a BankDimensionSyncRefusal thrown past the first write so the registry's
  * savepoint rolls the batch back.
  *
+ * Every statement of the read side runs under a server-side bound (BANK_SYNC_STATEMENT_TIMEOUT_MS, tighten-only), so a bad
+ * plan or a lock wait can never hang a request; the cancel is answered as a BankDimensionSyncRefusal.
+ *
  * Every bank row changed is recorded in dimension_tag_batch_bank_rows (mig 889)
  * with its old and new values under a dimension_tag_batches row, so
  * reverse_dimension_tag_batch restores it. Dimensions only: no amount, status,
@@ -43,6 +46,37 @@ import {
 
 export { MAX_BANK_SYNC_ROWS, BankDimensionSyncRefusal, blankedSlots };
 export type { BankSyncCandidate, BankSyncScope };
+
+/** Longest the candidate read (or its lock wait) may run; the caller's own tighter statement_timeout still wins. */
+export const BANK_SYNC_STATEMENT_TIMEOUT_MS = 20_000;
+const QUERY_CANCELED = '57014';
+
+/**
+ * Run `fn` with statement_timeout tightened to `ms` (never loosened past the caller's own budget) and JIT off
+ * (its compile time is pure overhead for these nested-loop reads), restoring both afterwards. A statement the
+ * bound cancels is a BankDimensionSyncRefusal; any other error is re-thrown untouched.
+ */
+export async function withBoundedStatements<T>(fn: () => Promise<T>, ms = BANK_SYNC_STATEMENT_TIMEOUT_MS): Promise<T> {
+  const [prev] = (await sql`
+    SELECT (SELECT setting FROM pg_settings WHERE name = 'statement_timeout') AS timeout_ms,
+           (SELECT setting FROM pg_settings WHERE name = 'jit') AS jit
+  `) as { timeout_ms: string; jit: string }[];
+  const before = Number(prev?.timeout_ms ?? 0);
+  const bound = before > 0 ? Math.min(before, ms) : ms;
+  await sql`SELECT set_config('statement_timeout', ${`${bound}ms`}, true), set_config('jit', 'off', true)`;
+  try {
+    const out = await fn();
+    await sql`SELECT set_config('statement_timeout', ${`${before}ms`}, true), set_config('jit', ${prev?.jit ?? 'on'}, true)`;
+    return out;
+  } catch (err) {
+    if ((err as { code?: unknown }).code === QUERY_CANCELED) {
+      throw new BankDimensionSyncRefusal(
+        `The bank sync read ran longer than ${bound / 1000}s and was cancelled: narrow date_from / date_to and run it again.`,
+      );
+    }
+    throw err;
+  }
+}
 
 interface CandidateRow {
   bank_id: string; tx_date: string; amount: string | number; description: string | null;
@@ -75,7 +109,7 @@ async function selectCandidates(
   if (batchId === null && (from === null || to === null)) {
     throw new BankDimensionSyncRefusal('A bank sync needs a tag batch or a date window.');
   }
-  const rows = (await sql`
+  const rows = await withBoundedStatements(async () => (await sql`
     SELECT bt.id::TEXT AS bank_id, bt.transaction_date::TEXT AS tx_date, bt.amount, bt.description,
            bt.cc1_id::TEXT AS o1, bt.cc2_id::TEXT AS o2, bt.bu_id::TEXT AS ob,
            jd.cc1::TEXT AS n1, jd.cc2::TEXT AS n2, jd.bu::TEXT AS nb,
@@ -98,7 +132,7 @@ async function selectCandidates(
     ORDER BY bt.id
     LIMIT ${opts.limit}::INT
     ${sql.unsafe(opts.lock ? 'FOR UPDATE OF bt' : '')}
-  `) as CandidateRow[];
+  `) as CandidateRow[]);
   return { rows: rows.map(toCandidate), total: rows.length === 0 ? 0 : Number(rows[0]!.total) };
 }
 

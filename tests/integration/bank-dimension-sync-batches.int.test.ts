@@ -8,12 +8,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asToken } from './bank-controls-a.helpers';
+import { sql } from '../../src/lib/neon';
 import {
   allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
 import { syncBankDimensionsTool } from '../../src/lib/mcp/tools/writeBankDimensionSync';
 import { planTagBatchReversal } from '../../src/modules/accounting/services/gl/dimensions/dimensionTagApply';
-import { previewBankSync } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { previewBankSync, withBoundedStatements } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -21,7 +22,8 @@ const companies: string[] = [];
 const users: string[] = [];
 const tokens: Record<string, string> = {};
 const mcp = mcpAs(pool);
-afterAll(() => cleanupSync(pool, companies, users));
+// The row-cap test plants 2001 journals; tearing them down takes longer than the default hook budget under load.
+afterAll(() => cleanupSync(pool, companies, users), 60_000);
 
 const WINDOW = { date_from: '2026-01-01', date_to: '2026-12-31' };
 async function fresh(): Promise<SyncFixture> {
@@ -150,8 +152,11 @@ describe('the row cap (blind LOW)', () => {
     const f = await fresh();
     await plantRows(f);
     const window = { date_from: '2026-11-01', date_to: '2026-11-01' };
+    const started = Date.now();
     const dry = json<{ would_sync: number; max_rows: number; over_max_rows: boolean; sample: unknown[] }>(
       await mcp(f.user, f.c, 'sync_bank_dimensions', { ...window, dry_run: true, idempotency_key: newKey('cap') }));
+    // A plan that goes quadratic on the shared journal rule must go red here, not hang a gate: the whole call, every statement of it.
+    expect(Date.now() - started).toBeLessThan(5000);
     expect(dry).toMatchObject({ would_sync: ROWS, max_rows: 2000, over_max_rows: true });
     expect(dry.sample.length).toBeLessThanOrEqual(25);
 
@@ -162,7 +167,49 @@ describe('the row cap (blind LOW)', () => {
       `SELECT (SELECT COUNT(*) FROM bank_transactions WHERE company_id = $1 AND cc1_id IS NOT NULL)::INT AS tagged,
               (SELECT COUNT(*) FROM dimension_tag_batches WHERE company_id = $1)::INT AS batches`, [f.c])).rows;
     expect(r).toEqual({ tagged: 0, batches: 0 });
-  }, 120_000);
+  });
+});
+
+describe('the server-side bound on the candidate read', () => {
+  it('cancels a read that outruns it as the typed refusal, and puts the caller\'s own settings back', async () => {
+    const f = await fresh();
+    const seen = await asToken(pool, f.user, f.c, async () => {
+      const setting = async () => (await sql`SELECT current_setting('statement_timeout') AS t, current_setting('jit') AS j`)[0] as { t: string; j: string };
+      const before = await setting();
+      let inside = { t: '', j: '' };
+      const refusal = await withBoundedStatements(async () => {
+        inside = await setting();
+        await sql`SELECT pg_sleep(3)`;
+      }, 300).then(() => null, (err: unknown) => err);
+      return { before, inside, refusal, after: refusal instanceof Error ? null : await setting() };
+    });
+    expect(seen.inside).toEqual({ t: '300ms', j: 'off' });
+    expect(seen.refusal).toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED', message: expect.stringMatching(/longer than 0.3s and was cancelled: narrow date_from/) });
+    expect(seen.before.t).not.toBe('300ms');
+  });
+
+  it('a normal read leaves the settings as it found them', async () => {
+    const f = await fresh();
+    const seen = await asToken(pool, f.user, f.c, async () => {
+      const setting = async () => (await sql`SELECT current_setting('statement_timeout') AS t, current_setting('jit') AS j`)[0] as { t: string; j: string };
+      const before = await setting();
+      await withBoundedStatements(async () => (await sql`SELECT 1`).length);
+      return { before, after: await setting() };
+    });
+    expect(seen.after).toEqual(seen.before);
+  });
+
+  it('a tighter caller budget is kept', async () => {
+    const f = await fresh();
+    const seen = await asToken(pool, f.user, f.c, async () => {
+      await sql`SET LOCAL statement_timeout = '200ms'`;
+      const inner = await withBoundedStatements(async () => (await sql`SELECT current_setting('statement_timeout') AS t`)[0] as { t: string });
+      const after = (await sql`SELECT current_setting('statement_timeout') AS t`)[0] as { t: string };
+      return { inner, after };
+    });
+    expect(seen.inner.t).toBe('200ms');
+    expect(seen.after.t).toBe('200ms');
+  });
 });
 
 describe('the tenant fence', () => {
