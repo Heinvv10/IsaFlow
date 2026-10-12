@@ -177,7 +177,8 @@ describe('across releases', { timeout: 120_000 }, () => {
     const release = setTimeout(() => { void other.query("SELECT pg_advisory_unlock(hashtext('audit_snapshot_chain:' || $1))", [c]); }, 2_000);
     // Meanwhile the same person holds a slot for another of their companies, for longer than the budget too.
     let free = () => {};
-    const held = withSnapshotSlot(crypto.randomUUID(), true, () => new Promise<void>((r) => { free = r; }), o);
+    // Held as the person's own (manual) job: only the per-person cap, not the automatic one, makes the snapshot wait.
+    const held = withSnapshotSlot(crypto.randomUUID(), false, () => new Promise<void>((r) => { free = r; }), o);
     const freeLater = setTimeout(() => free(), 17_000);
     try {
       const started = Date.now();
