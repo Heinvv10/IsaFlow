@@ -13,6 +13,12 @@
  * rule of ap_journal_entry_is_reversed, migration 680). A re-reversed chain's
  * original keeps its reversed_at, so it is skipped too: the safe side for a copy.
  *
+ * NAMED LIMIT (fails closed): in the chain J -> C (reversal of J) -> D (reversal of C), D puts the
+ * posting back on the books, but D has a reversal_of_id and is skipped with J and C. Deciding that D
+ * stands needs the chain's parity (shared/journalInForceAsAt, bank/journalReversalState), which is a
+ * recursive walk with $1/$2 placeholders that cannot be spliced into this static fragment, and is not
+ * hand-rolled here. A bank row reaches D only by a manual rematch; it then keeps its own tags.
+ *
  * Its DIMENSION LINES are every line other than the bank leg that is
  * not on a control account (bank, cash, card, AP, AR, VAT, payroll clearing —
  * `isControlSubtype`): exactly the lines a tag or an allocation may put a
