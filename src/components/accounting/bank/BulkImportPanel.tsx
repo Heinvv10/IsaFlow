@@ -16,6 +16,7 @@ import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow'
 import type { BulkPreviewResponse } from './bulkImportTypes';
 import { localISODate } from '@/lib/dateUtils';
 import { commitStatement, type DroppedPickLine } from './commitStatement';
+import { warningMessages } from '@/lib/warningMessages';
 import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 
 const PREVIEW_CONCURRENCY = 3;
@@ -315,7 +316,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           } else {
             failed++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: data.reason ?? 'Could not import this statement - try again',
+              ...r, phase: 'failed', errorMessage: warningMessages(data.reason)[0] ?? 'Could not import this statement - try again',
             } : r));
           }
         } catch (err) {
@@ -337,7 +338,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
         `${totalTransactions} transactions added.`);
     } else if (imported > 0) {
-      notify.warning(`Partial import`, `${imported} imported · ${failed} failed · ${skipped} skipped${withProblems ? ` · ${withProblems} with problems` : ''}`);
+      notify.warning(`Partial import${withProblems ? ` — ${withProblems} with problems` : ''}`, `${imported} imported · ${failed} failed · ${skipped} skipped`);
     } else if (failed > 0) {
       notify.error('Import failed', `${failed} file(s) could not be imported.`);
     }

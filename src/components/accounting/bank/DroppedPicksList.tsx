@@ -38,7 +38,7 @@ export function DroppedPicksList({ lines }: { lines: readonly DroppedPickLine[] 
                 {l.description ? <span className="min-w-0 truncate text-[var(--ff-text-muted)]" title={l.description}>· {l.description}</span> : null}
               </div>
               {(l.warnings ?? []).map((w, j) => (
-                <div key={j} className="text-amber-500">{postingWarningFact(w)}</div>
+                <div key={j} className="break-words text-amber-500">{postingWarningFact(w)}</div>
               ))}
             </li>
           ))}

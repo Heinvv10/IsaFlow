@@ -37,7 +37,8 @@ describe('posting warnings notice', () => {
     expect(postingWarningsByDocument({ data: { autoPost: { warnings: [] } } })).toEqual([]);
     expect(postingWarningsByDocument({ data: { autoPost: { warnings: 'no' } } } as never)).toEqual([]);
     expect(notifyPostingWarnings({ data: { autoPost: { warnings: [swept, swept] } } })).toBe(2);
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '+1 more not applied, in 2 documents.');
+    // a sweep line without a label is still a bank line: line 2 points at the list
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '+1 more warning — listed below');
   });
 
   it('merges a repeat inside one document only: two documents dropping the same centre are two', () => {
@@ -45,8 +46,13 @@ describe('posting warnings notice', () => {
     expect(postingWarningsIn({ data: { results: [{ warnings: [W1] }, { warnings: [W1] }] } })).toEqual([W1, W1]);
   });
 
+  it('reads a wrong-shaped warning list as the import screen does (coerced), not as nothing', () => {
+    expect(postingWarningsIn({ data: { warnings: 'no' } } as never)).toEqual(['no']);
+    expect(postingWarningsIn({ data: { warnings: [7, { message: 'M' }] } } as never)).toEqual(['7', 'M']);
+  });
+
   it('finds nothing in a response without warnings, or in one that is not a response', () => {
-    for (const body of [{ data: { id: 'x' } }, { data: { warnings: [] } }, { data: { warnings: 'no' } }, { data: { warnings: [7, '', null] } },
+    for (const body of [{ data: { id: 'x' } }, { data: { warnings: [] } }, { data: { warnings: [''] } }, { data: { warnings: [0, '', null, {}, '  '] } },
       { data: null }, { success: false }, null, undefined, 'x']) {
       expect(postingWarningsIn(body as never), JSON.stringify(body)).toEqual([]);
     }

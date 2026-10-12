@@ -165,7 +165,11 @@ export async function runLlmResidualPass(
       // After COMMIT with nobody waiting on a response: a pick the sweep dropped can only reach the log.
       const swept = await deps.sweep(tagged);
       if (swept.warnings.length > 0) {
-        log.warn('LLM pass: auto-post dropped cost-centre picks', { companyId, warnings: swept.warnings }, 'llm-pass');
+        // Counts and ids only: a bank description is free text (names, phone numbers) and stays out of the log.
+        const lines = swept.warnings;
+        log.warn('LLM pass: auto-post dropped cost-centre picks', {
+          companyId, lines: lines.length, warnings: lines.reduce((n, l) => n + l.warnings.length, 0), txIds: lines.map((l) => l.txId),
+        }, 'llm-pass');
       }
     }
   } catch (err) {

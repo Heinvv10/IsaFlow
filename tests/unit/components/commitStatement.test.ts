@@ -34,7 +34,7 @@ describe('commitStatement', () => {
 
   it('nothing from a statement that was not imported, or from a malformed list', async () => {
     expect((await commit({ success: true, data: { status: 'failed', reason: 'x', autoPost: { warnings: [line] } } })).dropped).toEqual([]);
-    expect((await commit({ success: true, data: { status: 'imported', autoPost: { warnings: 'no' } } })).dropped).toEqual([]);
+    expect((await commit({ success: true, data: { status: 'imported', autoPost: { warnings: [7, null, [], {}] } } })).dropped).toEqual([]);
     expect((await commit({ success: true, data: { status: 'imported' } })).dropped).toEqual([]);
   });
 
@@ -43,7 +43,7 @@ describe('commitStatement', () => {
     expect(r.dropped).toEqual([]);
   });
 
-  it('keeps object elements only, with string label/description and coerced string-array warnings', async () => {
+  it('keeps objects and bare sentences (not numbers, null or arrays), with string label/description and coerced string-array warnings', async () => {
     const ok = { txId: 't2', journalEntryId: 'j2', label: '2026-09-09 R 2,00', description: 'B', warnings: line.warnings };
     const r = await commit({ success: true, data: { status: 'imported', autoPost: { warnings: [
       null, 'x', 7, [], ok,
@@ -51,7 +51,7 @@ describe('commitStatement', () => {
       { txId: 't4', label: '2026-09-10 R 3,00', warnings: 'Line 1: a string, not a list' },
       { txId: 't5', label: '2026-09-11 R 4,00', warnings: [] },
     ] } } });
-    expect(r.dropped.map((d) => d.txId)).toEqual(['t2', 't4', 't3']); // a line with no label sorts last
+    expect(r.dropped.map((d) => d.txId)).toEqual(['t2', 't4', undefined, 't3']); // the bare sentence 'x' is a line of its own; label-less lines sort last
     expect(r.dropped.find((d) => d.txId === 't3')).toEqual({ txId: 't3', journalEntryId: undefined, label: '', description: null, warnings: [line.warnings[0], '7'] });
     expect(r.dropped.find((d) => d.txId === 't4')!.warnings).toEqual(['Line 1: a string, not a list']); // coerced, not dropped
     expect(r.dropped.find((d) => d.txId === 't2')).toEqual(ok);
@@ -100,5 +100,18 @@ describe('commitStatement', () => {
       { txId: 'n', warnings: ['W'] }, { txId: 'a', label: '2026-09-12 R 1,00', warnings: ['W'] }, { txId: 'b', label: '2026-09-08 R 1,00', warnings: ['W'] },
     ] } } })).dropped;
     expect(d.map((l) => l.txId)).toEqual(['b', 'a', 'n']);
+  });
+
+  it('reads a lone object as a list of one, and a bare sentence as a line with only a warning', async () => {
+    const one = (await commit({ success: true, data: { status: 'imported', autoPost: { warnings: { txId: 't', label: 'x', warnings: ['W'] } } } })).dropped;
+    expect(one).toEqual([{ txId: 't', journalEntryId: undefined, label: 'x', description: null, warnings: ['W'] }]);
+    const bare = (await commit({ success: true, data: { status: 'imported', autoPost: { warnings: ['Line 1: bare sentence', '  '] } } })).dropped;
+    expect(bare).toEqual([{ txId: undefined, journalEntryId: undefined, label: '', description: null, warnings: ['Line 1: bare sentence'] }]);
+  });
+
+  it('a clean answer never reads "with problems": blank, {}, [], false and 0 are no warning', async () => {
+    for (const w of ['', '   ', {}, [{}], [[]], ['  '], false, 0, [null, false]]) {
+      expect((await commit({ success: true, data: { status: 'imported', warnings: w } })).importWarnings, JSON.stringify(w)).toEqual([]);
+    }
   });
 });

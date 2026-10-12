@@ -53,8 +53,16 @@ describe('posting warnings notice — the bank line', () => {
     expect(shown()[0]).toContain('bank line 2026-10-03 R 115,00');
   });
 
-  it('a document with no label reads as it did', () => {
+  it('a sweep line with no label has no bank line in the title, but line 2 still points at the list', () => {
     notifyPostingWarnings(body(swept('t1', undefined)));
+    expect(shown()).toEqual([`Posted — ${FACT}`, 'See the list below.']);
+    vi.mocked(notify.warning).mockReset();
+    notifyPostingWarnings(body(swept('t1', undefined), swept('t2', '2026-09-08 R 1,00')));
+    expect(shown()).toEqual([`Posted — ${FACT}`, '+1 more warning — listed below']);
+  });
+
+  it('a document that is not a bank line (a bill, a claim) reads as it did', () => {
+    notifyPostingWarnings({ data: { warnings: [W1] } });
     expect(shown()).toEqual([`Posted — ${FACT}`, 'Line 1 posted without it.']);
     expect(postingWarningsNotice([[W1]]).title).toBe(`Posted — ${FACT}`);
   });
