@@ -14,7 +14,8 @@ import {
 } from './bank-dimension-sync.helpers';
 import { syncBankDimensionsTool } from '../../src/lib/mcp/tools/writeBankDimensionSync';
 import { planTagBatchReversal } from '../../src/modules/accounting/services/gl/dimensions/dimensionTagApply';
-import { previewBankSync, withBoundedStatements } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { previewBankSync } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
+import { withBoundedStatements } from '../../src/modules/accounting/services/gl/dimensions/boundedStatements';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
