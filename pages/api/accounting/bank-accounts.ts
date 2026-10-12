@@ -18,6 +18,8 @@ import { boundedRowWait, lockSystemRoleWrites } from '@/modules/accounting/servi
 import { reactivationRefusal } from '@/modules/accounting/services/gl/systemRoleReactivation';
 import { assertRolesKept, snapshotRoles } from '@/modules/accounting/services/gl/systemRoleInvariant';
 import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting/services/gl/roleTargetRules';
+import { isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
+import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
@@ -53,7 +55,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
   if (parentId === id) return 'An account cannot be its own group';
   if (parentId) {
     const [parent] = await sql`
-      SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account,
+      SELECT id, parent_account_id, account_type, account_subtype, account_code, is_system_account, level,
         (SELECT p.account_subtype FROM gl_accounts p
           WHERE p.id = gl_accounts.parent_account_id AND p.company_id = ${companyId}) AS parent_subtype
       FROM gl_accounts
@@ -80,6 +82,17 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
       LIMIT 1
     `;
     if (parentTx) return 'Group account has its own bank transactions — pick an account without transactions as the group';
+    // A posted level 1-2 parent would become a header the balance sheet drops — the rule assertParentUsable
+    // applies to every other chart edit, with its lock taken before the read for the same reason.
+    if (isSubjectToLeafRule(Number(parent.level), String(parent.account_type))) {
+      await lockGlAccountsForUpdate(companyId, [parentId]);
+      const [posted] = await sql`
+        SELECT 1 FROM gl_journal_lines WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID LIMIT 1`;
+      if (posted) {
+        return `Group account ${String(parent.account_code)} has journal lines posted to it — as a group it would become `
+          + 'a header and its balance would leave the balance sheet. Pick an account with no postings as the group';
+      }
+    }
   }
   await boundedRowWait(() => sql`
     UPDATE gl_accounts SET parent_account_id = ${parentId}, updated_at = NOW()

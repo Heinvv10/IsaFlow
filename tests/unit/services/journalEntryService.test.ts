@@ -30,6 +30,11 @@ vi.mock('@/modules/accounting/services/gl/journalVatLockGuard', async (importOri
   journalMovesVatFigure: vi.fn(async () => false),
   loadJournalVatLines: vi.fn(async () => []),
 }));
+// The header-account guard is pinned on real Postgres (tests/integration/header-account-guard*); this suite mocks sql.
+vi.mock('@/modules/accounting/services/gl/headerAccountGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/headerAccountGuard')>()),
+  assertNoHeaderAccountLines: vi.fn(async () => undefined),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
