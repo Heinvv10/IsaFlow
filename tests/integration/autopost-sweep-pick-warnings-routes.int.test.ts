@@ -50,7 +50,7 @@ const upload = (f: BankCompany) => callRoute(bulkCommit as never, tokens[user]!,
   csvContent: ['Date,Description,Amount', '2026-09-08,Acmeprov Holdings,-500.00', '2026-09-09,Acmeprov Holdings,-250.00'].join('\n'),
 }, '/api/accounting/bank-transactions-bulk-commit');
 
-type Answer = { batchId: string; autoPost: { warnings: Array<{ txId: string; journalEntryId: string; warnings: string[] }> } };
+type Answer = { batchId: string; autoPost: { warnings: Array<{ txId: string; journalEntryId: string; label: string; warnings: string[] }> } };
 const answer = (res: { state: { statusCode: number; body: unknown } }) => {
   expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   return (res.state.body as { data: Answer }).data;
@@ -61,11 +61,12 @@ describe('bulk-commit answers with the picks its auto-post could not apply', () 
     const { f } = await company(false);
     const data = answer(await upload(f));
     const lines = (await pool.query(
-      `SELECT id::TEXT AS id, status, provisional_je_id::TEXT AS je FROM bank_transactions
-       WHERE import_batch_id = $1 ORDER BY amount`, [data.batchId])).rows as Array<{ id: string; status: string; je: string }>;
+      `SELECT id::TEXT AS id, status, provisional_je_id::TEXT AS je, transaction_date::TEXT AS day, abs(amount)::FLOAT8 AS amt
+       FROM bank_transactions WHERE import_batch_id = $1 ORDER BY amount`, [data.batchId])).rows as Array<{ id: string; status: string; je: string; day: string; amt: number }>;
     expect(lines.map((l) => l.status)).toEqual(['provisional', 'provisional']);
+    expect(lines.map((l) => l.day)).toEqual(['2026-09-08', '2026-09-09']); // the labels below are of THESE lines
     expect([...data.autoPost.warnings].sort((a, b) => a.txId.localeCompare(b.txId))).toEqual(
-      lines.map((l) => ({ txId: l.id, journalEntryId: l.je, warnings: [INACTIVE_WARNING] })).sort((a, b) => a.txId.localeCompare(b.txId)));
+      lines.map((l) => ({ txId: l.id, journalEntryId: l.je, label: `${l.day} R${l.amt.toFixed(2)}`, warnings: [INACTIVE_WARNING] })).sort((a, b) => a.txId.localeCompare(b.txId)));
     const { rows: [carried] } = await pool.query(
       'SELECT count(*)::INT AS n FROM gl_journal_lines WHERE company_id = $1 AND cc1_id IS NOT NULL', [f.c]);
     expect(carried.n).toBe(0);

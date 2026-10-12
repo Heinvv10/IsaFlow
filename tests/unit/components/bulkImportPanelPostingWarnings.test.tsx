@@ -61,10 +61,12 @@ afterEach(() => cleanup());
 describe('bulk import panel — an auto-posted line whose cost centre was not applied', () => {
   it('says which centre and why, counted per bank transaction', async () => {
     await importOneFile(commit({ warnings: [
-      { txId: 't1', journalEntryId: 'je-1', warnings: [INACTIVE] },
-      { txId: 't2', journalEntryId: 'je-2', warnings: [INACTIVE] },
+      { txId: 't1', journalEntryId: 'je-1', label: '2026-10-02 R230.00', warnings: [INACTIVE] },
+      { txId: 't2', journalEntryId: 'je-2', label: '2026-10-03 R115.00', warnings: [INACTIVE] },
     ] }));
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '+1 more not applied, in 2 documents.');
+    expect(notify.warning).toHaveBeenCalledWith(
+      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', '+1 more not applied, in 2 documents.',
+    );
   });
 
   it('says nothing when every pick landed', async () => {
@@ -84,10 +86,12 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
 
   it('with both, shows only the dropped picks', async () => {
     await importOneFile(commit(
-      { warnings: [{ txId: 't1', journalEntryId: 'je-1', warnings: [INACTIVE] }] },
+      { warnings: [{ txId: 't1', journalEntryId: 'je-1', label: '2026-10-02 R230.00', warnings: [INACTIVE] }] },
       ['Row 3: could not read the date'],
     ));
     expect(notify.warning).toHaveBeenCalledTimes(1);
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', 'Line 1 posted without it.');
+    expect(notify.warning).toHaveBeenCalledWith(
+      'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R230.00', 'Line 1 posted without it.',
+    );
   });
 });

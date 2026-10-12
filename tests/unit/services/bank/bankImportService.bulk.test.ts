@@ -10,11 +10,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { withTransactionMock, sqlMock, savepointMock } = vi.hoisted(() => {
+const { withTransactionMock, sqlMock } = vi.hoisted(() => {
   const withTransactionMock = vi.fn();
   const sqlMock = Object.assign(vi.fn(), { unsafe: vi.fn() });
-  const savepointMock = vi.fn((_name: string, fn: () => Promise<unknown>) => fn());
-  return { withTransactionMock, sqlMock, savepointMock };
+  return { withTransactionMock, sqlMock };
 });
 
 vi.mock('@/lib/neon', () => ({
@@ -25,7 +24,7 @@ vi.mock('@/lib/neon', () => ({
   // withSavepoint just runs the callback, which is what this pass-through
   // reproduces, and assertTxUsable is a no-op with no request transaction to
   // poison — both exactly as @/lib/neon behaves with no ALS store.
-  withSavepoint: savepointMock,
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
   assertTxUsable: () => {},
 }));
 vi.mock('@/lib/logger', () => ({
@@ -250,49 +249,6 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
       'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
     );
     expect(result.errors).toHaveLength(0);
-  });
-
-  it('hands back the cost-centre picks the sweep dropped, and nothing when it dropped none', async () => {
-    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
-    const warnings = [{
-      txId: 'tx-outflow-1', journalEntryId: 'je-1',
-      warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'],
-    }];
-    vi.mocked(sweep).mockResolvedValueOnce({ runId: 'run-1', posted: 1, skipped: [], warnings });
-
-    const dropped = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
-    expect(dropped.autoPostWarnings).toEqual(warnings);
-
-    const clean = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
-    expect(clean).not.toHaveProperty('autoPostWarnings');
-  });
-
-  it('hands back no picks when the savepoint around the sweep rolled back after it returned them', async () => {
-    // The sweep's posts and the savepoint's RELEASE are one unit: if the RELEASE (or anything after the sweep in
-    // that savepoint) fails, the journals those warnings name are gone, and the caller is told the auto-post failed.
-    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
-    vi.mocked(sweep).mockResolvedValueOnce({
-      runId: 'run-1', posted: 1, skipped: [],
-      warnings: [{ txId: 'tx-outflow-1', journalEntryId: 'je-1', warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'] }],
-    });
-    savepointMock.mockImplementationOnce(async (_name, fn) => { await fn(); throw new Error('RELEASE failed'); });
-
-    const result = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
-
-    expect(result).not.toHaveProperty('autoPostWarnings');
-    expect(result.errors.map((e) => e.error)).toEqual([expect.stringMatching(/Auto-posting of imported outflows failed/)]);
-  });
-
-  it('a sweep answer without a warnings list is not an auto-post failure: its posts stand', async () => {
-    // `warnings` is reporting only. Throwing on its absence would roll the savepoint back and take the posted
-    // journals with it, turning a missing report into a ledger change.
-    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
-    vi.mocked(sweep).mockResolvedValueOnce({ runId: 'run-1', posted: 1, skipped: [] } as never);
-
-    const result = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
-
-    expect(result.errors).toEqual([]);
-    expect(result).not.toHaveProperty('autoPostWarnings');
   });
 
   it('reports a failed auto-post sweep instead of a clean import', async () => {

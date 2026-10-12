@@ -325,13 +325,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
       autoPostSkippedLocked: ruleLinesSkippedLocked,
-      // Non-fatal problems the import swallowed to stay non-fatal — today, a
-      // transfer counterpart pass that failed. Reported so the user is not told
-      // the import was clean when part of it was not.
+      // Non-fatal problems the import swallowed (a failed transfer link or auto-post), so the user is not told it was clean.
       warnings: result.errors.map((e) => e.error),
-      // Cost-centre picks the import's auto-post could not apply (the line posted without the centre), per bank
-      // transaction — the shape smart-categorize's `autoPost` has, which postingWarningsNotice reads.
-      autoPost: { warnings: result.autoPostWarnings ?? [] },
+      autoPost: { warnings: result.autoPostWarnings ?? [] }, // dropped cost-centre picks, per bank line (smart-categorize's shape)
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {

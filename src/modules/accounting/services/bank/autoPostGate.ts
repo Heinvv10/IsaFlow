@@ -25,6 +25,8 @@ export type AutoPostSource = 'import' | 'categorization' | 'manual';
 export interface SweepWarning {
   txId: string;
   journalEntryId: string;
+  /** The bank line in a few characters — "2026-10-02 R230.00" — so a screen can say which one. */
+  label: string;
   warnings: string[];
 }
 

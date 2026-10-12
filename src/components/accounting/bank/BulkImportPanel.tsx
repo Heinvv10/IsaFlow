@@ -13,9 +13,9 @@ import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
 import { findCrossFileDuplicates } from '@/lib/bulkUpload/crossFileDedup';
 import { BankAccountSelector, type BankAccountOption } from './BankAccountSelector';
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
-import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
+import type { BulkPreviewResponse } from './bulkImportTypes';
 import { localISODate } from '@/lib/dateUtils';
-import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
+import { commitStatement } from './commitStatement';
 
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
@@ -290,28 +290,12 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           return;
         }
         try {
-          const filePayload = await readFileForUpload(collectedFile);
-          const statementDate = row.dateRange?.to ?? localISODate();
-          const res = await apiFetch('/api/accounting/bank-transactions-bulk-commit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              bankAccountId,
-              bulkImportId,
-              bulkSequence: sequence,
-              filename: collectedFile.file.name,
-              statementDate,
-              sourceFileSizeBytes: collectedFile.sizeBytes,
-              applyBankRules,
-              ...filePayload,
-            }),
+          const data = await commitStatement({
+            bankAccountId, bulkImportId, bulkSequence: sequence, collected: collectedFile, applyBankRules,
+            statementDate: row.dateRange?.to ?? localISODate(),
           });
-          await assertOk(res, 'Could not import this statement - try again');
-          const json = await res.json();
-          const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
             imported++;
-            notifyPostingWarnings({ data: { autoPost: json?.data?.autoPost } }); // a dropped cost centre — not data.warnings, the import's own problems
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,

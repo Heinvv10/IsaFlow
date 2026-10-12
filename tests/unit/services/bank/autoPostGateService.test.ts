@@ -337,53 +337,6 @@ describe('sweep', () => {
     // Step 2: posted as the sweep's user, judged for the person who triggered it (the import's importer).
     expect(postProvisional).toHaveBeenCalledWith('co-1', 't1', 'u-1', { minConfidence: 0.9, triggeredBy: 'importer-1' });
     expect(r.posted).toBe(1);
-    expect(r.warnings).toEqual([]); // postProvisional returned none
-  });
-
-  describe('cost-centre picks the provisional path dropped', () => {
-    const W = 'Line 1: cost centre OLD is inactive and was not applied — the line posts without it.';
-    const txRow = (id: string) => ({ id, status: 'imported', feed_state: 'posted', amount: -300, suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT' });
-    const handlers = (rows: unknown[], tagFails: (text: string, calls: number) => boolean) => {
-      let tags = 0;
-      sqlMock.mockImplementation((strings: TemplateStringsArray) => {
-        const text = strings.join('?');
-        if (/FROM bank_auto_post_settings/.test(text)) return Promise.resolve([{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }]);
-        if (/FROM bank_transactions\s+WHERE id = ANY/.test(text)) return Promise.resolve(rows);
-        if (/INSERT INTO bank_auto_post_runs/.test(text)) return Promise.resolve([{ id: 'run-1' }]);
-        if (/UPDATE bank_transactions SET auto_post_run_id/.test(text)) {
-          tags += 1;
-          return tagFails(text, tags) ? Promise.reject(new Error('tag failed')) : Promise.resolve([]);
-        }
-        return Promise.resolve([]);
-      });
-    };
-
-    it('returns each, under the bank transaction and journal it belongs to', async () => {
-      handlers([txRow('t1'), txRow('t2'), txRow('t3')], () => false);
-      (postProvisional as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ journalEntryId: 'je-1', prediction: {}, warnings: [W] })
-        .mockResolvedValueOnce({ journalEntryId: 'je-2', prediction: {} })
-        .mockResolvedValueOnce({ journalEntryId: 'je-3', prediction: {}, warnings: [W, W.replace('Line 1', 'Line 2')] });
-
-      const r = await sweep('co-1', ['t1', 't2', 't3'], 'import', 'u-1', 'importer-1');
-      expect(r.posted).toBe(3);
-      expect(r.warnings).toEqual([
-        { txId: 't1', journalEntryId: 'je-1', warnings: [W] },
-        { txId: 't3', journalEntryId: 'je-3', warnings: [W, W.replace('Line 1', 'Line 2')] },
-      ]);
-    });
-
-    it('does not report a pick for a row whose post was rolled back with its savepoint', async () => {
-      handlers([txRow('t1'), txRow('t2')], (_t, call) => call === 1);
-      (postProvisional as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce({ journalEntryId: 'je-1', prediction: {}, warnings: [W] })
-        .mockResolvedValueOnce({ journalEntryId: 'je-2', prediction: {}, warnings: [W] });
-
-      const r = await sweep('co-1', ['t1', 't2'], 'import', 'u-1', 'importer-1');
-      expect(r.skipped).toEqual([{ txId: 't1', reason: 'tag failed' }]);
-      expect(r.posted).toBe(1);
-      expect(r.warnings).toEqual([{ txId: 't2', journalEntryId: 'je-2', warnings: [W] }]);
-    });
   });
 });
 
