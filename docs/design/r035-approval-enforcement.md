@@ -718,7 +718,9 @@ link instead of becoming its predecessor (review round 2, N2), and `?chain=1` / 
 forged. A verifying link that does not name the verifying link before it is `broken`, so removing or replacing a
 snapshot in the middle is visible even with the guards turned off by the owner. The LATEST link can only be checked
 against the chain head the app logs on every seal (journalctl). A link taken no later than the one before it breaks
-the chain (a backdated row written past the writer), and so does a link naming nothing although rows precede it. The chain check reads every sealed row in seq order,
+the chain (a backdated row written past the writer). A verifying link that names nothing although rows precede it
+is reported as a restart (`restarts`), shown in amber, never as intact — but not as a break, since one forged row
+written before a company's first snapshot would otherwise break its append-only chain for good. The chain check reads every sealed row in seq order,
 whatever else was recorded since.
 One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two

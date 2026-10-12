@@ -39,8 +39,9 @@ export function recordSnapshotAttempt(p: AuditPrincipal, input: Attempt): Promis
 /**
  * The newest sealed snapshot at `cutoff` whose books fingerprint is `fingerprint` — and that verifies: an
  * 'unchanged' row vouches for the snapshot it points at, so a forged or altered one is never pointed at, and a forged
- * row carrying the genuine fingerprint (readable in totals) does not hide the genuine one behind it. Each candidate's
- * seal is checked first (cheap: no rows), then the newest whose seal holds is verified in full. Null otherwise.
+ * row carrying the genuine fingerprint (readable in totals) does not hide the genuine one behind it, however many there
+ * are. Each candidate's seal is checked first (cheap: no rows), then the newest whose seal holds is verified in full.
+ * Null otherwise.
  * Read in the caller's snapshot transaction.
  */
 export async function verifiedTwin(client: PoolClient, companyId: string, cutoff: string, fingerprint: string,
@@ -48,7 +49,7 @@ export async function verifiedTwin(client: PoolClient, companyId: string, cutoff
   const { rows } = await client.query<{ id: string }>(
     `SELECT id::text AS id FROM audit_snapshots
      WHERE company_id = $1::uuid AND status = 'sealed' AND cutoff = $2::date AND totals->>'content_fingerprint' = $3
-     ORDER BY seq DESC LIMIT 50`, [companyId, cutoff, fingerprint]);
+     ORDER BY seq DESC`, [companyId, cutoff, fingerprint]);
   const sealed = new Map((await sealedChain(companyId)).map((l) => [l.id, l]));
   for (const { id } of rows) {
     const l = sealed.get(id);
