@@ -15,6 +15,10 @@ import { getCheckRun, getSnapshot, listSnapshots } from '@/modules/accounting/se
 import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
 import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
+import { chargeAuditJob } from '@/lib/auth/autoRateLimit';
+
+/** The web routes' audit bucket, charged per member: MCP requests all arrive on /api/mcp, which no URL bucket matches. */
+const RATE_LIMITED = 'Too many audit jobs (verify, chain, compare, take) in a minute — at most 30 per member. Try again shortly.';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const CAVEAT = 'A snapshot holds the current values of records dated on or before its cutoff, as at taken_at — not the '
@@ -55,11 +59,17 @@ export const auditSnapshotsTool: McpTool = {
     if (!mayReadAudit(ctx.companyRole)) return toolError(`Your role (${ctx.companyRole ?? 'unknown'}) cannot view audit snapshots.`);
     const id = strArg(args, 'snapshot_id');
     try {
-      if (!id && args.verify_chain === true) return ok({ chain: await verifyChain(ctx.companyId) });
+      if (!id && args.verify_chain === true) {
+        if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
+        return ok({ chain: await verifyChain(ctx.companyId) });
+      }
       if (!id) return ok({ snapshots: await listSnapshots(ctx.companyId), caveat: CAVEAT });
       const snapshot = await getSnapshot(ctx.companyId, id);
       if (!snapshot) return toolError('Not found');
-      if (args.verify === true) return ok({ verification: await withSnapshotSlot(ctx.companyId, false, () => verifySnapshot(ctx.companyId, id)) });
+      if (args.verify === true) {
+        if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
+        return ok({ verification: await withSnapshotSlot(ctx.companyId, false, () => verifySnapshot(ctx.companyId, id)) });
+      }
       const checkRun = snapshot.checkRunId ? await getCheckRun(ctx.companyId, snapshot.checkRunId) : null;
       return ok({ snapshot, checkRun });
     } catch (err) {
@@ -97,6 +107,7 @@ export const compareAuditSnapshotTool: McpTool = {
     const against = strArg(args, 'against_snapshot_id');
     try {
       const p = principalFromRequest();
+      if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
       return ok({ comparison: await withSnapshotSlot(ctx.companyId, false, () => (against ? compareSnapshots(p, id, against) : compareSnapshotToLive(p, id))) });
     } catch (err) {
       return refused(err);
@@ -130,6 +141,7 @@ export const takeAuditSnapshotTool: McpTool = {
     const cutoff = strArg(args, 'cutoff');
     if (!cutoff) return toolError('cutoff is required (YYYY-MM-DD)');
     try {
+      if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
       return ok({ snapshot: await takeSnapshot(principalFromRequest(), { cutoff, trigger: 'manual' }), caveat: CAVEAT });
     } catch (err) {
       return refused(err);

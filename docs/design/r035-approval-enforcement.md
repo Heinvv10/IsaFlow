@@ -718,35 +718,42 @@ link instead of becoming its predecessor (review round 2, N2), and `?chain=1` / 
 forged. A verifying link that does not name the verifying link before it is `broken`, so removing or replacing a
 snapshot in the middle is visible even with the guards turned off by the owner. The LATEST link can only be checked
 against the chain head the app logs on every seal (journalctl). A link taken no later than the one before it breaks
-the chain (a backdated row written past the writer). The chain check reads every sealed row in seq order,
+the chain (a backdated row written past the writer), and so does a link naming nothing although rows precede it. The chain check reads every sealed row in seq order,
 whatever else was recorded since.
 One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
 whole-ledger jobs per process, one per company and one per person (so neither one company nor one person with
-several companies holds both), a 120 s budget per snapshot — a bound, not a check afterwards: before each step, check and
+several companies holds both; automatic snapshots are exempt from the per-person cap, so a bookkeeper's month-end
+closes across companies are not queued behind each other), a 120 s budget per snapshot counted from when the slot and
+the company's lock are held — a bound, not a check afterwards: before each step, check and
 total the time left is checked and statement_timeout tightened to it, and past the deadline a watchdog cancels
 whatever statement the snapshot's connection is running. Automatic jobs wait at most five minutes for a
 slot and again for the company's lock, then record a `busy` failure. An automatic snapshot whose books fingerprint
 — every journal and line material hash, the TB and the ageing and control totals, sealed in each snapshot's totals —
 matches a sealed snapshot at that cutoff that still verifies is recorded as `unchanged`, pointing at it (close then
 lock, close / reopen / close), with a sealed check run of its own: the checks read state the books do not (the
-period's status, bank lines), so they are frozen afresh every time. The run is required, and verify accepts it only
-when it was made in the attempt's own transaction (same cutoff, same now(), purpose `snapshot`). An invoice that moves no journal but moves the
+period's status, bank lines), so they are frozen afresh every time. The run is required: the writer refuses an attempt whose run was not made in its own transaction for its cutoff,
+or whose twin is not a sealed snapshot at the same cutoff, and verify checks both again. The twin is the newest
+sealed snapshot with that fingerprint whose seal verifies, so a forged row carrying the fingerprint is skipped. An invoice that moves no journal but moves the
 ageing seals a new copy.
 Each snapshot and check run stores the document version it was sealed under (`document_version`, in its sealed
 totals) and is always verified under that version, so a later bump never turns earlier snapshots invalid; a
 comparison compares only the columns both sides froze and lists the others as not compared. A key id
 the server holds no key for is `invalid`. Retired keys are kept for verification with the instant they were retired
-(`AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@2026-10-12T14:00:00Z,…`): a seal under one is valid only when taken before
+(`AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@2026-10-12T14:00:00Z,…`; a malformed entry refuses every audit operation
+with 503 until fixed, rather than being skipped): a seal under one is valid only when taken before
 that instant, so rotating away from a leaked key stops forgeries under it (taken_at is the writer's now()). A comparison verifies
 both sides first and refuses an altered one. Journal and line rows freeze the VAT / intercompany / evidence columns
 too (`late_claim_base`, `is_intercompany`, `external_document_number`, …); a column census fails when a new
 journal or line column is neither frozen nor named as not material — against the live schema (integration) and
 against the migrations' ADD COLUMNs (a unit test, so GitHub's CI runs it too). The whole-ledger audit requests (take, verify,
 chain, compare, check run, pack build and pack verify) are rate-limited at 30 a minute per member (each member's own
-bucket, so one member cannot lock the others out); browsing a snapshot, the audit log and the trail export are not.
-A pack becomes ready only by being built (an ENABLE ALWAYS guard on `audit_trail_exports` refuses a row INSERTed
-ready or moved to ready without its snapshot and ZIP, any change to a ready pack's snapshot and file pointers, and
+bucket, so one member cannot lock the others out; the MCP audit tools charge the same bucket); browsing a snapshot, the audit log and the trail export are not.
+The ZIP bytes are sealed too: `zip_hmac` over company | export | `zip_sha256` (`isaflow:audit-pack-zip:v1`), checked
+before the ZIP is parsed, so a row re-pointed at any other bytes fails whatever a ZIP parser would make of them
+(review round 3, P1); behind it the raw central directory must hold exactly the manifest's files, once each, none a
+directory. A pack becomes ready only by being built (an ENABLE ALWAYS guard on `audit_trail_exports` refuses a row
+INSERTed ready or moved to ready without its snapshot, ZIP and ZIP seal, any change at all to a ready pack, and
 deleting a ready pack except with its company), and both download routes — the owner's and the auditor portal's —
 serve a ZIP only when it proves itself: its hash is the export's, its sealed manifest verifies for this export id,
 it holds exactly the manifest's files and each matches, and the manifest cites the export's snapshot (no ledger read;

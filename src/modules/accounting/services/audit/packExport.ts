@@ -9,18 +9,17 @@
  * The manifest is sealed too (manifest.sig.json: HMAC over the manifest's SHA-256, export id, cutoff and
  * taken_at), so an edited file with a recomputed manifest does not verify without the key.
  *
- * A pack is built only from a snapshot that verifies valid. verifyPack
- * re-reads the stored ZIP: the manifest's seal, every file's hash against the manifest, and the
- * snapshot the manifest cites verified from its stored rows.
+ * The ZIP bytes are sealed too (zip_hmac over company | export | zip_sha256), so a row re-pointed at any other bytes
+ * fails before they are parsed. A pack is built only from a snapshot that verifies valid; packVerify.ts checks a
+ * stored one.
  */
 import JSZip from 'jszip';
-import { z } from 'zod';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { downloadCapturedDocument, uploadCapturedDocument } from '@/lib/supabaseStorage';
-import { buildPdf, getExport, type AuditExport, type JEForExport } from '@/modules/accounting/services/capture/auditTrailExportService';
+import { uploadCapturedDocument } from '@/lib/supabaseStorage';
+import { buildPdf, type AuditExport, type JEForExport } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { sha256Hex } from './canonical';
-import { PACK_SEAL_DOMAIN, checkSeal, sign, signingKey, type SealCheck } from './seal';
+import { PACK_SEAL_DOMAIN, PACK_ZIP_SEAL_DOMAIN, sign, signingKey } from './seal';
 import { toCsv } from './csv';
 import type { Comparison } from './comparisonService';
 import { getCheckRun, getSnapshot, snapshotRows, snapshotTb, type SnapshotRecord, type StoredRow } from './snapshotRead';
@@ -133,150 +132,17 @@ export async function buildSnapshotPack(exportRow: AuditExport, snapshotId: stri
 /** Uploads the pack and marks the export ready, citing the snapshot. */
 export async function storePack(exportRow: AuditExport, snapshotId: string, pack: BuiltPack): Promise<void> {
   const upload = await uploadCapturedDocument(exportRow.companyId, `audit-${exportRow.id}.zip`, pack.zip, 'application/zip');
+  const manifest = pack.manifest as { period: { end: string }; snapshot: { taken_at: string } };
+  const zipSeal = sign(PACK_ZIP_SEAL_DOMAIN, { companyId: exportRow.companyId, id: exportRow.id, canonicalHash: pack.sha256,
+    cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, signingKey());
   await sql`
     UPDATE audit_trail_exports
-    SET status = 'ready', snapshot_id = ${snapshotId}::UUID, period_end = ${String((pack.manifest.period as { end: string }).end)}::DATE,
+    SET status = 'ready', snapshot_id = ${snapshotId}::UUID, period_end = ${manifest.period.end}::DATE,
         je_count = ${pack.jeCount}, line_count = ${pack.lineCount}, document_count = ${pack.documentCount},
         total_debits = ${pack.totalDebits}, total_credits = ${pack.totalCredits}, pdf_sha256 = ${pack.pdfSha256},
-        zip_storage_bucket = ${upload.bucket}, zip_storage_path = ${upload.path}, zip_sha256 = ${pack.sha256}, built_at = NOW()
+        zip_storage_bucket = ${upload.bucket}, zip_storage_path = ${upload.path}, zip_sha256 = ${pack.sha256},
+        zip_hmac = ${zipSeal.hmac}, zip_key_id = ${zipSeal.keyId}, built_at = NOW()
     WHERE id = ${exportRow.id}::UUID AND company_id = ${exportRow.companyId}::UUID
   `;
   log.info('audit pack built from snapshot', { exportId: exportRow.id, snapshotId, sha256: pack.sha256 }, 'audit');
-}
-
-const Manifest = z.object({
-  period: z.object({ end: z.string() }),
-  snapshot: z.object({ id: z.string(), canonical_hash: z.string(), taken_at: z.string() }),
-  files: z.array(z.object({ name: z.string(), sha256: z.string(), bytes: z.number().int().nonnegative() })),
-});
-
-/** The manifest and its seal are small; anything larger is not one of ours and is not inflated. */
-const MANIFEST_MAX_BYTES = 1024 * 1024;
-const SIG_MAX_BYTES = 4096;
-
-/**
- * An entry's bytes, inflated a chunk at a time and abandoned past `cap` (null): a crafted entry cannot inflate the
- * whole of itself into memory, whatever its header claims.
- */
-function readCapped(zip: JSZip, name: string, cap: number): Promise<Buffer | null> {
-  const entry = zip.file(name);
-  if (!entry) return Promise.resolve(null);
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let done = false;
-    const stream = entry.nodeStream('nodebuffer');
-    stream.on('data', (chunk: Buffer) => {
-      if (done) return;
-      size += chunk.length;
-      if (size > cap) { done = true; stream.pause(); resolve(null); return; }
-      chunks.push(chunk);
-    });
-    stream.on('error', (err: Error) => { if (!done) { done = true; reject(err); } });
-    stream.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
-  });
-}
-const Sig = z.object({ hmac: z.string(), key_id: z.string() });
-
-function parsed<T>(schema: z.ZodType<T>, text: string | undefined): T | null {
-  if (!text) return null;
-  try {
-    const r = schema.safeParse(JSON.parse(text));
-    return r.success ? r.data : null;
-  } catch (err) {
-    log.warn('audit pack: unreadable manifest', { error: err instanceof Error ? err.message : String(err) }, 'audit');
-    return null;
-  }
-}
-
-/** A verify holds a whole-ledger slot: the stored ZIP must arrive within this, or the verify fails. */
-export const PACK_DOWNLOAD_TIMEOUT_MS = 60_000;
-
-async function download(bucket: string, path: string): Promise<Buffer> {
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`the stored pack did not download within ${PACK_DOWNLOAD_TIMEOUT_MS / 1000} s`)), PACK_DOWNLOAD_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([downloadCapturedDocument(bucket, path), late]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export interface PackVerification {
-  status: 'valid' | 'invalid'; zipMatches: boolean; files: { name: string; ok: boolean }[];
-  snapshotId: string | null; snapshotStatus: string | null; manifestCitesSnapshot: boolean;
-  /** The manifest's own seal; `missing` for a ZIP without a readable manifest.json or manifest.sig.json. */
-  manifestSeal: SealCheck | 'missing';
-}
-
-type FileCheck = Omit<PackVerification, 'status' | 'snapshotId' | 'snapshotStatus'> & { intact: boolean };
-
-/**
- * What the stored ZIP proves on its own, without reading the ledger: its hash is the one recorded for the export,
- * its manifest's seal verifies (bound to this export id; a retired key only for a pack built before it was retired,
- * by the database's built_at), it holds exactly the manifest's files and each matches, and the manifest cites the
- * export's snapshot and that snapshot's stored canonical hash. Nothing but the manifest and its seal is inflated
- * before the seal verifies, and nothing past the size the manifest gives it.
- */
-async function checkPackFile(companyId: string, e: AuditExport, buf: Buffer): Promise<FileCheck> {
-  const zipMatches = sha256Hex(buf) === e.zipSha256;
-  const missing: FileCheck = { zipMatches, files: [], manifestCitesSnapshot: false, manifestSeal: 'missing', intact: false };
-  try {
-    const zip = await JSZip.loadAsync(buf);
-    const manifestText = (await readCapped(zip, 'manifest.json', MANIFEST_MAX_BYTES))?.toString('utf8');
-    const manifest = parsed(Manifest, manifestText);
-    const sig = parsed(Sig, (await readCapped(zip, 'manifest.sig.json', SIG_MAX_BYTES))?.toString('utf8'));
-    // A missing, oversized, unreadable or malformed ZIP, manifest or seal: invalid, never an error.
-    if (!manifestText || !manifest || !sig) return missing;
-    // built_at at full precision (the mapped export's is a Date's toString, to the second).
-    const [stamp] = (await sql`
-      SELECT to_char(built_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t FROM audit_trail_exports
-      WHERE id = ${e.id}::UUID AND company_id = ${companyId}::UUID`) as { t: string | null }[];
-    const builtAt = stamp?.t ?? '';
-    const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: e.id, canonicalHash: sha256Hex(manifestText),
-      cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, sig.hmac, sig.key_id, undefined, builtAt);
-    const snap = e.snapshotId ? await getSnapshot(companyId, e.snapshotId) : null;
-    const cites = manifest.snapshot.id === e.snapshotId && !!snap && manifest.snapshot.canonical_hash === snap.canonicalHash;
-    if (manifestSeal !== 'valid') return { zipMatches, files: [], manifestCitesSnapshot: cites, manifestSeal, intact: false };
-    const expected = new Set([...manifest.files.map((f) => f.name), 'manifest.json', 'manifest.sig.json']);
-    const entries = Object.values(zip.files).filter((f) => !f.dir).map((f) => f.name);
-    const files = [];
-    for (const f of manifest.files) {
-      const b = await readCapped(zip, f.name, f.bytes);
-      files.push({ name: f.name, ok: !!b && b.length === f.bytes && sha256Hex(b) === f.sha256 });
-    }
-    for (const name of entries) if (!expected.has(name)) files.push({ name, ok: false }); // a file the manifest does not list
-    const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok);
-    return { zipMatches, files, manifestCitesSnapshot: cites, manifestSeal, intact };
-  } catch (err) {
-    log.warn('audit pack: unreadable ZIP', { exportId: e.id, error: err instanceof Error ? err.message : String(err) }, 'audit');
-    return missing;
-  }
-}
-
-export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
-  const e = await getExport(exportId, companyId);
-  if (!e || !e.zipStoragePath || !e.snapshotId) return null;
-  const { intact, ...file } = await checkPackFile(companyId, e, await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath));
-  const snapshotStatus = (await verifySnapshot(companyId, e.snapshotId))?.status ?? null;
-  // Fail closed: valid only when every part is.
-  return { status: intact && snapshotStatus === 'valid' ? 'valid' : 'invalid', ...file, snapshotId: e.snapshotId, snapshotStatus };
-}
-
-/**
- * The stored ZIP of a ready snapshot pack, served only when it proves itself (checkPackFile — no ledger read, so
- * cheap enough for every download): an edited or substituted ZIP, or a row pointed at another pack's ZIP, is refused.
- */
-export async function verifiedPackZip(companyId: string, e: AuditExport): Promise<Buffer> {
-  if (!e.zipStoragePath) throw new PackRefusedError('This export has no pack ZIP.');
-  const buf = await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
-  const check = await checkPackFile(companyId, e, buf);
-  if (!check.intact) {
-    log.warn('audit pack: refused to serve a pack that does not verify', { exportId: e.id, zipMatches: check.zipMatches,
-      manifestSeal: check.manifestSeal, cites: check.manifestCitesSnapshot }, 'audit');
-    throw new PackRefusedError('This audit pack does not verify (its file or sealed manifest does not match what was built); it is not served.');
-  }
-  return buf;
 }

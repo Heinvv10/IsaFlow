@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { getExport } from '@/modules/accounting/services/capture/auditTrailExportService';
-import { verifyPack } from '@/modules/accounting/services/audit/packExport';
+import { verifyPack } from '@/modules/accounting/services/audit/packVerify';
 import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { mayReadAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 

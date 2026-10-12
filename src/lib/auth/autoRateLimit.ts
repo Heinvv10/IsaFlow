@@ -46,3 +46,12 @@ export async function checkAutoRateLimit(url: string | undefined, companyId: str
   const key = bucket.perUser ? `${bucket.key}:${companyId}:${userId ?? 'anonymous'}` : `${bucket.key}:${companyId}`;
   return checkRateLimit(key, { max: bucket.max, windowSecs: bucket.windowSecs });
 }
+
+/**
+ * Charges one whole-ledger audit job to the member's audit bucket — the same bucket the web routes charge by URL —
+ * for callers no URL describes (the MCP audit tools all arrive on /api/mcp). False when the member is over it.
+ */
+export async function chargeAuditJob(companyId: string, userId: string): Promise<boolean> {
+  const bucket = AUTO_RATE_LIMIT.find((b) => b.key === 'audit')!;
+  return checkRateLimit(`audit:${companyId}:${userId}`, { max: bucket.max, windowSecs: bucket.windowSecs });
+}

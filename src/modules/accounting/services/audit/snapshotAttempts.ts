@@ -9,6 +9,8 @@ import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
 import { SNAPSHOT_CAVEAT } from './documents';
 import type { SnapshotTrigger } from './snapshotService';
 import { verifySnapshot } from './snapshotVerify';
+import { sealedChain } from './snapshotRead';
+import { SNAPSHOT_SEAL_DOMAIN, checkSeal, type SigningKey } from './seal';
 
 type AutoTrigger = Exclude<SnapshotTrigger, 'manual'>;
 type Attempt = { cutoff: string; trigger: AutoTrigger; status: 'failed'; reason: string }
@@ -36,14 +38,23 @@ export function recordSnapshotAttempt(p: AuditPrincipal, input: Attempt): Promis
 
 /**
  * The newest sealed snapshot at `cutoff` whose books fingerprint is `fingerprint` — and that verifies: an
- * 'unchanged' row vouches for the snapshot it points at, so a forged or altered one is never pointed at. Null otherwise.
+ * 'unchanged' row vouches for the snapshot it points at, so a forged or altered one is never pointed at, and a forged
+ * row carrying the genuine fingerprint (readable in totals) does not hide the genuine one behind it. Each candidate's
+ * seal is checked first (cheap: no rows), then the newest whose seal holds is verified in full. Null otherwise.
  * Read in the caller's snapshot transaction.
  */
-export async function verifiedTwin(client: PoolClient, companyId: string, cutoff: string, fingerprint: string): Promise<string | null> {
-  const { rows: [s] } = await client.query<{ id: string }>(
+export async function verifiedTwin(client: PoolClient, companyId: string, cutoff: string, fingerprint: string,
+  key: SigningKey): Promise<string | null> {
+  const { rows } = await client.query<{ id: string }>(
     `SELECT id::text AS id FROM audit_snapshots
      WHERE company_id = $1::uuid AND status = 'sealed' AND cutoff = $2::date AND totals->>'content_fingerprint' = $3
-     ORDER BY seq DESC LIMIT 1`, [companyId, cutoff, fingerprint]);
-  if (!s) return null;
-  return (await verifySnapshot(companyId, s.id))?.status === 'valid' ? s.id : null;
+     ORDER BY seq DESC LIMIT 50`, [companyId, cutoff, fingerprint]);
+  const sealed = new Map((await sealedChain(companyId)).map((l) => [l.id, l]));
+  for (const { id } of rows) {
+    const l = sealed.get(id);
+    if (!l || checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id, canonicalHash: l.canonicalHash, cutoff: l.cutoff, takenAt: l.takenAt,
+      chain: { seq: l.seq, prevHmac: l.prevHmac } }, l.hmac, l.keyId, key) !== 'valid') continue;
+    if ((await verifySnapshot(companyId, id, key))?.status === 'valid') return id;
+  }
+  return null;
 }

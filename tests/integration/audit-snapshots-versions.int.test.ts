@@ -60,6 +60,7 @@ import { verifyChain, verifySnapshot } from '../../src/modules/accounting/servic
 import { compareSnapshotToLive, compareSnapshots } from '../../src/modules/accounting/services/audit/comparisonService';
 import { getCheckRun, getSnapshot } from '../../src/modules/accounting/services/audit/snapshotRead';
 import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from '../../src/modules/accounting/services/audit/auditTx';
+import { withSnapshotSlot } from '../../src/modules/accounting/services/audit/snapshotSlots';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -160,6 +161,27 @@ describe('across releases', { timeout: 120_000 }, () => {
       expect(Date.now() - started).toBeLessThan(10_000);
     } finally {
       await other.query("SELECT pg_advisory_unlock(hashtext('audit_snapshot_chain:' || $1))", [c]);
+      other.release();
+    }
+  });
+
+  it('waiting for the slot or the lock is not budget time, and an automatic snapshot is not queued behind its person (breaker r3 B1)', async () => {
+    const { c } = await books();
+    Object.assign(knobs, { budgetMs: 15_000, waitMs: 60_000 });
+    // The company's snapshot lock held elsewhere for longer than the whole budget, then released.
+    const other = await pool.connect();
+    await other.query("SELECT pg_advisory_lock(hashtext('audit_snapshot_chain:' || $1))", [c]);
+    const release = setTimeout(() => { void other.query("SELECT pg_advisory_unlock(hashtext('audit_snapshot_chain:' || $1))", [c]); }, 17_000);
+    // Meanwhile the same person holds a slot for another of their companies.
+    let free = () => {};
+    const held = withSnapshotSlot(crypto.randomUUID(), true, () => new Promise<void>((r) => { free = r; }), o);
+    try {
+      const s = await takeAutoSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'period_close' });
+      expect(s.status).toBe('sealed');
+    } finally {
+      clearTimeout(release);
+      free();
+      await held;
       other.release();
     }
   });

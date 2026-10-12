@@ -163,6 +163,10 @@ ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS snapshot_id UUID;
 ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS zip_storage_bucket TEXT;
 ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS zip_storage_path TEXT;
 ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS zip_sha256 TEXT;
+-- The ZIP's own seal: HMAC over company | export | zip_sha256 (PACK_ZIP_SEAL_DOMAIN). Re-pointing a row at any other
+-- bytes needs the key, whatever a ZIP parser makes of them.
+ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS zip_hmac TEXT;
+ALTER TABLE audit_trail_exports ADD COLUMN IF NOT EXISTS zip_key_id TEXT;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint WHERE conname = 'audit_trail_exports_snapshot_fk') THEN
@@ -194,18 +198,15 @@ BEGIN
   END IF;
   -- Into ready: only a pack built from a snapshot (a ZIP the download routes can verify), never a bare file pointer.
   IF NEW.status = 'ready' AND OLD.status IS DISTINCT FROM 'ready' THEN
-    IF NEW.snapshot_id IS NULL OR NEW.zip_storage_path IS NULL OR NEW.zip_sha256 IS NULL THEN
+    IF NEW.snapshot_id IS NULL OR NEW.zip_storage_path IS NULL OR NEW.zip_sha256 IS NULL
+       OR NEW.zip_hmac IS NULL OR NEW.zip_key_id IS NULL THEN
       RAISE EXCEPTION 'audit_trail_exports: a pack is ready only with its snapshot and ZIP' USING ERRCODE = '42501';
     END IF;
     -- When it became ready, by the database's clock: a retired key vouches only for packs built before it was retired.
     NEW.built_at := pg_catalog.now();
   END IF;
-  IF OLD.status = 'ready' AND (NEW.status IS DISTINCT FROM OLD.status
-      OR NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id OR NEW.zip_storage_bucket IS DISTINCT FROM OLD.zip_storage_bucket
-      OR NEW.zip_storage_path IS DISTINCT FROM OLD.zip_storage_path OR NEW.zip_sha256 IS DISTINCT FROM OLD.zip_sha256
-      OR NEW.pdf_storage_bucket IS DISTINCT FROM OLD.pdf_storage_bucket
-      OR NEW.pdf_storage_path IS DISTINCT FROM OLD.pdf_storage_path OR NEW.pdf_sha256 IS DISTINCT FROM OLD.pdf_sha256
-      OR NEW.built_at IS DISTINCT FROM OLD.built_at) THEN
+  -- A ready pack is fixed, every column of it: what it covers, its totals, its files and when it was built.
+  IF OLD.status = 'ready' AND NEW IS DISTINCT FROM OLD THEN
     RAISE EXCEPTION 'audit_trail_exports: a ready pack''s snapshot and files are fixed' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
@@ -387,6 +388,18 @@ BEGIN
   IF v_status <> 'sealed' AND (pg_catalog.jsonb_array_length(COALESCE(p_tb, '[]')) > 0
       OR pg_catalog.jsonb_array_length(COALESCE(p_journals, '[]')) > 0 OR pg_catalog.jsonb_array_length(COALESCE(p_lines, '[]')) > 0) THEN
     RAISE EXCEPTION 'audit snapshot: a failed or unchanged attempt records no rows' USING ERRCODE = '22023';
+  END IF;
+  -- An 'unchanged' attempt references a sealed snapshot at its own cutoff, and cites the check run made in this
+  -- transaction for that cutoff.
+  IF v_status = 'unchanged' AND (
+       NOT EXISTS (SELECT 1 FROM public.audit_snapshots s WHERE s.company_id = v_company AND s.status = 'sealed'
+                   AND s.id = (p_snapshot ->> 'same_as_snapshot_id')::pg_catalog.uuid
+                   AND s.cutoff = (p_snapshot ->> 'cutoff')::pg_catalog.date)
+    OR NOT EXISTS (SELECT 1 FROM public.audit_check_runs r WHERE r.company_id = v_company
+                   AND r.id = (p_snapshot ->> 'check_run_id')::pg_catalog.uuid AND r.purpose = 'snapshot'
+                   AND r.as_at = (p_snapshot ->> 'cutoff')::pg_catalog.date AND r.taken_at = pg_catalog.now())) THEN
+    RAISE EXCEPTION 'audit snapshot: an unchanged attempt cites a sealed snapshot at its cutoff and this transaction''s check run'
+      USING ERRCODE = '22023';
   END IF;
   -- The chain: one numbered row per sealed snapshot, in order, each naming an earlier sealed row (or none). The app
   -- names the newest earlier row whose seal VERIFIES — the database cannot check an HMAC, so a forged row written

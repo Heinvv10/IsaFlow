@@ -18,7 +18,7 @@ import {
   exportDownload,
 } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
-import { verifiedPackZip } from '@/modules/accounting/services/audit/packExport';
+import { verifiedPackZip } from '@/modules/accounting/services/audit/packVerify';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 const PORTAL_DOWNLOADS_PER_MINUTE = 10;

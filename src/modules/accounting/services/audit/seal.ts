@@ -11,18 +11,20 @@
  * when it was taken BEFORE that instant: rotating away from a leaked key stops
  * forgeries under it (taken_at is the writer's now(), not the caller's). Under any
  * other key id a seal is `invalid` — the key id is the writer's input, so one the
- * server holds no key for proves nothing and must not read as "cannot tell".
+ * server holds no key for proves nothing and must not read as "cannot tell". A malformed retired entry refuses every
+ * audit operation (503) until fixed.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
 
 export const SNAPSHOT_SEAL_DOMAIN = 'isaflow:audit-snapshot:v1';
 export const CHECK_RUN_SEAL_DOMAIN = 'isaflow:audit-check-run:v1';
 export const PACK_SEAL_DOMAIN = 'isaflow:audit-pack:v1';
+export const PACK_ZIP_SEAL_DOMAIN = 'isaflow:audit-pack-zip:v1';
 const MIN_KEY_LENGTH = 32;
 
 export class SigningKeyMissingError extends Error {
-  constructor() {
-    super('Audit snapshots are not available: the signing key (AUDIT_SNAPSHOT_SIGNING_KEY, AUDIT_SNAPSHOT_KEY_ID) is not configured.');
+  constructor(message = 'Audit snapshots are not available: the signing key (AUDIT_SNAPSHOT_SIGNING_KEY, AUDIT_SNAPSHOT_KEY_ID) is not configured.') {
+    super(message);
     this.name = 'SigningKeyMissingError';
   }
 }
@@ -39,17 +41,19 @@ export function signingKey(): SigningKey {
   const keyId = (process.env.AUDIT_SNAPSHOT_KEY_ID ?? '').trim();
   if (raw.length < MIN_KEY_LENGTH || keyId === '') throw new SigningKeyMissingError();
   const retired = new Map<string, RetiredKey>();
-  for (const entry of (process.env.AUDIT_SNAPSHOT_RETIRED_KEYS ?? '').split(',')) {
+  for (const entry of (process.env.AUDIT_SNAPSHOT_RETIRED_KEYS ?? '').split(',').filter((e) => e.trim() !== '')) {
     const eq = entry.indexOf('=');
     const stamp = entry.lastIndexOf('@');
     const id = entry.slice(0, eq).trim();
     const secret = entry.slice(eq + 1, stamp);
     const when = entry.slice(stamp + 1).trim();
     const retiredAt = ISO_INSTANT.test(when) ? Date.parse(when) : NaN;
-    // A malformed entry (no instant included) is left out: its seals then read invalid (fail closed), never valid.
-    if (eq > 0 && stamp > eq && id !== keyId && secret.length >= MIN_KEY_LENGTH && Number.isFinite(retiredAt)) {
-      retired.set(id, { key: Buffer.from(secret, 'utf8'), retiredAt });
+    // A malformed entry is a configuration error, never skipped: skipped, every seal under that key would read forged.
+    if (!(eq > 0 && stamp > eq && id !== keyId && secret.length >= MIN_KEY_LENGTH && Number.isFinite(retiredAt))) {
+      throw new SigningKeyMissingError(`Audit snapshots are not available: AUDIT_SNAPSHOT_RETIRED_KEYS has an entry that is not `
+        + `id=secret@retired-at (secret ≥ ${MIN_KEY_LENGTH} characters, an ISO instant, not the current key id): "${id || '?'}".`);
     }
+    retired.set(id, { key: Buffer.from(secret, 'utf8'), retiredAt });
   }
   return { key: Buffer.from(raw, 'utf8'), keyId, retired };
 }

@@ -107,13 +107,17 @@ describe('seal', () => {
     process.env.AUDIT_SNAPSHOT_KEY_ID = ' ';
     expect(() => signingKey()).toThrow(SigningKeyMissingError);
     process.env.AUDIT_SNAPSHOT_KEY_ID = 'k2';
-    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}@2026-10-12T14:00:00Z, k1=short@2026-10-12T14:00:00Z,`
-      + `k2=${'b'.repeat(32)}@2026-10-12T14:00:00Z,k3=${'c'.repeat(32)},k4=${'d'.repeat(32)}@yesterday,junk`;
+    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}@2026-10-12T14:00:00Z, `;
     const k = signingKey();
     expect(k.keyId).toBe('k2');
-    // k1's secret is too short, k2 is the current id, k3 has no retirement instant and k4 an unreadable one: left out
-    // (their seals read invalid, never valid).
     expect([...k.retired!.keys()]).toEqual(['k0']);
     expect(k.retired!.get('k0')).toEqual({ key: Buffer.from('a'.repeat(32)), retiredAt: Date.parse('2026-10-12T14:00:00Z') });
+    // Any malformed entry is a configuration error (breaker r3 K1), never skipped into every old seal reading forged.
+    for (const bad of ['k1=short@2026-10-12T14:00:00Z', `k2=${'b'.repeat(32)}@2026-10-12T14:00:00Z`, `k3=${'c'.repeat(32)}`,
+      `k4=${'d'.repeat(32)}@yesterday`, 'junk']) {
+      process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}@2026-10-12T14:00:00Z,${bad}`;
+      expect(() => signingKey(), bad).toThrow(/AUDIT_SNAPSHOT_RETIRED_KEYS/);
+    }
+    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = '';
   });
 });

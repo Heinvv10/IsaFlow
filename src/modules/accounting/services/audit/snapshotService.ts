@@ -107,12 +107,14 @@ const isStatementTimeout = (err: unknown) => (err as { code?: string } | null)?.
 async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: SnapshotTrigger; maxLines?: number },
   dedupe: boolean): Promise<TakenSnapshot | UnchangedSnapshot> {
   const key = signingKey();
-  const started = Date.now();
   const max = input.maxLines ?? MAX_SNAPSHOT_LINES;
   // By hand: refused while busy. Automatic: waits its turn (bounded).
   const wait = input.trigger !== 'manual';
   const taken = await withSnapshotSlot(p.companyId, wait, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     let at = 'starting';
+    // The budget runs from here, with the slot and the company's lock held: waiting for them is bounded on its own
+    // (AUDIT_WAIT_MS) and is not this snapshot's time.
+    const started = Date.now();
     const dog = await budgetWatchdog(client, started + SNAPSHOT_TIME_BUDGET_MS);
     /** Before each step: abandon past the budget, and no statement may outrun what is left of it. */
     const step = async (name: string) => {
@@ -139,7 +141,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       const results = await runAllChecks({ companyId: p.companyId, from: fyStart, to: input.cutoff }, step);
       await step('sealing');
       const fingerprint = contentFingerprint(tb, journals, lines, books);
-      const sameAs = dedupe ? await verifiedTwin(client, p.companyId, input.cutoff, fingerprint) : null;
+      const sameAs = dedupe ? await verifiedTwin(client, p.companyId, input.cutoff, fingerprint, key) : null;
       if (dedupe) await step('sealing');
       const run = await recordCheckRun(client, p, { asAt: input.cutoff, periodStart: fyStart, purpose: 'snapshot', key, results });
       if (sameAs) {
@@ -183,7 +185,10 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
     } finally {
       await dog.stop();
     }
-  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }), p.userId);
+  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }),
+  // Automatic jobs are not a person's own load (bounded by the company slot and the process cap): no per-person cap,
+  // so one bookkeeper closing many companies does not queue their snapshots behind each other.
+  wait ? null : p.userId);
   if (taken.status === 'sealed') {
     // The chain head, written outside the database as well (the journal keeps it): a removed latest snapshot shows here.
     log.info('audit: snapshot sealed', { companyId: p.companyId, snapshotId: taken.id, seq: taken.seq, hash: taken.canonicalHash,

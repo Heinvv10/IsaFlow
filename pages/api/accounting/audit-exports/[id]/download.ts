@@ -12,7 +12,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import { exportDownload, getExport } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { mayReadAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
-import { verifiedPackZip } from '@/modules/accounting/services/audit/packExport';
+import { verifiedPackZip } from '@/modules/accounting/services/audit/packVerify';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

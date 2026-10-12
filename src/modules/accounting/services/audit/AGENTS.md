@@ -27,11 +27,13 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 - Chain: `seq` + `prev_hmac` (the newest earlier row whose seal verifies), signed. Forged rows are skipped and listed.
 - `unchanged` = same books (ledger + ageing / control totals) as a verifying snapshot; it must carry its own check run
   (same tx: cutoff, now(), purpose). The chain requires taken_at to increase with seq.
-- Load: `snapshotSlots` — two per process, one per company, one per person; manual refused (409), automatic waits
-  ≤ `AUDIT_WAIT_MS`. Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
+- Load: `snapshotSlots` — two per process, one per company, one per person (automatic exempt); manual refused (409), automatic waits
+  ≤ `AUDIT_WAIT_MS` (not budget time). Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
   watchdog cancels the running statement.
-- Packs: ready only once built (890 guard); downloads serve a ZIP only through `verifiedPackZip`.
-- Keys: `AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@retired-at,…` verifies seals taken before retired-at only.
+- Packs: ZIP sealed (`zip_hmac`), checked before parsing; exact central directory; ready only once built and then
+  immutable (890 guard); downloads serve a ZIP only through `verifiedPackZip` (`packVerify.ts`).
+- Keys: `AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@retired-at,…` verifies seals taken before retired-at only; a malformed
+  entry is a config error (503). MCP audit tools charge the member's audit bucket (`chargeAuditJob`).
 - Column census: decisions in `tests/helpers/auditSnapshotColumns.ts`; integration (schema) + unit (migrations).
 - `bulkPlan` (nested loops off) for bulk reads: stale statistics made 50 000 lines take 65 s.
 
