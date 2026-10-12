@@ -36,6 +36,11 @@ const chart: GLAccount[] = [
   chartAccount('a-sales', '4000', 'Sales Revenue', { accountType: 'revenue' }),
   chartAccount('a-cost', '5000', 'Purchases Expense'),
   chartAccount('a-inactive', '5900', 'Inactive Expense', { isActive: false }),
+  chartAccount('a-inactive-liab', '2190', 'Inactive Liability', { accountType: 'liability', isActive: false }),
+  chartAccount('a-inactive-asset', '1190', 'Inactive Asset', { accountType: 'asset', isActive: false }),
+  // A header that carries past postings: postableAccounts keeps it, a leaf rule does not.
+  chartAccount('h-exp', '5100', 'Expense HEADER WITH POSTINGS', { level: 1, hasTransactions: true }),
+  chartAccount('a-exp-child', '5110', 'Expense Child', { parentAccountId: 'h-exp' }),
 ];
 
 const claim = {
@@ -64,6 +69,7 @@ describe('chart-of-accounts consumers read the real response shape', () => {
     const names = (s: HTMLSelectElement) => Array.from(s.options).map(o => o.textContent);
     expect(names(reimb!)).toEqual(['Select account…', '2100 — Employee Reimbursements']);
     expect(names(vat!)).toEqual(['None — skip VAT leg', '1140 — VAT Input']);
+    expect(screen.queryByRole('option', { name: /Inactive (Liability|Asset)/ })).toBeNull();
   });
 
   it('expense claim receipt line dropdown leaves out header and inactive accounts', async () => {
@@ -74,6 +80,8 @@ describe('chart-of-accounts consumers read the real response shape', () => {
     await screen.findByRole('option', { name: '5000 — Purchases Expense' });
     expect(screen.queryByRole('option', { name: /HEADER/ })).toBeNull();
     expect(screen.queryByRole('option', { name: /Inactive Expense/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /WITH POSTINGS/ })).toBeNull();
+    expect(screen.getByRole('option', { name: '5110 — Expense Child' })).toBeTruthy();
   });
 
   it('purchase order edit offers the accounts on each line', async () => {

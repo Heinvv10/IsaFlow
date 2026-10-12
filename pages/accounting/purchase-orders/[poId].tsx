@@ -127,7 +127,7 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => {
     if (!editing) return;
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts(chartAccountOptions(((j.data ?? []) as ChartGLAccount[]).filter(a => a.isActive !== false)))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
+      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts(chartAccountOptions(j.data as ChartGLAccount[] | undefined))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
   }, [editing]);
 
   const startEdit = () => {

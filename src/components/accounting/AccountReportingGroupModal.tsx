@@ -60,7 +60,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?flat=true&active_only=true');
+      const res = await apiFetch('/api/accounting/chart-of-accounts');
       await assertOk(res, 'Could not load accounts - try again');
       const json = await res.json();
       setAllAccounts(chartAccountOptions(json.data as ChartGLAccount[] | undefined));
