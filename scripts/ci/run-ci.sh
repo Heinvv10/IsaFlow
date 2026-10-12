@@ -85,7 +85,14 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 # this branch's newer migrations. It ignores DATABASE_URL. It names every suite
 # that skipped and why, and fails on one that skipped without saying why.
 # See the header of scripts/ci/integration/run.sh.
-run_step "integration"       bash scripts/ci/integration/run.sh
+# It runs on GitHub (GITHUB_ACTIONS=true) and, locally, only when asked for
+# with CI_INTEGRATION=1: it adds 8-25 minutes, so the pre-push hook skips it.
+if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
+  run_step "integration"     bash scripts/ci/integration/run.sh
+else
+  echo ""
+  echo "[skip] integration: NOT RUN — the integration suites run on GitHub only. Run them here with: CI_INTEGRATION=1 bun run ci (or bash scripts/ci/integration/run.sh)"
+fi
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
