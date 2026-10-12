@@ -277,7 +277,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     let skipped = 0;
     let failed = 0;
     let totalTransactions = 0;
-    const dropped: DroppedPickLine[] = []; // bank lines that auto-posted without their cost centre, over every file
+    const droppedByFile: DroppedPickLine[][] = []; // bank lines that auto-posted without their cost centre, by file (sequence)
 
     await runWithConcurrency(
       eligible.map((r, i) => ({ row: r, sequence: i + 1 })),
@@ -292,16 +292,16 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           return;
         }
         try {
-          const { data, dropped: lines } = await commitStatement({
+          const { data, dropped: lines, importWarnings } = await commitStatement({
             bankAccountId, bulkImportId, bulkSequence: sequence, collected: collectedFile, applyBankRules,
             statementDate: row.dateRange?.to ?? localISODate(),
           });
           if (data.status === 'imported') {
             imported++;
-            dropped.push(...lines);
+            droppedByFile[sequence - 1] = lines;
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines,
+              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines, importWarnings,
             } : r));
           } else if (data.status === 'skipped') {
             skipped++;
@@ -336,7 +336,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       notify.error('Import failed', `${failed} file(s) could not be imported.`);
     }
     // After the run's own toast; once for the run, not once per file. The lines are listed under their files.
-    notifyPostingWarnings({ data: { autoPost: { warnings: dropped } } });
+    notifyPostingWarnings({ data: { autoPost: { warnings: droppedByFile.flat() } } }); // file order, whatever finished first
   }, [bankAccountId, rows, applyBankRules]);
 
   // ── Render ────────────────────────────────────────────────────────────────

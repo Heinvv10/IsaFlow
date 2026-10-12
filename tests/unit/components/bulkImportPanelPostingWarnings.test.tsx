@@ -80,7 +80,7 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
     expect(within(items[0]!).getByText('cost centre OLD not applied (inactive)')).toBeTruthy();
     expect(within(items[0]!).getByText('project PH not applied (another FNO)')).toBeTruthy(); // the 2nd warning of a line
     expect(notify.warning).toHaveBeenCalledTimes(1);
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R 500,00', '+2 more — see the list below');
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R 500,00', '+2 more warnings — listed below');
   });
 
   it('the list stays under the file that produced it, in a many-file import, and there is ONE drop toast', async () => {
@@ -119,6 +119,52 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
     const c = await importFiles(['a.csv'], () => commit({ warnings: [dropped('t1', '2026-10-02 R 230,00', 'ALPHA')] }, ['Row 3: could not read the date']));
     expect(notify.warning).toHaveBeenCalledTimes(1);
     expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R 230,00', 'See the list below.');
-    expect(c.textContent).not.toContain('could not read the date');
+    // the import's own problem is in the file's row, not in the toast
+    expect(fileRow(c, 'a.csv').getByText('Row 3: could not read the date')).toBeTruthy();
+  });
+
+  it('shows the import\'s own problems in that file\'s row, apart from the dropped picks, and not as a clean success', async () => {
+    const FAILED = 'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.';
+    const c = await importFiles(['a.csv', 'b.csv'], (n) => n === 'a.csv'
+      ? commit({ warnings: [] }, [FAILED, 'Row 3: could not read the date'])
+      : commit({ warnings: [dropped('t2', '2026-10-09 R 115,00', 'BETA')] }));
+    const a = fileRow(c, 'a.csv');
+    expect(a.getByText('Imported with problems')).toBeTruthy();
+    expect(a.getByText(FAILED)).toBeTruthy();
+    expect(a.getByText('Row 3: could not read the date')).toBeTruthy();
+    expect(a.queryByText(/posted without their cost centre/)).toBeNull(); // not the dropped-picks list
+    expect(a.getByText(/Imported 2 · check below/)).toBeTruthy(); // the pill is not the plain "Imported 2"
+    const b = fileRow(c, 'b.csv');
+    expect(b.queryByText('Imported with problems')).toBeNull();
+    expect(b.getByText('Imported 2')).toBeTruthy();
+    expect(notify.warning).toHaveBeenCalledTimes(1); // only the pick pointer; the import's problems are no "Posted —" toast
+    expect(vi.mocked(notify.warning).mock.calls[0]![0]).not.toContain('still unposted');
+  });
+
+  it('a malformed dropped-pick element does not blank the panel: the other files and their state stay', async () => {
+    const c = await importFiles(['good.csv', 'bad.csv'], (n) => commit({ warnings: n === 'bad.csv'
+      ? [null, { txId: 't1', label: '2026-09-01 R 1,00', warnings: 'Line 1: not a list' }, dropped('t2', '2026-09-02 R 2,00', 'OK LINE')] : [] }));
+    expect(c.textContent).toContain('good.csv');
+    expect(fileRow(c, 'bad.csv').getByText(/OK LINE/)).toBeTruthy();
+  });
+
+  it('names the first drop in file order, however the commits finish', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      const name = (JSON.parse(String(init?.body ?? '{}')) as { filename?: string }).filename ?? 'a.csv';
+      if (String(url).includes('bulk-preview')) return ok({ ...preview, filename: name, rowHashes: [`h-${name}`] });
+      if (String(url).includes('bulk-commit')) {
+        if (name === 'a.csv') await new Promise((r) => setTimeout(r, 150)); // a finishes AFTER b
+        return ok(commit({ warnings: [dropped(`t-${name}`, name === 'a.csv' ? '2026-10-02 R 230,00' : '2026-10-09 R 115,00', name)] }));
+      }
+      return ok([]);
+    });
+    const { container } = render(<BulkImportPanel />);
+    const input = container.querySelector('input[accept]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: ['a.csv', 'b.csv'].map((n) => new File(['Date,Description,Amount\n2026-09-08,Acme,-5.00\n'], n, { type: 'text/csv' })) } });
+    const button = await screen.findByRole('button', { name: /Import 2 statements/ });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(notify.warning).toHaveBeenCalled());
+    expect(vi.mocked(notify.warning).mock.calls[0]![0]).toContain('bank line 2026-10-02 R 230,00');
   });
 });

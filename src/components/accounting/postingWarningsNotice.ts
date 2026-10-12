@@ -94,7 +94,7 @@ export function postingWarningsNotice(
   // A sentence this screen does not know still reaches the person whole: the title wraps.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}${firstLabel ? `, bank line ${firstLabel}` : ''}`;
   if (firstLabel) {
-    return { title, message: all.length > 1 ? `+${all.length - 1} more — see the list below` : 'See the list below.' };
+    return { title, message: all.length > 2 ? `+${all.length - 1} more warnings — listed below` : all.length === 2 ? '+1 more warning — listed below' : 'See the list below.' };
   }
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';

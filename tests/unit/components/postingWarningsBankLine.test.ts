@@ -33,7 +33,7 @@ describe('posting warnings notice — the bank line', () => {
     notifyPostingWarnings(body(swept('t1', '2026-09-08 R 500,00'), swept('t2', '2026-09-12 R 1 234 567,89'), swept('t3', '2026-09-13 R 10,00')));
     const [title, message] = shown();
     expect(title).toContain('bank line 2026-09-08 R 500,00');
-    expect(message).toBe('+2 more — see the list below');
+    expect(message).toBe('+2 more warnings — listed below');
     expect(message).not.toMatch(/R\s|2026/);
   });
 
@@ -44,8 +44,8 @@ describe('posting warnings notice — the bank line', () => {
   });
 
   it('counts every warning: a bank line with two is "+1 more", not nothing', () => {
-    expect(postingWarningsNotice([[W1, W2]], ['2026-09-08 R 500,00']).message).toBe('+1 more — see the list below');
-    expect(postingWarningsNotice([[W1, W2], [W1]], ['2026-09-08 R 500,00', '2026-09-09 R 1,00']).message).toBe('+2 more — see the list below');
+    expect(postingWarningsNotice([[W1, W2]], ['2026-09-08 R 500,00']).message).toBe('+1 more warning — listed below');
+    expect(postingWarningsNotice([[W1, W2], [W1]], ['2026-09-08 R 500,00', '2026-09-09 R 1,00']).message).toBe('+2 more warnings — listed below');
   });
 
   it('names the first document that has warnings, not the first in the list', () => {

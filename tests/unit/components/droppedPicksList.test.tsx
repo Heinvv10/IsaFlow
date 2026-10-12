@@ -50,4 +50,16 @@ describe('DroppedPicksList', () => {
     fireEvent.click(screen.getByRole('button', { name: /6 lines posted without their cost centre/ }));
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
   });
+
+  it('clamps a long description to one row, with the full text on hover', () => {
+    const long = 'DEBIT ORDER '.repeat(30).trim();
+    render(<DroppedPicksList lines={[line(1, { description: long })]} />);
+    const el = screen.getByTitle(long);
+    expect(el.className).toMatch(/\btruncate\b/);
+    expect(el.textContent).toContain('DEBIT ORDER');
+  });
+
+  it('does not throw on a line missing its pieces', () => {
+    expect(() => render(<DroppedPicksList lines={[{ txId: 't', warnings: [OLD] }, { warnings: [] }]} />)).not.toThrow();
+  });
 });

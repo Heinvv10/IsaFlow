@@ -33,8 +33,10 @@ export function DroppedPicksList({ lines }: { lines: readonly DroppedPickLine[] 
         <ul className="mt-1 space-y-1 text-[var(--ff-text-primary)]">
           {lines.map((l, i) => (
             <li key={l.txId ?? i}>
-              <span className="font-medium">{l.label}</span>
-              {l.description ? <span className="text-[var(--ff-text-muted)]"> · {l.description}</span> : null}
+              <div className="flex min-w-0 gap-1">
+                <span className="flex-shrink-0 font-medium">{l.label}</span>
+                {l.description ? <span className="min-w-0 truncate text-[var(--ff-text-muted)]" title={l.description}>· {l.description}</span> : null}
+              </div>
               {(l.warnings ?? []).map((w, j) => (
                 <div key={j} className="text-amber-500">{postingWarningFact(w)}</div>
               ))}
