@@ -18,7 +18,10 @@ const VERDICT: Record<Verification['status'], { text: string; cls: string }> = {
   invalid: { text: 'INVALID — the stored snapshot does not match its seal', cls: 'text-red-400' },
   unknown_key: { text: 'Sealed under another key — cannot verify here', cls: 'text-amber-300' },
   not_sealed: { text: 'Not sealed (failed attempt)', cls: 'text-slate-400' },
+  unchanged: { text: 'Unchanged — verify the snapshot it points to', cls: 'text-slate-400' },
 };
+
+interface ChainResult { status: 'valid' | 'broken' | 'unknown_key' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[] }
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [rows, setRows] = useState<SnapshotSummary[]>([]);
@@ -28,6 +31,7 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [cutoff, setCutoff] = useState(() => localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 0)));
   const [busy, setBusy] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, Verification['status']>>({});
+  const [chain, setChain] = useState<ChainResult | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -61,6 +65,14 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
     finally { setBusy(null); }
   }
 
+  async function verifyChain() {
+    setBusy('chain');
+    try {
+      setChain((await getData<{ chain: ChainResult }>('/api/accounting/audit-snapshots?chain=1', 'Could not check the chain - try again')).chain);
+    } catch (err) { notify(apiErrorMessage(err, 'Could not check the chain - try again'), false); }
+    finally { setBusy(null); }
+  }
+
   async function buildPack(s: SnapshotSummary) {
     setBusy(`pack:${s.id}`);
     try {
@@ -91,12 +103,24 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
             <input id="audit-snapshot-cutoff" type="date" value={cutoff} onChange={(e) => setCutoff(e.target.value)}
               className="px-3 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-sm" />
           </div>
+          <button onClick={() => void verifyChain()} disabled={busy !== null}
+            className="px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-200 text-sm">
+            {busy === 'chain' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify chain'}
+          </button>
           <button onClick={() => void take()} disabled={busy !== null || !cutoff}
             className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
             {busy === 'take' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />} Take snapshot
           </button>
         </div>
       </div>
+      {chain && (
+        <div className={`px-6 py-2 border-b border-[rgba(255,255,255,0.06)] text-xs ${chain.status === 'broken' ? 'text-red-400' : chain.status === 'valid' ? 'text-teal-300' : 'text-slate-400'}`}>
+          {chain.status === 'valid' && `Chain intact: ${chain.length} sealed snapshots, numbered without a gap, each naming the one before.`}
+          {chain.status === 'empty' && 'No sealed snapshots yet.'}
+          {chain.status === 'unknown_key' && `Chain links intact (${chain.length}); some seals are under a retired key.`}
+          {chain.status === 'broken' && `CHAIN BROKEN: ${chain.breaks.map((b) => `#${b.seq ?? '?'} ${b.reason}`).join('; ')}`}
+        </div>
+      )}
       {unrecorded.length > 0 && (
         <div className="px-6 py-3 border-b border-[rgba(255,255,255,0.06)] text-xs text-amber-300">
           No snapshot was recorded after {unrecorded.length === 1 ? 'this lock' : `these ${unrecorded.length} locks`} (the automatic snapshot was lost — take one by hand):{' '}
@@ -126,8 +150,10 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
                 <td className="px-6 py-2 text-slate-300">{TRIGGER_LABEL[s.trigger] ?? s.trigger}</td>
                 <td className="px-6 py-2">
                   {s.status === 'sealed'
-                    ? <span className="inline-flex items-center gap-1 text-teal-300 text-xs"><ShieldCheck className="h-3.5 w-3.5" />sealed</span>
-                    : <span className="inline-flex items-center gap-1 text-red-300 text-xs" title={s.failureReason ?? ''}><ShieldAlert className="h-3.5 w-3.5" />failed</span>}
+                    ? <span className="inline-flex items-center gap-1 text-teal-300 text-xs"><ShieldCheck className="h-3.5 w-3.5" />sealed #{s.seq}</span>
+                    : s.status === 'unchanged'
+                      ? <Link href={`/accounting/audit-snapshots/${s.sameAsSnapshotId}`} className="text-xs text-slate-300 underline">unchanged since an earlier snapshot</Link>
+                      : <span className="inline-flex items-center gap-1 text-red-300 text-xs" title={s.failureReason ?? ''}><ShieldAlert className="h-3.5 w-3.5" />failed</span>}
                   {s.failureReason && <p className="text-xs text-red-400 mt-0.5 max-w-[260px]">{s.failureReason}</p>}
                   {verdicts[s.id] && <p className={`text-xs mt-0.5 ${VERDICT[verdicts[s.id]!].cls}`}>{VERDICT[verdicts[s.id]!].text}</p>}
                 </td>

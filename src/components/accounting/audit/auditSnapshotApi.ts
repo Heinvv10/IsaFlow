@@ -9,7 +9,8 @@ export type Row = Record<string, string | null>;
 
 export interface SnapshotSummary {
   id: string; cutoff: string; takenAt: string; takenBy: string; takenByName: string | null; channel: string; trigger: string;
-  status: 'sealed' | 'failed'; failureReason: string | null; canonicalHash: string | null; keyId: string | null;
+  status: 'sealed' | 'failed' | 'unchanged'; failureReason: string | null; canonicalHash: string | null; keyId: string | null;
+  seq: number | null; sameAsSnapshotId: string | null;
   totals: Record<string, unknown>; caveat: string; checkRunId: string | null;
 }
 
@@ -21,7 +22,7 @@ export interface CheckResult {
 export interface CheckRun { id: string; asAt: string; periodStart: string; takenAt: string; canonicalHash: string; results: CheckResult[] }
 
 export interface Verification {
-  status: 'valid' | 'invalid' | 'unknown_key' | 'not_sealed'; recomputedHash: string | null; canonicalHash: string | null;
+  status: 'valid' | 'invalid' | 'unknown_key' | 'not_sealed' | 'unchanged'; recomputedHash: string | null; canonicalHash: string | null;
   rowsChecked: { accounts: number; journals: number; lines: number }; rowMismatchCount: number;
 }
 
@@ -30,12 +31,14 @@ export interface JournalItem {
   id: string; entryNumber: string | null; entryDate: string | null; createdBy: string | null; createdAt: string | null;
   postedBy: string | null; postedAt: string | null; reversedAt: string | null; fields: FieldDiff[];
   lines: { added: number; removed: number; changed: { id: string; fields: FieldDiff[] }[] };
+  recordedAfter?: boolean;
 }
 export interface Comparison {
   base: { id: string; cutoff: string; takenAt: string };
   against: { kind: 'live' | 'snapshot'; id: string | null; takenAt: string };
   counts: Record<string, number>;
-  backdated: JournalItem[]; added: JournalItem[]; changed: JournalItem[]; removed: (JournalItem & { statusNow: string | null })[];
+  verification: { base: string; against: string | null };
+  backdated: JournalItem[]; changed: JournalItem[]; removed: (JournalItem & { statusNow: string | null })[];
   reversedAfter: string[];
   tb: { accountId: string; code: string | null; name: string | null; before: string; after: string; delta: string }[];
   names: Record<string, string>;

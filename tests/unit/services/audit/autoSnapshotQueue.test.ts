@@ -18,7 +18,7 @@ const ctx = (extra: Partial<RequestContext> = {}) =>
   ({ client: {}, userId: 'u1', companyId: 'c1', claims: { sub: 'u1', session_id: 's' }, afterCommit: [], ...extra }) as unknown as RequestContext;
 
 describe('scheduleAutoSnapshot', () => {
-  it('queues ONE after-commit run per request, the latest cutoff per trigger, as the request principal', async () => {
+  it('queues ONE after-commit run per request, every cutoff per trigger, as the request principal', async () => {
     const c = ctx();
     als.run(c, () => {
       scheduleAutoSnapshot('period_close', '2026-01-31');
@@ -30,8 +30,10 @@ describe('scheduleAutoSnapshot', () => {
     expect(run).not.toHaveBeenCalled();
     drainAfterCommit(c);
     await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
-    expect(run).toHaveBeenCalledWith({ userId: 'u1', companyId: 'c1', claims: { sub: 'u1', session_id: 's' } },
-      [{ trigger: 'period_close', cutoff: '2026-03-31' }, { trigger: 'vat_lock', cutoff: '2026-02-28' }]);
+    // Every cutoff is kept (the run snapshots the latest whose lock still stands), once per trigger.
+    expect(run).toHaveBeenCalledWith({ userId: 'u1', companyId: 'c1', claims: { sub: 'u1', session_id: 's' } }, [
+      { trigger: 'period_close', cutoffs: ['2026-01-31', '2026-03-31', '2026-02-28'] },
+      { trigger: 'vat_lock', cutoffs: ['2026-02-28'] }]);
   });
 
   it('never throws: no request, a finished request, a request that runs no after-commit work', () => {

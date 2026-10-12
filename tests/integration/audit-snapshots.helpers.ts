@@ -72,6 +72,8 @@ export interface SnapshotPayload {
   status: string; failure_reason: string | null; canonical_hash: string | null; hmac: string | null;
   key_id: string | null; master_data_high_water: string | null; totals: Record<string, unknown>;
   caveat: string; check_run_id: string | null;
+  /** Filled in by recordSnapshot for a sealed payload when absent: the next link of the company's chain. */
+  seq?: number; prev_hmac?: string | null;
 }
 
 /** A sealed-looking payload (the writer cannot tell a real seal from a made-up one; verification can). */
@@ -87,12 +89,19 @@ export function payload(companyId: string, user: string, takenAt: string, extra:
 export async function recordSnapshot(pool: Pool, user: string, company: string,
   fill: (takenAt: string) => SnapshotPayload, rows: { tb?: unknown[]; journals?: unknown[]; lines?: unknown[] } = {},
   claims?: Record<string, unknown> | null): Promise<string> {
+  const { rows: [prev] } = await pool.query<{ seq: number; hmac: string }>(
+    "SELECT seq, hmac FROM audit_snapshots WHERE company_id = $1 AND status = 'sealed' ORDER BY seq DESC LIMIT 1", [company]);
   return as(pool, user, { company, ...(claims === undefined ? {} : { claims }) }, async (db) => {
     const { rows: [now] } = await db.query<{ t: string }>(
       `SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t`);
+    const body = fill(now!.t);
+    if (body.status === 'sealed' && body.seq === undefined) {
+      body.seq = (prev?.seq ?? 0) + 1;
+      body.prev_hmac = prev?.hmac ?? null;
+    }
     const { rows: [out] } = await db.query<{ id: string }>(
       'SELECT public.audit_snapshot_record($1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb) AS id',
-      [JSON.stringify(fill(now!.t)), JSON.stringify(rows.tb ?? []), JSON.stringify(rows.journals ?? []),
+      [JSON.stringify(body), JSON.stringify(rows.tb ?? []), JSON.stringify(rows.journals ?? []),
         JSON.stringify(rows.lines ?? [])]);
     return out!.id;
   });

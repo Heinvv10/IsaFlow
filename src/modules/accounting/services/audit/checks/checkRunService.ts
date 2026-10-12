@@ -17,6 +17,7 @@ import { result, type CheckResult, type CheckWindow } from './checkTypes';
 import { CHECK_RUN_SEAL_DOMAIN, sign, signingKey, type SigningKey } from '../seal';
 import { checkRunHash, type CheckRunHeader } from '../documents';
 import { runAuditTx, transactionNow, type AuditPrincipal } from '../auditTx';
+import { withSnapshotSlot } from '../snapshotSlots';
 import { bulkPlan, fiscalYearStart } from '../snapshotRows';
 
 const ANOMALY_IDS = ['anomaly.benford', 'anomaly.statistical_outliers', 'anomaly.duplicate_payments', 'anomaly.unusual_posting_patterns'];
@@ -82,9 +83,9 @@ export async function recordCheckRun(client: PoolClient, p: AuditPrincipal, inpu
 /** A check run on its own (owner / admin), as at `asAt`, over the fiscal year to that date. */
 export async function takeCheckRun(p: AuditPrincipal, asAt: string): Promise<RecordedRun> {
   const key = signingKey();
-  return runAuditTx(p, 'REPEATABLE READ', async (client) => {
+  return withSnapshotSlot(false, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     const from = await fiscalYearStart(p.companyId, asAt);
     const results = await runAllChecks({ companyId: p.companyId, from, to: asAt });
     return recordCheckRun(client, p, { asAt, periodStart: from, purpose: 'standalone', results, key });
-  });
+  }));
 }

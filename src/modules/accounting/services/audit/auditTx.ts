@@ -33,11 +33,34 @@ export function principalFromRequest(): AuditPrincipal {
   return { userId: store.userId, companyId: store.companyId, claims: { ...store.claims } };
 }
 
+export class SnapshotBusyError extends Error {
+  constructor(message = 'An audit snapshot is already being taken for this company. Try again when it has finished.') {
+    super(message);
+    this.name = 'SnapshotBusyError';
+  }
+}
+
+/**
+ * `chainLock`: hold this company's snapshot lock for the whole transaction — one snapshot at a time per company, so
+ * its chain position is read and written by one writer. A SESSION lock taken BEFORE BEGIN: a REPEATABLE READ
+ * transaction fixes its view at its first statement, so a lock taken inside it would still read the chain as it was
+ * before the snapshot it waited for. 'try' refuses (SnapshotBusyError) instead of waiting.
+ */
 export async function runAuditTx<T>(p: AuditPrincipal, isolation: 'REPEATABLE READ' | 'READ COMMITTED',
-  fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  fn: (client: PoolClient) => Promise<T>, opts: { chainLock?: 'wait' | 'try' } = {}): Promise<T> {
   const client = await getPool().connect();
   let unusable = false;
+  const lockKey = `audit_snapshot_chain:${p.companyId}`;
+  let locked = false;
   try {
+    if (opts.chainLock === 'try') {
+      const { rows: [r] } = await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [lockKey]);
+      if (!r?.ok) throw new SnapshotBusyError();
+      locked = true;
+    } else if (opts.chainLock === 'wait') {
+      await client.query('SELECT pg_advisory_lock(hashtext($1))', [lockKey]);
+      locked = true;
+    }
     await client.query(`BEGIN ISOLATION LEVEL ${isolation}`);
     await client.query('SET LOCAL ROLE app_user');
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(p.claims)]);
@@ -50,10 +73,15 @@ export async function runAuditTx<T>(p: AuditPrincipal, isolation: 'REPEATABLE RE
     await client.query('COMMIT');
     return out;
   } catch (err) {
-    unusable = await rollbackFailed(client, 'audit snapshot');
+    if (!(err instanceof SnapshotBusyError)) unusable = await rollbackFailed(client, 'audit snapshot');
     log.warn('audit transaction rolled back', { companyId: p.companyId, error: err instanceof Error ? err.message : String(err) }, 'audit');
     throw err;
   } finally {
+    if (locked && !unusable) {
+      // A connection that keeps a session lock must not go back to the pool.
+      unusable = await client.query('SELECT pg_advisory_unlock(hashtext($1))', [lockKey])
+        .then(() => false, (e: unknown) => { log.error('audit: chain lock not released', { error: String(e) }, 'audit'); return true; });
+    }
     client.release(unusable);
   }
 }

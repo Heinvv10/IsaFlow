@@ -7,11 +7,13 @@
  * call. A refused automatic attempt is recorded as 'failed' with its reason.
  */
 import type { PoolClient } from 'pg';
+import { log } from '@/lib/logger';
 import { listEntityChanges } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import { ENTITY_TYPES, mayReadType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
+import { withSnapshotSlot } from './snapshotSlots';
 import { SNAPSHOT_SEAL_DOMAIN, sign, signingKey } from './seal';
-import { SNAPSHOT_CAVEAT, snapshotHash, sumMoney, type SnapshotHeader } from './documents';
+import { SNAPSHOT_CAVEAT, ledgerFingerprint, snapshotHash, sumMoney, type SnapshotHeader } from './documents';
 import { countPostedLines, fiscalYearStart, journalRows, lineRows, tbRows } from './snapshotRows';
 import { snapshotTotals } from './snapshotTotals';
 import { recordCheckRun, runAllChecks } from './checks/checkRunService';
@@ -31,9 +33,19 @@ export class SnapshotTooLargeError extends Error {
   }
 }
 
+/** A whole snapshot may take this long; past it, it is abandoned (statements are capped at 60 s each besides). */
+export const SNAPSHOT_TIME_BUDGET_MS = 120_000;
+
+export class SnapshotTimeBudgetError extends Error {
+  constructor(public readonly step: string) {
+    super(`This snapshot took longer than ${SNAPSHOT_TIME_BUDGET_MS / 1000} s (at ${step}) and was abandoned. Choose an earlier cutoff or try again later.`);
+    this.name = 'SnapshotTimeBudgetError';
+  }
+}
+
 export interface TakenSnapshot {
   id: string; cutoff: string; takenAt: string; trigger: SnapshotTrigger; canonicalHash: string;
-  journals: number; lines: number; accounts: number; checkRunId: string; findings: number; durationMs: number;
+  journals: number; lines: number; accounts: number; checkRunId: string; findings: number; durationMs: number; seq: number;
 }
 
 async function roleOf(client: PoolClient, companyId: string): Promise<string | undefined> {
@@ -59,16 +71,24 @@ export async function takeSnapshot(p: AuditPrincipal, input: {
   const key = signingKey();
   const started = Date.now();
   const max = input.maxLines ?? MAX_SNAPSHOT_LINES;
-  return runAuditTx(p, 'REPEATABLE READ', async (client) => {
+  const budget = (step: string) => { if (Date.now() - started > SNAPSHOT_TIME_BUDGET_MS) throw new SnapshotTimeBudgetError(step); };
+  // By hand: refused while busy. Automatic: waits its turn.
+  const wait = input.trigger !== 'manual';
+  const taken = await withSnapshotSlot(wait, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     const lineCount = await countPostedLines(p.companyId, input.cutoff);
     if (lineCount > max) throw new SnapshotTooLargeError(lineCount, max);
     const takenAt = await transactionNow(client);
+    const { rows: [prev] } = await client.query<{ seq: number; hmac: string }>(
+      `SELECT seq, hmac FROM audit_snapshots WHERE company_id = $1::uuid AND status = 'sealed' ORDER BY seq DESC LIMIT 1`, [p.companyId]);
+    const chain = { seq: (prev?.seq ?? 0) + 1, prevHmac: prev?.hmac ?? null };
     const fyStart = await fiscalYearStart(p.companyId, input.cutoff);
     const journals = await journalRows(p.companyId, input.cutoff);
     const lines = await lineRows(p.companyId, input.cutoff);
     const tb = await tbRows(p.companyId, input.cutoff, fyStart);
+    budget('reading the ledger');
     const totals = {
       fy_start: fyStart, journal_count: journals.length, line_count: lines.length, account_count: tb.length,
+      ledger_fingerprint: ledgerFingerprint(tb, journals, lines),
       total_debit: sumMoney(lines.map((l) => l.row.debit)), total_credit: sumMoney(lines.map((l) => l.row.credit)),
       ...await snapshotTotals(p.companyId, input.cutoff),
     };
@@ -76,19 +96,20 @@ export async function takeSnapshot(p: AuditPrincipal, input: {
       asAt: input.cutoff, periodStart: fyStart, purpose: 'snapshot', key,
       results: await runAllChecks({ companyId: p.companyId, from: fyStart, to: input.cutoff }),
     });
+    budget('the check run');
     const header: SnapshotHeader = {
       id: crypto.randomUUID(), companyId: p.companyId, cutoff: input.cutoff, takenAt, takenBy: p.userId,
       trigger: input.trigger, caveat: SNAPSHOT_CAVEAT, masterDataHighWater: await highWater(client, p.companyId), totals,
       checkRun: { id: run.id, canonicalHash: run.canonicalHash },
     };
     const canonicalHash = snapshotHash(header, tb, journals, lines);
-    const seal = sign(SNAPSHOT_SEAL_DOMAIN, { companyId: p.companyId, id: header.id, canonicalHash, cutoff: input.cutoff, takenAt }, key);
+    const seal = sign(SNAPSHOT_SEAL_DOMAIN, { companyId: p.companyId, id: header.id, canonicalHash, cutoff: input.cutoff, takenAt, chain }, key);
     await client.query('SELECT public.audit_snapshot_record($1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb)', [
       JSON.stringify({
         id: header.id, company_id: p.companyId, cutoff: input.cutoff, taken_at: takenAt, taken_by: p.userId,
         trigger: input.trigger, status: 'sealed', failure_reason: null, canonical_hash: canonicalHash, hmac: seal.hmac,
         key_id: seal.keyId, master_data_high_water: header.masterDataHighWater, totals, caveat: SNAPSHOT_CAVEAT,
-        check_run_id: run.id,
+        check_run_id: run.id, seq: chain.seq, prev_hmac: chain.prevHmac,
       }),
       JSON.stringify(tb.map((t) => ({ account_id: t.accountId, row: t.row }))),
       JSON.stringify(journals.map((j) => ({ journal_id: j.journalId, entry_date: j.entryDate, row: j.row, material_hash: j.materialHash }))),
@@ -97,24 +118,11 @@ export async function takeSnapshot(p: AuditPrincipal, input: {
     return {
       id: header.id, cutoff: input.cutoff, takenAt, trigger: input.trigger, canonicalHash, journals: journals.length,
       lines: lines.length, accounts: tb.length, checkRunId: run.id,
-      findings: run.results.reduce((n, r) => n + r.findingCount, 0), durationMs: Date.now() - started,
+      findings: run.results.reduce((n, r) => n + r.findingCount, 0), durationMs: Date.now() - started, seq: chain.seq,
     };
-  });
-}
-
-/** Records an attempt that did not produce a snapshot (automatic triggers only), with why. */
-export async function recordFailedSnapshot(p: AuditPrincipal, input: {
-  cutoff: string; trigger: Exclude<SnapshotTrigger, 'manual'>; reason: string;
-}): Promise<string> {
-  return runAuditTx(p, 'READ COMMITTED', async (client) => {
-    const id = crypto.randomUUID();
-    await client.query('SELECT public.audit_snapshot_record($1::jsonb, $2::jsonb, $3::jsonb, $4::jsonb)', [
-      JSON.stringify({
-        id, company_id: p.companyId, cutoff: input.cutoff, taken_at: await transactionNow(client), taken_by: p.userId,
-        trigger: input.trigger, status: 'failed', failure_reason: input.reason.slice(0, 500), canonical_hash: null,
-        hmac: null, key_id: null, master_data_high_water: null, totals: {}, caveat: SNAPSHOT_CAVEAT, check_run_id: null,
-      }), '[]', '[]', '[]',
-    ]);
-    return id;
-  });
+  }, { chainLock: wait ? 'wait' : 'try' }));
+  // The chain head, written outside the database as well (the journal keeps it): a removed latest snapshot shows here.
+  log.info('audit: snapshot sealed', { companyId: p.companyId, snapshotId: taken.id, seq: taken.seq, hash: taken.canonicalHash,
+    cutoff: taken.cutoff, trigger: taken.trigger, lines: taken.lines, durationMs: taken.durationMs }, 'audit');
+  return taken;
 }

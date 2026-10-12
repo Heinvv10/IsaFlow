@@ -61,7 +61,8 @@ describe('compare to today', { timeout: 120_000 }, () => {
     const bd = cmp.backdated.find((j) => j.id === s.backdated)!;
     expect(bd).toMatchObject({ entryDate: '2026-05-15', createdBy: m, postedBy: m });
     expect(cmp.names[m]).toBe('Mia Manager');
-    expect(cmp.added).toEqual([]);
+    expect(cmp.backdated.every((j) => j.recordedAfter)).toBe(true);
+    expect(cmp.verification).toEqual({ base: 'valid', against: null });
     const changed = Object.fromEntries(cmp.changed.map((j) => [j.id, j]));
     expect(changed[s.sale]!.fields).toEqual([{ field: 'description', before: 'planted', after: 'edited' }]);
     expect(changed[s.sale]!.lines.changed.flatMap((x) => x.fields.map((f) => `${f.field}:${f.before}>${f.after}`)).sort())
@@ -76,7 +77,7 @@ describe('compare to today', { timeout: 120_000 }, () => {
     expect(tb[s.l.sales]).toMatchObject({ before: '-1000.00', after: '-1100.00', delta: '-100.00' });
     expect(tb[s.l.expense]).toMatchObject({ before: '580.00', after: '250.00', delta: '-330.00' });
     expect(cmp.masterData).toMatchObject({ total: 1, byType: { supplier: 1 }, items: [{ entityId: s.supplier, op: 'create' }] });
-    expect(cmp.counts).toMatchObject({ backdated: 2, added: 0, changed: 2, removed: 1, reversedAfter: 1, accountsMoved: 3 });
+    expect(cmp.counts).toMatchObject({ backdated: 2, recordedBefore: 0, changed: 2, removed: 1, reversedAfter: 1, accountsMoved: 3 });
   });
 
   it('a later snapshot compares the same way; a later cutoff does not count its own new journals', async () => {
@@ -104,12 +105,53 @@ describe('compare to today', { timeout: 120_000 }, () => {
     expect(cmp.masterData).toMatchObject({ byType: { gl_account: 1 } });
   });
 
+  it('a journal that entered the frozen period with timestamps from before the snapshot is still backdated, flagged', async () => {
+    const c = await newCompany(pool, [[o, 'owner']], companies);
+    const l = await plantLedger(pool, c);
+    const old = '2026-06-01T10:00:00+02:00';
+    const july = await plantJournal(pool, c, { date: '2026-07-10', amount: 50, debit: l.expense, credit: l.bank, by: o, createdAt: old });
+    const draft = await plantJournal(pool, c, { date: '2026-05-05', amount: 60, debit: l.expense, credit: l.bank, by: o, createdAt: old, status: 'draft' });
+    const base = await takeSnapshot(as(o, c), { cutoff: '2026-06-30', trigger: 'manual' });
+    // After the snapshot: one re-dated into May (its timestamps stay June); one flipped to posted without a posting time.
+    await pool.query("UPDATE gl_journal_entries SET entry_date = '2026-05-20' WHERE id = $1", [july]);
+    await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = NULL WHERE id = $1", [draft]);
+    const cmp = await compareSnapshotToLive(as(o, c), base.id);
+    expect(cmp.backdated.map((j) => [j.id, j.recordedAfter]).sort()).toEqual([[draft, false], [july, false]].sort());
+    expect(cmp.counts).toMatchObject({ backdated: 2, recordedBefore: 2 });
+    // Re-dated out of the period between two snapshots: the later snapshot's own row says where it went.
+    const c2 = await newCompany(pool, [[o, 'owner']], companies);
+    const l2 = await plantLedger(pool, c2);
+    const may = await plantJournal(pool, c2, { date: '2026-05-10', amount: 70, debit: l2.expense, credit: l2.bank, by: o });
+    const a = await takeSnapshot(as(o, c2), { cutoff: '2026-06-30', trigger: 'manual' });
+    await pool.query("UPDATE gl_journal_entries SET entry_date = '2026-07-03' WHERE id = $1", [may]);
+    const b = await takeSnapshot(as(o, c2), { cutoff: '2026-07-31', trigger: 'manual' });
+    const between = await compareSnapshots(as(o, c2), a.id, b.id);
+    expect(between.removed).toEqual([expect.objectContaining({ id: may, statusNow: 'posted (redated 2026-07-03)' })]);
+    expect(between.verification).toEqual({ base: 'valid', against: 'valid' });
+  });
+
+  it('a snapshot that does not verify is not compared', async () => {
+    const c = await newCompany(pool, [[o, 'owner']], companies);
+    const l = await plantLedger(pool, c);
+    await plantJournal(pool, c, { date: '2026-03-10', amount: 10, debit: l.bank, credit: l.sales, by: o });
+    const base = await takeSnapshot(as(o, c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query('ALTER TABLE audit_snapshot_journals DISABLE TRIGGER audit_snapshot_journals_append_only');
+      await db.query(`UPDATE audit_snapshot_journals SET row = jsonb_set(row, '{description}', '"forged"') WHERE snapshot_id = $1`, [base.id]);
+      await db.query('ALTER TABLE audit_snapshot_journals ENABLE ALWAYS TRIGGER audit_snapshot_journals_append_only');
+      await db.query('COMMIT');
+    } finally { db.release(); }
+    await expect(compareSnapshotToLive(as(o, c), base.id)).rejects.toThrow(/does not verify \(invalid\)/);
+  });
+
   it('nothing changed reads as nothing; a manager compares too', async () => {
     const c = await newCompany(pool, [[o, 'owner'], [m, 'manager']], companies);
     const l = await plantLedger(pool, c);
     await plantJournal(pool, c, { date: '2026-03-10', amount: 10, debit: l.bank, credit: l.sales, by: o });
     const base = await takeSnapshot(as(o, c), { cutoff: '2026-06-30', trigger: 'manual' });
     const cmp = await compareSnapshotToLive(as(m, c), base.id);
-    expect(cmp.counts).toEqual({ backdated: 0, added: 0, changed: 0, removed: 0, reversedAfter: 0, linesChanged: 0, accountsMoved: 0 });
+    expect(cmp.counts).toEqual({ backdated: 0, recordedBefore: 0, changed: 0, removed: 0, reversedAfter: 0, linesChanged: 0, accountsMoved: 0 });
   });
 });

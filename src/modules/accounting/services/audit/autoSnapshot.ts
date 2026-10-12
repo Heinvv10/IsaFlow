@@ -8,49 +8,63 @@
  */
 import { log } from '@/lib/logger';
 import { SigningKeyMissingError } from './seal';
-import { runAuditTx, type AuditPrincipal } from './auditTx';
+import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from './auditTx';
 import type { AutoTrigger } from './autoSnapshotQueue';
-import { SnapshotTooLargeError, recordFailedSnapshot, takeSnapshot } from './snapshotService';
+import { SnapshotTimeBudgetError, SnapshotTooLargeError, takeSnapshot } from './snapshotService';
+import { recordSnapshotAttempt, unchangedSince } from './snapshotAttempts';
 
 export function failureReason(err: unknown): string {
   if (err instanceof SnapshotTooLargeError) return `too_large: ${err.lines} journal lines (the cap is ${err.max})`;
+  if (err instanceof SnapshotTimeBudgetError) return `too_slow: abandoned at ${err.step}`;
   if (err instanceof SigningKeyMissingError) return 'signing_key_missing: the server has no audit signing key configured';
+  if (err instanceof SnapshotBusyError) return `busy: ${err.message}`;
   return `error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500);
 }
 
 /**
- * Whether what the request locked is still locked now that it committed — a
- * close inside a savepoint that later rolled back queued a snapshot for a
- * lock that never happened.
+ * Whether what the request locked at `cutoff` is still locked now that it committed — a close inside a savepoint
+ * that later rolled back queued a snapshot for a lock that never happened.
  */
-async function triggerHolds(p: AuditPrincipal, item: { trigger: AutoTrigger; cutoff: string }): Promise<boolean> {
+async function triggerHolds(p: AuditPrincipal, trigger: AutoTrigger, cutoff: string): Promise<boolean> {
   return runAuditTx(p, 'READ COMMITTED', async (client) => {
-    const { rows: [r] } = await client.query<{ ok: boolean }>(item.trigger === 'vat_lock'
+    const { rows: [r] } = await client.query<{ ok: boolean }>(trigger === 'vat_lock'
       ? `SELECT EXISTS (SELECT 1 FROM vat_period_locks WHERE company_id = $1::uuid AND period_end = $2::date
            AND unlocked_at IS NULL) AS ok`
       : `SELECT EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = $1::uuid AND end_date = $2::date
-           AND status IN ('closed', 'locked')) AS ok`, [p.companyId, item.cutoff]);
+           AND status IN ('closed', 'locked')) AS ok`, [p.companyId, cutoff]);
     return r?.ok === true;
   });
 }
 
-export async function runAutoSnapshots(p: AuditPrincipal, items: { trigger: AutoTrigger; cutoff: string }[]): Promise<void> {
-  for (const item of items) {
+/** One snapshot per trigger, at the latest queued cutoff whose lock stands (it covers every earlier one). */
+export async function runAutoSnapshots(p: AuditPrincipal, items: { trigger: AutoTrigger; cutoffs: string[] }[]): Promise<void> {
+  for (const { trigger, cutoffs } of items) {
+    let cutoff: string | null = null;
     try {
-      if (!await triggerHolds(p, item)) {
-        log.info('audit: automatic snapshot skipped — the lock did not stand', { companyId: p.companyId, ...item }, 'audit');
+      for (const c of [...cutoffs].sort().reverse()) {
+        if (await triggerHolds(p, trigger, c)) { cutoff = c; break; }
+      }
+      if (!cutoff) {
+        log.info('audit: automatic snapshot skipped — no queued lock stood', { companyId: p.companyId, trigger, cutoffs }, 'audit');
         continue;
       }
-      const s = await takeSnapshot(p, { cutoff: item.cutoff, trigger: item.trigger });
-      log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger: item.trigger,
-        cutoff: item.cutoff, lines: s.lines, durationMs: s.durationMs }, 'audit');
+      const same = await unchangedSince(p, cutoff);
+      if (same) {
+        await recordSnapshotAttempt(p, { cutoff, trigger, status: 'unchanged', sameAs: same });
+        log.info('audit: automatic snapshot unchanged', { companyId: p.companyId, trigger, cutoff, sameAs: same }, 'audit');
+        continue;
+      }
+      const s = await takeSnapshot(p, { cutoff, trigger });
+      // The chain head, outside the database too: a removed latest snapshot is visible against this log.
+      log.info('audit: automatic snapshot sealed', { companyId: p.companyId, snapshotId: s.id, trigger, cutoff, seq: s.seq,
+        hash: s.canonicalHash, lines: s.lines, durationMs: s.durationMs }, 'audit');
     } catch (err) {
       const reason = failureReason(err);
-      log.warn('audit: automatic snapshot not taken', { companyId: p.companyId, trigger: item.trigger, cutoff: item.cutoff, reason }, 'audit');
+      log.warn('audit: automatic snapshot not taken', { companyId: p.companyId, trigger, cutoff, reason }, 'audit');
       try {
-        await recordFailedSnapshot(p, { ...item, reason });
+        await recordSnapshotAttempt(p, { cutoff: cutoff ?? [...cutoffs].sort().reverse()[0]!, trigger, status: 'failed', reason });
       } catch (recordErr) {
-        log.error('audit: could not record the failed automatic snapshot', { companyId: p.companyId, trigger: item.trigger,
+        log.error('audit: could not record the failed automatic snapshot', { companyId: p.companyId, trigger,
           reason, error: recordErr instanceof Error ? recordErr.message : String(recordErr) }, 'audit');
       }
     }

@@ -69,7 +69,14 @@ export async function journalRows(companyId: string, cutoff: string): Promise<Jo
         'created_by', je.created_by::TEXT, 'created_at', to_char(je.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
         'posted_by', je.posted_by::TEXT, 'posted_at', to_char(je.posted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
         'reversed_by', je.reversed_by::TEXT, 'reversed_at', to_char(je.reversed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-        'reversal_of_id', je.reversal_of_id::TEXT, 'actor_type', je.actor_type, 'posting_agent', je.posting_agent
+        'reversal_of_id', je.reversal_of_id::TEXT, 'actor_type', je.actor_type, 'posting_agent', je.posting_agent,
+        'is_intercompany', je.is_intercompany::TEXT, 'intercompany_company_id', je.intercompany_company_id::TEXT,
+        'acting_company_id', je.acting_company_id::TEXT, 'external_ref', je.external_ref,
+        'external_document_number', je.external_document_number, 'external_system', je.external_system,
+        'needs_evidence', je.needs_evidence::TEXT,
+        'evidenced_at', to_char(je.evidenced_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+        'late_claim_of_id', je.late_claim_of_id::TEXT, 'approval_document_type', je.approval_document_type,
+        'actor_token_jti', je.actor_token_jti, 'content_authors', je.content_authors::TEXT
       ) AS row
       FROM gl_journal_entries je
       WHERE je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date <= ${cutoff}::DATE
@@ -87,7 +94,8 @@ export async function lineRows(companyId: string, cutoff: string): Promise<LineR
         'debit', round(COALESCE(jl.debit, 0), 2)::TEXT, 'credit', round(COALESCE(jl.credit, 0), 2)::TEXT,
         'description', jl.description, 'vat_type', jl.vat_type, 'cc1_id', jl.cc1_id::TEXT, 'cc2_id', jl.cc2_id::TEXT,
         'bu_id', jl.bu_id::TEXT, 'project_id', jl.project_id::TEXT,
-        'source_document_line_id', jl.source_document_line_id::TEXT
+        'source_document_line_id', jl.source_document_line_id::TEXT,
+        'late_claim_base', round(jl.late_claim_base, 2)::TEXT
       ) AS row
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id

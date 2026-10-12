@@ -5,8 +5,10 @@
  * SQL cannot carry a seal that verifies without the key.
  *
  * Key: AUDIT_SNAPSHOT_SIGNING_KEY (≥ 32 characters) + AUDIT_SNAPSHOT_KEY_ID.
- * Only the current key is held; a seal made under another key id is reported
- * as `unknown_key`, never as valid or invalid.
+ * Only the current key is held. A seal under a key id listed in
+ * AUDIT_SNAPSHOT_RETIRED_KEY_IDS (comma-separated: keys this server once used)
+ * is `unknown_key`; any other key id is `invalid` — the key id is the writer's
+ * input, so an unlisted one is a forgery's, not a rotation's.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -22,19 +24,26 @@ export class SigningKeyMissingError extends Error {
   }
 }
 
-export interface SigningKey { key: Buffer; keyId: string }
+export interface SigningKey { key: Buffer; keyId: string; retiredKeyIds?: readonly string[] }
 
 export function signingKey(): SigningKey {
   const raw = process.env.AUDIT_SNAPSHOT_SIGNING_KEY ?? '';
   const keyId = (process.env.AUDIT_SNAPSHOT_KEY_ID ?? '').trim();
   if (raw.length < MIN_KEY_LENGTH || keyId === '') throw new SigningKeyMissingError();
-  return { key: Buffer.from(raw, 'utf8'), keyId };
+  const retiredKeyIds = (process.env.AUDIT_SNAPSHOT_RETIRED_KEY_IDS ?? '').split(',').map((x) => x.trim()).filter((x) => x && x !== keyId);
+  return { key: Buffer.from(raw, 'utf8'), keyId, retiredKeyIds };
 }
 
-export interface SealFields { companyId: string; id: string; canonicalHash: string; cutoff: string; takenAt: string }
+export interface SealFields {
+  companyId: string; id: string; canonicalHash: string; cutoff: string; takenAt: string;
+  /** A snapshot's place in its company's chain: signed, so a removed or replaced link breaks the chain. */
+  chain?: { seq: number; prevHmac: string | null };
+}
 
 export function sealMessage(domain: string, f: SealFields): string {
-  return [domain, f.companyId, f.id, f.canonicalHash, f.cutoff, f.takenAt].join('|');
+  const parts = [domain, f.companyId, f.id, f.canonicalHash, f.cutoff, f.takenAt];
+  if (f.chain) parts.push(String(f.chain.seq), f.chain.prevHmac ?? '-');
+  return parts.join('|');
 }
 
 export function sign(domain: string, f: SealFields, k: SigningKey = signingKey()): { hmac: string; keyId: string } {
@@ -45,7 +54,7 @@ export type SealCheck = 'valid' | 'invalid' | 'unknown_key';
 
 /** Timing-safe: the comparison does not stop at the first differing byte. */
 export function checkSeal(domain: string, f: SealFields, hmac: string, keyId: string, k: SigningKey = signingKey()): SealCheck {
-  if (keyId !== k.keyId) return 'unknown_key';
+  if (keyId !== k.keyId) return (k.retiredKeyIds ?? []).includes(keyId) ? 'unknown_key' : 'invalid';
   const expected = Buffer.from(sign(domain, f, k).hmac, 'hex');
   const given = Buffer.from(/^[0-9a-f]{64}$/.test(hmac) ? hmac : '', 'hex');
   return given.length === expected.length && timingSafeEqual(given, expected) ? 'valid' : 'invalid';

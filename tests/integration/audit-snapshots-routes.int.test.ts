@@ -69,6 +69,8 @@ describe('routes', { timeout: 120_000 }, () => {
       expect(detail.checkRun.results).toHaveLength(24);
       const ver = dataOf<{ verification: { status: string } }>(await snap(u, c, 'GET', undefined, { id, verify: '1' }));
       expect(ver.verification.status).toBe('valid');
+      const chain = dataOf<{ chain: { status: string; length: number } }>(await snap(u, c, 'GET', undefined, { chain: '1' }));
+      expect(chain.chain).toMatchObject({ status: 'valid', length: 1 });
       const tb = dataOf<{ rows: unknown[] }>(await snap(u, c, 'GET', undefined, { id, section: 'tb' }));
       expect(tb.rows).toHaveLength(2);
       const cmp = await callRoute(auditComparisons, tokens[u]!, c, 'GET', undefined, '/api/accounting/audit-comparisons', { snapshotId: id });

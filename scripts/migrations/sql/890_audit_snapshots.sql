@@ -9,7 +9,13 @@
 --   hashes only, never bytes. Taken by hand (owner / admin) or automatically
 --   when a fiscal period is closed or locked, a VAT period locked or a year
 --   closed (the closer: owner / admin / manager). A refused automatic attempt
---   is recorded as status 'failed' with its reason and nothing else.
+--   is recorded as status 'failed' with its reason and nothing else; one whose
+--   books have not moved since a sealed snapshot at the same cutoff is recorded
+--   as 'unchanged', pointing at that snapshot (no second full copy).
+--
+--   CHAINED per company: every sealed snapshot carries seq (1, 2, 3, …) and the
+--   previous sealed snapshot's hmac inside what its own hmac signs, so removing
+--   or replacing one leaves a gap or a broken link that the chain check reports.
 --
 --   THE SEAL IS THE APP'S, NOT THE DATABASE'S. The service builds canonical
 --   JSON of the whole snapshot, hashes it (SHA-256) and signs company | id |
@@ -88,7 +94,7 @@ CREATE TABLE IF NOT EXISTS audit_snapshots (
   taken_by               TEXT NOT NULL,
   channel                TEXT NOT NULL CHECK (channel IN ('session', 'impersonation', 'token')),
   trigger                TEXT NOT NULL CHECK (trigger IN ('manual', 'period_close', 'vat_lock', 'year_close')),
-  status                 TEXT NOT NULL CHECK (status IN ('sealed', 'failed')),
+  status                 TEXT NOT NULL CHECK (status IN ('sealed', 'failed', 'unchanged')),
   failure_reason         TEXT,
   canonical_hash         TEXT CHECK (canonical_hash ~ '^[0-9a-f]{64}$'),
   hmac                   TEXT CHECK (hmac ~ '^[0-9a-f]{64}$'),
@@ -97,12 +103,22 @@ CREATE TABLE IF NOT EXISTS audit_snapshots (
   totals                 JSONB NOT NULL,
   caveat                 TEXT NOT NULL,
   check_run_id           UUID,
+  seq                    INTEGER CHECK (seq > 0),
+  prev_hmac              TEXT CHECK (prev_hmac ~ '^[0-9a-f]{64}$'),
+  same_as_snapshot_id    UUID,
   CONSTRAINT audit_snapshots_company_id_key UNIQUE (company_id, id),
+  CONSTRAINT audit_snapshots_company_seq_key UNIQUE (company_id, seq),
+  CONSTRAINT audit_snapshots_same_as_fk FOREIGN KEY (company_id, same_as_snapshot_id)
+    REFERENCES audit_snapshots (company_id, id) ON DELETE CASCADE,
   CONSTRAINT audit_snapshots_run_fk FOREIGN KEY (company_id, check_run_id)
     REFERENCES audit_check_runs (company_id, id) ON DELETE CASCADE,
   CONSTRAINT audit_snapshots_shape_ck CHECK (
-    (status = 'sealed' AND failure_reason IS NULL AND canonical_hash IS NOT NULL AND hmac IS NOT NULL AND key_id IS NOT NULL)
-    OR (status = 'failed' AND failure_reason IS NOT NULL AND canonical_hash IS NULL AND hmac IS NULL AND check_run_id IS NULL))
+    (status = 'sealed' AND failure_reason IS NULL AND canonical_hash IS NOT NULL AND hmac IS NOT NULL AND key_id IS NOT NULL
+      AND seq IS NOT NULL AND (seq = 1) = (prev_hmac IS NULL) AND same_as_snapshot_id IS NULL)
+    OR (status = 'failed' AND failure_reason IS NOT NULL AND canonical_hash IS NULL AND hmac IS NULL AND check_run_id IS NULL
+      AND seq IS NULL AND prev_hmac IS NULL AND same_as_snapshot_id IS NULL)
+    OR (status = 'unchanged' AND same_as_snapshot_id IS NOT NULL AND failure_reason IS NULL AND canonical_hash IS NULL
+      AND hmac IS NULL AND check_run_id IS NULL AND seq IS NULL AND prev_hmac IS NULL))
 );
 CREATE INDEX IF NOT EXISTS audit_snapshots_company_taken_idx ON audit_snapshots (company_id, taken_at DESC);
 
@@ -154,6 +170,28 @@ BEGIN
       FOREIGN KEY (company_id, snapshot_id) REFERENCES audit_snapshots (company_id, id) ON DELETE CASCADE;
   END IF;
 END $$;
+
+-- A ready pack is what the auditor downloads: its snapshot and ZIP pointers are fixed from the moment it is ready
+-- (re-pointing pack B at pack A's ZIP, or at another uploaded file, by one UPDATE is refused).
+CREATE OR REPLACE FUNCTION public.audit_trail_export_pack_guard() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status = 'ready' AND (NEW.status IS DISTINCT FROM OLD.status
+      OR NEW.snapshot_id IS DISTINCT FROM OLD.snapshot_id OR NEW.zip_storage_bucket IS DISTINCT FROM OLD.zip_storage_bucket
+      OR NEW.zip_storage_path IS DISTINCT FROM OLD.zip_storage_path OR NEW.zip_sha256 IS DISTINCT FROM OLD.zip_sha256
+      OR NEW.pdf_storage_path IS DISTINCT FROM OLD.pdf_storage_path OR NEW.pdf_sha256 IS DISTINCT FROM OLD.pdf_sha256) THEN
+    RAISE EXCEPTION 'audit_trail_exports: a ready pack''s snapshot and files are fixed' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS audit_trail_export_pack_guard ON audit_trail_exports;
+CREATE TRIGGER audit_trail_export_pack_guard BEFORE UPDATE ON audit_trail_exports
+  FOR EACH ROW EXECUTE FUNCTION public.audit_trail_export_pack_guard();
+ALTER TABLE audit_trail_exports ENABLE ALWAYS TRIGGER audit_trail_export_pack_guard;
+REVOKE ALL ON FUNCTION public.audit_trail_export_pack_guard() FROM PUBLIC;
 
 -- ── 4. Row-level security: owner / admin / manager of the company ────────
 CREATE OR REPLACE FUNCTION public.audit_snapshot_reader(p_company_id pg_catalog.uuid)
@@ -317,20 +355,34 @@ DECLARE
   v_id pg_catalog.uuid := (p_snapshot ->> 'id')::pg_catalog.uuid;
   v_status pg_catalog.text := p_snapshot ->> 'status';
   v_channel pg_catalog.text;
+  v_prev_seq pg_catalog.int4;
+  v_prev_hmac pg_catalog.text;
 BEGIN
   v_channel := public.audit_snapshot_caller(v_company, p_snapshot ->> 'taken_by', p_snapshot ->> 'taken_at',
     CASE WHEN p_snapshot ->> 'trigger' = 'manual' THEN ARRAY['owner', 'admin'] ELSE ARRAY['owner', 'admin', 'manager'] END);
-  IF v_status = 'failed' AND (pg_catalog.jsonb_array_length(COALESCE(p_tb, '[]')) > 0
+  IF v_status <> 'sealed' AND (pg_catalog.jsonb_array_length(COALESCE(p_tb, '[]')) > 0
       OR pg_catalog.jsonb_array_length(COALESCE(p_journals, '[]')) > 0 OR pg_catalog.jsonb_array_length(COALESCE(p_lines, '[]')) > 0) THEN
-    RAISE EXCEPTION 'audit snapshot: a failed attempt records no rows' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'audit snapshot: a failed or unchanged attempt records no rows' USING ERRCODE = '22023';
+  END IF;
+  -- The chain: one link per sealed snapshot, in order, each naming the one before it.
+  IF v_status = 'sealed' THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('audit_snapshot_chain:' || v_company::pg_catalog.text));
+    SELECT s.seq, s.hmac INTO v_prev_seq, v_prev_hmac FROM public.audit_snapshots s
+    WHERE s.company_id = v_company AND s.status = 'sealed' ORDER BY s.seq DESC LIMIT 1;
+    IF (p_snapshot ->> 'seq')::pg_catalog.int4 IS DISTINCT FROM COALESCE(v_prev_seq, 0) + 1
+       OR (p_snapshot ->> 'prev_hmac') IS DISTINCT FROM v_prev_hmac THEN
+      RAISE EXCEPTION 'audit snapshot: not the next link of this company''s chain (expected seq %)', COALESCE(v_prev_seq, 0) + 1
+        USING ERRCODE = '40001';
+    END IF;
   END IF;
   INSERT INTO public.audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, failure_reason,
-    canonical_hash, hmac, key_id, master_data_high_water, totals, caveat, check_run_id)
+    canonical_hash, hmac, key_id, master_data_high_water, totals, caveat, check_run_id, seq, prev_hmac, same_as_snapshot_id)
   VALUES (v_id, v_company, (p_snapshot ->> 'cutoff')::pg_catalog.date, pg_catalog.now(), auth.uid(), v_channel,
     p_snapshot ->> 'trigger', v_status, p_snapshot ->> 'failure_reason', p_snapshot ->> 'canonical_hash',
     p_snapshot ->> 'hmac', p_snapshot ->> 'key_id', (p_snapshot ->> 'master_data_high_water')::pg_catalog.timestamptz,
     COALESCE(p_snapshot -> 'totals', '{}'::pg_catalog.jsonb), p_snapshot ->> 'caveat',
-    (p_snapshot ->> 'check_run_id')::pg_catalog.uuid);
+    (p_snapshot ->> 'check_run_id')::pg_catalog.uuid, (p_snapshot ->> 'seq')::pg_catalog.int4, p_snapshot ->> 'prev_hmac',
+    (p_snapshot ->> 'same_as_snapshot_id')::pg_catalog.uuid);
   INSERT INTO public.audit_snapshot_tb (snapshot_id, company_id, account_id, row)
   SELECT v_id, v_company, r.account_id, r.row
   FROM pg_catalog.jsonb_to_recordset(COALESCE(p_tb, '[]')) AS r(account_id pg_catalog.uuid, row pg_catalog.jsonb);
@@ -420,6 +472,11 @@ BEGIN
     END IF;
   END LOOP;
 
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = 'public.audit_trail_exports'::pg_catalog.regclass
+                 AND t.tgname = 'audit_trail_export_pack_guard' AND t.tgenabled = 'A') THEN
+    RAISE EXCEPTION 'migration 890: audit_trail_exports must carry its ENABLE ALWAYS pack guard';
+  END IF;
+
   -- FORCE RLS binds the writers' owner too: one without BYPASSRLS would be refused every insert.
   FOREACH v_fn IN ARRAY ARRAY[
       'public.audit_snapshot_record(pg_catalog.jsonb,pg_catalog.jsonb,pg_catalog.jsonb,pg_catalog.jsonb)',
@@ -435,7 +492,8 @@ BEGIN
       'public.audit_snapshot_record(pg_catalog.jsonb,pg_catalog.jsonb,pg_catalog.jsonb,pg_catalog.jsonb)',
       'public.audit_check_run_record(pg_catalog.jsonb,pg_catalog.jsonb)',
       'public.audit_snapshot_caller(pg_catalog.uuid,pg_catalog.text,pg_catalog.text,pg_catalog.text[])',
-      'public.audit_snapshot_reader(pg_catalog.uuid)', 'public.audit_snapshot_append_only()'] LOOP
+      'public.audit_snapshot_reader(pg_catalog.uuid)', 'public.audit_snapshot_append_only()',
+      'public.audit_trail_export_pack_guard()'] LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_proc p
       WHERE p.oid = v_fn::pg_catalog.regprocedure

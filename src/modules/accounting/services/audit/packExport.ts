@@ -65,8 +65,8 @@ function comparisonCsv(c: Comparison): string {
       for (const lc of j.lines.changed) for (const f of lc.fields) rows.push([...base, `line ${lc.id}.${f.field}`, f.before, f.after]);
     }
   };
-  add('backdated', c.backdated);
-  add('added', c.added);
+  add('backdated', c.backdated.filter((j) => j.recordedAfter));
+  add('entered_frozen_period_recorded_before', c.backdated.filter((j) => !j.recordedAfter));
   add('changed', c.changed);
   add('removed', c.removed);
   for (const t of c.tb) rows.push(['tb_movement', t.accountId, t.code, '', '', '', '', '', 'closing', t.before, t.after]);
@@ -173,9 +173,10 @@ export async function verifyPack(companyId: string, exportId: string): Promise<P
   }));
   const snap = await getSnapshot(companyId, e.snapshotId);
   const cites = manifest.snapshot.id === e.snapshotId && manifest.snapshot.canonical_hash === snap?.canonicalHash;
-  const intact = zipMatches && cites && files.every((f) => f.ok) && snapshotStatus !== 'invalid' && manifestSeal !== 'invalid';
-  const status = !intact ? 'invalid'
-    : manifestSeal === 'unknown_key' || snapshotStatus === 'unknown_key' ? 'unknown_key'
-      : manifestSeal === 'valid' && snapshotStatus === 'valid' ? 'valid' : 'invalid';
+  // Fail closed: valid only when every part is valid; unknown_key only when every part is valid or under a retired key.
+  const parts = [manifestSeal, snapshotStatus];
+  const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok);
+  const status = !intact || parts.some((x) => x !== 'valid' && x !== 'unknown_key') ? 'invalid'
+    : parts.includes('unknown_key') ? 'unknown_key' : 'valid';
   return { status, zipMatches, files, snapshotId: e.snapshotId, snapshotStatus, manifestCitesSnapshot: cites, manifestSeal };
 }
