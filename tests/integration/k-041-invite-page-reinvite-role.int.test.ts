@@ -20,6 +20,8 @@ const company = crypto.randomUUID();
 const member = crypto.randomUUID();
 const inviter = crypto.randomUUID();
 const email = `k041m-${member}@test.local`;
+/** Users a test inserts for itself; afterAll deletes them with the fixture's own. */
+const testUsers: string[] = [];
 const rawToken = `k041m${'0'.repeat(27)}${member.replace(/-/g, '')}`;
 const inviteId = crypto.randomUUID();
 const csrf = 'disposable-postgres-workflow-csrf-0123456789';
@@ -66,7 +68,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM company_invitations WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=$1', [company]);
-    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[member, inviter]]);
+    await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[member, inviter, ...testUsers]]);
   } finally { await pool.end(); }
 });
 
@@ -105,6 +107,7 @@ it('M2 adjacent: an invitation addressed to someone else is refused and changes 
  */
 it('L6: accepting an invitation never writes the raw token to the log', async () => {
   const freshMember = crypto.randomUUID();
+  testUsers.push(freshMember);
   const freshEmail = `k041l-${freshMember}@test.local`;
   const freshToken = `k041l${'0'.repeat(27)}${freshMember.replace(/-/g, '')}`;
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true)",
