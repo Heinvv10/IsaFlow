@@ -92,6 +92,7 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
 
 ## Recent changes
 
+- 2026-10-12 (D4, pick hardening): **no new journal line writes `cost_center_id`.** `createJournalEntryInTransaction` refuses (`costCentrePick.assertCostCentresPlaced` → `CostCentrePickRefusal`, a `PreWriteDimensionRefusal`, before any write) a line that still carries `costCenterId` — `placeCostCentres` strips it, so only a writer that skipped the rule is refused — and its INSERT no longer names the column. Bank allocation (`bank/bankAllocationDimensions.stampContraDimensions`) stops mirroring CC1 into it; reversals (`reversalLines`) and reclassifications (`reclassification/*`, which no longer read it) copy cc1/cc2/bu/project but not the legacy column, so a historic line's contra has cc1 and NULL `cost_center_id`. `journalLineOwnership` no longer checks a `costCenterId`. `core/costCentreUsageGuard` still reads the column for historic lines (4 on prod, all with cc1). Tests: `tests/integration/cost-centre-legacy-column.int.test.ts`.
 - 2026-10-08 (#663 review): FNO stored at save by every revenue writer, posting adds nothing (`dimensionStoredPosting`); 873 re-binds only dimension-free documents and locks the document tables first.
 - 2026-10-08: `loadCostCentreChains` leaves a non-UUID id out of its query, so 'not-a-uuid' gets the slot refusal an unknown id gets (it was a Postgres cast error, or a hung aborted transaction under load).
 - 2026-10-08: `dimensionKeepStored` — draft edits stopped stripping cc1/cc2/bu; the approval digest hashes them (873).
