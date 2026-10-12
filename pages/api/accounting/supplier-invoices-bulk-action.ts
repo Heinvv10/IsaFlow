@@ -35,7 +35,7 @@ import {
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { als } from '@/lib/als';
-import { withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { UUID } from '@/lib/schemas/common';
 import {
   approveSupplierInvoice,
@@ -56,6 +56,8 @@ const NOTHING: { lateClaim?: LateClaimInfo; warnings?: string[] } = {};
 
 interface ItemResult {
   invoiceId: string;
+  /** The bill's number, so a screen can name it; null when the id is not one of this company's bills. */
+  invoiceNumber: string | null;
   ok: boolean;
   error?: string;
   /** R-035: why the approval gate refused this bill (APPROVAL_REQUIRED / _PENDING / _STALE). */
@@ -95,6 +97,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // since each id is processed independently and reported by id.
   const ordered = [...invoiceIds].sort();
 
+  // The numbers the results are named by — this company's bills only.
+  const numberRows = (await sql`
+    SELECT id::TEXT AS id, invoice_number FROM supplier_invoices
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ordered}::UUID[])
+  `) as Array<{ id: string; invoice_number: string | null }>;
+  const numberOf = new Map(numberRows.map((r) => [r.id, r.invoice_number]));
+
   for (const invoiceId of ordered) {
     try {
       // A person's bulk APPROVE opts in to the s16(3) late claim. Post to GL does
@@ -112,7 +121,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         }
         return NOTHING;
       });
-      results.push({ invoiceId, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}) });
+      results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: true, ...(lateClaim ? { lateClaim } : {}), ...(warnings ? { warnings } : {}) });
     } catch (err) {
       // R-032 L5: the session, not this id, is refused — every id would be. Answer 403.
       if (err instanceof ImpersonationForbiddenError) throw err;
@@ -121,7 +130,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         action, invoiceId, error: message,
       }, 'accounting-api');
       if (isHeldRowError(err)) held += 1;
-      results.push({ invoiceId, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}),
+      results.push({ invoiceId, invoiceNumber: numberOf.get(invoiceId) ?? null, ok: false, error: message, ...(err instanceof ApprovalRequiredError ? { reason: err.reason } : {}),
         ...(err instanceof BankControlError ? { reason: err.code } : {}) }); // step 2: e.g. IMPORTER_MAY_NOT_ALLOCATE
 
       // The savepoint's own ROLLBACK TO failed, so the connection is genuinely

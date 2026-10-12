@@ -41,7 +41,7 @@ const heldErr = () => new CustomerInvoiceLockTimeoutError('Invoice');
 const deadlock = () => Object.assign(new Error('deadlock detected'), { code: '40P01' });
 const held = (r: Awaited<ReturnType<typeof call>>) => { expect(r.statusCode, JSON.stringify(r.sent)).toBe(503); expect(r.headers['Retry-After']).toBe('2'); };
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(sql).mockResolvedValue([] as never); });
 
 describe('recurring-invoices-run', () => {
   it('a single id that is held -> 503 + Retry-After', async () => {

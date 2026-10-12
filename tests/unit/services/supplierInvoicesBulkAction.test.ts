@@ -46,11 +46,15 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // vi.hoisted runs before vi.mock factories. Without it, mocks would close over
 // the still-undefined const bindings declared further down.
-const { approveMock, cancelMock, postGlMock } = vi.hoisted(() => ({
+const { approveMock, cancelMock, postGlMock, sqlMock } = vi.hoisted(() => ({
   approveMock: vi.fn(),
   cancelMock: vi.fn(),
   postGlMock: vi.fn(),
+  sqlMock: vi.fn(),
 }));
+
+// Only `sql` (the bill-number lookup) is stubbed; withSavepoint stays real for the savepoint tests below.
+vi.mock('@/lib/neon', async (orig) => ({ ...(await orig<typeof import('@/lib/neon')>()), sql: sqlMock }));
 
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   approveSupplierInvoice: approveMock,
@@ -91,6 +95,10 @@ describe('supplier-invoices-bulk-action', () => {
     approveMock.mockReset();
     cancelMock.mockReset();
     postGlMock.mockReset();
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValue([
+      { id: ID_A, invoice_number: 'INV-A' }, { id: ID_B, invoice_number: 'INV-B' }, { id: ID_C, invoice_number: 'INV-C' },
+    ]);
   });
 
   it('returns 405 for non-POST requests', async () => {
@@ -158,9 +166,28 @@ describe('supplier-invoices-bulk-action', () => {
     const data = (result as { data: { succeeded: number; failed: number; results: Array<{ invoiceId: string; ok: boolean; error?: string }> } }).data;
     expect(data.succeeded).toBe(2);
     expect(data.failed).toBe(1);
-    expect(data.results[1]).toEqual({ invoiceId: ID_B, ok: false, error: 'row already approved' });
+    expect(data.results[1]).toEqual({ invoiceId: ID_B, invoiceNumber: 'INV-B', ok: false, error: 'row already approved' });
     expect(data.results[0]?.ok).toBe(true);
     expect(data.results[2]?.ok).toBe(true);
+  });
+
+  it('names every result by its bill number, ok or failed, and null for an id that is not this company\'s', async () => {
+    approveMock.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('row already approved')).mockResolvedValueOnce({});
+    sqlMock.mockResolvedValue([{ id: ID_A, invoice_number: 'INV-A' }, { id: ID_B, invoice_number: 'INV-B' }]);
+    const result = await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'approve', invoiceIds: [ID_A, ID_B, ID_C] }), res());
+    const { results } = (result as { data: { results: Array<{ invoiceId: string; invoiceNumber: string | null; ok: boolean }> } }).data;
+    expect(results.map((r) => [r.invoiceId, r.invoiceNumber, r.ok])).toEqual([[ID_A, 'INV-A', true], [ID_B, 'INV-B', false], [ID_C, null, true]]);
+  });
+
+  it('reads the numbers in the caller\'s company only, in one query', async () => {
+    approveMock.mockResolvedValue({});
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'approve', invoiceIds: [ID_B, ID_A] }), res());
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    const [strings, ...values] = sqlMock.mock.calls[0] as [string[], ...unknown[]];
+    expect(strings.join('?')).toMatch(/FROM supplier_invoices[\s\S]*WHERE company_id = \?::UUID/);
+    expect(values).toEqual([COMPANY_ID, [ID_A, ID_B]]);
   });
 
   it('routes action=cancel to cancelSupplierInvoice', async () => {

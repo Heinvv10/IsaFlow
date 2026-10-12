@@ -5,10 +5,10 @@
  * this returns `lateClaim` (bank allocation, bill approve / Post to GL, journal
  * post, expense claim); every screen that calls one passes the response here.
  *
- * One sentence, one channel (the toast), so the notice reads the same wherever
- * it appears.
+ * One channel (the toast), so the notice reads the same wherever it appears.
  */
 import { notify } from '@/utils/toast';
+import { NOTICE_LINE_FITS } from '@/components/accounting/postingWarningsNotice';
 
 export interface LateClaimNotice {
   claimDate: string;
@@ -22,9 +22,25 @@ function isLateClaim(v: unknown): v is LateClaimNotice {
     && !!o.lockPeriod && typeof o.lockPeriod.start === 'string';
 }
 
-export function lateClaimMessage(lc: LateClaimNotice): string {
-  return `Input VAT of R${lc.inputTax.toFixed(2)} was claimed late, in the VAT period starting ${lc.claimDate} `
-    + `(the period ${lc.lockPeriod.start} to ${lc.lockPeriod.end} is filed).`;
+/**
+ * The toast clips its second line to one row (~45 characters), so the FACT —
+ * how much VAT, claimed late, from when — is the TITLE, which wraps (the same
+ * as postingWarningsNotice); the second line holds only what fits.
+ */
+export function lateClaimNotice(found: readonly LateClaimNotice[]): { title: string; message: string } {
+  const first = found[0]!;
+  if (found.length === 1) {
+    const period = `Period ${first.lockPeriod.start} to ${first.lockPeriod.end} is filed.`;
+    return {
+      title: `Input VAT of R${first.inputTax.toFixed(2)} claimed late, from ${first.claimDate}`,
+      message: period.length <= NOTICE_LINE_FITS ? period : 'Its VAT period is filed.',
+    };
+  }
+  const total = found.reduce((s, l) => s + l.inputTax, 0);
+  return {
+    title: `${found.length} documents' input VAT of R${total.toFixed(2)} claimed late, from ${first.claimDate}`,
+    message: 'Their VAT periods are filed.',
+  };
 }
 
 /**
@@ -45,13 +61,9 @@ export function lateClaimsIn(body: unknown): LateClaimNotice[] {
 /** Show the notice for a response, if it carries a late claim. Returns how many it found. */
 export function notifyLateClaims(body: unknown): number {
   const found = lateClaimsIn(body);
-  if (found.length === 1) notify.info('VAT claimed in a later period', lateClaimMessage(found[0]!));
-  else if (found.length > 1) {
-    const total = found.reduce((s, l) => s + l.inputTax, 0);
-    notify.info(
-      `${found.length} documents' VAT claimed in a later period`,
-      `Input VAT of R${total.toFixed(2)} was claimed late, from ${found[0]!.claimDate}: their VAT periods are filed.`,
-    );
+  if (found.length > 0) {
+    const { title, message } = lateClaimNotice(found);
+    notify.info(title, message);
   }
   return found.length;
 }

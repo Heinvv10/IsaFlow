@@ -39,7 +39,7 @@ describe('bank screen — late claim notice', () => {
   it('accept: tells the person the VAT was claimed in a later period', async () => {
     fetchMock.mockResolvedValue(allocated(lc));
     await actions().handleAccept('t1');
-    expect(notify.info).toHaveBeenCalledWith('VAT claimed in a later period', expect.stringContaining('R15.00'));
+    expect(notify.info).toHaveBeenCalledWith('Input VAT of R15.00 claimed late, from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.');
   });
 
   it('accept: nothing for an ordinary allocation', async () => {
@@ -51,6 +51,6 @@ describe('bank screen — late claim notice', () => {
   it('batch accept: one summary for the lines claimed late', async () => {
     fetchMock.mockResolvedValue(allocated(lc));
     await actions().handleBatchAccept();
-    expect(notify.info).toHaveBeenCalledWith("2 documents' VAT claimed in a later period", expect.stringContaining('R30.00'));
+    expect(notify.info).toHaveBeenCalledWith("2 documents' input VAT of R30.00 claimed late, from 2026-07-01", 'Their VAT periods are filed.');
   });
 });
