@@ -28,6 +28,7 @@ import { log } from '@/lib/logger';
 import { takeVatLockExclusive } from '../gl/journalVatLockGuard';
 import { VatPeriodLockRefusal, assertLockablePeriod } from './vatPeriodLockBounds';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 
 export { VatPeriodLockRefusal } from './vatPeriodLockBounds';
 export { VatLockTimeoutError } from '../gl/journalVatLockGuard';
@@ -232,6 +233,7 @@ export async function lockVatPeriod(
 
   if (rows[0]) {
     log.info('VAT period locked', { companyId, periodStart, periodEnd }, 'vatPeriodLockService');
+    scheduleAutoSnapshot('vat_lock', periodEnd); // forensic step 4: after commit, never blocks the lock
     return { lock: map(rows[0]), created: true };
   }
 

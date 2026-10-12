@@ -53,13 +53,15 @@ export async function plantJournal(db: Db, companyId: string, o: JournalOpts): P
 /** One fiscal year of twelve monthly periods starting `start` (YYYY-MM-01). */
 export async function plantFiscalYear(db: Db, companyId: string, year: number, start: string): Promise<string[]> {
   const ids: string[] = [];
+  const [y0, m0] = start.split('-').map(Number) as [number, number];
   for (let i = 0; i < 12; i++) {
     const id = crypto.randomUUID();
+    const first = new Date(Date.UTC(y0, m0 - 1 + i, 1));
+    const last = new Date(Date.UTC(y0, m0 + i, 0));
     await db.query(
       `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
-       VALUES($1,$2,$3,$4,$5,($6::date + make_interval(months => $4 - 1))::date,
-              ($6::date + make_interval(months => $4) - 1)::date,'open')`,
-      [id, companyId, `P${i + 1} ${year}`, i + 1, year, start]);
+       VALUES($1,$2,$3,$4,$5,$6,$7,'open')`,
+      [id, companyId, `P${i + 1} ${year}`, i + 1, year, first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)]);
     ids.push(id);
   }
   return ids;
@@ -114,5 +116,17 @@ export async function cleanupAudit(pool: Pool, companies: string[], users: strin
     await pool.query('DELETE FROM users WHERE id = ANY($1::text[])', [users]);
   } finally {
     await pool.end();
+  }
+}
+
+/** Polls until `company` has `n` snapshot rows (the automatic ones land after the request commits). */
+export async function waitForSnapshots(pool: Pool, company: string, n: number, timeoutMs = 30_000): Promise<Record<string, unknown>[]> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const { rows } = await pool.query(
+      `SELECT id, trigger, status, cutoff::text AS cutoff, failure_reason, channel, taken_by FROM audit_snapshots
+       WHERE company_id = $1 ORDER BY taken_at`, [company]);
+    if (rows.length >= n || Date.now() > until) return rows;
+    await new Promise((r) => setTimeout(r, 200));
   }
 }
