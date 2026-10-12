@@ -18,7 +18,7 @@
  */
 import { notify } from '@/utils/toast';
 import { parsePickDropSentence, pickDropFact } from '@/lib/costCentrePickWording';
-import { listNames } from '@/components/accounting/noticeLine';
+import { NOTICE_LINE_FITS, listNames } from '@/components/accounting/noticeLine';
 
 /**
  * The part of a posting route's response this notice reads. `id` is there so a
@@ -80,13 +80,21 @@ export function postingWarningsNotice(
   const drop = parsePickDropSentence(first);
   // A sentence this screen does not know still reaches the person whole: the title wraps.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
-  if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
+  // A bulk run names the bill when it fits beside the line; one bill's other warnings read as "+k more".
+  const bill = byDocument.length === 1 ? names[0] : undefined;
+  if (all.length === 1) {
+    const plain = drop ? `Line ${drop.line} posted without it.` : '';
+    const named = bill && drop ? `${bill}: line ${drop.line} posted without it.` : '';
+    return { title, message: named !== '' && named.length <= NOTICE_LINE_FITS ? named : plain };
+  }
   if (byDocument.length > 1) {
     // Line 2 counts and lists the same thing: the bills (the title says what was not applied).
     const bills = `${byDocument.length} bills`;
     return { title, message: listNames(`${bills}: `, byDocument.map((_, i) => names[i]), bills) };
   }
-  return { title, message: `+${all.length - 1} more not applied.` };
+  const more = `+${all.length - 1} more not applied.`;
+  const namedMore = bill ? `${bill}: ${more}` : '';
+  return { title, message: namedMore !== '' && namedMore.length <= NOTICE_LINE_FITS ? namedMore : more };
 }
 
 /** Show the notice for a response, if it carries posting warnings. Returns how many dropped picks it found. */

@@ -17,14 +17,17 @@ export interface LateClaimNotice {
   inputTax: number;
 }
 
-/** A date as YYYY-MM-DD, whichever shape it arrived in (a Date, an ISO string, or another date string); null when it is none. */
+/**
+ * A date as YYYY-MM-DD: an ISO string (what the server sends: pgTypes returns DATE
+ * as 'YYYY-MM-DD') is taken as written, and a Date is read with fmtDate's LOCAL
+ * getters, the repo's convention for a Date built at local midnight. Any other
+ * string is NOT parsed: Date.parse would pick a day by the host's zone, and a
+ * wrong day in a VAT notice is worse than no notice. Null when it is neither.
+ */
 function isoDay(v: unknown): string | null {
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : fmtDate(v);
   if (typeof v !== 'string') return null;
-  const iso = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(v);
-  if (iso) return iso[1]!;
-  const t = Date.parse(v);
-  return Number.isNaN(t) ? null : fmtDate(new Date(t));
+  return /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(v)?.[1] ?? null;
 }
 
 /** The late claim in a response's `lateClaim` field, with its dates as YYYY-MM-DD, or null when it is not one. */
