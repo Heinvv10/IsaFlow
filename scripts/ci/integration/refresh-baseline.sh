@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild scripts/ci/integration/baseline.sql: the schema the integration gate
+# Rebuild scripts/ci/integration/baseline.sql.gz: the schema the integration gate
 # (run.sh) starts from. Run by hand, rarely; CI never runs it.
 #
 #   DATABASE_URL=<isaflow_dev URL> bash scripts/ci/integration/refresh-baseline.sh
@@ -23,10 +23,14 @@
 #      database cannot run. Every untracked file below the top gets a tracking
 #      row either way, so the gate's runner applies only migrations newer than
 #      the baseline.
-#   4. Dumps the result (schema + schema_migrations rows) to baseline.sql.
+#   4. Dumps the result (schema + schema_migrations rows) to baseline.sql.gz.
+#      Compressed on purpose: the unit-test censuses grep every .sql under
+#      scripts/ for writers of guarded tables, and a schema dump holds every
+#      function body the migrations define, so as text it would read as a
+#      writer of all of them. Read it with: gunzip -c baseline.sql.gz
 #
 # After a refresh: run the gate (bash scripts/ci/integration/run.sh) and commit
-# baseline.sql. Migrations newer than the baseline need no refresh; the gate
+# baseline.sql.gz. Migrations newer than the baseline need no refresh; the gate
 # applies them through scripts/apply-migrations.ts on every run.
 set -euo pipefail
 
@@ -34,7 +38,7 @@ cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=pg-cluster.sh
 source scripts/ci/integration/pg-cluster.sh
 
-OUT=scripts/ci/integration/baseline.sql
+OUT=scripts/ci/integration/baseline.sql.gz
 MIG=scripts/migrations/sql
 
 # Untracked on dev, below its newest tracked file, and NOT replayed:
@@ -100,5 +104,5 @@ done
   echo "-- Schema only (no data, no roles) plus the schema_migrations rows. Newest: $TOP"
   "$PG_BIN/pg_dump" -h 127.0.0.1 -p "$PORT" -U postgres --schema-only isaflow_baseline
   "$PG_BIN/pg_dump" -h 127.0.0.1 -p "$PORT" -U postgres --data-only --no-owner -t public.schema_migrations isaflow_baseline
-} | grep -vE '^\\(un)?restrict ' > "$OUT"
-echo "[baseline] wrote $OUT ($(wc -l < "$OUT") lines)"
+} | grep -vE '^\\(un)?restrict ' | gzip -n -9 > "$OUT"
+echo "[baseline] wrote $OUT ($(gunzip -c "$OUT" | wc -l) lines)"
