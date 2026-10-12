@@ -220,6 +220,24 @@ describe('only a standing posted journal counts', () => {
   });
 });
 
+describe('a re-reversal head (J -> C -> D) fails closed (round 3, REPRO 4: a named limit)', () => {
+  it('J, its contra C and the contra-of-contra D are none of them a source, whichever one a bank row is matched to', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const c = await reverseJournal(pool, f, a.journal);
+    const d = await reverseJournal(pool, f, c);
+    const [chain] = (await pool.query('SELECT (SELECT reversal_of_id FROM gl_journal_entries WHERE id = $1) AS c_of, (SELECT reversal_of_id FROM gl_journal_entries WHERE id = $2) AS d_of', [c, d])).rows;
+    expect(chain).toEqual({ c_of: a.journal, d_of: c });
+    // D re-establishes the posting, but only a manual rematch could put a bank row on it.
+    const txOnD = await plantBankTx(pool, f, -1150);
+    const dBank = (await linesOf(pool, d)).find((l) => l.subtype === 'bank')!;
+    await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $2, status = $3 WHERE id = $1', [txOnD, dBank.id, 'allocated']);
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    expect((await displayOf(pool, f, a.tx)).source).toBeUndefined();
+    expect((await displayOf(pool, f, txOnD)).source).toBeUndefined();
+  });
+});
+
 describe('the write-through only touches the batch\'s own journals', () => {
   it('another journal tagged earlier by hand keeps its stale bank row', async () => {
     const f = await fresh();
