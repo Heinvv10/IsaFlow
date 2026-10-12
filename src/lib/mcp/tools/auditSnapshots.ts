@@ -33,7 +33,7 @@ export const auditSnapshotsTool: McpTool = {
     'SEALED AUDIT SNAPSHOTS OF THE BOOKS. Without snapshot_id: the company\'s snapshots, newest first — cutoff, when and '
     + 'by whom taken, trigger (manual / period_close / vat_lock / year_close), status (sealed, or failed with the reason), '
     + 'canonical hash; status unchanged = the books (ledger, ageing and control totals) read the same as an earlier sealed snapshot (same_as_snapshot_id), with its own sealed check run. '
-    + 'verify_chain: true checks the company\'s numbered chain of sealed snapshots for a missing or replaced link. '
+    + 'verify_chain: true checks the company\'s chain of sealed snapshots for a missing or replaced link, and lists sealed rows whose seal does not verify (forged) separately. '
     + 'With snapshot_id: that snapshot\'s header and totals plus its check run (15 integrity checks, the '
     + 'anomaly scan and the journal-risk leads, each with status pass / fail / unknown and its findings). With verify: '
     + 'true: recompute every row hash and the canonical hash from what is stored and check the HMAC seal — status valid, '
@@ -45,7 +45,7 @@ export const auditSnapshotsTool: McpTool = {
     properties: {
       snapshot_id: { type: 'string', description: 'Id from this tool\'s list.' },
       verify: { type: 'boolean', description: 'With snapshot_id: verify the seal from the stored rows.' },
-      verify_chain: { type: 'boolean', description: 'Without snapshot_id: check the company\'s chain of sealed snapshots (gaps, broken links, seals).' },
+      verify_chain: { type: 'boolean', description: 'Without snapshot_id: check the company\'s chain of sealed snapshots (broken links, forged rows).' },
     },
     additionalProperties: false,
   },

@@ -144,13 +144,6 @@ export async function storePack(exportRow: AuditExport, snapshotId: string, pack
   log.info('audit pack built from snapshot', { exportId: exportRow.id, snapshotId, sha256: pack.sha256 }, 'audit');
 }
 
-export interface PackVerification {
-  status: 'valid' | 'invalid'; zipMatches: boolean; files: { name: string; ok: boolean }[];
-  snapshotId: string | null; snapshotStatus: string | null; manifestCitesSnapshot: boolean;
-  /** The manifest's own seal; `missing` for a ZIP without a readable manifest.json or manifest.sig.json. */
-  manifestSeal: SealCheck | 'missing';
-}
-
 const Manifest = z.object({
   period: z.object({ end: z.string() }),
   snapshot: z.object({ id: z.string(), canonical_hash: z.string(), taken_at: z.string() }),
@@ -184,31 +177,66 @@ async function download(bucket: string, path: string): Promise<Buffer> {
   }
 }
 
-export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
-  const e = await getExport(exportId, companyId);
-  if (!e || !e.zipStoragePath || !e.snapshotId) return null;
-  const buf = await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
+export interface PackVerification {
+  status: 'valid' | 'invalid'; zipMatches: boolean; files: { name: string; ok: boolean }[];
+  snapshotId: string | null; snapshotStatus: string | null; manifestCitesSnapshot: boolean;
+  /** The manifest's own seal; `missing` for a ZIP without a readable manifest.json or manifest.sig.json. */
+  manifestSeal: SealCheck | 'missing';
+}
+
+type FileCheck = Omit<PackVerification, 'status' | 'snapshotId' | 'snapshotStatus'> & { intact: boolean };
+
+/**
+ * What the stored ZIP proves on its own, without reading the ledger: its hash is the one recorded for the export,
+ * its manifest's seal verifies (bound to this export id), every file matches the manifest, and the manifest cites
+ * the export's snapshot and that snapshot's stored canonical hash.
+ */
+async function checkPackFile(companyId: string, e: AuditExport, buf: Buffer): Promise<FileCheck> {
   const zipMatches = sha256Hex(buf) === e.zipSha256;
-  const zip = await JSZip.loadAsync(buf);
-  const manifestText = await zip.file('manifest.json')?.async('string');
+  const zip = await JSZip.loadAsync(buf).catch((err: unknown) => {
+    log.warn('audit pack: unreadable ZIP', { exportId: e.id, error: err instanceof Error ? err.message : String(err) }, 'audit');
+    return null;
+  });
+  const manifestText = await zip?.file('manifest.json')?.async('string');
   const manifest = parsed(Manifest, manifestText);
-  const sig = parsed(Sig, await zip.file('manifest.sig.json')?.async('string'));
-  const snapshotStatus = (await verifySnapshot(companyId, e.snapshotId))?.status ?? null;
-  // A missing, unreadable or malformed manifest or seal: invalid, never an error.
-  if (!manifestText || !manifest || !sig) {
-    return { status: 'invalid', zipMatches, files: [], snapshotId: e.snapshotId, snapshotStatus, manifestCitesSnapshot: false,
-      manifestSeal: 'missing' };
+  const sig = parsed(Sig, await zip?.file('manifest.sig.json')?.async('string'));
+  // A missing, unreadable or malformed ZIP, manifest or seal: invalid, never an error.
+  if (!zip || !manifestText || !manifest || !sig) {
+    return { zipMatches, files: [], manifestCitesSnapshot: false, manifestSeal: 'missing', intact: false };
   }
-  const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: exportId, canonicalHash: sha256Hex(manifestText),
+  const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: e.id, canonicalHash: sha256Hex(manifestText),
     cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, sig.hmac, sig.key_id);
   const files = await Promise.all(manifest.files.map(async (f) => {
     const b = await zip.file(f.name)?.async('nodebuffer');
     return { name: f.name, ok: !!b && sha256Hex(b) === f.sha256 };
   }));
-  const snap = await getSnapshot(companyId, e.snapshotId);
-  const cites = manifest.snapshot.id === e.snapshotId && manifest.snapshot.canonical_hash === snap?.canonicalHash;
+  const snap = e.snapshotId ? await getSnapshot(companyId, e.snapshotId) : null;
+  const cites = manifest.snapshot.id === e.snapshotId && !!snap && manifest.snapshot.canonical_hash === snap.canonicalHash;
+  const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok) && manifestSeal === 'valid';
+  return { zipMatches, files, manifestCitesSnapshot: cites, manifestSeal, intact };
+}
+
+export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
+  const e = await getExport(exportId, companyId);
+  if (!e || !e.zipStoragePath || !e.snapshotId) return null;
+  const { intact, ...file } = await checkPackFile(companyId, e, await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath));
+  const snapshotStatus = (await verifySnapshot(companyId, e.snapshotId))?.status ?? null;
   // Fail closed: valid only when every part is.
-  const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok);
-  const status = intact && manifestSeal === 'valid' && snapshotStatus === 'valid' ? 'valid' : 'invalid';
-  return { status, zipMatches, files, snapshotId: e.snapshotId, snapshotStatus, manifestCitesSnapshot: cites, manifestSeal };
+  return { status: intact && snapshotStatus === 'valid' ? 'valid' : 'invalid', ...file, snapshotId: e.snapshotId, snapshotStatus };
+}
+
+/**
+ * The stored ZIP of a ready snapshot pack, served only when it proves itself (checkPackFile — no ledger read, so
+ * cheap enough for every download): an edited or substituted ZIP, or a row pointed at another pack's ZIP, is refused.
+ */
+export async function verifiedPackZip(companyId: string, e: AuditExport): Promise<Buffer> {
+  if (!e.zipStoragePath) throw new PackRefusedError('This export has no pack ZIP.');
+  const buf = await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
+  const check = await checkPackFile(companyId, e, buf);
+  if (!check.intact) {
+    log.warn('audit pack: refused to serve a pack that does not verify', { exportId: e.id, zipMatches: check.zipMatches,
+      manifestSeal: check.manifestSeal, cites: check.manifestCitesSnapshot }, 'audit');
+    throw new PackRefusedError('This audit pack does not verify (its file or sealed manifest does not match what was built); it is not served.');
+  }
+  return buf;
 }

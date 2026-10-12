@@ -711,13 +711,18 @@ Assertions per role with the `session_user` exemption only (#680), writers' owne
 No mention of the change-history objects (the 888 census holds).
 
 **Chain, one at a time, no duplicate copies (review round 1).** Every sealed snapshot of a company is numbered
-(`seq` 1, 2, 3, …) and its HMAC signs its seq and the previous sealed snapshot's hmac (`prev_hmac`); the writer
-refuses any seal that is not the next link. `?chain=1` / MCP `verify_chain` checks the chain: a gap, a wrong link or
-a bad seal is `broken`, so removing or replacing a snapshot in the middle is visible even with the guards turned off
-by the owner. The LATEST link can only be checked against the chain head the app logs on every seal (journalctl).
+(`seq` 1, 2, 3, …) and its HMAC signs its seq and the hmac of the newest earlier row whose seal VERIFIES
+(`prev_hmac`); the writer refuses a row that is not numbered next or names a row that does not exist. The database
+cannot check an HMAC, so a row written through the writer without the key (forged) is skipped by the next genuine
+link instead of becoming its predecessor (review round 2, N2), and `?chain=1` / MCP `verify_chain` lists it as
+forged. A verifying link that does not name the verifying link before it is `broken`, so removing or replacing a
+snapshot in the middle is visible even with the guards turned off by the owner. The LATEST link can only be checked
+against the chain head the app logs on every seal (journalctl). The chain check reads every sealed row in seq order,
+whatever else was recorded since.
 One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
-per process (a slot each), a 120 s budget per snapshot — a bound, not a check afterwards: before each step, check and
+whole-ledger jobs per process, one per company and one per person (so neither one company nor one person with
+several companies holds both), a 120 s budget per snapshot — a bound, not a check afterwards: before each step, check and
 total the time left is checked and statement_timeout tightened to it. Automatic jobs wait at most five minutes for a
 slot and again for the company's lock, then record a `busy` failure. An automatic snapshot whose books fingerprint
 — every journal and line material hash, the TB and the ageing and control totals, sealed in each snapshot's totals —
@@ -728,12 +733,21 @@ ageing seals a new copy.
 Each snapshot and check run stores the document version it was sealed under (`document_version`, in its sealed
 totals) and is always verified under that version, so a later bump never turns earlier snapshots invalid; a
 comparison compares only the columns both sides froze and lists the others as not compared. A key id
-the server holds no key for is `invalid` (retired keys are kept for verification). A comparison verifies
+the server holds no key for is `invalid`. Retired keys are kept for verification with the instant they were retired
+(`AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@2026-10-12T14:00:00Z,…`): a seal under one is valid only when taken before
+that instant, so rotating away from a leaked key stops forgeries under it (taken_at is the writer's now()). A comparison verifies
 both sides first and refuses an altered one. Journal and line rows freeze the VAT / intercompany / evidence columns
 too (`late_claim_base`, `is_intercompany`, `external_document_number`, …); a column census fails when a new
-journal or line column is neither frozen nor named as not material. The whole-ledger audit requests (take, verify,
+journal or line column is neither frozen nor named as not material — against the live schema (integration) and
+against the migrations' ADD COLUMNs (a unit test, so GitHub's CI runs it too). The whole-ledger audit requests (take, verify,
 chain, compare, check run, pack build and pack verify) are rate-limited at 30 a minute per member (each member's own
-bucket, so one member cannot lock the others out); browsing a snapshot, the audit log and the trail export are not. A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
+bucket, so one member cannot lock the others out); browsing a snapshot, the audit log and the trail export are not.
+A pack becomes ready only by being built (an ENABLE ALWAYS guard on `audit_trail_exports` refuses a row INSERTed
+ready or moved to ready without its snapshot and ZIP, any change to a ready pack's snapshot and file pointers, and
+deleting a ready pack except with its company), and both download routes — the owner's and the auditor portal's —
+serve a ZIP only when it proves itself: its hash is the export's, its sealed manifest verifies for this export id,
+every file matches the manifest, and the manifest cites the export's snapshot (no ledger read; review round 2, N1).
+Packs built before 890 (PDF only) carry no seal and are served as before.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the

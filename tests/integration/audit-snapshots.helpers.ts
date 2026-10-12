@@ -111,7 +111,7 @@ export async function recordSnapshot(pool: Pool, user: string, company: string,
 export async function cleanupAudit(pool: Pool, companies: string[], users: string[]): Promise<void> {
   try {
     await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [companies]);
-    await pool.query('DELETE FROM audit_trail_exports WHERE company_id = ANY($1)', [companies]);
+    // audit_trail_exports go with their companies: a ready pack is deleted only on the purge path.
     await pool.query('DELETE FROM vat_period_locks WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM customer_invoices WHERE company_id = ANY($1)', [companies]);

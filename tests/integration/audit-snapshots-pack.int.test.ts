@@ -5,7 +5,8 @@
  *    SHA-256; CSV cells are formula-neutralised; the PDF is inside;
  *  - the auditor portal session downloads the same ZIP;
  *  - pack verify is valid, and invalid once a stored snapshot row is altered;
- *  - a manager cannot build one; older PDF-only packs still download as PDF.
+ *  - a manager cannot build one; older PDF-only packs still download as PDF;
+ *  - a pack is ready only once built, a ready one is kept, and a ZIP that does not verify is never served.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -18,7 +19,7 @@ import portalDownload from '../../pages/api/audit-portal/download';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
-import { members, newCompany } from './entity-changes.helpers';
+import { as, members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantJournal, plantLedger } from './audit-snapshots.helpers';
 import { startFakeStorage, type FakeStorage } from './audit-snapshots-storage.helpers';
 import { sha256Hex } from '../../src/modules/accounting/services/audit/canonical';
@@ -201,13 +202,63 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     }
   });
 
-  it('an older PDF-only pack still downloads as its PDF', async () => {
+  it('an older PDF-only pack (built before 890) still downloads as its PDF', async () => {
     const c = await company();
     storage.files.set(`captured-documents/${c}/legacy.pdf`, Buffer.from('%PDF-legacy'));
-    const { rows: [e] } = await pool.query(
-      `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status, pdf_storage_bucket, pdf_storage_path, pdf_sha256)
-       VALUES($1, '2026-01-01', '2026-03-31', 'ready', 'captured-documents', $2, 'abc') RETURNING id`, [c, `${c}/legacy.pdf`]);
-    const dl = await download(o, c, e.id);
+    // Such rows exist from before the guard; one can no longer be made ready without a snapshot and its ZIP.
+    const db = await pool.connect();
+    let id = '';
+    try {
+      await db.query('BEGIN');
+      await db.query('ALTER TABLE audit_trail_exports DISABLE TRIGGER audit_trail_export_pack_guard');
+      id = (await db.query(
+        `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status, pdf_storage_bucket, pdf_storage_path, pdf_sha256)
+         VALUES($1, '2026-01-01', '2026-03-31', 'ready', 'captured-documents', $2, 'abc') RETURNING id`, [c, `${c}/legacy.pdf`])).rows[0].id;
+      await db.query('ALTER TABLE audit_trail_exports ENABLE ALWAYS TRIGGER audit_trail_export_pack_guard');
+      await db.query('COMMIT');
+    } finally { db.release(); }
+    const dl = await download(o, c, id);
     expect([dl.state.statusCode, bytesOf(dl).toString()]).toEqual([200, '%PDF-legacy']);
+  });
+
+  it('a pack is ready only once built, a ready pack is kept, and a forged ZIP made ready is never served (breaker r2 N1)', async () => {
+    const c = await company();
+    const genuine = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).export;
+    const asManager = <T>(fn: (db: import('pg').PoolClient) => Promise<T>) => as(pool, m, { company: c }, fn);
+    const code = (p: Promise<unknown>) => p.then(() => 'ok', (e: { code?: string }) => e.code);
+    // As app_user with a manager's claims: an INSERTed ready row and a DELETEd ready pack are refused.
+    expect(await code(asManager((db) => db.query(
+      `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status, snapshot_id, zip_storage_path, zip_sha256)
+       VALUES($1, '2026-01-01', '2026-06-30', 'ready', $2, 'p', 'h')`, [c, genuine.snapshotId])))).toBe('42501');
+    expect(await code(asManager((db) => db.query('DELETE FROM audit_trail_exports WHERE id = $1', [genuine.id])))).toBe('42501');
+    // A failed export moved to ready without a snapshot and ZIP: refused.
+    const failed = (await asManager((db) => db.query(
+      `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status) VALUES($1, '2026-01-01', '2026-06-30', 'failed')
+       RETURNING id`, [c]))).rows[0].id as string;
+    expect(await code(asManager((db) => db.query(
+      `UPDATE audit_trail_exports SET status = 'ready', pdf_storage_bucket = 'captured-documents', pdf_storage_path = 'x', pdf_sha256 = 'y'
+       WHERE id = $1`, [failed])))).toBe('42501');
+    // With the genuine snapshot and a forged ZIP (an edited CSV, the manifest's hashes recomputed) the database lets it
+    // through — it cannot check an HMAC — but neither download serves it.
+    const zip = await JSZip.loadAsync(storage.files.get(`captured-documents/${c}/audit-${genuine.id}.zip`)!);
+    zip.file('journals.csv', '"journal_id"\r\n"forged"\r\n');
+    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
+    for (const f of manifest.files) f.sha256 = sha256Hex(await zip.file(f.name)!.async('nodebuffer'));
+    zip.file('manifest.json', JSON.stringify(manifest, null, 2));
+    const forged = await zip.generateAsync({ type: 'nodebuffer' });
+    storage.files.set(`captured-documents/${c}/forged.zip`, forged);
+    expect(await code(asManager((db) => db.query(
+      `UPDATE audit_trail_exports SET status = 'ready', snapshot_id = $2, zip_storage_bucket = 'captured-documents',
+         zip_storage_path = $3, zip_sha256 = $4 WHERE id = $1`, [failed, genuine.snapshotId, `${c}/forged.zip`, sha256Hex(forged)])))).toBe('ok');
+    const dl = await download(o, c, failed);
+    expect([dl.state.statusCode, (dl.state.body as { error?: { details?: { reason?: string } } }).error?.details?.reason]).toEqual([400, 'PACK_REFUSED']);
+    const session = dataOf<{ session: { id: string }; accessToken: string }>(await callRoute(exportSessions, tokens[o]!, c, 'POST',
+      { auditorEmail: 'auditor@example.test' }, '/x', { id: failed }));
+    const portal = sendable();
+    await portalDownload({ method: 'GET', query: { sessionId: session.session.id, token: session.accessToken }, headers: {} } as never, portal.res as never);
+    expect(portal.state.statusCode).toBe(400);
+    expect(Buffer.isBuffer(portal.state.body)).toBe(false);
+    // The genuine pack still downloads.
+    expect((await download(o, c, genuine.id)).state.statusCode).toBe(200);
   });
 });

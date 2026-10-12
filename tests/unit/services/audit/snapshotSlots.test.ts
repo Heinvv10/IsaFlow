@@ -3,7 +3,7 @@
  * next is refused; automatic ones wait — and one company cannot hold every slot.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_CONCURRENT_SNAPSHOTS, PER_COMPANY, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
+import { MAX_CONCURRENT_SNAPSHOTS, PER_COMPANY, PER_USER, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { AUDIT_WAIT_MS, SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
@@ -35,6 +35,18 @@ describe('withSnapshotSlot', () => {
     await a2;
     expect(aSecond).toBe(true);
     expect(await withSnapshotSlot('A', false, async () => 'free')).toBe('free');
+  });
+
+  it('one person holds one slot, whichever company: their second company is refused and another person gets the slot (breaker r2 N5)', async () => {
+    expect(PER_USER).toBe(1);
+    let release = () => {};
+    const held = withSnapshotSlot('P1', true, () => new Promise<void>((r) => { release = r; }), 'person');
+    await tick();
+    await expect(withSnapshotSlot('P2', false, async () => 'x', 'person')).rejects.toBeInstanceOf(SnapshotBusyError);
+    expect(await withSnapshotSlot('P3', false, async () => 'other person', 'someone-else')).toBe('other person');
+    release();
+    await held;
+    expect(await withSnapshotSlot('P2', false, async () => 'free', 'person')).toBe('free');
   });
 
   afterEach(() => { vi.useRealTimers(); });

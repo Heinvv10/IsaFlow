@@ -15,7 +15,8 @@ import { listEntityChanges } from '@/modules/accounting/services/core/entityChan
 import { ENTITY_TYPES, mayReadType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { AUDIT_WAIT_MS, SNAPSHOT_TIME_BUDGET_MS, runAuditTx, tightenStatementTimeout, transactionNow, type AuditPrincipal } from './auditTx';
 import { withSnapshotSlot } from './snapshotSlots';
-import { SNAPSHOT_SEAL_DOMAIN, sign, signingKey } from './seal';
+import { SNAPSHOT_SEAL_DOMAIN, checkSeal, sign, signingKey, type SigningKey } from './seal';
+import { sealedChain, type ChainLink } from './snapshotRead';
 import { DOCUMENT_VERSION, SNAPSHOT_CAVEAT, contentFingerprint, snapshotHash, sumMoney, type SnapshotHeader } from './documents';
 import { countPostedLines, fiscalYearStart, journalRows, lineRows, tbRows } from './snapshotRows';
 import { snapshotTotals } from './snapshotTotals';
@@ -71,6 +72,16 @@ async function highWater(client: PoolClient, companyId: string): Promise<string 
   return r!.t;
 }
 
+/**
+ * The next link: numbered after every sealed row, naming the newest one whose seal verifies. A row written through
+ * the writer without the key (forged) is skipped, never chained to — verifyChain lists it as forged.
+ */
+function nextLink(links: ChainLink[], companyId: string, key: SigningKey): { seq: number; prevHmac: string | null } {
+  const genuine = [...links].reverse().find((l) => checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: l.id, canonicalHash: l.canonicalHash,
+    cutoff: l.cutoff, takenAt: l.takenAt, chain: { seq: l.seq, prevHmac: l.prevHmac } }, l.hmac, l.keyId, key) === 'valid');
+  return { seq: (links[links.length - 1]?.seq ?? 0) + 1, prevHmac: genuine?.hmac ?? null };
+}
+
 const isStatementTimeout = (err: unknown) => (err as { code?: string } | null)?.code === '57014';
 
 async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: SnapshotTrigger; maxLines?: number },
@@ -94,9 +105,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       const lineCount = await countPostedLines(p.companyId, input.cutoff);
       if (lineCount > max) throw new SnapshotTooLargeError(lineCount, max);
       const takenAt = await transactionNow(client);
-      const { rows: [prev] } = await client.query<{ seq: number; hmac: string }>(
-        `SELECT seq, hmac FROM audit_snapshots WHERE company_id = $1::uuid AND status = 'sealed' ORDER BY seq DESC LIMIT 1`, [p.companyId]);
-      const chain = { seq: (prev?.seq ?? 0) + 1, prevHmac: prev?.hmac ?? null };
+      const chain = nextLink(await sealedChain(p.companyId), p.companyId, key);
       await step('reading the ledger');
       const fyStart = await fiscalYearStart(p.companyId, input.cutoff);
       const journals = await journalRows(p.companyId, input.cutoff);
@@ -151,7 +160,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       if (isStatementTimeout(err)) throw new SnapshotTimeBudgetError(at);
       throw err;
     }
-  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }));
+  }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }), p.userId);
   if (taken.status === 'sealed') {
     // The chain head, written outside the database as well (the journal keeps it): a removed latest snapshot shows here.
     log.info('audit: snapshot sealed', { companyId: p.companyId, snapshotId: taken.id, seq: taken.seq, hash: taken.canonicalHash,

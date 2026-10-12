@@ -64,7 +64,7 @@ describe('seal', () => {
   });
   it('a seal under a retired key verifies with that key; under a key id the server holds no key for it is invalid', () => {
     const { hmac, keyId } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
-    const rotated = { key: Buffer.from('r'.repeat(40)), keyId: 'test-2', retired: new Map([[keyId, KEY.key]]) };
+    const rotated = { key: Buffer.from('r'.repeat(40)), keyId: 'test-2', retired: new Map([[keyId, { key: KEY.key, retiredAt: Date.parse('2030-01-01T00:00:00Z') }]]) };
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, rotated)).toBe('valid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, { ...fields, cutoff: '2026-07-01' }, hmac, keyId, rotated)).toBe('invalid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, { ...rotated, retired: new Map() })).toBe('invalid');
@@ -75,6 +75,15 @@ describe('seal', () => {
     // The same retired id with a different secret (a forger naming a real id) does not verify either.
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, sign(SNAPSHOT_SEAL_DOMAIN, fields, { key: Buffer.from('f'.repeat(40)), keyId }).hmac,
       keyId, rotated)).toBe('invalid');
+  });
+  it('a retired key vouches only for seals taken before it was retired: a forgery under a leaked key after rotation is invalid (breaker r2 N8)', () => {
+    const { hmac, keyId } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
+    const retiredAt = (iso: string) => ({ key: Buffer.from('r'.repeat(40)), keyId: 'test-2', retired: new Map([[keyId, { key: KEY.key, retiredAt: Date.parse(iso) }]]) });
+    expect(Date.parse(fields.takenAt)).toBeLessThan(Date.parse('2027-01-01T00:00:00Z'));
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2027-01-01T00:00:00Z'))).toBe('valid');
+    // Retired before this seal's taken_at: whoever signed it held a key that was already retired.
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt(fields.takenAt))).toBe('invalid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, retiredAt('2020-01-01T00:00:00Z'))).toBe('invalid');
   });
   it('the chain position is signed: another seq or previous link does not verify', () => {
     const chained = { ...fields, chain: { seq: 2, prevHmac: 'c'.repeat(64) } };
@@ -92,11 +101,13 @@ describe('seal', () => {
     process.env.AUDIT_SNAPSHOT_KEY_ID = ' ';
     expect(() => signingKey()).toThrow(SigningKeyMissingError);
     process.env.AUDIT_SNAPSHOT_KEY_ID = 'k2';
-    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}, k1=short,k2=${'b'.repeat(32)},junk`;
+    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}@2026-10-12T14:00:00Z, k1=short@2026-10-12T14:00:00Z,`
+      + `k2=${'b'.repeat(32)}@2026-10-12T14:00:00Z,k3=${'c'.repeat(32)},k4=${'d'.repeat(32)}@yesterday,junk`;
     const k = signingKey();
     expect(k.keyId).toBe('k2');
-    // k1's secret is too short and k2 is the current id: left out (their seals read invalid, never valid).
+    // k1's secret is too short, k2 is the current id, k3 has no retirement instant and k4 an unreadable one: left out
+    // (their seals read invalid, never valid).
     expect([...k.retired!.keys()]).toEqual(['k0']);
-    expect(k.retired!.get('k0')!.toString()).toBe('a'.repeat(32));
+    expect(k.retired!.get('k0')).toEqual({ key: Buffer.from('a'.repeat(32)), retiredAt: Date.parse('2026-10-12T14:00:00Z') });
   });
 });
