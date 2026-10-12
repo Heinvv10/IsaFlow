@@ -53,7 +53,14 @@ const chart: GLAccount[] = [
   // A header that carries past postings: postableAccounts keeps it, a leaf rule does not.
   chartAccount('h-exp', '5100', 'Expense HEADER WITH POSTINGS', { level: 1, hasTransactions: true }),
   chartAccount('a-exp-child', '5110', 'Expense Child', { parentAccountId: 'h-exp' }),
+  // An active parent whose only child is inactive: a header to the post route, but it looks like a leaf unless the
+  // inactive child is fetched too.
+  chartAccount('h-prov', '2200', 'Provisions PARENT OF INACTIVE', { accountType: 'liability', level: 1 }),
+  chartAccount('a-prov-child', '2210', 'Provisions Inactive Child', { accountType: 'liability', parentAccountId: 'h-prov', isActive: false }),
 ];
+
+// Answers like GET /api/accounting/chart-of-accounts: active rows only unless `includeInactive=true`.
+const serveChart = (url: unknown) => json(String(url).includes('includeInactive=true') ? chart : chart.filter(a => a.isActive));
 
 const claim = {
   id: 'claim-1', claimNumber: 'EC-1', claimDate: '2026-10-01', employeeId: 'e1', title: 'QAF1', description: null,
@@ -64,7 +71,7 @@ const claim = {
 describe('chart-of-accounts consumers read the real response shape', () => {
   it('expense claim page fills the Post to GL dropdowns', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json({ claim }));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json({ claim }));
     render(<ExpenseClaimDetail />);
     fireEvent.click(await screen.findByRole('button', { name: /post to gl/i }));
     await waitFor(() => expect(screen.getAllByRole('option', { name: '2100 — Employee Reimbursements' })).toHaveLength(1));
@@ -73,7 +80,7 @@ describe('chart-of-accounts consumers read the real response shape', () => {
 
   it('expense claim post dropdowns offer only the leaf accounts of the type the route accepts', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json({ claim }));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json({ claim }));
     render(<ExpenseClaimDetail />);
     fireEvent.click(await screen.findByRole('button', { name: /post to gl/i }));
     await screen.findByRole('option', { name: '2100 — Employee Reimbursements' });
@@ -82,11 +89,13 @@ describe('chart-of-accounts consumers read the real response shape', () => {
     expect(names(reimb!)).toEqual(['Select account…', '2100 — Employee Reimbursements']);
     expect(names(vat!)).toEqual(['None — skip VAT leg', '1140 — VAT Input']);
     expect(screen.queryByRole('option', { name: /Inactive (Liability|Asset)/ })).toBeNull();
+    // 2200 is active but its only child is inactive, so it is a header: offered only if the page forgot includeInactive.
+    expect(screen.queryByRole('option', { name: /2200|Provisions/ })).toBeNull();
   });
 
   it('expense claim receipt line dropdown leaves out header and inactive accounts', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json({ claim: { ...claim, status: 'draft' } }));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json({ claim: { ...claim, status: 'draft' } }));
     render(<ExpenseClaimDetail />);
     fireEvent.click(await screen.findByRole('button', { name: /add receipt/i }));
     await screen.findByRole('option', { name: '5000 — Purchases Expense' });
@@ -101,23 +110,25 @@ describe('chart-of-accounts consumers read the real response shape', () => {
       order_date: '2026-10-01', expected_delivery_date: null, status: 'draft', subtotal: 100, tax_amount: 15, total: 115,
       notes: null, reference: null, created_at: '2026-10-01', items: [{ description: 'x', quantity: 1, unit_price: 100, tax_rate: 15 }] };
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json(po));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json(po));
     render(<PurchaseOrderDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /edit/i }));
     expect(await screen.findByRole('option', { name: '5000 – Purchases Expense' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Inactive Expense/ })).toBeNull();
   });
 
   it('new item page offers sales and purchase accounts', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json([]));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json([]));
     render(<NewItemPage />);
     expect(await screen.findByRole('option', { name: '4000 - Sales Revenue' })).toBeTruthy();
     expect(screen.getByRole('option', { name: '5000 - Purchases Expense' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Inactive Expense/ })).toBeNull();
   });
 
   it('reporting group modal lists the accounts to assign', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      String(url).includes('chart-of-accounts') ? json(chart) : json({ accounts: [] }));
+      String(url).includes('chart-of-accounts') ? serveChart(url) : json({ accounts: [] }));
     render(<AccountReportingGroupModal group={null} onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(await screen.findByText('Employee Reimbursements')).toBeTruthy();
     expect(screen.getByText('2100')).toBeTruthy();
@@ -130,7 +141,7 @@ describe('chart-of-accounts consumers read the real response shape', () => {
       members: [{ gl_account_id: 'a-inactive', account_code: '5900', account_name: 'Inactive Expense' }] };
     const serve = () => vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
       String(url).includes('chart-of-accounts')
-        ? json(String(url).includes('includeInactive=true') ? chart : chart.filter(a => a.isActive))
+        ? serveChart(url)
         : json({}));
 
     it('shows the inactive member, marked inactive, and lets it be removed', async () => {

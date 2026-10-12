@@ -45,14 +45,10 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
   const isNew = !group?.id;
 
   const [name, setName] = useState(group?.name ?? '');
-  const [reportType, setReportType] = useState<'balance_sheet' | 'income_statement' | 'both'>(
-    group?.report_type ?? 'balance_sheet'
-  );
+  const [reportType, setReportType] = useState<AccountReportingGroup['report_type']>(group?.report_type ?? 'balance_sheet');
   const [displayOrder, setDisplayOrder] = useState(group?.display_order ?? 0);
   const [allAccounts, setAllAccounts] = useState<GlAccount[]>([]);
-  const [memberIds, setMemberIds] = useState<Set<string>>(
-    new Set(group?.members.map(m => m.gl_account_id) ?? [])
-  );
+  const [memberIds, setMemberIds] = useState<Set<string>>(new Set(group?.members.map(m => m.gl_account_id) ?? []));
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -84,10 +80,8 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
     );
   }, [allAccounts, memberIds, search]);
 
-  const members = useMemo(() =>
-    allAccounts.filter(a => memberIds.has(a.id)).sort((a, b) => a.code.localeCompare(b.code)),
-    [allAccounts, memberIds]
-  );
+  const members = useMemo(
+    () => allAccounts.filter(a => memberIds.has(a.id)).sort((a, b) => a.code.localeCompare(b.code)), [allAccounts, memberIds]);
 
   function addAccount(id: string) {
     setMemberIds(prev => new Set([...prev, id]));
