@@ -21,18 +21,50 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal } from './dimensionTypes';
 import type { TagPlan } from './dimensionTagPlan';
-import { applyBankSync, countBankRowDrift, restoreBankRows } from './dimensionBankSync';
+import { applyBankSync, countBankRowDrift, countBankRows, restoreBankRows } from './dimensionBankSync';
+import { BankDimensionSyncRefusal } from './dimensionBankSyncTypes';
 
-export interface AppliedTagBatch { batchId: string; lineCount: number; isRestatement: boolean; bankRowCount?: number }
+export interface AppliedTagBatch {
+  batchId: string; lineCount: number; isRestatement: boolean; bankRowCount?: number;
+  /** Set on a sync_bank_dimensions batch: the bank transaction_date window it ran over. */
+  sync?: { dateFrom: string; dateTo: string };
+}
 
 /** An earlier batch under the same key, if any — the replay answer. */
 export async function findTagBatchByKey(companyId: string, key: string): Promise<AppliedTagBatch | null> {
   const rows = (await sql`
-    SELECT id::TEXT AS id, line_count, is_restatement FROM dimension_tag_batches
+    SELECT id::TEXT AS id, line_count, is_restatement, sync_date_from::TEXT AS sync_from, sync_date_to::TEXT AS sync_to
+    FROM dimension_tag_batches
     WHERE company_id = ${companyId}::UUID AND idempotency_key = ${key}
-  `) as { id: string; line_count: number; is_restatement: boolean }[];
+  `) as { id: string; line_count: number; is_restatement: boolean; sync_from: string | null; sync_to: string | null }[];
   const r = rows[0];
-  return r ? { batchId: r.id, lineCount: Number(r.line_count), isRestatement: r.is_restatement === true } : null;
+  if (!r) return null;
+  return {
+    batchId: r.id, lineCount: Number(r.line_count), isRestatement: r.is_restatement === true,
+    ...(r.sync_from && r.sync_to ? { sync: { dateFrom: r.sync_from, dateTo: r.sync_to } } : {}),
+  };
+}
+
+/**
+ * An idempotency key names ONE batch, of one kind and (for a sync) one window.
+ * A tool replays only its own: the other kind, or a sync of another window, is
+ * refused with the remedy, never answered as if it were the call that ran.
+ */
+export function assertKeyIsFor(
+  prior: AppliedTagBatch, key: string, mine: 'tag_journal_lines' | { dateFrom: string; dateTo: string },
+): void {
+  const fresh = 'Use a fresh idempotency_key.';
+  if (mine === 'tag_journal_lines') {
+    if (prior.sync) throw new BankDimensionSyncRefusal(`idempotency_key ${key} already names a sync_bank_dimensions batch. ${fresh}`);
+    return;
+  }
+  if (!prior.sync) throw new BankDimensionSyncRefusal(`idempotency_key ${key} already names a tag_journal_lines batch. ${fresh}`);
+  if (prior.sync.dateFrom !== mine.dateFrom || prior.sync.dateTo !== mine.dateTo) {
+    throw new BankDimensionSyncRefusal(
+      `idempotency_key ${key} already names a sync_bank_dimensions batch for ${prior.sync.dateFrom} to ${prior.sync.dateTo}, `
+      + `not ${mine.dateFrom} to ${mine.dateTo}. ${fresh}`,
+    );
+  }
 }
 
 export async function applyDimensionTags(
@@ -77,7 +109,7 @@ export async function applyDimensionTags(
   return { batchId, lineCount: plan.lines.length, isRestatement: plan.isRestatement, bankRowCount };
 }
 
-export interface TagBatchReversalPlan { batchId: string; lineCount: number; isRestatement: boolean }
+export interface TagBatchReversalPlan { batchId: string; lineCount: number; bankRowCount: number; isRestatement: boolean }
 
 /** Every refusal, from reads under a row lock on the batch. */
 export async function planTagBatchReversal(companyId: string, batchId: string): Promise<TagBatchReversalPlan> {
@@ -107,7 +139,10 @@ export async function planTagBatchReversal(companyId: string, batchId: string): 
       `${bankDrift} bank transaction(s) of batch ${batchId} were re-tagged after it; reverse the later batch first.`,
     );
   }
-  return { batchId, lineCount: Number(batch.line_count), isRestatement: batch.is_restatement === true };
+  return {
+    batchId, lineCount: Number(batch.line_count), bankRowCount: await countBankRows(companyId, batchId),
+    isRestatement: batch.is_restatement === true,
+  };
 }
 
 export async function applyTagBatchReversal(
@@ -126,5 +161,7 @@ export async function applyTagBatchReversal(
     SET reversed_at = NOW(), reversed_by = ${opts.userId}, reversal_reason = ${opts.reason ?? null}
     WHERE id = ${plan.batchId}::UUID AND company_id = ${companyId}::UUID
   `;
-  log.info('Dimension tag batch reversed', { companyId, batchId: plan.batchId, lineCount: plan.lineCount }, 'accounting');
+  log.info('Dimension tag batch reversed', {
+    companyId, batchId: plan.batchId, lineCount: plan.lineCount, bankRowCount: plan.bankRowCount,
+  }, 'accounting');
 }

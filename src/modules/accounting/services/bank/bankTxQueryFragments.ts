@@ -7,6 +7,7 @@
  * what makes them safe for `sql.unsafe`.
  */
 import type { BankTxFilters } from './bankTxFilters';
+import { JOURNAL_DIMENSION_SET_LATERAL } from '../gl/dimensions/journalDimensionSetSql';
 
 // The screen's VAT column rendered `rowSelections[tx.id]?.vatCode`, seeded only
 // from bt.suggested_vat_code — which the rule auto-post path NULLs the moment it
@@ -104,28 +105,18 @@ const ALLOCATED_ACCOUNT_LATERAL = `
   ) aa ON TRUE`;
 
 // The dimensions the screen shows. The bank row's own cc1/cc2/bu when it has
-// any; otherwise its allocation journal's — the lines other than the bank leg
-// that carry a dimension (the dimension back-tag writes those, not the bank
-// row). One agreed set → 'journal'; more than one (a split across projects)
-// → 'split' with no single value; none → nothing. A supplier payment's
-// journal is AP + bank, both untagged by design: its dimensions are on the bill.
-const DIMENSION_JOINS = `
-  LEFT JOIN LATERAL (
-    SELECT (array_agg(dl.cc1_id))[1] AS cc1, (array_agg(dl.cc2_id))[1] AS cc2, (array_agg(dl.bu_id))[1] AS bu,
-           COUNT(DISTINCT ROW(dl.cc1_id, dl.cc2_id, dl.bu_id)) AS sets
-    FROM gl_journal_lines dbl
-    JOIN gl_journal_lines dl
-      ON dl.journal_entry_id = dbl.journal_entry_id
-     AND dl.company_id       = dbl.company_id
-     AND dl.id <> dbl.id
-    WHERE dbl.id = bt.matched_journal_line_id
-      AND dbl.company_id = bt.company_id
-      AND (dl.cc1_id IS NOT NULL OR dl.cc2_id IS NOT NULL OR dl.bu_id IS NOT NULL)
-  ) jd ON TRUE
+// any; otherwise its allocation journal's — the one rule in
+// gl/dimensions/journalDimensionSetSql.ts, which bank-row sync reads too, so the
+// screen and the sync cannot disagree: a POSTED journal whose dimension lines
+// (every line but the bank leg that is not on a control account) agree on one
+// set → 'journal'; more than one set, a partial tagging included → 'split' with
+// no single value; none, or all untagged → nothing. A supplier payment's
+// journal is AP + bank, both control: its dimensions are on the bill.
+const DIMENSION_JOINS = `${JOURNAL_DIMENSION_SET_LATERAL}
   LEFT JOIN LATERAL (
     SELECT
       CASE WHEN bt.cc1_id IS NOT NULL OR bt.cc2_id IS NOT NULL OR bt.bu_id IS NOT NULL THEN 'bank'
-           WHEN jd.sets = 1 THEN 'journal'
+           WHEN jd.sets = 1 AND jd.tagged > 0 THEN 'journal'
            WHEN jd.sets > 1 THEN 'split' END AS src
   ) dsrc ON TRUE
   LEFT JOIN cost_centres dcc1 ON dcc1.company_id = bt.company_id
