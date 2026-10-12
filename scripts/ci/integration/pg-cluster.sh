@@ -5,7 +5,9 @@
 # Every cluster is a directory the caller made with mktemp. It is owned by the
 # current user (gha-isaflow on the GitHub runner, you locally), listens on
 # 127.0.0.1 only, on a port the OS just handed out, with no unix socket, and
-# accepts only scram logins as `postgres` with the password in $PGPASSWORD. A
+# accepts only scram logins with the password in $PGPASSWORD. Its bootstrap
+# superuser is `ci_superuser`, so that `postgres` can be created as production
+# has it (pg_create_roles). A
 # superuser that any local process could reach without a password could run
 # COPY ... PROGRAM as the user who started it, so trust auth is not an option.
 #
@@ -16,6 +18,7 @@
 # land two hours before what dev and production store.
 
 PG_BIN=${PG_BIN:-/usr/lib/postgresql/16/bin}
+PG_SUPERUSER=ci_superuser
 
 # A port the kernel says is free right now. Another process can take it before
 # postgres binds it, so pg_cluster_start retries on a fresh one.
@@ -23,11 +26,11 @@ free_port() {
   bun -e "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"
 }
 
-# pg_cluster_init <dir>: initdb into <dir>/data with $PGPASSWORD as postgres's password.
+# pg_cluster_init <dir>: initdb into <dir>/data; ci_superuser's password is $PGPASSWORD.
 pg_cluster_init() {
   local dir=$1
   printf '%s\n' "$PGPASSWORD" > "$dir/pwfile"
-  "$PG_BIN/initdb" -D "$dir/data" -U postgres --auth=scram-sha-256 --pwfile="$dir/pwfile" \
+  "$PG_BIN/initdb" -D "$dir/data" -U "$PG_SUPERUSER" --auth=scram-sha-256 --pwfile="$dir/pwfile" \
     -E UTF8 --locale=en_US.UTF-8 > "$dir/initdb.log" 2>&1 || { cat "$dir/initdb.log" >&2; return 1; }
   rm -f "$dir/pwfile"
 }
@@ -45,6 +48,9 @@ pg_cluster_start() {
       return 0
     fi
     echo "[integration] postgres could not start on port $port (attempt $try); retrying" >&2
+    # A start that timed out can leave its postmaster still coming up and
+    # holding the data directory: stop it before the next attempt reuses it.
+    "$PG_BIN/pg_ctl" -D "$dir/data" -m immediate -w -t 60 stop > /dev/null 2>&1 || true
   done
   tail -20 "$dir/server.log" >&2
   return 1
@@ -56,15 +62,37 @@ pg_cluster_stop() {
   "$PG_BIN/pg_ctl" -D "$1/data" -m immediate stop > /dev/null 2>&1 || true
 }
 
-# pg_create_roles <port>: the application roles the schema's grants, policies
-# and owners name, with isaflow_dev's attributes (migration_admin and
-# platform_admin bypass RLS: SECURITY DEFINER functions owned by
-# migration_admin read through FORCE RLS on that basis). No passwords; NOLOGIN.
+# pg_create_roles <port>: the roles the schema's grants, policies and owners
+# name, with production's attributes: migration_admin and platform_admin bypass
+# RLS (SECURITY DEFINER functions owned by migration_admin read through FORCE
+# RLS on that basis); `postgres`, the role production's deploy connects and
+# migrates as, is NOT a superuser, bypasses RLS and inherits migration_admin
+# and app_user. Only `postgres` can log in, with $PGPASSWORD.
 pg_create_roles() {
-  "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U postgres -X -q -v ON_ERROR_STOP=1 -d postgres \
-    -c "CREATE ROLE app_user NOLOGIN" \
-    -c "CREATE ROLE migration_admin NOLOGIN BYPASSRLS" \
-    -c "CREATE ROLE platform_admin NOLOGIN BYPASSRLS"
+  "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1 -d postgres \
+    -v pw="$PGPASSWORD" <<'SQL'
+CREATE ROLE app_user NOLOGIN;
+CREATE ROLE migration_admin NOLOGIN BYPASSRLS;
+CREATE ROLE platform_admin NOLOGIN BYPASSRLS;
+CREATE ROLE postgres NOSUPERUSER INHERIT CREATEDB CREATEROLE LOGIN BYPASSRLS PASSWORD :'pw';
+GRANT migration_admin, app_user TO postgres;
+SQL
+}
+
+# with_db <port> <database> <command...>: run the command in the suites' fixed
+# environment (env -i: a developer's .env.local or shell can never point it at
+# a shared database or a real GoTrue), connected as `postgres`. No password in
+# the URL: pg and psql read PGPASSWORD. RUNNER_TRACKING_ID is kept so the
+# GitHub runner can still find and end what the step started.
+with_db() {
+  local url="postgresql://postgres@127.0.0.1:$1/$2"
+  local keep=()
+  shift 2
+  [ -n "${RUNNER_TRACKING_ID:-}" ] && keep+=("RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID")
+  env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${TMPDIR:-/tmp}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}" \
+    "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url" \
+    DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1 \
+    "JWT_SECRET=$JWT" "$@"
 }
 
 # pg_require_extensions: fail, saying how to fix it, when the server lacks an
