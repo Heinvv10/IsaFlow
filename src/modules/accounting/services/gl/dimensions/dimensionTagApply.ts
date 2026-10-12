@@ -21,7 +21,9 @@ import { log } from '@/lib/logger';
 import { UUID_RE } from '@/lib/validation';
 import { DimensionRefusal } from './dimensionTypes';
 import type { TagPlan } from './dimensionTagPlan';
-import { applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows } from './dimensionBankSync';
+import {
+  applyBankSync, countBankRowDrift, countBankRows, lockBatchBankRows, restoreBankRows, withBoundedStatements,
+} from './dimensionBankSync';
 import { BankDimensionSyncRefusal } from './dimensionBankSyncTypes';
 
 export interface AppliedTagBatch {
@@ -111,6 +113,21 @@ export async function applyDimensionTags(
 
 export interface TagBatchReversalPlan { batchId: string; lineCount: number; bankRowCount: number; isRestatement: boolean }
 
+/**
+ * Lock the journal lines a batch tagged, in id order, BEFORE its bank rows (lockBatchBankRows): tagging writes the lines
+ * and then the bank rows, so a reversal that locked them the other way round could deadlock with it (40P01).
+ */
+async function lockBatchJournalLines(companyId: string, batchId: string): Promise<void> {
+  await sql`
+    SELECT jl.id FROM gl_journal_lines jl
+    WHERE jl.company_id = ${companyId}::UUID
+      AND jl.id IN (SELECT bl.journal_line_id FROM dimension_tag_batch_lines bl
+                    WHERE bl.batch_id = ${batchId}::UUID AND bl.company_id = ${companyId}::UUID)
+    ORDER BY jl.id
+    FOR UPDATE OF jl
+  `;
+}
+
 /** Every refusal, from reads under a row lock on the batch. */
 export async function planTagBatchReversal(companyId: string, batchId: string): Promise<TagBatchReversalPlan> {
   if (!UUID_RE.test(batchId)) throw new DimensionRefusal('batch_id must be a UUID');
@@ -121,6 +138,12 @@ export async function planTagBatchReversal(companyId: string, batchId: string): 
   `) as { id: string; reversed_at: unknown; line_count: number; is_restatement: boolean }[];
   if (!batch) throw new DimensionRefusal('Not found');
   if (batch.reversed_at) throw new DimensionRefusal(`Dimension tag batch ${batchId} is already reversed`);
+  // Lines, then bank rows (the order tagging writes them in), each in id order, held to commit and bounded like the
+  // forward path: nothing can change a line or a bank row between the drift checks and the restore.
+  await withBoundedStatements(async () => {
+    await lockBatchJournalLines(companyId, batchId);
+    await lockBatchBankRows(companyId, batchId);
+  }, undefined, { what: 'reversal lock wait', remedy: 'another request is changing lines or bank rows of this batch; run the reversal again' });
   const [drift] = (await sql`
     SELECT COUNT(*)::INT AS n FROM dimension_tag_batch_lines bl
     JOIN gl_journal_lines jl ON jl.id = bl.journal_line_id AND jl.company_id = bl.company_id
@@ -133,8 +156,6 @@ export async function planTagBatchReversal(companyId: string, batchId: string): 
       `${Number(drift!.n)} line(s) of batch ${batchId} were re-tagged after it; reverse the later batch first.`,
     );
   }
-  // Locked before the drift check, held to commit: nothing can change a bank row between the check and the restore.
-  await lockBatchBankRows(companyId, batchId);
   const bankDrift = await countBankRowDrift(companyId, batchId);
   if (bankDrift > 0) {
     throw new DimensionRefusal(

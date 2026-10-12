@@ -38,6 +38,7 @@
  * has nothing to refuse.
  */
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { JOURNAL_DIMENSION_SET_LATERAL } from './journalDimensionSetSql';
 import {
   BankDimensionSyncRefusal, MAX_BANK_SYNC_ROWS, blankedSlots,
@@ -53,10 +54,15 @@ const QUERY_CANCELED = '57014';
 
 /**
  * Run `fn` with statement_timeout tightened to `ms` (never loosened past the caller's own budget) and JIT off
- * (its compile time is pure overhead for these nested-loop reads), restoring both afterwards. A statement the
- * bound cancels is a BankDimensionSyncRefusal; any other error is re-thrown untouched.
+ * (its compile time is pure overhead for these nested-loop reads), and put both back afterwards on EVERY path, a
+ * thrown error included. A statement the bound cancels (57014) is a BankDimensionSyncRefusal worded with `what`
+ * and `remedy`; any other error is re-thrown untouched. After a SQL error the transaction is aborted and the
+ * restore itself fails (25P02): that is logged, never allowed to replace the error that caused it.
  */
-export async function withBoundedStatements<T>(fn: () => Promise<T>, ms = BANK_SYNC_STATEMENT_TIMEOUT_MS): Promise<T> {
+export async function withBoundedStatements<T>(
+  fn: () => Promise<T>, ms = BANK_SYNC_STATEMENT_TIMEOUT_MS,
+  words: { what: string; remedy: string } = { what: 'bank sync read', remedy: 'narrow date_from / date_to and run it again' },
+): Promise<T> {
   const [prev] = (await sql`
     SELECT (SELECT setting FROM pg_settings WHERE name = 'statement_timeout') AS timeout_ms,
            (SELECT setting FROM pg_settings WHERE name = 'jit') AS jit
@@ -64,17 +70,24 @@ export async function withBoundedStatements<T>(fn: () => Promise<T>, ms = BANK_S
   const before = Number(prev?.timeout_ms ?? 0);
   const bound = before > 0 ? Math.min(before, ms) : ms;
   await sql`SELECT set_config('statement_timeout', ${`${bound}ms`}, true), set_config('jit', 'off', true)`;
+  let failed = false;
   try {
-    const out = await fn();
-    await sql`SELECT set_config('statement_timeout', ${`${before}ms`}, true), set_config('jit', ${prev?.jit ?? 'on'}, true)`;
-    return out;
+    return await fn();
   } catch (err) {
+    failed = true;
     if ((err as { code?: unknown }).code === QUERY_CANCELED) {
-      throw new BankDimensionSyncRefusal(
-        `The bank sync read ran longer than ${bound / 1000}s and was cancelled: narrow date_from / date_to and run it again.`,
-      );
+      throw new BankDimensionSyncRefusal(`The ${words.what} ran longer than ${bound / 1000}s and was cancelled: ${words.remedy}.`);
     }
     throw err;
+  } finally {
+    try {
+      await sql`SELECT set_config('statement_timeout', ${`${before}ms`}, true), set_config('jit', ${prev?.jit ?? 'on'}, true)`;
+    } catch (restoreErr) {
+      if (!failed) throw restoreErr;
+      log.warn('Bank sync could not restore statement_timeout after an error', {
+        err: restoreErr instanceof Error ? restoreErr.message : String(restoreErr),
+      }, 'accounting');
+    }
   }
 }
 
@@ -96,7 +109,9 @@ const toCandidate = (r: CandidateRow): BankSyncCandidate => {
 
 /**
  * Bank rows in scope whose journal agrees on one dimension set that differs from
- * what the bank row holds, in id order, at most `limit`. `total` is the full
+ * what the bank row holds, at most `limit`: in id order when locking (the one
+ * deterministic order every locker uses), by transaction date then id when only
+ * reading (a preview's sample and cut are the EARLIEST rows of the window). `total` is the full
  * count (read-only variant only; the locking variant cannot carry a window
  * function and reports 0).
  */
@@ -129,15 +144,12 @@ async function selectCandidates(
       AND (${from}::DATE IS NULL OR bt.transaction_date >= ${from}::DATE)
       AND (${to}::DATE IS NULL OR bt.transaction_date <= ${to}::DATE)
       AND (bt.cc1_id IS DISTINCT FROM jd.cc1 OR bt.cc2_id IS DISTINCT FROM jd.cc2 OR bt.bu_id IS DISTINCT FROM jd.bu)
-    ORDER BY bt.id
+    ${sql.unsafe(opts.lock ? 'ORDER BY bt.id' : 'ORDER BY bt.transaction_date, bt.id')}
     LIMIT ${opts.limit}::INT
     ${sql.unsafe(opts.lock ? 'FOR UPDATE OF bt' : '')}
   `) as CandidateRow[]);
   return { rows: rows.map(toCandidate), total: rows.length === 0 ? 0 : Number(rows[0]!.total) };
 }
-
-const byDateThenId = (a: BankSyncCandidate, b: BankSyncCandidate): number =>
-  a.transactionDate.localeCompare(b.transactionDate) || a.bankTransactionId.localeCompare(b.bankTransactionId);
 
 export interface BankSyncPreview {
   /** Every bank row that would change. */
@@ -156,7 +168,7 @@ export async function previewBankSync(
 ): Promise<BankSyncPreview> {
   const maxRows = opts.maxRows ?? MAX_BANK_SYNC_ROWS;
   const { rows, total } = await selectCandidates(companyId, scope, { lock: false, limit: maxRows + 1 });
-  const listed = rows.slice(0, maxRows).sort(byDateThenId);
+  const listed = rows.slice(0, maxRows);
   return {
     count: total, overMaxRows: total > maxRows, maxRows,
     sample: listed.slice(0, opts.sample ?? 25), blanking: listed.filter((r) => r.blanks.length > 0),
