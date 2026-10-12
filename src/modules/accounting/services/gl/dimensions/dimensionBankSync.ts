@@ -223,6 +223,21 @@ export async function countBankRows(companyId: string, batchId: string): Promise
   return Number(r?.n ?? 0);
 }
 
+/**
+ * Lock the bank rows a batch changed, in id order (the order the sync locks them in), so a concurrent edit cannot
+ * slip in between the drift check and the restore that follows it. Held until the caller's transaction ends.
+ */
+export async function lockBatchBankRows(companyId: string, batchId: string): Promise<void> {
+  await sql`
+    SELECT bt.id FROM bank_transactions bt
+    WHERE bt.company_id = ${companyId}::UUID
+      AND bt.id IN (SELECT br.bank_transaction_id FROM dimension_tag_batch_bank_rows br
+                    WHERE br.batch_id = ${batchId}::UUID AND br.company_id = ${companyId}::UUID)
+    ORDER BY bt.id
+    FOR UPDATE OF bt
+  `;
+}
+
 /** Bank rows of the batch changed since it ran (current ≠ the batch's new values). */
 export async function countBankRowDrift(companyId: string, batchId: string): Promise<number> {
   const [r] = (await sql`
