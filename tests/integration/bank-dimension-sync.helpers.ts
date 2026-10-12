@@ -117,6 +117,33 @@ export async function supplierPayment(pool: Pool, f: SyncFixture, date = '2026-0
   return { tx, journal: await journalOf(pool, tx) };
 }
 
+/**
+ * A posted manual journal with two expense lines and a bank leg, the lines INSERTED highest id first (so a scan in
+ * physical order reaches the higher id first, the opposite of id order). Returns the two expense line ids, high and low.
+ */
+export async function plantOppositeOrderLines(pool: Pool, f: SyncFixture): Promise<{ hi: string; lo: string }> {
+  const rand = () => crypto.randomUUID().slice(24);
+  const hi = `ffffffff-ffff-4fff-8fff-${rand()}`;
+  const lo = `00000000-0000-4000-8000-${rand()}`;
+  const je = crypto.randomUUID();
+  const db = await pool.connect();
+  try {
+    await db.query('BEGIN');
+    await db.query('SET LOCAL session_replication_role = replica');
+    await db.query(`INSERT INTO gl_journal_entries(id, company_id, entry_number, entry_date, description, source, status, created_by)
+                    VALUES($1,$2,$3,DATE '2026-09-01','opposite order','manual','posted',$4)`, [je, f.c, `OPP-${je.slice(0, 8)}`, f.user]);
+    for (const [id, account, debit, credit] of [[hi, f.expA, 10, 0], [lo, f.expC, 20, 0], [crypto.randomUUID(), f.bank, 0, 30]] as const) {
+      await db.query(`INSERT INTO gl_journal_lines(id, journal_entry_id, company_id, gl_account_id, debit, credit, description)
+                      VALUES($1,$2,$3,$4,$5,$6,'opp')`, [id, je, f.c, account, debit, credit]);
+    }
+    await db.query('COMMIT');
+  } catch (err) {
+    await db.query('ROLLBACK');
+    throw err;
+  } finally { db.release(); }
+  return { hi, lo };
+}
+
 /** Reverse a journal through the real reversal service (it stamps reversed_at and posts a contra; status stays 'posted'). Returns the contra's id. */
 export async function reverseJournal(pool: Pool, f: SyncFixture, journal: string): Promise<string> {
   const res = await asToken(pool, f.user, f.c, () => reverseJournalEntry(f.c, journal, f.user));

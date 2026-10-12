@@ -13,7 +13,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asToken } from './bank-controls-a.helpers';
 import {
-  allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, setBankDims, syncFixture, type SyncFixture,
+  allocate, bankDims, cleanupSync, json, lineOn, mcpAs, newKey, plantOppositeOrderLines, setBankDims, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
 import { applyBankSyncBatch, writeBankRows } from '../../src/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { sql } from '../../src/lib/neon';
@@ -179,6 +179,88 @@ describe('tag and reverse take their locks in one order: lines, then bank rows (
     expect(hooks.fired).toBe(1);
     expect(tagged.isError, tagged.content[0]!.text).toBeFalsy();
     expect(await bankDims(pool, a.tx)).toEqual({ cc1: f.cc.F1, cc2: f.cc.P1, bu: f.bu.B1 });
+  });
+});
+
+describe('tag takes its line locks in id order (round 3, REPRO 5)', () => {
+  const tagLines = (f: SyncFixture, ids: string[], dim: Record<string, string>) =>
+    mcp(f.user, f.c, 'tag_journal_lines', { lines: ids.map((journal_line_id) => ({ journal_line_id, ...dim })), idempotency_key: newKey('ord') });
+
+  it('a tag whose lines sit in the opposite physical order holds the LOWER id while it waits on it', async () => {
+    const f = await fresh();
+    const { hi, lo } = await plantOppositeOrderLines(pool, f);
+    const blocker = await other.connect();
+    const probe = await other.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE', [lo]);
+      const tagging = tagLines(f, [hi, lo], { cc2: code(f, 'P1') });
+      for (let i = 0; i < 100; i += 1) {
+        const waiting = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF jl%' AND datname = current_database()");
+        if (waiting.rowCount) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // In id order the tag took `lo` first and is blocked on it, so `hi` is still free; in physical order it holds `hi`.
+      let probed = 'acquired';
+      try {
+        await probe.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE NOWAIT', [hi]);
+      } catch (err) {
+        probed = (err as { code?: string }).code ?? String(err);
+      }
+      await blocker.query('COMMIT');
+      expect(probed).toBe('acquired');
+      const res = await tagging;
+      expect(res.isError, res.content[0]!.text).toBeFalsy();
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined);
+      blocker.release();
+      probe.release();
+    }
+  });
+
+  it('the reversal of such a batch takes its lines in id order too', async () => {
+    const f = await fresh();
+    const { hi, lo } = await plantOppositeOrderLines(pool, f);
+    const batch = json<{ batch_id: string }>(await tagLines(f, [hi, lo], { cc2: code(f, 'P1') })).batch_id;
+    const blocker = await other.connect();
+    const probe = await other.connect();
+    try {
+      await blocker.query('BEGIN');
+      await blocker.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE', [lo]);
+      const reversing = mcp(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: batch, idempotency_key: newKey('ordr') });
+      for (let i = 0; i < 100; i += 1) {
+        const waiting = await pool.query(
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF jl%' AND datname = current_database()");
+        if (waiting.rowCount) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      let probed = 'acquired';
+      try {
+        await probe.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE NOWAIT', [hi]);
+      } catch (err) {
+        probed = (err as { code?: string }).code ?? String(err);
+      }
+      await blocker.query('COMMIT');
+      expect(probed).toBe('acquired');
+      const res = await reversing;
+      expect(res.isError, res.content[0]!.text).toBeFalsy();
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined);
+      blocker.release();
+      probe.release();
+    }
+  });
+
+  it('two overlapping tag batches whose lines arrive in opposite order both land (no 40P01)', async () => {
+    const f = await fresh();
+    const { hi, lo } = await plantOppositeOrderLines(pool, f);
+    const [a, b] = await Promise.all([
+      tagLines(f, [hi, lo], { cc2: code(f, 'P1') }),
+      tagLines(f, [lo, hi], { cc2: code(f, 'P2') }),
+    ]);
+    expect(a.isError, a.content[0]!.text).toBeFalsy();
+    expect(b.isError, b.content[0]!.text).toBeFalsy();
   });
 });
 
