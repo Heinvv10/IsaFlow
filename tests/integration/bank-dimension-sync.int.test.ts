@@ -15,7 +15,7 @@ import { ALL_RAW_SUBTYPES } from '../../src/modules/accounting/services/gl/accou
 import { isControlSubtype } from '../../src/modules/accounting/services/gl/dimensions/dimensionPolicy';
 import { isControlSubtypeSql } from '../../src/modules/accounting/services/gl/dimensions/journalDimensionSetSql';
 import {
-  allocate, bankDims, cleanupSync, displayOf, json, lineOn, linesOf, mcpAs, newKey, setBankDims, setJournalStatus,
+  allocate, plantBankTx, bankDims, cleanupSync, displayOf, json, lineOn, linesOf, mcpAs, newKey, reverseJournal, setBankDims, setJournalStatus,
   setLineDims, splitAllocate, supplierPayment, syncFixture, type SyncFixture,
 } from './bank-dimension-sync.helpers';
 
@@ -165,15 +165,58 @@ describe('the back-fill leaves journals that carry no dimensions alone', () => {
   });
 });
 
-describe('only a posted journal counts', () => {
-  it.each(['draft', 'reversed'])('a %s journal is neither synced nor shown', async (status) => {
+describe('only a standing posted journal counts', () => {
+  it('a draft journal is neither synced nor shown', async () => {
     const f = await fresh();
     const { tx, journal } = await allocate(pool, f, { cc2: code(f, 'P1') });
-    await setJournalStatus(pool, journal, status);
+    await setJournalStatus(pool, journal, 'draft');
     expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
     expect((await displayOf(pool, f, tx)).source).toBeUndefined();
     await setJournalStatus(pool, journal, 'posted');
     expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(1);
+  });
+
+  it('a journal REVERSED through the real service (reversed_at set, status still posted) is neither synced nor shown (REPRO 1)', async () => {
+    const f = await fresh();
+    const { tx, journal } = await allocate(pool, f, { cc2: code(f, 'P1') });
+    await reverseJournal(pool, f, journal);
+    const [row] = (await pool.query('SELECT status, reversed_at FROM gl_journal_entries WHERE id = $1', [journal])).rows;
+    expect(row.status).toBe('posted');
+    expect(row.reversed_at).not.toBeNull();
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    expect((await displayOf(pool, f, tx)).source).toBeUndefined();
+    expect(json<{ bank_rows_synced: number }>(await sync(f, false)).bank_rows_synced).toBe(0);
+    expect(await bankDims(pool, tx)).toEqual({ cc1: null, cc2: null, bu: null });
+  });
+
+  it('a status written as reversed, and a hand-posted reversal that left reversed_at unset, are not standing either', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    await setJournalStatus(pool, a.journal, 'reversed');
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    const b = await allocate(pool, f, { cc2: code(f, 'P2') });
+    const contra = await reverseJournal(pool, f, b.journal);
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = NULL, reversed_by = NULL WHERE id = $1', [b.journal]);
+    expect(contra).toBeTruthy();
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    expect((await displayOf(pool, f, b.tx)).source).toBeUndefined();
+    // reversed_at alone (a claim stamped, no posted contra: a broken chain or a hand edit) is enough.
+    const c = await allocate(pool, f, { cc2: code(f, 'P2') });
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = $1', [c.journal]);
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    expect((await displayOf(pool, f, c.tx)).source).toBeUndefined();
+  });
+
+  it('a journal that is itself a reversal is not a source either', async () => {
+    const f = await fresh();
+    const a = await allocate(pool, f, { cc2: code(f, 'P1') });
+    const contra = await reverseJournal(pool, f, a.journal);
+    // A bank row pointed at the contra's bank leg, as a hand-matched row could be.
+    const tx2 = await plantBankTx(pool, f, 1150);
+    const bankLeg = (await linesOf(pool, contra)).find((l) => l.subtype === 'bank')!;
+    await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $2, status = $3 WHERE id = $1', [tx2, bankLeg.id, 'allocated']);
+    expect(json<{ would_sync: number }>(await sync(f, true)).would_sync).toBe(0);
+    expect((await displayOf(pool, f, tx2)).source).toBeUndefined();
   });
 });
 
@@ -193,7 +236,10 @@ describe('the write-through only touches the batch\'s own journals', () => {
 
 describe('the SQL control-account predicate is isControlSubtype', () => {
   it('agrees on every raw subtype in the vocabulary and on the spellings canonicalSubtype normalises', async () => {
-    const spellings = [...ALL_RAW_SUBTYPES, 'Vat Input', '  BANK ', 'payroll-liability', 'Credit Card', 'VAT  output', '', 'expense', 'nonsense'];
+    const spellings = [...ALL_RAW_SUBTYPES, 'Vat Input', '  BANK ', 'payroll-liability', 'Credit Card', 'VAT  output', '', 'expense', 'nonsense',
+      // JS \s and trim() cover NBSP, line terminators and the Unicode spaces that Postgres btrim / [[:space:]] do not (REPRO 3).
+      'credit\u00a0card', 'bank\n', '\nbank\r\n', 'vat\u2003input', '\ufeffbank', 'credit\tcard', 'payroll\u2028liability', 'vat\u3000output',
+      'receivable\u00a0', 'pay\u00a0able', 'vat-input', 'vat - input', 'bank\u200b'];
     const wrong: string[] = [];
     for (const raw of spellings) {
       const sqlSays = (await pool.query(`SELECT ${isControlSubtypeSql('$1::TEXT')} AS c`, [raw])).rows[0].c as boolean;
