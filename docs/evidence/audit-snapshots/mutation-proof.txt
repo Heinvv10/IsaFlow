@@ -158,3 +158,54 @@ u03       KILLED   a retired pack key judged by the manifest's own time  [audit-
 u04       KILLED   built_at is the writer's, not the database's clock  [audit-snapshots-pack.int.test.ts]
 u05       KILLED   a ready pack's built_at may change  [audit-snapshots-pack.int.test.ts]
 Round 5: 21/21 killed.
+
+## Round 6 — blind r3 fixes (961d2876d; mutants-round6.json)
+baseline  SURVIVED unmutated baseline  []
+v01       KILLED   unchanged accepts a check run borrowed from another transaction  [audit-snapshots-auto.int.test.ts]
+v02       KILLED   unchanged written without a check run  [audit-snapshots-auto.int.test.ts]
+v03       KILLED   a backdated link keeps the chain valid  [audit-snapshots-service.int.test.ts]
+v04       KILLED   no watchdog: a many-statement step outruns the budget  [audit-snapshots-versions.int.test.ts]
+v05       KILLED   owner pack downloads uncharged  [autoRateLimit.test.ts]
+v06       KILLED   portal downloads unbounded  [audit-snapshots-pack.int.test.ts]
+Round 6: 6/6 killed (baseline green).
+
+## Round 7 — breaker r3 + security-review fixes (02db71a22; mutants-round7.json)
+baseline  KILLED   unmutated baseline  [audit-snapshots-versions.int.test.ts]
+w01       KILLED   ZIP seal not checked before parsing  [audit-snapshots-pack.int.test.ts]
+w02       KILLED   directory entries pass  [audit-snapshots-pack.int.test.ts]
+w03       KILLED   duplicate entries in the central directory pass  [audit-snapshots-pack.int.test.ts]
+w04       KILLED   waiting counted as budget time  [audit-snapshots-versions.int.test.ts]
+w05       KILLED   writer accepts any unchanged attempt  [audit-snapshots-auto.int.test.ts]
+w06       KILLED   twin = newest row with the fingerprint, verifying or not  [audit-snapshots-auto.int.test.ts]
+w07       KILLED   malformed retired key skipped silently  [canonicalSeal.test.ts]
+w08       KILLED   a restarted chain reads valid  [audit-snapshots-service.int.test.ts]
+w09       KILLED   MCP verify_chain uncharged  [audit-snapshots-routes.int.test.ts]
+w10       KILLED   a ready pack's other columns may change  [audit-snapshots-pack.int.test.ts]
+w11       KILLED   no cap on a person's waiting jobs  [snapshotSlots.test.ts]
+w12       KILLED   automatic snapshots skip the per-person cap  [audit-snapshots-versions.int.test.ts]
+w13       KILLED   queued snapshot freezes books of an undone close  [audit-snapshots-auto.int.test.ts]
+w14       SURVIVED a pack made ready without its ZIP seal  []
+Round 7: 13/14 killed (baseline RED). The BASELINE FAILED this round (the versions suite was red at 02db71a22: my lock_gone re-check refused a test that never closed its period — breaker r4 M2), so every kill this round attributes to the versions suite (w04, w12) is unproven; w04, w12 and the survivor w14 were re-run in round 8 after the fixture was fixed.
+
+## Round 8 — r4 fixes, plus the round-7 kills its red baseline left unproven (a5089cd2d; mutants-round8.json)
+baseline  SURVIVED unmutated baseline  []
+w04b      KILLED   waiting counted as budget time  [audit-snapshots-versions.int.test.ts]
+w12b      SURVIVED automatic snapshots skip the per-person cap  []
+w14b      KILLED   a pack made ready without its ZIP seal  [audit-snapshots-pack.int.test.ts]
+y01       KILLED   no fallback to the next standing close after lock_gone  [audit-snapshots-auto.int.test.ts]
+y02       SURVIVED a failed attempt covers earlier cutoffs  []
+y03       KILLED   unsealed attempts cover locks  [audit-snapshots-auto.int.test.ts]
+y04       SURVIVED an unchanged attempt's own seal not checked  []
+y05       KILLED   automatic jobs may hold every slot  [snapshotSlots.test.ts]
+y06       KILLED   queue in arrival order, not people in turn  [snapshotSlots.test.ts]
+y07       KILLED   a restart read as a break (forged first row breaks the chain)  [audit-snapshots-service.int.test.ts]
+y08       KILLED   twin search limited to the newest candidate  [audit-snapshots-auto.int.test.ts]
+y09       KILLED   attempts recorded unsealed  [audit-snapshots-auto.int.test.ts]
+Round 8: 9/12 killed (baseline green). Survivors w12b (the per-person cap was masked by the automatic one), y02 and y04 got tests and were re-run in round 9.
+
+## Round 9 — the round-8 survivors, after their tests were added (6fdd8df37; mutants-round9.json)
+baseline  SURVIVED unmutated baseline  []
+w12_r9    KILLED   automatic snapshots skip the per-person cap  [audit-snapshots-versions.int.test.ts]
+y02_r9    KILLED   a failed attempt covers earlier cutoffs  [audit-snapshots-auto.int.test.ts]
+y04_r9    KILLED   an unchanged attempt's own seal not checked  [audit-snapshots-auto.int.test.ts]
+Round 9: 3/3 killed (baseline green).
