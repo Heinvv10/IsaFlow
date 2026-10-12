@@ -23,6 +23,7 @@ import { closePeriod } from '../../src/modules/accounting/services/gl/fiscalPeri
 import { unrecordedLocks } from '../../src/modules/accounting/services/audit/snapshotRead';
 import { takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
 import { runAuditTx } from '../../src/modules/accounting/services/audit/auditTx';
+import { verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -63,8 +64,15 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     // Nothing moved between the close and the lock: the lock records 'unchanged', pointing at the close's snapshot.
     const both = await waitForSnapshots(pool, c, 2);
     expect(both.map((x) => [x.cutoff, x.status])).toEqual([['2026-01-31', 'sealed'], ['2026-01-31', 'unchanged']]);
-    const { rows: [u] } = await pool.query('SELECT same_as_snapshot_id::text AS s FROM audit_snapshots WHERE id = $1', [both[1]!.id]);
+    const { rows: [u] } = await pool.query(
+      'SELECT same_as_snapshot_id::text AS s, check_run_id::text AS run FROM audit_snapshots WHERE id = $1', [both[1]!.id]);
     expect(u.s).toBe(s!.id);
+    // The checks are frozen afresh with the reference: they read the period's status, which the lock changed.
+    expect(u.run).toBeTruthy();
+    expect(u.run).not.toBe(s!.check_run_id);
+    const { rows: [f] } = await pool.query(
+      `SELECT findings->0->'detail'->>'detail' AS d FROM audit_check_results WHERE run_id = $1 AND check_id = 'integrity.documents_outside_open_period'`, [u.run]);
+    expect(f.d).toMatch(/period locked/);
   });
 
   it('a bulk close takes one snapshot at the latest end date; close_year one more', async () => {
@@ -157,10 +165,17 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
       await client.query('COMMIT');
     } finally { client.release(); }
     const listed = () => runAuditTx(p, 'READ COMMITTED', () => unrecordedLocks(c));
-    expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31' })]);
+    // Just closed: its automatic snapshot may still be running, so it is pending, not reported lost (blind r2 L6) ...
+    expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31', pending: true })]);
+    // ... until longer ago than an automatic snapshot can take (after the company's first attempt, which is moved back too).
+    await pool.query(`INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, failure_reason, totals, caveat)
+                      VALUES (gen_random_uuid(), $1, DATE '2025-06-30', now() - interval '2 hours', $2, 'session', 'vat_lock', 'failed',
+                              'error: planted', '{}', 'x')`, [c, o]);
+    await pool.query("UPDATE fiscal_periods SET closed_at = now() - interval '1 hour' WHERE id = $1", [periods[0]]);
+    expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31', pending: false })]);
     // Closing the next period through the route snapshots at 28 Feb, which also covers January's books.
     expect((await action(o, c, { action: 'close', id: periods[1] })).state.statusCode).toBe(200);
-    await waitForSnapshots(pool, c, 2);
+    await waitForSnapshots(pool, c, 3); // the manual one, the planted attempt, then February's
     expect(await listed()).toEqual([]);
   });
 
@@ -175,6 +190,32 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
     const all = await waitForSnapshots(pool, c, 4);
     expect(all.map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
+  });
+
+  it('unchanged covers the ageing and control totals, not the GL only; a reference still freezes its own checks', async () => {
+    const { c, l, periods } = await company();
+    const cycle = async (n: number) => {
+      expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+      const all = await waitForSnapshots(pool, c, n);
+      expect((await action(o, c, { action: 'reopen', id: periods[0] })).state.statusCode).toBe(200);
+      return all;
+    };
+    await cycle(1);
+    // A bank line moves no journal and no total: a reference, whose own check run sees the line (the anomaly scan).
+    await pool.query(`INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description)
+                      VALUES ($1, $2, DATE '2026-01-20', 777, 'unposted statement line')`, [c, l.bank]);
+    const two = await cycle(2);
+    expect(two.map((x) => x.status)).toEqual(['sealed', 'unchanged']);
+    const population = async (run: unknown) => (await pool.query(
+      `SELECT population FROM audit_check_results WHERE run_id = $1 AND check_id = 'anomaly.statistical_outliers'`, [run])).rows[0].population;
+    expect([await population(two[0]!.check_run_id), await population(two[1]!.check_run_id)]).toEqual([0, 1]);
+    // An invoice moves no journal either, but it moves the AR ageing: a new sealed copy.
+    const customer = crypto.randomUUID();
+    await pool.query(`INSERT INTO customers (id, company_id, name) VALUES ($1, $2, 'Ageing customer')`, [customer, c]);
+    await pool.query(`INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status,
+                        total_amount, amount_paid, created_by)
+                      VALUES ($1, $2, $2, 'AGE-1', DATE '2026-01-10', DATE '2026-01-20', 'sent', 500, 0, $3)`, [c, customer, o]);
+    expect((await cycle(3)).map((x) => x.status)).toEqual(['sealed', 'unchanged', 'sealed']);
   });
 
   it('an unchanged ledger never points at a snapshot that does not verify: a fresh one is sealed instead', async () => {
@@ -192,6 +233,26 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     // The live ledger still matches the fingerprint sealed in the altered snapshot's totals; it is not vouched for.
     expect((await action(o, c, { action: 'lock', id: periods[0] })).state.statusCode).toBe(200);
     expect((await waitForSnapshots(pool, c, 2)).map((x) => x.status)).toEqual(['sealed', 'sealed']);
+  });
+
+  it("an unchanged attempt's own check run is verified: altered, the attempt is invalid", async () => {
+    const { c, periods } = await company();
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    await waitForSnapshots(pool, c, 1);
+    expect((await action(o, c, { action: 'lock', id: periods[0] })).state.statusCode).toBe(200);
+    const [, u] = await waitForSnapshots(pool, c, 2);
+    const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
+    const verify = () => runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, String(u!.id)));
+    expect(await verify()).toMatchObject({ status: 'unchanged', checkRun: { hashMatches: true, seal: 'valid' } });
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query('ALTER TABLE audit_check_results DISABLE TRIGGER audit_check_results_append_only');
+      await db.query(`UPDATE audit_check_results SET findings = '[]', finding_count = 0 WHERE run_id = $1`, [u!.check_run_id]);
+      await db.query('ALTER TABLE audit_check_results ENABLE ALWAYS TRIGGER audit_check_results_append_only');
+      await db.query('COMMIT');
+    } finally { db.release(); }
+    expect(await verify()).toMatchObject({ status: 'invalid', checkRun: { hashMatches: false } });
   });
 
   it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {

@@ -17,7 +17,11 @@ type Totals = Record<string, string | number | null | Record<string, string | nu
 
 const amount = (n: number | null | undefined): string | null => (n === null || n === undefined ? null : money(n));
 
-async function attempt(name: string, fn: () => Promise<Totals>): Promise<Totals> {
+/** Called before each total, outside its savepoint: the snapshot's time budget (its refusal must not be swallowed here). */
+type Step = (name: string) => Promise<void>;
+
+async function attempt(name: string, fn: () => Promise<Totals>, step?: Step): Promise<Totals> {
+  await step?.(`the ${name.replace('_', ' ')} total`);
   try {
     return await withSavepoint(`audit_totals_${name}`, fn);
   } catch (err) {
@@ -25,7 +29,7 @@ async function attempt(name: string, fn: () => Promise<Totals>): Promise<Totals>
   }
 }
 
-export async function snapshotTotals(companyId: string, cutoff: string): Promise<Record<string, Totals>> {
+export async function snapshotTotals(companyId: string, cutoff: string, step?: Step): Promise<Record<string, Totals>> {
   const out: Record<string, Totals> = {};
   for (const side of ['ar', 'ap'] as const) {
     out[`ageing_${side}`] = await attempt(`ageing_${side}`, async () => {
@@ -36,7 +40,7 @@ export async function snapshotTotals(companyId: string, cutoff: string): Promise
         excluded_total: amount(r.excludedTotal), unapplied: amount(r.unappliedReceipts),
         subledger_total: amount(r.subledgerTotal), excluded_documents: r.excluded.length,
       };
-    });
+    }, step);
   }
   for (const role of ['ar', 'ap', 'bank'] as const) {
     out[`control_${role}`] = await attempt(`control_${role}`, async () => {
@@ -47,7 +51,7 @@ export async function snapshotTotals(companyId: string, cutoff: string): Promise
         unexplained_difference: amount(r.unexplainedDifference), control_accounts: r.controlAccounts.length,
         subledger_unavailable: r.subledgerUnavailable?.reason ?? null,
       };
-    });
+    }, step);
   }
   return out;
 }

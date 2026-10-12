@@ -5,6 +5,7 @@
  * by the database, rows as stored.
  */
 import { sql } from '@/lib/neon';
+import { AUDIT_WAIT_MS, SNAPSHOT_TIME_BUDGET_MS } from './auditTx';
 import type { CanonicalRow } from './snapshotRows';
 import type { CheckResult } from './checks/checkTypes';
 
@@ -51,8 +52,21 @@ async function selectSnapshots(companyId: string, id: string | null, limit: numb
   return rows.map(mapSnapshot);
 }
 
-/** Newest first; `limit` up to 200 for a screen, 10 000 for the chain check. */
-export const listSnapshots = (companyId: string, limit = 100) => selectSnapshots(companyId, null, Math.min(Math.max(limit, 1), 10_000));
+/** Newest first, every status; up to 200 (a screen). The chain check reads sealedChain instead. */
+export const listSnapshots = (companyId: string, limit = 100) => selectSnapshots(companyId, null, Math.min(Math.max(limit, 1), 200));
+
+export interface ChainLink { id: string; seq: number; prevHmac: string | null; hmac: string; keyId: string; canonicalHash: string; cutoff: string; takenAt: string }
+
+/** Every sealed snapshot of the company, in chain order — however many failed or unchanged attempts there are. */
+export async function sealedChain(companyId: string): Promise<ChainLink[]> {
+  const rows = (await sql`
+    SELECT id::TEXT AS id, seq, prev_hmac, hmac, key_id, canonical_hash, cutoff::TEXT AS cutoff,
+           to_char(taken_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS taken_at
+    FROM audit_snapshots WHERE company_id = ${companyId}::UUID AND status = 'sealed' ORDER BY seq
+  `) as Row[];
+  return rows.map((r) => ({ id: String(r.id), seq: Number(r.seq), prevHmac: (r.prev_hmac as string | null) ?? null, hmac: String(r.hmac),
+    keyId: String(r.key_id), canonicalHash: String(r.canonical_hash), cutoff: String(r.cutoff), takenAt: String(r.taken_at) }));
+}
 
 export async function getSnapshot(companyId: string, id: string): Promise<SnapshotRecord | null> {
   return (await selectSnapshots(companyId, id, 1))[0] ?? null;
@@ -143,7 +157,13 @@ export async function getCheckRun(companyId: string, id: string): Promise<CheckR
   };
 }
 
-export interface UnrecordedLock { trigger: 'period_close' | 'vat_lock'; cutoff: string; lockedAt: string }
+/**
+ * `pending`: younger than an automatic snapshot can take (both bounded waits plus the time budget) — it may still be
+ * running, so it is not reported as lost yet.
+ */
+export interface UnrecordedLock { trigger: 'period_close' | 'vat_lock'; cutoff: string; lockedAt: string; pending: boolean }
+
+export const AUTO_SNAPSHOT_MAX_MS = 2 * AUDIT_WAIT_MS + SNAPSHOT_TIME_BUDGET_MS;
 
 /**
  * Closes and VAT locks with no snapshot attempt recorded after them — the automatic snapshot runs after COMMIT in the
@@ -161,7 +181,8 @@ export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock
       SELECT 'vat_lock', period_end, locked_at FROM vat_period_locks
       WHERE company_id = ${companyId}::UUID AND unlocked_at IS NULL
     )
-    SELECT l.trigger, l.cutoff::TEXT AS cutoff, to_char(l.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS locked_at
+    SELECT l.trigger, l.cutoff::TEXT AS cutoff, to_char(l.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS locked_at,
+           l.at > now() - make_interval(secs => ${AUTO_SNAPSHOT_MAX_MS / 1000}) AS pending
     FROM locks l, first f
     WHERE f.t IS NOT NULL AND l.at >= f.t
       AND NOT EXISTS (
@@ -169,6 +190,6 @@ export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock
         WHERE s.company_id = ${companyId}::UUID AND s.cutoff >= l.cutoff AND s.taken_at >= l.at
           AND (CASE WHEN l.trigger = 'vat_lock' THEN s.trigger = 'vat_lock' ELSE s.trigger IN ('period_close', 'year_close') END))
     ORDER BY l.at DESC LIMIT 50
-  `) as { trigger: UnrecordedLock['trigger']; cutoff: string; locked_at: string }[];
-  return rows.map((r) => ({ trigger: r.trigger, cutoff: r.cutoff, lockedAt: r.locked_at }));
+  `) as { trigger: UnrecordedLock['trigger']; cutoff: string; locked_at: string; pending: boolean }[];
+  return rows.map((r) => ({ trigger: r.trigger, cutoff: r.cutoff, lockedAt: r.locked_at, pending: r.pending === true }));
 }

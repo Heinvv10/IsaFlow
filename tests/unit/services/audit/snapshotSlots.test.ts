@@ -2,9 +2,9 @@
  * Whole-ledger audit jobs: at most MAX_CONCURRENT_SNAPSHOTS at once, at most PER_COMPANY for one company. By hand the
  * next is refused; automatic ones wait — and one company cannot hold every slot.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_CONCURRENT_SNAPSHOTS, PER_COMPANY, withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
-import { SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
+import { AUDIT_WAIT_MS, SnapshotBusyError } from '@/modules/accounting/services/audit/auditTx';
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
 
@@ -35,5 +35,24 @@ describe('withSnapshotSlot', () => {
     await a2;
     expect(aSecond).toBe(true);
     expect(await withSnapshotSlot('A', false, async () => 'free')).toBe('free');
+  });
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('an automatic job waits at most AUDIT_WAIT_MS behind a holder that hangs, then is refused and leaves the queue', async () => {
+    vi.useFakeTimers();
+    let release = () => {};
+    const hung = withSnapshotSlot('H', true, () => new Promise<void>((r) => { release = r; }));
+    let ran = false;
+    const waiter = withSnapshotSlot('H', true, async () => { ran = true; }).catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(AUDIT_WAIT_MS - 1);
+    expect(ran).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await waiter).toBeInstanceOf(SnapshotBusyError);
+    // It left the queue: the hung holder's release does not run it, and the slot is free again afterwards.
+    release();
+    await hung;
+    expect(ran).toBe(false);
+    expect(await withSnapshotSlot('H', false, async () => 'free')).toBe('free');
   });
 });

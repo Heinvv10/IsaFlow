@@ -44,7 +44,16 @@ database state.
 
 - Chain: sealed snapshots carry `seq` + `prev_hmac`, both signed; `verifyChain` finds a missing or replaced link.
   One snapshot per company at a time (`runAuditTx` chainLock, before BEGIN), two per process (`snapshotSlots`).
-- Automatic snapshots of an unchanged ledger record `unchanged` (`snapshotAttempts.unchangedSince`, ledger fingerprint).
+- Automatic snapshots (`takeAutoSnapshot`) whose books fingerprint — ledger plus ageing / control totals, sealed in
+  totals as `content_fingerprint` — matches a sealed, verifying snapshot at the cutoff record `unchanged` in the same
+  transaction (`snapshotAttempts.verifiedTwin`), with a sealed check run of their own (checks read state the books
+  don't: a period's status, bank lines). By hand (`takeSnapshot`) always seals a fresh copy.
+- Time: each step, check and total first checks what is left of `SNAPSHOT_TIME_BUDGET_MS` and tightens
+  statement_timeout to it, so no statement outruns the budget. Automatic jobs wait at most `AUDIT_WAIT_MS` for a slot
+  and again for the chain lock, then fail `busy`. Every whole-ledger job (pack build included) holds a slot.
+- Versions: each snapshot and check run stores `document_version` in its sealed totals and is rebuilt under it, so a
+  bump of `DOCUMENT_VERSION` never invalidates earlier seals. Comparisons compare only the columns both sides froze
+  and list the rest as `notCompared`.
 - Key rotation: `AUDIT_SNAPSHOT_RETIRED_KEYS` (`id=secret,…`) keeps old keys for verification; a key id with no key is `invalid`.
 
 ## Known limits
@@ -54,4 +63,6 @@ database state.
 - Storage: ~520 bytes per frozen line, per snapshot; every close / lock takes one.
 
 ## Recent changes
-- 2026-10-12: created (step 4, migration 890).
+- 2026-10-12: created (step 4, migration 890). Blind review r2: per-document version, shared-column comparisons,
+  budget as a bound, bounded waits, `unchanged` covers ageing / control totals and carries its own check run,
+  sealed-only chain read, pending locks.

@@ -167,7 +167,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // Pentest M23: per-company rate limit for well-known heavy route
       // categories. Keeps a single tenant from saturating the pool with
       // full-GL aggregations.
-      if (!(await checkAutoRateLimit(req.url, activeCompanyId, claims.sub))) {
+      if (!(await checkAutoRateLimit(req.url, activeCompanyId, claims.sub, req.method))) {
         unusable = await rollbackFailed(client, 'withAuth');
         return res.status(429).json({
           success: false,

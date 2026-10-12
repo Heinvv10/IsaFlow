@@ -12,13 +12,13 @@
 import { materialHash } from './canonical';
 import { CHECK_RUN_SEAL_DOMAIN, SNAPSHOT_SEAL_DOMAIN, checkSeal, signingKey, type SealCheck, type SigningKey } from './seal';
 import { checkRunHash, snapshotHash } from './documents';
-import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, type StoredRow } from './snapshotRead';
+import { getCheckRun, getSnapshot, sealedChain, snapshotRows, snapshotTb, type StoredRow } from './snapshotRead';
 
 export interface SnapshotVerification {
   snapshotId: string;
   /** valid only when every part below holds. */
   status: 'valid' | 'invalid' | 'not_sealed' | 'unchanged';
-  /** An 'unchanged' attempt: verify this snapshot instead. */
+  /** An 'unchanged' attempt: verify this snapshot for its books (its own check run is verified here; invalid if it fails). */
   sameAsSnapshotId?: string | null;
   canonicalHash: string | null;
   recomputedHash: string | null;
@@ -44,13 +44,26 @@ function recompute(rows: StoredRow[], kind: 'journal' | 'line', bad: Mismatch[])
   });
 }
 
+/** A check run recomputed from its stored results and its seal checked with that hash; null when it is gone. */
+async function verifyRun(companyId: string, runId: string, key: SigningKey) {
+  const r = await getCheckRun(companyId, runId);
+  if (!r) return { run: null, runHash: null };
+  const runHash = checkRunHash(r, r.results);
+  return { runHash, run: { id: r.id, hashMatches: runHash === r.canonicalHash, seal: checkSeal(CHECK_RUN_SEAL_DOMAIN,
+    { companyId, id: r.id, canonicalHash: runHash, cutoff: r.asAt, takenAt: r.takenAt }, r.hmac, r.keyId, key) } };
+}
+
 export async function verifySnapshot(companyId: string, id: string, key: SigningKey = signingKey()): Promise<SnapshotVerification | null> {
   const s = await getSnapshot(companyId, id);
   if (!s) return null;
   const empty = { accounts: 0, journals: 0, lines: 0 };
   if (s.status !== 'sealed') {
-    return { snapshotId: id, status: s.status === 'unchanged' ? 'unchanged' : 'not_sealed', sameAsSnapshotId: s.sameAsSnapshotId,
-      canonicalHash: null, recomputedHash: null, seal: null, checkRun: null, rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
+    // An 'unchanged' attempt holds no books (verify the snapshot it points to) but its own check run, verified here.
+    const { run } = s.status === 'unchanged' && s.checkRunId ? await verifyRun(companyId, s.checkRunId, key) : { run: null };
+    const runBad = s.status === 'unchanged' && s.checkRunId !== null && !(run?.hashMatches && run.seal === 'valid');
+    return { snapshotId: id, status: s.status !== 'unchanged' ? 'not_sealed' : runBad ? 'invalid' : 'unchanged',
+      sameAsSnapshotId: s.sameAsSnapshotId, canonicalHash: null, recomputedHash: null, seal: null, checkRun: run,
+      rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
   }
   const bad: Mismatch[] = [];
   const tb = await snapshotTb(companyId, id);
@@ -58,16 +71,7 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
   const journals = recompute(await snapshotRows(companyId, id, 'journals'), 'journal', bad);
   const lines = recompute(await snapshotRows(companyId, id, 'lines'), 'line', bad);
 
-  let run: SnapshotVerification['checkRun'] = null;
-  let runHash: string | null = null;
-  if (s.checkRunId) {
-    const r = await getCheckRun(companyId, s.checkRunId);
-    if (r) {
-      runHash = checkRunHash(r, r.results);
-      run = { id: r.id, hashMatches: runHash === r.canonicalHash, seal: checkSeal(CHECK_RUN_SEAL_DOMAIN,
-        { companyId, id: r.id, canonicalHash: runHash, cutoff: r.asAt, takenAt: r.takenAt }, r.hmac, r.keyId, key) };
-    }
-  }
+  const { run, runHash } = s.checkRunId ? await verifyRun(companyId, s.checkRunId, key) : { run: null, runHash: null };
   const recomputedHash = snapshotHash({
     id: s.id, companyId, cutoff: s.cutoff, takenAt: s.takenAt, takenBy: s.takenBy, trigger: s.trigger, caveat: s.caveat,
     masterDataHighWater: s.masterDataHighWater, totals: s.totals,
@@ -101,21 +105,20 @@ export interface ChainVerification {
  * chain breaks it; a removed LATEST one is visible only against the chain head the app logs on every seal.
  */
 export async function verifyChain(companyId: string, key: SigningKey = signingKey()): Promise<ChainVerification> {
-  const all = await listSnapshots(companyId, 10_000);
-  const sealed = all.filter((s) => s.status === 'sealed').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const sealed = await sealedChain(companyId);
   const breaks: ChainVerification['breaks'] = [];
   sealed.forEach((s, i) => {
     const expected = i + 1;
     if (s.seq !== expected) breaks.push({ seq: s.seq, snapshotId: s.id, reason: `expected seq ${expected} (a snapshot is missing before it)` });
     const prev = sealed[i - 1];
     if ((s.prevHmac ?? null) !== (prev?.hmac ?? null)) breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot' });
-    const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash ?? '', cutoff: s.cutoff,
-      takenAt: s.takenAt, chain: { seq: s.seq ?? 0, prevHmac: s.prevHmac } }, s.hmac ?? '', s.keyId ?? '', key);
+    const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash, cutoff: s.cutoff,
+      takenAt: s.takenAt, chain: { seq: s.seq, prevHmac: s.prevHmac } }, s.hmac, s.keyId, key);
     if (seal === 'invalid') breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'seal does not verify' });
   });
   const last = sealed[sealed.length - 1];
   return {
     status: sealed.length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid',
-    length: sealed.length, head: last ? { seq: last.seq ?? 0, snapshotId: last.id, hmac: last.hmac ?? '' } : null, breaks,
+    length: sealed.length, head: last ? { seq: last.seq, snapshotId: last.id, hmac: last.hmac } : null, breaks,
   };
 }

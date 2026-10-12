@@ -49,6 +49,8 @@ export interface Comparison {
   backdated: JournalItem[]; changed: JournalItem[];
   removed: (JournalItem & { statusNow: string | null })[]; reversedAfter: string[];
   tb: TbDelta[];
+  /** Columns only one side froze (the base predates freezing them), per row kind: not compared. */
+  notCompared: { journals: string[]; lines: string[] };
   /** Display names of the people who created or posted a listed journal (current members only). */
   names: Record<string, string>;
   masterData: { since: string; total: number; truncated: boolean; byType: Record<string, number>;
@@ -106,7 +108,8 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
     backdated: backdated.slice(0, MAX_LISTED),
     changed: changed.slice(0, MAX_LISTED),
     removed: j.removed.slice(0, MAX_LISTED).map((r) => ({ ...item(r, [], lineChanges.get(r.id) ?? none), statusNow: null })),
-    reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, names: {}, masterData: null,
+    reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, notCompared: { journals: j.notCompared, lines: l.notCompared },
+    names: {}, masterData: null,
   };
 }
 

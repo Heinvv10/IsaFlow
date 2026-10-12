@@ -186,6 +186,19 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     const r = await verify();
     expect(r.state.statusCode).toBe(200);
     expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(r).verification).toMatchObject({ status: 'invalid', manifestSeal: 'missing' });
+    // A manifest that is not JSON, or JSON of the wrong shape: invalid too, not a 500 (blind r2 L4).
+    for (const text of ['{not json', JSON.stringify({ files: 'x' })]) {
+      const bad = new JSZip();
+      bad.file('manifest.json', text);
+      bad.file('manifest.sig.json', JSON.stringify({ hmac: 'a'.repeat(64), key_id: 'k' }));
+      const badBytes = await bad.generateAsync({ type: 'nodebuffer' });
+      storage.files.set(key, badBytes);
+      await ownerRepoint(ex.id, sha256Hex(badBytes));
+      const res = await verify();
+      expect(res.state.statusCode).toBe(200);
+      expect(dataOf<{ verification: { status: string; manifestSeal: string } }>(res).verification)
+        .toMatchObject({ status: 'invalid', manifestSeal: 'missing' });
+    }
   });
 
   it('an older PDF-only pack still downloads as its PDF', async () => {
