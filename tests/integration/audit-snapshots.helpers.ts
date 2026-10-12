@@ -106,6 +106,7 @@ export async function cleanupAudit(pool: Pool, companies: string[], users: strin
     await pool.query('DELETE FROM vat_period_locks WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1)', [companies]);
+    await pool.query('DELETE FROM gl_account_balances WHERE fiscal_period_id IN (SELECT id FROM fiscal_periods WHERE company_id = ANY($1))', [companies]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM approval_rules WHERE company_id = ANY($1)', [companies]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1)', [companies]);
