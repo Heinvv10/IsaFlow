@@ -233,6 +233,17 @@ describe('the chain', { timeout: 120_000 }, () => {
       forged: [{ seq: 2, snapshotId: forged }] });
   });
 
+  it('a genuine link naming nothing although rows precede it breaks the chain (breaker r3 K1)', async () => {
+    const { c } = await books();
+    // A forged row first (through the writer, no key), then the company's first genuine snapshot: it can name no
+    // verifying link, so it starts afresh at seq 2 — reported, not read as a clean start.
+    await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
+    const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const chain = await read(c, () => verifyChain(c, KEY));
+    expect(chain).toMatchObject({ status: 'broken', forged: [{ seq: 1 }] });
+    expect(chain.breaks).toEqual([expect.objectContaining({ seq: 2, snapshotId: s.id, reason: expect.stringMatching(/rows precede/) })]);
+  });
+
   it('a link taken no later than the one before it breaks the chain — a backdated row under a key (blind r3 L1)', async () => {
     const { c } = await books();
     await takeSnapshot(principal(c), { cutoff: '2026-04-30', trigger: 'manual' });
