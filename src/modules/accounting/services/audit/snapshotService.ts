@@ -18,7 +18,10 @@ import { recordCheckRun, runAllChecks } from './checks/checkRunService';
 
 export type SnapshotTrigger = 'manual' | 'period_close' | 'vat_lock' | 'year_close';
 
-/** Measured on the fixture (see the design doc): ~N lines/s; the cap keeps a snapshot inside the 60 s statement bound. */
+/**
+ * Measured on a fixture (docs/evidence/audit-snapshots/size-cap-measurement.txt): 50 000 lines took 11 s, 150 000
+ * took 33 s end to end (verify 18 s, compare 19 s; ~77 MB of frozen lines). Over the cap a snapshot is refused.
+ */
 export const MAX_SNAPSHOT_LINES = 150_000;
 
 export class SnapshotTooLargeError extends Error {
