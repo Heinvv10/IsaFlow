@@ -17,7 +17,10 @@
  * posting back on the books, but D has a reversal_of_id and is skipped with J and C. Deciding that D
  * stands needs the chain's parity (shared/journalInForceAsAt, bank/journalReversalState), which is a
  * recursive walk with $1/$2 placeholders that cannot be spliced into this static fragment, and is not
- * hand-rolled here. A bank row reaches D only by a manual rematch; it then keeps its own tags.
+ * hand-rolled here. A bank row CAN reach D: the real manual MATCH endpoint (matchTransaction /
+ * assertMatchTargets) accepts a re-reversed chain. Such a row is neither synced nor mirrored, and the
+ * Banking list shows its OWN tags (blank if it has none) although D's lines are tagged. No wrong value is
+ * written or shown; the row just does not follow D.
  *
  * Its DIMENSION LINES are every line other than the bank leg that is
  * not on a control account (bank, cash, card, AP, AR, VAT, payroll clearing —

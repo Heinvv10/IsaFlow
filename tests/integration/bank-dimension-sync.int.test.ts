@@ -228,7 +228,7 @@ describe('a re-reversal head (J -> C -> D) fails closed (round 3, REPRO 4: a nam
     const d = await reverseJournal(pool, f, c);
     const [chain] = (await pool.query('SELECT (SELECT reversal_of_id FROM gl_journal_entries WHERE id = $1) AS c_of, (SELECT reversal_of_id FROM gl_journal_entries WHERE id = $2) AS d_of', [c, d])).rows;
     expect(chain).toEqual({ c_of: a.journal, d_of: c });
-    // D re-establishes the posting, but only a manual rematch could put a bank row on it.
+    // D re-establishes the posting; a bank row can reach it through the manual match endpoint (planted here directly).
     const txOnD = await plantBankTx(pool, f, -1150);
     const dBank = (await linesOf(pool, d)).find((l) => l.subtype === 'bank')!;
     await pool.query('UPDATE bank_transactions SET matched_journal_line_id = $2, status = $3 WHERE id = $1', [txOnD, dBank.id, 'allocated']);
