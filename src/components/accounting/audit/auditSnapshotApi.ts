@@ -38,6 +38,7 @@ export interface Comparison {
   backdated: JournalItem[]; added: JournalItem[]; changed: JournalItem[]; removed: (JournalItem & { statusNow: string | null })[];
   reversedAfter: string[];
   tb: { accountId: string; code: string | null; name: string | null; before: string; after: string; delta: string }[];
+  names: Record<string, string>;
   masterData: { since: string; total: number; truncated: boolean; byType: Record<string, number>;
     items: { type: string; entityId: string; label: string | null; op: string; recordedAt: string; actorName: string | null; actor: string }[] } | null;
 }
