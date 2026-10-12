@@ -79,14 +79,13 @@ run_step "component-tests"   bun run test:components
 run_step "browser-tests"     bun run test:print
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
-if [ -n "${DATABASE_URL:-}" ]; then
-  run_step "integration-tests" bun run test:integration
-fi
-# Says, by name, which integration suites this run did NOT include and why:
-# all of them without DATABASE_URL, and the disposable-database-only ones
-# whenever DATABASE_URL names anything else. They skip themselves rather than
-# fail, so without this a green run reads as if they had passed.
-CI_DATABASE_URL="${DATABASE_URL:-}" bun scripts/ci/report-skipped-integration.ts
+# Every tests/integration/**/*.int.test.ts against throwaway PostgreSQL 16
+# clusters the step starts and removes itself (initdb as the current user; no
+# docker, no dev database, no secret), from the committed schema baseline plus
+# this branch's newer migrations. It ignores DATABASE_URL. It names every suite
+# that skipped and why, and fails on one that skipped without saying why.
+# See the header of scripts/ci/integration/run.sh.
+run_step "integration"       bash scripts/ci/integration/run.sh
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
