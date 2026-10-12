@@ -67,6 +67,25 @@ interface ItemResult {
   warnings?: string[];
 }
 
+/**
+ * The numbers the results are named by — this company's bills only. Naming is
+ * cosmetic, so a failure must not stop the action: it runs in its OWN savepoint
+ * (a caught SQL error still poisons the transaction otherwise), is logged, and
+ * leaves the results unnamed (null), which the screen words by count.
+ */
+async function billNumbers(companyId: string, ids: string[]): Promise<Map<string, string | null>> {
+  try {
+    const rows = await withSavepoint('bulk_supplier_invoice_numbers', async () => (await sql`
+      SELECT id::TEXT AS id, invoice_number FROM supplier_invoices
+      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+    `) as Array<{ id: string; invoice_number: string | null }>);
+    return new Map(rows.map((r) => [r.id, r.invoice_number]));
+  } catch (err) {
+    log.warn('Bulk supplier invoice numbers not read; results go unnamed', { error: err }, 'accounting-api');
+    return new Map();
+  }
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   if (req.method !== 'POST') {
@@ -97,12 +116,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // since each id is processed independently and reported by id.
   const ordered = [...invoiceIds].sort();
 
-  // The numbers the results are named by — this company's bills only.
-  const numberRows = (await sql`
-    SELECT id::TEXT AS id, invoice_number FROM supplier_invoices
-    WHERE company_id = ${companyId}::UUID AND id = ANY(${ordered}::UUID[])
-  `) as Array<{ id: string; invoice_number: string | null }>;
-  const numberOf = new Map(numberRows.map((r) => [r.id, r.invoice_number]));
+  const numberOf = await billNumbers(companyId, ordered);
 
   for (const invoiceId of ordered) {
     try {

@@ -25,6 +25,6 @@ describe('BulkActionBar — late claims', () => {
       onError={() => {}} onComplete={async () => {}} onClear={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(notify.info).toHaveBeenCalledWith(
-      "2 documents' input VAT of R180.00 claimed late, from 2026-07-01", 'Their VAT periods are filed.'));
+      "2 documents' input VAT of R180.00 claimed late, in the VAT period from 2026-07-01", 'Their VAT periods are filed.'));
   });
 });
