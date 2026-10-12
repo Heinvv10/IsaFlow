@@ -9,7 +9,9 @@
  *  - two lines predicted to an INACTIVE centre: both post, both are reported,
  *    each under its own bank transaction and journal;
  *  - the same sweep with an active centre reports nothing, and the centre lands;
- *  - what is posted is unchanged: the lines are bare of the dropped centre.
+ *  - what is posted is unchanged: the lines are bare of the dropped centre;
+ *  - a row whose post is rolled back with its savepoint AFTER postProvisional
+ *    returned a pick is NOT reported (its journal is gone): only its sibling is.
  * Disposable databases only — the suite skips elsewhere.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -81,5 +83,41 @@ describeIfDb('the import auto-post sweep reports the cost-centre picks it could 
     expect(out.posted, JSON.stringify(out)).toBe(1);
     expect(out.warnings).toEqual([]);
     expect(await legsOn(p, await provisionalJournal(c), fx.expenseId)).toEqual([{ cc1: p.FT, cc2: null, legacy: null, net: 300 }]);
+  });
+
+  it('leaves out a row whose post was rolled back with its savepoint, and reports its sibling', async () => {
+    await sql`UPDATE supplier_coding_history SET cost_centre_id = ${p.INACTIVE}::UUID WHERE company_id = ${fx.companyId}::UUID`;
+    // The failure lands AFTER postProvisional has posted and returned the pick: the run-tag UPDATE that follows it.
+    await sql`
+      CREATE OR REPLACE FUNCTION f3_fail_run_tag() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN
+        IF NEW.auto_post_run_id IS NOT NULL AND NEW.description LIKE '%F3-ROLLBACK%' THEN
+          RAISE EXCEPTION 'f3: run tag refused';
+        END IF;
+        RETURN NEW;
+      END $f$`;
+    await sql`CREATE TRIGGER f3_fail_run_tag BEFORE UPDATE ON bank_transactions FOR EACH ROW EXECUTE FUNCTION f3_fail_run_tag()`;
+    try {
+      const doomed = await seedBankTx(fx, { date: DATE, amount: -460, description: 'WALTONS F3-ROLLBACK' });
+      const sibling = await seedBankTx(fx, { date: DATE, amount: -575, description: 'WALTONS BINDERS' });
+      const out = await run([doomed, sibling]);
+
+      expect(out.posted, JSON.stringify(out)).toBe(1);
+      expect(out.skipped).toEqual([{ txId: doomed, reason: expect.stringContaining('f3: run tag refused') }]);
+      expect(out.warnings).toEqual([
+        { txId: sibling, journalEntryId: await provisionalJournal(sibling), warnings: [INACTIVE_WARNING] },
+      ]);
+      // The doomed row's journal went back with its savepoint: no journal, and the line is as it was.
+      const [doomedRow] = (await sql`
+        SELECT status, provisional_je_id FROM bank_transactions WHERE id = ${doomed}::UUID AND company_id = ${fx.companyId}::UUID`) as Row[];
+      expect(doomedRow).toEqual({ status: 'imported', provisional_je_id: null });
+      const [journals] = (await sql`
+        SELECT count(*)::INT AS n FROM gl_journal_entries
+        WHERE company_id = ${fx.companyId}::UUID AND description LIKE '%F3-ROLLBACK%'`) as Row[];
+      expect(journals!.n).toBe(0);
+    } finally {
+      await sql`DROP TRIGGER IF EXISTS f3_fail_run_tag ON bank_transactions`;
+      await sql`DROP FUNCTION IF EXISTS f3_fail_run_tag()`;
+    }
   });
 });
