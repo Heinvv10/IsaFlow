@@ -77,8 +77,8 @@ mkdir "$WORK/c1"
 pg_cluster_init "$WORK/c1"
 PORT=$(pg_cluster_start "$WORK/c1")
 PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
-"${PSQL[@]}" -d postgres -c "CREATE ROLE app_user NOLOGIN" -c "CREATE ROLE migration_admin NOLOGIN" \
-  -c "CREATE ROLE platform_admin NOLOGIN BYPASSRLS" -c "CREATE DATABASE isaflow_schema_fixture"
+pg_create_roles "$PORT"
+"${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_schema_fixture"
 "${PSQL[@]}" -d isaflow_schema_fixture -f scripts/ci/integration/baseline.sql > /dev/null
 # The runner forces TLS unless the URL says sslmode=disable.
 with_db "$PORT" isaflow_schema_fixture \
