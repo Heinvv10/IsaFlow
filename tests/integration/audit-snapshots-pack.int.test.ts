@@ -345,6 +345,10 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     expect(await code(asManager((db) => db.query(
       `UPDATE audit_trail_exports SET status = 'ready', pdf_storage_bucket = 'captured-documents', pdf_storage_path = 'x', pdf_sha256 = 'y'
        WHERE id = $1`, [failed])))).toBe('42501');
+    // With its snapshot and ZIP but no ZIP seal: refused too (the download routes check that seal first).
+    expect(await code(asManager((db) => db.query(
+      `UPDATE audit_trail_exports SET status = 'ready', snapshot_id = $2, zip_storage_path = 'p', zip_sha256 = 'h' WHERE id = $1`,
+      [failed, genuine.snapshotId])))).toBe('42501');
     // With the genuine snapshot and a forged ZIP (an edited CSV, the manifest's hashes recomputed) the database lets it
     // through — it cannot check an HMAC — but neither download serves it.
     const zip = await JSZip.loadAsync(storage.files.get(`captured-documents/${c}/audit-${genuine.id}.zip`)!);
