@@ -74,11 +74,16 @@ export function sign(domain: string, f: SealFields, k: SigningKey = signingKey()
 
 export type SealCheck = 'valid' | 'invalid';
 
-/** Timing-safe: the comparison does not stop at the first differing byte. */
-export function checkSeal(domain: string, f: SealFields, hmac: string, keyId: string, k: SigningKey = signingKey()): SealCheck {
+/**
+ * Timing-safe: the comparison does not stop at the first differing byte. `sealedAt`: when the seal was made, as the
+ * database recorded it — a retired key vouches only for seals made before it was retired. Defaults to `f.takenAt`
+ * (the writer's now() for snapshots and check runs); a pack passes its database-stamped built_at, because the time
+ * inside its manifest is the forger's to write.
+ */
+export function checkSeal(domain: string, f: SealFields, hmac: string, keyId: string, k: SigningKey = signingKey(),
+  sealedAt: string = f.takenAt): SealCheck {
   const old = keyId === k.keyId ? null : k.retired?.get(keyId);
-  // A retired key vouches only for what was sealed before it was retired.
-  if (old && !(Date.parse(f.takenAt) < old.retiredAt)) return 'invalid';
+  if (old && !(Date.parse(sealedAt) < old.retiredAt)) return 'invalid';
   const key = keyId === k.keyId ? k.key : old?.key;
   if (!key) return 'invalid';
   const expected = Buffer.from(hmacHex(key, sealMessage(domain, f)), 'hex');

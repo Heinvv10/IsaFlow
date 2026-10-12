@@ -746,7 +746,10 @@ A pack becomes ready only by being built (an ENABLE ALWAYS guard on `audit_trail
 ready or moved to ready without its snapshot and ZIP, any change to a ready pack's snapshot and file pointers, and
 deleting a ready pack except with its company), and both download routes — the owner's and the auditor portal's —
 serve a ZIP only when it proves itself: its hash is the export's, its sealed manifest verifies for this export id,
-every file matches the manifest, and the manifest cites the export's snapshot (no ledger read; review round 2, N1).
+it holds exactly the manifest's files and each matches, and the manifest cites the export's snapshot (no ledger read;
+review round 2, N1). Nothing but the manifest (≤ 1 MiB) and its seal is inflated before the seal verifies, and no
+entry past the size the manifest gives it. The guard stamps `built_at` with the database's clock when a pack becomes
+ready and fixes it; a pack sealed under a retired key verifies only when built before that key was retired.
 Packs built before 890 (PDF only) carry no seal and are served as before.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`

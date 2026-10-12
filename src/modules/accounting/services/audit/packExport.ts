@@ -147,8 +147,35 @@ export async function storePack(exportRow: AuditExport, snapshotId: string, pack
 const Manifest = z.object({
   period: z.object({ end: z.string() }),
   snapshot: z.object({ id: z.string(), canonical_hash: z.string(), taken_at: z.string() }),
-  files: z.array(z.object({ name: z.string(), sha256: z.string() })),
+  files: z.array(z.object({ name: z.string(), sha256: z.string(), bytes: z.number().int().nonnegative() })),
 });
+
+/** The manifest and its seal are small; anything larger is not one of ours and is not inflated. */
+const MANIFEST_MAX_BYTES = 1024 * 1024;
+const SIG_MAX_BYTES = 4096;
+
+/**
+ * An entry's bytes, inflated a chunk at a time and abandoned past `cap` (null): a crafted entry cannot inflate the
+ * whole of itself into memory, whatever its header claims.
+ */
+function readCapped(zip: JSZip, name: string, cap: number): Promise<Buffer | null> {
+  const entry = zip.file(name);
+  if (!entry) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const stream = entry.nodeStream('nodebuffer');
+    stream.on('data', (chunk: Buffer) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > cap) { done = true; stream.pause(); resolve(null); return; }
+      chunks.push(chunk);
+    });
+    stream.on('error', (err: Error) => { if (!done) { done = true; reject(err); } });
+    stream.on('end', () => { if (!done) { done = true; resolve(Buffer.concat(chunks)); } });
+  });
+}
 const Sig = z.object({ hmac: z.string(), key_id: z.string() });
 
 function parsed<T>(schema: z.ZodType<T>, text: string | undefined): T | null {
@@ -188,32 +215,45 @@ type FileCheck = Omit<PackVerification, 'status' | 'snapshotId' | 'snapshotStatu
 
 /**
  * What the stored ZIP proves on its own, without reading the ledger: its hash is the one recorded for the export,
- * its manifest's seal verifies (bound to this export id), every file matches the manifest, and the manifest cites
- * the export's snapshot and that snapshot's stored canonical hash.
+ * its manifest's seal verifies (bound to this export id; a retired key only for a pack built before it was retired,
+ * by the database's built_at), it holds exactly the manifest's files and each matches, and the manifest cites the
+ * export's snapshot and that snapshot's stored canonical hash. Nothing but the manifest and its seal is inflated
+ * before the seal verifies, and nothing past the size the manifest gives it.
  */
 async function checkPackFile(companyId: string, e: AuditExport, buf: Buffer): Promise<FileCheck> {
   const zipMatches = sha256Hex(buf) === e.zipSha256;
-  const zip = await JSZip.loadAsync(buf).catch((err: unknown) => {
+  const missing: FileCheck = { zipMatches, files: [], manifestCitesSnapshot: false, manifestSeal: 'missing', intact: false };
+  try {
+    const zip = await JSZip.loadAsync(buf);
+    const manifestText = (await readCapped(zip, 'manifest.json', MANIFEST_MAX_BYTES))?.toString('utf8');
+    const manifest = parsed(Manifest, manifestText);
+    const sig = parsed(Sig, (await readCapped(zip, 'manifest.sig.json', SIG_MAX_BYTES))?.toString('utf8'));
+    // A missing, oversized, unreadable or malformed ZIP, manifest or seal: invalid, never an error.
+    if (!manifestText || !manifest || !sig) return missing;
+    // built_at at full precision (the mapped export's is a Date's toString, to the second).
+    const [stamp] = (await sql`
+      SELECT to_char(built_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS t FROM audit_trail_exports
+      WHERE id = ${e.id}::UUID AND company_id = ${companyId}::UUID`) as { t: string | null }[];
+    const builtAt = stamp?.t ?? '';
+    const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: e.id, canonicalHash: sha256Hex(manifestText),
+      cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, sig.hmac, sig.key_id, undefined, builtAt);
+    const snap = e.snapshotId ? await getSnapshot(companyId, e.snapshotId) : null;
+    const cites = manifest.snapshot.id === e.snapshotId && !!snap && manifest.snapshot.canonical_hash === snap.canonicalHash;
+    if (manifestSeal !== 'valid') return { zipMatches, files: [], manifestCitesSnapshot: cites, manifestSeal, intact: false };
+    const expected = new Set([...manifest.files.map((f) => f.name), 'manifest.json', 'manifest.sig.json']);
+    const entries = Object.values(zip.files).filter((f) => !f.dir).map((f) => f.name);
+    const files = [];
+    for (const f of manifest.files) {
+      const b = await readCapped(zip, f.name, f.bytes);
+      files.push({ name: f.name, ok: !!b && b.length === f.bytes && sha256Hex(b) === f.sha256 });
+    }
+    for (const name of entries) if (!expected.has(name)) files.push({ name, ok: false }); // a file the manifest does not list
+    const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok);
+    return { zipMatches, files, manifestCitesSnapshot: cites, manifestSeal, intact };
+  } catch (err) {
     log.warn('audit pack: unreadable ZIP', { exportId: e.id, error: err instanceof Error ? err.message : String(err) }, 'audit');
-    return null;
-  });
-  const manifestText = await zip?.file('manifest.json')?.async('string');
-  const manifest = parsed(Manifest, manifestText);
-  const sig = parsed(Sig, await zip?.file('manifest.sig.json')?.async('string'));
-  // A missing, unreadable or malformed ZIP, manifest or seal: invalid, never an error.
-  if (!zip || !manifestText || !manifest || !sig) {
-    return { zipMatches, files: [], manifestCitesSnapshot: false, manifestSeal: 'missing', intact: false };
+    return missing;
   }
-  const manifestSeal = checkSeal(PACK_SEAL_DOMAIN, { companyId, id: e.id, canonicalHash: sha256Hex(manifestText),
-    cutoff: manifest.period.end, takenAt: manifest.snapshot.taken_at }, sig.hmac, sig.key_id);
-  const files = await Promise.all(manifest.files.map(async (f) => {
-    const b = await zip.file(f.name)?.async('nodebuffer');
-    return { name: f.name, ok: !!b && sha256Hex(b) === f.sha256 };
-  }));
-  const snap = e.snapshotId ? await getSnapshot(companyId, e.snapshotId) : null;
-  const cites = manifest.snapshot.id === e.snapshotId && !!snap && manifest.snapshot.canonical_hash === snap.canonicalHash;
-  const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok) && manifestSeal === 'valid';
-  return { zipMatches, files, manifestCitesSnapshot: cites, manifestSeal, intact };
 }
 
 export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
