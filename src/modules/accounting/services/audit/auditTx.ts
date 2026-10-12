@@ -69,6 +69,7 @@ export async function runAuditTx<T>(p: AuditPrincipal, isolation: 'REPEATABLE RE
   let unusable = false;
   const lockKey = `audit_snapshot_chain:${p.companyId}`;
   let locked = false;
+  let begun = false;
   try {
     if (opts.chainLock === 'try') {
       const { rows: [r] } = await client.query<{ ok: boolean }>('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [lockKey]);
@@ -87,6 +88,7 @@ export async function runAuditTx<T>(p: AuditPrincipal, isolation: 'REPEATABLE RE
       locked = true;
     }
     await client.query(`BEGIN ISOLATION LEVEL ${isolation}`);
+    begun = true;
     await client.query('SET LOCAL ROLE app_user');
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(p.claims)]);
     await client.query("SELECT set_config('app.current_company_id', $1, true)", [p.companyId]);
@@ -95,7 +97,8 @@ export async function runAuditTx<T>(p: AuditPrincipal, isolation: 'REPEATABLE RE
     await client.query('COMMIT');
     return out;
   } catch (err) {
-    if (!(err instanceof SnapshotBusyError)) unusable = await rollbackFailed(client, 'audit snapshot');
+    // Once BEGIN ran the transaction (with this person's claims) is rolled back, whatever was thrown.
+    if (begun) unusable = await rollbackFailed(client, 'audit snapshot');
     log.warn('audit transaction rolled back', { companyId: p.companyId, error: err instanceof Error ? err.message : String(err) }, 'audit');
     throw err;
   } finally {

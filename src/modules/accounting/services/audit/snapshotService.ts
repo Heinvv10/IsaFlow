@@ -7,10 +7,12 @@
  * call. A refused automatic attempt is recorded as 'failed' with its reason.
  *
  * Time-bound: before each step (and each check, and each ageing / control total) the time left of
- * SNAPSHOT_TIME_BUDGET_MS is checked and statement_timeout tightened to it, so no statement runs past the budget.
+ * SNAPSHOT_TIME_BUDGET_MS is checked and statement_timeout tightened to it; past the deadline a watchdog cancels
+ * whatever statement is running, so the budget holds however many statements a step runs.
  */
 import type { PoolClient } from 'pg';
 import { log } from '@/lib/logger';
+import { getPool } from '@/lib/neon';
 import { listEntityChanges } from '@/modules/accounting/services/core/entityChanges/entityChangeQuery';
 import { ENTITY_TYPES, mayReadType } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
 import { AUDIT_WAIT_MS, SNAPSHOT_TIME_BUDGET_MS, runAuditTx, tightenStatementTimeout, transactionNow, type AuditPrincipal } from './auditTx';
@@ -82,6 +84,24 @@ function nextLink(links: ChainLink[], companyId: string, key: SigningKey): { seq
   return { seq: (links[links.length - 1]?.seq ?? 0) + 1, prevHmac: genuine?.hmac ?? null };
 }
 
+/**
+ * The budget's hard edge: tightening statement_timeout bounds each statement by what was left when its step began,
+ * but a step runs several statements. Past the deadline this cancels whatever the snapshot's connection is running,
+ * every half second, until the snapshot stops. Stopped (and its last cancel awaited) before the connection goes back
+ * to the pool, so a late cancel can never reach another request's statement.
+ */
+async function budgetWatchdog(client: PoolClient, deadline: number): Promise<{ stop: () => Promise<void> }> {
+  const { rows: [me] } = await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+  let inflight: Promise<unknown> = Promise.resolve();
+  let tick: NodeJS.Timeout | undefined;
+  const cancel = () => {
+    inflight = getPool().query('SELECT pg_cancel_backend($1)', [me!.pid]).catch((err: unknown) =>
+      log.warn('audit: could not cancel an over-budget snapshot statement', { error: String(err) }, 'audit'));
+  };
+  const start = setTimeout(() => { cancel(); tick = setInterval(cancel, 500); }, Math.max(0, deadline - Date.now()));
+  return { stop: async () => { clearTimeout(start); clearInterval(tick); await inflight; } };
+}
+
 const isStatementTimeout = (err: unknown) => (err as { code?: string } | null)?.code === '57014';
 
 async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: SnapshotTrigger; maxLines?: number },
@@ -93,6 +113,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
   const wait = input.trigger !== 'manual';
   const taken = await withSnapshotSlot(p.companyId, wait, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     let at = 'starting';
+    const dog = await budgetWatchdog(client, started + SNAPSHOT_TIME_BUDGET_MS);
     /** Before each step: abandon past the budget, and no statement may outrun what is left of it. */
     const step = async (name: string) => {
       at = name;
@@ -159,6 +180,8 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       // A statement cut off by the tightened timeout: the budget ran out inside that step.
       if (isStatementTimeout(err)) throw new SnapshotTimeBudgetError(at);
       throw err;
+    } finally {
+      await dog.stop();
     }
   }, { chainLock: wait ? { waitMs: AUDIT_WAIT_MS } : 'try' }), p.userId);
   if (taken.status === 'sealed') {

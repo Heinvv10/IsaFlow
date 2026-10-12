@@ -118,6 +118,14 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     await portalDownload({ method: 'GET', query: { sessionId: session.session.id, token: session.accessToken }, headers: {} } as never, res.res as never);
     expect(res.state.statusCode).toBe(200);
     expect(sha256Hex(res.state.body as Buffer)).toBe(ex.zipSha256);
+    // Each download verifies the whole ZIP: ten a minute per auditor session (blind r3 L3).
+    const statuses: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      const r = sendable();
+      await portalDownload({ method: 'GET', query: { sessionId: session.session.id, token: session.accessToken }, headers: {} } as never, r.res as never);
+      statuses.push(r.state.statusCode);
+    }
+    expect(statuses).toEqual([...Array(9).fill(200), 429]);
   });
 
   it('builds from a chosen snapshot; verify turns invalid once a stored snapshot row is altered', async () => {
