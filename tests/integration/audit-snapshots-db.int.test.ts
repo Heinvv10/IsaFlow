@@ -82,6 +82,15 @@ describe('writing', () => {
     expect(await outcome(recordSnapshot(pool, o, c, (t) => payload(c, o, t, { hmac: null }), rows))).toMatch(/^23514/);
   });
 
+  it('a sealed snapshot must be the next link of its company\'s chain', async () => {
+    const c = await company();
+    expect(await outcome(take(o, c, { seq: 2, prev_hmac: 'e'.repeat(64) }))).toMatch(/^40001/);
+    expect(await outcome(take(o, c))).toBe('ok');
+    expect(await outcome(take(o, c, { seq: 2, prev_hmac: 'e'.repeat(64) }))).toMatch(/^40001/);
+    expect(await outcome(take(o, c, { seq: 1, prev_hmac: null }))).toMatch(/^40001/);
+    expect(await outcome(take(o, c))).toBe('ok');
+  });
+
   it('nobody inserts, updates, deletes or truncates directly — not app_user, not the owner', async () => {
     const c = await company();
     const id = await take(o, c, { check_run_id: await recordRun(o, c) });
