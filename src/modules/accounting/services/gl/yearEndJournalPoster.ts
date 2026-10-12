@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
 import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
+import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { ledgerEntryDay } from './journalDateGuard';
 import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
 
@@ -171,6 +172,8 @@ export async function postClosingJournal(
     await assertJournalVatPeriodOpen(
       companyId, preview.entryDate, preview.lines.map((l) => ({ glAccountId: l.accountId })), tx,
     );
+    // D1: the retained-earnings leg must not land on a balance-sheet header (headerAccountGuard.ts).
+    await assertNoHeaderAccountLines(companyId, preview.lines.map((l) => ({ glAccountId: l.accountId })), { q: tx });
     // NO total_debit / total_credit. Those columns do not exist on
     // gl_journal_entries — not in isaflow_dev, not in production — so this
     // INSERT raised 42703 and EVERY live year-end close failed before writing a
