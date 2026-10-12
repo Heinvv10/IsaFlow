@@ -90,7 +90,7 @@ grep -rn "FLOAT\|REAL\|DOUBLE PRECISION" scripts/migrations/sql/
 ### 2C. API Route Correctness
 For **every** API route in `pages/api/`:
 
-- [ ] **Uses `withCompany` middleware** (or `withAdmin` for admin routes)
+- [ ] **Uses `withAuth` middleware** (or `withUserAuth` for user-scoped routes, `withBearerAuth` / `withBearerOrCookieAuth` for token callers)
 - [ ] **Uses `withErrorHandler`** wrapper
 - [ ] **Returns via `apiResponse` helpers** (not raw `res.json()`)
 - [ ] **HTTP method validation** — rejects unsupported methods with 405
@@ -104,7 +104,7 @@ For **every** API route in `pages/api/`:
 ```bash
 # Check for missing middleware
 for f in $(find pages/api/accounting -name "*.ts"); do
-  if ! grep -q "withCompany\|withAdmin\|withPublic" "$f"; then
+  if ! grep -q "withAuth\|withUserAuth\|withBearer\|withPlatformAdmin\|withExtensionToken" "$f"; then
     echo "MISSING MIDDLEWARE: $f"
   fi
 done
