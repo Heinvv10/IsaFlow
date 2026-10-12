@@ -20,6 +20,7 @@ import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
+import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
 
 export async function applyRules(
   companyId: string,
@@ -92,6 +93,8 @@ export async function applyRules(
     let autoPostSkippedNoPeriod = 0;
     // Its journal moves a VAT figure inside a locked (filed) VAT period.
     let autoPostSkippedVatLocked = 0;
+    // The rule's account is a balance-sheet header (gl/headerAccountGuard): the rule needs repointing.
+    let autoPostSkippedHeaderAccount = 0;
     let autoPostSkippedApprovalRequired = 0;
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
@@ -223,6 +226,8 @@ export async function applyRules(
           // VAT period before its draft exists; the line's savepoint has rolled
           // back cleanly, so it is a skip like a closed period, not a failure.
           if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
+          // Refused before its draft exists, like the VAT lock: a skip the run reports, never a run-wide abort.
+          if (isHeaderAccountRefusal(lineErr)) { autoPostSkippedHeaderAccount++; continue; }
           // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
           // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
           // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
@@ -256,40 +261,13 @@ export async function applyRules(
     `) as Record<string, unknown>[];
     const skipped = Number(remaining[0]?.cnt ?? 0);
 
-    log.info(
-      'Applied bank rules',
-      {
-        bankAccountId,
-        applied: totalApplied,
-        skipped,
-        autoPostRulesSkippedNoBankGl,
-        autoPostSkippedClosedPeriod,
-        autoPostSkippedNoPeriod,
-        autoPostSkippedVatLocked,
-        autoPostSkippedApprovalRequired,
-        autoPostSkippedRaced,
-        autoPostSkippedLocked,
-        autoPostTruncatedRules,
-        autoPostVatDenied,
-        autoPostNonSupply,
-      },
-      'accounting',
-    );
-    return {
-      applied: totalApplied,
-      skipped,
-      entries,
-      autoPostRulesSkippedNoBankGl,
-      autoPostSkippedClosedPeriod,
-      autoPostSkippedNoPeriod,
-      autoPostSkippedVatLocked,
-      autoPostSkippedApprovalRequired,
-      autoPostSkippedRaced,
-      autoPostSkippedLocked,
-      autoPostTruncatedRules,
-      autoPostVatDenied,
-      autoPostNonSupply,
+    const counts = {
+      autoPostRulesSkippedNoBankGl, autoPostSkippedClosedPeriod, autoPostSkippedNoPeriod, autoPostSkippedVatLocked,
+      autoPostSkippedHeaderAccount, autoPostSkippedApprovalRequired, autoPostSkippedRaced, autoPostSkippedLocked,
+      autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
     };
+    log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped, ...counts }, 'accounting');
+    return { applied: totalApplied, skipped, entries, ...counts };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');
     throw err;

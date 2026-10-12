@@ -8,7 +8,7 @@
  * sits in and into none, so the pair would stop netting to zero there.
  *
  * That copy is not a claim the caller made; it is a value already sitting on a
- * posted line. `project_id`, `cost_center_id`, `cc1_id`, `cc2_id` and `bu_id`
+ * posted line. `project_id`, `cc1_id`, `cc2_id` and `bu_id`
  * carry no foreign key, so a legacy line can hold an id belonging to another
  * company — exactly the population K-051 exists because of.
  * `assertJournalLinesOwned` refuses such an id, which is right for a caller
@@ -20,10 +20,11 @@
  * refusing does not protect anything, it costs the operator the only remedy
  * they have and leaves the bad row untouched.
  *
- * `cc1_id` / `cc2_id` are the same story on the same table: both name a
- * `cost_centres` row, so they resolve against the same owned set as
- * `cost_center_id`. The shared writer's explicit `historical-copy` mode keeps
- * an owned inactive reference on the contra; a foreign one is still dropped
+ * `cc1_id` / `cc2_id` both name a `cost_centres` row and resolve against one
+ * owned set. The legacy `cost_center_id` is NOT carried: no report reads it, no
+ * new journal line writes it (D4, 2026-10-12), and the original keeps its own
+ * (core/costCentreUsageGuard still counts it). The shared writer's explicit
+ * `historical-copy` mode keeps an owned inactive reference on the contra; a foreign one is still dropped
  * here exactly as `assertJournalLinesOwned` refuses a foreign project.
  *
  * `vat_type` is NOT a tenant reference — it is a classification string with no
@@ -99,20 +100,18 @@ export async function buildReversalLines(
 ): Promise<ReversalLines> {
   const owned = await ownedDimensions(companyId, {
     project: lines.map((l) => l.projectId),
-    // cc1_id and cc2_id are cost_centres rows too, so one SELECT answers all
-    // three columns rather than three answering the same table.
-    costCentre: lines.flatMap((l) => [l.costCenterId, l.cc1Id, l.cc2Id]),
+    // cc1_id and cc2_id are both cost_centres rows, so one SELECT answers both.
+    costCentre: lines.flatMap((l) => [l.cc1Id, l.cc2Id]),
     businessUnit: lines.map((l) => l.buId),
   });
 
   let droppedLineCount = 0;
   const reversalLines = lines.map((l) => {
     const projectId = ownedOrNull(owned.project, l.projectId) ?? undefined;
-    const costCenterId = ownedOrNull(owned.costCentre, l.costCenterId) ?? undefined;
     const cc1Id = ownedOrNull(owned.costCentre, l.cc1Id) ?? undefined;
     const cc2Id = ownedOrNull(owned.costCentre, l.cc2Id) ?? undefined;
     const buId = ownedOrNull(owned.businessUnit, l.buId) ?? undefined;
-    if (projectId !== l.projectId || costCenterId !== l.costCenterId
+    if (projectId !== l.projectId
       || cc1Id !== l.cc1Id || cc2Id !== l.cc2Id || buId !== l.buId) {
       droppedLineCount += 1;
       log.warn(
@@ -129,7 +128,6 @@ export async function buildReversalLines(
       credit: l.debit,
       description: `Reversal: ${l.description || ''}`,
       projectId,
-      costCenterId,
       cc1Id,
       cc2Id,
       buId,

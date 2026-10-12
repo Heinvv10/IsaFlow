@@ -41,6 +41,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // and id; nothing is written. No MCP tool raises requests (Q6).
   'APPROVAL_RULES_CHANGED',
   'BANK_ALLOCATION_REFUSED',
+  // sync_bank_dimensions / the tag write-through (gl/dimensions/dimensionBankSync): a window over the row cap, a bank row
+  // changed while the sync ran (rolled back), an idempotency key that names a batch of the other kind or window. Names
+  // only the caller's own key, window and counts.
+  'BANK_DIMENSION_SYNC_REFUSED',
   'BANK_MATCH_UNAVAILABLE',
   'BANK_TX_ALLOCATED',
   'BANK_TX_LOCK_TIMEOUT',
@@ -110,6 +114,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // refused (R-079). Twelve fixed messages written for the user, naming no id,
   // amount or table, raised before any write. No MCP tool reaches it today.
   'HAND_CORRECTION_REFUSED',
+  // D1 (gl/headerAccountGuard): a new journal line on a balance-sheet header. Names the caller's own account code
+  // and line number; raised before the writer's first INSERT.
+  'HEADER_ACCOUNT_REFUSED',
   // The FOR SHARE read of an invoice's line accounts lost a lock race (55P03 / 40P01): says "retry".
   'INVOICE_LINE_ACCOUNT_LOCK_TIMEOUT',
   // A customer invoice line's revenue account, job or CC1 / CC2 / BU (with the customer's FNO) refused

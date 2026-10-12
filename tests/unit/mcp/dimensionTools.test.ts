@@ -39,7 +39,11 @@ vi.mock('@/modules/accounting/services/gl/dimensions/dimensionTagPlan', async (o
   ...(await orig<typeof import('@/modules/accounting/services/gl/dimensions/dimensionTagPlan')>()),
   planDimensionTags: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/gl/dimensions/dimensionTagApply', () => ({
+vi.mock('@/modules/accounting/services/gl/dimensions/dimensionBankSync', () => ({
+  MAX_BANK_SYNC_ROWS: 2000, previewBankSync: vi.fn(), applyBankSyncBatch: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/gl/dimensions/dimensionTagApply', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/gl/dimensions/dimensionTagApply')>()),
   applyDimensionTags: vi.fn(), findTagBatchByKey: vi.fn(async () => null),
   planTagBatchReversal: vi.fn(), applyTagBatchReversal: vi.fn(),
 }));
@@ -51,10 +55,14 @@ import { cosProjectWarnings } from '@/modules/accounting/services/gl/dimensions/
 import { planSplitDimensionsForTransaction } from '@/modules/accounting/services/bank/bankSplitDimensions';
 import { resolveLineVatCode } from '@/lib/mcp/tools/allocationVatGuard';
 import { planDimensionTags } from '@/modules/accounting/services/gl/dimensions/dimensionTagPlan';
-import { applyDimensionTags } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
+import {
+  applyDimensionTags, applyTagBatchReversal, findTagBatchByKey, planTagBatchReversal,
+} from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import { allocateBankTransactionTool } from '@/lib/mcp/tools/writeBankAllocate';
 import { splitAllocateBankTransactionTool } from '@/lib/mcp/tools/writeBankSplit';
-import { tagJournalLinesTool } from '@/lib/mcp/tools/writeDimensionTags';
+import { reverseDimensionTagBatchTool, tagJournalLinesTool } from '@/lib/mcp/tools/writeDimensionTags';
+import { syncBankDimensionsTool } from '@/lib/mcp/tools/writeBankDimensionSync';
+import { applyBankSyncBatch, previewBankSync } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { setGlAccountReportingAttributesTool } from '@/lib/mcp/tools/dimensionDefaultsTools';
 import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
@@ -178,6 +186,86 @@ describe('tag_journal_lines', () => {
     const live = await tagJournalLinesTool.handler({ lines: [{ journal_line_id: LINE, cc2: 'P' }], ...KEY }, ctx);
     expect(JSON.parse(text(live)).batch_id).toBe('b-1');
     expect(vi.mocked(applyDimensionTags).mock.calls[0]![2]).toMatchObject({ idempotencyKey: 'k', userId: 'user-1' });
+  });
+});
+
+describe('sync_bank_dimensions', () => {
+  it('refuses a non-dimension argument and a bad date before reading anything', async () => {
+    const r1 = await syncBankDimensionsTool.handler({ amount: 1, ...KEY }, ctx);
+    expect(text(r1)).toMatch(/Unknown argument\(s\): amount/);
+    const r2 = await syncBankDimensionsTool.handler({ date_from: '2026-13-01', date_to: '2026-10-31', ...KEY }, ctx);
+    expect(text(r2)).toMatch(/date_from and date_to/);
+    const r3 = await syncBankDimensionsTool.handler({ date_from: '2026-10-09', date_to: '2026-10-01', ...KEY }, ctx);
+    expect(text(r3)).toMatch(/must not be after/);
+    expect(previewBankSync).not.toHaveBeenCalled();
+  });
+
+  const row = (blanks: ('cc1' | 'cc2' | 'bu')[]) => ({
+    bankTransactionId: TX, transactionDate: '2026-10-02', amount: -5500, description: 'CASUAL',
+    old: { cc1Id: 'u1', cc2Id: blanks.includes('cc2') ? 'u2' : null, buId: null }, next: { cc1Id: 'u1', cc2Id: null, buId: null }, blanks,
+  });
+
+  it('dry_run previews and writes nothing: the count, the cap, every row that would lose a value, and a sample', async () => {
+    vi.mocked(previewBankSync).mockResolvedValueOnce({
+      count: 2, overMaxRows: false, maxRows: 2000, sample: [row([]), row(['cc2'])], blanking: [row(['cc2'])],
+    });
+    const dry = await syncBankDimensionsTool.handler({ date_from: '2026-10-01', date_to: '2026-10-31', dry_run: true, ...KEY }, ctx);
+    expect(dry.wroteNothing).toBe(true);
+    const out = JSON.parse(text(dry));
+    expect(out).toMatchObject({ dry_run: true, batch_id: null, would_sync: 2, max_rows: 2000, over_max_rows: false });
+    expect(out.would_blank).toEqual([{
+      bank_transaction_id: TX, date: '2026-10-02', amount: -5500, description: 'CASUAL',
+      old: { cc1_id: 'u1', cc2_id: 'u2', bu_id: null }, new: { cc1_id: 'u1', cc2_id: null, bu_id: null }, blanks: ['cc2'],
+    }]);
+    expect(out.sample).toHaveLength(2);
+    expect(applyBankSyncBatch).not.toHaveBeenCalled();
+  });
+
+  it('the live call applies one reversible batch over the window', async () => {
+    vi.mocked(applyBankSyncBatch).mockResolvedValueOnce({ batchId: 'b-2', bankRowCount: 1 });
+    const live = await syncBankDimensionsTool.handler({ date_from: '2026-10-01', date_to: '2026-10-31', ...KEY }, ctx);
+    expect(JSON.parse(text(live))).toEqual({ batch_id: 'b-2', bank_rows_synced: 1 });
+    expect(vi.mocked(applyBankSyncBatch).mock.calls[0]![1]).toEqual({ dateFrom: '2026-10-01', dateTo: '2026-10-31' });
+  });
+
+  it('describes the mirror and the blanks, and the scope it asks for', () => {
+    expect(syncBankDimensionsTool.description).toMatch(/BLANKS the row's CC2 and BU/);
+    expect(syncBankDimensionsTool.description).toMatch(/would_blank/);
+    expect(syncBankDimensionsTool.description).toMatch(/at most 2000 rows/);
+    expect(syncBankDimensionsTool.requiresPost).toBeFalsy();
+    expect(reverseDimensionTagBatchTool.requiresPost).toBe(true);
+  });
+
+  it('replays its own window under the same key and refuses another window or a tag batch', async () => {
+    const window = { dateFrom: '2026-10-01', dateTo: '2026-10-31' };
+    const args = { date_from: '2026-10-01', date_to: '2026-10-31', ...KEY };
+    vi.mocked(findTagBatchByKey).mockResolvedValueOnce({ batchId: 'b-3', lineCount: 0, isRestatement: false, sync: window });
+    expect(JSON.parse(text(await syncBankDimensionsTool.handler(args, ctx)))).toEqual({ batch_id: 'b-3', replayed: true });
+    vi.mocked(findTagBatchByKey).mockResolvedValueOnce({ batchId: 'b-3', lineCount: 0, isRestatement: false, sync: window });
+    await expect(syncBankDimensionsTool.handler({ ...args, date_to: '2026-11-30' }, ctx)).rejects.toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED' });
+    vi.mocked(findTagBatchByKey).mockResolvedValueOnce({ batchId: 'b-4', lineCount: 2, isRestatement: false });
+    await expect(syncBankDimensionsTool.handler(args, ctx)).rejects.toThrow(/already names a tag_journal_lines batch/);
+    expect(applyBankSyncBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('tag_journal_lines and reverse_dimension_tag_batch — the bank rows', () => {
+  const LINE = '22222222-2222-4222-8222-222222222222';
+  it('tag_journal_lines refuses a key that names a sync batch instead of replaying it as a tag batch', async () => {
+    vi.mocked(findTagBatchByKey).mockResolvedValueOnce({
+      batchId: 'b-5', lineCount: 0, isRestatement: false, sync: { dateFrom: '2026-10-01', dateTo: '2026-10-31' } });
+    await expect(tagJournalLinesTool.handler({ lines: [{ journal_line_id: LINE, cc2: 'P' }], ...KEY }, ctx))
+      .rejects.toThrow(/already names a sync_bank_dimensions batch/);
+  });
+
+  it('reverse reports the bank rows beside the lines, in the dry run and the live result', async () => {
+    const plan = { batchId: 'b-6', lineCount: 0, bankRowCount: 4, isRestatement: false };
+    vi.mocked(planTagBatchReversal).mockResolvedValue(plan);
+    const dry = await reverseDimensionTagBatchTool.handler({ batch_id: 'b-6', dry_run: true, ...KEY }, ctx);
+    expect(JSON.parse(text(dry))).toMatchObject({ would_restore: 0, would_restore_bank_rows: 4 });
+    const live = await reverseDimensionTagBatchTool.handler({ batch_id: 'b-6', ...KEY }, ctx);
+    expect(JSON.parse(text(live))).toMatchObject({ restored: 0, bank_rows_restored: 4 });
+    expect(applyTagBatchReversal).toHaveBeenCalledTimes(1);
   });
 });
 
