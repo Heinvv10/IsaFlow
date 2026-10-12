@@ -185,3 +185,21 @@ export async function standingLocks(companyId: string): Promise<UnrecordedLock[]
   `) as { trigger: UnrecordedLock['trigger']; cutoff: string; locked_at: string; pending: boolean }[];
   return rows.map((r) => ({ trigger: r.trigger, cutoff: r.cutoff, lockedAt: r.locked_at, pending: r.pending === true }));
 }
+
+/**
+ * Every snapshot or attempt row that could cover a lock taken at or after `since`: all of them, however many — a
+ * capped read would let old genuine rows fall out of view (or a flood of forged ones push them out).
+ */
+export async function coveringCandidates(companyId: string, since: string): Promise<SnapshotRecord[]> {
+  const rows = (await sql`
+    SELECT s.id::TEXT AS id, s.company_id::TEXT AS company_id, s.cutoff::TEXT AS cutoff,
+           to_char(s.taken_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS taken_at, s.taken_by,
+           NULL AS taken_by_name, s.channel, s.trigger, s.status, s.failure_reason, s.canonical_hash, s.hmac, s.key_id,
+           NULL AS high_water, s.totals, s.caveat, s.check_run_id::TEXT AS check_run_id, s.seq, s.prev_hmac,
+           s.same_as_snapshot_id::TEXT AS same_as
+    FROM audit_snapshots s
+    WHERE s.company_id = ${companyId}::UUID AND s.taken_at >= ${since}::TIMESTAMPTZ AND s.trigger <> 'manual'
+    ORDER BY s.taken_at
+  `) as Row[];
+  return rows.map(mapSnapshot);
+}

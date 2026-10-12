@@ -6,7 +6,7 @@
  * failed one at that very cutoff. Rows written past the app carry no seal that verifies, so they hide nothing.
  */
 import { SNAPSHOT_SEAL_DOMAIN, SigningKeyMissingError, checkSeal, signingKey, type SigningKey } from './seal';
-import { listSnapshots, sealedChain, standingLocks, type UnrecordedLock } from './snapshotRead';
+import { coveringCandidates, sealedChain, standingLocks, type UnrecordedLock } from './snapshotRead';
 import { attemptSeal } from './documents';
 
 export type { UnrecordedLock };
@@ -25,7 +25,8 @@ export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock
     if (!(err instanceof SigningKeyMissingError)) throw err;
   }
   const links = new Map((await sealedChain(companyId)).map((l) => [l.id, l]));
-  const covering = key ? (await listSnapshots(companyId, 200)).filter((s) => {
+  const since = locks.reduce((min, l) => (l.lockedAt < min ? l.lockedAt : min), locks[0]!.lockedAt);
+  const covering = key ? (await coveringCandidates(companyId, since)).filter((s) => {
     if (s.status === 'sealed') {
       const l = links.get(s.id);
       return !!l && checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: l.id, canonicalHash: l.canonicalHash, cutoff: l.cutoff,
