@@ -1,0 +1,7 @@
+{
+  "what": "Blind review r2 M1: only the whole-ledger audit requests are charged (30 a minute per member). Run in the browser as the owner of the fixture company, dev server :3297 at a00efab49, 2026-10-12T13:36Z.",
+  "before": "In the same minute: one take (POST, 201) and one refused POST (403 CSRF), both charged.",
+  "auditLog": { "requests": 40, "statuses": [200], "note": "GET /api/accounting/audit-log?search=… (a search typed letter by letter): never charged" },
+  "verify": { "requests": 31, "statuses": "200 x28, then 429 x3", "note": "GET /api/accounting/audit-snapshots?id=…&verify=1: charged; the 29th whole-ledger request in the minute is the first over 30" },
+  "browseAfterLimit": { "request": "GET /api/accounting/audit-snapshots?id=…&section=journals", "status": 200, "note": "browsing a snapshot is not charged, even with the bucket spent" }
+}

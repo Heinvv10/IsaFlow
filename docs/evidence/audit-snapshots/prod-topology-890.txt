@@ -1,4 +1,4 @@
-# Prod-topology proof of migration 890 (review round 1 version: chain, unchanged, pack guard) — 2026-10-12T08:30:14Z
+# Prod-topology proof of migration 890 (review round 2 version: unchanged attempts carry their own check run) — 2026-10-12T13:33:39Z
 # Container isaflow-prodtopo-890 (pgvector pg15): isaflow_dev schema-only + roles (no passwords); every public/app/auth table, view, sequence and routine re-owned to migration_admin (NOSUPERUSER BYPASSRLS); deploy login 'deployer' NOSUPERUSER BYPASSRLS, member of migration_admin and app_user (step 3's prodtopo.sql).
 
 ## apply 890 as deployer (1st)
@@ -21,16 +21,6 @@ SET
 ----------------+-------
  app_user reads |     1
 (1 row)
-ERROR:  audit snapshot: your role in this company may not record this
-CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
-PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 10 at assignment
-ERROR:  permission denied for table audit_snapshot_journals
-ERROR:  audit_snapshot_journals is append-only (UPDATE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
-ERROR:  audit_snapshots is append-only (DELETE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
-ERROR:  audit_snapshot_lines is append-only (TRUNCATE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
 COMMIT
 BEGIN
 SET
@@ -42,6 +32,16 @@ ROLLBACK
 BEGIN
 SET
 ROLLBACK
+ERROR:  audit snapshot: your role in this company may not record this
+CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
+PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 10 at assignment
+ERROR:  permission denied for table audit_snapshot_journals
+ERROR:  audit_snapshot_journals is append-only (UPDATE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
+ERROR:  audit_snapshots is append-only (DELETE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
+ERROR:  audit_snapshot_lines is append-only (TRUNCATE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
  ?column? |       relname        | pg_get_userbyid 
 ----------+----------------------+-----------------
  owners   | audit_snapshot_lines | deployer
