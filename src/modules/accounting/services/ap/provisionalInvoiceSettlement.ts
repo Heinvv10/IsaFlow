@@ -97,7 +97,7 @@ export async function settleInvoiceFromProvisional(
     // an account or cost centre retired since it posted must not refuse the reclass.
     dimensionAssignmentMode: 'historical-copy',
     // Those carried lines are contras of the provisional's; the AP leg is still judged (headerAccountGuard.ts).
-    contraAccountIds: reclass.lines.map((l) => l.glAccountId),
+    contraAccountIds: reclass.lines.map((l) => l.glAccountId).filter((id) => id !== apAccountId),
   });
   await postJournalEntry(companyId, journal.id, userId);
 

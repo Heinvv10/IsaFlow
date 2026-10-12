@@ -15,9 +15,11 @@
  * `yearEndJournalPoster`. `tests/unit/guards/journalLineWriterCensus.test.ts`
  * goes red when a new writer appears without it. It runs before the writer's
  * first INSERT; whether that is before the REQUEST's first write depends on the
- * route, which is why routes that answer it 4xx check it up front
- * (`assertNoHeaderAccountLines` from the route's own service) and every other
- * route lets it propagate as a 500, which rolls back.
+ * route, which is why the paths that answer it 4xx check it up front (both
+ * recurring runs, the GL import per row) or are already pre-write (the journal
+ * and bank allocation routes, the year-end close), and every other route lets
+ * it propagate as a 500, which rolls back. The bank-rule sweep counts it as a
+ * skip (`autoPostSkippedHeaderAccount`) and posts the rest.
  *
  * CONTRAS STAY POSSIBLE. A reversal, a reclassification's source leg and a
  * provisional's settled lines mirror lines already posted; refusing them would
@@ -26,14 +28,18 @@
  * `contraAccountIds`, and only those accounts are exempt — every other leg of
  * the same journal is still checked.
  *
- * THE RACE with a chart edit. `assertParentUsable` (a new child) and
- * `admitReclassification` (a moved account) take FOR UPDATE on the parent and
- * then refuse when it has lines. This takes FOR KEY SHARE on every account it
- * judges BEFORE reading children, in ascending id order like
- * `lockGlAccountsForUpdate`, so the two serialise: whichever commits second
- * sees the other. FOR KEY SHARE is the lock the line INSERT's foreign key takes
- * on the same row anyway, held to commit; this only takes it earlier, and only
- * on the accounts the rule can bite (a level 1-2 asset/liability/equity).
+ * THE RACE with a chart edit. `assertParentUsable` (a new child),
+ * `admitReclassification` (a moved account) and an account merge take FOR UPDATE
+ * on the parent and then refuse when it has lines. This takes FOR KEY SHARE on
+ * every account it judges BEFORE reading children, in ascending id order like
+ * `lockGlAccountsForUpdate`, so it serialises with those three: whichever
+ * commits second sees the other. FOR KEY SHARE is the lock the line INSERT's
+ * foreign key takes on the same row anyway, held to commit; this only takes it
+ * earlier, and only on the accounts the rule can bite (a level 1-2
+ * asset/liability/equity). It does NOT serialise with a chart writer that adds
+ * a child without locking the parent FOR UPDATE (the chart-of-accounts import,
+ * the Sage migration's chart step): those insert children under the FK's own
+ * KEY SHARE, which this lock does not block.
  */
 import { sql } from '@/lib/neon';
 import type { SqlExec } from './journalVatLockGuard';
