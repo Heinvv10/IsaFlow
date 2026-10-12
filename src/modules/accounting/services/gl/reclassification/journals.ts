@@ -37,7 +37,6 @@ export interface ReclassSourceLine {
   credit: number;
   description: string | null;
   projectId: string | null;
-  costCenterId: string | null;
   /** VAT coding on the line. Carried onto both legs — see below. */
   vatType: VatType | null;
   buId: string | null;
@@ -76,24 +75,24 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
  * Dropping any of them moves the amount OUT of one bucket and into none, which
  * changes a figure nobody asked to change:
  *
- *   - `projectId` / `costCenterId` — project profitability and cost-centre
- *     reporting shift alongside the account.
+ *   - `projectId` — project profitability shifts alongside the account.
  *   - `vatType` — the contra would not reverse the box contribution the
  *     original made and the target leg would not re-establish it, so the
  *     reclassification would be silently VAT-blind. On a VAT control account a
  *     NULL `vat_type` additionally manufactures one `vatExceptionsService`
  *     exception per posted line.
- *   - `buId` — the same argument as project and cost centre, and it was the
- *     only one of the four this file originally forgot.
+ *   - `buId` — the same argument as project, and it was the only one this
+ *     file originally forgot.
  *
- * CC1/CC2 are carried for the same reason. The shared writer receives these
+ * CC1/CC2 are carried for the same reason. The legacy `cost_center_id` is
+ * not: no report reads it, and no new journal line writes it (D4, 2026-10-12)
+ * — the source line keeps its own, and its CC1 is carried in `cc1Id`. The shared writer receives these
  * journals in `historical-copy` mode, so owned inactive references remain
  * usable for the correction without becoming available to new assignments.
  */
 function dimensions(line: ReclassSourceLine) {
   return {
     projectId: line.projectId ?? undefined,
-    costCenterId: line.costCenterId ?? undefined,
     vatType: line.vatType ?? undefined,
     buId: line.buId ?? undefined,
     cc1Id: line.cc1Id ?? undefined,

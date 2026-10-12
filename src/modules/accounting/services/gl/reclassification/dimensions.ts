@@ -2,7 +2,7 @@
  * The dimensions a reclassification carries forward, and the one case where it
  * must NOT carry one.
  *
- * `journals.ts` copies `project_id`, `cost_center_id`, `cc1_id`, `cc2_id` and
+ * `journals.ts` copies `project_id`, `cc1_id`, `cc2_id` and
  * `bu_id` off the HISTORICAL source line onto both legs, deliberately: dropping
  * a dimension moves the amount out of one bucket and into none. That copy is
  * not a claim the caller made — it is a value already sitting on a posted line
@@ -54,7 +54,7 @@ export async function carryForwardDimensions<T extends ReclassSourceLine>(
 
   const owned = await ownedDimensions(companyId, {
     project: lines.map((l) => l.projectId),
-    costCentre: lines.flatMap((l) => [l.costCenterId, l.cc1Id, l.cc2Id]),
+    costCentre: lines.flatMap((l) => [l.cc1Id, l.cc2Id]),
     businessUnit: lines.map((l) => l.buId),
   });
   let droppedLineCount = 0;
@@ -62,14 +62,12 @@ export async function carryForwardDimensions<T extends ReclassSourceLine>(
     const next = {
       ...line,
       projectId: ownedOrNull(owned.project, line.projectId),
-      costCenterId: ownedOrNull(owned.costCentre, line.costCenterId),
       buId: ownedOrNull(owned.businessUnit, line.buId),
       cc1Id: ownedOrNull(owned.costCentre, line.cc1Id),
       cc2Id: ownedOrNull(owned.costCentre, line.cc2Id),
     };
     if (
       next.projectId !== line.projectId
-      || next.costCenterId !== line.costCenterId
       || next.buId !== line.buId
       || next.cc1Id !== (line.cc1Id ?? null)
       || next.cc2Id !== (line.cc2Id ?? null)
