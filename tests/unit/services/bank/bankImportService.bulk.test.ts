@@ -31,7 +31,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
-  sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
+  sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [], warnings: [] }),
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
   relinkTransferCounterparts: vi.fn().mockResolvedValue({ linked: 0, passes: 0, failed: false }),
@@ -249,6 +249,21 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
       'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
     );
     expect(result.errors).toHaveLength(0);
+  });
+
+  it('hands back the cost-centre picks the sweep dropped, and nothing when it dropped none', async () => {
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+    const warnings = [{
+      txId: 'tx-outflow-1', journalEntryId: 'je-1',
+      warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'],
+    }];
+    vi.mocked(sweep).mockResolvedValueOnce({ runId: 'run-1', posted: 1, skipped: [], warnings });
+
+    const dropped = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+    expect(dropped.autoPostWarnings).toEqual(warnings);
+
+    const clean = await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+    expect(clean).not.toHaveProperty('autoPostWarnings');
   });
 
   it('reports a failed auto-post sweep instead of a clean import', async () => {

@@ -30,6 +30,16 @@ describe('posting warnings notice', () => {
       .toEqual([[W1], [W1, W2]]);
   });
 
+  it('reads an auto-post sweep\'s data.autoPost.warnings: one document per bank transaction', () => {
+    const swept = { txId: 't', journalEntryId: 'j', warnings: [W1] };
+    expect(postingWarningsByDocument({ data: { autoPost: { warnings: [swept, { ...swept, warnings: [W1, W2] }, null, { warnings: [] }] } } }))
+      .toEqual([[W1], [W1, W2]]);
+    expect(postingWarningsByDocument({ data: { autoPost: { warnings: [] } } })).toEqual([]);
+    expect(postingWarningsByDocument({ data: { autoPost: { warnings: 'no' } } } as never)).toEqual([]);
+    expect(notifyPostingWarnings({ data: { autoPost: { warnings: [swept, swept] } } })).toBe(2);
+    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive)', '+1 more not applied, in 2 documents.');
+  });
+
   it('merges a repeat inside one document only: two documents dropping the same centre are two', () => {
     expect(postingWarningsIn({ data: { warnings: [W1, W1] } })).toEqual([W1]);
     expect(postingWarningsIn({ data: { results: [{ warnings: [W1] }, { warnings: [W1] }] } })).toEqual([W1, W1]);

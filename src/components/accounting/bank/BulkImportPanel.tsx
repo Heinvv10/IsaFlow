@@ -15,6 +15,7 @@ import { BankAccountSelector, type BankAccountOption } from './BankAccountSelect
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
 import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
 import { localISODate } from '@/lib/dateUtils';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
@@ -310,6 +311,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
             imported++;
+            notifyPostingWarnings(json); // an auto-posted line whose cost centre could not be applied
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
               ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,

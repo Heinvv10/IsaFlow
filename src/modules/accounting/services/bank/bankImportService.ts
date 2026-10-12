@@ -5,7 +5,7 @@
 
 import { sql, withTransaction, withSavepoint, assertTxUsable } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { sweep } from './autoPostGateService';
+import { sweep, type SweepWarning } from './autoPostGateService';
 import { withLedgerDays } from './bankStatementLedgerDays';
 import type { BankCsvParseResult } from '../../types/bank.types';
 import { autoLinkImportedBatchTransfers, relinkTransferCounterparts } from './bankTransferLinkService';
@@ -69,7 +69,11 @@ export async function importParsedTransactions(
      */
     skipPostImportEffects?: boolean;
   } = {},
-): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
+): Promise<{
+  batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }>;
+  /** Cost-centre picks the auto-post sweep could not apply, per bank transaction. Absent when none. */
+  autoPostWarnings?: SweepWarning[];
+}> {
   try {
     const parseResult = await withLedgerDays(parsed); // the ledger window on the day Postgres reads (S5)
     if (parseResult.transactions.length === 0) {
@@ -154,6 +158,7 @@ export async function importParsedTransactions(
     // aborted (25P02) and the COMMIT that follows is executed as a ROLLBACK —
     // discarding the import the caller was just told succeeded.
     let autoPostFailed = false;
+    let autoPostWarnings: SweepWarning[] = [];
     try {
       autoPostSeq = (autoPostSeq + 1) % 1_000_000;
       await withSavepoint(`bank_import_autopost_${autoPostSeq}`, async () => {
@@ -167,7 +172,8 @@ export async function importParsedTransactions(
         if (outflowIds.length > 0) {
           // Posted as the system user, as ever; run FOR the importer, whose own lines it skips under enforcement (step 2).
           const systemUser = '00000000-0000-0000-0000-000000000000';
-          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser);
+          const swept = await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser, importedBy ?? systemUser);
+          autoPostWarnings = swept.warnings;
         }
       });
     } catch (provErr) {
@@ -192,6 +198,7 @@ export async function importParsedTransactions(
       batchId,
       transactionCount: parseResult.transactions.length,
       errors: [...parseResult.errors, ...linkErrors, ...autoPostErrors],
+      ...(autoPostWarnings.length > 0 ? { autoPostWarnings } : {}),
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: () => Promise.resolve([]) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+import { log } from '@/lib/logger';
 import {
   selectResidualTxIds,
   runLlmResidualPass,
@@ -70,7 +71,7 @@ describe('runLlmResidualPass', () => {
       loadAccounts: async () => [{ code: '5200', name: 'Office', type: 'expense' }],
       loadCandidates: async () => [makeTx('t1'), makeTx('t2')],
       persist: async (txId) => { persisted.push(txId); },
-      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      sweep: async () => ({ runId: null, posted: 0, skipped: [], warnings: [] }),
       categorizeOne,
     });
 
@@ -88,7 +89,7 @@ describe('runLlmResidualPass', () => {
       loadAccounts: async () => [],
       loadCandidates: async () => [],
       persist: async () => {},
-      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      sweep: async () => ({ runId: null, posted: 0, skipped: [], warnings: [] }),
       categorizeOne,
     });
 
@@ -103,10 +104,26 @@ describe('runLlmResidualPass', () => {
       loadAccounts: async () => { loaded = true; return []; },
       loadCandidates: async () => { loaded = true; return []; },
       persist: async () => {},
-      sweep: async () => ({ runId: null, posted: 0, skipped: [] }),
+      sweep: async () => ({ runId: null, posted: 0, skipped: [], warnings: [] }),
       categorizeOne,
     });
     expect(categorizeOne).not.toHaveBeenCalled();
     expect(loaded).toBe(false); // returns before loading candidates/accounts
+  });
+
+  it('logs the cost-centre picks the sweep dropped, since no response can carry them', async () => {
+    const warnings = [{ txId: 't1', journalEntryId: 'je-1', warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'] }];
+    vi.mocked(log.warn).mockClear();
+    await runLlmResidualPass('company-1', ['t1'], 'user-1', {
+      llmEnabled: true, maxCalls: 200, dailyRemaining: 100,
+      loadAccounts: async () => [{ code: '5200', name: 'Office', type: 'expense' }],
+      loadCandidates: async () => [makeTx('t1')],
+      persist: async () => {},
+      sweep: async () => ({ runId: 'run-1', posted: 1, skipped: [], warnings }),
+      categorizeOne: async () => mockResult,
+    });
+    expect(log.warn).toHaveBeenCalledWith(
+      'LLM pass: auto-post dropped cost-centre picks', { companyId: 'company-1', warnings }, 'llm-pass',
+    );
   });
 });
