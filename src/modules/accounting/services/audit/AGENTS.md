@@ -42,6 +42,8 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 ## Known limits
 - The owner can disable guards (N1/N3 boundary), but nobody without the key makes a seal verify.
 - A removed LATEST snapshot shows only against the chain head logged on every seal.
+- Throughput: one automatic snapshot at a time per process (`MAX_AUTOMATIC`), ~110–330 an hour at 11–33 s each;
+  raise it, or run more processes, before month-end volume nears that.
 - Storage ~520 bytes per frozen line per snapshot (`docs/evidence/audit-snapshots/size-cap-measurement.txt`).
 
 ## Recent changes

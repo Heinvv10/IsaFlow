@@ -388,6 +388,12 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     // ... while the app's own sealed failed attempt does cover it.
     await recordSnapshotAttempt(p, { cutoff: '2026-01-31', trigger: 'period_close', status: 'failed', reason: 'error: real' });
     expect(await listed()).toEqual([]);
+    // However many rows come after it (a flood of unsealed ones, one statement), the genuine one still covers (blind r5 L1).
+    await pool.query(
+      `INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, failure_reason, totals, caveat)
+       SELECT gen_random_uuid(), $1, DATE '2026-03-31', now() + make_interval(secs => g), $2, 'session', 'period_close', 'failed',
+              'error: flood', '{}', 'x' FROM generate_series(1, 210) AS g`, [c, m]);
+    expect(await listed()).toEqual([]);
   });
 
   it('a refused close takes nothing', async () => {
