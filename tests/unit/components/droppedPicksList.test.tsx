@@ -62,4 +62,12 @@ describe('DroppedPicksList', () => {
   it('does not throw on a line missing its pieces', () => {
     expect(() => render(<DroppedPicksList lines={[{ txId: 't', warnings: [OLD] }, { warnings: [] }]} />)).not.toThrow();
   });
+
+  it('clamps a long label too (it must not push the row wider), with its full text on hover', () => {
+    const label = 'L'.repeat(120);
+    render(<DroppedPicksList lines={[line(1, { label })]} />);
+    const el = screen.getByTitle(label);
+    expect(el.className).toMatch(/\btruncate\b/);
+    expect(el.className).toMatch(/\bmin-w-0\b/);
+  });
 });

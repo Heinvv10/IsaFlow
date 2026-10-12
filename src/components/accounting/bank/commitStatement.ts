@@ -46,17 +46,34 @@ export async function commitStatement(args: {
   return {
     data,
     dropped: imported ? droppedLines(data.autoPost?.warnings) : [],
-    importWarnings: imported ? strings(data.warnings) : [],
+    importWarnings: imported ? messages(data.warnings) : [],
   };
 }
 
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : []);
+/** A warning as text: a string as is; an object by its `error` or `message`, else as JSON; nothing for null. */
+const text = (e: unknown): string => {
+  if (typeof e === 'string') return e;
+  if (e === null || e === undefined) return '';
+  if (typeof e === 'object') {
+    const o = e as { error?: unknown; message?: unknown };
+    return typeof o.error === 'string' ? o.error : typeof o.message === 'string' ? o.message : JSON.stringify(e);
+  }
+  return String(e);
+};
+
+/**
+ * A server's list of warnings, COERCED, never dropped: a lone value is a list
+ * of one, an element that is not a string becomes its text, and only empties
+ * and repeats go. A wrong shape must not make a file with problems read clean.
+ */
+const messages = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : [v]).map(text).filter((w) => w !== ''))];
 
 /**
  * The route's `autoPost.warnings`, read as a server's answer: only object
  * elements with at least one warning, label and description as strings (a
- * wrong shape shows nothing rather than throwing in render), in a fixed order —
- * by label (date first), then description — whatever order the sweep sent.
+ * wrong shape never throws in render), in a fixed order — by label (date first;
+ * a line with none last), then description, then line id — whatever order the
+ * sweep sent.
  */
 function droppedLines(v: unknown): DroppedPickLine[] {
   if (!Array.isArray(v)) return [];
@@ -67,8 +84,11 @@ function droppedLines(v: unknown): DroppedPickLine[] {
       journalEntryId: typeof e.journalEntryId === 'string' ? e.journalEntryId : undefined,
       label: typeof e.label === 'string' ? e.label : '',
       description: typeof e.description === 'string' ? e.description : null,
-      warnings: strings(e.warnings),
+      warnings: messages(e.warnings),
     }))
     .filter((l) => l.warnings.length > 0)
-    .sort((a, b) => a.label.localeCompare(b.label, 'en', { numeric: true }) || (a.description ?? '').localeCompare(b.description ?? ''));
+    .sort((a, b) => Number(a.label === '') - Number(b.label === '')
+      || a.label.localeCompare(b.label, 'en', { numeric: true })
+      || (a.description ?? '').localeCompare(b.description ?? '')
+      || (a.txId ?? '').localeCompare(b.txId ?? ''));
 }
