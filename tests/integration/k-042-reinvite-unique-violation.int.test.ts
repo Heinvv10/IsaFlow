@@ -14,7 +14,7 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { response } from './mfa-impersonation-postgres.helpers';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, gotruePath } from './mfa-impersonation-postgres.helpers';
 import type { NextApiRequest } from 'next';
 import invitations from '../../pages/api/invitations/index';
 
@@ -79,7 +79,7 @@ beforeAll(async () => {
     if (!['localhost', '127.0.0.1'].includes(url.hostname)) {
       throw new Error('External network forbidden in disposable invite fixture');
     }
-    if (url.pathname === '/admin/users') {
+    if (gotruePath(url) === '/admin/users') {
       if (gotrueFails) {
         return new Response(JSON.stringify({ msg: 'disposable gotrue outage' }),
           { status: 500, headers: { 'content-type': 'application/json' } });
