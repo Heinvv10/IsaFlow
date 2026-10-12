@@ -717,18 +717,21 @@ cannot check an HMAC, so a row written through the writer without the key (forge
 link instead of becoming its predecessor (review round 2, N2), and `?chain=1` / MCP `verify_chain` lists it as
 forged. A verifying link that does not name the verifying link before it is `broken`, so removing or replacing a
 snapshot in the middle is visible even with the guards turned off by the owner. The LATEST link can only be checked
-against the chain head the app logs on every seal (journalctl). The chain check reads every sealed row in seq order,
+against the chain head the app logs on every seal (journalctl). A link taken no later than the one before it breaks
+the chain (a backdated row written past the writer). The chain check reads every sealed row in seq order,
 whatever else was recorded since.
 One snapshot per company at a time (a session advisory lock taken before the REPEATABLE READ transaction opens, so it
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
 whole-ledger jobs per process, one per company and one per person (so neither one company nor one person with
 several companies holds both), a 120 s budget per snapshot — a bound, not a check afterwards: before each step, check and
-total the time left is checked and statement_timeout tightened to it. Automatic jobs wait at most five minutes for a
+total the time left is checked and statement_timeout tightened to it, and past the deadline a watchdog cancels
+whatever statement the snapshot's connection is running. Automatic jobs wait at most five minutes for a
 slot and again for the company's lock, then record a `busy` failure. An automatic snapshot whose books fingerprint
 — every journal and line material hash, the TB and the ageing and control totals, sealed in each snapshot's totals —
 matches a sealed snapshot at that cutoff that still verifies is recorded as `unchanged`, pointing at it (close then
 lock, close / reopen / close), with a sealed check run of its own: the checks read state the books do not (the
-period's status, bank lines), so they are frozen afresh every time. An invoice that moves no journal but moves the
+period's status, bank lines), so they are frozen afresh every time. The run is required, and verify accepts it only
+when it was made in the attempt's own transaction (same cutoff, same now(), purpose `snapshot`). An invoice that moves no journal but moves the
 ageing seals a new copy.
 Each snapshot and check run stores the document version it was sealed under (`document_version`, in its sealed
 totals) and is always verified under that version, so a later bump never turns earlier snapshots invalid; a
@@ -750,7 +753,8 @@ it holds exactly the manifest's files and each matches, and the manifest cites t
 review round 2, N1). Nothing but the manifest (≤ 1 MiB) and its seal is inflated before the seal verifies, and no
 entry past the size the manifest gives it. The guard stamps `built_at` with the database's clock when a pack becomes
 ready and fixes it; a pack sealed under a retired key verifies only when built before that key was retired.
-Packs built before 890 (PDF only) carry no seal and are served as before.
+Downloads are rate-limited (the owner's in the audit bucket, the portal's at ten a minute per auditor session),
+since each verifies the whole ZIP. Packs built before 890 (PDF only) carry no seal and are served as before.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the

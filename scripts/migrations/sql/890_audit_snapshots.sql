@@ -117,8 +117,8 @@ CREATE TABLE IF NOT EXISTS audit_snapshots (
       AND seq IS NOT NULL AND (seq > 1 OR prev_hmac IS NULL) AND same_as_snapshot_id IS NULL)
     OR (status = 'failed' AND failure_reason IS NOT NULL AND canonical_hash IS NULL AND hmac IS NULL AND check_run_id IS NULL
       AND seq IS NULL AND prev_hmac IS NULL AND same_as_snapshot_id IS NULL)
-    OR (status = 'unchanged' AND same_as_snapshot_id IS NOT NULL AND failure_reason IS NULL AND canonical_hash IS NULL
-      AND hmac IS NULL AND seq IS NULL AND prev_hmac IS NULL))
+    OR (status = 'unchanged' AND same_as_snapshot_id IS NOT NULL AND check_run_id IS NOT NULL AND failure_reason IS NULL
+      AND canonical_hash IS NULL AND hmac IS NULL AND seq IS NULL AND prev_hmac IS NULL))
 );
 CREATE INDEX IF NOT EXISTS audit_snapshots_company_taken_idx ON audit_snapshots (company_id, taken_at DESC);
 

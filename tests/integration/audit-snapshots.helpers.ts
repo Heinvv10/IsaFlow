@@ -71,7 +71,7 @@ export interface SnapshotPayload {
   id: string; company_id: string; cutoff: string; taken_at: string; taken_by: string; trigger: string;
   status: string; failure_reason: string | null; canonical_hash: string | null; hmac: string | null;
   key_id: string | null; master_data_high_water: string | null; totals: Record<string, unknown>;
-  caveat: string; check_run_id: string | null;
+  caveat: string; check_run_id: string | null; same_as_snapshot_id?: string | null;
   /** Filled in by recordSnapshot for a sealed payload when absent: the next link of the company's chain. */
   seq?: number; prev_hmac?: string | null;
 }

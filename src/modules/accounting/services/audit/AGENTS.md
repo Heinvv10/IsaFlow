@@ -25,9 +25,11 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 - Verify decides integrity before the key and checks the filing columns. Each document stores `document_version` in
   its sealed totals and is rebuilt under it. Comparisons compare only columns both sides froze (`notCompared`).
 - Chain: `seq` + `prev_hmac` (the newest earlier row whose seal verifies), signed. Forged rows are skipped and listed.
-- `unchanged` = same books (ledger + ageing / control totals) as a verifying snapshot; it carries its own check run.
+- `unchanged` = same books (ledger + ageing / control totals) as a verifying snapshot; it must carry its own check run
+  (same tx: cutoff, now(), purpose). The chain requires taken_at to increase with seq.
 - Load: `snapshotSlots` — two per process, one per company, one per person; manual refused (409), automatic waits
-  ≤ `AUDIT_WAIT_MS`. Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`.
+  ≤ `AUDIT_WAIT_MS`. Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
+  watchdog cancels the running statement.
 - Packs: ready only once built (890 guard); downloads serve a ZIP only through `verifiedPackZip`.
 - Keys: `AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@retired-at,…` verifies seals taken before retired-at only.
 - Column census: decisions in `tests/helpers/auditSnapshotColumns.ts`; integration (schema) + unit (migrations).

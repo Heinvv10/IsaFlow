@@ -14,7 +14,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantJournal, plantLedger } from './audit-snapshots.helpers';
 
-const knobs = vi.hoisted(() => ({ version: 2, frozenLater: false, budgetMs: 120_000, slowLedger: false, slowChecks: false, waitMs: 300_000 }));
+const knobs = vi.hoisted(() => ({ version: 2, frozenLater: false, budgetMs: 120_000, slowLedger: false, slowChecks: false, slowSteps: false, waitMs: 300_000 }));
 
 vi.mock('../../src/modules/accounting/services/audit/documents', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/modules/accounting/services/audit/documents')>();
@@ -49,6 +49,7 @@ vi.mock('../../src/modules/accounting/services/core/anomalyScanService', async (
     ...real,
     runAnomalyScan: async (...args: Parameters<typeof real.runAnomalyScan>) => {
       if (knobs.slowChecks) await sql`SELECT pg_sleep(120)`;
+      if (knobs.slowSteps) for (let i = 0; i < 4; i++) await sql`SELECT pg_sleep(8)`;
       return real.runAnomalyScan(...args);
     },
   };
@@ -71,7 +72,7 @@ beforeAll(async () => {
   process.env.AUDIT_SNAPSHOT_SIGNING_KEY = 'v'.repeat(48);
   process.env.AUDIT_SNAPSHOT_KEY_ID = 'versions-test';
 });
-afterEach(() => Object.assign(knobs, { version: 2, frozenLater: false, budgetMs: 120_000, slowLedger: false, slowChecks: false, waitMs: 300_000 }));
+afterEach(() => Object.assign(knobs, { version: 2, frozenLater: false, budgetMs: 120_000, slowLedger: false, slowChecks: false, slowSteps: false, waitMs: 300_000 }));
 afterAll(() => cleanupAudit(pool, companies, [o]));
 
 const principal = (c: string): AuditPrincipal => ({ userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } });
@@ -135,6 +136,16 @@ describe('across releases', { timeout: 120_000 }, () => {
     // step refuses to start.
     expect((err as SnapshotTimeBudgetError).step).toBe('the journal-risk checks');
     expect(Date.now() - started).toBeLessThan(45_000);
+  });
+
+  it('the budget holds for a step of many statements, each under the time left: the watchdog cancels past the deadline (blind r3 L2)', async () => {
+    const { c } = await books();
+    Object.assign(knobs, { budgetMs: 20_000, slowSteps: true });
+    const started = Date.now();
+    const err = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SnapshotTimeBudgetError);
+    // Four 8 s statements in one family would end near 32 s past its start; the snapshot stops close to 20 s.
+    expect(Date.now() - started).toBeLessThan(28_000);
   });
 
   it("an automatic snapshot waits a bounded time for the company's snapshot lock held elsewhere, then is refused", async () => {

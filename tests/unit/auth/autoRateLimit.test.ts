@@ -35,7 +35,7 @@ describe('checkAutoRateLimit (R-175)', () => {
     const charged: [string, string][] = [['POST', '/api/accounting/audit-snapshots'], ['GET', '/api/accounting/audit-snapshots?id=x&verify=1'],
       ['GET', '/api/accounting/audit-snapshots?chain=1'], ['GET', '/api/accounting/audit-comparisons?snapshotId=x'],
       ['POST', '/api/accounting/audit-check-runs'], ['POST', '/api/accounting/audit-exports'],
-      ['GET', '/api/accounting/audit-exports/e1?verify=1']];
+      ['GET', '/api/accounting/audit-exports/e1?verify=1'], ['GET', '/api/accounting/audit-exports/e1/download']];
     for (const [method, path] of charged) expect(await checkAutoRateLimit(path, 'co-9', 'u-1', method)).toBe(true);
     // Each member's own bucket: one member's requests (refused or not) never spend another's allowance.
     expect(await checkAutoRateLimit('/api/accounting/audit-comparisons', 'co-9', 'u-2', 'GET')).toBe(true);
@@ -48,7 +48,7 @@ describe('checkAutoRateLimit (R-175)', () => {
       ['GET', '/api/accounting/audit-log-export'], ['POST', '/api/accounting/audit-trail-export'],
       ['GET', '/api/accounting/audit-snapshots'], ['GET', '/api/accounting/audit-snapshots?id=x&section=journals&page=2'],
       ['GET', '/api/accounting/audit-check-runs?id=r'], ['GET', '/api/accounting/audit-exports'],
-      ['GET', '/api/accounting/audit-exports/e1/download'], ['GET', '/api/accounting/audit-exports/e1/sessions']];
+      ['GET', '/api/accounting/audit-exports/e1/sessions']];
     for (const [method, path] of free) expect(await checkAutoRateLimit(path, 'co-9', 'u-1', method)).toBe(true);
     expect(check).not.toHaveBeenCalled();
   });

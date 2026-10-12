@@ -47,9 +47,9 @@ function recompute(rows: StoredRow[], kind: 'journal' | 'line', bad: Mismatch[])
 /** A check run recomputed from its stored results and its seal checked with that hash; null when it is gone. */
 async function verifyRun(companyId: string, runId: string, key: SigningKey) {
   const r = await getCheckRun(companyId, runId);
-  if (!r) return { run: null, runHash: null };
+  if (!r) return { run: null, runHash: null, record: null };
   const runHash = checkRunHash(r, r.results);
-  return { runHash, run: { id: r.id, hashMatches: runHash === r.canonicalHash, seal: checkSeal(CHECK_RUN_SEAL_DOMAIN,
+  return { runHash, record: r, run: { id: r.id, hashMatches: runHash === r.canonicalHash, seal: checkSeal(CHECK_RUN_SEAL_DOMAIN,
     { companyId, id: r.id, canonicalHash: runHash, cutoff: r.asAt, takenAt: r.takenAt }, r.hmac, r.keyId, key) } };
 }
 
@@ -58,9 +58,12 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
   if (!s) return null;
   const empty = { accounts: 0, journals: 0, lines: 0 };
   if (s.status !== 'sealed') {
-    // An 'unchanged' attempt holds no books (verify the snapshot it points to) but its own check run, verified here.
-    const { run } = s.status === 'unchanged' && s.checkRunId ? await verifyRun(companyId, s.checkRunId, key) : { run: null };
-    const runBad = s.status === 'unchanged' && s.checkRunId !== null && !(run?.hashMatches && run.seal === 'valid');
+    // An 'unchanged' attempt holds no books (verify the snapshot it points to) but its own check run, verified here:
+    // sealed, and made in the attempt's own transaction (same cutoff, same now(), purpose 'snapshot') — a run borrowed
+    // from elsewhere, or none at all, is not this attempt's evidence.
+    const { run, record } = s.status === 'unchanged' && s.checkRunId ? await verifyRun(companyId, s.checkRunId, key) : { run: null, record: null };
+    const runBad = s.status === 'unchanged' && !(run?.hashMatches && run.seal === 'valid' && record?.purpose === 'snapshot'
+      && record.asAt === s.cutoff && record.takenAt === s.takenAt);
     return { snapshotId: id, status: s.status !== 'unchanged' ? 'not_sealed' : runBad ? 'invalid' : 'unchanged',
       sameAsSnapshotId: s.sameAsSnapshotId, canonicalHash: null, recomputedHash: null, seal: null, checkRun: run,
       rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
@@ -113,7 +116,7 @@ export interface ChainVerification {
 export async function verifyChain(companyId: string, key: SigningKey = signingKey()): Promise<ChainVerification> {
   const breaks: ChainVerification['breaks'] = [];
   const forged: ChainVerification['forged'] = [];
-  let last: { seq: number; snapshotId: string; hmac: string } | null = null;
+  let last: { seq: number; snapshotId: string; hmac: string; takenAt: string } | null = null;
   let length = 0;
   for (const s of await sealedChain(companyId)) {
     const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash, cutoff: s.cutoff,
@@ -122,8 +125,14 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
     if (s.prevHmac !== (last?.hmac ?? null)) {
       breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot (one was removed or replaced)' });
     }
-    last = { seq: s.seq, snapshotId: s.id, hmac: s.hmac };
+    // The writer stamps now(): a later link taken no later than the one before it was written past the writer
+    // (a backdated row slipping under a retired key's retirement instant).
+    if (last && !(s.takenAt > last.takenAt)) {
+      breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'taken no later than the snapshot before it (backdated)' });
+    }
+    last = { seq: s.seq, snapshotId: s.id, hmac: s.hmac, takenAt: s.takenAt };
     length += 1;
   }
-  return { status: length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid', length, head: last, breaks, forged };
+  const head = last ? { seq: last.seq, snapshotId: last.snapshotId, hmac: last.hmac } : null;
+  return { status: length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid', length, head, breaks, forged };
 }

@@ -14,7 +14,7 @@ import yearEnd from '../../pages/api/accounting/year-end';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { members, newCompany } from './entity-changes.helpers';
-import { cleanupAudit, plantFiscalYear, plantJournal, plantLedger, waitForSnapshots } from './audit-snapshots.helpers';
+import { cleanupAudit, payload, plantFiscalYear, plantJournal, plantLedger, recordSnapshot, waitForSnapshots } from './audit-snapshots.helpers';
 import { mcpRun } from './audit-snapshots-mcp.helpers';
 import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriods';
 import { als, type RequestContext } from '../../src/lib/als';
@@ -253,6 +253,21 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
       await db.query('COMMIT');
     } finally { db.release(); }
     expect(await verify()).toMatchObject({ status: 'invalid', checkRun: { hashMatches: false } });
+  });
+
+  it("a forged 'unchanged' attempt does not verify: it needs a check run of its own, made in its own transaction (blind r3 M1)", async () => {
+    const { c, periods } = await company();
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    const [s] = await waitForSnapshots(pool, c, 1);
+    const unchanged = (run: string | null) => (t: string) => payload(c, m, t, { trigger: 'period_close', status: 'unchanged',
+      canonical_hash: null, hmac: null, key_id: null, cutoff: '2026-01-31', same_as_snapshot_id: String(s!.id), check_run_id: run });
+    // With a manager's claims: without a run the writer refuses it; with the sealed snapshot's own (genuine) run borrowed,
+    // it is written — and verifies invalid, the run being another transaction's.
+    expect(await recordSnapshot(pool, m, c, unchanged(null)).then(() => 'ok', (e: { code?: string }) => e.code)).toBe('23514');
+    const forged = await recordSnapshot(pool, m, c, unchanged(String(s!.check_run_id)));
+    const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
+    expect(await runAuditTx(p, 'READ COMMITTED', () => verifySnapshot(c, forged)))
+      .toMatchObject({ status: 'invalid', checkRun: { hashMatches: true, seal: 'valid' } });
   });
 
   it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {

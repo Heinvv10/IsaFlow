@@ -19,6 +19,9 @@ import {
 } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { verifiedPackZip } from '@/modules/accounting/services/audit/packExport';
+import { checkRateLimit } from '@/lib/rateLimit';
+
+const PORTAL_DOWNLOADS_PER_MINUTE = 10;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -46,6 +49,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     headers();
     res.status(200).end();
     return;
+  }
+
+  // Each download inflates and hashes the whole ZIP to verify it: bounded per auditor session.
+  if (!(await checkRateLimit(`audit-portal-download:${sessionId}`, { max: PORTAL_DOWNLOADS_PER_MINUTE, windowSecs: 60 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many downloads of this pack in a minute; try again shortly.');
   }
 
   let bytes: Buffer;

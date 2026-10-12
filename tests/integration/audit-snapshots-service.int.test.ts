@@ -15,7 +15,7 @@ import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, payload, plantJournal, plantLedger, recordSnapshot, type Ledger } from './audit-snapshots.helpers';
 import { SnapshotTooLargeError, takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
 import { verifyChain, verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
-import { SigningKeyMissingError } from '../../src/modules/accounting/services/audit/seal';
+import { SNAPSHOT_SEAL_DOMAIN, SigningKeyMissingError, sign } from '../../src/modules/accounting/services/audit/seal';
 import { getCheckRun, snapshotTb } from '../../src/modules/accounting/services/audit/snapshotRead';
 import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from '../../src/modules/accounting/services/audit/auditTx';
 
@@ -231,6 +231,25 @@ describe('the chain', { timeout: 120_000 }, () => {
     const chain = await read(c, () => verifyChain(c, KEY));
     expect(chain).toMatchObject({ status: 'valid', length: 2, head: { seq: 3, snapshotId: second.id }, breaks: [],
       forged: [{ seq: 2, snapshotId: forged }] });
+  });
+
+  it('a link taken no later than the one before it breaks the chain — a backdated row under a key (blind r3 L1)', async () => {
+    const { c } = await books();
+    await takeSnapshot(principal(c), { cutoff: '2026-04-30', trigger: 'manual' });
+    const second = await takeSnapshot(principal(c), { cutoff: '2026-05-31', trigger: 'manual' });
+    const { rows: [head] } = await pool.query('SELECT hmac FROM audit_snapshots WHERE id = $1', [second.id]);
+    // Someone holding the key writes past the writer (as the owner) with taken_at set back a year.
+    const id = crypto.randomUUID();
+    const takenAt = '2025-06-01T00:00:00.000000Z';
+    const fields = { companyId: c, id, canonicalHash: 'a'.repeat(64), cutoff: '2026-06-30', takenAt, chain: { seq: 3, prevHmac: head.hmac as string } };
+    const { hmac } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
+    await pool.query(
+      `INSERT INTO audit_snapshots (id, company_id, cutoff, taken_at, taken_by, channel, trigger, status, canonical_hash, hmac, key_id,
+         totals, caveat, seq, prev_hmac) VALUES ($1, $2, '2026-06-30', $3, $4, 'session', 'manual', 'sealed', $5, $6, $7, '{}', 'c', 3, $8)`,
+      [id, c, takenAt, o, 'a'.repeat(64), hmac, KEY.keyId, head.hmac]);
+    const chain = await read(c, () => verifyChain(c, KEY));
+    expect(chain.status).toBe('broken');
+    expect(chain.breaks).toEqual([expect.objectContaining({ seq: 3, reason: expect.stringMatching(/backdated/) })]);
   });
 
   it('a second snapshot asked for by hand while one runs for the company is refused, not queued', async () => {

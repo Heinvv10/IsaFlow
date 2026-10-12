@@ -21,12 +21,12 @@ import { checkRateLimit } from '@/lib/rateLimit';
 export interface AutoBucket {
   prefix: string; key: string; max: number; windowSecs: number; perUser?: boolean;
   /** Which requests under the prefix are charged; every one when absent. */
-  charges?: (method: string, query: URLSearchParams) => boolean;
+  charges?: (method: string, query: URLSearchParams, path: string) => boolean;
 }
 
 // The audit jobs that read a whole ledger (forensic step 4): taking a snapshot or a check run, verifying a snapshot,
-// its chain or a pack, comparing, building a pack. Browsing a snapshot's rows, the audit log and the trail export are
-// ordinary reads and are not charged.
+// its chain or a pack, comparing, building a pack, and downloading one (verified before it is served). Browsing a
+// snapshot's rows, the audit log and the trail export are ordinary reads and are not charged.
 const audit = (prefix: string, charges?: AutoBucket['charges']): AutoBucket =>
   ({ prefix: `/api/accounting/${prefix}`, key: 'audit', max: 30, windowSecs: 60, perUser: true, charges });
 
@@ -35,14 +35,14 @@ export const AUTO_RATE_LIMIT: ReadonlyArray<AutoBucket> = [
   audit('audit-snapshots', (m, q) => m === 'POST' || q.has('verify') || q.has('chain')),
   audit('audit-comparisons'),
   audit('audit-check-runs', (m) => m === 'POST'),
-  audit('audit-exports', (m, q) => m === 'POST' || q.has('verify')),
+  audit('audit-exports', (m, q, path) => m === 'POST' || q.has('verify') || path.endsWith('/download')),
 ];
 
 /** False when the request has a bucket and the company (or, per user, the member) is over it. */
 export async function checkAutoRateLimit(url: string | undefined, companyId: string, userId?: string, method = 'GET'): Promise<boolean> {
   const [path = '', query = ''] = (url ?? '').split('?');
   const bucket = AUTO_RATE_LIMIT.find((b) => path.startsWith(b.prefix));
-  if (!bucket || (bucket.charges && !bucket.charges(method.toUpperCase(), new URLSearchParams(query)))) return true;
+  if (!bucket || (bucket.charges && !bucket.charges(method.toUpperCase(), new URLSearchParams(query), path))) return true;
   const key = bucket.perUser ? `${bucket.key}:${companyId}:${userId ?? 'anonymous'}` : `${bucket.key}:${companyId}`;
   return checkRateLimit(key, { max: bucket.max, windowSecs: bucket.windowSecs });
 }
