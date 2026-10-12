@@ -199,6 +199,7 @@ export async function coveringCandidates(companyId: string, since: string): Prom
            s.same_as_snapshot_id::TEXT AS same_as
     FROM audit_snapshots s
     WHERE s.company_id = ${companyId}::UUID AND s.taken_at >= ${since}::TIMESTAMPTZ AND s.trigger <> 'manual'
+      AND s.hmac IS NOT NULL -- an unsealed row never verifies: a flood of them is not read at all
     ORDER BY s.taken_at
   `) as Row[];
   return rows.map(mapSnapshot);
