@@ -4,6 +4,7 @@
  * plain sentence (never "JSON" / "Unexpected end"); a 200 envelope still renders its data. The real
  * apiFetch helpers run on top of the mocked apiFetch.
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -50,7 +51,7 @@ let previewCalls = 0;
 const sites: Site[] = [
   { name: 'AccountReportingGroupModal: accounts', ui: () => <AccountReportingGroupModal group={null} onClose={vi.fn()} onSaved={vi.fn()} />,
     fails: u => u.includes('/chart-of-accounts'), plain: 'Could not load accounts - try again',
-    good: () => ok({ items: [{ id: 'g1', code: '1000', name: 'D2 Cash Account', account_type: 'asset' }] }), shows: 'D2 Cash Account' },
+    good: () => ok([chartAccount('g1', '1000', 'D2 Cash Account')]), shows: 'D2 Cash Account' },
   { name: 'ContactsTab: contacts', ui: () => <ContactsTab customerId="c1" />, fails: u => u.includes('/customer-contacts'),
     plain: 'Could not load contacts - try again', good: () => ok([{ id: 'k1', full_name: 'D2 Contact Person', is_primary: false }]), shows: 'D2 Contact Person' },
   { name: 'NetcashTab: test connection', ui: () => <NetcashTab company={company} onChange={vi.fn()} />, fails: u => u.includes('/netcash/test-connection'),

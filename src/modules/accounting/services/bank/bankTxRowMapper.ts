@@ -64,6 +64,11 @@ export function mapTxRow(row: Row): BankTransaction {
     cc1Name: row.cc1_name ? String(row.cc1_name) : undefined,
     cc2Name: row.cc2_name ? String(row.cc2_name) : undefined,
     buName: row.bu_name ? String(row.bu_name) : undefined,
+    cc1Code: row.cc1_code ? String(row.cc1_code) : undefined,
+    cc2Code: row.cc2_code ? String(row.cc2_code) : undefined,
+    buCode: row.bu_code ? String(row.bu_code) : undefined,
+    dimensionSource: row.dimension_source === 'bank' || row.dimension_source === 'journal' || row.dimension_source === 'split'
+      ? row.dimension_source : undefined,
     allocationType: row.allocation_type
       ? String(row.allocation_type) as BankTransaction['allocationType'] : undefined,
     ...resolveAllocatedAccount(row),

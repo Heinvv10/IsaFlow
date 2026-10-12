@@ -16,6 +16,7 @@ import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
+import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 
 /**
  * Postgres "undefined_table" / "undefined_column" SQLSTATEs. Schema-not-ready
@@ -147,6 +148,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, result);
   } catch (err) {
     if (respondIfImpersonationForbidden(res, err)) return;
+    // The retained-earnings leg on a balance-sheet header (D1): postClosingJournal asks before its first INSERT.
+    if (isHeaderAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     log.error('Failed to process year-end', { error: err, yearLabel, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to process year-end');
   }
