@@ -151,6 +151,11 @@ describe('reading', () => {
     });
     for (const u of [o, a, m]) expect(Object.values(await count(u)).every((n) => n > 0), u).toBe(true);
     for (const u of [v, x]) expect(Object.values(await count(u)).every((n) => n === 0), u).toBe(true);
+    // A member of two companies reads only the company the request is in (the company GUC), not both.
+    const second = await newCompany(pool, [[o, 'owner']], companies);
+    await take(o, second);
+    const mine = await asApp(pool, o, c, (db) => db.query('SELECT DISTINCT company_id::text AS c FROM audit_snapshots'));
+    expect(mine.rows.map((r) => r.c)).toEqual([c]);
     // The GUC alone is not membership.
     const forged = await as(pool, x, { company: c }, (db) => db.query('SELECT 1 FROM audit_snapshots'));
     expect(forged.rowCount).toBe(0);
