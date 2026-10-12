@@ -11,6 +11,7 @@ import {
   ShieldCheck, Copy, Check, X,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { AuditSnapshotsPanel } from '@/components/accounting/audit/AuditSnapshotsPanel';
 
 interface AuditExport {
   id: string;
@@ -23,6 +24,7 @@ interface AuditExport {
   totalDebits: number;
   totalCredits: number;
   pdfSha256: string | null;
+  zipSha256?: string | null;
   error: string | null;
   requestedAt: string;
   builtAt: string | null;
@@ -185,6 +187,7 @@ export default function AuditTrailPage() {
         )}
 
         <div className="px-6 py-6">
+          <AuditSnapshotsPanel onPackBuilt={() => void load()} notify={showToast} />
           <div className="bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center py-16">
@@ -228,15 +231,15 @@ export default function AuditTrailPage() {
                       <td className="px-6 py-3 text-right text-slate-300">{e.documentCount}</td>
                       <td className="px-6 py-3 text-right text-slate-300">{fmtZAR(e.totalDebits)}</td>
                       <td className="px-6 py-3 text-right text-slate-300">{fmtZAR(e.totalCredits)}</td>
-                      <td className="px-6 py-3 text-xs font-mono text-slate-500 max-w-[140px] truncate" title={e.pdfSha256 ?? ''}>
-                        {e.pdfSha256 ? e.pdfSha256.slice(0, 16) + '…' : '—'}
+                      <td className="px-6 py-3 text-xs font-mono text-slate-500 max-w-[140px] truncate" title={e.zipSha256 ?? e.pdfSha256 ?? ''}>
+                        {(e.zipSha256 ?? e.pdfSha256) ? (e.zipSha256 ?? e.pdfSha256)!.slice(0, 16) + '…' : '—'}
                       </td>
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-1 justify-end">
                           {e.status === 'ready' && (
                             <>
                               <a href={`/api/accounting/audit-exports/${e.id}/download`}
-                                 className="p-1.5 text-teal-400 hover:text-teal-300 rounded hover:bg-white/10" title="Download PDF">
+                                 className="p-1.5 text-teal-400 hover:text-teal-300 rounded hover:bg-white/10" title="Download pack">
                                 <Download className="h-4 w-4" />
                               </a>
                               <button onClick={() => void openInvite(e.id)}
@@ -271,7 +274,7 @@ export default function AuditTrailPage() {
                   <input id="audit-pack-period-end" type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
                 </div>
-                <p className="text-xs text-slate-500">Includes all posted journal entries in the range, sealed with a SHA-256 hash.</p>
+                <p className="text-xs text-slate-500">Takes a sealed audit snapshot at the period end and builds the pack from it: a ZIP whose manifest cites the snapshot&rsquo;s hash, with the PDF inside.</p>
               </div>
               <div className="mt-5 flex gap-2 justify-end">
                 <button onClick={() => setCreateMode(false)} disabled={creating} className="px-4 py-2 text-sm text-slate-300 hover:bg-white/5 rounded">Cancel</button>
