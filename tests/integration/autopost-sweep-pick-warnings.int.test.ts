@@ -30,6 +30,8 @@ const INACTIVE_WARNING = 'Line 1: cost centre OLD is inactive and was not applie
 let p: PickFixture;
 let fx: LateFixture;
 
+const descriptionOf = async (txId: string): Promise<string> => String(((await sql`
+  SELECT description FROM bank_transactions WHERE id = ${txId}::UUID AND company_id = ${fx.companyId}::UUID`) as Row[])[0]!.description);
 const provisionalJournal = async (txId: string): Promise<string> => String(((await sql`
   SELECT provisional_je_id FROM bank_transactions
   WHERE id = ${txId}::UUID AND company_id = ${fx.companyId}::UUID`) as Row[])[0]!.provisional_je_id);
@@ -69,8 +71,8 @@ describeIfDb('the import auto-post sweep reports the cost-centre picks it could 
     expect(out.posted, JSON.stringify(out)).toBe(2);
     const [jeA, jeB] = [await provisionalJournal(a), await provisionalJournal(b)];
     expect([...out.warnings].sort((x, y) => x.txId.localeCompare(y.txId))).toEqual([
-      { txId: a, journalEntryId: jeA, label: `${DATE} ${formatCurrency(115)}`, warnings: [INACTIVE_WARNING] },
-      { txId: b, journalEntryId: jeB, label: `${DATE} ${formatCurrency(230)}`, warnings: [INACTIVE_WARNING] },
+      { txId: a, journalEntryId: jeA, label: `${DATE} ${formatCurrency(115)}`, description: await descriptionOf(a), warnings: [INACTIVE_WARNING] },
+      { txId: b, journalEntryId: jeB, label: `${DATE} ${formatCurrency(230)}`, description: await descriptionOf(b), warnings: [INACTIVE_WARNING] },
     ].sort((x, y) => x.txId.localeCompare(y.txId)));
     // Reporting only: what is posted is the same as ever — the expense line, bare of the withdrawn centre.
     expect(await legsOn(p, jeA, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: 100 }]);
@@ -106,7 +108,7 @@ describeIfDb('the import auto-post sweep reports the cost-centre picks it could 
       expect(out.posted, JSON.stringify(out)).toBe(1);
       expect(out.skipped).toEqual([{ txId: doomed, reason: expect.stringContaining('f3: run tag refused') }]);
       expect(out.warnings).toEqual([
-        { txId: sibling, journalEntryId: await provisionalJournal(sibling), label: `${DATE} ${formatCurrency(575)}`, warnings: [INACTIVE_WARNING] },
+        { txId: sibling, journalEntryId: await provisionalJournal(sibling), label: `${DATE} ${formatCurrency(575)}`, description: await descriptionOf(sibling), warnings: [INACTIVE_WARNING] },
       ]);
       // The doomed row's journal went back with its savepoint: no journal, and the line is as it was.
       const [doomedRow] = (await sql`

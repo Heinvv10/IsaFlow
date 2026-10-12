@@ -3,6 +3,8 @@ import {
   FileText, Calendar,
 } from 'lucide-react';
 import type { AccountMatchStatus } from './bulkImportTypes';
+import type { DroppedPickLine } from './commitStatement';
+import { DroppedPicksList } from './DroppedPicksList';
 
 export type RowPhase =
   | 'pending'
@@ -30,6 +32,8 @@ export interface BulkImportRowState {
   dateRange?: { from: string; to: string } | null;
   errorMessage?: string;
   importedTransactionCount?: number;
+  /** Bank lines the import's auto-post posted without their predicted cost centre. */
+  droppedPicks?: DroppedPickLine[];
 }
 
 interface BulkImportFileRowProps {
@@ -173,6 +177,8 @@ export function BulkImportFileRow({ row, onRemove, onRetry }: BulkImportFileRowP
           )}
         </div>
       )}
+
+      {row.droppedPicks && <DroppedPicksList lines={row.droppedPicks} />}
 
       {row.mismatchReason && (
         <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-500">

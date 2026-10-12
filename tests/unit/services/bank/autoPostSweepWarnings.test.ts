@@ -26,7 +26,7 @@ import { postProvisional } from '@/modules/accounting/services/capture/provision
 const W = 'Line 1: cost centre OLD is inactive and was not applied — the line posts without it.';
 const txRow = (id: string, amount: number, transaction_date: unknown) => ({
   id, status: 'imported', feed_state: 'posted', amount, transaction_date,
-  suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: 'EFT',
+  suggested_gl_account_id: null, suggested_confidence: null, suggested_vat_code: null, description: `EFT ${id}`,
 });
 const run = (rows: unknown[], tagFails: (call: number) => boolean) => {
   let tags = 0;
@@ -59,8 +59,8 @@ describe('sweep — cost-centre picks the provisional path dropped', () => {
 
     expect(r.posted).toBe(3);
     expect(r.warnings).toEqual([
-      { txId: 't1', journalEntryId: 'je-1', label: `2026-10-02 ${formatCurrency(230)}`, warnings: [W] },
-      { txId: 't3', journalEntryId: 'je-3', label: `2026-10-03 ${formatCurrency(1150.5)}`, warnings: [W, W.replace('Line 1', 'Line 2')] },
+      { txId: 't1', journalEntryId: 'je-1', label: `2026-10-02 ${formatCurrency(230)}`, description: 'EFT t1', warnings: [W] },
+      { txId: 't3', journalEntryId: 'je-3', label: `2026-10-03 ${formatCurrency(1150.5)}`, description: 'EFT t3', warnings: [W, W.replace('Line 1', 'Line 2')] },
     ]);
   });
 
@@ -73,6 +73,6 @@ describe('sweep — cost-centre picks the provisional path dropped', () => {
 
     expect(r.skipped).toEqual([{ txId: 't1', reason: 'tag failed' }]);
     expect(r.posted).toBe(1);
-    expect(r.warnings).toEqual([{ txId: 't2', journalEntryId: 'je-2', label: `2026-10-03 ${formatCurrency(115)}`, warnings: [W] }]);
+    expect(r.warnings).toEqual([{ txId: 't2', journalEntryId: 'je-2', label: `2026-10-03 ${formatCurrency(115)}`, description: 'EFT t2', warnings: [W] }]);
   });
 });

@@ -325,9 +325,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       totalParsed: parseResult.transactions.length,
       appliedRules: appliedRuleCount,
       autoPostSkippedLocked: ruleLinesSkippedLocked,
-      // Non-fatal problems the import swallowed (a failed transfer link or auto-post), so the user is not told it was clean.
+      // Non-fatal problems the import swallowed (a failed transfer link or auto-post),
+      // reported so the user is not told the import was clean.
       warnings: result.errors.map((e) => e.error),
-      autoPost: { warnings: result.autoPostWarnings ?? [] }, // dropped cost-centre picks, per bank line (smart-categorize's shape)
+      autoPost: { warnings: result.autoPostWarnings ?? [] }, // dropped cost-centre picks, per bank line
     });
   } catch (insertErr) {
     if (isPayg && didDebit) {

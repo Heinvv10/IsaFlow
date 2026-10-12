@@ -3,7 +3,9 @@ import { readFileForUpload, type CollectedFile } from '@/lib/bulkUpload/folderTr
 import type { BulkCommitResponse } from './bulkImportTypes';
 
 /** One bank line that auto-posted without its predicted cost centre (the route's `data.autoPost.warnings[]`). */
-export interface DroppedPickLine { txId?: string; journalEntryId?: string; label?: string; warnings?: string[] }
+export interface DroppedPickLine {
+  txId?: string; journalEntryId?: string; label?: string; description?: string | null; warnings?: string[];
+}
 
 /**
  * Commit one statement of a bulk import (bank-transactions-bulk-commit). Returns

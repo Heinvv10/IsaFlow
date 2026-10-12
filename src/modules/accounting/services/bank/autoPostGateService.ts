@@ -191,6 +191,8 @@ export async function sweep(
           // nobody objected to posts exactly as it did before this guard existed.
           const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
             ? guarded.vatCode : requestedVat;
+          // Passes no cost-centre pick, so it has none to drop and `rowWarnings` stays empty on this path. If
+          // allocateTransaction ever returns warnings they must be fed into `rowWarnings` here.
           await allocateTransaction(
             companyId, row.id, row.suggested_gl_account_id, userId,
             row.description ?? undefined, 'account', undefined,
@@ -218,6 +220,7 @@ export async function sweep(
           txId: String(row.id),
           journalEntryId: rowJournalId,
           label: `${fmtDate(row.transaction_date)} ${formatCurrency(Math.abs(Number(row.amount)))}`.trim(),
+          description: row.description ?? null,
           warnings: rowWarnings,
         });
       }
