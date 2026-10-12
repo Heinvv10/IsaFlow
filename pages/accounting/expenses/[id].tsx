@@ -19,8 +19,7 @@ import {
   MapPin, Receipt, DollarSign,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
-import { chartAccountOptions, leafAccountOptions } from '@/lib/chartAccountOptions';
-import { postableAccounts } from '@/components/reports/postableAccounts';
+import { leafAccountOptions } from '@/lib/chartAccountOptions';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 
 interface Line {
@@ -128,8 +127,8 @@ export default function ExpenseClaimDetail() {
 
   useEffect(() => { void loadClaim(); void loadAccounts(); }, [loadClaim, loadAccounts]);
 
-  // Line accounts: active, and not a header. Post accounts: what the post route accepts (a leaf of the right type).
-  const lineAccounts = useMemo(() => chartAccountOptions(postableAccounts(chart).filter(a => a.isActive)), [chart]);
+  // Active, non-header accounts; the post pickers also match the type the post route requires.
+  const lineAccounts = useMemo(() => leafAccountOptions(chart), [chart]);
   const reimbAccounts = useMemo(() => leafAccountOptions(chart, 'liability'), [chart]);
   const vatAccounts = useMemo(() => leafAccountOptions(chart, 'asset'), [chart]);
 
