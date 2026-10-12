@@ -97,6 +97,18 @@ describe('posting warnings notice', () => {
     expect(postingWarningsNotice([[W1, W2], [W1]]).message).toBe('2 bills');
   });
 
+  it('a bulk run where one bill has warnings names it when it fits, else falls back', () => {
+    const one = (ws: string[], name?: string) => postingWarningsNotice([ws], name ? [name] : []).message;
+    expect(one([W1], 'INV-12')).toBe('INV-12: line 1 posted without it.');
+    expect(one([W2], 'INV-12')).toBe('INV-12: line 2 posted without it.');
+    expect(one([W1], 'SUPPLIER-ACCOUNT-2026-10-INVOICE-0001')).toBe('Line 1 posted without it.');
+    expect(one([W1])).toBe('Line 1 posted without it.');
+    expect(one([W1, W2], 'INV-12')).toBe('INV-12: +1 more not applied.');
+    expect(one([W1, W2], 'SUPPLIER-ACCOUNT-2026-10-INVOICE-0001')).toBe('+1 more not applied.');
+    expect(notifyPostingWarnings({ data: { results: [{ invoiceNumber: 'INV-12', warnings: [W1] }, { invoiceNumber: 'INV-13' }] } })).toBe(1);
+    expect(notify.warning).toHaveBeenLastCalledWith('Posted — cost centre OLD not applied (inactive)', 'INV-12: line 1 posted without it.');
+  });
+
   it('two bills with the same number (unique per supplier, not per company) are named once and still counted twice', () => {
     expect(postingWarningsNotice([[W1], [W1]], ['INV-1', 'INV-1']).message).toBe('2 bills: INV-1 (×2)');
     expect(postingWarningsNotice([[W1], [W1], [W1]], ['INV-1', 'INV-2', 'INV-1']).message).toBe('3 bills: INV-1 (×2), INV-2');

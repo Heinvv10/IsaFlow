@@ -47,12 +47,12 @@ describe('late claim notice', () => {
     const shaped = (claimDate: unknown) => ({ claimDate, lockPeriod: { start: new Date(2026, 4, 1), end: '2026-06-30T00:00:00.000Z' }, inputTax: 10 });
     const docs = lateClaimsIn({ data: { results: [
       { lateClaim: shaped('2026-10-01') }, { lateClaim: shaped(new Date(2026, 7, 1)) },
-      { lateClaim: shaped('Sat Aug 01 2026 00:00:00 GMT+0200') }, { lateClaim: shaped('not a date') }, { lateClaim: shaped(undefined) },
+      { lateClaim: shaped('Sat Aug 01 2026 00:00:00 GMT+0200') }, { lateClaim: shaped('01/08/2026') }, { lateClaim: shaped('not a date') }, { lateClaim: shaped(undefined) },
     ] } });
-    expect(docs.map((d) => d.claimDate)).toEqual(['2026-10-01', '2026-08-01', '2026-08-01']);
+    expect(docs.map((d) => d.claimDate)).toEqual(['2026-10-01', '2026-08-01']);
     expect(docs[0]!.lockPeriod).toEqual({ start: '2026-05-01', end: '2026-06-30' });
-    // 'Oct 1' written as a non-ISO string sorts AFTER 'Aug 1' only once both are read as dates.
-    notifyLateClaims({ data: { results: [{ lateClaim: shaped('Thu Oct 01 2026 00:00:00 GMT+0200') }, { lateClaim: shaped(new Date(2026, 7, 1)) }] } });
+    // A string that is not ISO is refused, never guessed: the day would depend on the host's zone.
+    notifyLateClaims({ data: { results: [{ lateClaim: shaped('2026-10-01T00:00:00.000Z') }, { lateClaim: shaped(new Date(2026, 7, 1)) }] } });
     expect(vi.mocked(notify.info).mock.calls.at(-1)![0]).toContain('from 2026-08-01');
   });
 
