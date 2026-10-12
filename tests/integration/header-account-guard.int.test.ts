@@ -66,6 +66,14 @@ describeIfDb('createJournalEntry refuses a line on a balance-sheet header', () =
     expect(await countRows(h.fx)).toEqual(before);
   });
 
+  it('compares ids case-blind: an upper-case header id is refused, an upper-case contra exemption holds', async () => {
+    const upper = h.assetHdr.id.toUpperCase();
+    const err = await refusalOf(create(pair(upper)));
+    expect(err.lineIndex).toBe(0);
+    expect(err.message).toContain(`Line 1: ${h.assetHdr.code} `);
+    await expect(create(pair(h.assetHdr.id), [upper])).resolves.toBeTruthy();
+  });
+
   it('names the line the header is on', async () => {
     const lines: Lines = [
       { glAccountId: h.fx.bankAccountId, debit: 100, credit: 0 },
