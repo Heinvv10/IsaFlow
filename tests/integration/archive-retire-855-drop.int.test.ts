@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { getPoolForTests } from '@/lib/neon';
 
+// ci-integration-skip: 855 already dropped the archive tables in this schema, so there is nothing to replay (it fails, not skips, if 855 is recorded and a table survives).
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
 const MIGRATION = readFileSync(

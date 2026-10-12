@@ -1,5 +1,6 @@
 // tests/integration/2fa-disable-flow.int.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import { TOTP, Secret } from 'otpauth';
 import { signIn, adminCreateUser, adminDeleteUser } from '@/lib/auth/gotrue';
 import { enrollTotp, challengeFactor, verifyFactor, listFactors } from '@/lib/auth/gotrue-mfa';
@@ -7,7 +8,10 @@ import { enrollTotp, challengeFactor, verifyFactor, listFactors } from '@/lib/au
 const TEST_EMAIL = `2fa-disable-${Date.now()}@test.local`;
 const TEST_PW = 'E2EMfaDisable!123';
 
-describe('2fa disable flow', () => {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+
+describe.skipIf(!LIVE)('2fa disable flow', () => {
   let userId: string;
   let factorId: string;
   let secret: string;

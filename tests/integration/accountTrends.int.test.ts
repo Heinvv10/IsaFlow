@@ -18,6 +18,7 @@
  * accountTrendsContraAccounts.int.test.ts.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
+import { onIsaflowDev } from '../helpers/onIsaflowDev';
 import { sql } from '@/lib/neon';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
@@ -38,7 +39,12 @@ const TENANTS: Array<{ name: string; id: string }> = [
   { name: 'Sample Trading', id: 'e6f0dde9-1688-4562-9ddc-be0477c5999b' },
 ];
 
+
+// ci-integration-skip: reads isaflow_dev's real tenants and posted history; a disposable database has neither.
+const ON_DEV = onIsaflowDev();
+
 beforeAll(async () => {
+  if (!ON_DEV) return;
   const url = process.env['DATABASE_URL'] ?? '';
   if (!url || url.includes('dummy')) {
     throw new Error('accountTrends.int.test needs a real DATABASE_URL');
@@ -107,7 +113,7 @@ function monthEnd(monthKey: string): string {
   return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10);
 }
 
-describe.each(TENANTS)('account trends — $name', ({ id: companyId }) => {
+(ON_DEV ? describe : describe.skip).each(TENANTS)('account trends — $name', ({ id: companyId }) => {
   it('returns exactly twelve months, in ascending order, ending at the as-of month', async () => {
     for (const trends of [
       await getMonthlyMovements(companyId, AS_OF),

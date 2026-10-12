@@ -1,6 +1,7 @@
 // tests/integration/2fa-login-gate.int.test.ts
 // Drives /api/auth/login through the actual handler to confirm the MFA gate.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import type { NextApiResponse } from 'next';
 import { TOTP, Secret } from 'otpauth';
 import { signIn, adminCreateUser, adminDeleteUser } from '@/lib/auth/gotrue';
@@ -49,7 +50,10 @@ function mkRes() {
   return { res, get status() { return status; }, get body() { return body; }, get cookies() { return setCookies; } };
 }
 
-describe('login MFA gate', () => {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+
+describe.skipIf(!LIVE)('login MFA gate', () => {
   let userId: string;
   let secret: string;
   let factorId: string;

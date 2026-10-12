@@ -1,5 +1,6 @@
 // tests/integration/admin-reset-2fa.int.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import { TOTP, Secret } from 'otpauth';
 import { signIn, adminCreateUser, adminDeleteUser } from '@/lib/auth/gotrue';
 import { enrollTotp, challengeFactor, verifyFactor, adminUnenrollFactor, adminListUserFactors } from '@/lib/auth/gotrue-mfa';
@@ -7,7 +8,10 @@ import { enrollTotp, challengeFactor, verifyFactor, adminUnenrollFactor, adminLi
 const TEST_EMAIL = `admin-reset-${Date.now()}@test.local`;
 const TEST_PW = 'E2EMfaReset!123';
 
-describe('admin reset-2fa', () => {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+
+describe.skipIf(!LIVE)('admin reset-2fa', () => {
   let userId: string;
   let factorId: string;
 
