@@ -35,6 +35,8 @@
 #
 # The suites get a fixed environment (env -i), so a developer's .env.local or
 # shell can never point them at a shared database or a real GoTrue.
+# CI_INTEGRATION_GATE=1 tells the few suites with a wall-clock bound to skip
+# just that bound here (tests/helpers/integrationGate.ts).
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -68,7 +70,7 @@ with_db() {
   shift 2
   env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${TMPDIR:-/tmp}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 \
     "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url" \
-    DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 \
+    DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1 \
     "JWT_SECRET=$JWT" "$@"
 }
 

@@ -21,8 +21,10 @@ jobs:
     name: Type Check, Lint & Test
     runs-on: [self-hosted, linux, velo]
     # run-ci.sh ends with a production build, which the old five steps did not.
-    # Measured 8m13s at load ~45 (R-052/green.log); 30 leaves ~3.5x headroom.
-    timeout-minutes: 30
+    # Measured 8m13s at load ~45 (R-052/green.log). The integration step (runs
+    # here, GITHUB_ACTIONS=true) adds 8-10 min at load 55-95 and up to ~24 min
+    # at load 150-250 (2026-10-12), so 60.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
