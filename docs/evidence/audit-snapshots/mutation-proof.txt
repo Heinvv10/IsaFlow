@@ -2,6 +2,7 @@
 # Runner: notes/mutation/mutate.py — throwaway worktree audit-snapshots-mut + its own container isaflow-fixture-auditsnap-mut.
 # Each mutant: one exact string replaced, fixture reset from the template, the migration applied as mutated, the named suites run, file restored.
 # KILLED = the migration refused to apply or a named test went red. Baseline (unmutated) first: 37 integration + 31 unit green.
+# TOTAL across rounds: round 1 52/52, round 2 25/25, round 3 9/9 (see the round sections below).
 # Round 1 at 47375e442 (52 mutants; the migration was then numbered 889 — renumbered to 890 later, text only): 49 killed, 3 survived.
 # Each survivor got a test, round 2 at 76bda28d8: all 3 killed. Commits after 76bda28d8 change no guarded code.
 
@@ -65,3 +66,48 @@ Survivors in round 1 and the test each got:
   t17 snapshot of a rolled-back lock      -> the test now awaits the queued work instead of a 2.5 s sleep (audit-snapshots-auto)
 Not mutated, by design: bulkPlan (performance only, measured in size-cap-measurement.txt); RLS company filter + explicit company_id in
 reads (two layers; each mutant alone is equivalent at the route); log lines.
+
+# ROUND 2 — guards added for review round 1 (blind r1 + breaker r1), at 061200239: 25/25 killed
+c01  KILLED   writer accepts any chain position                          by: audit-snapshots-db.int.test.ts
+c02  KILLED   chain position not signed                                  by: canonicalSeal.test.ts
+c03  KILLED   chain check ignores gaps                                   by: audit-snapshots-service.int.test.ts
+c04  KILLED   chain check ignores links (and gaps survive via c03 only)  by: audit-snapshots-service.int.test.ts
+c05  KILLED   ready pack pointers mutable                                by: audit-snapshots-pack.int.test.ts
+c06  KILLED   any key id reads unknown_key                               by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+c07  KILLED   comparison of an unverified snapshot                       by: audit-snapshots-compare.int.test.ts
+c08  KILLED   re-dated journals not flagged                              by: audit-snapshots-compare.int.test.ts
+c09  KILLED   unchanged recorded although the ledger moved               by: audit-snapshots-auto.int.test.ts
+c10  KILLED   duplicate full copies for an unchanged ledger              by: audit-snapshots-auto.int.test.ts
+c11  KILLED   manual snapshot queues behind another                      by: audit-snapshots-service.int.test.ts
+c12  KILLED   only the latest queued cutoff is tried                     by: audit-snapshots-auto.int.test.ts
+c13  KILLED   filing columns unchecked                                   by: audit-snapshots-service.int.test.ts
+c14  KILLED   TB account column unchecked                                by: audit-snapshots-service.int.test.ts
+c15  KILLED   a retired key hides tampering                              by: audit-snapshots-service.int.test.ts
+c16  KILLED   manager mints auditor links                                by: audit-snapshots-pack.int.test.ts
+c17  KILLED   viewer reads pack metadata                                 by: audit-snapshots-pack.int.test.ts
+c18  KILLED   audit routes not rate-limited                              by: autoRateLimit.test.ts
+c19  KILLED   late_claim_base not frozen                                 by: audit-snapshots-columns.int.test.ts
+c20  KILLED   pack verify fails open on a bad part                       by: audit-snapshots-pack.int.test.ts
+c21  KILLED   manifest seal ignored                                      by: audit-snapshots-pack.int.test.ts
+c22  KILLED   no process-wide cap                                        by: snapshotSlots.test.ts
+c23  KILLED   snapshot-vs-snapshot removals unexplained                  by: audit-snapshots-compare.int.test.ts
+c24  KILLED   restore after a failed read hides its error                by: bulkPlan.test.ts
+c25  KILLED   lost automatic snapshots not listed                        by: audit-snapshots-auto.int.test.ts
+
+# ROUND 3 — guards added for the background security reviews, at 29a2a3ad4: 9/9 killed
+r01  KILLED   any key id verifies under the current key                  by: canonicalSeal.test.ts
+r02  KILLED   retired keys ignored (old seals stop verifying)            by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+r03  KILLED   one company may hold every slot                            by: audit-snapshots-routes.int.test.ts, snapshotSlots.test.ts
+r04  KILLED   unchanged vouches for an altered snapshot                  by: audit-snapshots-auto.int.test.ts
+r05  KILLED   pack verify ignores seals                                  by: audit-snapshots-pack.int.test.ts
+r06  KILLED   one member spends the company audit bucket                 by: autoRateLimit.test.ts
+r07  KILLED   comparisons outside the slots                              by: audit-snapshots-routes.int.test.ts
+r08  KILLED   integrity not decided before the seal                      by: audit-snapshots-service.int.test.ts
+r09  KILLED   comparison of a snapshot that does not verify              by: audit-snapshots-compare.int.test.ts
+
+# Notes
+# c06 / c15 / c20 (round 2) mutated code that round 3 replaced: unknown_key no longer exists (retired keys are held and
+#   verified); their successors r01, r02, r05 and r08 are killed at 29a2a3ad4.
+# c11 (manual snapshot queues behind another) was killed at 061200239. Since 3892e287a the per-company slot refuses
+#   the second manual snapshot first within one process; the chain lock stays as the cross-process guard, so c11 is now
+#   equivalent inside a single process (named, not chased).
