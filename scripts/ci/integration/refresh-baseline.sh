@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Rebuild scripts/ci/integration/baseline.sql: the schema the integration gate
+# (run.sh) starts from. Run by hand, rarely; CI never runs it.
+#
+#   DATABASE_URL=<isaflow_dev URL> bash scripts/ci/integration/refresh-baseline.sh
+#
+# What it does:
+#   1. pg_dump --schema-only of isaflow_dev, plus the rows of
+#      public.schema_migrations, over a READ-ONLY session
+#      (default_transaction_read_only=on). No data and no roles: the gate
+#      creates app_user / platform_admin / migration_admin itself, without
+#      passwords. Owners are kept (dev's objects belong to postgres or
+#      migration_admin), so suites that check who owns a SECURITY DEFINER
+#      function see dev's answer.
+#   2. Loads both into a throwaway local cluster (pg-cluster.sh).
+#   3. Replays the repo migrations that dev never tracked and that sort BELOW
+#      dev's newest tracked one. isaflow_dev's runner stopped at 524 (a data
+#      repair its data cannot satisfy) and later migrations were applied by
+#      hand without tracking rows, so some of 524..664 are on dev and some are
+#      not (645's loan_reclass_postings is absent). Replaying an untracked file
+#      adds what is missing; REPLAY_SKIP lists the files whose replay on top of
+#      dev's newer schema would REGRESS it, or that are data backfills an empty
+#      database cannot run. Every untracked file below the top gets a tracking
+#      row either way, so the gate's runner applies only migrations newer than
+#      the baseline.
+#   4. Dumps the result (schema + schema_migrations rows) to baseline.sql.
+#
+# After a refresh: run the gate (bash scripts/ci/integration/run.sh) and commit
+# baseline.sql. Migrations newer than the baseline need no refresh; the gate
+# applies them through scripts/apply-migrations.ts on every run.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=pg-cluster.sh
+source scripts/ci/integration/pg-cluster.sh
+
+OUT=scripts/ci/integration/baseline.sql
+MIG=scripts/migrations/sql
+
+# Untracked on dev, below its newest tracked file, and NOT replayed:
+#   540, 627  re-create a CHECK constraint without values later migrations
+#             added ('refund' from 681; 'auto_vat_late_claim').
+#   605, 609  re-create the chart-seed function without 701's account 1145.
+#   606       data backfill: inserts accounts for companies an empty database lacks.
+#   615       data backfill whose view rewrite drops columns dev's newer view has.
+REPLAY_SKIP=" 540_payment_method_contra.sql 605_seed_missing_system_account_roles.sql \
+606_backfill_system_account_roles.sql 609_seed_chart_income_statement_header_subtypes.sql \
+615_ap_payment_document_backfill.sql 627_gl_je_source_year_end.sql "
+
+DEV_URL=${DATABASE_URL:?set DATABASE_URL to the isaflow_dev URL}
+case "$DEV_URL" in
+  */isaflow_dev|*/isaflow_dev\?*) ;;
+  *) echo "refusing: DATABASE_URL must name isaflow_dev" >&2; exit 1 ;;
+esac
+pg_require_extensions
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/isaflow-baseline.XXXXXX")
+cleanup() { pg_cluster_stop "$WORK"; rm -rf "$WORK"; }
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+echo "[baseline] dumping isaflow_dev schema (read-only session)"
+PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000' \
+  "$PG_BIN/pg_dump" "$DEV_URL" --schema-only -f "$WORK/dev-schema.sql"
+PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000' \
+  "$PG_BIN/pg_dump" "$DEV_URL" --data-only --no-owner -t public.schema_migrations -f "$WORK/dev-tracking.sql"
+
+PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+export PGPASSWORD
+pg_cluster_init "$WORK"
+PORT=$(pg_cluster_start "$WORK")
+PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
+
+"${PSQL[@]}" -d postgres -c "CREATE ROLE app_user NOLOGIN" -c "CREATE ROLE migration_admin NOLOGIN" \
+  -c "CREATE ROLE platform_admin NOLOGIN BYPASSRLS" -c "CREATE DATABASE isaflow_baseline"
+"${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-schema.sql" > /dev/null
+"${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-tracking.sql" > /dev/null
+
+TOP=$("${PSQL[@]}" -d isaflow_baseline -tAc "SELECT max(name) FROM schema_migrations")
+echo "[baseline] dev's newest tracked migration: $TOP"
+for path in "$MIG"/*.sql; do
+  f=$(basename "$path")
+  [[ "$f" < "$TOP" ]] || continue
+  tracked=$("${PSQL[@]}" -d isaflow_baseline -tAc "SELECT 1 FROM schema_migrations WHERE name = '$f'")
+  [ -n "$tracked" ] && continue
+  if [[ "$REPLAY_SKIP" == *" $f "* ]]; then
+    echo "[baseline] track only (REPLAY_SKIP): $f"
+  else
+    echo "[baseline] replay: $f"
+    "${PSQL[@]}" -d isaflow_baseline -1 -f "$path" > /dev/null
+  fi
+  sum=$(sha256sum "$path" | cut -d' ' -f1)
+  version=$(sed -E 's/^([0-9]+[a-z]?)_.*/\1/' <<< "$f")
+  "${PSQL[@]}" -d isaflow_baseline -c \
+    "INSERT INTO schema_migrations (version, name, checksum) VALUES ('$version', '$f', '$sum')"
+done
+
+{
+  echo "-- GENERATED by scripts/ci/integration/refresh-baseline.sh from isaflow_dev; do not edit."
+  echo "-- Schema only (no data, no roles) plus the schema_migrations rows. Newest: $TOP"
+  "$PG_BIN/pg_dump" -h 127.0.0.1 -p "$PORT" -U postgres --schema-only isaflow_baseline
+  "$PG_BIN/pg_dump" -h 127.0.0.1 -p "$PORT" -U postgres --data-only --no-owner -t public.schema_migrations isaflow_baseline
+} | grep -vE '^\\(un)?restrict ' > "$OUT"
+echo "[baseline] wrote $OUT ($(wc -l < "$OUT") lines)"
