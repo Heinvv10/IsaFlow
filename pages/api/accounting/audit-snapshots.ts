@@ -1,7 +1,8 @@
 /**
  * Audit snapshots (forensic-controls step 4, migration 890).
  * GET  (owner / admin / manager)
- *   no id                               the company's snapshots, newest first (failed attempts included)
+ *   no id                               the company's snapshots, newest first (failed attempts included), and the
+ *                                       closes / VAT locks whose automatic snapshot was never recorded (`unrecorded`)
  *   ?id=                                one snapshot + its check run with results and findings
  *   ?id=&section=tb                     its trial balance
  *   ?id=&section=journals&page=&size=   its journals, paged
@@ -16,13 +17,13 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { ISODate, UUID } from '@/lib/schemas/common';
+import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
-import { mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
+import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
-import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb } from '@/modules/accounting/services/audit/snapshotRead';
+import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, unrecordedLocks } from '@/modules/accounting/services/audit/snapshotRead';
 import { verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 
 const Query = z.object({
@@ -33,13 +34,13 @@ const Query = z.object({
   size: z.coerce.number().int().min(1).max(500).default(100),
   verify: z.enum(['1']).optional(),
 });
-const Body = z.object({ cutoff: ISODate }).strict();
+const Body = z.object({ cutoff: AuditDate }).strict();
 
 async function get(req: NextApiRequest, res: NextApiResponse, companyId: string) {
   const parsed = Query.safeParse(req.query);
   if (!parsed.success) return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
   const q = parsed.data;
-  if (!q.id) return apiResponse.success(res, { snapshots: await listSnapshots(companyId) });
+  if (!q.id) return apiResponse.success(res, { snapshots: await listSnapshots(companyId), unrecorded: await unrecordedLocks(companyId) });
   const snapshot = await getSnapshot(companyId, q.id);
   if (!snapshot) return apiResponse.notFound(res, 'Audit snapshot');
   if (q.verify) return apiResponse.success(res, { verification: await verifySnapshot(companyId, q.id) });

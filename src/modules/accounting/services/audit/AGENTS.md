@@ -35,7 +35,10 @@ database state.
   bind taken_by = auth.uid(), the company GUC + membership, taken_at = now(), the channel from the claims, and the
   role the trigger needs. Append-only for every role; purge cascade only. A forged row fails verification (no key).
 - Automatic snapshots run after the lock COMMITs; a failure records a `failed` attempt with the reason; a lock that
-  did not stand (rolled-back savepoint) takes nothing.
+  did not stand (rolled-back savepoint) takes nothing; a lost one (restart) shows as `unrecordedLocks`.
+- Verify decides integrity before the key (a rotated key never hides tampering) and checks the filing columns (line
+  `journal_id`, journal `entry_date`, TB `account_id`) against the sealed rows. Line rows carry the account id only.
+- Packs: `manifest.sig.json` seals the manifest (`PACK_SEAL_DOMAIN`); `verifyPack` reports `missing` for a ZIP without it.
 - Bulk reads and the check run run with nested loops off (`bulkPlan`): stale statistics after a bulk load made
   50 000 lines take 65 s. Measured cap and storage: `docs/evidence/audit-snapshots/size-cap-measurement.txt`.
 

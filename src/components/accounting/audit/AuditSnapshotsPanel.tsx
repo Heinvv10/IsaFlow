@@ -22,6 +22,7 @@ const VERDICT: Record<Verification['status'], { text: string; cls: string }> = {
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [rows, setRows] = useState<SnapshotSummary[]>([]);
+  const [unrecorded, setUnrecorded] = useState<{ trigger: string; cutoff: string; lockedAt: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [cutoff, setCutoff] = useState(() => localISODate(new Date(new Date().getFullYear(), new Date().getMonth(), 0)));
@@ -31,9 +32,10 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const d = await getData<{ snapshots?: SnapshotSummary[] }>('/api/accounting/audit-snapshots', 'Could not load the audit snapshots - try again');
+      const d = await getData<{ snapshots?: SnapshotSummary[]; unrecorded?: { trigger: string; cutoff: string; lockedAt: string }[] }>('/api/accounting/audit-snapshots', 'Could not load the audit snapshots - try again');
       if (!Array.isArray(d?.snapshots)) throw new Error('unexpected response');
       setRows(d.snapshots);
+      setUnrecorded(d.unrecorded ?? []);
     } catch (err) { setRows([]); setError(apiErrorMessage(err, 'Could not load the audit snapshots - try again')); }
     finally { setLoading(false); }
   }, []);
@@ -95,6 +97,12 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
           </button>
         </div>
       </div>
+      {unrecorded.length > 0 && (
+        <div className="px-6 py-3 border-b border-[rgba(255,255,255,0.06)] text-xs text-amber-300">
+          No snapshot was recorded after {unrecorded.length === 1 ? 'this lock' : `these ${unrecorded.length} locks`} (the automatic snapshot was lost — take one by hand):{' '}
+          {unrecorded.map((u) => `${TRIGGER_LABEL[u.trigger] ?? u.trigger} ${u.cutoff} (${fmtAt(u.lockedAt)})`).join(' · ')}
+        </div>
+      )}
       {loading ? (
         <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-teal-500" /></div>
       ) : error ? (

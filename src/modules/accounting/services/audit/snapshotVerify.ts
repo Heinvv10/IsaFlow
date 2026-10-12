@@ -23,15 +23,21 @@ export interface SnapshotVerification {
   seal: SealCheck | null;
   checkRun: { id: string; hashMatches: boolean; seal: SealCheck } | null;
   rowsChecked: { accounts: number; journals: number; lines: number };
-  /** Rows whose stored material hash or id does not match the row (first 20). */
-  rowMismatches: { kind: 'journal' | 'line'; id: string }[];
+  /**
+   * Rows whose stored hash, id or filing column (a line's journal, a journal's date, a TB row's account) does not
+   * match the sealed row (first 20). Packs and comparisons read those columns, so they are checked too.
+   */
+  rowMismatches: { kind: 'journal' | 'line' | 'account'; id: string }[];
   rowMismatchCount: number;
 }
 
-function recompute(rows: StoredRow[], kind: 'journal' | 'line', bad: { kind: 'journal' | 'line'; id: string }[]) {
+type Mismatch = SnapshotVerification['rowMismatches'][number];
+
+function recompute(rows: StoredRow[], kind: 'journal' | 'line', bad: Mismatch[]) {
   return rows.map((r) => {
     const h = materialHash(r.row);
-    if (h !== r.materialHash || r.row.id !== r.id) bad.push({ kind, id: r.id });
+    const placed = kind === 'line' ? r.row.journal_id === r.journalId : r.row.entry_date === r.entryDate;
+    if (h !== r.materialHash || r.row.id !== r.id || !placed) bad.push({ kind, id: r.id });
     return { id: r.id, hash: h };
   });
 }
@@ -44,8 +50,9 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
     return { snapshotId: id, status: 'not_sealed', canonicalHash: null, recomputedHash: null, seal: null, checkRun: null,
       rowsChecked: empty, rowMismatches: [], rowMismatchCount: 0 };
   }
-  const bad: { kind: 'journal' | 'line'; id: string }[] = [];
+  const bad: Mismatch[] = [];
   const tb = await snapshotTb(companyId, id);
+  for (const t of tb) if (t.row.account_id !== t.accountId) bad.push({ kind: 'account', id: t.accountId });
   const journals = recompute(await snapshotRows(companyId, id, 'journals'), 'journal', bad);
   const lines = recompute(await snapshotRows(companyId, id, 'lines'), 'line', bad);
 
@@ -68,8 +75,11 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
     s.hmac ?? '', s.keyId ?? '', key);
 
   const runOk = !s.checkRunId || (run !== null && run.hashMatches && run.seal === 'valid');
-  const status = seal === 'unknown_key' || run?.seal === 'unknown_key' ? 'unknown_key'
-    : seal === 'valid' && recomputedHash === s.canonicalHash && runOk && bad.length === 0 ? 'valid' : 'invalid';
+  // Integrity first: what the stored rows prove needs no key, so a rotated key never hides tampering.
+  const tampered = bad.length > 0 || recomputedHash !== s.canonicalHash || (s.checkRunId !== null && (run === null || !run.hashMatches));
+  const status = tampered ? 'invalid'
+    : seal === 'unknown_key' || run?.seal === 'unknown_key' ? 'unknown_key'
+      : seal === 'valid' && runOk ? 'valid' : 'invalid';
   return {
     snapshotId: id, status, canonicalHash: s.canonicalHash, recomputedHash, seal, checkRun: run,
     rowsChecked: { accounts: tb.length, journals: journals.length, lines: lines.length },

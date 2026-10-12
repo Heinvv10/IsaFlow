@@ -12,6 +12,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 
 export const SNAPSHOT_SEAL_DOMAIN = 'isaflow:audit-snapshot:v1';
 export const CHECK_RUN_SEAL_DOMAIN = 'isaflow:audit-check-run:v1';
+export const PACK_SEAL_DOMAIN = 'isaflow:audit-pack:v1';
 const MIN_KEY_LENGTH = 32;
 
 export class SigningKeyMissingError extends Error {

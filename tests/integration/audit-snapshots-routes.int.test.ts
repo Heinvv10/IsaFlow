@@ -88,7 +88,7 @@ describe('routes', { timeout: 120_000 }, () => {
     expect([cmp.state.statusCode, reason(cmp)]).toEqual([400, 'COMPARISON_REFUSED']);
   });
 
-  it('typed refusals: a missing key is 503, a bad cutoff 422', async () => {
+  it('typed refusals: a missing key is 503, a bad or impossible date 422', async () => {
     const c = await company();
     process.env.AUDIT_SNAPSHOT_SIGNING_KEY = '';
     try {
@@ -96,6 +96,9 @@ describe('routes', { timeout: 120_000 }, () => {
       expect([r.state.statusCode, reason(r)]).toEqual([503, 'SIGNING_KEY_MISSING']);
     } finally { process.env.AUDIT_SNAPSHOT_SIGNING_KEY = 'r'.repeat(48); }
     expect((await snap(o, c, 'POST', { cutoff: '30/06/2026' })).state.statusCode).toBe(422);
+    // A well-formed but impossible day is refused before the ::DATE cast, not a 500.
+    expect((await snap(o, c, 'POST', { cutoff: '2026-02-30' })).state.statusCode).toBe(422);
+    expect((await callRoute(auditCheckRuns, tokens[o]!, c, 'POST', { asAt: '2026-04-31' }, '/x')).state.statusCode).toBe(422);
   });
 
   it('check runs: owner runs one on its own; manager reads it; viewer neither', async () => {

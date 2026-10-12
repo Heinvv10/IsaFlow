@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { fmtAmount, fmtAt, getData, type Row } from './auditSnapshotApi';
 
-interface Stored { id: string; journalId: string; row: Row; materialHash: string }
+interface Stored { id: string; journalId: string; row: Row; materialHash: string; account?: { code: string | null; name: string | null; type: string | null } }
 const SIZE = 50;
 
 export function SnapshotJournals({ snapshotId }: { snapshotId: string }) {
@@ -65,7 +65,7 @@ export function SnapshotJournals({ snapshotId }: { snapshotId: string }) {
               {open[j.id] === 'loading' && <tr><td colSpan={7} className="px-10 py-2"><Loader2 className="h-4 w-4 animate-spin text-teal-500" /></td></tr>}
               {Array.isArray(open[j.id]) && (open[j.id] as Stored[]).map((l) => (
                 <tr key={l.id} className="bg-black/20 text-xs">
-                  <td /><td className="px-4 py-1 text-slate-300" colSpan={2}>{l.row.account_code} <span className="text-slate-500">{l.row.account_type}</span></td>
+                  <td /><td className="px-4 py-1 text-slate-300" colSpan={2}>{l.account?.code} {l.account?.name} <span className="text-slate-500">{l.account?.type}</span></td>
                   <td className="px-4 py-1 text-right text-slate-300">{l.row.debit !== '0.00' ? `DR ${fmtAmount(l.row.debit)}` : ''}</td>
                   <td className="px-4 py-1 text-slate-300">{l.row.credit !== '0.00' ? `CR ${fmtAmount(l.row.credit)}` : ''} <span className="text-slate-500">{l.row.description}</span></td>
                   <td /><td className="px-4 py-1 font-mono text-slate-600">{l.materialHash.slice(0, 10)}…</td>

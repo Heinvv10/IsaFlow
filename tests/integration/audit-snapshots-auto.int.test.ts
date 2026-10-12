@@ -20,6 +20,9 @@ import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriod
 import { als, type RequestContext } from '../../src/lib/als';
 import { withSavepoint } from '../../src/lib/neon';
 import { closePeriod } from '../../src/modules/accounting/services/gl/fiscalPeriodService';
+import { unrecordedLocks } from '../../src/modules/accounting/services/audit/snapshotRead';
+import { takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
+import { runAuditTx } from '../../src/modules/accounting/services/audit/auditTx';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -133,6 +136,28 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([]);
     const { rows: [p] } = await pool.query('SELECT status FROM fiscal_periods WHERE id = $1', [periods[0]]);
     expect(p.status).toBe('open');
+  });
+
+  it('a close whose automatic snapshot was lost is listed as unrecorded; one that was snapshotted is not', async () => {
+    const { c, periods } = await company();
+    const p = { userId: o, companyId: c, claims: { sub: o, session_id: crypto.randomUUID() } };
+    await takeSnapshot(p, { cutoff: '2025-12-31', trigger: 'manual' });
+    // A close in a context that runs no after-commit work (a script) queues nothing: the snapshot is lost.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(p.claims)]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await als.run({ client, userId: o, companyId: c, claims: p.claims } as unknown as RequestContext, () => closePeriod(c, periods[0]!, o));
+      await client.query('COMMIT');
+    } finally { client.release(); }
+    const listed = () => runAuditTx(p, 'READ COMMITTED', () => unrecordedLocks(c));
+    expect(await listed()).toEqual([expect.objectContaining({ trigger: 'period_close', cutoff: '2026-01-31' })]);
+    // Closing the next period through the route snapshots at 28 Feb, which also covers January's books.
+    expect((await action(o, c, { action: 'close', id: periods[1] })).state.statusCode).toBe(200);
+    await waitForSnapshots(pool, c, 2);
+    expect(await listed()).toEqual([]);
   });
 
   it('a refused close takes nothing', async () => {

@@ -58,7 +58,12 @@ export async function snapshotTb(companyId: string, id: string): Promise<{ accou
   return rows.map((r) => ({ accountId: r.id, row: r.row }));
 }
 
-export interface StoredRow { id: string; journalId: string; row: CanonicalRow; materialHash: string }
+/** `entryDate`: the journal row's filing column (journals only) — verification checks it against the sealed row. */
+export interface StoredRow {
+  id: string; journalId: string; row: CanonicalRow; materialHash: string; entryDate?: string;
+  /** A line's account as the snapshot's own trial balance names it (the line row carries the id only). */
+  account?: { code: string | null; name: string | null; type: string | null };
+}
 
 /**
  * Every stored journal (kind 'journals') or line ('lines'); `page` / `size` for a screen, all of them without;
@@ -70,15 +75,22 @@ export async function snapshotRows(companyId: string, id: string, kind: 'journal
   const offset = size ? Math.max((opts.page ?? 1) - 1, 0) * size : 0;
   const rows = (kind === 'journals'
     ? await sql`
-        SELECT journal_id::TEXT AS id, journal_id::TEXT AS j, row, material_hash FROM audit_snapshot_journals
+        SELECT journal_id::TEXT AS id, journal_id::TEXT AS j, entry_date::TEXT AS d, row, material_hash FROM audit_snapshot_journals
         WHERE company_id = ${companyId}::UUID AND snapshot_id = ${id}::UUID
         ORDER BY entry_date, row->>'entry_number', journal_id LIMIT ${size} OFFSET ${offset}`
     : await sql`
-        SELECT line_id::TEXT AS id, journal_id::TEXT AS j, row, material_hash FROM audit_snapshot_lines
-        WHERE company_id = ${companyId}::UUID AND snapshot_id = ${id}::UUID
-          AND (${opts.journalId ?? null}::UUID IS NULL OR journal_id = ${opts.journalId ?? null}::UUID)
-        ORDER BY journal_id, line_id LIMIT ${size} OFFSET ${offset}`) as Row[];
-  return rows.map((r) => ({ id: String(r.id), journalId: String(r.j), row: r.row as CanonicalRow, materialHash: String(r.material_hash) }));
+        SELECT l.line_id::TEXT AS id, l.journal_id::TEXT AS j, l.row, l.material_hash,
+               t.row->>'account_code' AS a_code, t.row->>'account_name' AS a_name, t.row->>'account_type' AS a_type
+        FROM audit_snapshot_lines l
+        LEFT JOIN audit_snapshot_tb t ON t.snapshot_id = l.snapshot_id AND t.company_id = l.company_id
+          AND t.account_id::TEXT = l.row->>'account_id'
+        WHERE l.company_id = ${companyId}::UUID AND l.snapshot_id = ${id}::UUID
+          AND (${opts.journalId ?? null}::UUID IS NULL OR l.journal_id = ${opts.journalId ?? null}::UUID)
+        ORDER BY l.journal_id, l.line_id LIMIT ${size} OFFSET ${offset}`) as Row[];
+  return rows.map((r) => ({ id: String(r.id), journalId: String(r.j), row: r.row as CanonicalRow, materialHash: String(r.material_hash),
+    ...(r.d ? { entryDate: String(r.d) } : {}),
+    ...(kind === 'lines' ? { account: { code: (r.a_code as string | null) ?? null, name: (r.a_name as string | null) ?? null,
+      type: (r.a_type as string | null) ?? null } } : {}) }));
 }
 
 export interface CheckRunRecord {
@@ -121,4 +133,34 @@ export async function getCheckRun(companyId: string, id: string): Promise<CheckR
       findingCount: Number(x.finding_count), findings: x.findings as CheckResult['findings'],
     })),
   };
+}
+
+export interface UnrecordedLock { trigger: 'period_close' | 'vat_lock'; cutoff: string; lockedAt: string }
+
+/**
+ * Closes and VAT locks with no snapshot attempt recorded after them — the automatic snapshot runs after COMMIT in the
+ * web process, so a restart (or a caller with no after-commit owner) can lose it without a 'failed' row. Covered by any
+ * snapshot or failed attempt of the same kind at the same or a later cutoff taken after the lock. Only locks since the
+ * company's first snapshot attempt count (nothing earlier was ever snapshotted).
+ */
+export async function unrecordedLocks(companyId: string): Promise<UnrecordedLock[]> {
+  const rows = (await sql`
+    WITH first AS (SELECT min(taken_at) AS t FROM audit_snapshots WHERE company_id = ${companyId}::UUID),
+    locks AS (
+      SELECT 'period_close'::TEXT AS trigger, end_date AS cutoff, closed_at AS at FROM fiscal_periods
+      WHERE company_id = ${companyId}::UUID AND status IN ('closed', 'locked') AND closed_at IS NOT NULL
+      UNION ALL
+      SELECT 'vat_lock', period_end, locked_at FROM vat_period_locks
+      WHERE company_id = ${companyId}::UUID AND unlocked_at IS NULL
+    )
+    SELECT l.trigger, l.cutoff::TEXT AS cutoff, to_char(l.at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS locked_at
+    FROM locks l, first f
+    WHERE f.t IS NOT NULL AND l.at >= f.t
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_snapshots s
+        WHERE s.company_id = ${companyId}::UUID AND s.cutoff >= l.cutoff AND s.taken_at >= l.at
+          AND (CASE WHEN l.trigger = 'vat_lock' THEN s.trigger = 'vat_lock' ELSE s.trigger IN ('period_close', 'year_close') END))
+    ORDER BY l.at DESC LIMIT 50
+  `) as { trigger: UnrecordedLock['trigger']; cutoff: string; locked_at: string }[];
+  return rows.map((r) => ({ trigger: r.trigger, cutoff: r.cutoff, lockedAt: r.locked_at }));
 }

@@ -11,15 +11,15 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { ISODate, UUID } from '@/lib/schemas/common';
+import { UUID } from '@/lib/schemas/common';
 import { assertHumanSession } from '@/modules/accounting/services/bank/bankControlRefusal';
-import { mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
+import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeCheckRun } from '@/modules/accounting/services/audit/checks/checkRunService';
 import { getCheckRun, listCheckRuns } from '@/modules/accounting/services/audit/snapshotRead';
 
 const Query = z.object({ id: UUID.optional() });
-const Body = z.object({ asAt: ISODate }).strict();
+const Body = z.object({ asAt: AuditDate }).strict();
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
