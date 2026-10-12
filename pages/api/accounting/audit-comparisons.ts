@@ -15,6 +15,7 @@ import { UUID } from '@/lib/schemas/common';
 import { mayReadAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
+import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 
 const Query = z.object({ snapshotId: UUID, against: UUID.optional() });
 
@@ -26,9 +27,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!q.success) return apiResponse.validationError(res, q.error.flatten().fieldErrors);
   try {
     const p = principalFromRequest();
-    const comparison = q.data.against
-      ? await compareSnapshots(p, q.data.snapshotId, q.data.against)
-      : await compareSnapshotToLive(p, q.data.snapshotId);
+    // A comparison reads two ledgers: it takes one of the process's snapshot slots, refused (409) while they are full.
+    const comparison = await withSnapshotSlot(false, () => (q.data.against
+      ? compareSnapshots(p, q.data.snapshotId, q.data.against)
+      : compareSnapshotToLive(p, q.data.snapshotId)));
     return apiResponse.success(res, { comparison });
   } catch (err) {
     if (respondAuditRefusal(res, err)) return;

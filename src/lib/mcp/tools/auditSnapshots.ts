@@ -14,6 +14,7 @@ import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotServic
 import { getCheckRun, getSnapshot, listSnapshots } from '@/modules/accounting/services/audit/snapshotRead';
 import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
+import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const CAVEAT = 'A snapshot holds the current values of records dated on or before its cutoff, as at taken_at — not the '
@@ -58,7 +59,7 @@ export const auditSnapshotsTool: McpTool = {
       if (!id) return ok({ snapshots: await listSnapshots(ctx.companyId), caveat: CAVEAT });
       const snapshot = await getSnapshot(ctx.companyId, id);
       if (!snapshot) return toolError('Not found');
-      if (args.verify === true) return ok({ verification: await verifySnapshot(ctx.companyId, id) });
+      if (args.verify === true) return ok({ verification: await withSnapshotSlot(false, () => verifySnapshot(ctx.companyId, id)) });
       const checkRun = snapshot.checkRunId ? await getCheckRun(ctx.companyId, snapshot.checkRunId) : null;
       return ok({ snapshot, checkRun });
     } catch (err) {
@@ -96,7 +97,7 @@ export const compareAuditSnapshotTool: McpTool = {
     const against = strArg(args, 'against_snapshot_id');
     try {
       const p = principalFromRequest();
-      return ok({ comparison: against ? await compareSnapshots(p, id, against) : await compareSnapshotToLive(p, id) });
+      return ok({ comparison: await withSnapshotSlot(false, () => (against ? compareSnapshots(p, id, against) : compareSnapshotToLive(p, id))) });
     } catch (err) {
       return refused(err);
     }

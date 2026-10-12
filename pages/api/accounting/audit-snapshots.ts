@@ -24,6 +24,7 @@ import { assertHumanSession } from '@/modules/accounting/services/bank/bankContr
 import { AuditDate, mayReadAudit, mayTakeAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
+import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, unrecordedLocks } from '@/modules/accounting/services/audit/snapshotRead';
 import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 
@@ -46,7 +47,7 @@ async function get(req: NextApiRequest, res: NextApiResponse, companyId: string)
   if (!q.id) return apiResponse.success(res, { snapshots: await listSnapshots(companyId), unrecorded: await unrecordedLocks(companyId) });
   const snapshot = await getSnapshot(companyId, q.id);
   if (!snapshot) return apiResponse.notFound(res, 'Audit snapshot');
-  if (q.verify) return apiResponse.success(res, { verification: await verifySnapshot(companyId, q.id) });
+  if (q.verify) return apiResponse.success(res, { verification: await withSnapshotSlot(false, () => verifySnapshot(companyId, q.id!)) });
   if (q.section === 'tb') return apiResponse.success(res, { rows: await snapshotTb(companyId, q.id) });
   if (q.section === 'journals') {
     const rows = await snapshotRows(companyId, q.id, 'journals', { page: q.page, size: q.size });

@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { getExport } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { verifyPack } from '@/modules/accounting/services/audit/packExport';
+import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { mayReadAudit, respondAuditRefusal } from '@/modules/accounting/services/audit/auditAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +28,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.query.verify === '1') {
     if (!row.snapshotId) return apiResponse.badRequest(res, 'This pack was not built from a snapshot; there is no seal to verify.');
     try {
-      return apiResponse.success(res, { verification: await verifyPack(companyId, id) });
+      return apiResponse.success(res, { verification: await withSnapshotSlot(false, () => verifyPack(companyId, id)) });
     } catch (err) {
       if (respondAuditRefusal(res, err)) return;
       throw err;
