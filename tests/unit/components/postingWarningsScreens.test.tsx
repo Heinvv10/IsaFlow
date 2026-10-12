@@ -9,6 +9,7 @@
  *   transactions · expense claim  -> the warning toast (as the late-claim notice)
  *   recurring journals -> its own inline notice, beside "held for approval"
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -103,7 +104,7 @@ describe('recurring journals — Generate Now', () => {
   const template = { id: 'rj-1', templateName: 'Monthly rent accrual', frequency: 'monthly', nextRunDate: '2026-06-01',
     runCount: 0, status: 'active', totalAmount: 1000, lines: [] };
   const generate = async (answer: unknown) => {
-    serve([['recurring-journals-action', answer], ['recurring-journals', { items: [template] }], ['chart-of-accounts', { accounts: [] }]]);
+    serve([['recurring-journals-action', answer], ['recurring-journals', { items: [template] }], ['chart-of-accounts', []]]);
     render(<RecurringJournalsPage />);
     await screen.findByText('Monthly rent accrual');
     fireEvent.click(screen.getByTitle('Generate Now'));
@@ -152,7 +153,7 @@ describe('expense claim — Post to GL', () => {
     route.query = { id: 'c1' };
     vi.mocked(apiFetch)
       .mockResolvedValueOnce(ok({ claim: claim('approved') }))
-      .mockResolvedValueOnce(ok({ accounts: [{ id: 'a1', code: '2300', name: 'Reimbursements' }] }))
+      .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements')]))
       .mockResolvedValueOnce(ok(posted));
     render(<ExpenseClaimPage />);
     fireEvent.click(await screen.findByText('Post to GL'));

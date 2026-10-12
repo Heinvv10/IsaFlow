@@ -21,6 +21,8 @@ import {
   PackagePlus,
 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { chartAccountOptions } from '@/lib/chartAccountOptions';
+import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 
 const fmt = (n: number) =>
@@ -125,7 +127,7 @@ export default function PurchaseOrderDetailPage() {
   useEffect(() => {
     if (!editing) return;
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts((j.data || []).filter((a: GlAccount & { is_active?: boolean }) => a.is_active !== false))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
+      .then(async r => { await assertOk(r, 'Could not load GL accounts - try again'); return r.json(); }).then(j => setAccounts(chartAccountOptions(((j.data ?? []) as ChartGLAccount[]).filter(a => a.isActive !== false)))).catch(err => setSaveError(apiErrorMessage(err, 'Could not load GL accounts - try again')));
   }, [editing]);
 
   const startEdit = () => {

@@ -1,6 +1,7 @@
 /**
  * D2 round 3 (a4): detail pages (supplier credit note, expense claim). Status before body on loads, every write checked, refused writes never redirect / claim success.
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -96,7 +97,7 @@ describe('expenses/[id]', () => {
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
       const u = String(url);
       if (isWrite(init)) return write();
-      if (u.includes('chart-of-accounts')) return ok({ accounts: [{ id: 'g1', code: '6000', name: 'D2 Expense' }] });
+      if (u.includes('chart-of-accounts')) return ok([chartAccount('g1', '6000', 'D2 Expense')]);
       return load();
     });
   const addReceipt = async () => {

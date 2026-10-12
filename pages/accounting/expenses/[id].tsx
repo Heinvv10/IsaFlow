@@ -19,6 +19,8 @@ import {
   MapPin, Receipt, DollarSign,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { chartAccountOptions } from '@/lib/chartAccountOptions';
+import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 
 interface Line {
   id: string;
@@ -120,8 +122,8 @@ export default function ExpenseClaimDetail() {
   const loadAccounts = useCallback(async () => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts?limit=500'); await assertOk(res, 'Could not load GL accounts - try again');
-      const json = await res.json() as { data?: { accounts?: GlAccount[] } };
-      setAccounts(json.data?.accounts ?? []);
+      const json = await res.json() as { data?: ChartGLAccount[] };
+      setAccounts(chartAccountOptions(json.data));
     } catch (err) { setAccounts([]); showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
   }, [showToast]);
 

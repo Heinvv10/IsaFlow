@@ -6,12 +6,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, ChevronRight, ChevronLeft, Search, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { chartAccountOptions } from '@/lib/chartAccountOptions';
+import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 
 interface GlAccount {
   id: string;
   code: string;
   name: string;
-  account_type: string;
 }
 
 interface GroupMember {
@@ -62,7 +63,7 @@ export function AccountReportingGroupModal({ group, onClose, onSaved }: Props) {
       const res = await apiFetch('/api/accounting/chart-of-accounts?flat=true&active_only=true');
       await assertOk(res, 'Could not load accounts - try again');
       const json = await res.json();
-      setAllAccounts(json.data?.items ?? json.data ?? []);
+      setAllAccounts(chartAccountOptions(json.data as ChartGLAccount[] | undefined));
     } catch (err) {
       setAllAccounts([]); setError(apiErrorMessage(err, 'Could not load accounts - try again'));
     } finally {
