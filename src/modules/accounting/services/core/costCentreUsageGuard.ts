@@ -98,7 +98,8 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
           AND bt.company_id = ${companyId}::UUID) AS bank_transactions,
       (
         (SELECT COUNT(*) FROM supplier_coding_rules scr
-          WHERE scr.default_cost_centre_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID)
+          WHERE (scr.default_cost_centre_id = ${id}::UUID OR scr.default_cc1_id = ${id}::UUID
+                 OR scr.default_cc2_id = ${id}::UUID) AND scr.company_id = ${companyId}::UUID)
       + (SELECT COUNT(*) FROM supplier_coding_history sch
           WHERE sch.cost_centre_id = ${id}::UUID AND sch.company_id = ${companyId}::UUID)
       ) AS coding_rules,
@@ -198,7 +199,8 @@ export async function costCentreDefaultUsage(companyId: string, id: string): Pro
         WHERE (ga.default_cc1_id = ${id}::UUID OR ga.default_cc2_id = ${id}::UUID)
           AND ga.company_id = ${companyId}::UUID) AS accounts,
       (SELECT COUNT(*) FROM supplier_coding_rules scr
-        WHERE scr.default_cost_centre_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID) AS coding_rules
+        WHERE (scr.default_cost_centre_id = ${id}::UUID OR scr.default_cc1_id = ${id}::UUID
+               OR scr.default_cc2_id = ${id}::UUID) AND scr.company_id = ${companyId}::UUID) AS coding_rules
   `) as Record<string, unknown>[];
   return countedParts(row, [['customers', 'customer(s)'], ['accounts', 'account(s)'], ['coding_rules', 'supplier coding rule(s)']]);
 }
