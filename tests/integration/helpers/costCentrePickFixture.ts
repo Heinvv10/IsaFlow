@@ -90,21 +90,21 @@ export async function bareOn(p: PickFixture, entryId: string, account: string): 
 
 /**
  * A posted entry (`amount` on `account`, against AP) dated `date` whose `account` line is as the old writers left it:
- * the legacy cost_center_id AND cc1_id both name `centre`. createJournalEntry no longer writes the legacy column, so
+ * the legacy cost_center_id AND cc1_id both name `centre` (`legacyOnly`: the legacy id alone, cc1_id and cc2_id NULL). createJournalEntry no longer writes the legacy column, so
  * the entry is made as a draft, the legacy id is set by SQL, and only then is it posted.
  */
 export async function seedHistoricEntry(
-  p: PickFixture, date: string, account: string, amount: number, centre: string,
+  p: PickFixture, date: string, account: string, amount: number, centre: string, legacyOnly = false,
 ): Promise<{ entryId: string; lineId: string }> {
   const fx = p.fx;
   const entry = await inTx(fx, () => createJournalEntry(fx.companyId, {
     entryDate: date, description: 'Historic legacy cost centre', lines: [
-      { glAccountId: account, debit: amount, credit: 0, cc1Id: centre },
+      { glAccountId: account, debit: amount, credit: 0, ...(legacyOnly ? {} : { cc1Id: centre }) },
       { glAccountId: fx.apId, debit: 0, credit: amount },
     ],
   }, fx.userId));
   await sql`
-    UPDATE gl_journal_lines SET cost_center_id = cc1_id
+    UPDATE gl_journal_lines SET cost_center_id = ${centre}::UUID
     WHERE company_id = ${fx.companyId}::UUID AND journal_entry_id = ${entry.id}::UUID AND gl_account_id = ${account}::UUID`;
   await inTx(fx, () => postJournalEntry(fx.companyId, entry.id, fx.userId));
   const [line] = (await sql`

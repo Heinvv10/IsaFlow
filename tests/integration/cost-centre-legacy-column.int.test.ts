@@ -164,4 +164,42 @@ describeIfDb('the legacy cost_center_id is never written by a new journal line',
     const gone = await del(spare);
     expect(gone.statusCode, JSON.stringify(gone.body)).toBe(200);
   });
+
+  it('a legacy-ONLY historic line (cost_center_id set, cc1_id and cc2_id NULL): its contra and reclassified legs carry nothing, the original keeps the id and the centre stays undeletable', async () => {
+    const legacy = String(((await sql`
+      INSERT INTO cost_centres (company_id, code, name, cc_type, is_active)
+      VALUES (${fx.companyId}::UUID, 'LEG', 'CCL legacy only', 'cc1', true) RETURNING id`) as Row[])[0]!.id);
+    const held = { cc1: null, cc2: null, legacy };
+    // (1) reversal
+    const rev = await seedHistoricEntry(p, DATE, fx.expenseId, 90, legacy, true);
+    expect(await legsOn(p, rev.entryId, fx.expenseId)).toEqual([{ ...held, net: 90 }]);
+    const contra = await inTx(fx, () => reverseJournalEntry(fx.companyId, rev.entryId, fx.userId));
+    expect(await legsOn(p, contra.id, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: -90 }]);
+    expect(await legsOn(p, rev.entryId, fx.expenseId)).toEqual([{ ...held, net: 90 }]);
+    // (2) reclassification
+    const source = await centreAccount('6300');
+    const target = await centreAccount('6400');
+    const recl = await seedHistoricEntry(p, DATE, source, 70, legacy, true);
+    const out = await inTx(fx, async () => {
+      const plan = await planReclassification({
+        companyId: fx.companyId, sourceAccountId: source, targetAccountId: target,
+        from: DATE, to: DATE, postingDate: null, lockCandidateLines: true,
+      });
+      if (isRefusal(plan)) throw new Error(`unexpected refusal: ${plan.refused}`);
+      expect(plan.movable.map((m) => m.lineId)).toEqual([recl.lineId]);
+      return postReclassBatch(fx.companyId, fx.userId, {
+        tool: 'post_reclassification_batch', sourceAccountId: source, targetAccountId: target,
+        postingDate: null, idempotencyKey: null, drafts: plan.drafts,
+      });
+    });
+    const journalId = out.journals[0]!.journalEntryId;
+    expect(await legsOn(p, journalId, source)).toEqual([{ cc1: null, cc2: null, legacy: null, net: -70 }]);
+    expect(await legsOn(p, journalId, target)).toEqual([{ cc1: null, cc2: null, legacy: null, net: 70 }]);
+    expect(await legsOn(p, recl.entryId, source)).toEqual([{ ...held, net: 70 }]);
+    // (3) the originals still hold the id, so the delete guard refuses
+    const refused = await del(legacy);
+    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(400);
+    expect(JSON.stringify(refused.body)).toContain(`${CANNOT_DELETE_PREFIX}2 journal line(s)`);
+    expect(((await sql`SELECT COUNT(*)::INT AS n FROM cost_centres WHERE id = ${legacy}::UUID`) as Row[])[0]!.n).toBe(1);
+  });
 });
