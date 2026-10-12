@@ -23,7 +23,7 @@ import { DOCUMENT_VERSION, SNAPSHOT_CAVEAT, contentFingerprint, snapshotHash, su
 import { countPostedLines, fiscalYearStart, journalRows, lineRows, tbRows } from './snapshotRows';
 import { snapshotTotals } from './snapshotTotals';
 import { recordCheckRun, runAllChecks } from './checks/checkRunService';
-import { recordAttempt, verifiedTwin } from './snapshotAttempts';
+import { lockStands, recordAttempt, verifiedTwin } from './snapshotAttempts';
 
 export { SNAPSHOT_TIME_BUDGET_MS };
 
@@ -46,6 +46,14 @@ export class SnapshotTimeBudgetError extends Error {
   constructor(public readonly step: string) {
     super(`This snapshot took longer than ${SNAPSHOT_TIME_BUDGET_MS / 1000} s (at ${step}) and was abandoned. Choose an earlier cutoff or try again later.`);
     this.name = 'SnapshotTimeBudgetError';
+  }
+}
+
+/** An automatic snapshot whose close / lock was undone while it waited for its turn: it freezes nothing. */
+export class LockGoneError extends Error {
+  constructor(trigger: string, cutoff: string) {
+    super(`the ${trigger.replace('_', ' ')} at ${cutoff} no longer stands (undone before its snapshot ran); nothing was frozen`);
+    this.name = 'LockGoneError';
   }
 }
 
@@ -124,6 +132,11 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       await tightenStatementTimeout(client, left);
     };
     try {
+      // An automatic snapshot may have queued: the books it freezes must be those of a standing close / lock, read in
+      // this transaction's own view (REPEATABLE READ), not as checked before the wait.
+      if (dedupe && !(await lockStands(client, p.companyId, input.trigger as Exclude<SnapshotTrigger, 'manual'>, input.cutoff))) {
+        throw new LockGoneError(input.trigger, input.cutoff);
+      }
       await step('counting the lines');
       const lineCount = await countPostedLines(p.companyId, input.cutoff);
       if (lineCount > max) throw new SnapshotTooLargeError(lineCount, max);

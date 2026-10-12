@@ -10,14 +10,15 @@ import { log } from '@/lib/logger';
 import { SigningKeyMissingError } from './seal';
 import { SnapshotBusyError, runAuditTx, type AuditPrincipal } from './auditTx';
 import type { AutoTrigger } from './autoSnapshotQueue';
-import { SnapshotTimeBudgetError, SnapshotTooLargeError, takeAutoSnapshot } from './snapshotService';
-import { recordSnapshotAttempt } from './snapshotAttempts';
+import { LockGoneError, SnapshotTimeBudgetError, SnapshotTooLargeError, takeAutoSnapshot } from './snapshotService';
+import { lockStands, recordSnapshotAttempt } from './snapshotAttempts';
 
 export function failureReason(err: unknown): string {
   if (err instanceof SnapshotTooLargeError) return `too_large: ${err.lines} journal lines (the cap is ${err.max})`;
   if (err instanceof SnapshotTimeBudgetError) return `too_slow: abandoned at ${err.step}`;
   if (err instanceof SigningKeyMissingError) return 'signing_key_missing: the server has no audit signing key configured';
   if (err instanceof SnapshotBusyError) return `busy: ${err.message}`;
+  if (err instanceof LockGoneError) return `lock_gone: ${err.message}`;
   return `error: ${err instanceof Error ? err.message : String(err)}`.slice(0, 500);
 }
 
@@ -26,14 +27,7 @@ export function failureReason(err: unknown): string {
  * that later rolled back queued a snapshot for a lock that never happened.
  */
 async function triggerHolds(p: AuditPrincipal, trigger: AutoTrigger, cutoff: string): Promise<boolean> {
-  return runAuditTx(p, 'READ COMMITTED', async (client) => {
-    const { rows: [r] } = await client.query<{ ok: boolean }>(trigger === 'vat_lock'
-      ? `SELECT EXISTS (SELECT 1 FROM vat_period_locks WHERE company_id = $1::uuid AND period_end = $2::date
-           AND unlocked_at IS NULL) AS ok`
-      : `SELECT EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = $1::uuid AND end_date = $2::date
-           AND status IN ('closed', 'locked')) AS ok`, [p.companyId, cutoff]);
-    return r?.ok === true;
-  });
+  return runAuditTx(p, 'READ COMMITTED', (client) => lockStands(client, p.companyId, trigger, cutoff));
 }
 
 /** One snapshot per trigger, at the latest queued cutoff whose lock stands (it covers every earlier one). */

@@ -28,7 +28,8 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 - `unchanged` = same books (ledger + ageing / control totals) as a verifying snapshot; it must carry its own check run
   (same tx: cutoff, now(), purpose). The chain requires taken_at to increase with seq.
 - Load: `snapshotSlots` — two per process, one per company, one per person (automatic too); manual refused (409),
-  automatic queues ≤ `SLOT_WAIT_MS` (≤ 50 per person), then the chain lock ≤ `AUDIT_WAIT_MS` — neither is budget time. Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
+  automatic queues ≤ `SLOT_WAIT_MS` (≤ 50 per person), then the chain lock ≤ `AUDIT_WAIT_MS` — neither is budget time;
+  it re-reads in its own tx that its close / lock stands (`lock_gone` otherwise). Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
   watchdog cancels the running statement.
 - Packs: ZIP sealed (`zip_hmac`), checked before parsing; exact central directory; ready only once built and then
   immutable (890 guard); downloads serve a ZIP only through `verifiedPackZip` (`packVerify.ts`).

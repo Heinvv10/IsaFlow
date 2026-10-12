@@ -58,3 +58,13 @@ export async function verifiedTwin(client: PoolClient, companyId: string, cutoff
   }
   return null;
 }
+
+/** Whether the close / lock an automatic snapshot is for still stands — read in the caller's transaction. */
+export async function lockStands(client: PoolClient, companyId: string, trigger: AutoTrigger, cutoff: string): Promise<boolean> {
+  const { rows: [r] } = await client.query<{ ok: boolean }>(trigger === 'vat_lock'
+    ? `SELECT EXISTS (SELECT 1 FROM vat_period_locks WHERE company_id = $1::uuid AND period_end = $2::date
+         AND unlocked_at IS NULL) AS ok`
+    : `SELECT EXISTS (SELECT 1 FROM fiscal_periods WHERE company_id = $1::uuid AND end_date = $2::date
+         AND status IN ('closed', 'locked')) AS ok`, [companyId, cutoff]);
+  return r?.ok === true;
+}

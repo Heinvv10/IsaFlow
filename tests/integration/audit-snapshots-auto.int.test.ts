@@ -24,6 +24,7 @@ import { unrecordedLocks } from '../../src/modules/accounting/services/audit/sna
 import { takeSnapshot } from '../../src/modules/accounting/services/audit/snapshotService';
 import { runAuditTx } from '../../src/modules/accounting/services/audit/auditTx';
 import { verifySnapshot } from '../../src/modules/accounting/services/audit/snapshotVerify';
+import { withSnapshotSlot } from '../../src/modules/accounting/services/audit/snapshotSlots';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -295,6 +296,21 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(all.map((x) => x.status)).toEqual(['sealed', 'sealed', 'unchanged']);
     const { rows: [u] } = await pool.query('SELECT same_as_snapshot_id::text AS s FROM audit_snapshots WHERE id = $1', [all[2]!.id]);
     expect(u.s).toBe(s!.id);
+  });
+
+  it('a close undone while its snapshot waited for a slot freezes nothing: the lock is re-read in the snapshot (security review)', async () => {
+    const { c, periods } = await company();
+    // The closer already holds their one audit slot (another of their companies): the automatic snapshot queues.
+    let free = () => {};
+    const held = withSnapshotSlot(crypto.randomUUID(), true, () => new Promise<void>((r) => { free = r; }), o);
+    try {
+      expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+      await new Promise((r) => setTimeout(r, 1_500));
+      expect((await action(o, c, { action: 'reopen', id: periods[0] })).state.statusCode).toBe(200);
+    } finally { free(); await held; }
+    const [s] = await waitForSnapshots(pool, c, 1);
+    expect(s).toMatchObject({ status: 'failed', cutoff: '2026-01-31' });
+    expect(String(s!.failure_reason)).toMatch(/^lock_gone:/);
   });
 
   it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {
