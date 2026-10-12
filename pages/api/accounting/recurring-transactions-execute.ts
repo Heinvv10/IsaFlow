@@ -74,7 +74,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
     if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
-    // A line on a balance-sheet header (D1): the service asks before its first write.
+    // A line on a balance-sheet header (D1): createJournalEntry is this path's first write and refuses before it.
     if (isHeaderAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     throw err;
   }
