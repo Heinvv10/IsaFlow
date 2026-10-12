@@ -3,6 +3,7 @@
  * late (s16(3)); `expense-claims/[id]/post` returns `claim.lateClaim`, and the
  * claim page must tell the person (review round 2).
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -26,7 +27,7 @@ const lateClaim = { claimDate: '2026-07-01', lockPeriod: { start: '2026-05-01', 
 async function post(response: Response) {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(ok({ claim: claim('approved') }))
-    .mockResolvedValueOnce(ok({ accounts: [{ id: 'a1', code: '2300', name: 'Reimbursements' }] }))
+    .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements')]))
     .mockResolvedValueOnce(response);
   render(<Page />);
   fireEvent.click(await screen.findByText('Post to GL'));
