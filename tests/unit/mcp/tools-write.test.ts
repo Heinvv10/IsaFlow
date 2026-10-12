@@ -749,6 +749,7 @@ describe('write-tool manifest invariants', () => {
       split_allocate_bank_transaction: { ...KEY },
       tag_journal_lines: { ...KEY },
       reverse_dimension_tag_batch: { ...KEY },
+      sync_bank_dimensions: { ...KEY, date_from: '2026-10-01', date_to: '2026-10-31', dry_run: true },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
