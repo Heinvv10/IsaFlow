@@ -665,3 +665,87 @@ date of birth and equity fields, and a deleted supplier's bank account, in full 
 purged; nothing can erase one person's rows short of owner DDL. Retention of accounting and payroll records is a legal
 obligation for years, which this serves; whether POPIA needs a per-person redaction path (owner-run, audited) is a
 product decision, not built here.
+
+## As built: audit snapshots (forensic-controls step 4, migration 889)
+
+Hein's decisions 2026-10-12 (D1–D4): snapshot = books + hashes at an accounting-date cutoff; comparison = snapshot
+vs today's books (field-level) and snapshot vs snapshot; taken by hand and automatically on lock, synchronously, no
+worker; checks = master's 15 integrity checks + the anomaly scan + a new journal-risk set, no resolution workflow.
+
+**What a snapshot is.** At a cutoff: every POSTED journal and line dated on or before it (a reversed journal stays
+`posted` with `reversed_at`, so it is in) as canonical rows — every value spelled by the database (ids and dates as
+text, amounts `numeric::text` to two places, timestamps UTC with microseconds) — each with a material hash
+(SHA-256 of its canonical JSON); a ledger trial balance per account from those same lines (opening = before the
+fiscal year's start, debit / credit = the year's movement to the cutoff, closing = opening + debit − credit); AR / AP
+ageing (`getAgingReport`) and AR / AP / bank control totals against the GL (`reconcileSubledger`), each in its own
+savepoint and recorded with its error if it cannot answer; the newest change-history `recorded_at` the taker may read;
+source-document hashes only (`source_document_hash` on the journal row), never bytes; and a sealed check run. One
+REPEATABLE READ transaction on its own connection, as app_user with the person's claims. Caveat on every snapshot:
+current values of records dated on or before the cutoff, as at taken_at — not the historical database state.
+
+**The seal.** Canonical JSON (keys in code-point order at every depth, amounts as decimal strings, fractional numbers
+and Dates refused) of the whole snapshot — header, totals, TB rows, `[id, material_hash]` of every journal and line,
+the check run's own canonical hash — hashed with SHA-256; HMAC-SHA256 over `isaflow:audit-snapshot:v1 | company |
+id | hash | cutoff | taken_at` with `AUDIT_SNAPSHOT_SIGNING_KEY` (≥ 32 chars) under `AUDIT_SNAPSHOT_KEY_ID`; the check
+run the same under `isaflow:audit-check-run:v1`. Verify recomputes every row hash, the run hash and the canonical
+hash from the stored rows and checks the seals against THOSE (timing-safe): an edited row, an edited hash column or a
+forged snapshot is `invalid`; a seal under another key id is `unknown_key`. The key is the app's alone: storing a hash
+beside mutable rows is not tamper protection, which is why the rows are also append-only.
+
+**889.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
+`audit_check_runs`, `audit_check_results` (composite `(company_id, …)` FKs, so a snapshot cites only its company's run
+and a child only its company's snapshot), plus additive `audit_trail_exports.snapshot_id / zip_*`. Written ONLY by
+two SECURITY DEFINER writers, one call with every row: `audit_snapshot_record`, `audit_check_run_record` (EXECUTE:
+app_user alone). They bind taken_by = `auth.uid()`, the company to the GUC and the caller's membership, taken_at to the
+transaction's `now()`, the channel (`session` / `impersonation` / `token`) to the claims, and the role to the trigger
+(manual and standalone runs: owner / admin; on a lock: owner / admin / manager); a failed attempt carries a reason and
+no rows or seal (shape CHECK). Append-only by grant (app_user SELECT only, nobody else anything) AND by ENABLE ALWAYS
+triggers refusing UPDATE / DELETE / TRUNCATE for every role, the owner's plain statements included, except the
+cascade from a purged company. RLS forced: owner / admin / manager of the company (`audit_snapshot_reader`).
+Assertions per role with the `session_user` exemption only (#680), writers' owners must bypass RLS, `pg_temp` last.
+No mention of the change-history objects (the 888 census holds).
+
+**Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
+(year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the
+request's after-commit list and never throws. After COMMIT the snapshot is taken as the person who locked; a lock
+that did not stand takes nothing; one that cannot be snapshotted (too large, no key, an error) records a `failed`
+attempt with the reason, shown on Evidence Packs. One request queues one snapshot per trigger at its latest cutoff
+(bulk close of twelve periods → one). The census pins every statement that closes or locks and every function that
+schedules.
+
+**Comparison.** Pure set logic over ids and material hashes (`comparisonDiff.ts`): new journals dated ≤ cutoff —
+backdated when created or posted after `taken_at` (string order of the database's fixed-width UTC timestamps is time
+order) — changed (field-level before / after, line changes folded into their journal), removed (with their status
+now: deleted, draft, re-dated), reversed after the snapshot; closing balance per account that moved; against today,
+master-data changes since `taken_at` (`listEntityChanges` gained a `since` bound; the reader's own RLS). Snapshot vs
+snapshot reads both at the earlier cutoff, closings from the lines. Lists capped at 500, counts never.
+
+**Check runs.** 15 integrity checks run by `runIntegrityChecks` one at a time, each in a savepoint (the runner catches
+a check's error after Postgres has aborted the transaction); the anomaly scan's population moved from its route into
+`runAnomalyScan` (route unchanged); journal-risk leads: backdated entry (recorded > 5 days after its date — the board
+pack's `BACKDATE_DAYS`; a recording day with ≥ 10 is one bulk-load finding), posted after the period's recorded
+close, a manual journal posted outside 08:00–18:00 SAST or at a weekend, reversal across periods or of a reversal,
+possible split of a manual-journal approval threshold (≥ 2 by one person on one SAST day, each under, together over).
+Status pass / fail / unknown (unknown = did not answer, never clean); findings keyed stably, capped at 200, count not.
+
+**Pack.** Building an evidence pack (owner / admin, own session) takes a snapshot at the period end or uses a chosen
+one, refuses one that does not verify, and stores a ZIP: `manifest.json` (snapshot id, canonical hash, HMAC, key id,
+cutoff, taken_at, every file's SHA-256), `trial_balance.csv`, `journals.csv`, `journal_lines.csv`, `checks.csv`,
+`findings.csv`, optional `comparison.csv` (cells formula-neutralised), and the existing PDF rendered from the
+snapshot's own rows. Download (owner / admin / manager — the ZIP carries ledger rows) and the auditor portal serve the
+ZIP; older packs still serve their PDF. `?verify=1` re-reads the ZIP against its manifest and verifies the snapshot.
+
+**Who.** Read / verify / compare: owner, admin, manager. Take / run / build: owner, admin — on the web a person in
+their own session (Login-as and tokens refused); over MCP `take_audit_snapshot` for owner / admin token holders with
+`write:journals` (the scope that already closes periods, which take a snapshot anyway — no new scope, no re-grant);
+`audit_snapshots` and `compare_audit_snapshot` are `read:reports`.
+
+**Measured** (`docs/evidence/audit-snapshots/size-cap-measurement.txt`): 50 000 lines 11 s, 150 000 lines 33 s
+(verify 18 s, compare 19 s), ~520 bytes per frozen line. Stale statistics after a bulk load first made 50 000 lines
+take 65 s (a quadratic nested loop; master's `vat_displayed_differs_from_posted` hit the 60 s statement cap): the bulk
+reads and the check run now run with nested loops off. Cap `MAX_SNAPSHOT_LINES` = 150 000; statements are capped at
+60 s (tighten-only).
+
+**Known limits.** The N1 / N3 boundary (raw SQL that RESETs ROLE; the owner can disable the guards) — but no seal
+verifies without the key. Only the current key verifies. Storage grows with every close / lock (a ~60 000-line company
+≈ 30 MB per snapshot). The master-data high-water mark is read under the taker's RLS.
