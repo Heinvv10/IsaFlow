@@ -274,6 +274,9 @@ describe('/api/mcp transport', () => {
       const err = (res.body as { error: { code: number; message: string } }).error;
       expect(err.code).toBe(-32001);
       expect(err.message).toBe('MCP connector not enabled for this company');
+      // The request's id, not null: a null-id reply to a request that carried
+      // an id is shown by MCP clients as a malformed result, hiding the message.
+      expect((res.body as { id: unknown }).id).toBe(1);
     }
     expect(hasFeature).toHaveBeenCalledWith(COMPANY_ID, 'mcp_connector');
     expect(seenContexts).toHaveLength(0);
@@ -286,6 +289,8 @@ describe('/api/mcp transport', () => {
     await route(makeReq('POST', rpc('ping')) as never, res);
     expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 1 });
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
+    expect((res.body as { id: unknown }).id).toBe(1);
+    expect((res.body as { error: { data: unknown } }).error.data).toEqual({ limitPerMinute: 120, windowSeconds: 60 });
   });
 
   const companyCharges = () => vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith('mcp:'));
@@ -362,6 +367,15 @@ describe('/api/mcp transport', () => {
     await route(makeReq('POST', rpc('ping')) as never, res);
     expect(checkRateLimit).toHaveBeenCalledWith('mcp-ip:10.0.0.1', { max: 300, windowSecs: 60 });
     expect(res.statusCode).toBe(429);
+    expect((res.body as { id: unknown }).id).toBe(1);
     expect(seenContexts).toHaveLength(0); // never reached a tool
+  });
+
+  it('pre-auth per-IP throttle does not echo an oversized id', async () => {
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp-ip:'));
+    const res = makeRes();
+    await route(makeReq('POST', { ...rpc('ping'), id: 'x'.repeat(201) }) as never, res);
+    expect(res.statusCode).toBe(429);
+    expect((res.body as { id: unknown }).id).toBeNull();
   });
 });
