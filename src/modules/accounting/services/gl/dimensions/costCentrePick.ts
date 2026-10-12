@@ -141,3 +141,18 @@ export async function placeCostCentres<T extends DimensionIds & { costCenterId?:
   });
   return { lines: placed, warnings };
 }
+
+/**
+ * createJournalEntry's half of the rule (D4, 2026-10-12). `placeCostCentres` removes `costCenterId` from every line
+ * it returns, so a line that still carries one never went through it: its pick would be lost, since no journal line
+ * writes the legacy column any more. Refused before anything is written. There is no marker to forge — spreading
+ * an unplaced line keeps the field, and that is exactly what is refused.
+ */
+export function assertCostCentresPlaced(lines: readonly { costCenterId?: unknown }[]): void {
+  const i = lines.findIndex((l) => l.costCenterId !== undefined && l.costCenterId !== null && l.costCenterId !== '');
+  if (i >= 0) {
+    throw new CostCentrePickRefusal(
+      `Line ${i + 1}: its cost centre was never placed in a CC1 or CC2 slot, so it would be lost. Nothing was posted.`, i,
+    );
+  }
+}

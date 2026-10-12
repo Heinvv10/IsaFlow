@@ -92,12 +92,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Auto-apply on create: run only the new rule so the returned `applied`
     // count reflects this rule's matches and not the entire ruleset.
     let applied = 0;
+    let skips: Record<string, number> = {};
     if (input.bankAccountId) {
       const result = await applyRules(companyId, input.bankAccountId, userId, [rule.id]);
       applied = result.applied;
+      // The run's autoPost* skip counts too, which the create toast reads (applyToast.reportCreated): a rule
+      // pointed at a header account skips every line, and `applied: 0` alone would not say why.
+      skips = Object.fromEntries(Object.entries(result)
+        .filter((e): e is [string, number] => e[0].startsWith('autoPost') && typeof e[1] === 'number'));
     }
 
-    return apiResponse.success(res, { ...rule, applied });
+    return apiResponse.success(res, { ...rule, applied, ...skips });
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
