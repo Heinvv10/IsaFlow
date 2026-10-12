@@ -5,10 +5,10 @@
  * seconds) on connections the pool shares with every request's after-commit work and the public routes, so this
  * bounds their load however many members send requests; neither one company nor one person can hold every slot and
  * starve the others (breaker r2 N5: one person with two companies did).
- * Automatic snapshots wait for a slot — the per-person cap applies to them too, so a person cannot fill the slots by
- * closing and reopening periods — for up to SLOT_WAIT_MS (a wait holds no database connection, and the snapshot's
- * time budget starts only once it runs: a bookkeeper's month-end closes across many companies run one after another),
- * and at most MAX_WAITING_PER_USER of one person's jobs wait at once. Anything asked for by a person or an agent is
+ * Automatic snapshots hold at most MAX_AUTOMATIC slots (the rest stay free for what people and agents ask for) and
+ * wait for one — the per-person cap applies to them too, so a person cannot fill the slots by closing and reopening
+ * periods — for up to SLOT_WAIT_MS (a wait holds no database connection, and the snapshot's time budget starts only
+ * once it runs), taking people in turn rather than in arrival order, at most MAX_WAITING_PER_USER per person. Anything asked for by a person or an agent is
  * refused (409) while no slot is free — a waiting web request would hold its own pooled connection.
  */
 import { als } from '@/lib/als';
@@ -17,12 +17,18 @@ import { SnapshotBusyError } from './auditTx';
 export const MAX_CONCURRENT_SNAPSHOTS = 2;
 export const PER_COMPANY = 1;
 export const PER_USER = 1;
-export const SLOT_WAIT_MS = 30 * 60_000;
+/** Automatic jobs hold at most this many slots: the rest stay free for what people and agents ask for. */
+export const MAX_AUTOMATIC = 1;
+export const SLOT_WAIT_MS = 60 * 60_000;
 export const MAX_WAITING_PER_USER = 50;
 let running = 0;
+let runningAutomatic = 0;
 const heldByCompany = new Map<string, number>();
 const heldByUser = new Map<string, number>();
 const waiting: { companyId: string; userId: string | null; go: () => void }[] = [];
+/** When each person's automatic job last started: the queue takes people in turn, not in arrival order. */
+const lastServed = new Map<string, number>();
+let tick = 0;
 
 const count = (m: Map<string, number>, k: string | null) => (k === null ? 0 : m.get(k) ?? 0);
 const bump = (m: Map<string, number>, k: string | null, by: number) => {
@@ -31,24 +37,35 @@ const bump = (m: Map<string, number>, k: string | null, by: number) => {
   if (n > 0) m.set(k, n); else m.delete(k);
 };
 
-const free = (companyId: string, userId: string | null) => running < MAX_CONCURRENT_SNAPSHOTS
-  && count(heldByCompany, companyId) < PER_COMPANY && count(heldByUser, userId) < PER_USER;
+const free = (companyId: string, userId: string | null, automatic: boolean) => running < MAX_CONCURRENT_SNAPSHOTS
+  && count(heldByCompany, companyId) < PER_COMPANY && count(heldByUser, userId) < PER_USER
+  && (!automatic || runningAutomatic < MAX_AUTOMATIC);
 
-function take(companyId: string, userId: string | null) {
+function take(companyId: string, userId: string | null, automatic: boolean) {
   running += 1;
+  if (automatic) {
+    runningAutomatic += 1;
+    lastServed.set(userId ?? '', ++tick);
+  }
   bump(heldByCompany, companyId, 1);
   bump(heldByUser, userId, 1);
 }
 
-function give(companyId: string, userId: string | null) {
+function give(companyId: string, userId: string | null, automatic: boolean) {
   running -= 1;
+  if (automatic) runningAutomatic -= 1;
   bump(heldByCompany, companyId, -1);
   bump(heldByUser, userId, -1);
-  // Wake the longest-waiting job that may run now (another company's or person's, when this one still holds its share).
-  const next = waiting.findIndex((w) => free(w.companyId, w.userId));
+  // Wake a waiting (automatic) job that may run now: the person served longest ago first, then the earliest queued.
+  let next = -1;
+  for (let i = 0; i < waiting.length; i++) {
+    const w = waiting[i]!;
+    if (!free(w.companyId, w.userId, true)) continue;
+    if (next < 0 || (lastServed.get(w.userId ?? '') ?? 0) < (lastServed.get(waiting[next]!.userId ?? '') ?? 0)) next = i;
+  }
   if (next >= 0) {
     const [w] = waiting.splice(next, 1);
-    take(w!.companyId, w!.userId);
+    take(w!.companyId, w!.userId, true);
     w!.go();
   }
 }
@@ -56,8 +73,9 @@ function give(companyId: string, userId: string | null) {
 /** `userId`: the person the job runs for — the request's own by default. */
 export async function withSnapshotSlot<T>(companyId: string, wait: boolean, fn: () => Promise<T>,
   userId: string | null = als.getStore()?.userId ?? null): Promise<T> {
-  if (free(companyId, userId)) {
-    take(companyId, userId);
+  // `wait`: an automatic job (it queues); anything a person or an agent asks for is refused while busy.
+  if (free(companyId, userId, wait)) {
+    take(companyId, userId, wait);
   } else {
     if (!wait) {
       throw new SnapshotBusyError('An audit job (snapshot, verify or comparison) is already running for this company or for you, '
@@ -81,6 +99,6 @@ export async function withSnapshotSlot<T>(companyId: string, wait: boolean, fn: 
   try {
     return await fn();
   } finally {
-    give(companyId, userId);
+    give(companyId, userId, wait);
   }
 }

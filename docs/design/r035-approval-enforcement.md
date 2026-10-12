@@ -726,10 +726,11 @@ One snapshot per company at a time (a session advisory lock taken before the REP
 reads the chain the previous one left): by hand a second request is refused (409), automatic ones wait; at most two
 whole-ledger jobs per process, one per company and one per person (so neither one company nor one person with
 several companies holds both — automatic snapshots included, so closing and reopening periods cannot fill them;
-automatic ones queue for up to 30 minutes instead, at most 50 per person, holding no connection while they wait, so a
+automatic ones hold at most one of the two slots (the other stays free for what people and agents ask for) and queue
+for up to an hour instead — people in turn, at most 50 per person, holding no connection while they wait — so a
 bookkeeper's month-end closes across companies run one after another; once it runs, a queued snapshot re-reads in
 its own transaction that its close or lock still stands, and freezes nothing — a `lock_gone` failure — if it was
-undone meanwhile), a 120 s budget per snapshot counted from when
+undone meanwhile, and the next latest standing close is snapshotted instead), a 120 s budget per snapshot counted from when
 the slot and the company's lock are held — a bound, not a check afterwards: before each step, check and
 total the time left is checked and statement_timeout tightened to it, and past the deadline a watchdog cancels
 whatever statement the snapshot's connection is running. Automatic jobs wait at most five minutes for a

@@ -115,10 +115,13 @@ CREATE TABLE IF NOT EXISTS audit_snapshots (
   CONSTRAINT audit_snapshots_shape_ck CHECK (
     (status = 'sealed' AND failure_reason IS NULL AND canonical_hash IS NOT NULL AND hmac IS NOT NULL AND key_id IS NOT NULL
       AND seq IS NOT NULL AND (seq > 1 OR prev_hmac IS NULL) AND same_as_snapshot_id IS NULL)
-    OR (status = 'failed' AND failure_reason IS NOT NULL AND canonical_hash IS NULL AND hmac IS NULL AND check_run_id IS NULL
-      AND seq IS NULL AND prev_hmac IS NULL AND same_as_snapshot_id IS NULL)
+    -- Attempts carry an attempt seal (canonical_hash over status | trigger | reason / twin / run, HMAC'd) — or, when the
+    -- server had no key, none at all: all three or none.
+    OR (status = 'failed' AND failure_reason IS NOT NULL AND check_run_id IS NULL
+      AND seq IS NULL AND prev_hmac IS NULL AND same_as_snapshot_id IS NULL
+      AND (canonical_hash IS NULL) = (hmac IS NULL) AND (hmac IS NULL) = (key_id IS NULL))
     OR (status = 'unchanged' AND same_as_snapshot_id IS NOT NULL AND check_run_id IS NOT NULL AND failure_reason IS NULL
-      AND canonical_hash IS NULL AND hmac IS NULL AND seq IS NULL AND prev_hmac IS NULL))
+      AND canonical_hash IS NOT NULL AND hmac IS NOT NULL AND key_id IS NOT NULL AND seq IS NULL AND prev_hmac IS NULL))
 );
 CREATE INDEX IF NOT EXISTS audit_snapshots_company_taken_idx ON audit_snapshots (company_id, taken_at DESC);
 
