@@ -84,6 +84,9 @@ async function books() {
   const l = await plantLedger(pool, c);
   await plantJournal(pool, c, { date: '2026-03-10', amount: 1000, debit: l.bank, credit: l.sales, by: o });
   await plantJournal(pool, c, { date: '2026-04-05', amount: 500, debit: l.expense, credit: l.bank, by: o });
+  // June closed: an automatic snapshot at 2026-06-30 re-reads that its close stands (lock_gone otherwise).
+  await pool.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status, closed_at)
+                    VALUES ($1, 'Jun 2026', 6, 2026, '2026-06-01', '2026-06-30', 'closed', now())`, [c]);
   return { c, l };
 }
 
