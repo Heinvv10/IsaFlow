@@ -98,14 +98,15 @@ for i in $(seq 2 "$SHARDS"); do mkdir "$WORK/c$i"; cp -a "$WORK/c1/data" "$WORK/
 declare -a PORTS=()
 for i in $(seq 1 "$SHARDS"); do PORTS+=("$(pg_cluster_start "$WORK/c$i")"); done
 
-# migration-parity-gate.int.test.ts needs a throwaway server that is NOT the one
-# DATABASE_URL names (and optionally a second): the next shards' clusters. It
-# only creates and drops its own parity_* databases there.
+# migration-parity-gate.int.test.ts needs two more throwaway servers holding
+# no database but its own (tests/helpers/parityTestGuard.ts): two empty ones.
+for p in p1 p2; do mkdir "$WORK/c$p"; pg_cluster_init "$WORK/c$p"; done
+parity="postgresql://postgres@127.0.0.1:$(pg_cluster_start "$WORK/cp1")/postgres"
+parity2="postgresql://postgres@127.0.0.1:$(pg_cluster_start "$WORK/cp2")/postgres"
+
 declare -a PIDS=()
 for i in $(seq 1 "$SHARDS"); do
   port=${PORTS[$((i - 1))]}
-  parity="postgresql://postgres@127.0.0.1:${PORTS[$((i % SHARDS))]}/postgres"
-  parity2="postgresql://postgres@127.0.0.1:${PORTS[$(((i + 1) % SHARDS))]}/postgres"
   (
     rc=0
     for db in isaflow_schema_fixture isaflow_test; do
