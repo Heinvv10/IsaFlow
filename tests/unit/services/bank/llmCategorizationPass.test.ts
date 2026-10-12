@@ -112,7 +112,7 @@ describe('runLlmResidualPass', () => {
   });
 
   it('logs the cost-centre picks the sweep dropped, since no response can carry them', async () => {
-    const warnings = [{ txId: 't1', journalEntryId: 'je-1', warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'] }];
+    const warnings = [{ txId: 't1', journalEntryId: 'je-1', label: '2026-10-02 R 5,00', description: 'JOHN SMITH 0821234567 RENT', warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'] }];
     vi.mocked(log.warn).mockClear();
     await runLlmResidualPass('company-1', ['t1'], 'user-1', {
       llmEnabled: true, maxCalls: 200, dailyRemaining: 100,
@@ -122,8 +122,10 @@ describe('runLlmResidualPass', () => {
       sweep: async () => ({ runId: 'run-1', posted: 1, skipped: [], warnings }),
       categorizeOne: async () => mockResult,
     });
+    // counts and ids only: the bank description is free text (names, phone numbers) and stays out of the log
     expect(log.warn).toHaveBeenCalledWith(
-      'LLM pass: auto-post dropped cost-centre picks', { companyId: 'company-1', warnings }, 'llm-pass',
+      'LLM pass: auto-post dropped cost-centre picks', { companyId: 'company-1', lines: 1, warnings: 1, txIds: ['t1'] }, 'llm-pass',
     );
+    expect(JSON.stringify(vi.mocked(log.warn).mock.calls)).not.toContain('JOHN SMITH');
   });
 });

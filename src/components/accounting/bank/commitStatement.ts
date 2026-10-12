@@ -1,5 +1,6 @@
 import { assertOk, apiFetch } from '@/lib/apiFetch';
 import { readFileForUpload, type CollectedFile } from '@/lib/bulkUpload/folderTraversal';
+import { warningMessages } from '@/lib/warningMessages';
 import type { BulkCommitResponse } from './bulkImportTypes';
 
 /** One bank line that auto-posted without its predicted cost centre (the route's `data.autoPost.warnings[]`). */
@@ -46,27 +47,9 @@ export async function commitStatement(args: {
   return {
     data,
     dropped: imported ? droppedLines(data.autoPost?.warnings) : [],
-    importWarnings: imported ? messages(data.warnings) : [],
+    importWarnings: imported ? warningMessages(data.warnings) : [],
   };
 }
-
-/** A warning as text: a string as is; an object by its `error` or `message`, else as JSON; nothing for null. */
-const text = (e: unknown): string => {
-  if (typeof e === 'string') return e;
-  if (e === null || e === undefined) return '';
-  if (typeof e === 'object') {
-    const o = e as { error?: unknown; message?: unknown };
-    return typeof o.error === 'string' ? o.error : typeof o.message === 'string' ? o.message : JSON.stringify(e);
-  }
-  return String(e);
-};
-
-/**
- * A server's list of warnings, COERCED, never dropped: a lone value is a list
- * of one, an element that is not a string becomes its text, and only empties
- * and repeats go. A wrong shape must not make a file with problems read clean.
- */
-const messages = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : [v]).map(text).filter((w) => w !== ''))];
 
 /**
  * The route's `autoPost.warnings`, read as a server's answer: only object
@@ -76,15 +59,18 @@ const messages = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : [
  * sweep sent.
  */
 function droppedLines(v: unknown): DroppedPickLine[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null && !Array.isArray(e))
+  // A lone object is a list of one; a bare sentence is a line that has only its warning.
+  const list = Array.isArray(v) ? v : v === null || v === undefined ? [] : [v];
+  return list
+    .map((e): Record<string, unknown> | null => (typeof e === 'string' ? { warnings: [e] }
+      : typeof e === 'object' && e !== null && !Array.isArray(e) ? e as Record<string, unknown> : null))
+    .filter((e): e is Record<string, unknown> => e !== null)
     .map((e) => ({
       txId: typeof e.txId === 'string' ? e.txId : undefined,
       journalEntryId: typeof e.journalEntryId === 'string' ? e.journalEntryId : undefined,
       label: typeof e.label === 'string' ? e.label : '',
       description: typeof e.description === 'string' ? e.description : null,
-      warnings: messages(e.warnings),
+      warnings: warningMessages(e.warnings),
     }))
     .filter((l) => l.warnings.length > 0)
     .sort((a, b) => Number(a.label === '') - Number(b.label === '')

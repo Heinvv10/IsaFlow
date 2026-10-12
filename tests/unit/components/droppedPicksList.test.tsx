@@ -70,4 +70,10 @@ describe('DroppedPicksList', () => {
     expect(el.className).toMatch(/\btruncate\b/);
     expect(el.className).toMatch(/\bmin-w-0\b/);
   });
+
+  it('lets a long unbroken warning sentence wrap instead of widening the row', () => {
+    render(<DroppedPicksList lines={[line(1, { warnings: ['Line 1: ' + 'U'.repeat(200)] })]} />);
+    const el = screen.getByText('U'.repeat(200));
+    expect(el.className).toMatch(/\bbreak-words\b/);
+  });
 });

@@ -18,6 +18,7 @@
  */
 import { notify } from '@/utils/toast';
 import { parsePickDropSentence, pickDropFact } from '@/lib/costCentrePickWording';
+import { warningMessages } from '@/lib/warningMessages';
 
 /**
  * The part of a posting route's response this notice reads. `id` is there so a
@@ -33,8 +34,7 @@ export interface PostingWarningsBody {
   } | null;
 }
 
-const strings = (v: unknown): string[] =>
-  [...new Set(Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : [])];
+const strings = warningMessages; // the one coercion, shared with the bulk import: a wrong shape is read, not lost
 
 interface PostingDocument { warnings: string[]; label?: string }
 
@@ -55,7 +55,8 @@ function postingDocuments(body: PostingWarningsBody | null | undefined): Posting
     { warnings: strings(data.warnings) },
     { warnings: strings((data.claim as Record<string, unknown> | undefined)?.warnings) },
     ...results.map((r) => ({ warnings: strings(r?.warnings) })),
-    ...sweptTxs.map((t) => ({ warnings: strings(t?.warnings), ...(typeof t?.label === 'string' && t.label ? { label: t.label } : {}) })),
+    // label '' marks a sweep line that has none: it is still a bank line (line 2 points at the list)
+    ...sweptTxs.map((t) => ({ warnings: strings(t?.warnings), label: typeof t?.label === 'string' ? t.label : '' })),
   ].filter((d) => d.warnings.length > 0);
 }
 
@@ -90,10 +91,10 @@ export function postingWarningsNotice(
   const all = byDocument.flat();
   const first = all[0] ?? '';
   const drop = parsePickDropSentence(first);
-  const firstLabel = labels[0];
+  const firstLabel = labels[0]; // undefined: not a bank line; '': a bank line without a label
   // A sentence this screen does not know still reaches the person whole: the title wraps.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}${firstLabel ? `, bank line ${firstLabel}` : ''}`;
-  if (firstLabel) {
+  if (firstLabel !== undefined) {
     return { title, message: all.length > 2 ? `+${all.length - 1} more warnings — listed below` : all.length === 2 ? '+1 more warning — listed below' : 'See the list below.' };
   }
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };

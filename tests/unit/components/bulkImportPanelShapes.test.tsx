@@ -189,11 +189,12 @@ describe('REPRO 5 — tie order follows the server (whose SELECT has no ORDER BY
 });
 
 describe('mixed run: failed and with-problems both named', () => {
-  it('the Partial-import toast and the card carry the with-problems count', async () => {
+  it('the Partial-import toast (in its title) and the card carry the with-problems count', async () => {
     await run(['bad.csv', 'warn.csv'], (n) => n === 'bad.csv' ? json({ success: false, message: 'Insufficient flows' }, 402)
       : json(imported(n, { warnings: ['Auto-post failed — still unposted'] })));
-    const partial = vi.mocked(notify.warning).mock.calls.find(([t]) => t === 'Partial import');
-    expect(partial![1]).toBe('1 imported · 1 failed · 0 skipped · 1 with problems');
+    const partial = vi.mocked(notify.warning).mock.calls.find(([t]) => String(t).startsWith('Partial import'));
+    expect(partial![0]).toBe('Partial import — 1 with problems'); // in the title: line 2 is the toast's one clipped row
+    expect(partial![1]).toBe('1 imported · 1 failed · 0 skipped');
     expect(screen.getByText(/1 imported · 0 skipped · 1 failed · 1 with problems/)).toBeTruthy();
   });
 });
