@@ -17,7 +17,7 @@ import { result, type CheckResult, type CheckWindow } from './checkTypes';
 import { CHECK_RUN_SEAL_DOMAIN, sign, signingKey, type SigningKey } from '../seal';
 import { checkRunHash, type CheckRunHeader } from '../documents';
 import { runAuditTx, transactionNow, type AuditPrincipal } from '../auditTx';
-import { fiscalYearStart } from '../snapshotRows';
+import { bulkPlan, fiscalYearStart } from '../snapshotRows';
 
 const ANOMALY_IDS = ['anomaly.benford', 'anomaly.statistical_outliers', 'anomaly.duplicate_payments', 'anomaly.unusual_posting_patterns'];
 const JOURNAL_RISK_IDS = ['journal_risk.backdated_entry', 'journal_risk.posted_after_period_close',
@@ -33,12 +33,13 @@ async function family(name: string, ids: string[], version: number, fam: CheckRe
   }
 }
 
+/** Every check over the window, set-wise plans (bulkPlan): a check that still errors is recorded `unknown`. */
 export async function runAllChecks(w: CheckWindow): Promise<CheckResult[]> {
-  return [
+  return bulkPlan(async () => [
     ...await runIntegrity(w),
     ...await family('anomaly', ANOMALY_IDS, ANOMALY_CHECK_VERSION, 'anomaly', () => runAnomalyChecks(w)),
     ...await family('journal_risk', JOURNAL_RISK_IDS, JOURNAL_RISK_CHECK_VERSION, 'journal_risk', () => runJournalRiskChecks(w)),
-  ];
+  ]);
 }
 
 export function checkTotals(results: CheckResult[]): Record<string, number> {
