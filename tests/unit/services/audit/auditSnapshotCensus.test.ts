@@ -11,12 +11,14 @@
  *     adapter.
  * Read from disk with comments stripped (tests/unit/helpers/sourceCensus).
  */
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { sourceFiles, stripComments } from '../../helpers/sourceCensus';
 
 const MIGRATIONS = 'scripts/migrations/sql/';
-const code = () => sourceFiles().filter(({ file }) => !file.startsWith(MIGRATIONS))
-  .map(({ file, text }) => ({ file, text: stripComments(text, file) }));
+let walked: { file: string; text: string }[] | null = null;
+/** The tree, read and stripped once for the whole file (re-walking per assertion timed out under CI load). */
+const code = () => (walked ??= sourceFiles().filter(({ file }) => !file.startsWith(MIGRATIONS))
+  .map(({ file, text }) => ({ file, text: stripComments(text, file) })));
 const filesMatching = (re: RegExp) => code().filter(({ text }) => re.test(text)).map(({ file }) => file).sort();
 
 /** The body of `function name(` up to the next top-level `\nexport ` or `\n}` at column 0. */
@@ -28,16 +30,19 @@ function body(file: string, name: string): string {
   return text.slice(start, end < 0 ? undefined : end);
 }
 
+beforeAll(() => { code(); }, 120_000);
+
 const AUDIT_TABLE = /\baudit_(?:snapshots|snapshot_tb|snapshot_journals|snapshot_lines|check_runs|check_results)\b/;
 
 describe('the audit tables', () => {
   it('only snapshotRead.ts names them outside 889 (the writers are definers); the MCP tool shares one name', () => {
     expect(filesMatching(AUDIT_TABLE)).toEqual([
       'src/lib/mcp/clientMetadata.ts',
+      'src/lib/mcp/flowMetering.ts',
       'src/lib/mcp/tools/auditSnapshots.ts',
       'src/modules/accounting/services/audit/snapshotRead.ts',
     ]);
-    // In those two the only mention is the tool's name — never a table in SQL (FROM / JOIN / INTO / UPDATE / TABLE).
+    // In those three the only mention is the tool's name — never a table in SQL (FROM / JOIN / INTO / UPDATE / TABLE).
     for (const f of code().filter(({ file }) => file.startsWith('src/lib/mcp/'))) {
       for (const m of f.text.matchAll(new RegExp(AUDIT_TABLE.source, 'g'))) {
         expect(m[0], f.file).toBe('audit_snapshots');
