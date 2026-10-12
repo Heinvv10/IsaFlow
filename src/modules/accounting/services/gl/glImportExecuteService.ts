@@ -14,6 +14,7 @@ import { ledgerDaysOf } from './journalDateGuard';
 import { newManualJournalGate, settleUnattendedJournal } from './manualJournalApproval';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 import { CostCentrePickRefusal, placeCostCentres } from './dimensions/costCentrePick';
+import { assertNoHeaderAccountLines, isHeaderAccountRefusal } from './headerAccountGuard';
 import { assertNewJournalDimensions } from './dimensions/dimensionPolicy';
 import { PreWriteDimensionRefusal } from './dimensions/dimensionTypes';
 type Row = DbRow;
@@ -40,15 +41,18 @@ export class ImportValidationError extends Error {
  * before any group is written, and names the ROW the refusal is about
  * (`lineIndex`; one line per row) with the refusal's own words, or the group
  * when it is about no single line. (The code map holds active centres only, so
- * nothing is dropped here.)
+ * nothing is dropped here.) A row on a balance-sheet header (gl/headerAccountGuard)
+ * is refused here too, for the same reason: createJournalEntry would refuse it
+ * inside the write loop, after earlier groups were written.
  */
 async function placeRowCentres(companyId: string, lines: JournalLineInput[], rows: ImportRow[]): Promise<JournalLineInput[]> {
   try {
     const placed = (await placeCostCentres(companyId, lines)).lines;
     await assertNewJournalDimensions(companyId, 'auto_gl_import', placed); // e.g. a project under an inactive FNO
+    await assertNoHeaderAccountLines(companyId, placed);
     return placed;
   } catch (err) {
-    if (!(err instanceof PreWriteDimensionRefusal)) throw err;
+    if (!(err instanceof PreWriteDimensionRefusal) && !isHeaderAccountRefusal(err)) throw err;
     const row = err.lineIndex === undefined ? undefined : rows[err.lineIndex];
     const first = rows[0]!;
     const where = row

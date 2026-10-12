@@ -100,8 +100,9 @@ export async function assertParentUsable(
   // the Add Account dialog for a case that loses nothing — the reports carry
   // a level-3 account whether or not it has children, so nothing disappears.
   // That is the whole justification. `validateLeafAccount` is NOT a second one:
-  // it runs on the expense-claim posting route and nowhere else, so a later
-  // post to the parent through any other path is not refused.
+  // it runs on the expense-claim posting route and nowhere else, and
+  // `headerAccountGuard` refuses posts to level 1-2 headers only, so a later
+  // post to a level-3 parent through any other path is not refused.
   if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
     // LOCKED BEFORE THE READ, and this is what makes the verdict hold.
     //

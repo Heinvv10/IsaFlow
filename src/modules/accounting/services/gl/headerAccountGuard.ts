@@ -77,7 +77,9 @@ export async function assertNoHeaderAccountLines(
   const subject = (await q`
     SELECT id FROM gl_accounts
      WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[]) AND level < ${BALANCE_SHEET_LEAF_LEVEL}
+       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
+       -- NULL level: the balance sheet tests level >= 3, which is NULL too, so it hides such a header; judge it as one.
+       AND (level IS NULL OR level < ${BALANCE_SHEET_LEAF_LEVEL})
      ORDER BY id
        FOR KEY SHARE
   `) as { id: string }[];
