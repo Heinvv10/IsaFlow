@@ -14,7 +14,7 @@
  *
  * COUNTED PER DOCUMENT. Two bills that each drop the same centre are two
  * dropped picks, not one: a sentence is merged only with its own repeat inside
- * one document.
+ * one document. A bulk action names the bills it happened on in the second line.
  */
 import { notify } from '@/utils/toast';
 import { parsePickDropSentence, pickDropFact } from '@/lib/costCentrePickWording';
@@ -27,28 +27,38 @@ export interface PostingWarningsBody {
   data?: {
     warnings?: string[];
     claim?: { id?: string; warnings?: string[] } | null;
-    results?: Array<{ warnings?: string[] } | null>;
+    results?: Array<{ warnings?: string[]; invoiceNumber?: string | null } | null>;
   } | null;
 }
 
 const strings = (v: unknown): string[] =>
   [...new Set(Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : [])];
 
+/** One document's warnings, and the number it is known by when the response carries it (bulk actions). */
+export interface DocumentWarnings { name?: string; warnings: string[] }
+
 /**
  * The warnings of each document in an API response body that has any:
  * `data.warnings`, `data.claim.warnings` (expense claims), and one entry per
- * `data.results[]` item (bulk actions).
+ * `data.results[]` item (bulk actions, which also carry its `invoiceNumber`).
  */
-export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
+export function postingWarningsDocuments(body: PostingWarningsBody | null | undefined): DocumentWarnings[] {
   // Read as untyped: it is a server's answer, and a wrong shape must show nothing rather than throw.
   const data = (body as { data?: Record<string, unknown> } | null | undefined)?.data;
   if (!data || typeof data !== 'object') return [];
   const results = Array.isArray(data.results) ? data.results as Array<Record<string, unknown> | null> : [];
+  const name = (r: Record<string, unknown> | null) =>
+    typeof r?.invoiceNumber === 'string' && r.invoiceNumber !== '' ? r.invoiceNumber : undefined;
   return [
-    strings(data.warnings),
-    strings((data.claim as Record<string, unknown> | undefined)?.warnings),
-    ...results.map((r) => strings(r?.warnings)),
-  ].filter((w) => w.length > 0);
+    { warnings: strings(data.warnings) },
+    { warnings: strings((data.claim as Record<string, unknown> | undefined)?.warnings) },
+    ...results.map((r) => ({ name: name(r), warnings: strings(r?.warnings) })),
+  ].filter((d) => d.warnings.length > 0);
+}
+
+/** The warnings of each document in a response body, without the numbers. */
+export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
+  return postingWarningsDocuments(body).map((d) => d.warnings);
 }
 
 /** Every posting warning in a response, document by document — the full sentences. */
@@ -56,24 +66,54 @@ export function postingWarningsIn(body: PostingWarningsBody | null | undefined):
   return postingWarningsByDocument(body).flat();
 }
 
-/** The notice for a response's warnings: a title that says which centre and why, and a second line that fits. */
-export function postingWarningsNotice(byDocument: readonly string[][]): { title: string; message: string } {
+/** The toast clips its second line to one row of ~280px: longer than this and it is cut off. */
+export const NOTICE_LINE_FITS = 45;
+
+/**
+ * "+3 more, in INV-1, INV-2, INV-3" — and when the numbers do not fit the row,
+ * the first few then "and k more", then (a number alone too long, or one not
+ * known) just how many documents. The title carries the fact either way.
+ */
+function moreInDocuments(more: number, names: ReadonlyArray<string | undefined>): string {
+  const head = `+${more} more, in `;
+  if (names.every((n): n is string => !!n)) {
+    const full = head + names.join(', ');
+    if (full.length <= NOTICE_LINE_FITS) return full;
+    for (let shown = names.length - 1; shown >= 1; shown--) {
+      const cut = `${head}${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
+      if (cut.length <= NOTICE_LINE_FITS) return cut;
+    }
+  }
+  return `${head}${names.length} documents`;
+}
+
+/**
+ * The notice for a response's warnings: a title that says which centre and why,
+ * and a second line that fits. `names` are the documents' numbers, one per
+ * entry of `byDocument`, when the response carried them.
+ */
+export function postingWarningsNotice(
+  byDocument: readonly string[][], names: ReadonlyArray<string | undefined> = [],
+): { title: string; message: string } {
   const all = byDocument.flat();
   const first = all[0] ?? '';
   const drop = parsePickDropSentence(first);
   // A sentence this screen does not know still reaches the person whole: the title wraps.
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
-  const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';
-  return { title, message: `+${all.length - 1} more not applied${documents}.` };
+  if (byDocument.length > 1) {
+    return { title, message: moreInDocuments(all.length - 1, byDocument.map((_, i) => names[i])) };
+  }
+  return { title, message: `+${all.length - 1} more not applied.` };
 }
 
 /** Show the notice for a response, if it carries posting warnings. Returns how many dropped picks it found. */
 export function notifyPostingWarnings(body: PostingWarningsBody | null | undefined): number {
-  const byDocument = postingWarningsByDocument(body);
+  const documents = postingWarningsDocuments(body);
+  const byDocument = documents.map((d) => d.warnings);
   const count = byDocument.reduce((n, w) => n + w.length, 0);
   if (count > 0) {
-    const { title, message } = postingWarningsNotice(byDocument);
+    const { title, message } = postingWarningsNotice(byDocument, documents.map((d) => d.name));
     notify.warning(title, message || undefined);
   }
   return count;
