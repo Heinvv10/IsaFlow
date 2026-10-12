@@ -28,7 +28,6 @@ function line(over: Partial<ReclassSourceLine> = {}): ReclassSourceLine {
     credit: 0,
     description: 'Fibre cable',
     projectId: null,
-    costCenterId: null,
     vatType: null,
     buId: null,
     cc1Id: null,
@@ -152,13 +151,13 @@ describe('buildReclassJournals', () => {
       .toEqual([['cc1', 'cc2'], ['cc1', 'cc2']]);
   });
 
-  it('preserves project and cost centre on BOTH legs', () => {
+  it('preserves project on BOTH legs and writes no legacy cost centre (D4)', () => {
     const [journal] = buildReclassJournals(
-      [line({ projectId: 'p1', costCenterId: 'c1' })], SOURCE, TARGET, NAMES, null,
+      [line({ projectId: 'p1' })], SOURCE, TARGET, NAMES, null,
     );
     for (const l of journal!.lines) {
       expect(l.projectId).toBe('p1');
-      expect(l.costCenterId).toBe('c1');
+      expect(l).not.toHaveProperty('costCenterId');
     }
   });
 
