@@ -29,6 +29,10 @@
 #      function body the migrations define, so as text it would read as a
 #      writer of all of them. Read it with: gunzip -c baseline.sql.gz
 #
+# Keeping it honest: the baseline copies dev's drift (objects no migration
+# creates, migrations dev never got). Refresh after dev's drift is repaired, and
+# diff the old and new dumps (gunzip -c) to see what a refresh changes.
+#
 # After a refresh: run the gate (bash scripts/ci/integration/run.sh) and commit
 # baseline.sql.gz. Migrations newer than the baseline need no refresh; the gate
 # applies them through scripts/apply-migrations.ts on every run.
@@ -73,9 +77,10 @@ PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 export PGPASSWORD
 pg_cluster_init "$WORK"
 PORT=$(pg_cluster_start "$WORK")
-PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
-
 pg_create_roles "$PORT"
+# Load and replay as a superuser `postgres`, so every object keeps dev's owner.
+"$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U "$PG_SUPERUSER" -X -q -d postgres -c "ALTER ROLE postgres SUPERUSER"
+PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_baseline"
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-schema.sql" > /dev/null
 "${PSQL[@]}" -d isaflow_baseline -f "$WORK/dev-tracking.sql" > /dev/null
