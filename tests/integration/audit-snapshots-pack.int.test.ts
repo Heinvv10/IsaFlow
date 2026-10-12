@@ -231,6 +231,8 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
       `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status, snapshot_id, zip_storage_path, zip_sha256)
        VALUES($1, '2026-01-01', '2026-06-30', 'ready', $2, 'p', 'h')`, [c, genuine.snapshotId])))).toBe('42501');
     expect(await code(asManager((db) => db.query('DELETE FROM audit_trail_exports WHERE id = $1', [genuine.id])))).toBe('42501');
+    expect(await code(asManager((db) => db.query(
+      `UPDATE audit_trail_exports SET pdf_storage_bucket = 'elsewhere' WHERE id = $1`, [genuine.id])))).toBe('42501');
     // A failed export moved to ready without a snapshot and ZIP: refused.
     const failed = (await asManager((db) => db.query(
       `INSERT INTO audit_trail_exports(company_id, period_start, period_end, status) VALUES($1, '2026-01-01', '2026-06-30', 'failed')
