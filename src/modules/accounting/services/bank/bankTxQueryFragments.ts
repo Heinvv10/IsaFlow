@@ -7,6 +7,7 @@
  * what makes them safe for `sql.unsafe`.
  */
 import type { BankTxFilters } from './bankTxFilters';
+import { JOURNAL_DIMENSION_SET_LATERAL } from '../gl/dimensions/journalDimensionSetSql';
 
 // The screen's VAT column rendered `rowSelections[tx.id]?.vatCode`, seeded only
 // from bt.suggested_vat_code — which the rule auto-post path NULLs the moment it
@@ -103,6 +104,28 @@ const ALLOCATED_ACCOUNT_LATERAL = `
     LIMIT 1
   ) aa ON TRUE`;
 
+// The dimensions the screen shows. The bank row's own cc1/cc2/bu when it has
+// any; otherwise its allocation journal's — the one rule in
+// gl/dimensions/journalDimensionSetSql.ts, which bank-row sync reads too, so the
+// screen and the sync cannot disagree: a POSTED journal whose dimension lines
+// (every line but the bank leg that is not on a control account) agree on one
+// set → 'journal'; more than one set, a partial tagging included → 'split' with
+// no single value; none, or all untagged → nothing. A supplier payment's
+// journal is AP + bank, both control: its dimensions are on the bill.
+const DIMENSION_JOINS = `${JOURNAL_DIMENSION_SET_LATERAL}
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE WHEN bt.cc1_id IS NOT NULL OR bt.cc2_id IS NOT NULL OR bt.bu_id IS NOT NULL THEN 'bank'
+           WHEN jd.sets = 1 AND jd.tagged > 0 THEN 'journal'
+           WHEN jd.sets > 1 THEN 'split' END AS src
+  ) dsrc ON TRUE
+  LEFT JOIN cost_centres dcc1 ON dcc1.company_id = bt.company_id
+    AND dcc1.id = CASE dsrc.src WHEN 'bank' THEN bt.cc1_id WHEN 'journal' THEN jd.cc1 END
+  LEFT JOIN cost_centres dcc2 ON dcc2.company_id = bt.company_id
+    AND dcc2.id = CASE dsrc.src WHEN 'bank' THEN bt.cc2_id WHEN 'journal' THEN jd.cc2 END
+  LEFT JOIN business_units dbu ON dbu.company_id = bt.company_id
+    AND dbu.id = CASE dsrc.src WHEN 'bank' THEN bt.bu_id WHEN 'journal' THEN jd.bu END`;
+
 // The asset / fleet link (mig 853, an annotation) and what it is labelled with: the asset itself, or the asset the
 // fuel / service record belongs to. Company-scoped on every join, like the FKs that hold them.
 const LINK_JOINS = `
@@ -122,6 +145,10 @@ export const TX_SELECT = `
     bt.suggested_supplier_id, bt.suggested_client_id,
     bt.suggested_vat_code, bt.suggested_confidence, bt.suggested_strategy,
     bt.cc1_id, bt.cc2_id, bt.bu_id,
+    dsrc.src AS dimension_source,
+    dcc1.code AS cc1_code, dcc1.name AS cc1_name,
+    dcc2.code AS cc2_code, dcc2.name AS cc2_name,
+    dbu.code AS bu_code, dbu.name AS bu_name,
     bt.allocation_type, bt.allocated_entity_name,
     bt.allocation_rule_id, bt.allocation_rule_name,
     bt.created_at, bt.updated_at,
@@ -145,6 +172,7 @@ export const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
   ${ALLOCATED_ACCOUNT_LATERAL}
   LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE
+  ${DIMENSION_JOINS}
   ${LINK_JOINS}
 `;
 

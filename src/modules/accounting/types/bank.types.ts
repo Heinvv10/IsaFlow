@@ -88,6 +88,15 @@ export interface BankTransaction {
   cc1Name?: string;
   cc2Name?: string;
   buName?: string;
+  cc1Code?: string;
+  cc2Code?: string;
+  buCode?: string;
+  /**
+   * Where the shown CC1 / CC2 / BU come from: the bank row's own ('bank'), its
+   * allocation journal's tagged lines ('journal'), or a journal whose lines
+   * disagree ('split' — no single value). Absent when there is nothing to show.
+   */
+  dimensionSource?: 'bank' | 'journal' | 'split';
   /**
    * VAT treatment derived from the POSTED JOURNAL, not from the suggestion
    * columns — which the rule auto-post path NULLs on allocation, leaving the

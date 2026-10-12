@@ -16,6 +16,7 @@ import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
 import { isPendingFeedRow, PendingFeedBadge, PendingFeedNotice } from './bank-transactions/pendingFeedRow';
 import { BankTxLinkAction } from './bank-transactions/BankTxLinkAction';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
+import { DimensionValue } from './bank-transactions/BankTxDimensionValue';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -59,6 +60,10 @@ export interface BankTx {
   buId?: string;
   cc1Name?: string;
   cc2Name?: string;
+  cc1Code?: string;
+  cc2Code?: string;
+  buCode?: string;
+  dimensionSource?: 'bank' | 'journal' | 'split';
   buName?: string;
   /** Allocation tracking — populated for matched/reconciled transactions */
   allocationType?: AllocType;
@@ -612,7 +617,7 @@ export function BankTxTable(props: Props) {
                         {cc1Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
                       </select>
                     ) : (
-                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc1Name}>{tx.cc1Name || '—'}</span>
+                      <DimensionValue code={tx.cc1Code} name={tx.cc1Name} source={tx.dimensionSource} />
                     )}
                   </td>
                   )}
@@ -626,7 +631,7 @@ export function BankTxTable(props: Props) {
                         {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
                       </select>
                     ) : (
-                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.cc2Name}>{tx.cc2Name || '—'}</span>
+                      <DimensionValue code={tx.cc2Code} name={tx.cc2Name} source={tx.dimensionSource} />
                     )}
                   </td>
                   )}
@@ -640,7 +645,7 @@ export function BankTxTable(props: Props) {
                         {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
                       </select>
                     ) : (
-                      <span className="text-xs text-[var(--ff-text-tertiary)] truncate block" title={tx.buName}>{tx.buName || '—'}</span>
+                      <DimensionValue code={tx.buCode} name={tx.buName} source={tx.dimensionSource} />
                     )}
                   </td>
                   )}
