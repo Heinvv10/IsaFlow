@@ -134,6 +134,17 @@ describe('POST /api/accounting/bank-rules — auto-apply behaviour', () => {
     expect(applyRulesMock).toHaveBeenCalledTimes(1);
     expect(applyRulesMock).toHaveBeenCalledWith(COMPANY_ID, BANK_ID, USER_ID, ['rule-3']);
   });
+
+  it('returns the run\'s autoPost* skip counts with the rule, so the create toast can say why nothing applied', async () => {
+    createRuleMock.mockResolvedValue({ id: 'rule-4', autoCreateEntry: true });
+    applyRulesMock.mockResolvedValue({ applied: 0, skipped: 5, entries: [], autoPostSkippedHeaderAccount: 3, autoPostSkippedLocked: 1 });
+    await (handler as unknown as Handler)(makeReq({ body: { ...VALID_RULE, bankAccountId: BANK_ID, autoCreateEntry: true } }), makeRes());
+
+    const data = (apiResponse.success as ReturnType<typeof vi.fn>).mock.calls[0]![1] as Record<string, unknown>;
+    expect(data).toMatchObject({ id: 'rule-4', applied: 0, autoPostSkippedHeaderAccount: 3, autoPostSkippedLocked: 1 });
+    expect(data).not.toHaveProperty('entries');
+    expect(data).not.toHaveProperty('skipped');
+  });
 });
 
 describe('POST /api/accounting/bank-rules — Zod schema', () => {

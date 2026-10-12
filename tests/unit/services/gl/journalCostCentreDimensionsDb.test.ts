@@ -12,7 +12,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 describe('journal cost-centre dimensions (Postgres)', async () => {
   const reachable = await isDbReachable();
 
-  it.skipIf(!reachable)('preserves independent legacy, CC1 and CC2 attribution through posting and reversal', async () => {
+  it.skipIf(!reachable)('preserves CC1 and CC2 attribution through posting and reversal; the legacy column is never written or carried', async () => {
     assertNotProductionDb('Rolled-back journal dimension workflow');
     const client = await getPoolForTests().connect();
     try {
@@ -38,7 +38,7 @@ describe('journal cost-centre dimensions (Postgres)', async () => {
               VALUES (${id}::UUID, ${companyId}::UUID, ${id.slice(0, 12)},
                 'Dimension regression fixture', ${i === 2 ? 'cc2' : 'cc1'})`;
           }
-          const dimensions = { costCenterId: ids[0], cc1Id: ids[1], cc2Id: ids[2] };
+          const dimensions = { cc1Id: ids[1], cc2Id: ids[2] };
           const accountId = String(fixture.account_id);
           const original = await createJournalEntry(companyId, {
             entryDate: String(fixture.entry_date), fiscalPeriodId: String(fixture.period_id),
@@ -49,6 +49,18 @@ describe('journal cost-centre dimensions (Postgres)', async () => {
           }, userId);
           const readback = await getJournalEntryById(companyId, original.id);
           expect(readback?.lines.find(line => line.debit === 137)).toMatchObject(dimensions);
+          expect(readback?.lines.find(line => line.debit === 137)?.costCenterId).toBeUndefined();
+          // A historic line as the old writers left it: the legacy id set beside cc1. createJournalEntry no longer
+          // writes it (and refuses a bare costCenterId), so it is set by SQL while the entry is still a draft.
+          await sql`UPDATE gl_journal_lines SET cost_center_id = ${ids[0]}::UUID
+            WHERE company_id = ${companyId}::UUID AND journal_entry_id = ${original.id}::UUID AND debit = 137`;
+          await expect(createJournalEntry(companyId, {
+            entryDate: String(fixture.entry_date), fiscalPeriodId: String(fixture.period_id),
+            lines: [
+              { glAccountId: accountId, debit: 137, credit: 0, costCenterId: ids[0] },
+              { glAccountId: accountId, debit: 0, credit: 137 },
+            ],
+          }, userId)).rejects.toThrow('never placed in a CC1 or CC2 slot');
           await postJournalEntry(companyId, original.id, userId);
           // Withdrawing a picker option must not prevent correcting its history.
           await sql`UPDATE cost_centres SET is_active = false
@@ -64,13 +76,17 @@ describe('journal cost-centre dimensions (Postgres)', async () => {
           const contra = await reverseJournalEntry(companyId, original.id, userId);
           const reversed = await getJournalEntryById(companyId, contra.id);
           expect(reversed?.lines.find(line => line.credit === 137)).toMatchObject(dimensions);
+          // The contra copies the slots, not the legacy id; the original keeps its own.
+          expect(reversed?.lines.find(line => line.credit === 137)?.costCenterId).toBeUndefined();
+          const historic = await getJournalEntryById(companyId, original.id);
+          expect(historic?.lines.find(line => line.debit === 137)?.costCenterId).toBe(ids[0]);
           const groups = await sql`
-            SELECT jl.cost_center_id, jl.cc1_id, jl.cc2_id, SUM(jl.debit - jl.credit)::TEXT AS net
+            SELECT jl.cc1_id, jl.cc2_id, SUM(jl.debit - jl.credit)::TEXT AS net
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
             WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID
               AND je.id IN (${original.id}::UUID, ${contra.id}::UUID) AND je.status = 'posted'
-            GROUP BY jl.cost_center_id, jl.cc1_id, jl.cc2_id
+            GROUP BY jl.cc1_id, jl.cc2_id
           `;
           expect(groups).toHaveLength(2);
           expect(groups.every(group => Number(group.net) === 0)).toBe(true);

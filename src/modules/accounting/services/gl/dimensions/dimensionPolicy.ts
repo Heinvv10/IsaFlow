@@ -13,11 +13,12 @@
  *    (unallocated) CC2 member satisfies it — blank is never a code (§5.5).
  */
 import { sql } from '@/lib/neon';
-import { canonicalSubtype, rawSubtypesFor } from '../accountSubtypes';
+import { canonicalSubtype, rawSubtypesFor, type CanonicalSubtype } from '../accountSubtypes';
 import type { GLEntrySource, JournalLineInput } from '../../../types/gl.types';
 import { DimensionRefusal, PreWriteDimensionRefusal, hasDimensions, isDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveLineDimensions } from './dimensionDerivation';
 import { assertJournalAnalysisDimensions } from '../journalCostCentreValidation';
+import { assertCostCentresPlaced } from './costCentrePick';
 
 /** Journal sources that settle or move cash between control accounts. */
 export const NO_DIMENSION_SOURCES: ReadonlySet<GLEntrySource> = new Set<GLEntrySource>([
@@ -73,6 +74,7 @@ export async function assertNewJournalDimensions(
   lines: JournalLineInput[],
 ): Promise<void> {
   let at: number | undefined;
+  assertCostCentresPlaced(lines); // createJournalEntry's own refusal, raised here before the caller's first write
   try {
     assertNoSettlementDimensions(source, lines);
     // The same two steps as applyJournalDimensionPolicy; the label is how derivation says which line it refused.
@@ -119,10 +121,16 @@ export async function assertDocumentDimensions(companyId: string, lines: readonl
 }
 
 /** Canonical subtypes of control accounts: cash, subledger controls, VAT, payroll clearing. */
-const CONTROL_SUBTYPES: ReadonlySet<string> = new Set([
+const CONTROL_SUBTYPES: ReadonlySet<CanonicalSubtype> = new Set<CanonicalSubtype>([
   'bank', 'cash', 'credit_card', 'receivable', 'payable',
   'vat_input', 'vat_output', 'vat_input_late_claim', 'payroll_liability',
 ]);
+
+/**
+ * Every raw `account_subtype` spelling of a control account, for SQL that must say what `isControlSubtype` says
+ * (the bank row's journal-dimension rule, journalDimensionSetSql.ts).
+ */
+export const CONTROL_RAW_SUBTYPES: readonly string[] = rawSubtypesFor(...CONTROL_SUBTYPES);
 
 /** True when an account of this raw subtype is a control account, which carries no dimensions. */
 export function isControlSubtype(rawSubtype: string | null | undefined): boolean {

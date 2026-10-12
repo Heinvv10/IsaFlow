@@ -250,26 +250,28 @@ it('shows the cross-tenant line on NO standard statement, for EITHER tenant', as
 });
 
 it('refuses a line tagged to another company cost centre, and writes nothing', async () => {
-  // Same INSERT, a different caller-supplied id. `cost_center_id` has no FK at
-  // all, so the row was stored: a ledger line permanently tagged to a cost
-  // centre this company cannot see, invisible to every cost-centre filter and
-  // to `costCentreService`'s company-scoped usage guard — which lets the OWNING
-  // tenant delete it out from under this ledger.
+  // Same INSERT, a different caller-supplied id. The cost-centre slots on a line
+  // have no FK to the owning company, so the row was stored: a ledger line
+  // permanently tagged to a cost centre this company cannot see, invisible to
+  // every cost-centre filter and to `costCentreService`'s company-scoped usage
+  // guard — which lets the OWNING tenant delete it out from under this ledger.
+  // (The legacy `costCenterId` is no longer writable at all, D4 2026-10-12: a
+  // pick reaches a line only through its cc1Id / cc2Id slot.)
   await expect(inRequestTx(() => createJournalEntry(
     company,
     {
       entryDate: '2026-03-15',
       description: 'K051X foreign cost centre',
       lines: [
-        { glAccountId: own, debit: 700, credit: 0, costCenterId: foreignCc },
+        { glAccountId: own, debit: 700, credit: 0, cc1Id: foreignCc },
         { glAccountId: equity, debit: 0, credit: 700 },
       ],
     },
     user,
-  ))).rejects.toThrow(/cost centre outside this company/);
+  ))).rejects.toThrow(/CC1 must name an active CC1 cost centre in this company/);
 
   const { rows } = await pool.query(
-    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE cost_center_id=$1', [foreignCc]);
+    'SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE cc1_id=$1 OR cost_center_id=$1', [foreignCc]);
   expect(rows[0].n).toBe(0);
 });
 
@@ -297,7 +299,7 @@ it('accepts a line tagged to THIS company cost centre', async () => {
       entryDate: '2026-03-15',
       description: 'K051X own cost centre',
       lines: [
-        { glAccountId: own, debit: 700, credit: 0, costCenterId: ownCc },
+        { glAccountId: own, debit: 700, credit: 0, cc1Id: ownCc },
         { glAccountId: equity, debit: 0, credit: 700 },
       ],
     },
