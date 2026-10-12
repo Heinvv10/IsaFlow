@@ -1,7 +1,9 @@
 /**
  * assertNoHeaderAccountLines (gl/headerAccountGuard) against a stub `q`, no database: what it asks, in what
  * order, and how it names the line it refuses. Which ACCOUNTS are headers is the integration suites' question
- * (tests/integration/header-account-guard*.int.test.ts).
+ * (tests/integration/header-account-guard*.int.test.ts). So is the first query's lock predicate: the stub cannot
+ * see it, and only the DB race test (header-account-chart-edit-race.int.test.ts, which skips on GitHub CI) goes
+ * red if its `OR EXISTS (child)` arm is reverted to a level-only test.
  */
 import { describe, expect, it, vi } from 'vitest';
 
