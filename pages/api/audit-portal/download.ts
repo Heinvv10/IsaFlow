@@ -2,8 +2,9 @@
  * GET /api/audit-portal/download?sessionId=...&token=...
  *
  * Read-only auditor endpoint. Validates the bearer token against the
- * bcrypt hash stored on audit_portal_sessions, then streams the PDF
- * associated with the referenced export. No company session required —
+ * bcrypt hash stored on audit_portal_sessions, then streams the pack
+ * associated with the referenced export — the snapshot pack's ZIP, or an
+ * older pack's PDF. No company session required —
  * the auditor is not an ISAFlow user. Bumps last_used_at + use_count.
  */
 
@@ -14,6 +15,7 @@ import { downloadCapturedDocument } from '@/lib/supabaseStorage';
 import {
   verifyPortalToken,
   getExport,
+  exportDownload,
 } from '@/modules/accounting/services/capture/auditTrailExportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -28,13 +30,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!verified) return apiResponse.unauthorized(res);
 
   const ex = await getExport(verified.exportId, verified.companyId);
-  if (!ex || ex.status !== 'ready' || !ex.pdfStoragePath) {
-    return apiResponse.notFound(res, 'Audit export', verified.exportId);
-  }
+  const file = ex ? exportDownload(ex) : null;
+  if (!ex || !file) return apiResponse.notFound(res, 'Audit export', verified.exportId);
 
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="audit-pack-${ex.id}.pdf"`);
-  res.setHeader('X-Content-SHA256', ex.pdfSha256 ?? '');
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `${file.contentType === 'application/pdf' ? 'inline' : 'attachment'}; filename="${file.filename}"`);
+  res.setHeader('X-Content-SHA256', file.sha256);
 
   // HEAD — validate access + surface headers without hitting object storage
   if (req.method === 'HEAD') {
@@ -42,11 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  const bucket = (ex as unknown as { pdfStorageBucket?: string }).pdfStorageBucket
-    ?? process.env.SUPABASE_CAPTURED_DOCS_BUCKET
-    ?? 'captured-documents';
-  const pdf = await downloadCapturedDocument(bucket, ex.pdfStoragePath);
-  res.status(200).send(pdf);
+  res.status(200).send(await downloadCapturedDocument(file.bucket, file.path));
 }
 
 export default withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]);
