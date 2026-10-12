@@ -77,7 +77,7 @@ const TODAY = new Date().toLocaleDateString('en-CA');
 
 const CANDIDATE = {
   line_id: 'l1', journal_entry_id: 'e1', entry_number: 'JE-1', entry_date: '2026-04-15',
-  debit: '100.00', credit: '0.00', description: null, project_id: null, cost_center_id: null,
+  debit: '100.00', credit: '0.00', description: null, project_id: null,
   vat_type: null, bu_id: null, cc1_id: null, cc2_id: null,
   reversed: false, is_reversal_leg: false, period_status: 'open', has_period: true,
   already_reclassified: false, is_reclass_contra: false, vat_period_locked: false,

@@ -64,7 +64,8 @@ describe('stampContraDimensions', () => {
 
   it('stamps the cost line only — never the bank or VAT line', () => {
     const out = stampContraDimensions(lines, 'expense', { cc1Id: 'c1', cc2Id: 'c2', buId: 'b' });
-    expect(out[0]).toMatchObject({ cc1Id: 'c1', cc2Id: 'c2', buId: 'b', costCenterId: 'c1' });
+    expect(out[0]).toMatchObject({ cc1Id: 'c1', cc2Id: 'c2', buId: 'b' });
+    expect(out[0]).not.toHaveProperty('costCenterId'); // D4: no legacy CC1 mirror
     expect(out[1]).toEqual(lines[1]);
     expect(out[2]).toEqual(lines[2]);
   });
