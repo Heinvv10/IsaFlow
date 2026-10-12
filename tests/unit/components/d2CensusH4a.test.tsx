@@ -103,7 +103,7 @@ describe('Expense claim GL account list', () => {
     open(empty500); expect(await screen.findByText('Could not load GL accounts - try again')).toBeTruthy(); noRawJson();
   });
   it('offers the accounts when posting on success', async () => {
-    open(() => okRes([chartAccount('a1', '2300', 'D2 Reimbursements')]));
+    open(() => okRes([chartAccount('a1', '2300', 'D2 Reimbursements', { accountType: 'liability' })]));
     fireEvent.click(await screen.findByText('Post to GL'));
     expect((await screen.findAllByRole('option', { name: '2300 — D2 Reimbursements' })).length).toBeGreaterThan(0);
   });

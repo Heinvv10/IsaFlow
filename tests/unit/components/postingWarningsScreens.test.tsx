@@ -153,7 +153,7 @@ describe('expense claim — Post to GL', () => {
     route.query = { id: 'c1' };
     vi.mocked(apiFetch)
       .mockResolvedValueOnce(ok({ claim: claim('approved') }))
-      .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements')]))
+      .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements', { accountType: 'liability' })]))
       .mockResolvedValueOnce(ok(posted));
     render(<ExpenseClaimPage />);
     fireEvent.click(await screen.findByText('Post to GL'));
