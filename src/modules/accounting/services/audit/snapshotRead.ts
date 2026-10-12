@@ -60,11 +60,14 @@ export async function snapshotTb(companyId: string, id: string): Promise<{ accou
 
 export interface StoredRow { id: string; journalId: string; row: CanonicalRow; materialHash: string }
 
-/** Every stored journal (kind 'journals') or line ('lines'); `page` / `size` for a screen, all of them without. */
+/**
+ * Every stored journal (kind 'journals') or line ('lines'); `page` / `size` for a screen, all of them without;
+ * `journalId` narrows lines to one journal.
+ */
 export async function snapshotRows(companyId: string, id: string, kind: 'journals' | 'lines',
-  paging?: { page: number; size: number }): Promise<StoredRow[]> {
-  const size = paging ? Math.min(Math.max(paging.size, 1), 500) : null;
-  const offset = paging ? Math.max(paging.page - 1, 0) * (size ?? 0) : 0;
+  opts: { page?: number; size?: number; journalId?: string } = {}): Promise<StoredRow[]> {
+  const size = opts.size ? Math.min(Math.max(opts.size, 1), 500) : null;
+  const offset = size ? Math.max((opts.page ?? 1) - 1, 0) * size : 0;
   const rows = (kind === 'journals'
     ? await sql`
         SELECT journal_id::TEXT AS id, journal_id::TEXT AS j, row, material_hash FROM audit_snapshot_journals
@@ -73,6 +76,7 @@ export async function snapshotRows(companyId: string, id: string, kind: 'journal
     : await sql`
         SELECT line_id::TEXT AS id, journal_id::TEXT AS j, row, material_hash FROM audit_snapshot_lines
         WHERE company_id = ${companyId}::UUID AND snapshot_id = ${id}::UUID
+          AND (${opts.journalId ?? null}::UUID IS NULL OR journal_id = ${opts.journalId ?? null}::UUID)
         ORDER BY journal_id, line_id LIMIT ${size} OFFSET ${offset}`) as Row[];
   return rows.map((r) => ({ id: String(r.id), journalId: String(r.j), row: r.row as CanonicalRow, materialHash: String(r.material_hash) }));
 }
