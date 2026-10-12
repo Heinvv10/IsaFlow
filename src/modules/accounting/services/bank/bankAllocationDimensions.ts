@@ -60,8 +60,9 @@ export function planAllocationDimensions(input: AllocationDimensionPlanInput): D
 }
 
 /**
- * Stamp the planned dimensions on the contra line(s) only. The legacy
- * cost_center_id mirror of CC1 is kept, as the single allocation always set it.
+ * Stamp the planned dimensions on the contra line(s) only. No legacy
+ * cost_center_id mirror of CC1: no report reads it and no new journal line
+ * writes it (D4, 2026-10-12).
  */
 export function stampContraDimensions(
   lines: JournalLineInput[],
@@ -70,6 +71,6 @@ export function stampContraDimensions(
 ): JournalLineInput[] {
   if (!contraAccountId || !hasDimensions(dims)) return lines;
   return lines.map((l) => (l.glAccountId === contraAccountId
-    ? { ...l, cc1Id: dims.cc1Id, cc2Id: dims.cc2Id, buId: dims.buId, costCenterId: dims.cc1Id ?? l.costCenterId }
+    ? { ...l, cc1Id: dims.cc1Id, cc2Id: dims.cc2Id, buId: dims.buId }
     : l));
 }

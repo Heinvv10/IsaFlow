@@ -18,6 +18,7 @@ import type { GLEntrySource, JournalLineInput } from '../../../types/gl.types';
 import { DimensionRefusal, PreWriteDimensionRefusal, hasDimensions, isDimensionRefusal, type DimensionIds } from './dimensionTypes';
 import { deriveLineDimensions } from './dimensionDerivation';
 import { assertJournalAnalysisDimensions } from '../journalCostCentreValidation';
+import { assertCostCentresPlaced } from './costCentrePick';
 
 /** Journal sources that settle or move cash between control accounts. */
 export const NO_DIMENSION_SOURCES: ReadonlySet<GLEntrySource> = new Set<GLEntrySource>([
@@ -73,6 +74,7 @@ export async function assertNewJournalDimensions(
   lines: JournalLineInput[],
 ): Promise<void> {
   let at: number | undefined;
+  assertCostCentresPlaced(lines); // createJournalEntry's own refusal, raised here before the caller's first write
   try {
     assertNoSettlementDimensions(source, lines);
     // The same two steps as applyJournalDimensionPolicy; the label is how derivation says which line it refused.
