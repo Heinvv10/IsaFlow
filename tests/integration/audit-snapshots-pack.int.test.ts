@@ -27,23 +27,23 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-let o = '', m = '';
+let o = '', m = '', v = '';
 let storage: FakeStorage;
 
 beforeAll(async () => {
-  [o, m] = await members(pool, tokens, 2);
+  [o, m, v] = await members(pool, tokens, 3);
   process.env.AUDIT_SNAPSHOT_SIGNING_KEY = 'p'.repeat(48);
   process.env.AUDIT_SNAPSHOT_KEY_ID = 'pack-test';
   storage = await startFakeStorage();
   process.env.SUPABASE_URL = storage.url;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'fake-service-role';
 });
-afterAll(async () => { await storage.close(); await cleanupAudit(pool, companies, [o, m]); });
+afterAll(async () => { await storage.close(); await cleanupAudit(pool, companies, [o, m, v]); });
 
 interface Export { id: string; status: string; snapshotId: string; zipSha256: string; periodEnd: string; error: string | null }
 
 async function company() {
-  const c = await newCompany(pool, [[o, 'owner'], [m, 'manager']], companies);
+  const c = await newCompany(pool, [[o, 'owner'], [m, 'manager'], [v, 'viewer']], companies);
   const l = await plantLedger(pool, c);
   await plantJournal(pool, c, { date: '2026-03-10', amount: 1000, debit: l.bank, credit: l.sales, by: o, description: '=HYPERLINK("http://x")' });
   await plantJournal(pool, c, { date: '2026-02-01', amount: 40, debit: l.expense, credit: l.bank, by: o });
@@ -127,11 +127,14 @@ describe('audit pack from a snapshot', () => {
     expect(refused.state.statusCode).toBe(400);
   });
 
-  it('a manager cannot build a pack; a pack cannot end anywhere but its snapshot\'s cutoff', async () => {
+  it('a manager cannot build a pack (but downloads one), a viewer cannot download one; a pack cannot end anywhere but its snapshot\'s cutoff', async () => {
     const c = await company();
     expect((await build(m, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).state.statusCode).toBe(403);
     const ex = dataOf<{ export: Export }>(await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-06-30' })).export;
     expect((await build(o, c, { periodStart: '2026-01-01', periodEnd: '2026-05-31', snapshotId: ex.snapshotId })).state.statusCode).toBe(400);
+    // The ZIP carries the snapshot's ledger rows: a viewer may not download it; a manager may.
+    expect((await download(v, c, ex.id)).state.statusCode).toBe(403);
+    expect((await download(m, c, ex.id)).state.statusCode).toBe(200);
   });
 
   it('an older PDF-only pack still downloads as its PDF', async () => {
