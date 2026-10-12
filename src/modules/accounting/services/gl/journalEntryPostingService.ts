@@ -158,6 +158,8 @@ async function reverseJournalEntryInner(
         // re-park its VAT on the clearing account with no companion to clear it,
         // so that one faces the clearing-account guard like any other journal.
         reversal: !entry.reversalOfId,
+        // Every line is a contra of a posted one, so a historic header line stays reversible (headerAccountGuard.ts).
+        contraAccountIds: carried.lines.map((l) => l.glAccountId),
       });
     } catch (err) {
       // Nothing exists yet, but the claim does. Inside a request transaction the

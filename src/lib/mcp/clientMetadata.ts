@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /**
- * All MCP tool names — 74 read + 83 write = 157. Drift-guarded against
+ * All MCP tool names — 75 read + 84 write = 159. Drift-guarded against
  * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
  * ARRAY rather than this comment; the comment is the part that can rot, so it
  * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
@@ -180,6 +180,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'split_allocate_bank_transaction',
   'tag_journal_lines',
   'reverse_dimension_tag_batch',
+  'sync_bank_dimensions',
 ] as const;
 
 export function appOrigin(): string {

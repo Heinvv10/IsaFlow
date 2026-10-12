@@ -34,6 +34,12 @@ export interface RuleApplyResult {
    */
   autoPostSkippedVatLocked?: number;
   /**
+   * Auto-post attempts skipped because the rule's account is a balance-sheet
+   * header (an asset, liability or equity account below level 3 with
+   * sub-accounts, gl/headerAccountGuard). Remedy: point the rule at a sub-account.
+   */
+  autoPostSkippedHeaderAccount?: number;
+  /**
    * R-035 PR5 (D2): supplier-rule auto-posts skipped because the line was keyed
    * by hand and an enforced supplier_payment rule governs the amount — a payment
    * instruction, recorded through a supplier payment and its approval instead.
