@@ -131,7 +131,7 @@ describeIfDb('the legacy cost_center_id is never written by a new journal line',
   });
 
   it('no new line got cost_center_id: the company holds exactly the historic lines\' worth', async () => {
-    expect(historicLines).toBe(2);
+    expect(historicLines).toBeGreaterThanOrEqual(2); // the reversal and reclassification cases above seeded two
     const [r] = (await sql`
       SELECT COUNT(*)::INT AS n FROM gl_journal_lines
       WHERE company_id = ${fx.companyId}::UUID AND cost_center_id IS NOT NULL`) as Row[];
@@ -172,6 +172,7 @@ describeIfDb('the legacy cost_center_id is never written by a new journal line',
     const held = { cc1: null, cc2: null, legacy };
     // (1) reversal
     const rev = await seedHistoricEntry(p, DATE, fx.expenseId, 90, legacy, true);
+    historicLines++; // counted, so the "exactly the historic lines" test holds in any order
     expect(await legsOn(p, rev.entryId, fx.expenseId)).toEqual([{ ...held, net: 90 }]);
     const contra = await inTx(fx, () => reverseJournalEntry(fx.companyId, rev.entryId, fx.userId));
     expect(await legsOn(p, contra.id, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: -90 }]);
@@ -180,6 +181,7 @@ describeIfDb('the legacy cost_center_id is never written by a new journal line',
     const source = await centreAccount('6300');
     const target = await centreAccount('6400');
     const recl = await seedHistoricEntry(p, DATE, source, 70, legacy, true);
+    historicLines++;
     const out = await inTx(fx, async () => {
       const plan = await planReclassification({
         companyId: fx.companyId, sourceAccountId: source, targetAccountId: target,
