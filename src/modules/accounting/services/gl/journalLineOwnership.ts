@@ -1,6 +1,6 @@
 /**
  * Every caller-supplied id on a journal line must name a row of the SESSION's
- * company — the account and the three dimensions alike.
+ * company — the account, the project and the analysis dimensions alike.
  *
  * `validateJournalEntry` is pure — it sees only debits and credits — and
  * `pages/api/accounting/journal-entries.ts` passes `lines` through from the
@@ -19,19 +19,20 @@
  *   assignment must be active, tenant-owned, and in the correct CC1/CC2 slot.
  *   The two historical-copy callers opt out of the active check only, so a
  *   withdrawn picker option does not block correcting history coded to it.
- * - `project_id`, `cost_center_id`: these carry NO foreign key at all,
- *   so a line can be tagged to a dimension this company cannot see or manage,
+ * - `project_id`: it carries NO foreign key at all, so a line can be tagged to a dimension this company cannot see or manage,
  *   invisible to every dimension filter and to `costCentreService`'s
  *   company-scoped usage guard — which lets the OWNING tenant delete the row
  *   out from under it. Mostly integrity rather than exposure — the reports
  *   filter on these columns — with one exception: `projectProfitabilityService`
  *   enumerates `DISTINCT jl.project_id` and LEFT JOINs `projects` for a name,
  *   so a foreign tag rendered another company's project name until that join
- *   was scoped (same shape in `ar/invoicePdfBuilder`). Either way it is the
- *   same defect on the same INSERT.
+ *   was scoped (same shape in `ar/invoicePdfBuilder`).
+ * - `cost_center_id` (legacy): no new line writes it (D4, 2026-10-12) and
+ *   createJournalEntry refuses a line still carrying `costCenterId`
+ *   (`costCentrePick.assertCostCentresPlaced`), so there is nothing to check.
  *
  * THE BOUNDARY. This is a check on what a CALLER ASSERTS about a new line. TWO
- * writers assert nothing — they COPY the three dimensions off a HISTORICAL
+ * writers assert nothing — they COPY the dimensions off a HISTORICAL
  * posted line, which may already hold a foreign id, the very rows this defect
  * created:
  *
