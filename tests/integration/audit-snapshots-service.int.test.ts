@@ -133,6 +133,23 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect((await read(c, () => verifySnapshot(c, s2.id, KEY)))!.status).toBe('invalid');
   });
 
+  it('a forgery with a correctly computed canonical hash (the algorithm is public) but no key does not verify', async () => {
+    const { c } = await books();
+    const { snapshotHash, SNAPSHOT_CAVEAT } = await import('../../src/modules/accounting/services/audit/documents');
+    const { materialHash } = await import('../../src/modules/accounting/services/audit/canonical');
+    const row = { id: crypto.randomUUID(), entry_date: '2026-06-01', description: 'invented' };
+    const id = await recordSnapshot(pool, o, c, (t) => {
+      const base = payload(c, o, t, { key_id: KEY.keyId, caveat: SNAPSHOT_CAVEAT });
+      const hash = snapshotHash({ id: base.id, companyId: c, cutoff: base.cutoff, takenAt: t, takenBy: o, trigger: 'manual',
+        caveat: SNAPSHOT_CAVEAT, masterDataHighWater: null, totals: {}, checkRun: null }, [],
+        [{ journalId: row.id, materialHash: materialHash(row) }], []);
+      return { ...base, canonical_hash: hash };
+    }, { journals: [{ journal_id: row.id, entry_date: row.entry_date, row, material_hash: materialHash(row) }] });
+    const v = (await read(c, () => verifySnapshot(c, id, KEY)))!;
+    expect(v.recomputedHash).toBe(v.canonicalHash);
+    expect([v.status, v.seal]).toEqual(['invalid', 'invalid']);
+  });
+
   it('a snapshot recorded through the writer without the key never verifies; another key id is unknown', async () => {
     const { c } = await books();
     const forged = await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
