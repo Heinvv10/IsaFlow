@@ -28,7 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const p = principalFromRequest();
     // A comparison reads two ledgers: it takes one of the process's snapshot slots, refused (409) while they are full.
-    const comparison = await withSnapshotSlot(false, () => (q.data.against
+    const comparison = await withSnapshotSlot(p.companyId, false, () => (q.data.against
       ? compareSnapshots(p, q.data.snapshotId, q.data.against)
       : compareSnapshotToLive(p, q.data.snapshotId)));
     return apiResponse.success(res, { comparison });

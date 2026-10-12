@@ -74,7 +74,7 @@ export async function takeSnapshot(p: AuditPrincipal, input: {
   const budget = (step: string) => { if (Date.now() - started > SNAPSHOT_TIME_BUDGET_MS) throw new SnapshotTimeBudgetError(step); };
   // By hand: refused while busy. Automatic: waits its turn.
   const wait = input.trigger !== 'manual';
-  const taken = await withSnapshotSlot(wait, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
+  const taken = await withSnapshotSlot(p.companyId, wait, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     const lineCount = await countPostedLines(p.companyId, input.cutoff);
     if (lineCount > max) throw new SnapshotTooLargeError(lineCount, max);
     const takenAt = await transactionNow(client);
