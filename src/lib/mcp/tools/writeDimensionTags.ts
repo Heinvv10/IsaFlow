@@ -18,7 +18,7 @@
 import type { McpTool } from '../types';
 import { planDimensionTags, MAX_TAG_LINES, type TagLineInput } from '@/modules/accounting/services/gl/dimensions/dimensionTagPlan';
 import {
-  applyDimensionTags, applyTagBatchReversal, findTagBatchByKey, planTagBatchReversal,
+  applyDimensionTags, applyTagBatchReversal, assertKeyIsFor, findTagBatchByKey, planTagBatchReversal,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTagApply';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
@@ -75,7 +75,10 @@ export const tagJournalLinesTool: McpTool = {
     + 'Amounts, accounts, dates and VAT codes never change; any other field is refused. A CC2 derives its FNO; a '
     + 'conflicting cc1 is refused. Control-account lines (bank, AP, AR, VAT, payroll clearing) and settlement, '
     + 'receipt, transfer and VAT-payment journals are refused — the cost line carries the dimensions. Lines in a '
-    + 'closed period are allowed and the batch is flagged a restatement. Returns a batch_id; undo it with '
+    + 'closed period are allowed and the batch is flagged a restatement. The bank transaction allocated to each '
+    + 'journal touched MIRRORS that journal\'s CC1/CC2/BU when its dimension lines (every line but the bank leg '
+    + 'that is not on a control account) agree on one set, NULLs included: a journal whose tags were all cleared '
+    + 'clears the bank row (bank_rows_synced). Returns a batch_id; undo it (lines and bank rows) with '
     + 'reverse_dimension_tag_batch. Use dry_run first.',
   scope: 'write:journals',
   write: true,
@@ -116,7 +119,10 @@ export const tagJournalLinesTool: McpTool = {
     if (!key) return toolError('idempotency_key is required');
 
     const prior = await findTagBatchByKey(ctx.companyId, key);
-    if (prior) return ok({ batch_id: prior.batchId, tagged: prior.lineCount, is_restatement: prior.isRestatement, replayed: true });
+    if (prior) {
+      assertKeyIsFor(prior, key, 'tag_journal_lines');
+      return ok({ batch_id: prior.batchId, tagged: prior.lineCount, is_restatement: prior.isRestatement, replayed: true });
+    }
 
     let plan: Awaited<ReturnType<typeof planDimensionTags>>;
     try {
@@ -147,15 +153,16 @@ export const tagJournalLinesTool: McpTool = {
     const applied = await applyDimensionTags(ctx.companyId, plan, {
       idempotencyKey: key, reason: strArg(args, 'reason'), userId: ctx.userId,
     });
-    return ok({ batch_id: applied.batchId, tagged: applied.lineCount, ...summary });
+    return ok({ batch_id: applied.batchId, tagged: applied.lineCount, bank_rows_synced: applied.bankRowCount ?? 0, ...summary });
   },
 };
 
 export const reverseDimensionTagBatchTool: McpTool = {
   name: 'reverse_dimension_tag_batch',
   description:
-    'Undo a tag_journal_lines batch: restore every line\'s previous CC1 / CC2 / BU. Refused when a line was '
-    + 're-tagged by a later batch — reverse that one first. Changes dimensions only.',
+    'Undo a tag_journal_lines or sync_bank_dimensions batch: restore every line\'s and bank transaction\'s '
+    + 'previous CC1 / CC2 / BU. Refused when a line or bank row was re-tagged by a later batch — reverse that '
+    + 'one first. Changes dimensions only.',
   scope: 'write:journals',
   write: true,
   requiresPost: true,
@@ -181,12 +188,17 @@ export const reverseDimensionTagBatchTool: McpTool = {
       throw err;
     }
     if (args.dry_run === true) {
-      const preview = ok({ dry_run: true, batch_id: plan.batchId, would_restore: plan.lineCount, is_restatement: plan.isRestatement });
+      const preview = ok({
+        dry_run: true, batch_id: plan.batchId, would_restore: plan.lineCount, would_restore_bank_rows: plan.bankRowCount,
+        is_restatement: plan.isRestatement,
+      });
       preview.wroteNothing = true;
       preview.billable = false;
       return preview;
     }
     await applyTagBatchReversal(ctx.companyId, plan, { userId: ctx.userId, reason: strArg(args, 'reason') });
-    return ok({ batch_id: plan.batchId, restored: plan.lineCount, is_restatement: plan.isRestatement });
+    return ok({
+      batch_id: plan.batchId, restored: plan.lineCount, bank_rows_restored: plan.bankRowCount, is_restatement: plan.isRestatement,
+    });
   },
 };

@@ -214,12 +214,17 @@ export async function assertBusinessUnitUnused(companyId: string, id: string): P
       (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE tl.old_bu_id = ${id}::UUID AND tb.reversed_at IS NULL
-          AND tb.company_id = ${companyId}::UUID) AS tag_history
+          AND tb.company_id = ${companyId}::UUID) AS tag_history,
+      (SELECT COUNT(*) FROM dimension_tag_batch_bank_rows br
+        JOIN dimension_tag_batches tb ON tb.id = br.batch_id
+        WHERE br.old_bu_id = ${id}::UUID AND tb.reversed_at IS NULL
+          AND tb.company_id = ${companyId}::UUID AND br.company_id = ${companyId}::UUID) AS tag_bank_history
   `) as Record<string, unknown>[];
   const labels: [string, string][] = [
     ['journal_lines', 'journal line(s)'], ['bank_transactions', 'bank transaction(s)'],
     ['documents', 'document line(s)'], ['defaults', 'account default(s)'],
     ['tag_history', 'un-reversed tag batch line(s)'],
+    ['tag_bank_history', 'un-reversed tag batch bank row(s)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row?.[key] ?? 0), label] as const)
