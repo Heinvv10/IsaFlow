@@ -17,11 +17,12 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-function Journal({ j, extra }: { j: JournalItem; extra?: string | null }) {
+function Journal({ j, extra, names }: { j: JournalItem; extra?: string | null; names: Record<string, string> }) {
+  const who = (id: string | null) => (id ? names[id] ?? id.slice(0, 8) : '—');
   return (
     <div className="text-slate-300">
       <span className="text-slate-100 font-medium">{j.entryNumber ?? j.id.slice(0, 8)}</span> dated {j.entryDate} — created {fmtAt(j.createdAt)} by{' '}
-      <span className="font-mono">{j.createdBy?.slice(0, 8) ?? '—'}</span>, posted {fmtAt(j.postedAt)}{extra ? ` · now ${extra}` : ''}
+      <span>{who(j.createdBy)}</span>, posted {fmtAt(j.postedAt)} by {who(j.postedBy)}{extra ? ` · now ${extra}` : ''}
       {j.fields.map((f) => <div key={f.field} className="pl-4 text-slate-400">{f.field}: <span className="text-red-300 line-through">{f.before ?? '∅'}</span> → <span className="text-teal-300">{f.after ?? '∅'}</span></div>)}
       {j.lines.changed.flatMap((l) => l.fields.map((f) => (
         <div key={`${l.id}.${f.field}`} className="pl-4 text-slate-400">line {l.id.slice(0, 8)} {f.field}: <span className="text-red-300 line-through">{f.before ?? '∅'}</span> → <span className="text-teal-300">{f.after ?? '∅'}</span></div>
@@ -38,13 +39,13 @@ export function ComparisonView({ c }: { c: Comparison }) {
         Snapshot taken {fmtAt(c.base.takenAt)} at cutoff {c.base.cutoff}, compared with {c.against.kind === 'live' ? 'today’s books' : 'a later snapshot'} as at {fmtAt(c.against.takenAt)}.
         Backdated = dated on or before the cutoff but created or posted after the snapshot was taken.
       </p>
-      <Section title="Backdated journals" count={c.counts.backdated ?? 0}>{c.backdated.map((j) => <Journal key={j.id} j={j} />)}</Section>
-      <Section title="Changed journals" count={c.counts.changed ?? 0}>{c.changed.map((j) => <Journal key={j.id} j={j} />)}</Section>
+      <Section title="Backdated journals" count={c.counts.backdated ?? 0}>{c.backdated.map((j) => <Journal key={j.id} j={j} names={c.names} />)}</Section>
+      <Section title="Changed journals" count={c.counts.changed ?? 0}>{c.changed.map((j) => <Journal key={j.id} j={j} names={c.names} />)}</Section>
       <Section title="Reversed after the snapshot" count={c.counts.reversedAfter ?? 0}>
-        {c.changed.filter((j) => c.reversedAfter.includes(j.id)).map((j) => <Journal key={j.id} j={{ ...j, fields: j.fields.filter((f) => f.field.startsWith('reversed')) }} />)}
+        {c.changed.filter((j) => c.reversedAfter.includes(j.id)).map((j) => <Journal key={j.id} j={{ ...j, fields: j.fields.filter((f) => f.field.startsWith('reversed')) }} names={c.names} />)}
       </Section>
-      <Section title="Removed journals" count={c.counts.removed ?? 0}>{c.removed.map((j) => <Journal key={j.id} j={j} extra={j.statusNow} />)}</Section>
-      <Section title="Other new journals" count={c.counts.added ?? 0}>{c.added.map((j) => <Journal key={j.id} j={j} />)}</Section>
+      <Section title="Removed journals" count={c.counts.removed ?? 0}>{c.removed.map((j) => <Journal key={j.id} j={j} extra={j.statusNow} names={c.names} />)}</Section>
+      <Section title="Other new journals" count={c.counts.added ?? 0}>{c.added.map((j) => <Journal key={j.id} j={j} names={c.names} />)}</Section>
       <Section title="Accounts whose closing balance moved" count={c.tb.length}>
         <table className="w-full">
           <thead><tr className="text-slate-500 text-left"><th>Account</th><th className="text-right">Snapshot</th><th className="text-right">Now</th><th className="text-right">Movement</th></tr></thead>

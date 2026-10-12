@@ -37,6 +37,8 @@ export interface Comparison {
   backdated: JournalItem[]; added: JournalItem[]; changed: JournalItem[];
   removed: (JournalItem & { statusNow: string | null })[]; reversedAfter: string[];
   tb: TbDelta[];
+  /** Display names of the people who created or posted a listed journal (current members only). */
+  names: Record<string, string>;
   masterData: { since: string; total: number; truncated: boolean; byType: Record<string, number>;
     items: { type: string; entityId: string; label: string | null; op: string; recordedAt: string; actor: string; actorName: string | null }[] } | null;
 }
@@ -88,8 +90,20 @@ function compare(base: SnapshotRecord, before: Side, after: Side, against: Compa
     added: added.filter((x) => !backdated.includes(x)).slice(0, MAX_LISTED),
     changed: changed.slice(0, MAX_LISTED),
     removed: j.removed.slice(0, MAX_LISTED).map((r) => ({ ...item(r, [], lineChanges.get(r.id) ?? none), statusNow: null })),
-    reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, masterData: null,
+    reversedAfter: reversedAfter.slice(0, MAX_LISTED), tb, names: {}, masterData: null,
   };
+}
+
+/** Names for every person a listed journal was created or posted by. */
+async function withNames(companyId: string, c: Comparison): Promise<Comparison> {
+  const ids = [...new Set([...c.backdated, ...c.added, ...c.changed, ...c.removed]
+    .flatMap((j) => [j.createdBy, j.postedBy]).filter((x): x is string => !!x))];
+  if (ids.length === 0) return c;
+  const rows = (await sql`
+    SELECT u.id AS id, public.approval_company_member_name(${companyId}::UUID, u.id) AS name
+    FROM unnest(${ids}::TEXT[]) AS u(id)
+  `) as { id: string; name: string | null }[];
+  return { ...c, names: Object.fromEntries(rows.filter((r) => r.name).map((r) => [r.id, r.name!])) };
 }
 
 /** A snapshot's stored rows, restricted to journals dated on or before `cutoff` when given. */
@@ -152,7 +166,8 @@ export async function compareSnapshotToLive(p: AuditPrincipal, snapshotId: strin
       lines: (await lineRows(p.companyId, base.cutoff)).map((r) => ({ id: r.lineId, row: r.row, materialHash: r.materialHash, journalId: r.journalId })),
       tb: await tbRows(p.companyId, base.cutoff, fyStart),
     };
-    const out = compare(base, await storedSide(p.companyId, base), live, { kind: 'live', id: null, takenAt: await transactionNow(client) });
+    const out = await withNames(p.companyId,
+      compare(base, await storedSide(p.companyId, base), live, { kind: 'live', id: null, takenAt: await transactionNow(client) }));
     if (out.removed.length > 0) {
       const now = (await sql`
         SELECT id::TEXT AS id, status, entry_date::TEXT AS d FROM gl_journal_entries
@@ -177,7 +192,7 @@ export async function compareSnapshots(p: AuditPrincipal, a: string, b: string):
     const other = await sealedSnapshot(p.companyId, b);
     if (other.cutoff < base.cutoff) throw new ComparisonError('Compare against a snapshot at the same or a later cutoff.');
     if (other.takenAt <= base.takenAt) throw new ComparisonError('Compare an earlier snapshot against a later one.');
-    return compare(base, await storedSide(p.companyId, base, base.cutoff), await storedSide(p.companyId, other, base.cutoff),
-      { kind: 'snapshot', id: other.id, takenAt: other.takenAt });
+    return withNames(p.companyId, compare(base, await storedSide(p.companyId, base, base.cutoff),
+      await storedSide(p.companyId, other, base.cutoff), { kind: 'snapshot', id: other.id, takenAt: other.takenAt }));
   });
 }

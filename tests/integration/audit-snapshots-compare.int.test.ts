@@ -22,6 +22,7 @@ let o = '', m = '';
 
 beforeAll(async () => {
   [o, m] = await members(pool, tokens, 2);
+  await pool.query("UPDATE users SET first_name = 'Mia', last_name = 'Manager' WHERE id = $1", [m]);
   process.env.AUDIT_SNAPSHOT_SIGNING_KEY = 'c'.repeat(48);
   process.env.AUDIT_SNAPSHOT_KEY_ID = 'cmp-test';
 });
@@ -59,6 +60,7 @@ describe('compare to today', { timeout: 120_000 }, () => {
     expect(cmp.backdated.map((j) => j.id).sort()).toEqual([s.backdated, s.reversal].sort());
     const bd = cmp.backdated.find((j) => j.id === s.backdated)!;
     expect(bd).toMatchObject({ entryDate: '2026-05-15', createdBy: m, postedBy: m });
+    expect(cmp.names[m]).toBe('Mia Manager');
     expect(cmp.added).toEqual([]);
     const changed = Object.fromEntries(cmp.changed.map((j) => [j.id, j]));
     expect(changed[s.sale]!.fields).toEqual([{ field: 'description', before: 'planted', after: 'edited' }]);
