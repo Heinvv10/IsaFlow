@@ -40,7 +40,6 @@ export interface CandidateRow {
   credit: string | number | null;
   description: string | null;
   project_id: string | null;
-  cost_center_id: string | null;
   /** The ENTRY carries a reversal; its lines have already been contra'd. */
   reversed: boolean;
   /**
@@ -75,7 +74,6 @@ export interface ReclassCandidate {
   credit: number;
   description: string | null;
   projectId: string | null;
-  costCenterId: string | null;
   /** Carried onto BOTH legs, like every other dimension on the line. */
   vatType: VatType | null;
   buId: string | null;
@@ -224,7 +222,6 @@ export function partitionCandidates(
       credit: num(row.credit),
       description: row.description,
       projectId: row.project_id,
-      costCenterId: row.cost_center_id,
       // Narrowed by the guard above: an unrecognised value never reaches here.
       vatType: row.vat_type as VatType | null,
       buId: row.bu_id,

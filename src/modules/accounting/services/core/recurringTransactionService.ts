@@ -16,6 +16,7 @@ import {
   mintRecurringSupplierInvoice,
 } from './recurringTransactionInvoices';
 import type { JournalLineInput } from '../../types/gl.types';
+import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
 
 
 export interface RecurringTemplate {
@@ -149,6 +150,20 @@ export async function deleteRecurringTemplate(companyId: string, id: string): Pr
   log.info('Recurring template deleted', { id }, 'recurring');
 }
 
+/**
+ * An invoice template writes its invoice BEFORE the approval posts its journal, so a header-account refusal
+ * (gl/headerAccountGuard) arrives after the first write. The route answers that class 400, which withAuth COMMITs;
+ * here it becomes a plain Error, a 500 that rolls the invoice back with it.
+ */
+async function afterFirstWrite<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (isHeaderAccountRefusal(err)) throw new Error(err.message, { cause: err });
+    throw err;
+  }
+}
+
 export async function executeRecurring(
   companyId: string,
   templateId: string,
@@ -208,9 +223,9 @@ export async function executeRecurring(
       posted = true;
     }
   } else if (template.entityType === 'customer_invoice') {
-    ({ entityId, posted } = await mintRecurringCustomerInvoice(companyId, template, userId));
+    ({ entityId, posted } = await afterFirstWrite(() => mintRecurringCustomerInvoice(companyId, template, userId)));
   } else {
-    ({ entityId, posted } = await mintRecurringSupplierInvoice(companyId, template, userId));
+    ({ entityId, posted } = await afterFirstWrite(() => mintRecurringSupplierInvoice(companyId, template, userId)));
   }
 
   // Advance schedule

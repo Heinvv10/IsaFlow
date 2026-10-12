@@ -4,6 +4,7 @@
  * input"), a 200 renders the data.
  * LEFT: customer-invoices adjacent lookup (prev/next arrows stay disabled by design).
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, vi } from 'vitest';
 import { mockedApiFetchModule, useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -66,7 +67,7 @@ describe('items/new lookups', () => {
     data: [{ id: 'k1', name: 'D2 Category 777' }], others: lists,
     plain: 'Could not load the item categories - try again', success: /D2 Category 777/ });
   trio({ name: 'item accounts', render: () => render(<NewItemPage />), match: u => u.includes('chart-of-accounts'),
-    data: [{ id: 'a1', account_number: '4000', name: 'D2 Sales 777' }], others: lists,
+    data: [chartAccount('a1', '4000', 'D2 Sales 777')], others: lists,
     plain: 'Could not load the accounts - try again', success: /D2 Sales 777/ });
 });
 

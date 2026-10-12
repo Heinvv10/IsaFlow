@@ -414,6 +414,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // control like merge_gl_accounts, and it posts no journal.
   tag_journal_lines: null,
   reverse_dimension_tag_batch: null,
+  // Copies journal tags onto bank rows: dimension metadata, like the tag batch it completes.
+  sync_bank_dimensions: null,
 };
 
 /**
