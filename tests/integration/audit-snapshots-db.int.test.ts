@@ -1,5 +1,5 @@
 /**
- * Forensic-controls step 4, migration 889 — the tables themselves:
+ * Forensic-controls step 4, migration 890 — the tables themselves:
  *  - written only through the SECURITY DEFINER writers, bound to the caller
  *    (auth.uid(), the company GUC, the transaction's now(), the role a trigger
  *    needs: manual owner / admin, on lock owner / admin / manager);

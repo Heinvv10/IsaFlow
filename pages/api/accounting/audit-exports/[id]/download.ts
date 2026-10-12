@@ -1,7 +1,7 @@
 /**
  * GET /api/accounting/audit-exports/[id]/download
  * Streams the pack to the requesting company user: the snapshot pack's ZIP, or an older pack's PDF.
- * Owner / admin / manager only — the ZIP carries the snapshot's ledger rows, which RLS (889) shows no other role.
+ * Owner / admin / manager only — the ZIP carries the snapshot's ledger rows, which RLS (890) shows no other role.
  */
 
 import type { NextApiResponse } from 'next';

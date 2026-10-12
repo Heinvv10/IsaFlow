@@ -666,7 +666,7 @@ purged; nothing can erase one person's rows short of owner DDL. Retention of acc
 obligation for years, which this serves; whether POPIA needs a per-person redaction path (owner-run, audited) is a
 product decision, not built here.
 
-## As built: audit snapshots (forensic-controls step 4, migration 889)
+## As built: audit snapshots (forensic-controls step 4, migration 890)
 
 Hein's decisions 2026-10-12 (D1–D4): snapshot = books + hashes at an accounting-date cutoff; comparison = snapshot
 vs today's books (field-level) and snapshot vs snapshot; taken by hand and automatically on lock, synchronously, no
@@ -692,7 +692,7 @@ hash from the stored rows and checks the seals against THOSE (timing-safe): an e
 forged snapshot is `invalid`; a seal under another key id is `unknown_key`. The key is the app's alone: storing a hash
 beside mutable rows is not tamper protection, which is why the rows are also append-only.
 
-**889.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
+**890.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
 `audit_check_runs`, `audit_check_results` (composite `(company_id, …)` FKs, so a snapshot cites only its company's run
 and a child only its company's snapshot), plus additive `audit_trail_exports.snapshot_id / zip_*`. Written ONLY by
 two SECURITY DEFINER writers, one call with every row: `audit_snapshot_record`, `audit_check_run_record` (EXECUTE:

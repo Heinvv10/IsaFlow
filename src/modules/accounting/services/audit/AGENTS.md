@@ -4,7 +4,7 @@
 # services/audit/ — audit snapshots, comparison, check runs, sealed packs
 
 ## Purpose
-Forensic-controls step 4 (migration 889, Hein's decisions D1–D4 2026-10-12). A **snapshot** freezes a company's
+Forensic-controls step 4 (migration 890, Hein's decisions D1–D4 2026-10-12). A **snapshot** freezes a company's
 books at an accounting-date cutoff — the trial balance, every POSTED journal and line dated ≤ cutoff as canonical
 rows with a material hash, ageing and control totals, the master-data high-water mark and a sealed **check run** —
 and seals it: SHA-256 over canonical JSON + HMAC-SHA256 with a server key the database never sees. Later, a
@@ -31,7 +31,7 @@ database state.
 ## Business rules
 - Rows are spelled by the database (ids/dates text, amounts numeric::text 2 dp, timestamps UTC µs) so a hash
   recomputes years later; canonical JSON refuses fractional JS numbers and Dates (`canonical.ts`).
-- Written only through 889's definers `audit_snapshot_record` / `audit_check_run_record` (one call, every row): they
+- Written only through 890's definers `audit_snapshot_record` / `audit_check_run_record` (one call, every row): they
   bind taken_by = auth.uid(), the company GUC + membership, taken_at = now(), the channel from the claims, and the
   role the trigger needs. Append-only for every role; purge cascade only. A forged row fails verification (no key).
 - Automatic snapshots run after the lock COMMITs; a failure records a `failed` attempt with the reason; a lock that
@@ -46,4 +46,4 @@ database state.
 - Storage: ~520 bytes per frozen line, per snapshot; every close / lock takes one.
 
 ## Recent changes
-- 2026-10-12: created (step 4, migration 889).
+- 2026-10-12: created (step 4, migration 890).

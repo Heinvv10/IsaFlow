@@ -1,5 +1,5 @@
 /**
- * Audit snapshots (forensic-controls step 4, migration 889).
+ * Audit snapshots (forensic-controls step 4, migration 890).
  * GET  (owner / admin / manager)
  *   no id                               the company's snapshots, newest first (failed attempts included)
  *   ?id=                                one snapshot + its check run with results and findings
@@ -8,7 +8,7 @@
  *   ?id=&section=lines&journalId=       one journal's lines
  *   ?id=&verify=1                       recompute every hash and check the seal
  * POST { cutoff } (owner / admin, a person in their own session) — take a snapshot now.
- * RLS (889) enforces the same reading rules underneath; the writer the same taking rules.
+ * RLS (890) enforces the same reading rules underneath; the writer the same taking rules.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';

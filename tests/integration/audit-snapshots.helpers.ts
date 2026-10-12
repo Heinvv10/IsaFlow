@@ -1,6 +1,6 @@
 /**
  * Fixture for the audit-snapshot suites (forensic-controls step 4, migration
- * 889): members with signed tokens, one company per case, a small ledger
+ * 890): members with signed tokens, one company per case, a small ledger
  * planted as the table owner (accounts, posted journals with chosen dates and
  * timestamps, fiscal periods), and the writers called the way the service
  * calls them — app_user, the person's claims, the company GUC.
