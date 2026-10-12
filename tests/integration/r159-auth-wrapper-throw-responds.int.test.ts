@@ -242,6 +242,7 @@ describe.each(wrappers)('%s', (label, wrap, req) => {
     expect(r.ends).toBe(0);
   });
 
+  // ci-integration-skip: withExtensionToken runs no rate limiter before the swap, so the pre-swap rate-limiter throw has nothing to exercise there.
   it.skipIf(label === 'withExtensionToken')(
     'a throw from the wrapper itself before the swap (rate limiter): answered 500 once, no rethrow', async () => {
       const name = `pre-swap-${randomUUID()}`;

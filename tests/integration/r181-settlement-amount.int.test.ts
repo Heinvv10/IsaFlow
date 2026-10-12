@@ -240,4 +240,29 @@ describe('R-181: tenant isolation', () => {
     expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE id = $1', [theirs])).rows[0].amount_paid)
       .toBe('0.00');
   });
+
+  // The webhook must refuse such a request on its own, not lean on the FK: plant
+  // one past it (FK triggers off for that one transaction, as a row from before
+  // 854 or a restore would be) and deliver it, as this case did before 854.
+  it("a request naming another company's invoice, stored past the FK, settles nothing when delivered", async () => {
+    const theirs = await invoice(B);
+    const ref = `r181_${crypto.randomUUID().slice(0, 12)}`;
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL session_replication_role = replica');
+      await c.query(
+        `INSERT INTO paystack_payment_requests (company_id, purpose, customer_invoice_id, paystack_reference, amount_cents, status)
+         VALUES ($1, 'customer_invoice', $2, $3, 11500, 'pending')`, [A.id, theirs, ref]);
+      await c.query('COMMIT');
+    } catch (err) {
+      await c.query('ROLLBACK');
+      throw err;
+    } finally {
+      c.release();
+    }
+    expect((await deliver(ref, 11500)).statusCode).toBe(500);
+    expect(await settlement(B, ref, theirs)).toEqual({ payments: [], bankDebit: '0.00', invoicePaid: '0.00', review: null });
+    expect((await settlement(A, ref, theirs)).payments).toEqual([]);
+  });
 });

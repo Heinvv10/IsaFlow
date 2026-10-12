@@ -12,7 +12,7 @@ if (!MIGRATION_ADMIN_DATABASE_URL) throw new Error('MIGRATION_ADMIN_DATABASE_URL
 const seedPool = new Pool({ connectionString: MIGRATION_ADMIN_DATABASE_URL, max: 1 });
 const TARGET_EMAIL = `reset-target-${Date.now()}@test.local`;
 
-describe('admin password reset - GoTrue recovery link (integration)', () => {
+describe('admin password reset - our single-use reset link, emailed (integration)', () => {
   let targetId: string;
 
   // resetPassword reads the app's users row and emails our own link; GoTrue is

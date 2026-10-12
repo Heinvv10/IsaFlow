@@ -109,6 +109,7 @@ describeIfDb('K-144 M1 a table-level lock is a retryable fault, not a claimed li
   }, 60000);
 
   // Opt-in: holds SHARE on bank_transactions for the whole 5s lock_timeout.
+  // ci-integration-skip: the DDL-lock case holds SHARE on bank_transactions for a full 5 s lock_timeout and runs only with BANK_TABLE_LOCK_E2E=1.
   // `BANK_TABLE_LOCK_E2E=1 bun run test:integration -- <this file>`.
   (process.env.BANK_TABLE_LOCK_E2E ? it : it.skip)('a DDL lock on bank_transactions surfaces as retryable, and claims nothing about the line', async () => {
     const ddl: PoolClient = await admin.connect();

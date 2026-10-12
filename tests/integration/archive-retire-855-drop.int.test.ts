@@ -82,6 +82,16 @@ const SEEDS: Record<string, string> = {
   archive_runs: `INSERT INTO archive_runs (company_id, run_by, cutoff_date, status) VALUES ($1, 'u', '2019-01-01', 'completed')`,
 };
 
+// Reads the file only: runs whatever the database holds.
+describe('migration 855: the file', () => {
+  it('lint: every statement sits inside the one DO block (so psql -f in autocommit cannot drop past a refusal)', () => {
+    const sqlOnly = MIGRATION.split('\n').filter(l => !/^\s*(--|$)/.test(l)).join('\n');
+    expect(sqlOnly.startsWith('DO $$')).toBe(true);
+    expect(sqlOnly.trimEnd().endsWith('END $$;')).toBe(true);
+    expect(sqlOnly.match(/\$\$/g)).toHaveLength(2);
+  });
+});
+
 describeIfDb('migration 855: drop the data-archiving tables', () => {
   let gone = false;
   beforeAll(async () => {
@@ -94,13 +104,6 @@ describeIfDb('migration 855: drop the data-archiving tables', () => {
     gone = left === 0;
   });
   beforeEach((ctx) => { if (gone) ctx.skip(); });
-
-  it('lint: every statement sits inside the one DO block (so psql -f in autocommit cannot drop past a refusal)', () => {
-    const sqlOnly = MIGRATION.split('\n').filter(l => !/^\s*(--|$)/.test(l)).join('\n');
-    expect(sqlOnly.startsWith('DO $$')).toBe(true);
-    expect(sqlOnly.trimEnd().endsWith('END $$;')).toBe(true);
-    expect(sqlOnly.match(/\$\$/g)).toHaveLength(2);
-  });
 
   it('drops all six archive tables when every one is empty', async () => {
     await inRolledBackTx(async (c) => {

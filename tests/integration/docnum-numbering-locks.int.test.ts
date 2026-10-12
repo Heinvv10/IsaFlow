@@ -26,6 +26,7 @@ import {
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
+// ci-integration-skip: consolidation adjustments number under their GROUP key ('<group>:<year>', 858), not the journal's company key, so the document-then-journal (same company + year) deadlock case does not apply to them.
 
 /** Every trigger reads the year from the row's own date (858 moved ADJ/BAT/VA/WO off CURRENT_DATE). */
 const ROW_YEAR = 2031;
