@@ -69,6 +69,13 @@ describe('skipNotice', () => {
     expect(unexplained).not.toContain('tests/integration/partly.int.test.ts');
   });
 
+  it('counts it.todo as skipped: a suite of only todos asserts nothing and must say why', () => {
+    const todo = skipNotice(skippedSuites(' ↓ tests/integration/silent.int.test.ts (2 tests | 2 todo)', read));
+    expect(todo.unexplained).toEqual(['tests/integration/silent.int.test.ts']);
+    const mixed = skippedSuites(' ✓ tests/integration/gotrue.int.test.ts (5 tests | 1 skipped | 2 todo) 3ms', read);
+    expect(mixed.map((m) => [m.skipped, m.total])).toEqual([[3, 5]]);
+  });
+
   it('has nothing to say about a run where nothing skipped', () => {
     expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
       .toEqual({ lines: [], unexplained: [] });
