@@ -113,7 +113,13 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
       (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE (tl.old_cc1_id = ${id}::UUID OR tl.old_cc2_id = ${id}::UUID)
-          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history
+          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID) AS tag_history,
+      -- The same, for the bank rows a batch changed (mig 889): reversal restores old_cc1_id / old_cc2_id onto the row.
+      (SELECT COUNT(*) FROM dimension_tag_batch_bank_rows br
+        JOIN dimension_tag_batches tb ON tb.id = br.batch_id
+        WHERE (br.old_cc1_id = ${id}::UUID OR br.old_cc2_id = ${id}::UUID)
+          AND tb.reversed_at IS NULL AND tb.company_id = ${companyId}::UUID
+          AND br.company_id = ${companyId}::UUID) AS tag_bank_history
       -- payroll_employee_history is deliberately NOT counted. Its old_value /
       -- new_value hold a cost_centre_id as display-only TEXT: nothing joins it
       -- back, posts from it or restores it, so a deleted id there strands
@@ -134,6 +140,7 @@ export async function assertCostCentreUnused(companyId: string, id: string): Pro
     ['coding_rules', 'coding rule(s)'],
     ['defaults', 'customer/account default(s)'],
     ['tag_history', 'un-reversed tag batch line(s)'],
+    ['tag_bank_history', 'un-reversed tag batch bank row(s)'],
   ];
   const used = labels
     .map(([key, label]) => [Number(row[key] ?? 0), label] as const)
@@ -168,7 +175,11 @@ export async function countCc2Carriers(companyId: string, ids: string[]): Promis
     + (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE tl.old_cc2_id = ANY(${ids}::UUID[]) AND tb.reversed_at IS NULL
-          AND tb.company_id = ${companyId}::UUID) AS carriers
+          AND tb.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM dimension_tag_batch_bank_rows br
+        JOIN dimension_tag_batches tb ON tb.id = br.batch_id
+        WHERE br.old_cc2_id = ANY(${ids}::UUID[]) AND tb.reversed_at IS NULL
+          AND tb.company_id = ${companyId}::UUID AND br.company_id = ${companyId}::UUID) AS carriers
   `) as { carriers: unknown }[];
   return Number(row?.carriers ?? 0);
 }
