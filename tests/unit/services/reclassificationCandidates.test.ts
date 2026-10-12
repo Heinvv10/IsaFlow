@@ -25,7 +25,6 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
     credit: '0.00',
     description: 'Fibre cable',
     project_id: null,
-    cost_center_id: null,
     reversed: false,
     is_reversal_leg: false,
     vat_type: null,
@@ -44,9 +43,9 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
 const OPEN = { postingDate: null } as const;
 
 describe('partitionCandidates', () => {
-  it('moves an ordinary posted line and carries its amount, project and cost centre', () => {
+  it('moves an ordinary posted line and carries its amount and project, never the legacy cost centre (D4)', () => {
     const { movable, skipped } = partitionCandidates(
-      [row({ debit: '1234.56', credit: '0.00', project_id: 'p1', cost_center_id: 'c1' })],
+      [row({ debit: '1234.56', credit: '0.00', project_id: 'p1' })],
       OPEN,
     );
     expect(skipped).toEqual([]);
@@ -55,10 +54,10 @@ describe('partitionCandidates', () => {
       debit: 1234.56,
       credit: 0,
       projectId: 'p1',
-      costCenterId: 'c1',
       entryDate: '2026-04-15',
       entryNumber: 'JE-2026-00001',
     });
+    expect(movable[0]).not.toHaveProperty('costCenterId');
   });
 
   it('carries a credit-side line without flipping it — the journal is built from both sides', () => {
