@@ -1,0 +1,28 @@
+# Full integration suite on disposable fixtures — branch (2a33c494b's tests, fixture isaflow-fixture-auditsnap + 890) vs master 9189b2f1e (fixture isaflow-fixture-auditsnap-mut, no 890), 2026-10-12
+# Files: branch 923 (208 failed), master 917 (206 failed) — most failures are suites that refuse a fixture DB or need services the fixture lacks, on both sides.
+# Branch-only failing files: 23. Each re-run alone on the branch fixture:
+bank-auto-post-settings-controls.int.test.ts ::       Tests  28 passed (28)
+bank-controls-import-provenance.int.test.ts ::       Tests  7 passed (7)
+bank-controls-importer.int.test.ts ::       Tests  9 passed (9)
+brk596-approve-preview.int.test.ts ::       Tests  11 passed (11)
+invoice-line-revenue-approve.int.test.ts ::       Tests  8 passed (8)
+invoice-line-revenue-credit-replay.int.test.ts ::       Tests  6 passed (6)
+k016-k017-settlement-vat-adjacent.int.test.ts ::       Tests  6 passed (6)
+k064-stamp-is-not-a-lock.int.test.ts ::       Tests  6 passed (6)
+k064-stuck-loser-recovery.int.test.ts ::       Tests  4 passed (4)
+k072-capture-vat-unread.int.test.ts ::       Tests  10 passed (10)
+k121-convert-double-mint.int.test.ts ::       Tests  5 passed (5)
+r035-pr2-unattended.int.test.ts ::       Tests  10 passed (10)
+r035-pr4-lock.int.test.ts ::       Tests  3 passed (3)
+r035-pr6-mcp.int.test.ts ::       Tests  8 passed (8)
+r035-pr6-pins.int.test.ts ::       Tests  4 passed (4)
+r035-pr6-trigger.int.test.ts ::       Tests  9 passed (9)
+r105-expense-claim-source-document.int.test.ts ::       Tests  17 passed (17)
+r112-r113-inapp-customer-statements.int.test.ts ::       Tests  10 passed (10)
+r176-invite-accept-evicts-connection.int.test.ts ::       Tests  6 passed (6)
+r195-payment-request-invoice-company-fk.int.test.ts ::       Tests  13 passed (13)
+w2-28-brk593-c356-save.int.test.ts ::       Tests  5 passed (5)
+w3-01-reversal-guard-locks.int.test.ts ::       Tests  3 passed (3)
+w3-01-rounding-cent-reopen.int.test.ts ::       Tests  3 passed (3)
+
+# Result: 23/23 pass alone — parallel-load interference, not the branch. Master-only failing files (also load): 21.
