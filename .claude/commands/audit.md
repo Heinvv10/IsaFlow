@@ -1,3 +1,6 @@
+---
+description: Run a zero-tolerance full-stack audit of ISAFlow covering code quality, API correctness, UI/UX, workflows, documents, data integrity, security, and accessibility.
+---
 # /audit — ISAFlow Zero-Tolerance Full-Stack Audit
 
 Run a comprehensive, zero-tolerance audit across **every layer** of ISAFlow: code quality, API correctness, UI/UX, workflows, document generation, data integrity, security, and accessibility. This is an **accounting application** — there is no margin for error.
