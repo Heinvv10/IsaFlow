@@ -21,8 +21,9 @@
 #
 # Shape of a run:
 #   0. This user's earlier runs that died without cleaning up (SIGKILL) are
-#      swept: a run directory whose recorded run.sh pid is gone has its
-#      clusters stopped and is deleted. Nothing else is touched.
+#      swept: a run directory whose recorded run.sh pid is gone has its shard
+#      sessions ended and its clusters stopped, and is deleted. Nothing else
+#      is touched.
 #   1. One cluster (initdb in a mktemp dir, 127.0.0.1, a port the OS hands
 #      out, scram password random per run). Roles as production has them
 #      (pg-cluster.sh pg_create_roles), baseline loaded into
@@ -54,37 +55,39 @@ source scripts/ci/integration/pg-cluster.sh
 SHARDS=6
 pg_require_extensions
 
+# The pids of every process in a shard's session.
+session_pids() { ps -eo pid=,sid= | awk -v s="$1" '$2 == s { print $1 }'; }
+# remove_run <run dir>: end every shard session it recorded (TERM, then KILL
+# after up to 10 s), stop its clusters, delete it.
+remove_run() {
+  local run=$1 f n live
+  for f in "$run"/c*/sid; do
+    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -TERM 2> /dev/null || true
+  done
+  for n in $(seq 1 20); do
+    live=0
+    for f in "$run"/c*/sid; do [ -f "$f" ] && [ -n "$(session_pids "$(cat "$f")")" ] && live=1; done
+    [ "$live" -eq 0 ] && break
+    sleep 0.5
+  done
+  for f in "$run"/c*/sid; do
+    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -KILL 2> /dev/null || true
+  done
+  for f in "$run"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
+  rm -rf "$run"
+}
+
 # 0. Sweep this user's dead runs. A pid that is alive (or reused) is left alone.
 for old in "${TMPDIR:-/tmp}"/isaflow-ci-int.*; do
   [ -d "$old" ] && [ -O "$old" ] && [ -f "$old/owner" ] || continue
   kill -0 "$(cat "$old/owner")" 2> /dev/null && continue
-  for dir in "$old"/c*; do [ -d "$dir" ] && pg_cluster_stop "$dir"; done
-  rm -rf "$old"
+  remove_run "$old"
   echo "[integration] removed the leftovers of a run that died: $old"
 done
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/isaflow-ci-int.XXXXXX")
 echo $$ > "$WORK/owner"
-
-# The pids of every process in a shard's session.
-session_pids() { ps -eo pid=,sid= | awk -v s="$1" '$2 == s { print $1 }'; }
-cleanup() {
-  local f sid n live
-  for f in "$WORK"/c*/sid; do
-    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -TERM 2> /dev/null || true
-  done
-  for n in $(seq 1 20); do
-    live=0
-    for f in "$WORK"/c*/sid; do [ -f "$f" ] && [ -n "$(session_pids "$(cat "$f")")" ] && live=1; done
-    [ "$live" -eq 0 ] && break
-    sleep 0.5
-  done
-  for f in "$WORK"/c*/sid; do
-    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -KILL 2> /dev/null || true
-  done
-  for f in "$WORK"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
-  rm -rf "$WORK"
-}
+cleanup() { remove_run "$WORK"; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
