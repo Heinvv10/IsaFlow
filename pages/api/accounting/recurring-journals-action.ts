@@ -18,6 +18,7 @@ import {
   RecurringJournalNotFoundError,
 } from '@/modules/accounting/services/gl/recurringJournalService';
 import { PreWriteDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { isHeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 
 /** Detect by SQLSTATE + constraint name; pg localises and rewords messages. */
 function isDuplicateEntryNumber(err: unknown): boolean {
@@ -83,6 +84,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     }
     // A cost centre that cannot be used, or dimensions a new journal may not carry (an inactive FNO): refused before the first write.
     if (err instanceof PreWriteDimensionRefusal) return apiResponse.badRequest(res, err.message);
+    // A line on a balance-sheet header (D1): the service asks before its first write.
+    if (isHeaderAccountRefusal(err)) return apiResponse.badRequest(res, err.message);
     // A duplicate entry_number is the other transient refusal, and it belongs
     // with the 409 rather than the 500 for exactly the same reason: the same
     // request succeeds on retry. `generate_journal_entry_number` computes

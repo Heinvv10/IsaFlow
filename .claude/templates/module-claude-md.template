@@ -7,7 +7,7 @@
 ## Critical Rules
 - ALWAYS scope queries with `company_id` (multi-tenant safety)
 - ALWAYS use `sql` tagged templates from `@/lib/neon` (never string concat)
-- ALWAYS wrap API handlers with `withCompany(withErrorHandler(handler))`
+- ALWAYS wrap API handlers with `withAuth(withErrorHandler(handler))`
 - NEVER use `console.log` — use `log` from `@/lib/logger`
 
 ## Key Files
@@ -32,7 +32,7 @@
 ## Common Patterns
 | Task | Pattern |
 |------|---------|
-| Create record | `POST /api/accounting/{resource}` with `withCompany` |
+| Create record | `POST /api/accounting/{resource}` with `withAuth` |
 | List records | `GET /api/accounting/{resource}?status=&search=&limit=&offset=` |
 | Update record | `PUT /api/accounting/{resource}` with `{ id, ...fields }` |
 
