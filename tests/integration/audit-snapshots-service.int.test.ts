@@ -233,15 +233,19 @@ describe('the chain', { timeout: 120_000 }, () => {
       forged: [{ seq: 2, snapshotId: forged }] });
   });
 
-  it('a genuine link naming nothing although rows precede it breaks the chain (breaker r3 K1)', async () => {
+  it('a forged row before the first snapshot does not break the chain for good: it reads as a restart (breaker r3 K1, blind r4 M1)', async () => {
     const { c } = await books();
-    // A forged row first (through the writer, no key), then the company's first genuine snapshot: it can name no
-    // verifying link, so it starts afresh at seq 2 — reported, not read as a clean start.
+    // A forged row first (through the writer, no key, as on the day 890 ships), then the company's first genuine
+    // snapshot: it can name no verifying link, so it starts at seq 2 — reported as a restart, never as intact, and not
+    // as a break (the tables are append-only: a break would be for good).
     await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
     const chain = await read(c, () => verifyChain(c, KEY));
-    expect(chain).toMatchObject({ status: 'broken', forged: [{ seq: 1 }] });
-    expect(chain.breaks).toEqual([expect.objectContaining({ seq: 2, snapshotId: s.id, reason: expect.stringMatching(/rows precede/) })]);
+    expect(chain).toMatchObject({ status: 'valid', length: 1, breaks: [], forged: [{ seq: 1 }], restarts: [{ seq: 2, snapshotId: s.id }] });
+    // The next genuine link names it: still valid, the restart still shown.
+    const next = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    expect(await read(c, () => verifyChain(c, KEY))).toMatchObject({ status: 'valid', length: 2, head: { snapshotId: next.id },
+      restarts: [{ seq: 2 }] });
   });
 
   it('a link taken no later than the one before it breaks the chain — a backdated row under a key (blind r3 L1)', async () => {

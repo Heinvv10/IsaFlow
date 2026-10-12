@@ -16,10 +16,10 @@ import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
 import { withSnapshotSlot } from '@/modules/accounting/services/audit/snapshotSlots';
 import { chargeAuditJob } from '@/lib/auth/autoRateLimit';
+import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 /** The web routes' audit bucket, charged per member: MCP requests all arrive on /api/mcp, which no URL bucket matches. */
 const RATE_LIMITED = 'Too many audit jobs (verify, chain, compare, take) in a minute — at most 30 per member. Try again shortly.';
-import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const CAVEAT = 'A snapshot holds the current values of records dated on or before its cutoff, as at taken_at — not the '
   + 'historical database state.';

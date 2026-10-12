@@ -104,8 +104,14 @@ export interface ChainVerification {
   length: number;
   head: { seq: number; snapshotId: string; hmac: string } | null;
   breaks: { seq: number | null; snapshotId: string; reason: string }[];
-  /** Sealed rows whose seal does not verify — written without the key; the chain skips them. */
+  /** Sealed rows whose seal does not verify — written without the key (or under a key no longer held); skipped. */
   forged: { seq: number; snapshotId: string }[];
+  /**
+   * A verifying link that names nothing although rows precede it: the chain restarts after rows that do not verify
+   * (forged rows written before it, or history under a key the server no longer holds). Shown, never read as
+   * intact — but not a break: a forged row written before a company's first snapshot must not break its chain for good.
+   */
+  restarts: { seq: number; snapshotId: string }[];
 }
 
 /**
@@ -118,6 +124,7 @@ export interface ChainVerification {
 export async function verifyChain(companyId: string, key: SigningKey = signingKey()): Promise<ChainVerification> {
   const breaks: ChainVerification['breaks'] = [];
   const forged: ChainVerification['forged'] = [];
+  const restarts: ChainVerification['restarts'] = [];
   let last: { seq: number; snapshotId: string; hmac: string; takenAt: string } | null = null;
   let length = 0;
   for (const s of await sealedChain(companyId)) {
@@ -125,9 +132,7 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
       takenAt: s.takenAt, chain: { seq: s.seq, prevHmac: s.prevHmac } }, s.hmac, s.keyId, key);
     if (seal !== 'valid') { forged.push({ seq: s.seq, snapshotId: s.id }); continue; }
     if (!last && s.prevHmac === null && s.seq > 1) {
-      // The first verifying link names nothing although rows precede it: the chain restarted after rows that no
-      // longer verify (a key dropped from rotation, or forged rows) — a break, not a fresh start.
-      breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'names no earlier snapshot although rows precede it' });
+      restarts.push({ seq: s.seq, snapshotId: s.id });
     } else if (s.prevHmac !== (last?.hmac ?? null)) {
       breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'does not name the previous snapshot (one was removed or replaced)' });
     }
@@ -140,5 +145,5 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
     length += 1;
   }
   const head = last ? { seq: last.seq, snapshotId: last.snapshotId, hmac: last.hmac } : null;
-  return { status: length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid', length, head, breaks, forged };
+  return { status: length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid', length, head, breaks, forged, restarts };
 }

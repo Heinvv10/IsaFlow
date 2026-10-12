@@ -26,6 +26,7 @@ interface Unrecorded { trigger: string; cutoff: string; lockedAt: string; pendin
 interface ChainResult {
   status: 'valid' | 'broken' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[];
   forged?: { seq: number }[];
+  restarts?: { seq: number }[];
 }
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
@@ -122,7 +123,10 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
       </div>
       {chain && (
         <div className={`px-6 py-2 border-b border-[rgba(255,255,255,0.06)] text-xs ${chain.status === 'broken' ? 'text-red-400' : chain.status === 'valid' ? 'text-teal-300' : 'text-slate-400'}`}>
-          {chain.status === 'valid' && `Chain intact: ${chain.length} sealed snapshots, each naming the one before.`}
+          {chain.status === 'valid' && (chain.restarts?.length ?? 0) === 0 && `Chain intact: ${chain.length} sealed snapshots, each naming the one before.`}
+          {chain.status === 'valid' && (chain.restarts?.length ?? 0) > 0 && (
+            <span className="text-amber-300">{`Chain restarts at ${chain.restarts!.map((r) => `#${r.seq}`).join(', ')}: ${chain.length} sealed snapshots link up from there, after rows that do not verify.`}</span>
+          )}
           {chain.status === 'empty' && 'No sealed snapshots yet.'}
           {chain.status === 'broken' && `CHAIN BROKEN: ${chain.breaks.map((b) => `#${b.seq ?? '?'} ${b.reason}`).join('; ')}`}
           {(chain.forged?.length ?? 0) > 0 && (
