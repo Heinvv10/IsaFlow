@@ -290,7 +290,7 @@ describe('/api/mcp transport', () => {
     expect(checkRateLimit).toHaveBeenCalledWith(`mcp:${COMPANY_ID}`, { max: 120, windowSecs: 60, cost: 1 });
     expect((res.body as { error: { code: number } }).error.code).toBe(-32000);
     expect((res.body as { id: unknown }).id).toBe(1);
-    expect((res.body as { error: { data: unknown } }).error.data).toEqual({ limitPerMinute: 120, retryAfterSeconds: 60 });
+    expect((res.body as { error: { data: unknown } }).error.data).toEqual({ limitPerMinute: 120, windowSeconds: 60 });
   });
 
   const companyCharges = () => vi.mocked(checkRateLimit).mock.calls.filter(([k]) => (k as string).startsWith('mcp:'));
