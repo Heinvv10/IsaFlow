@@ -121,17 +121,17 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect((await read(c, () => verifySnapshot(c, s.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatchCount: 1 });
   });
 
-  it('a rotated key never hides tampering the stored rows prove (integrity before key)', async () => {
+  it('after a key rotation, old seals verify under the retired key and tampering is still invalid', async () => {
     const { c } = await books();
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
     const { rows: [line] } = await pool.query("SELECT line_id FROM audit_snapshot_lines WHERE snapshot_id = $1 AND row->>'debit' <> '0.00' LIMIT 1", [s.id]);
     await alter('audit_snapshot_lines', `UPDATE audit_snapshot_lines SET row = jsonb_set(row, '{debit}', '"1.00"') WHERE snapshot_id = $1 AND line_id = $2`, [s.id, line.line_id]);
-    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('invalid');
-    // Untouched, under another key id: unknown, not invalid.
+    const rotated = { key: Buffer.from('n'.repeat(48)), keyId: 'rotated', retired: new Map([[KEY.keyId, KEY.key]]) };
+    expect((await read(c, () => verifySnapshot(c, s.id, rotated)))!.status).toBe('invalid');
+    // Untouched: verifies under the retired key after rotation; without that key held, it cannot be vouched for.
     const t = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
-    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated', retiredKeyIds: [KEY.keyId] })))!.status).toBe('unknown_key');
-    // An untouched snapshot under a key id this server never listed is a forgery's key id: invalid.
-    expect((await read(c, () => verifySnapshot(c, t.id, { key: Buffer.from('n'.repeat(48)), keyId: 'rotated' })))!.status).toBe('invalid');
+    expect((await read(c, () => verifySnapshot(c, t.id, rotated)))!.status).toBe('valid');
+    expect((await read(c, () => verifySnapshot(c, t.id, { ...rotated, retired: new Map() })))!.status).toBe('invalid');
   });
 
   it('a row moved by its filing column (a line to another journal, a journal to another date, a TB row to another account) is invalid', async () => {
@@ -179,13 +179,13 @@ describe('verifying', { timeout: 120_000 }, () => {
     expect([v.status, v.seal]).toEqual(['invalid', 'invalid']);
   });
 
-  it('a snapshot recorded through the writer without the key never verifies; a retired key id is unknown, an unlisted one invalid', async () => {
+  it('a snapshot recorded through the writer without the key never verifies; a genuine one verifies under a retired key, not under an unheld id', async () => {
     const { c } = await books();
     const forged = await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
     expect((await read(c, () => verifySnapshot(c, forged, KEY)))!.status).toBe('invalid');
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
-    expect((await read(c, () => verifySnapshot(c, s.id, { ...KEY, keyId: 'other', retiredKeyIds: [KEY.keyId] })))!.status).toBe('unknown_key');
-    expect((await read(c, () => verifySnapshot(c, s.id, { ...KEY, keyId: 'other' })))!.status).toBe('invalid');
+    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('o'.repeat(48)), keyId: 'other', retired: new Map([[KEY.keyId, KEY.key]]) })))!.status).toBe('valid');
+    expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('o'.repeat(48)), keyId: 'other' })))!.status).toBe('invalid');
     expect((await read(c, () => verifySnapshot(c, s.id, { key: Buffer.from('t'.repeat(48)), keyId: KEY.keyId })))!.status).toBe('invalid');
   });
 });

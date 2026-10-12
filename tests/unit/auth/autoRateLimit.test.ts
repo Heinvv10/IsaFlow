@@ -31,12 +31,15 @@ describe('checkAutoRateLimit (R-175)', () => {
     ]);
   });
 
-  it('charges the audit bucket for the snapshot, check-run, comparison and pack routes', async () => {
+  it('charges each member\'s own audit bucket for the snapshot, check-run, comparison and pack routes', async () => {
     for (const path of ['/api/accounting/audit-snapshots?id=x&verify=1', '/api/accounting/audit-comparisons',
       '/api/accounting/audit-check-runs', '/api/accounting/audit-exports/e1/download']) {
-      expect(await checkAutoRateLimit(path, 'co-9')).toBe(true);
+      expect(await checkAutoRateLimit(path, 'co-9', 'u-1')).toBe(true);
     }
-    expect(check.mock.calls).toEqual(Array(4).fill(['audit:co-9', { max: 30, windowSecs: 60 }]));
+    // Each member's own bucket: one member's requests (refused or not) never spend another's allowance.
+    expect(await checkAutoRateLimit('/api/accounting/audit-snapshots', 'co-9', 'u-2')).toBe(true);
+    expect(check.mock.calls).toEqual([...Array(4).fill(['audit:co-9:u-1', { max: 30, windowSecs: 60 }]),
+      ['audit:co-9:u-2', { max: 30, windowSecs: 60 }]]);
   });
 
   it('answers false when the bucket refuses', async () => {
@@ -55,7 +58,7 @@ describe('checkAutoRateLimit (R-175)', () => {
 
   it('is the only table: both wrappers call it and neither keeps a copy', () => {
     expect(AUTO_RATE_LIMIT).toEqual([{ prefix: '/api/accounting/reports-', key: 'reports', max: 60, windowSecs: 60 },
-      { prefix: '/api/accounting/audit-', key: 'audit', max: 30, windowSecs: 60 }]);
+      { prefix: '/api/accounting/audit-', key: 'audit', max: 30, windowSecs: 60, perUser: true }]);
     for (const file of ['src/lib/auth/withAuth.ts', 'src/lib/auth/bearerPipeline.ts']) {
       const source = read(file);
       expect(source).toContain('await checkAutoRateLimit(req.url,');

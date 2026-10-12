@@ -1,12 +1,5 @@
-# Prod-topology proof of migration 890 — 2026-10-12T06:09:13Z
+# Prod-topology proof of migration 890 (review round 1 version: chain, unchanged, pack guard) — 2026-10-12T08:30:14Z
 # Container isaflow-prodtopo-890 (pgvector pg15): isaflow_dev schema-only + roles (no passwords); every public/app/auth table, view, sequence and routine re-owned to migration_admin (NOSUPERUSER BYPASSRLS); deploy login 'deployer' NOSUPERUSER BYPASSRLS, member of migration_admin and app_user (step 3's prodtopo.sql).
-
-## roles
-app_user super=false bypassrls=false
-deployer super=false bypassrls=true
-migration_admin super=false bypassrls=true
-platform_admin super=false bypassrls=true
-supabase_read_only_user super=false bypassrls=true
 
 ## apply 890 as deployer (1st)
 exit=0
@@ -28,6 +21,16 @@ SET
 ----------------+-------
  app_user reads |     1
 (1 row)
+ERROR:  audit snapshot: your role in this company may not record this
+CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
+PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 10 at assignment
+ERROR:  permission denied for table audit_snapshot_journals
+ERROR:  audit_snapshot_journals is append-only (UPDATE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
+ERROR:  audit_snapshots is append-only (DELETE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
+ERROR:  audit_snapshot_lines is append-only (TRUNCATE refused)
+CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
 COMMIT
 BEGIN
 SET
@@ -38,17 +41,7 @@ SET
 ROLLBACK
 BEGIN
 SET
-ERROR:  audit snapshot: your role in this company may not record this
-CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
-PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 8 at assignment
-ERROR:  permission denied for table audit_snapshot_journals
 ROLLBACK
-ERROR:  audit_snapshot_journals is append-only (UPDATE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
-ERROR:  audit_snapshots is append-only (DELETE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
-ERROR:  audit_snapshot_lines is append-only (TRUNCATE refused)
-CONTEXT:  PL/pgSQL function audit_snapshot_append_only() line 9 at RAISE
  ?column? |       relname        | pg_get_userbyid 
 ----------+----------------------+-----------------
  owners   | audit_snapshot_lines | deployer
@@ -66,6 +59,12 @@ DELETE 1
 -------------+-------+-------
  after purge |     0 |     0
 (1 row)
+INSERT 0 1
+INSERT 0 1
+ERROR:  audit_trail_exports: a ready pack's snapshot and files are fixed
+CONTEXT:  PL/pgSQL function audit_trail_export_pack_guard() line 7 at RAISE
+DELETE 1
+DELETE 1
 
 ## tripwire: a second member of the owner (deployer) makes 890's assertions refuse
 ERROR:  migration 890: intruder still holds INSERT on audit_check_runs

@@ -16,12 +16,11 @@ interface Props { onPackBuilt: () => void; notify: (msg: string, ok?: boolean) =
 const VERDICT: Record<Verification['status'], { text: string; cls: string }> = {
   valid: { text: 'Seal valid', cls: 'text-teal-300' },
   invalid: { text: 'INVALID — the stored snapshot does not match its seal', cls: 'text-red-400' },
-  unknown_key: { text: 'Sealed under another key — cannot verify here', cls: 'text-amber-300' },
   not_sealed: { text: 'Not sealed (failed attempt)', cls: 'text-slate-400' },
   unchanged: { text: 'Unchanged — verify the snapshot it points to', cls: 'text-slate-400' },
 };
 
-interface ChainResult { status: 'valid' | 'broken' | 'unknown_key' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[] }
+interface ChainResult { status: 'valid' | 'broken' | 'empty'; length: number; breaks: { seq: number | null; reason: string }[] }
 
 export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
   const [rows, setRows] = useState<SnapshotSummary[]>([]);
@@ -117,7 +116,6 @@ export function AuditSnapshotsPanel({ onPackBuilt, notify }: Props) {
         <div className={`px-6 py-2 border-b border-[rgba(255,255,255,0.06)] text-xs ${chain.status === 'broken' ? 'text-red-400' : chain.status === 'valid' ? 'text-teal-300' : 'text-slate-400'}`}>
           {chain.status === 'valid' && `Chain intact: ${chain.length} sealed snapshots, numbered without a gap, each naming the one before.`}
           {chain.status === 'empty' && 'No sealed snapshots yet.'}
-          {chain.status === 'unknown_key' && `Chain links intact (${chain.length}); some seals are under a retired key.`}
           {chain.status === 'broken' && `CHAIN BROKEN: ${chain.breaks.map((b) => `#${b.seq ?? '?'} ${b.reason}`).join('; ')}`}
         </div>
       )}

@@ -17,7 +17,7 @@ import { getCheckRun, getSnapshot, listSnapshots, snapshotRows, snapshotTb, type
 export interface SnapshotVerification {
   snapshotId: string;
   /** valid only when every part below holds. */
-  status: 'valid' | 'invalid' | 'unknown_key' | 'not_sealed' | 'unchanged';
+  status: 'valid' | 'invalid' | 'not_sealed' | 'unchanged';
   /** An 'unchanged' attempt: verify this snapshot instead. */
   sameAsSnapshotId?: string | null;
   canonicalHash: string | null;
@@ -77,11 +77,8 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
     chain: { seq: s.seq ?? 0, prevHmac: s.prevHmac } }, s.hmac ?? '', s.keyId ?? '', key);
 
   const runOk = !s.checkRunId || (run !== null && run.hashMatches && run.seal === 'valid');
-  // Integrity first: what the stored rows prove needs no key, so a rotated key never hides tampering.
   const tampered = bad.length > 0 || recomputedHash !== s.canonicalHash || (s.checkRunId !== null && (run === null || !run.hashMatches));
-  const status = tampered ? 'invalid'
-    : seal === 'unknown_key' || run?.seal === 'unknown_key' ? 'unknown_key'
-      : seal === 'valid' && runOk ? 'valid' : 'invalid';
+  const status = !tampered && seal === 'valid' && runOk ? 'valid' : 'invalid';
   return {
     snapshotId: id, status, canonicalHash: s.canonicalHash, recomputedHash, seal, checkRun: run,
     rowsChecked: { accounts: tb.length, journals: journals.length, lines: lines.length },
@@ -91,7 +88,7 @@ export async function verifySnapshot(companyId: string, id: string, key: Signing
 
 export interface ChainVerification {
   /** valid: links 1..n, each naming the one before, every seal good. broken: a gap, a wrong link or a bad seal. */
-  status: 'valid' | 'broken' | 'unknown_key' | 'empty';
+  status: 'valid' | 'broken' | 'empty';
   length: number;
   head: { seq: number; snapshotId: string; hmac: string } | null;
   breaks: { seq: number | null; snapshotId: string; reason: string }[];
@@ -107,7 +104,6 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
   const all = await listSnapshots(companyId, 10_000);
   const sealed = all.filter((s) => s.status === 'sealed').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
   const breaks: ChainVerification['breaks'] = [];
-  let unknown = false;
   sealed.forEach((s, i) => {
     const expected = i + 1;
     if (s.seq !== expected) breaks.push({ seq: s.seq, snapshotId: s.id, reason: `expected seq ${expected} (a snapshot is missing before it)` });
@@ -116,11 +112,10 @@ export async function verifyChain(companyId: string, key: SigningKey = signingKe
     const seal = checkSeal(SNAPSHOT_SEAL_DOMAIN, { companyId, id: s.id, canonicalHash: s.canonicalHash ?? '', cutoff: s.cutoff,
       takenAt: s.takenAt, chain: { seq: s.seq ?? 0, prevHmac: s.prevHmac } }, s.hmac ?? '', s.keyId ?? '', key);
     if (seal === 'invalid') breaks.push({ seq: s.seq, snapshotId: s.id, reason: 'seal does not verify' });
-    if (seal === 'unknown_key') unknown = true;
   });
   const last = sealed[sealed.length - 1];
   return {
-    status: sealed.length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : unknown ? 'unknown_key' : 'valid',
+    status: sealed.length === 0 ? 'empty' : breaks.length > 0 ? 'broken' : 'valid',
     length: sealed.length, head: last ? { seq: last.seq ?? 0, snapshotId: last.id, hmac: last.hmac ?? '' } : null, breaks,
   };
 }
