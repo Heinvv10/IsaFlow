@@ -58,7 +58,7 @@ async function importFiles(names: string[], answer: (name: string) => unknown) {
   const button = await screen.findByRole('button', { name: new RegExp(`Import ${names.length} statement`) });
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button);
-  await waitFor(() => expect(vi.mocked(notify.success).mock.calls.length + vi.mocked(notify.warning).mock.calls.filter(([t]) => t === 'Partial import').length).toBeGreaterThan(0));
+  await waitFor(() => expect(vi.mocked(notify.success).mock.calls.length + vi.mocked(notify.warning).mock.calls.filter(([t]) => /^(Partial import|Imported )/.test(String(t))).length).toBeGreaterThan(0));
   return container;
 }
 const fileRow = (container: HTMLElement, name: string) => within(container.querySelector(`li:has([title="${name}"])`) as HTMLElement);
@@ -112,14 +112,18 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
       'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.',
       'Row 3: could not read the date',
     ]));
-    expect(notify.warning).not.toHaveBeenCalled();
+    // the toast is the RUN's, as a warning; no "Posted —" notice carries the error text
+    expect(vi.mocked(notify.warning).mock.calls.map(([t]) => t)).toEqual(['Imported 1 statement — 1 with problems']);
+    expect(notify.success).not.toHaveBeenCalled();
   });
 
   it('with both, shows only the dropped picks', async () => {
     const c = await importFiles(['a.csv'], () => commit({ warnings: [dropped('t1', '2026-10-02 R 230,00', 'ALPHA')] }, ['Row 3: could not read the date']));
-    expect(notify.warning).toHaveBeenCalledTimes(1);
-    expect(notify.warning).toHaveBeenCalledWith('Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R 230,00', 'See the list below.');
-    // the import's own problem is in the file's row, not in the toast
+    // the import's own problem is in the file's row, not in the toast; the run toast says so too
+    expect(vi.mocked(notify.warning).mock.calls.map(([t]) => t)).toEqual([
+      'Imported 1 statement — 1 with problems', 'Posted — cost centre OLD not applied (inactive), bank line 2026-10-02 R 230,00',
+    ]);
+    expect(vi.mocked(notify.warning).mock.calls[1]![1]).toBe('See the list below.');
     expect(fileRow(c, 'a.csv').getByText('Row 3: could not read the date')).toBeTruthy();
   });
 
@@ -137,8 +141,16 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
     const b = fileRow(c, 'b.csv');
     expect(b.queryByText('Imported with problems')).toBeNull();
     expect(b.getByText('Imported 2')).toBeTruthy();
-    expect(notify.warning).toHaveBeenCalledTimes(1); // only the pick pointer; the import's problems are no "Posted —" toast
-    expect(vi.mocked(notify.warning).mock.calls[0]![0]).not.toContain('still unposted');
+    // the run toast (a warning: one file has problems), then the pick pointer; the import's problems are no "Posted —" toast
+    expect(vi.mocked(notify.warning).mock.calls.map(([t]) => t)).toEqual([
+      'Imported 2 statements — 1 with problems', 'Posted — cost centre OLD not applied (inactive), bank line 2026-10-09 R 115,00',
+    ]);
+    expect(vi.mocked(notify.warning).mock.calls[0]![1]).toBe('See the file rows below.');
+    expect(notify.success).not.toHaveBeenCalled();
+    // and the card is not a clean success
+    expect(c.textContent).toContain('Bulk import complete — 1 file has problems');
+    expect(c.querySelector('svg.text-emerald-500')).toBeNull();
+    expect(c.querySelector('svg.text-amber-500')).not.toBeNull();
   });
 
   it('a malformed dropped-pick element does not blank the panel: the other files and their state stay', async () => {
@@ -166,5 +178,13 @@ describe('bulk import panel — an auto-posted line whose cost centre was not ap
     fireEvent.click(button);
     await waitFor(() => expect(notify.warning).toHaveBeenCalled());
     expect(vi.mocked(notify.warning).mock.calls[0]![0]).toContain('bank line 2026-10-02 R 230,00');
+  });
+
+  it('a clean import keeps the green toast and card', async () => {
+    const c = await importFiles(['a.csv'], () => commit({ warnings: [] }));
+    expect(notify.success).toHaveBeenCalledWith('Imported 1 statement', '2 transactions added.');
+    expect(c.textContent).toContain('Bulk import complete');
+    expect(c.textContent).not.toContain('has problems');
+    expect(c.querySelector('svg.text-emerald-500')).not.toBeNull();
   });
 });
