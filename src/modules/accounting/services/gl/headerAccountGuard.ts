@@ -65,9 +65,11 @@ export async function assertNoHeaderAccountLines(
   lines: readonly { glAccountId: string }[],
   opts?: { contraAccountIds?: readonly string[]; q?: SqlExec },
 ): Promise<void> {
-  const exempt = new Set(opts?.contraAccountIds ?? []);
+  // Compared lower-case: Postgres returns a uuid lower-case whatever case the caller wrote it in.
+  const key = (id: string | undefined): string => (id ?? '').toLowerCase();
+  const exempt = new Set((opts?.contraAccountIds ?? []).map(key));
   // A malformed id is left to the writer's own checks; cast here it would abort the transaction (22P02).
-  const ids = [...new Set(lines.map((l) => l.glAccountId).filter((id) => UUID.test(id ?? '') && !exempt.has(id)))].sort();
+  const ids = [...new Set(lines.map((l) => key(l.glAccountId)).filter((id) => UUID.test(id) && !exempt.has(id)))].sort();
   if (ids.length === 0) return;
   const q = opts?.q ?? sql;
   // Lock first (see THE RACE), then ask about children in a fresh statement, which under READ COMMITTED sees a
@@ -87,9 +89,9 @@ export async function assertNoHeaderAccountLines(
                     WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
   `) as HeaderRow[];
   if (headers.length === 0) return;
-  const byId = new Map(headers.map((h) => [String(h.id), h]));
-  const at = lines.findIndex((l) => byId.has(l.glAccountId) && !exempt.has(l.glAccountId));
-  const h = byId.get(lines[at]!.glAccountId)!;
+  const byId = new Map(headers.map((h) => [key(String(h.id)), h]));
+  const at = lines.findIndex((l) => byId.has(key(l.glAccountId)));
+  const h = byId.get(key(lines[at]!.glAccountId))!;
   throw new HeaderAccountRefusal(
     `Line ${at + 1}: ${h.account_code} ${h.account_name} is a header with sub-accounts; post to one of them. `
       + 'The balance sheet leaves out anything posted to a header.',
