@@ -367,6 +367,7 @@ describe('/api/mcp transport', () => {
     await route(makeReq('POST', rpc('ping')) as never, res);
     expect(checkRateLimit).toHaveBeenCalledWith('mcp-ip:10.0.0.1', { max: 300, windowSecs: 60 });
     expect(res.statusCode).toBe(429);
+    expect((res.body as { id: unknown }).id).toBe(1);
     expect(seenContexts).toHaveLength(0); // never reached a tool
   });
 });
