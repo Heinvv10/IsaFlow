@@ -29,14 +29,16 @@
  * the same journal is still checked.
  *
  * THE RACE with a chart edit. `assertParentUsable` (a new child),
- * `admitReclassification` (a moved account) and an account merge take FOR UPDATE
- * on the parent and then refuse when it has lines. This takes FOR KEY SHARE on
- * every account it judges BEFORE reading children, in ascending id order like
+ * `admitReclassification` (a moved account), an account merge, the bank grouping
+ * PUT and `assertNoPostedParentHidden` (a move that re-levels a level-3 parent
+ * to 2) take FOR UPDATE on the account and then refuse when it has lines. This
+ * takes FOR KEY SHARE on every account it judges BEFORE reading children and
+ * level, in ascending id order like
  * `lockGlAccountsForUpdate`, so it serialises with those three: whichever
  * commits second sees the other. FOR KEY SHARE is the lock the line INSERT's
  * foreign key takes on the same row anyway, held to commit; this only takes it
- * earlier, and only on the accounts the rule can bite (a level 1-2
- * asset/liability/equity). It does NOT serialise with a chart writer that adds
+ * earlier, and only on the accounts the rule can bite or a move can make it
+ * bite (a level 1-2 asset/liability/equity, or any such parent). It does NOT serialise with a chart writer that adds
  * a child without locking the parent FOR UPDATE (the chart-of-accounts import,
  * the Sage migration's chart step): those insert children under the FK's own
  * KEY SHARE, which this lock does not block.
@@ -80,19 +82,23 @@ export async function assertNoHeaderAccountLines(
   const q = opts?.q ?? sql;
   // Lock first (see THE RACE), then ask about children in a fresh statement, which under READ COMMITTED sees a
   // child committed while this waited.
+  // Every parent is locked, not only the level 1-2 ones: a move that re-levels a level-3 parent to 2 locks it FOR
+  // UPDATE first (accountParentRules.assertNoPostedParentHidden), so this waits and the fresh read below sees level 2.
   const subject = (await q`
-    SELECT id FROM gl_accounts
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
-       AND account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
-       -- NULL level: the balance sheet tests level >= 3, which is NULL too, so it hides such a header; judge it as one.
-       AND (level IS NULL OR level < ${BALANCE_SHEET_LEAF_LEVEL})
-     ORDER BY id
-       FOR KEY SHARE
+    SELECT ga.id FROM gl_accounts ga
+     WHERE ga.company_id = ${companyId}::UUID AND ga.id = ANY(${ids}::UUID[])
+       AND ga.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
+       AND (ga.level IS NULL OR ga.level < ${BALANCE_SHEET_LEAF_LEVEL}
+            OR EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID))
+     ORDER BY ga.id
+       FOR KEY SHARE OF ga
   `) as { id: string }[];
   if (subject.length === 0) return;
   const headers = (await q`
     SELECT ga.id, ga.account_code, ga.account_name FROM gl_accounts ga
      WHERE ga.company_id = ${companyId}::UUID AND ga.id = ANY(${subject.map((r) => r.id)}::UUID[])
+       -- NULL level: the balance sheet tests level >= 3, which is NULL too, so it hides such a header; judge it as one.
+       AND (ga.level IS NULL OR ga.level < ${BALANCE_SHEET_LEAF_LEVEL})
        AND EXISTS (SELECT 1 FROM gl_accounts ch
                     WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
   `) as HeaderRow[];

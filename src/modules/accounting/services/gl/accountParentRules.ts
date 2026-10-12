@@ -161,24 +161,34 @@ export async function assertParentUsable(
  * Moving an account UP re-levels it and its whole subtree. A posted asset, liability or equity
  * parent that crosses from level 3 to below it becomes a header the balance sheet drops
  * (isReportVisibleLeaf), so the move is refused, as `assertParentUsable` refuses a child on one.
- * An account that was already a header is not newly hidden and does not block. Named limit: the
- * subtree is read without row locks; only the moved account and its target parent are locked.
+ * An account that was already a header is not newly hidden and does not block. Named limit: a journal
+ * that posts to BOTH the moved account and an at-risk descendant can deadlock with the move (40P01, one
+ * request fails and retries); neither commits a hidden header.
  */
 export async function assertNoPostedParentHidden(companyId: string, id: string, delta: number): Promise<void> {
-  const hidden = (await sql`
+  // Two reads of the same predicate. The first finds the at-risk accounts without their lines; they are then
+  // locked FOR UPDATE (ascending, under the role lock, like every chart edit), so a journal guard posting to one
+  // waits for this request (gl/headerAccountGuard takes KEY SHARE on every parent). The second read, a fresh
+  // statement, sees any line committed while this waited.
+  const atRisk = async (withLines: boolean) => (await sql`
     WITH RECURSIVE subtree AS (
       SELECT id, 1 AS depth FROM gl_accounts WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
       UNION ALL
       SELECT ch.id, s.depth + 1 FROM gl_accounts ch JOIN subtree s ON ch.parent_account_id = s.id
        WHERE ch.company_id = ${companyId}::UUID AND s.depth < ${MAX_TREE_DEPTH}
     )
-    SELECT ga.account_code FROM subtree s JOIN gl_accounts ga ON ga.id = s.id AND ga.company_id = ${companyId}::UUID
+    SELECT ga.id, ga.account_code FROM subtree s JOIN gl_accounts ga ON ga.id = s.id AND ga.company_id = ${companyId}::UUID
      WHERE ga.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
        AND ga.level >= ${BALANCE_SHEET_LEAF_LEVEL} AND ga.level + ${delta} < ${BALANCE_SHEET_LEAF_LEVEL}
        AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
-       AND EXISTS (SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID)
-     ORDER BY ga.account_code LIMIT 1
-  `) as { account_code: string }[];
+       AND (${!withLines}::BOOLEAN OR EXISTS (
+         SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID))
+     ORDER BY ga.account_code
+  `) as { id: string; account_code: string }[];
+  const candidates = await atRisk(false);
+  if (candidates.length === 0) return;
+  await lockGlAccountsForUpdate(companyId, candidates.map((c) => String(c.id)));
+  const hidden = await atRisk(true);
   if (hidden[0]) {
     throw new ParentAccountError(
       `Moving this account would put ${hidden[0].account_code} above level ${BALANCE_SHEET_LEAF_LEVEL}. It has sub-accounts and `
