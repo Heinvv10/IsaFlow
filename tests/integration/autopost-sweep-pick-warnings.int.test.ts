@@ -68,8 +68,8 @@ describeIfDb('the import auto-post sweep reports the cost-centre picks it could 
     expect(out.posted, JSON.stringify(out)).toBe(2);
     const [jeA, jeB] = [await provisionalJournal(a), await provisionalJournal(b)];
     expect([...out.warnings].sort((x, y) => x.txId.localeCompare(y.txId))).toEqual([
-      { txId: a, journalEntryId: jeA, warnings: [INACTIVE_WARNING] },
-      { txId: b, journalEntryId: jeB, warnings: [INACTIVE_WARNING] },
+      { txId: a, journalEntryId: jeA, label: `${DATE} R115.00`, warnings: [INACTIVE_WARNING] },
+      { txId: b, journalEntryId: jeB, label: `${DATE} R230.00`, warnings: [INACTIVE_WARNING] },
     ].sort((x, y) => x.txId.localeCompare(y.txId)));
     // Reporting only: what is posted is the same as ever — the expense line, bare of the withdrawn centre.
     expect(await legsOn(p, jeA, fx.expenseId)).toEqual([{ cc1: null, cc2: null, legacy: null, net: 100 }]);
@@ -105,7 +105,7 @@ describeIfDb('the import auto-post sweep reports the cost-centre picks it could 
       expect(out.posted, JSON.stringify(out)).toBe(1);
       expect(out.skipped).toEqual([{ txId: doomed, reason: expect.stringContaining('f3: run tag refused') }]);
       expect(out.warnings).toEqual([
-        { txId: sibling, journalEntryId: await provisionalJournal(sibling), warnings: [INACTIVE_WARNING] },
+        { txId: sibling, journalEntryId: await provisionalJournal(sibling), label: `${DATE} R575.00`, warnings: [INACTIVE_WARNING] },
       ]);
       // The doomed row's journal went back with its savepoint: no journal, and the line is as it was.
       const [doomedRow] = (await sql`

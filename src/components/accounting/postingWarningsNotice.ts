@@ -29,20 +29,22 @@ export interface PostingWarningsBody {
     claim?: { id?: string; warnings?: string[] } | null;
     results?: Array<{ warnings?: string[] } | null>;
     /** An auto-post sweep's answer: one entry per bank transaction that posted without a pick (bank import, smart-categorize). */
-    autoPost?: { warnings?: Array<{ warnings?: string[] } | null> } | null;
+    autoPost?: { warnings?: Array<{ warnings?: string[]; label?: string } | null> } | null;
   } | null;
 }
 
 const strings = (v: unknown): string[] =>
   [...new Set(Array.isArray(v) ? v.filter((w): w is string => typeof w === 'string' && w !== '') : [])];
 
+interface PostingDocument { warnings: string[]; label?: string }
+
 /**
- * The warnings of each document in an API response body that has any:
- * `data.warnings`, `data.claim.warnings` (expense claims), and one entry per
- * `data.results[]` item (bulk actions) and per `data.autoPost.warnings[]`
- * item (an auto-post sweep: one per bank transaction).
+ * The documents of an API response body that carry warnings: `data.warnings`,
+ * `data.claim.warnings` (expense claims), and one per `data.results[]` item
+ * (bulk actions) and per `data.autoPost.warnings[]` item (an auto-post sweep:
+ * one per bank transaction, with its `label`).
  */
-export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
+function postingDocuments(body: PostingWarningsBody | null | undefined): PostingDocument[] {
   // Read as untyped: it is a server's answer, and a wrong shape must show nothing rather than throw.
   const data = (body as { data?: Record<string, unknown> } | null | undefined)?.data;
   if (!data || typeof data !== 'object') return [];
@@ -50,11 +52,16 @@ export function postingWarningsByDocument(body: PostingWarningsBody | null | und
   const swept = (data.autoPost as { warnings?: unknown } | null | undefined)?.warnings;
   const sweptTxs = Array.isArray(swept) ? swept as Array<Record<string, unknown> | null> : [];
   return [
-    strings(data.warnings),
-    strings((data.claim as Record<string, unknown> | undefined)?.warnings),
-    ...results.map((r) => strings(r?.warnings)),
-    ...sweptTxs.map((t) => strings(t?.warnings)),
-  ].filter((w) => w.length > 0);
+    { warnings: strings(data.warnings) },
+    { warnings: strings((data.claim as Record<string, unknown> | undefined)?.warnings) },
+    ...results.map((r) => ({ warnings: strings(r?.warnings) })),
+    ...sweptTxs.map((t) => ({ warnings: strings(t?.warnings), ...(typeof t?.label === 'string' && t.label ? { label: t.label } : {}) })),
+  ].filter((d) => d.warnings.length > 0);
+}
+
+/** The warnings of each document in an API response body that has any. */
+export function postingWarningsByDocument(body: PostingWarningsBody | null | undefined): string[][] {
+  return postingDocuments(body).map((d) => d.warnings);
 }
 
 /** Every posting warning in a response, document by document — the full sentences. */
@@ -63,12 +70,13 @@ export function postingWarningsIn(body: PostingWarningsBody | null | undefined):
 }
 
 /** The notice for a response's warnings: a title that says which centre and why, and a second line that fits. */
-export function postingWarningsNotice(byDocument: readonly string[][]): { title: string; message: string } {
+export function postingWarningsNotice(byDocument: readonly string[][], firstLabel?: string): { title: string; message: string } {
   const all = byDocument.flat();
   const first = all[0] ?? '';
   const drop = parsePickDropSentence(first);
   // A sentence this screen does not know still reaches the person whole: the title wraps.
-  const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
+  // `firstLabel`: the bank line of the first document (an auto-post sweep), in the title because the toast clips line 2.
+  const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}${firstLabel ? `, bank line ${firstLabel}` : ''}`;
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   const documents = byDocument.length > 1 ? `, in ${byDocument.length} documents` : '';
   return { title, message: `+${all.length - 1} more not applied${documents}.` };
@@ -76,10 +84,11 @@ export function postingWarningsNotice(byDocument: readonly string[][]): { title:
 
 /** Show the notice for a response, if it carries posting warnings. Returns how many dropped picks it found. */
 export function notifyPostingWarnings(body: PostingWarningsBody | null | undefined): number {
-  const byDocument = postingWarningsByDocument(body);
+  const documents = postingDocuments(body);
+  const byDocument = documents.map((d) => d.warnings);
   const count = byDocument.reduce((n, w) => n + w.length, 0);
   if (count > 0) {
-    const { title, message } = postingWarningsNotice(byDocument);
+    const { title, message } = postingWarningsNotice(byDocument, documents[0]?.label);
     notify.warning(title, message || undefined);
   }
   return count;

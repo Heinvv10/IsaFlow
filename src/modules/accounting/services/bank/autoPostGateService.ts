@@ -10,10 +10,11 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import { allocateTransaction } from './bankAllocationService';
 import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
-import { getAutoPostSettings, autoPostRunSnapshot, type AutoPostSettings } from './autoPostSettingsService';
+import { getAutoPostSettings, autoPostRunSnapshot } from './autoPostSettingsService';
 import { feedStateOf } from './bankFeedStateGuard';
 import { BankControlError } from './bankControlRefusal';
 import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
@@ -55,6 +56,7 @@ interface SweepRow {
   suggested_vat_code: string | null;
   suggested_strategy: string | null;
   description: string | null;
+  transaction_date: unknown;
   feed_state: string | null;
 }
 
@@ -83,7 +85,7 @@ export async function sweep(
 
   const rows = (await sql`
     SELECT id, status, amount, suggested_gl_account_id, suggested_confidence,
-           suggested_vat_code, suggested_strategy, description, feed_state
+           suggested_vat_code, suggested_strategy, description, transaction_date, feed_state
     FROM bank_transactions
     WHERE id = ANY(${txIds}::UUID[]) AND company_id = ${companyId}::UUID
   `) as unknown as SweepRow[];
@@ -210,7 +212,7 @@ export async function sweep(
         continue;
       }
       posted += 1;
-      if (rowWarnings.length > 0) warnings.push({ txId: String(row.id), journalEntryId: rowJournalId, warnings: rowWarnings });
+      if (rowWarnings.length > 0) warnings.push({ txId: String(row.id), journalEntryId: rowJournalId, label: `${fmtDate(row.transaction_date)} R${Math.abs(Number(row.amount)).toFixed(2)}`.trim(), warnings: rowWarnings });
       totalAmount += Math.abs(Number(row.amount));
     } catch (err) {
       // The savepoint took the JE and the run-tag back together, so the
