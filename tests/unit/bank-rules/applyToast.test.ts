@@ -10,6 +10,12 @@ vi.mock('@/utils/toast', () => ({
 import { buildApplyToast } from '@/components/accounting/bank-rules/applyToast';
 
 describe('buildApplyToast', () => {
+  it('a rule on a header account warns and says how to fix it, even when other lines applied', () => {
+    const r = buildApplyToast({ applied: 7, autoPostSkippedHeaderAccount: 3 });
+    expect(r.kind).toBe('warn');
+    expect(r.message).toBe("7 categorised · 3 skipped (the rule's account is a header with sub-accounts — point the rule at one of them)");
+  });
+
   it('plain success — applied with no skips', () => {
     const r = buildApplyToast({ applied: 50 });
     expect(r.kind).toBe('success');

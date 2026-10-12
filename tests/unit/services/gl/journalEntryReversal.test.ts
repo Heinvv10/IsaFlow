@@ -336,6 +336,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
+      contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
     });
   });
 
@@ -348,6 +349,7 @@ describe('reverseJournalEntry — contra attribution', () => {
     expect(mockCreate.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
       reversal: true, // a reversal may mirror a late claim's clearing leg (lateClaimClearingGuard)
+      contraAccountIds: [ACCOUNT_A, ACCOUNT_B], // every leg is a contra: a historic header line stays reversible
     });
   });
 });

@@ -109,7 +109,8 @@ export async function postReclassBatch(
       // lines is affirmatively labelled as the token owner's own typing, and
       // drops out of `list_agent_postings`.
       actorMeta(input.actor),
-      { dimensionAssignmentMode: 'historical-copy' },
+      // The source leg mirrors posted lines: moving them OFF a header is the cure, never refused (headerAccountGuard.ts).
+      { dimensionAssignmentMode: 'historical-copy', contraAccountIds: [input.sourceAccountId] },
     );
 
     if (!entry.fiscalPeriodId) {

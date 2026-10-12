@@ -61,7 +61,7 @@ function impact(over: Partial<ReclassImpact> = {}): ReclassImpact {
 
 const line = {
   lineId: 'l1', journalEntryId: 'e1', entryNumber: 'JE-1', entryDate: '2026-04-15',
-  debit: 1000, credit: 0, description: null, projectId: null, costCenterId: null,
+  debit: 1000, credit: 0, description: null, projectId: null,
 };
 
 const base = {

@@ -51,6 +51,7 @@ describe('reclassification historical dimensions', () => {
 
     expect(mocks.createJournalEntry.mock.calls[0]![4]).toEqual({
       dimensionAssignmentMode: 'historical-copy',
+      contraAccountIds: ['source-1'], // only the source leg is exempt from the header rule; the target is judged
     });
   });
 });

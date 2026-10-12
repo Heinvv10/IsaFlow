@@ -160,6 +160,7 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/gl/chartOfAccountsService.ts': "filtered (round 2: soft-delete guard excludes feed_state = 'removed' — a removed feed row can no longer block deletion forever; pending rows still block, deliberately)",
   'src/modules/accounting/services/gl/closeReadinessChecks/bankReconciledCheck.ts': 'filtered',
   'src/modules/accounting/services/gl/continuousCloseQueryService.ts': 'filtered',
+  'src/modules/accounting/services/gl/dimensions/dimensionBankSync.ts': "exempt: copies a journal's CC1/CC2/BU onto the bank row allocated to it — keyed on matched_journal_line_id, which a non-posted row cannot carry (trigger 675); dimension columns only, no total or queue scope",
   'src/modules/accounting/services/gl/integrityChecks/bankChecks.ts':
     "filtered (duplicateBankReferences; staleSuggestedTransactions as of round 2 — its suggestion columns are NOT trigger-guarded, round 1 wrongly assumed they were); exempt: journalDateDiffersFromBankDate keys off matched_journal_line_id (trigger 675)",
   'src/modules/accounting/services/gl/integrityChecks/dimensionChecks.ts': "filtered (projectFnoMismatch: feed_state <> 'removed' and un-allocated only; pending rows stay in — their CC1/CC2 selection is what allocation stamps on the journal)",
