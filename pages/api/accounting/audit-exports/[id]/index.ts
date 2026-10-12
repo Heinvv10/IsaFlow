@@ -28,7 +28,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.query.verify === '1') {
     if (!row.snapshotId) return apiResponse.badRequest(res, 'This pack was not built from a snapshot; there is no seal to verify.');
     try {
-      return apiResponse.success(res, { verification: await withSnapshotSlot(false, () => verifyPack(companyId, id)) });
+      return apiResponse.success(res, { verification: await withSnapshotSlot(companyId, false, () => verifyPack(companyId, id)) });
     } catch (err) {
       if (respondAuditRefusal(res, err)) return;
       throw err;

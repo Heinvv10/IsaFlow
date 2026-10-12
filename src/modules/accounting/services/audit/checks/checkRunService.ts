@@ -83,7 +83,7 @@ export async function recordCheckRun(client: PoolClient, p: AuditPrincipal, inpu
 /** A check run on its own (owner / admin), as at `asAt`, over the fiscal year to that date. */
 export async function takeCheckRun(p: AuditPrincipal, asAt: string): Promise<RecordedRun> {
   const key = signingKey();
-  return withSnapshotSlot(false, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
+  return withSnapshotSlot(p.companyId, false, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
     const from = await fiscalYearStart(p.companyId, asAt);
     const results = await runAllChecks({ companyId: p.companyId, from, to: asAt });
     return recordCheckRun(client, p, { asAt, periodStart: from, purpose: 'standalone', results, key });

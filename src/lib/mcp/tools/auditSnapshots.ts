@@ -59,7 +59,7 @@ export const auditSnapshotsTool: McpTool = {
       if (!id) return ok({ snapshots: await listSnapshots(ctx.companyId), caveat: CAVEAT });
       const snapshot = await getSnapshot(ctx.companyId, id);
       if (!snapshot) return toolError('Not found');
-      if (args.verify === true) return ok({ verification: await withSnapshotSlot(false, () => verifySnapshot(ctx.companyId, id)) });
+      if (args.verify === true) return ok({ verification: await withSnapshotSlot(ctx.companyId, false, () => verifySnapshot(ctx.companyId, id)) });
       const checkRun = snapshot.checkRunId ? await getCheckRun(ctx.companyId, snapshot.checkRunId) : null;
       return ok({ snapshot, checkRun });
     } catch (err) {
@@ -97,7 +97,7 @@ export const compareAuditSnapshotTool: McpTool = {
     const against = strArg(args, 'against_snapshot_id');
     try {
       const p = principalFromRequest();
-      return ok({ comparison: await withSnapshotSlot(false, () => (against ? compareSnapshots(p, id, against) : compareSnapshotToLive(p, id))) });
+      return ok({ comparison: await withSnapshotSlot(ctx.companyId, false, () => (against ? compareSnapshots(p, id, against) : compareSnapshotToLive(p, id))) });
     } catch (err) {
       return refused(err);
     }
