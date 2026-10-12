@@ -11,7 +11,7 @@
  * anything quotes the reason the file states in a `ci-integration-skip:`
  * comment.
  *
- * A file that skipped EVERY test and states no reason is `unexplained`, and
+ * A file that skipped (or left as todo) EVERY test and states no reason is `unexplained`, and
  * the gate fails on it: no suite drops out of CI silently. A file that skipped
  * only some tests is printed either way, with "no reason stated" when it has
  * no comment.
@@ -40,7 +40,9 @@ export function skippedSuites(log: string, read: (file: string) => string | unde
   for (const raw of log.split('\n')) {
     const m = FILE_LINE.exec(raw.replace(ANSI, ''));
     if (!m) continue;
-    const skipped = Number(/\| (\d+) skipped/.exec(m[3] ?? '')?.[1] ?? 0);
+    // An it.todo asserts nothing either: count it with the skipped tests.
+    const count = (what: string) => Number(new RegExp(`\\| (\\d+) ${what}`).exec(m[3] ?? '')?.[1] ?? 0);
+    const skipped = count('skipped') + count('todo');
     if (skipped === 0) continue;
     const file = m[1]!;
     const reason = MARKER.exec(read(file) ?? '')?.[1]?.trim() ?? null;
