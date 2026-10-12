@@ -228,11 +228,16 @@ describe('R-181: tenant isolation', () => {
     expect((await pool.query('SELECT count(*)::int AS n FROM customer_payments WHERE company_id = $1', [B.id])).rows[0].n).toBe(0);
   });
 
-  it("a request naming another company's invoice settles nothing", async () => {
+  // Migration 854's composite FK (customer_invoice_id, company_id) makes such a
+  // request unstorable, so there is nothing to deliver: the refusal is the proof.
+  it("a request naming another company's invoice cannot be stored, so settles nothing", async () => {
     const theirs = await invoice(B);
-    const ref = await checkout(A, theirs);
-    expect((await deliver(ref, 11500)).statusCode).toBe(500);
-    expect(await settlement(B, ref, theirs)).toEqual({ payments: [], bankDebit: '0.00', invoicePaid: '0.00', review: null });
-    expect((await settlement(A, ref, theirs)).payments).toEqual([]);
+    await expect(checkout(A, theirs)).rejects.toMatchObject({
+      code: '23503', constraint: 'paystack_payment_requests_invoice_company_fkey',
+    });
+    expect((await pool.query(
+      'SELECT count(*)::int AS n FROM paystack_payment_requests WHERE customer_invoice_id = $1', [theirs])).rows[0].n).toBe(0);
+    expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE id = $1', [theirs])).rows[0].amount_paid)
+      .toBe('0.00');
   });
 });

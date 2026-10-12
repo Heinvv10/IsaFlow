@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import { Secret, TOTP } from 'otpauth';
@@ -9,6 +10,8 @@ import { sql } from '@/lib/neon';
 import { applyCookies, assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const suffix = crypto.randomUUID();
 const adminEmail = `mfa-pg-admin-${suffix}@test.local`;
@@ -21,6 +24,7 @@ let targetId: string | undefined;
 const priorKeys = { anon: process.env.SUPABASE_ANON_KEY, service: process.env.SUPABASE_SERVICE_ROLE_KEY };
 
 beforeAll(async () => {
+  if (!LIVE) return;
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error('Disposable JWT_SECRET required');
   const mint = (role: string) => new SignJWT({ role }).setProtectedHeader({ alg: 'HS256' })
@@ -66,7 +70,7 @@ afterAll(async () => {
   }
 });
 
-it('real provider and schema: MFA target start, scoped GET, refresh, scoped GET, owned admin return', async () => {
+it.skipIf(!LIVE)('real provider and schema: MFA target start, scoped GET, refresh, scoped GET, owned admin return', async () => {
   const admin = await signIn(adminEmail, password);
   const pending = await signIn(targetEmail, password);
   await expect(verifyToken(pending.access_token)).rejects.toThrow('MFA challenge required');
