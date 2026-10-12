@@ -9,7 +9,7 @@ vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: vi.fn(() =>
 
 import { sql } from '@/lib/neon';
 import {
-  applyBankSyncBatch, applyBankSync, previewBankSync, writeBankRows, MAX_BANK_SYNC_ROWS,
+  applyBankSyncBatch, applyBankSync, previewBankSync, writeBankRows, withBoundedStatements, MAX_BANK_SYNC_ROWS,
 } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { blankedSlots, BankDimensionSyncRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionBankSyncTypes';
 import { isControlSubtypeSql } from '@/modules/accounting/services/gl/dimensions/journalDimensionSetSql';
@@ -28,7 +28,19 @@ const row = (n: number, over: Record<string, unknown> = {}) => ({
   o1: null, o2: null, ob: null, n1: F1, n2: P1, nb: null, total: 1, ...over,
 });
 
-beforeEach(() => mockSql.mockReset());
+// The statement bound (pg_settings read + two set_config calls) answers itself; the queue holds the real statements' rows.
+let results: unknown[][] = [];
+const queued = (...rows: unknown[][]) => { results.push(...rows); };
+const realStatements = () => mockSql.mock.calls.filter((c) => !/pg_settings|set_config/.test((c[0] as string[]).join('?')));
+beforeEach(() => {
+  results = [];
+  mockSql.mockReset().mockImplementation(async (...args: unknown[]) => {
+    const text = (args[0] as string[]).join('?');
+    if (text.includes('pg_settings')) return [{ timeout_ms: '0', jit: 'on' }];
+    if (text.includes('set_config')) return [];
+    return results.shift() ?? [];
+  });
+});
 
 describe('blankedSlots — a mirror blanks what the journal does not carry', () => {
   const none = { cc1Id: null, cc2Id: null, buId: null };
@@ -53,7 +65,7 @@ describe('the control-account predicate is built from the one control vocabulary
 
 describe('previewBankSync', () => {
   it('reports the total, sorts by date, samples, and lists EVERY row that would lose a value', async () => {
-    mockSql.mockResolvedValueOnce([
+    queued([
       row(3, { tx_date: '2026-10-09', total: 3, o1: F1, o2: P1, n2: null }),
       row(1, { tx_date: '2026-10-05', total: 3 }),
       row(2, { tx_date: '2026-10-02', total: 3, ob: B1, n1: null, n2: null }),
@@ -65,7 +77,7 @@ describe('previewBankSync', () => {
   });
 
   it('over the cap: the total is reported, the list is cut to the cap, and the flag says the live call would refuse', async () => {
-    mockSql.mockResolvedValueOnce([row(1, { total: 5 }), row(2, { total: 5 }), row(3, { total: 5 })]);
+    queued([row(1, { total: 5 }), row(2, { total: 5 }), row(3, { total: 5 })]);
     const p = await previewBankSync(COMPANY, WINDOW, { maxRows: 2 });
     expect(p).toMatchObject({ count: 5, overMaxRows: true, maxRows: 2 });
     expect(p.sample).toHaveLength(2);
@@ -79,31 +91,62 @@ describe('previewBankSync', () => {
 
 describe('the live path', () => {
   it('refuses a window over the cap, naming the remedy, before any write', async () => {
-    mockSql.mockResolvedValueOnce([row(1, { total: 0 }), row(2, { total: 0 }), row(3, { total: 0 })]);
+    queued([row(1, { total: 0 }), row(2, { total: 0 }), row(3, { total: 0 })]);
     await expect(applyBankSyncBatch(COMPANY, WINDOW, { idempotencyKey: 'k', userId: 'u', maxRows: 2 }))
       .rejects.toThrow(/more than 2 bank transactions: narrow date_from \/ date_to/);
-    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(realStatements()).toHaveLength(1);
   });
 
   it('writes no batch when nothing would change', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    queued([]);
     expect(await applyBankSyncBatch(COMPANY, WINDOW, { idempotencyKey: 'k', userId: 'u' })).toEqual({ batchId: null, bankRowCount: 0 });
-    expect(mockSql).toHaveBeenCalledTimes(1);
-    mockSql.mockResolvedValueOnce([]);
+    expect(realStatements()).toHaveLength(1);
+    queued([]);
     expect(await applyBankSync(COMPANY, BATCH, { tagBatchId: BATCH })).toBe(0);
-    expect(mockSql).toHaveBeenCalledTimes(2);
+    expect(realStatements()).toHaveLength(2);
   });
 
   it('records the window on the batch it writes', async () => {
-    mockSql
-      .mockResolvedValueOnce([row(1, { total: 0 })])
-      .mockResolvedValueOnce([{ id: BATCH }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: row(1).bank_id }]);
+    queued([row(1, { total: 0 })], [{ id: BATCH }], [], [{ id: row(1).bank_id }]);
     const out = await applyBankSyncBatch(COMPANY, WINDOW, { idempotencyKey: 'k', userId: 'u' });
     expect(out).toEqual({ batchId: BATCH, bankRowCount: 1 });
-    expect((mockSql.mock.calls[1]![0] as string[]).join('?')).toMatch(/sync_date_from, sync_date_to/);
-    expect(mockSql.mock.calls[1]!.slice(1)).toEqual(expect.arrayContaining(['2026-10-01', '2026-10-31']));
+    expect((realStatements()[1]![0] as string[]).join('?')).toMatch(/sync_date_from, sync_date_to/);
+    expect(realStatements()[1]!.slice(1)).toEqual(expect.arrayContaining(['2026-10-01', '2026-10-31']));
+  });
+});
+
+describe('the statement bound', () => {
+  const bound = (timeoutMs: string) => mockSql.mockImplementation(async (...args: unknown[]) => {
+    const text = (args[0] as string[]).join('?');
+    if (text.includes('pg_settings')) return [{ timeout_ms: timeoutMs, jit: 'on' }];
+    return [];
+  });
+  const applied = () => mockSql.mock.calls.filter((c) => (c[0] as string[]).join('?').includes('set_config(\'statement_timeout\''))
+    .map((c) => c[1]);
+
+  it('sets the bound, JIT off, and puts the caller\'s own settings back', async () => {
+    bound('0');
+    await withBoundedStatements(async () => 'ok', 5000);
+    expect(applied()).toEqual(['5000ms', '0ms']);
+    expect(mockSql.mock.calls.filter((c) => (c[0] as string[]).join('?').includes("'jit', 'off'"))).toHaveLength(1);
+  });
+
+  it('only tightens: a caller budget under the bound stays, one over it is cut to the bound', async () => {
+    bound('800');
+    await withBoundedStatements(async () => 'ok', 5000);
+    expect(applied()[0]).toBe('800ms');
+    mockSql.mockClear();
+    bound('600000');
+    await withBoundedStatements(async () => 'ok', 5000);
+    expect(applied()[0]).toBe('5000ms');
+  });
+
+  it('turns a cancelled statement (57014) into the typed refusal naming the remedy, and re-throws anything else', async () => {
+    bound('0');
+    await expect(withBoundedStatements(async () => { throw Object.assign(new Error('canceling statement'), { code: '57014' }); }, 20000))
+      .rejects.toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED', message: expect.stringMatching(/longer than 20s .* narrow date_from/) });
+    const boom = Object.assign(new Error('boom'), { code: '23505' });
+    await expect(withBoundedStatements(async () => { throw boom; })).rejects.toBe(boom);
   });
 });
 
@@ -114,7 +157,7 @@ describe('writeBankRows', () => {
   });
 
   it('throws when fewer rows were written than planned, saying how many', async () => {
-    mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: row(1).bank_id }]);
+    queued([], [{ id: row(1).bank_id }]);
     await expect(writeBankRows(COMPANY, BATCH, [planned(1), planned(2)]))
       .rejects.toMatchObject({ code: 'BANK_DIMENSION_SYNC_REFUSED', message: expect.stringMatching(/^1 bank transaction\(s\) were changed by another request/) });
   });
