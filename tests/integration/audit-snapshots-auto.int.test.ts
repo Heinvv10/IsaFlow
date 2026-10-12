@@ -17,6 +17,10 @@ import { members, newCompany } from './entity-changes.helpers';
 import { cleanupAudit, plantFiscalYear, plantJournal, plantLedger, waitForSnapshots } from './audit-snapshots.helpers';
 import { mcpRun } from './audit-snapshots-mcp.helpers';
 import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriods';
+import { als, type RequestContext } from '../../src/lib/als';
+import { drainAfterCommit } from '../../src/lib/afterCommit';
+import { withSavepoint } from '../../src/lib/neon';
+import { closePeriod } from '../../src/modules/accounting/services/gl/fiscalPeriodService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -45,7 +49,7 @@ async function company() {
 const action = (user: string, c: string, body: Record<string, unknown>) =>
   callRoute(fiscalPeriodsAction, tokens[user]!, c, 'POST', body, '/api/accounting/fiscal-periods-action');
 
-describe('automatic snapshots', () => {
+describe('automatic snapshots', { timeout: 120_000 }, () => {
   it('a period close takes a sealed snapshot at the period end, as the closer', async () => {
     const { c, periods } = await company();
     const res = await action(o, c, { action: 'close', id: periods[0] });
@@ -105,6 +109,31 @@ describe('automatic snapshots', () => {
     const [s] = await waitForSnapshots(pool, c, 1);
     expect(s).toMatchObject({ status: 'failed', trigger: 'period_close', cutoff: '2026-01-31' });
     expect(String(s!.failure_reason)).toMatch(/^signing_key_missing/);
+  });
+
+  it('a close inside a savepoint that rolled back takes nothing, though the request committed', async () => {
+    const { c, periods } = await company();
+    const client = await pool.connect();
+    const claims = { sub: o, session_id: crypto.randomUUID() };
+    const ctx = { client, userId: o, companyId: c, claims, afterCommit: [] } as unknown as RequestContext;
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(claims)]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
+      await als.run(ctx, async () => {
+        await withSavepoint('undone_close', async () => { await closePeriod(c, periods[0]!, o); throw new Error('later step failed'); })
+          .catch(() => undefined);
+      });
+      ctx.finished = true;
+      await client.query('COMMIT');
+    } finally { client.release(); }
+    expect(ctx.afterCommit).toHaveLength(1);
+    drainAfterCommit(ctx);
+    await new Promise((r) => setTimeout(r, 2500));
+    expect(await waitForSnapshots(pool, c, 1, 0)).toEqual([]);
+    const { rows: [p] } = await pool.query('SELECT status FROM fiscal_periods WHERE id = $1', [periods[0]]);
+    expect(p.status).toBe('open');
   });
 
   it('a refused close takes nothing', async () => {

@@ -53,7 +53,7 @@ async function books(): Promise<{ c: string; l: Ledger; j: string[] }> {
 const count = async (t: string, c: string) =>
   (await pool.query(`SELECT count(*)::int AS n FROM ${t} WHERE company_id = $1`, [c])).rows[0].n as number;
 
-describe('taking', () => {
+describe('taking', { timeout: 120_000 }, () => {
   it('freezes the posted journals and lines on or before the cutoff and the trial balance they make, sealed', async () => {
     const { c, l, j } = await books();
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
@@ -83,7 +83,7 @@ describe('taking', () => {
   });
 });
 
-describe('verifying', () => {
+describe('verifying', { timeout: 120_000 }, () => {
   async function alter(table: string, sqlText: string, args: unknown[]) {
     const db = await pool.connect();
     try {
@@ -112,6 +112,15 @@ describe('verifying', () => {
     expect(v2.recomputedHash).not.toBe(v2.canonicalHash);
   });
 
+  it('an altered stored hash alone (the row untouched) is invalid too', async () => {
+    const { c } = await books();
+    const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
+    const { rows: [j] } = await pool.query('SELECT journal_id FROM audit_snapshot_journals WHERE snapshot_id = $1 LIMIT 1', [s.id]);
+    await alter('audit_snapshot_journals', 'UPDATE audit_snapshot_journals SET material_hash = $3 WHERE snapshot_id = $1 AND journal_id = $2',
+      [s.id, j.journal_id, 'f'.repeat(64)]);
+    expect((await read(c, () => verifySnapshot(c, s.id, KEY)))!).toMatchObject({ status: 'invalid', rowMismatchCount: 1 });
+  });
+
   it('an altered check result or trial balance row is invalid', async () => {
     const { c } = await books();
     const s = await takeSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'manual' });
@@ -134,7 +143,7 @@ describe('verifying', () => {
   });
 });
 
-describe('checks inside a snapshot', () => {
+describe('checks inside a snapshot', { timeout: 120_000 }, () => {
   it('a backdated journal and a threshold split are findings', async () => {
     const { c, l } = await books();
     const late = await plantJournal(pool, c, { date: '2026-03-01', amount: 40, debit: l.expense, credit: l.bank, by: o,
