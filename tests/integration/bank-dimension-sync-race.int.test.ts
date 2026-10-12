@@ -42,15 +42,28 @@ vi.mock('@/lib/neon', async (orig) => {
 });
 
 assertDisposable();
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Named, so a lock-wait probe can look at THIS file's sessions only (other files share the database).
+const APP = `bds-race-${process.pid}`;
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, application_name: APP });
 const other = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const companies: string[] = [];
 const users: string[] = [];
 const tokens: Record<string, string> = {};
 const mcp = mcpAs(pool);
+
+/** Wait (up to 5s) until some session is blocked on a lock held by `blockerPid`: the session under test, not any other file's. */
+async function waitBlockedBy(blockerPid: number): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    const waiting = await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1::INT = ANY(pg_blocking_pids(pid))', [blockerPid]);
+    if (waiting.rowCount) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+const pidOf = async (c: { query: (t: string) => Promise<{ rows: { pid: number }[] }> }): Promise<number> =>
+  (await c.query('SELECT pg_backend_pid() AS pid')).rows[0]!.pid;
 // Sessions that cannot walk the primary key: with index and bitmap scans off, an UNORDERED locking select returns
 // (and so locks) rows in physical order. Per-connection startup options, so no other session or file is touched.
-const physical = new Pool({ connectionString: process.env.DATABASE_URL, max: 3, options: '-c enable_indexscan=off -c enable_bitmapscan=off -c enable_indexonlyscan=off' });
+const physical = new Pool({ connectionString: process.env.DATABASE_URL, max: 3, application_name: APP, options: '-c enable_indexscan=off -c enable_bitmapscan=off -c enable_indexonlyscan=off' });
 const mcpPhysical = mcpAs(physical);
 afterAll(async () => { await other.end(); await physical.end(); await cleanupSync(pool, companies, users); });
 
@@ -107,12 +120,7 @@ describe('candidate rows are locked in id order, so two syncs cannot deadlock (b
       await blocker.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE', [later.tx]);
       const syncing = asToken(pool, f.user, f.c, () => applyBankSyncBatch(
         f.c, { dateFrom: '2026-01-01', dateTo: '2026-12-31' }, { idempotencyKey: newKey('order'), userId: f.user }));
-      for (let i = 0; i < 100; i += 1) {
-        const waiting = await pool.query(
-          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF bt%' AND datname = current_database()");
-        if (waiting.rowCount) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      await waitBlockedBy(await pidOf(blocker));
       let probed = 'acquired';
       try {
         await probe.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE NOWAIT', [earlier.tx]);
@@ -172,7 +180,7 @@ describe('tag and reverse take their locks in one order: lines, then bank rows (
         lines: [{ journal_line_id: line, bu: code(f, 'B1') }], idempotency_key: newKey('dl2') });
       for (let i = 0; i < 100; i += 1) {
         const waiting = await other.query(
-          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()");
+          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND application_name = $1", [APP]);
         if (waiting.rowCount) return;
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -219,12 +227,7 @@ describe('tag takes its line locks in id order (round 3, REPRO 5)', () => {
       await blocker.query('BEGIN');
       await blocker.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE', [lo]);
       const tagging = tagLines(f, [hi, lo], { cc2: code(f, 'P1') });
-      for (let i = 0; i < 100; i += 1) {
-        const waiting = await pool.query(
-          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF jl%' AND datname = current_database()");
-        if (waiting.rowCount) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      await waitBlockedBy(await pidOf(blocker));
       // In id order the tag took `lo` first and is blocked on it, so `hi` is still free; in physical order it holds `hi`.
       let probed = 'acquired';
       try {
@@ -259,12 +262,7 @@ describe('tag takes its line locks in id order (round 3, REPRO 5)', () => {
       await blocker.query('BEGIN');
       await blocker.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE', [lo]);
       const reversing = mcpPhysical(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: batch, idempotency_key: newKey('ordr') });
-      for (let i = 0; i < 100; i += 1) {
-        const waiting = await pool.query(
-          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF jl%' AND datname = current_database()");
-        if (waiting.rowCount) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      await waitBlockedBy(await pidOf(blocker));
       let probed = 'acquired';
       try {
         await probe.query('SELECT 1 FROM gl_journal_lines WHERE id = $1 FOR UPDATE NOWAIT', [hi]);
@@ -335,12 +333,7 @@ describe('reversal locks the batch\'s bank rows before it checks them (follow-up
       await blocker.query('BEGIN');
       await blocker.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE', [later.tx]);
       const reversing = reverse(f, batch);
-      for (let i = 0; i < 100; i += 1) {
-        const waiting = await pool.query(
-          "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF bt%' AND datname = current_database()");
-        if (waiting.rowCount) break;
-        await new Promise((r) => setTimeout(r, 50));
-      }
+      await waitBlockedBy(await pidOf(blocker));
       let probed = 'acquired';
       try {
         await probe.query('SELECT 1 FROM bank_transactions WHERE id = $1 FOR UPDATE NOWAIT', [earlier.tx]);
