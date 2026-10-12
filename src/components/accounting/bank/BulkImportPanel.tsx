@@ -154,6 +154,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       return {
         ...r,
         phase: 'previewed',
+        errorMessage: undefined, // a retried file carries no stale error
         accountMatch: data.accountMatch,
         detectedBank: data.detectedBank,
         extractedAccountNumber: data.extractedAccountNumber,
@@ -304,12 +305,12 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
             droppedByFile[sequence - 1] = lines;
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines, importWarnings,
+              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines, importWarnings, errorMessage: undefined,
             } : r));
           } else if (data.status === 'skipped') {
             skipped++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'skipped',
+              ...r, phase: 'skipped', errorMessage: undefined,
             } : r));
           } else {
             failed++;
@@ -336,7 +337,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
         `${totalTransactions} transactions added.`);
     } else if (imported > 0) {
-      notify.warning(`Partial import`, `${imported} imported · ${failed} failed · ${skipped} skipped`);
+      notify.warning(`Partial import`, `${imported} imported · ${failed} failed · ${skipped} skipped${withProblems ? ` · ${withProblems} with problems` : ''}`);
     } else if (failed > 0) {
       notify.error('Import failed', `${failed} file(s) could not be imported.`);
     }
@@ -498,6 +499,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
               </p>
               <p className="text-xs text-[var(--ff-text-muted)]">
                 {summary.imported} imported · {summary.skipped} skipped · {summary.failed} failed
+                {summary.withProblems > 0 ? ` · ${summary.withProblems} with problems` : ''}
                 {' · '}{summary.totalTransactions} transactions added
               </p>
             </div>
