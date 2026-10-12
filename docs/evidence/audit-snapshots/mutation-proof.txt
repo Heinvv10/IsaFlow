@@ -5,7 +5,6 @@
 # TOTAL across rounds: round 1 52/52, round 2 25/25, round 3 9/9 (see the round sections below).
 # Round 1 at 47375e442 (52 mutants; the migration was then numbered 889 — renumbered to 890 later, text only): 49 killed, 3 survived.
 # Each survivor got a test, re-run at 76bda28d8: all 3 killed. Guards added in review are proven in ROUND 2 and ROUND 3 below.
-# TOTAL: round 1 52/52, round 2 25/25, round 3 9/9.
 
 m01  KILLED   grants left in place (default privileges)            890_audit_snapshots.sql          by: 889 refused to apply
 m02  KILLED   append-only guard misses UPDATE                      890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
