@@ -28,10 +28,14 @@ const json = (data: unknown) => new Response(JSON.stringify({ success: true, dat
 afterEach(() => { vi.mocked(apiFetch).mockReset(); });
 
 const chart: GLAccount[] = [
-  chartAccount('a-liab', '2100', 'Employee Reimbursements'),
-  chartAccount('a-vat', '1140', 'VAT Input'),
-  chartAccount('a-sales', '4000', 'Sales Revenue'),
+  // Headers (they have children): the post route refuses them, so the page must not offer them.
+  chartAccount('h-liab', '2000', 'Liabilities HEADER', { accountType: 'liability', level: 1 }),
+  chartAccount('h-asset', '1000', 'Assets HEADER', { accountType: 'asset', level: 1 }),
+  chartAccount('a-liab', '2100', 'Employee Reimbursements', { accountType: 'liability', parentAccountId: 'h-liab' }),
+  chartAccount('a-vat', '1140', 'VAT Input', { accountType: 'asset', parentAccountId: 'h-asset' }),
+  chartAccount('a-sales', '4000', 'Sales Revenue', { accountType: 'revenue' }),
   chartAccount('a-cost', '5000', 'Purchases Expense'),
+  chartAccount('a-inactive', '5900', 'Inactive Expense', { isActive: false }),
 ];
 
 const claim = {
@@ -46,8 +50,30 @@ describe('chart-of-accounts consumers read the real response shape', () => {
       String(url).includes('chart-of-accounts') ? json(chart) : json({ claim }));
     render(<ExpenseClaimDetail />);
     fireEvent.click(await screen.findByRole('button', { name: /post to gl/i }));
-    await waitFor(() => expect(screen.getAllByRole('option', { name: '2100 — Employee Reimbursements' })).toHaveLength(2));
-    expect(screen.getAllByRole('option', { name: '1140 — VAT Input' })).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByRole('option', { name: '2100 — Employee Reimbursements' })).toHaveLength(1));
+    expect(screen.getAllByRole('option', { name: '1140 — VAT Input' })).toHaveLength(1);
+  });
+
+  it('expense claim post dropdowns offer only the leaf accounts of the type the route accepts', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      String(url).includes('chart-of-accounts') ? json(chart) : json({ claim }));
+    render(<ExpenseClaimDetail />);
+    fireEvent.click(await screen.findByRole('button', { name: /post to gl/i }));
+    await screen.findByRole('option', { name: '2100 — Employee Reimbursements' });
+    const [reimb, vat] = screen.getAllByRole('combobox').slice(-2) as HTMLSelectElement[];
+    const names = (s: HTMLSelectElement) => Array.from(s.options).map(o => o.textContent);
+    expect(names(reimb!)).toEqual(['Select account…', '2100 — Employee Reimbursements']);
+    expect(names(vat!)).toEqual(['None — skip VAT leg', '1140 — VAT Input']);
+  });
+
+  it('expense claim receipt line dropdown leaves out header and inactive accounts', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      String(url).includes('chart-of-accounts') ? json(chart) : json({ claim: { ...claim, status: 'draft' } }));
+    render(<ExpenseClaimDetail />);
+    fireEvent.click(await screen.findByRole('button', { name: /add receipt/i }));
+    await screen.findByRole('option', { name: '5000 — Purchases Expense' });
+    expect(screen.queryByRole('option', { name: /HEADER/ })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Inactive Expense/ })).toBeNull();
   });
 
   it('purchase order edit offers the accounts on each line', async () => {

@@ -6,7 +6,7 @@
  * input account).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -19,7 +19,8 @@ import {
   MapPin, Receipt, DollarSign,
 } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
-import { chartAccountOptions } from '@/lib/chartAccountOptions';
+import { chartAccountOptions, leafAccountOptions } from '@/lib/chartAccountOptions';
+import { postableAccounts } from '@/components/reports/postableAccounts';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 
 interface Line {
@@ -59,8 +60,6 @@ interface Claim {
   lines: Line[];
 }
 
-interface GlAccount { id: string; code: string; name: string }
-
 function fmtZAR(n: number): string {
   return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -70,7 +69,7 @@ export default function ExpenseClaimDetail() {
   const id = typeof router.query.id === 'string' ? router.query.id : null;
 
   const [claim, setClaim] = useState<Claim | null>(null);
-  const [accounts, setAccounts] = useState<GlAccount[]>([]);
+  const [chart, setChart] = useState<ChartGLAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -121,13 +120,18 @@ export default function ExpenseClaimDetail() {
 
   const loadAccounts = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/accounting/chart-of-accounts?limit=500'); await assertOk(res, 'Could not load GL accounts - try again');
+      const res = await apiFetch('/api/accounting/chart-of-accounts?includeInactive=true'); await assertOk(res, 'Could not load GL accounts - try again');
       const json = await res.json() as { data?: ChartGLAccount[] };
-      setAccounts(chartAccountOptions(json.data));
-    } catch (err) { setAccounts([]); showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
+      setChart(Array.isArray(json.data) ? json.data : []);
+    } catch (err) { setChart([]); showToast(apiErrorMessage(err, 'Could not load GL accounts - try again'), false); }
   }, [showToast]);
 
   useEffect(() => { void loadClaim(); void loadAccounts(); }, [loadClaim, loadAccounts]);
+
+  // Line accounts: active, and not a header. Post accounts: what the post route accepts (a leaf of the right type).
+  const lineAccounts = useMemo(() => chartAccountOptions(postableAccounts(chart).filter(a => a.isActive)), [chart]);
+  const reimbAccounts = useMemo(() => leafAccountOptions(chart, 'liability'), [chart]);
+  const vatAccounts = useMemo(() => leafAccountOptions(chart, 'asset'), [chart]);
 
   async function handleAddReceipt() {
     if (!id || !rcLineDate || !rcAmount || !rcGlAccount) {
@@ -298,7 +302,7 @@ export default function ExpenseClaimDetail() {
                 <select value={rcGlAccount} onChange={e => setRcGlAccount(e.target.value)}
                   className="col-span-1 px-2 py-1.5 rounded bg-white/5 border border-[rgba(255,255,255,0.08)] text-slate-200 text-xs">
                   <option value="">GL account…</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                  {lineAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                 </select>
                 <div className="col-span-6 flex gap-2 justify-end">
                   <button onClick={() => setAddMode('none')} className="px-3 py-1.5 text-slate-400 hover:text-slate-200 text-xs">Cancel</button>
@@ -386,7 +390,7 @@ export default function ExpenseClaimDetail() {
                   <select value={postReimbAcct} onChange={e => setPostReimbAcct(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-xs">
                     <option value="">Select account…</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                    {reimbAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -394,7 +398,7 @@ export default function ExpenseClaimDetail() {
                   <select value={postVatAcct} onChange={e => setPostVatAcct(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200 text-xs">
                     <option value="">None — skip VAT leg</option>
-                    {accounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+                    {vatAccounts.map(a => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
                   </select>
                 </div>
               </div>

@@ -27,7 +27,7 @@ const lateClaim = { claimDate: '2026-07-01', lockPeriod: { start: '2026-05-01', 
 async function post(response: Response) {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(ok({ claim: claim('approved') }))
-    .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements')]))
+    .mockResolvedValueOnce(ok([chartAccount('a1', '2300', 'Reimbursements', { accountType: 'liability' })]))
     .mockResolvedValueOnce(response);
   render(<Page />);
   fireEvent.click(await screen.findByText('Post to GL'));
