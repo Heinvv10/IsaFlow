@@ -82,9 +82,9 @@ export function postingWarningsNotice(
   const title = `Posted — ${drop ? pickDropFact(drop) : first.replace(/^Line \d+: /, '')}`;
   if (all.length === 1) return { title, message: drop ? `Line ${drop.line} posted without it.` : '' };
   if (byDocument.length > 1) {
-    // The count is of warnings (the title says the first); the list is of the documents they were on.
-    const count = `${all.length} not applied`;
-    return { title, message: listNames(`${count}: `, byDocument.map((_, i) => names[i]), `${count}, in ${byDocument.length} documents`) };
+    // Line 2 counts and lists the same thing: the bills (the title says what was not applied).
+    const bills = `${byDocument.length} bills`;
+    return { title, message: listNames(`${bills}: `, byDocument.map((_, i) => names[i]), bills) };
   }
   return { title, message: `+${all.length - 1} more not applied.` };
 }

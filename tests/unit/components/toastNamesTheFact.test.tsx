@@ -36,7 +36,7 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true, warnings: [INACTIVE] },
     ]);
     expect(await screen.findByText('Posted — cost centre OLD not applied (inactive)')).toBeTruthy();
-    expect(screen.getByText('2 not applied: QAF4-12, QAF4-13')).toBeTruthy();
+    expect(screen.getByText('2 bills: QAF4-12, QAF4-13')).toBeTruthy();
   });
 
   it('says what happened to the VAT in the title, not in the clipped line', async () => {
@@ -45,7 +45,7 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true },
     ]);
     expect(await screen.findByText('Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01')).toBeTruthy();
-    expect(screen.getByText('Period 2026-05-01 to 2026-06-30 is filed.')).toBeTruthy();
+    expect(screen.getByText('QAF4-12: 2026-05-01 to 2026-06-30 is filed.')).toBeTruthy();
     // The title is on screen, so the old sentence being absent is a fact about the toast, not about a page not yet rendered.
     expect(screen.queryByText(/was claimed late, in the VAT period starting/)).toBeNull();
   });

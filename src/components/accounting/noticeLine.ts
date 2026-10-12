@@ -9,16 +9,22 @@ export const NOTICE_LINE_FITS = 45;
 /**
  * `head` followed by the documents' numbers, as many as fit the line: all of
  * them, else the first few and "and k more", else `fallback` (a number alone
- * too long for the row, or one the response did not carry).
+ * too long for the row, or one the response did not carry). Two bills can share
+ * a number (it is unique per supplier, not per company), so a repeated number
+ * is named once, "INV-1 (×2)", and "k more" counts BILLS, not distinct numbers.
  */
 export function listNames(head: string, names: ReadonlyArray<string | undefined>, fallback: string): string {
-  if (names.length > 0 && names.every((n): n is string => !!n)) {
-    const full = head + names.join(', ');
-    if (full.length <= NOTICE_LINE_FITS) return full;
-    for (let shown = names.length - 1; shown >= 1; shown--) {
-      const cut = `${head}${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
-      if (cut.length <= NOTICE_LINE_FITS) return cut;
-    }
+  if (names.length === 0 || !names.every((n): n is string => !!n)) return fallback;
+  const entries: Array<{ label: string; bills: number }> = [];
+  const counts = new Map<string, number>();
+  for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
+  for (const [n, bills] of counts) entries.push({ label: bills > 1 ? `${n} (×${bills})` : n, bills });
+  const full = head + entries.map((e) => e.label).join(', ');
+  if (full.length <= NOTICE_LINE_FITS) return full;
+  for (let shown = entries.length - 1; shown >= 1; shown--) {
+    const hidden = entries.slice(shown).reduce((s, e) => s + e.bills, 0);
+    const cut = `${head}${entries.slice(0, shown).map((e) => e.label).join(', ')} and ${hidden} more`;
+    if (cut.length <= NOTICE_LINE_FITS) return cut;
   }
   return fallback;
 }
