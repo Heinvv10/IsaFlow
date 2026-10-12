@@ -1,5 +1,5 @@
-# Prod-topology proof of migration 889 — 2026-10-12T05:46:24Z
-# Container isaflow-prodtopo-889 (pgvector pg15): isaflow_dev schema-only + roles (no passwords); every public/app/auth table, view, sequence and routine re-owned to migration_admin (NOSUPERUSER BYPASSRLS); deploy login 'deployer' NOSUPERUSER BYPASSRLS, member of migration_admin and app_user (step 3's prodtopo.sql).
+# Prod-topology proof of migration 890 — 2026-10-12T06:09:13Z
+# Container isaflow-prodtopo-890 (pgvector pg15): isaflow_dev schema-only + roles (no passwords); every public/app/auth table, view, sequence and routine re-owned to migration_admin (NOSUPERUSER BYPASSRLS); deploy login 'deployer' NOSUPERUSER BYPASSRLS, member of migration_admin and app_user (step 3's prodtopo.sql).
 
 ## roles
 app_user super=false bypassrls=false
@@ -8,10 +8,10 @@ migration_admin super=false bypassrls=true
 platform_admin super=false bypassrls=true
 supabase_read_only_user super=false bypassrls=true
 
-## apply 889 as deployer (1st)
+## apply 890 as deployer (1st)
 exit=0
 
-## re-apply 889 as deployer (2nd)
+## re-apply 890 as deployer (2nd)
 exit=0
 
 ## smoke (as deployer; app_user via SET ROLE + claims)
@@ -35,12 +35,12 @@ SET
 --------------+-------
  viewer reads |     0
 (1 row)
-ERROR:  audit snapshot: your role in this company may not record this
-CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
-PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 8 at assignment
 ROLLBACK
 BEGIN
 SET
+ERROR:  audit snapshot: your role in this company may not record this
+CONTEXT:  PL/pgSQL function audit_snapshot_caller(uuid,text,text,text[]) line 14 at RAISE
+PL/pgSQL function audit_snapshot_record(jsonb,jsonb,jsonb,jsonb) line 8 at assignment
 ERROR:  permission denied for table audit_snapshot_journals
 ROLLBACK
 ERROR:  audit_snapshot_journals is append-only (UPDATE refused)
@@ -67,8 +67,8 @@ DELETE 1
  after purge |     0 |     0
 (1 row)
 
-## tripwire: a second member of the owner (deployer) makes 889's assertions refuse
-ERROR:  migration 889: intruder still holds INSERT on audit_check_runs
+## tripwire: a second member of the owner (deployer) makes 890's assertions refuse
+ERROR:  migration 890: intruder still holds INSERT on audit_check_runs
 CONTEXT:  PL/pgSQL function inline_code_block line 20 at RAISE
 exit=3 (non-zero = refused, expected)
 

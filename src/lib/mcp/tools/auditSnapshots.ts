@@ -1,5 +1,5 @@
 /**
- * MCP tools for audit snapshots (forensic-controls step 4, migration 889):
+ * MCP tools for audit snapshots (forensic-controls step 4, migration 890):
  *  - audit_snapshots         list / get (with the check run and its findings) / verify — owner, admin, manager;
  *  - compare_audit_snapshot  against today's books or a later snapshot — owner, admin, manager;
  *  - take_audit_snapshot     take one now — owner / admin token holders with write:journals (the scope a period
