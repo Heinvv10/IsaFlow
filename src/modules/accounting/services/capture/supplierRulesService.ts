@@ -26,6 +26,10 @@ export interface SupplierRule {
   defaultVatCode: string | null;
   defaultCostCentreId: string | null;
   defaultProjectId: string | null;
+  /** Default CC1 / CC2 / BU of this supplier's bill lines (migration 890); set via supplierDimensionDefaults. */
+  defaultCc1Id: string | null;
+  defaultCc2Id: string | null;
+  defaultBuId: string | null;
   autoPublish: boolean;
   autoPublishMaxAmount: number | null;
   autoPublishMinConfidence: number;
@@ -63,6 +67,9 @@ function mapRow(row: Row): SupplierRule {
     defaultVatCode: row.default_vat_code ? String(row.default_vat_code) : null,
     defaultCostCentreId: row.default_cost_centre_id ? String(row.default_cost_centre_id) : null,
     defaultProjectId: row.default_project_id ? String(row.default_project_id) : null,
+    defaultCc1Id: row.default_cc1_id ? String(row.default_cc1_id) : null,
+    defaultCc2Id: row.default_cc2_id ? String(row.default_cc2_id) : null,
+    defaultBuId: row.default_bu_id ? String(row.default_bu_id) : null,
     autoPublish: Boolean(row.auto_publish),
     autoPublishMaxAmount: row.auto_publish_max_amount != null ? Number(row.auto_publish_max_amount) : null,
     autoPublishMinConfidence: Number(row.auto_publish_min_confidence),

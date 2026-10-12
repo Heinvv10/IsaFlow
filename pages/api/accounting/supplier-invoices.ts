@@ -82,6 +82,8 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       poItemId: i.poItemId, description: i.description, quantity: i.quantity,
       unitPrice: i.unitPrice, taxRate: i.taxRate, vatClassification: i.vatClassification,
       glAccountId: i.glAccountId, projectId: i.projectId, costCenterId: i.costCenterId,
+      // CC1 / CC2 / BU (migration 870): validated by the service (tenant, slot, active, FNO conflict).
+      cc1Id: i.cc1Id, cc2Id: i.cc2Id, buId: i.buId,
     })) as SupplierInvoiceCreateInput['items'];
 
     const invoice = await createSupplierInvoice(companyId, {
