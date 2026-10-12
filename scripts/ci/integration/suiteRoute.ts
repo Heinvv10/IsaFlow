@@ -80,3 +80,23 @@ export function routeSuite(file: string, read: (path: string) => string | undefi
   if (testOnly && fixtureOnly) return { file, db: 'conflict' };
   return { file, db: testOnly ? 'isaflow_test' : 'isaflow_schema_fixture' };
 }
+
+/**
+ * Deal suites to shards so the shards finish together: longest first, each to
+ * the shard with the least work so far (LPT). A suite's weight is its seconds
+ * in `slow`, else `fallback`. Ties keep path order, so the deal is stable.
+ */
+export function assignShards<T extends { file: string }>(
+  suites: T[], shards: number, slow: Readonly<Record<string, number>>, fallback = 2,
+): Array<T & { shard: number }> {
+  const load = new Array<number>(shards).fill(0);
+  const weight = (s: T) => slow[s.file] ?? fallback;
+  const order = suites.map((s, i) => ({ s, i })).sort((a, b) => weight(b.s) - weight(a.s) || a.i - b.i);
+  const out = new Array<T & { shard: number }>(suites.length);
+  for (const { s, i } of order) {
+    const shard = load.indexOf(Math.min(...load));
+    load[shard] += weight(s);
+    out[i] = { ...s, shard: shard + 1 };
+  }
+  return out;
+}

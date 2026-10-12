@@ -6,7 +6,7 @@
  * closure CALLS, so a new suite needs no list entry.
  */
 import { describe, expect, it } from 'vitest';
-import { importClosure, joinRelative, routeSuite } from '../../../scripts/ci/integration/suiteRoute';
+import { assignShards, importClosure, joinRelative, routeSuite } from '../../../scripts/ci/integration/suiteRoute';
 
 const FILES: Record<string, string> = {
   'tests/helpers/assertNotProductionDb.ts': 'export function assertNotProductionDb(reason: string): void {}\n',
@@ -65,5 +65,19 @@ describe('importClosure / joinRelative', () => {
       'tests/integration/seed.helpers.ts',
       'tests/helpers/assertNotProductionDb.ts',
     ]);
+  });
+});
+
+describe('assignShards', () => {
+  const suites = ['a', 'b', 'c', 'd', 'e', 'f'].map((f) => ({ file: f }));
+
+  it('gives the slowest suite a shard to itself and spreads the rest over the others', () => {
+    const dealt = assignShards(suites, 3, { c: 10 }, 1);
+    expect(dealt.filter((s) => s.shard === dealt.find((x) => x.file === 'c')!.shard).map((s) => s.file)).toEqual(['c']);
+    expect(dealt.map((s) => s.file)).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+  });
+
+  it('deals equal suites round-robin in path order', () => {
+    expect(assignShards(suites, 3, {}, 1).map((s) => s.shard)).toEqual([1, 2, 3, 1, 2, 3]);
   });
 });

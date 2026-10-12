@@ -5,7 +5,7 @@
 # alike (which has no dev database and no docker: everything here runs as the
 # current user).
 #
-# Schema source: scripts/ci/integration/baseline.sql, a committed schema-only
+# Schema source: scripts/ci/integration/baseline.sql.gz, a committed schema-only
 # dump of isaflow_dev (no data, roles or passwords) with its
 # schema_migrations rows, made by refresh-baseline.sh. On every run the repo's
 # own runner (scripts/apply-migrations.ts) applies each migration newer than
@@ -79,7 +79,7 @@ PORT=$(pg_cluster_start "$WORK/c1")
 PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -X -q -v ON_ERROR_STOP=1)
 pg_create_roles "$PORT"
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_schema_fixture"
-"${PSQL[@]}" -d isaflow_schema_fixture -f scripts/ci/integration/baseline.sql > /dev/null
+gunzip -c scripts/ci/integration/baseline.sql.gz | "${PSQL[@]}" -d isaflow_schema_fixture > /dev/null
 # The runner forces TLS unless the URL says sslmode=disable.
 with_db "$PORT" isaflow_schema_fixture \
   env "DATABASE_URL=postgresql://postgres@127.0.0.1:$PORT/isaflow_schema_fixture?sslmode=disable" \

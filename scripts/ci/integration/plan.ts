@@ -2,14 +2,34 @@
  * plan — prints the integration gate's work list, one suite per line:
  *   <shard>\t<database>\t<file>
  * Every tests/integration/**\/*.int.test.ts, routed by ./suiteRoute.ts and
- * dealt round-robin (in path order) to <shards> shards per database.
+ * dealt to <shards> shards longest-first (assignShards), so one shard does not
+ * collect the slow suites and finish minutes after the rest.
  * Exits 1, naming the files, when a suite's guards cannot pass on either database.
  *
  * Run: bun scripts/ci/integration/plan.ts <shards>
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { routeSuite } from './suiteRoute';
+import { assignShards, routeSuite } from './suiteRoute';
+
+/**
+ * Seconds each of the slowest suites took in the gate, measured 2026-10-12 at
+ * load ~110 (every other suite counts 3 s, about what one takes with its imports). Only the deal uses these: a stale
+ * or missing entry costs wall time, never correctness. Re-measure from the
+ * gate log's per-file times when one suite starts holding a shard back.
+ */
+const SLOW: Record<string, number> = {
+  'tests/integration/d10-bank-reversal-interleave.int.test.ts': 477,
+  'tests/integration/d10-mcp-void.int.test.ts': 172,
+  'tests/integration/d8-r16-posting-wait.int.test.ts': 89,
+  'tests/integration/w2-28-system-role-round10.int.test.ts': 57,
+  'tests/integration/d11-held-row-routes.int.test.ts': 46,
+  'tests/integration/d8-r9-lock-budget.int.test.ts': 38,
+  'tests/integration/w2-28-brk593p3-new.int.test.ts': 37,
+  'tests/integration/d12-completed-races.int.test.ts': 35,
+  'tests/integration/brkr-c5-locks.int.test.ts': 33,
+  'tests/integration/w2-28-system-role-round12.int.test.ts': 31,
+};
 
 const shards = Number(process.argv[2]);
 if (!Number.isInteger(shards) || shards < 1) {
@@ -34,9 +54,6 @@ if (conflicts.length > 0) {
   process.exit(1);
 }
 
-const next = new Map<string, number>();
-for (const { file, db } of routes) {
-  const i = next.get(db) ?? 0;
-  next.set(db, i + 1);
-  process.stdout.write(`${(i % shards) + 1}\t${db}\t${file}\n`);
+for (const { shard, db, file } of assignShards(routes, shards, SLOW, 3)) {
+  process.stdout.write(`${shard}\t${db}\t${file}\n`);
 }
