@@ -12,6 +12,7 @@ import { splitAllocateBankTransactionTool } from '../../src/lib/mcp/tools/writeB
 import { reverseDimensionTagBatchTool, tagJournalLinesTool } from '../../src/lib/mcp/tools/writeDimensionTags';
 import { syncBankDimensionsTool } from '../../src/lib/mcp/tools/writeBankDimensionSync';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
+import { reverseJournalEntry } from '../../src/modules/accounting/services/gl/journalEntryPostingService';
 import { getBankTransactions } from '../../src/modules/accounting/services/bank/bankTransactionQueryService';
 import { asToken, bankCompany, cleanupBankControlsA, type BankCompany, type McpReply } from './bank-controls-a.helpers';
 import { createUser } from './r035-approval.helpers';
@@ -114,6 +115,12 @@ export async function supplierPayment(pool: Pool, f: SyncFixture, date = '2026-0
   });
   if (res.isError) throw new Error(`supplier payment: ${res.content[0]!.text}`);
   return { tx, journal: await journalOf(pool, tx) };
+}
+
+/** Reverse a journal through the real reversal service (it stamps reversed_at and posts a contra; status stays 'posted'). Returns the contra's id. */
+export async function reverseJournal(pool: Pool, f: SyncFixture, journal: string): Promise<string> {
+  const res = await asToken(pool, f.user, f.c, () => reverseJournalEntry(f.c, journal, f.user));
+  return (res as unknown as { id: string }).id;
 }
 
 export async function setJournalStatus(pool: Pool, journal: string, status: string): Promise<void> {
