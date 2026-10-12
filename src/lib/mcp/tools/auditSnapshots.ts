@@ -36,7 +36,7 @@ export const auditSnapshotsTool: McpTool = {
     + 'With snapshot_id: that snapshot\'s header and totals plus its check run (15 integrity checks, the '
     + 'anomaly scan and the journal-risk leads, each with status pass / fail / unknown and its findings). With verify: '
     + 'true: recompute every row hash and the canonical hash from what is stored and check the HMAC seal — status valid, '
-    + `invalid, unknown_key (sealed under another key) or not_sealed. ${CAVEAT} Owner, admin or manager.`,
+    + `invalid (a row, hash or seal does not match, or the seal names a key the server does not hold), not_sealed or unchanged. ${CAVEAT} Owner, admin or manager.`,
   scope: 'read:reports',
   write: false,
   inputSchema: {

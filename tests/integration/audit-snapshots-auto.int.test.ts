@@ -177,6 +177,23 @@ describe('automatic snapshots', { timeout: 120_000 }, () => {
     expect(all.map((x) => x.status)).toEqual(['sealed', 'unchanged', 'unchanged', 'sealed']);
   });
 
+  it('an unchanged ledger never points at a snapshot that does not verify: a fresh one is sealed instead', async () => {
+    const { c, periods } = await company();
+    expect((await action(o, c, { action: 'close', id: periods[0] })).state.statusCode).toBe(200);
+    const [first] = await waitForSnapshots(pool, c, 1);
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query('ALTER TABLE audit_snapshot_journals DISABLE TRIGGER audit_snapshot_journals_append_only');
+      await db.query(`UPDATE audit_snapshot_journals SET row = jsonb_set(row, '{description}', '"forged"') WHERE snapshot_id = $1`, [first!.id]);
+      await db.query('ALTER TABLE audit_snapshot_journals ENABLE ALWAYS TRIGGER audit_snapshot_journals_append_only');
+      await db.query('COMMIT');
+    } finally { db.release(); }
+    // The live ledger still matches the fingerprint sealed in the altered snapshot's totals; it is not vouched for.
+    expect((await action(o, c, { action: 'lock', id: periods[0] })).state.statusCode).toBe(200);
+    expect((await waitForSnapshots(pool, c, 2)).map((x) => x.status)).toEqual(['sealed', 'sealed']);
+  });
+
   it('a later close undone in a savepoint does not cost the earlier, standing close its snapshot', async () => {
     const { c, periods } = await company();
     const client = await pool.connect();

@@ -148,13 +148,13 @@ function closingFromLines(lines: Side['lines']): Side['tb'] {
   });
 }
 
-/** A sealed snapshot that verifies (or is sealed under a retired key): nothing is compared against an altered one. */
+/** A sealed snapshot that verifies: nothing is compared against an altered or unverifiable one. */
 async function sealedSnapshot(companyId: string, id: string): Promise<{ s: SnapshotRecord; verified: string }> {
   const s = await getSnapshot(companyId, id);
   if (!s) throw new ComparisonError('Snapshot not found.');
   if (s.status !== 'sealed') throw new ComparisonError('This snapshot attempt holds no books of its own to compare.');
   const v = await verifySnapshot(companyId, id);
-  if (v?.status !== 'valid' && v?.status !== 'unknown_key') {
+  if (v?.status !== 'valid') {
     throw new ComparisonError(`Snapshot ${id} does not verify (${v?.status ?? 'unknown'}): its stored rows or seal do not match, so it is not compared.`);
   }
   return { s, verified: v.status };

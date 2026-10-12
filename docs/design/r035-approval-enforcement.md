@@ -689,9 +689,9 @@ the check run's own canonical hash — hashed with SHA-256; HMAC-SHA256 over `is
 id | hash | cutoff | taken_at` with `AUDIT_SNAPSHOT_SIGNING_KEY` (≥ 32 chars) under `AUDIT_SNAPSHOT_KEY_ID`; the check
 run the same under `isaflow:audit-check-run:v1`. Verify recomputes every row hash, the run hash and the canonical
 hash from the stored rows and checks the seals against THOSE (timing-safe): an edited row, an edited hash column or a
-forged snapshot is `invalid`; a seal under another key id is `unknown_key` — but only when the rows themselves prove
-nothing: what needs no key (row hashes, the canonical hash, the run hash) is decided first, so a rotated key never hides
-tampering. The filing columns consumers read — a line's `journal_id`, a journal's `entry_date`, a TB row's
+forged snapshot is `invalid`. Rotation keeps the old keys for verification (`AUDIT_SNAPSHOT_RETIRED_KEYS`,
+`id=secret,…`): a seal verifies against the key its key id names, and a key id the server holds no key for is
+`invalid` — the key id is the writer's input, so it can never mean "cannot tell". The filing columns consumers read — a line's `journal_id`, a journal's `entry_date`, a TB row's
 `account_id` — must equal the sealed row's own values. A line row carries its account id only; code, name and type come
 from the snapshot's own trial balance, so reclassifying an account is a master-data change, not thousands of changed
 journals. The key is the app's alone: storing a hash
@@ -720,11 +720,11 @@ reads the chain the previous one left): by hand a second request is refused (409
 per process (a slot each), a 120 s budget per snapshot. An automatic snapshot whose ledger fingerprint — every
 journal and line material hash and the TB, sealed in each snapshot's totals — reads the same as the newest sealed
 snapshot at that cutoff is recorded as `unchanged`, pointing at it (close then lock, close / reopen / close). A key id
-the server never listed is `invalid`; only `AUDIT_SNAPSHOT_RETIRED_KEY_IDS` read `unknown_key`. A comparison verifies
+the server holds no key for is `invalid` (retired keys are kept for verification). A comparison verifies
 both sides first and refuses an altered one. Journal and line rows freeze the VAT / intercompany / evidence columns
 too (`late_claim_base`, `is_intercompany`, `external_document_number`, …); a column census fails when a new
-journal or line column is neither frozen nor named as not material. The audit routes share a 30-per-minute bucket per
-company. A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
+journal or line column is neither frozen nor named as not material. The audit routes are rate-limited at 30 a minute per member
+(each member's own bucket, so one member cannot lock the others out). A ready pack's snapshot and file pointers are fixed by an ENABLE ALWAYS guard on `audit_trail_exports`.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the

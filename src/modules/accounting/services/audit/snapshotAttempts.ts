@@ -8,6 +8,7 @@ import { runAuditTx, transactionNow, type AuditPrincipal } from './auditTx';
 import { SNAPSHOT_CAVEAT, ledgerFingerprint } from './documents';
 import { journalRows, lineRows, tbRows } from './snapshotRows';
 import type { SnapshotTrigger } from './snapshotService';
+import { verifySnapshot } from './snapshotVerify';
 
 type AutoTrigger = Exclude<SnapshotTrigger, 'manual'>;
 
@@ -28,7 +29,10 @@ export async function recordSnapshotAttempt(p: AuditPrincipal, input: {
   });
 }
 
-/** The newest sealed snapshot at `cutoff` whose ledger still reads the same, or null. */
+/**
+ * The newest sealed snapshot at `cutoff` whose ledger still reads the same — and that verifies: an 'unchanged' row
+ * vouches for the snapshot it points at, so a forged or altered one is never pointed at. Null otherwise.
+ */
 export async function unchangedSince(p: AuditPrincipal, cutoff: string): Promise<string | null> {
   return runAuditTx(p, 'REPEATABLE READ', async (client) => {
     const { rows: [s] } = await client.query<{ id: string; fy: string | null; fp: string | null }>(
@@ -37,6 +41,7 @@ export async function unchangedSince(p: AuditPrincipal, cutoff: string): Promise
     if (!s?.fp || !s.fy) return null;
     const live = ledgerFingerprint(await tbRows(p.companyId, cutoff, s.fy),
       await journalRows(p.companyId, cutoff), await lineRows(p.companyId, cutoff));
-    return live === s.fp ? s.id : null;
+    if (live !== s.fp) return null;
+    return (await verifySnapshot(p.companyId, s.id))?.status === 'valid' ? s.id : null;
   });
 }

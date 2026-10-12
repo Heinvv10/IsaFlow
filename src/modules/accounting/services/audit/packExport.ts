@@ -143,7 +143,7 @@ export async function storePack(exportRow: AuditExport, snapshotId: string, pack
 }
 
 export interface PackVerification {
-  status: 'valid' | 'invalid' | 'unknown_key'; zipMatches: boolean; files: { name: string; ok: boolean }[];
+  status: 'valid' | 'invalid'; zipMatches: boolean; files: { name: string; ok: boolean }[];
   snapshotId: string | null; snapshotStatus: string | null; manifestCitesSnapshot: boolean;
   /** The manifest's own seal; `missing` for a ZIP without manifest.json or manifest.sig.json. */
   manifestSeal: SealCheck | 'missing';
@@ -173,10 +173,8 @@ export async function verifyPack(companyId: string, exportId: string): Promise<P
   }));
   const snap = await getSnapshot(companyId, e.snapshotId);
   const cites = manifest.snapshot.id === e.snapshotId && manifest.snapshot.canonical_hash === snap?.canonicalHash;
-  // Fail closed: valid only when every part is valid; unknown_key only when every part is valid or under a retired key.
-  const parts = [manifestSeal, snapshotStatus];
+  // Fail closed: valid only when every part is.
   const intact = zipMatches && cites && files.length > 0 && files.every((f) => f.ok);
-  const status = !intact || parts.some((x) => x !== 'valid' && x !== 'unknown_key') ? 'invalid'
-    : parts.includes('unknown_key') ? 'unknown_key' : 'valid';
+  const status = intact && manifestSeal === 'valid' && snapshotStatus === 'valid' ? 'valid' : 'invalid';
   return { status, zipMatches, files, snapshotId: e.snapshotId, snapshotStatus, manifestCitesSnapshot: cites, manifestSeal };
 }

@@ -22,7 +22,7 @@ export interface CheckResult {
 export interface CheckRun { id: string; asAt: string; periodStart: string; takenAt: string; canonicalHash: string; results: CheckResult[] }
 
 export interface Verification {
-  status: 'valid' | 'invalid' | 'unknown_key' | 'not_sealed' | 'unchanged'; recomputedHash: string | null; canonicalHash: string | null;
+  status: 'valid' | 'invalid' | 'not_sealed' | 'unchanged'; recomputedHash: string | null; canonicalHash: string | null;
   rowsChecked: { accounts: number; journals: number; lines: number }; rowMismatchCount: number;
 }
 

@@ -62,10 +62,15 @@ describe('seal', () => {
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, 'not-hex', keyId, KEY)).toBe('invalid');
     expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, { key: Buffer.from('z'.repeat(40)), keyId })).toBe('invalid');
   });
-  it('a seal under a retired key id is unknown; under any other key id it is invalid (the writer chooses the id)', () => {
-    const { hmac } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
-    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, 'old-key', { ...KEY, retiredKeyIds: ['old-key'] })).toBe('unknown_key');
-    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, 'old-key', KEY)).toBe('invalid');
+  it('a seal under a retired key verifies with that key; under a key id the server holds no key for it is invalid', () => {
+    const { hmac, keyId } = sign(SNAPSHOT_SEAL_DOMAIN, fields, KEY);
+    const rotated = { key: Buffer.from('r'.repeat(40)), keyId: 'test-2', retired: new Map([[keyId, KEY.key]]) };
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, rotated)).toBe('valid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, { ...fields, cutoff: '2026-07-01' }, hmac, keyId, rotated)).toBe('invalid');
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, hmac, keyId, { ...rotated, retired: new Map() })).toBe('invalid');
+    // The same retired id with a different secret (a forger naming a real id) does not verify either.
+    expect(checkSeal(SNAPSHOT_SEAL_DOMAIN, fields, sign(SNAPSHOT_SEAL_DOMAIN, fields, { key: Buffer.from('f'.repeat(40)), keyId }).hmac,
+      keyId, rotated)).toBe('invalid');
   });
   it('the chain position is signed: another seq or previous link does not verify', () => {
     const chained = { ...fields, chain: { seq: 2, prevHmac: 'c'.repeat(64) } };
@@ -83,7 +88,11 @@ describe('seal', () => {
     process.env.AUDIT_SNAPSHOT_KEY_ID = ' ';
     expect(() => signingKey()).toThrow(SigningKeyMissingError);
     process.env.AUDIT_SNAPSHOT_KEY_ID = 'k2';
-    process.env.AUDIT_SNAPSHOT_RETIRED_KEY_IDS = ' k0 , k1,,k2 ';
-    expect(signingKey()).toMatchObject({ keyId: 'k2', retiredKeyIds: ['k0', 'k1'] });
+    process.env.AUDIT_SNAPSHOT_RETIRED_KEYS = `k0=${'a'.repeat(32)}, k1=short,k2=${'b'.repeat(32)},junk`;
+    const k = signingKey();
+    expect(k.keyId).toBe('k2');
+    // k1's secret is too short and k2 is the current id: left out (their seals read invalid, never valid).
+    expect([...k.retired!.keys()]).toEqual(['k0']);
+    expect(k.retired!.get('k0')!.toString()).toBe('a'.repeat(32));
   });
 });
