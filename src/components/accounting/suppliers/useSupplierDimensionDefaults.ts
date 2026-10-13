@@ -60,12 +60,13 @@ export function offeredDefaults(held: HeldDefaults, offered: OfferedMasters): Su
  * Pure: what the server will apply on save, in words ('' when there is nothing to say yet or nothing usable).
  * The project (and FNO) default goes to a line that names neither of its own; the BU default goes to any line
  * with no BU, whatever its project (supplierDimensionDefaults.ts). While the pick-lists fail to load nothing can be
- * named, but the server still applies what the supplier holds, so the note says that much.
+ * named, but the server may still apply what the supplier holds (it skips inactive ones, which cannot be told
+ * apart without the lists), so the note says that much and no more.
  */
 export function defaultsNote(held: HeldDefaults, applied: SupplierLineDefaults, offered: OfferedMasters, fnoLabel: string): string {
   if (offered.status === 'failed') {
     return held.cc1Id || held.cc2Id || held.buId
-      ? "This supplier has default dimensions that are applied on save to lines that leave them open. The lists could not be loaded, so they are not shown here."
+      ? "The lists could not be loaded, so this supplier's default dimensions are not shown here. Any that are still active may be applied on save to lines that leave them open."
       : '';
   }
   const label = (options: CodingOption[], id: string) => options.find((o) => o.id === id)?.label ?? '';
