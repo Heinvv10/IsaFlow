@@ -261,6 +261,8 @@ export async function recordCoding(
       UPDATE supplier_coding_rules SET
         default_gl_account_id = ${entry.glAccountId ?? null}::uuid,
         default_vat_code      = ${entry.vatCode ?? null},
+        -- A rule with no account has nothing to auto-publish with (upsertRule refuses the same state).
+        auto_publish          = CASE WHEN ${entry.glAccountId ?? null}::uuid IS NULL THEN false ELSE auto_publish END,
         learned_sample_count  = 1,
         learned_from_last_correction_at = NOW(),
         updated_at = NOW()
