@@ -57,7 +57,7 @@ vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
     if (sweepBehaviour.fail) {
       await sql`SELECT 1 / 0`;
     }
-    return { runId: null, posted: 0, skipped: [] };
+    return { runId: null, posted: 0, skipped: [], warnings: [] };
   },
 }));
 
