@@ -89,7 +89,7 @@ export interface CreditNote {
   cc1Id?: string;
   cc2Id?: string;
   buId?: string;
-  /** SUPPLIER notes (891): the account credited for what the linked bill's legs cannot take, or when unlinked. */
+  /** SUPPLIER notes (892): the account credited for what the linked bill's legs cannot take, or when unlinked. */
   glAccountId?: string;
   createdBy: string;
   approvedBy?: string;
@@ -125,7 +125,7 @@ export interface CreditNoteCreateInput {
   taxAmount?: number;
   projectId?: string;
   /**
-   * SUPPLIER notes only (migration 891): the account the note credits when it is not linked to a bill
+   * SUPPLIER notes only (migration 892): the account the note credits when it is not linked to a bill
    * with a journal, or for what the bill's legs can no longer take. Held to the bill-line account rule.
    * Omitted: default_expense, as before. A linked note credits the bill's own expense legs first.
    */

@@ -1,5 +1,5 @@
 /**
- * approveCreditNote, SUPPLIER side (migration 891): the AP debit (total) and the
+ * approveCreditNote, SUPPLIER side (migration 892): the AP debit (total) and the
  * single VAT credit (tax) are as before; the expense credit (subtotal) is
  * whatever ap/supplierCreditNoteExpenseLines decides — the linked bill's own
  * legs — instead of one default_expense line. The allocation rules have their

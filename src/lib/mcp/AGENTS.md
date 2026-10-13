@@ -251,8 +251,12 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   `companies.require_project_on_cos`). Dimensions on a supplier/customer allocation are refused
   (a settlement carries none). New: `list_cost_centres`, `list_business_units` (reads);
   `create_cost_centre`, `create_business_unit`, `set_gl_account_reporting_attributes`,
-  `set_customer_default_fno`, `set_bank_account_default_dimensions` (master data, free, not
-  requiresPost); `split_allocate_bank_transaction`, `tag_journal_lines`,
+  `set_customer_default_fno`, `set_bank_account_default_dimensions`, `set_supplier_default_dimensions`
+  (master data, free, not requiresPost; the last takes `supplier_id` (UUID) and `cc1` / `cc2` / `bu`, each a
+  code, UUID or alias to set, null to clear, omitted to keep; scope `write:contacts`; a rule it creates has no
+  GL account, so it never auto-publishes; `create_supplier_invoice` and `bulk_create_supplier_invoices` then
+  default an open line's CC2 / CC1 / BU from it, and their `dimension_warnings` / cost-of-sales refusal judge
+  the defaulted lines; `update_supplier_invoice` applies no supplier default); `split_allocate_bank_transaction`, `tag_journal_lines`,
   `reverse_dimension_tag_batch` (requiresPost — a split posts; tagging rewrites POSTED lines'
   dimensions, never amounts). `tag_journal_lines` refuses ANY key that is not a dimension, at the
   top level and per line, because the transport does not enforce `additionalProperties`. The split

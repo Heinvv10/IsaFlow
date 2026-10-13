@@ -77,7 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       } = req.body as {
         supplierId?: string;
         supplierInvoiceId?: string;
-        /** 891: the account credited when no linked bill's legs can take it; default_expense when omitted. */
+        /** 892: the account credited when no linked bill's legs can take it; default_expense when omitted. */
         glAccountId?: string;
         creditDate?: string;
         reference?: string;
@@ -157,7 +157,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfLockTimeout(res, err)) return;
       // Before any write: a supplier or bill the note may not name (FX PR0 adds a foreign bill).
       if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
-      // 891, before any write: the note's own account (bill-line rule), header CC1/CC2/BU on a linked note.
+      // 892, before any write: the note's own account (bill-line rule), header CC1/CC2/BU on a linked note.
       if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal) {
         return apiResponse.badRequest(res, err.message, { code: err.code });
       }
@@ -213,7 +213,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
-      // 891: 'post' re-checks the note's own account and its header tags under the row lock, before any write.
+      // 892: 'post' re-checks the note's own account and its header tags under the row lock, before any write.
       if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal) {
         return apiResponse.badRequest(res, err.message, { code: err.code });
       }

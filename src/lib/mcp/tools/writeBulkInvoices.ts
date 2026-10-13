@@ -31,7 +31,7 @@ import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplier
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
-import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
+import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, supplierBillWarningsOrRefusal } from './dimensionArgs';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS } from './invoiceCreateArgs';
 import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
@@ -179,7 +179,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       const label = (i: number) => `invoices[${index}].lines[${i}]`;
       const items = await itemsWithDimensions(ctx.companyId, inv.items, inv.dimensionRefs, label);
       if (typeof items === 'string') return toolError(items);
-      const cos = await dimensionWarningsOrRefusal(ctx.companyId, items, label);
+      const cos = await supplierBillWarningsOrRefusal(ctx.companyId, inv.supplierId, items, label);
       if (typeof cos === 'string') return toolError(cos);
       warnings.push(...cos.warnings);
       withDims.push(items);

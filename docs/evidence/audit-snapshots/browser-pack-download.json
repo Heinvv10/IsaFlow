@@ -1,0 +1,65 @@
+{
+ "note": "Browser proof 2026-10-12 ~08:03 SAST, dev server :3297 on the disposable fixture, owner fixture user. fetch of the pack download from the page + GET ?verify=1",
+ "download": {
+  "status": 200,
+  "type": "application/zip",
+  "bytes": 8092,
+  "sha256": "3a3edee0ed3afa2aade2585843b3e813b3de555457502edb4b2131f5510d15c0",
+  "x-content-sha256": "3a3edee0ed3afa2aade2585843b3e813b3de555457502edb4b2131f5510d15c0",
+  "magic": "PK"
+ },
+ "verify": {
+  "status": "valid",
+  "zipMatches": true,
+  "files": [
+   {
+    "name": "trial_balance.csv",
+    "ok": true
+   },
+   {
+    "name": "journals.csv",
+    "ok": true
+   },
+   {
+    "name": "journal_lines.csv",
+    "ok": true
+   },
+   {
+    "name": "checks.csv",
+    "ok": true
+   },
+   {
+    "name": "findings.csv",
+    "ok": true
+   },
+   {
+    "name": "audit-pack.pdf",
+    "ok": true
+   },
+   {
+    "name": "comparison.csv",
+    "ok": true
+   }
+  ],
+  "snapshotId": "3c33caf5-9efa-4cfc-bdae-c5780bd42d79",
+  "snapshotStatus": "valid",
+  "manifestCitesSnapshot": true
+ },
+ "auditorPortal": {
+  "status": 200,
+  "type": "application/zip",
+  "sha256": "3a3edee0ed3afa2aade2585843b3e813b3de555457502edb4b2131f5510d15c0",
+  "note": "auditor portal session (isolated browser context, no ISAFlow login) downloads the same ZIP"
+ },
+ "viewer": {
+  "download": [
+   403,
+   "Only an owner, admin or manager can download an audit pack."
+  ],
+  "snapshot": [
+   403,
+   "Your role (viewer) cannot view audit snapshots."
+  ],
+  "compare": 403
+ }
+}

@@ -135,7 +135,7 @@ export async function createCreditNote(companyId: string,
       throw new CreditNoteLinkError('glAccountId can only be set on a supplier credit note');
     }
     if (input.type === 'supplier') {
-      // 891: the note's own account follows the bill-line rule; header tags are refused on a linked note.
+      // 892: the note's own account follows the bill-line rule; header tags are refused on a linked note.
       if (glAccountId) await assertBillLineAccounts(companyId, [glAccountId]);
       assertSupplierNoteHeaderTags({ supplierInvoiceId: input.supplierInvoiceId || null,
         cc1Id: dims?.cc1Id || null, cc2Id: dims?.cc2Id || null, buId: dims?.buId || null });

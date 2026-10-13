@@ -7,15 +7,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
-import {
-  benfordsLawAnalysis, detectStatisticalOutliers, detectDuplicatePayments,
-  detectUnusualPostingPatterns, buildAlertMessage, type Transaction,
-} from '@/modules/accounting/services/core/anomalyDetectionService';
-
-type Row = Record<string, unknown>;
+import { buildAlertMessage } from '@/modules/accounting/services/core/anomalyDetectionService';
+import { runAnomalyScan } from '@/modules/accounting/services/core/anomalyScanService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -24,37 +19,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { period } = req.body;
   const fromDate = period || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  // Get recent transactions — scoped to company
-  const txRows = await sql`
-    SELECT id, description, amount, transaction_date as date FROM bank_transactions
-    WHERE company_id = ${companyId}::UUID AND transaction_date >= ${fromDate}
-      AND feed_state = 'posted'
-    ORDER BY transaction_date DESC LIMIT 1000
-  ` as Row[];
-  const transactions: Transaction[] = txRows.map((r: Row) => ({ id: String(r.id), amount: Number(r.amount), description: String(r.description), date: String(r.date) }));
-
-  // Get recent payments for duplicate detection — scoped to company
-  const payRows = await sql`
-    SELECT sp.id, sp.supplier_id, sp.total_amount as amount, sp.payment_date as date, sp.reference
-    FROM supplier_payments sp WHERE sp.company_id = ${companyId}::UUID AND sp.payment_date >= ${fromDate}
-    ORDER BY sp.payment_date DESC LIMIT 500
-  ` as Row[];
-  const payments = payRows.map((r: Row) => ({ id: String(r.id), supplierId: String(r.supplier_id), amount: Number(r.amount), date: String(r.date), reference: String(r.reference || '') }));
-
-  // Get journal entries for posting pattern analysis — scoped to company
-  const jeRows = await sql`
-    SELECT je.id, je.entry_date as date, jl.debit + jl.credit as amount, je.created_by as user_id, je.description
-    FROM gl_journal_entries je JOIN gl_journal_lines jl ON je.id = jl.journal_entry_id
-    WHERE je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${fromDate} AND je.source = 'manual'
-    LIMIT 500
-  ` as Row[];
-  const entries = jeRows.map((r: Row) => ({ id: String(r.id), date: String(r.date), amount: Number(r.amount), userId: String(r.user_id), description: String(r.description || '') }));
-
-  // Run all detections
-  const benfords = benfordsLawAnalysis(transactions.map(t => Math.abs(t.amount)));
-  const outliers = detectStatisticalOutliers(transactions);
-  const duplicates = detectDuplicatePayments(payments);
-  const patterns = detectUnusualPostingPatterns(entries);
+  const { benfords, outliers, duplicates, patterns, scannedTransactions } = await runAnomalyScan(companyId, fromDate);
 
   // Build alerts
   const alerts = [];
@@ -71,11 +36,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     alerts.push(buildAlertMessage(p.type, 'info', { count: p.entryIds.length }));
   }
 
-  log.info('Anomaly scan completed', { alerts: alerts.length, transactions: transactions.length }, 'ai');
+  log.info('Anomaly scan completed', { alerts: alerts.length, transactions: scannedTransactions }, 'ai');
 
   return apiResponse.success(res, {
     benfords, outliers: { count: outliers.outliers.length, items: outliers.outliers.slice(0, 10) },
-    duplicates, patterns, alerts, scannedTransactions: transactions.length,
+    duplicates, patterns, alerts, scannedTransactions,
   });
 }
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

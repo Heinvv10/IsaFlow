@@ -1,8 +1,8 @@
 /**
- * Migration 891: a SUPPLIER credit note linked to a bill credits the bill's own
+ * Migration 892: a SUPPLIER credit note linked to a bill credits the bill's own
  * expense legs (account, CC1, CC2, BU, job) pro rata, each capped at what it
  * still carries as credit_note_expense_allocations records it; what no leg can
- * take goes to the note's own account, else default_expense. Before 891 every
+ * take goes to the note's own account, else default_expense. Before 892 every
  * supplier note credited default_expense (5100) — Velocity Fibre re-pointed
  * R8.54m off it by journal on 13 Oct 2026. AP and VAT legs are unchanged.
  *
@@ -62,7 +62,7 @@ async function noteJournal(id: string): Promise<Record<string, number>> {
   return Object.fromEntries(rows.map((r) => [`${r.code}${tag(r.cc1_id)}${tag(r.bu_id)}`, Math.round(r.credit * 100) / 100]));
 }
 
-describeIfDisposable('supplier credit notes reverse the bill\'s own accounts (891)', () => {
+describeIfDisposable('supplier credit notes reverse the bill\'s own accounts (892)', () => {
   beforeAll(async () => {
     fx = await seedFixture('supcn', process.env.DATABASE_URL!);
     acct.cos = await account('5010');

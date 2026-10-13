@@ -12,6 +12,9 @@ import { resolveDimensionRefs } from '@/modules/accounting/services/gl/dimension
 import { deriveLineDimensions } from '@/modules/accounting/services/gl/dimensions/dimensionDerivation';
 import { cosProjectWarnings } from '@/modules/accounting/services/gl/dimensions/dimensionPolicy';
 import {
+  applySupplierDefaultDimensions, loadSupplierDefaultDimensions,
+} from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
+import {
   hasDimensionRefs, isDimensionRefusal, type DimensionIds, type DimensionRefs,
 } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 
@@ -80,6 +83,21 @@ export async function dimensionWarningsOrRefusal(
     if (isDimensionRefusal(err)) return err.message;
     throw err;
   }
+}
+
+/**
+ * `dimensionWarningsOrRefusal` for a supplier's bill lines, over the lines as the supplier's default CC2 (migration
+ * 890) will leave them, so a line the default fills is not reported or refused as project-less. Reads only: the
+ * defaulted copy is for the check, and createSupplierInvoice applies the defaults to the lines it is given.
+ */
+export async function supplierBillWarningsOrRefusal(
+  companyId: string,
+  supplierId: string,
+  lines: readonly (DimensionIds & { glAccountId?: string | null; costCenterId?: string })[],
+  label: (index: number) => string,
+): Promise<{ warnings: string[] } | string> {
+  const defaulted = applySupplierDefaultDimensions(lines, await loadSupplierDefaultDimensions(companyId, supplierId));
+  return dimensionWarningsOrRefusal(companyId, defaulted, label);
 }
 
 /**

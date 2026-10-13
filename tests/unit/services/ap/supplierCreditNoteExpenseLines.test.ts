@@ -1,5 +1,5 @@
 /**
- * A supplier credit note's expense credit (migration 891): the linked bill's
+ * A supplier credit note's expense credit (migration 892): the linked bill's
  * own expense / COS / asset legs pro rata, capped at what each still carries,
  * then the note's own account, then default_expense. The reads are answered by
  * query SHAPE, so the allocation rules are pinned here and proven to balance
@@ -123,7 +123,7 @@ describe('linked to a bill with a journal', () => {
     expect(assertBillLineAccounts).toHaveBeenCalledWith('co-1', [NOTE_ACCOUNT]);
   });
 
-  it('notes approved before 891 (no rows) are replayed against the legs', async () => {
+  it('notes approved before 892 (no rows) are replayed against the legs', async () => {
     legs = bill([leg('jl-1', COS, 500), leg('jl-2', OVERHEADS, 500)], 0);
     legacy = [{ subtotal: 800 }];
     expect(credits((await run(300)).lines)).toEqual({ [COS]: 100, [OVERHEADS]: 100, [DEFAULT]: 100 });
@@ -163,7 +163,7 @@ describe('no usable bill', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('unlinked, no account: default_expense, as every supplier note posted before 891', async () => {
+  it('unlinked, no account: default_expense, as every supplier note posted before 892', async () => {
     const out = await run(250, { supplierInvoiceId: null });
     expect(out.lines).toEqual([{ glAccountId: DEFAULT, debit: 0, credit: 250, description: 'Credit note CN-1' }]);
   });
