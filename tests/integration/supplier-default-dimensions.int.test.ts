@@ -185,13 +185,17 @@ describeIfDb('supplier default dimensions (migration 890)', () => {
     });
 
     it('a CC2 that is a supplier default cannot be moved under another FNO (breaker repro 1)', async () => {
+      // A project no bill, journal or card carries: the supplier default is the only thing that holds it.
+      await sql`INSERT INTO cost_centres (company_id, code, name, cc_type, parent_id, is_active)
+        VALUES (${s.fx.companyId}::UUID, 'D3', 'Project only a supplier default holds', 'cc2', ${s.FT}::UUID, true)`;
+      const [d3] = (await sql`SELECT id::TEXT AS id FROM cost_centres WHERE company_id = ${s.fx.companyId}::UUID AND code = 'D3'`) as Row[];
       const sup = await s.newSupplier();
-      await s.setRule(sup, { cc1: s.FT, cc2: s.PF });
+      await s.setRule(sup, { cc1: s.FT, cc2: String(d3!.id) });
       await expect(inTx(s.fx, async () => {
-        const plan = await planUpdateDimensionCostCentre(s.fx.companyId, 'PF', { parent: 'HT' });
+        const plan = await planUpdateDimensionCostCentre(s.fx.companyId, 'D3', { parent: 'HT' });
         await applyUpdateDimensionCostCentre(s.fx.companyId, plan, s.fx.userId);
-      })).rejects.toThrow();
-      const [row] = (await sql`SELECT parent_id::TEXT AS parent FROM cost_centres WHERE id = ${s.PF}::UUID`) as Row[];
+      })).rejects.toThrow(/Moving D3 from FNO FT to HT/);
+      const [row] = (await sql`SELECT parent_id::TEXT AS parent FROM cost_centres WHERE id = ${String(d3!.id)}::UUID`) as Row[];
       expect(row!.parent).toBe(s.FT);
       await s.bill(sup); // still saveable
     });
