@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit",
     "type-check:pack-fixtures": "tsc -p tsconfig.packfixtures.json",
     "type-check:paystack-exports": "tsc -p tsconfig.paystackexports.json",
+    "type-check:ci-scripts": "tsc -p tsconfig.ciscripts.json",
     "check:routes": "node scripts/check-duplicate-next-routes.mjs",
     "agent-docs:generate": "node scripts/mirror-agent-docs.mjs",
     "agent-docs:check": "node scripts/mirror-agent-docs.mjs --check",

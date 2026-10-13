@@ -29,7 +29,7 @@ export interface SkippedSuite {
 }
 
 /** ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms` (also ❯, ↓, ×). */
-const FILE_LINE = /^ [✓❯↓×] (\S+\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
+const FILE_LINE = /^ [✓❯↓×] (.+?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
 const MARKER = /ci-integration-skip:\s*(.+)$/m;
 
 // eslint-disable-next-line no-control-regex

@@ -76,6 +76,11 @@ describe('skipNotice', () => {
     expect(mixed.map((m) => [m.skipped, m.total])).toEqual([[3, 5]]);
   });
 
+  it('reads a path with a space in it', () => {
+    const spaced = skippedSuites(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)', () => undefined);
+    expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
+  });
+
   it('has nothing to say about a run where nothing skipped', () => {
     expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
       .toEqual({ lines: [], unexplained: [] });

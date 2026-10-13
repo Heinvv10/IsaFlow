@@ -38,6 +38,9 @@ run_step "pack-fixture-types" bun run type-check:pack-fixtures
 # R-183: tests/** is outside tsconfig and vitest strips `import type`, so the type half of the
 # paystackClient export pin is only enforced by compiling that one test file.
 run_step "paystack-export-types" bun run type-check:paystack-exports
+# scripts/** is outside tsconfig.json, so the integration gate's own TypeScript
+# (and the test helpers it relies on) is compiled here.
+run_step "ci-script-types"   bun run type-check:ci-scripts
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
@@ -87,9 +90,11 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 # See the header of scripts/ci/integration/run.sh.
 # It runs on GitHub (GITHUB_ACTIONS=true) and, locally, only when asked for
 # with CI_INTEGRATION=1: it adds 8-25 minutes, so the pre-push hook skips it.
+INTEGRATION_NOTE=""
 if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
   run_step "integration"     bash scripts/ci/integration/run.sh
 else
+  INTEGRATION_NOTE=" (integration NOT RUN)"
   echo ""
   echo "[skip] integration: NOT RUN — the integration suites run on GitHub only. Run them here with: CI_INTEGRATION=1 bun run ci (or bash scripts/ci/integration/run.sh)"
 fi
@@ -104,7 +109,7 @@ fi
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
-  echo "[ci] all checks passed"
+  echo "[ci] all checks passed${INTEGRATION_NOTE}"
   exit 0
 fi
 
