@@ -120,7 +120,7 @@ describe('BillLineItemsTable with supplier defaults', () => {
       codingOptions={options} supplierDefaults={{ cc2Id: 'p-active', buId: '', note }} />,
   );
 
-  it('shows the note even with the Dimensions panel closed, and labels the blank choice for a defaulted column', () => {
+  it('shows the note, and labels the blank choice of a defaulted column as the supplier default', () => {
     table('NOTE: the defaults apply on save');
     expect(screen.getByText('NOTE: the defaults apply on save')).toBeDefined();
     // The panel opens by default on a pre-filled line: the blank choice of the CC2 picker says what a blank does.

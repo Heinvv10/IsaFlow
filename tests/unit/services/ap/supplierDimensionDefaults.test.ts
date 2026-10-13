@@ -11,6 +11,7 @@ import {
   applySupplierDefaultDimensions, supplierDefaultRefsFromBody,
 } from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
 import { restampLines } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
+import { changedDimensionDefaults } from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
 
 const DEF = { cc1Id: 'fno-def', cc2Id: 'proj-def', buId: 'bu-def' };
 
@@ -74,5 +75,22 @@ describe('restampLines (bill screen pre-fill)', () => {
   it('clears the old default when the new supplier has none', () => {
     expect(restampLines([{ cc2Id: 'proj-a', buId: 'bu-a' }], PREV, { cc2Id: '', buId: '' }))
       .toEqual([{ cc2Id: '', buId: '' }]);
+  });
+});
+
+describe('changedDimensionDefaults (coding-rule page save body)', () => {
+  const HELD = { defaultCc1Id: null, defaultCc2Id: 'p1', defaultBuId: 'b1' };
+
+  it('sends nothing for defaults the user did not change (an unchanged one may name a since-deactivated master)', () => {
+    expect(changedDimensionDefaults({ cc1Id: '', cc2Id: 'p1', buId: 'b1' }, HELD)).toEqual({});
+  });
+
+  it('sends a changed default, and null for one the user cleared', () => {
+    expect(changedDimensionDefaults({ cc1Id: 'f1', cc2Id: '', buId: 'b1' }, HELD))
+      .toEqual({ defaultCc1Id: 'f1', defaultCc2Id: null });
+  });
+
+  it('sends every default the user set on a supplier with no rule yet', () => {
+    expect(changedDimensionDefaults({ cc1Id: '', cc2Id: 'p2', buId: '' }, null)).toEqual({ defaultCc2Id: 'p2' });
   });
 });
