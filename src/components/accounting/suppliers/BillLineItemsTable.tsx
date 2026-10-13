@@ -80,9 +80,11 @@ interface Props {
   onRemove: (key: string) => void;
   /** CC2 / BU picker options; without them the Dimensions toggle is not offered. */
   codingOptions?: InvoiceLineCodingOptions;
+  /** The supplier's pre-filled CC2 / BU (migration 890) and what the server applies on save; see useSupplierDimensionDefaults. */
+  supplierDefaults?: { cc2Id: string; buId: string; note: string };
 }
 
-export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions }: Props) {
+export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
   const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
   // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
   const showDimensions = codingOptions !== undefined
@@ -118,6 +120,9 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
         </button>
         </div>
       </div>
+      {supplierDefaults?.note && (
+        <p className="px-5 pt-3 text-xs text-slate-500 dark:text-slate-400">{supplierDefaults.note}</p>
+      )}
       {showDimensions && codingOptions?.error && (
         <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
           {codingOptions.error}{' '}
@@ -198,13 +203,13 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                 {showDimensions && codingOptions && (
                   <td className="px-3 py-2">
                     <CodingPicker label="CC2 project" value={line.cc2Id ?? ''} options={codingOptions.cc2s} all={codingOptions}
-                      empty="No CC2 project" onChange={v => onUpdate(line.key, 'cc2Id', v)} />
+                      empty={supplierDefaults?.cc2Id ? 'Supplier default' : 'No CC2 project'} onChange={v => onUpdate(line.key, 'cc2Id', v)} />
                   </td>
                 )}
                 {showDimensions && codingOptions && (
                   <td className="px-3 py-2">
                     <CodingPicker label="BU" value={line.buId ?? ''} options={codingOptions.bus} all={codingOptions}
-                      empty="No BU" onChange={v => onUpdate(line.key, 'buId', v)} />
+                      empty={supplierDefaults?.buId ? 'Supplier default' : 'No BU'} onChange={v => onUpdate(line.key, 'buId', v)} />
                   </td>
                 )}
                 <td className="px-3 py-2">
