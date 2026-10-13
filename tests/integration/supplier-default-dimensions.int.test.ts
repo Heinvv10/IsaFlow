@@ -161,6 +161,21 @@ describeIfDb('supplier default dimensions (migration 890)', () => {
       expect(await s.ruleCount(sup)).toBe(0);
     });
 
+    it('a held project whose FNO is inactive refuses a BU-only edit, until that default is repaired (breaker repro 4)', async () => {
+      const sup = await s.newSupplier();
+      await s.setRule(sup, { cc2: s.PI }); // PI is active, but its FNO (OLD) is not: every bill would be refused
+      const refused = await tool({ supplier_id: sup, bu: 'B1' });
+      expect(refused.isError).toBe(true);
+      expect(refused.content[0]!.text).toBe('CC1 must name an active CC1 cost centre in this company');
+      const route = await callRoute(s.fx, s.token, supplierRules, { supplierId: sup, defaultBuId: s.BU1 });
+      expect(route.statusCode).toBe(400);
+      expect(JSON.stringify(route.body)).toContain('CC1 must name an active CC1 cost centre in this company');
+      const [row] = (await sql`SELECT default_bu_id::TEXT AS bu FROM supplier_coding_rules WHERE supplier_id = ${sup}::UUID`) as Row[];
+      expect(row!.bu).toBeNull();
+      // Clearing the broken default in the same call repairs it.
+      expect((await tool({ supplier_id: sup, bu: 'B1', cc2: null })).isError).toBeFalsy();
+    });
+
     it('a held default whose master was since deactivated does not block setting another default', async () => {
       const sup = await s.newSupplier();
       await s.setRule(sup, { bu: s.BUOLD });
