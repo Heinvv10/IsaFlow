@@ -44,7 +44,6 @@ const strings = warningMessages; // the one coercion, shared with the bulk impor
 export interface DocumentWarnings { name?: string; label?: string; warnings: string[] }
 
 /**
-/**
  * The documents of an API response body that carry warnings: `data.warnings`,
  * `data.claim.warnings` (expense claims), one per `data.results[]` item (bulk
  * actions, which also carry its `invoiceNumber`) and one per
