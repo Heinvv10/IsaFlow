@@ -65,16 +65,31 @@ SUITE_TMP="$WORK/tmp"
 mkdir "$SUITE_TMP"
 export SUITE_TMP
 # The schema-building step running now (bounded), then every shard session.
+# A second INT/TERM must not cut cleanup short of rm -rf: ignored from here on.
 cleanup() {
   local pid start
+  trap '' INT TERM
   if [ -f "$WORK/step" ] && read -r pid start < "$WORK/step" && same_proc "$pid" "$start"; then
     kill -TERM "$pid" 2> /dev/null || true
   fi
   remove_run "$WORK"
 }
 trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+# hold_signals / release_signals: around starting a background child and
+# recording it, an INT/TERM is noted instead of acted on, so cleanup always
+# finds the record. (Ignoring them would pass SIG_IGN on to the child; a
+# handler is reset to the default in it.)
+pending=""
+release_signals() {
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [ -z "$pending" ] || exit "$pending"
+}
+hold_signals() {
+  trap 'pending=130' INT
+  trap 'pending=143' TERM
+}
+release_signals
 
 PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 # The suites sign and verify their own session tokens with it; random per run.
@@ -95,9 +110,11 @@ bounded() {
   local what=$1 status=0 t0 pid
   shift
   t0=$(date +%s)
+  hold_signals
   timeout -k 30 "$MIGRATE_LIMIT" "$@" &
   pid=$!
   echo "$pid $(proc_start "$pid")" > "$WORK/step"
+  release_signals
   wait "$pid" || status=$?
   rm -f "$WORK/step"
   case $(shard_outcome "$status" "$(( $(date +%s) - t0 ))" "$MIGRATE_LIMIT") in
@@ -133,6 +150,11 @@ pg_cluster_stop "$WORK/c1"
 echo "[integration] schema built in $(( $(date +%s) - START ))s"
 
 # 2. Shards: SHARDS copies of the stopped template, each on its own port.
+# A copy of a running cluster's files would be torn: refuse one that did not stop.
+if [ -f "$WORK/c1/data/postmaster.pid" ]; then
+  echo "[integration] the template cluster did not stop; refusing to copy it" >&2
+  exit 1
+fi
 for i in $(seq 2 "$SHARDS"); do mkdir "$WORK/c$i"; cp -a "$WORK/c1/data" "$WORK/c$i/data"; done
 declare -a PORTS=()
 for i in $(seq 1 "$SHARDS"); do PORTS+=("$(pg_cluster_start "$WORK/c$i")"); done
@@ -145,6 +167,7 @@ parity2="postgresql://$PG_SUPERUSER@127.0.0.1:$(pg_cluster_start "$WORK/cp2")/po
 
 declare -a PIDS=()
 for i in $(seq 1 "$SHARDS"); do
+  hold_signals
   setsid --wait bash scripts/ci/integration/shard.sh "$i" "$SHARDS" "${PORTS[$((i - 1))]}" "$WORK" "$parity" "$parity2" &
   # Recorded here, at launch, so a TERM a moment later still finds the shard:
   # a background child is no process-group leader, so setsid(1) does not fork
@@ -153,6 +176,7 @@ for i in $(seq 1 "$SHARDS"); do
   # timeout still bounds it).
   echo "$! $(proc_start "$!")" > "$WORK/c$i/sid"
   PIDS+=("$!")
+  release_signals
 done
 
 FAILED=0
