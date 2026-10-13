@@ -47,20 +47,37 @@ describe('offeredDefaults', () => {
 });
 
 describe('defaultsNote', () => {
-  it('names the project and BU the server will apply', () => {
-    const note = defaultsNote({ cc2Id: 'p-active', buId: 'bu-active' }, OFFERED, '');
-    expect(note).toContain('project PF Project');
-    expect(note).toContain('BU B1 Maintenance');
-    expect(note).toContain('including a line left blank');
+  const HELD = { cc1Id: '', cc2Id: 'p-active', buId: 'bu-active' };
+  const NOTHING = { cc2Id: '', buId: '' };
+
+  it('names the project and the BU, each with the lines it goes to', () => {
+    const note = defaultsNote(HELD, { cc2Id: 'p-active', buId: 'bu-active' }, OFFERED, '');
+    expect(note).toContain('project PF Project on a line that names no project or FNO of its own');
+    expect(note).toContain('BU B1 Maintenance on a line that names no BU of its own');
+    expect(note).toContain('A line left blank takes them');
+  });
+
+  it('does not say the BU waits for a line with no project: a line with its own project still takes the default BU', () => {
+    const note = defaultsNote(HELD, { cc2Id: '', buId: 'bu-active' }, OFFERED, '');
+    expect(note).toContain('BU B1 Maintenance on a line that names no BU of its own');
+    expect(note).not.toMatch(/names none of its own/);
   });
 
   it('names a default FNO that has no field, and only when no project default is shown', () => {
-    expect(defaultsNote({ cc2Id: '', buId: '' }, OFFERED, 'FT Fibertime')).toContain('FNO FT Fibertime');
-    expect(defaultsNote({ cc2Id: 'p-active', buId: '' }, OFFERED, 'FT Fibertime')).not.toContain('FNO');
+    const held = { cc1Id: 'f1', cc2Id: '', buId: '' };
+    expect(defaultsNote(held, NOTHING, OFFERED, 'FT Fibertime')).toContain('FNO FT Fibertime');
+    expect(defaultsNote(HELD, { cc2Id: 'p-active', buId: '' }, OFFERED, 'FT Fibertime')).not.toContain('FNO FT');
   });
 
-  it('says nothing for a supplier with no usable default', () => {
-    expect(defaultsNote({ cc2Id: '', buId: '' }, OFFERED, '')).toBe('');
+  it('says nothing for a supplier with no usable default, or while the lists load', () => {
+    expect(defaultsNote(HELD, NOTHING, OFFERED, '')).toBe('');
+    expect(defaultsNote(HELD, NOTHING, { ...OFFERED, status: 'loading' }, '')).toBe('');
+  });
+
+  it('when the lists failed to load, still says the server applies what the supplier holds', () => {
+    const failed = { ...OFFERED, status: 'failed' as const };
+    expect(defaultsNote(HELD, NOTHING, failed, '')).toContain('default dimensions that are applied on save');
+    expect(defaultsNote({ cc1Id: '', cc2Id: '', buId: '' }, NOTHING, failed, '')).toBe('');
   });
 });
 
@@ -100,6 +117,13 @@ describe('useSupplierDimensionDefaults', () => {
     const { view } = mount('s1', OFFERED);
     await waitFor(() => expect(view.result.current.note).toContain('FNO FT Fibertime'));
     expect(view.result.current.defaults).toEqual({ cc2Id: '', buId: '' });
+  });
+
+  it('with the lists failed, nothing is pre-filled but the note says the server will apply the defaults', async () => {
+    serve(on('GET', '/supplier-rules/s1', () => rule({ defaultCc2Id: 'p-active', defaultBuId: 'bu-active' })));
+    const { view, lines } = mount('s1', { cc2s: [], bus: [], status: 'failed' });
+    await waitFor(() => expect(view.result.current.note).toContain('applied on save'));
+    expect(lines()[0]!.cc2Id ?? '').toBe('');
   });
 
   it('has no defaults for a supplier with no rule', async () => {

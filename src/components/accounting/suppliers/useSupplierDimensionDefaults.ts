@@ -56,17 +56,26 @@ export function offeredDefaults(held: HeldDefaults, offered: OfferedMasters): Su
   };
 }
 
-/** Pure: what the server will apply on save, in words ('' when the supplier has no usable default). */
-export function defaultsNote(applied: SupplierLineDefaults, offered: OfferedMasters, fnoLabel: string): string {
+/**
+ * Pure: what the server will apply on save, in words ('' when there is nothing to say yet or nothing usable).
+ * The project (and FNO) default goes to a line that names neither of its own; the BU default goes to any line
+ * with no BU, whatever its project (supplierDimensionDefaults.ts). While the pick-lists fail to load nothing can be
+ * named, but the server still applies what the supplier holds, so the note says that much.
+ */
+export function defaultsNote(held: HeldDefaults, applied: SupplierLineDefaults, offered: OfferedMasters, fnoLabel: string): string {
+  if (offered.status === 'failed') {
+    return held.cc1Id || held.cc2Id || held.buId
+      ? "This supplier has default dimensions that are applied on save to lines that leave them open. The lists could not be loaded, so they are not shown here."
+      : '';
+  }
   const label = (options: CodingOption[], id: string) => options.find((o) => o.id === id)?.label ?? '';
   const parts = [
-    applied.cc2Id ? `project ${label(offered.cc2s, applied.cc2Id)}` : '',
-    applied.buId ? `BU ${label(offered.bus, applied.buId)}` : '',
-    !applied.cc2Id && fnoLabel ? `FNO ${fnoLabel}` : '',
-  ].filter(Boolean);
+    applied.cc2Id ? `project ${label(offered.cc2s, applied.cc2Id)}` : fnoLabel ? `FNO ${fnoLabel}` : '',
+  ].filter(Boolean).map((p) => `${p} on a line that names no project or FNO of its own`);
+  if (applied.buId) parts.push(`BU ${label(offered.bus, applied.buId)} on a line that names no BU of its own`);
   if (parts.length === 0) return '';
-  return `This supplier's defaults (${parts.join(', ')}) are applied to every line that names none of its own, `
-    + 'including a line left blank. To use something else, pick it under Dimensions on the line.';
+  return `This supplier's defaults are applied on save: ${parts.join('; ')}. A line left blank takes them; `
+    + 'to use something else, pick it under Dimensions on the line.';
 }
 
 async function loadHeld(supplierId: string): Promise<HeldDefaults> {
@@ -128,5 +137,5 @@ export function useSupplierDimensionDefaults<T extends DimLine>(
   }, [held, cc2s, bus, status, setLines]);
 
   const fnoLabel = useDefaultFnoLabel(held.cc1Id);
-  return { defaults, note: defaultsNote(defaults, offered, fnoLabel) };
+  return { defaults, note: defaultsNote(held, defaults, offered, fnoLabel) };
 }
