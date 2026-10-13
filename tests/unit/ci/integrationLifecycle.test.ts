@@ -47,6 +47,14 @@ function deadRun(): string {
 beforeEach(() => { scratch = mkdtempSync(join(tmpdir(), 'lifecycle-')); });
 afterEach(() => {
   for (const v of victims.splice(0)) if (v.pid && alive(v.pid)) process.kill(v.pid, 'SIGKILL');
+  // Whatever a failed case left: processes named for this test run, or running from its scratch dir.
+  for (const line of execFileSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' }).split('\n')) {
+    const [pid, ...args] = line.trim().split(/\s+/);
+    const cmd = args.join(' ');
+    if (pid && (cmd.includes(scratch) || cmd.includes(`-${process.pid}-`)) && Number(pid) !== process.pid) {
+      try { process.kill(Number(pid), 'SIGKILL'); } catch { /* already gone */ }
+    }
+  }
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -125,13 +133,29 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
     expect({ stale: alive(stale), stubborn: alive(stubborn.pid!) }).toEqual({ stale: true, stubborn: false });
   }, 20_000);
 
-  it('a shard ends the leftovers in its own session on exit (a suite\'s forgotten child)', () => {
+  // The real shard.sh, with an empty plan, as the leader of a session that
+  // already holds what a suite left behind: its EXIT trap must end it.
+  function shardWith(leftover: string): string {
+    const work = mkdtempSync(join(scratch, 'work-'));
+    mkdirSync(join(work, 'c1'));
+    writeFileSync(join(work, 'plan.tsv'), '');
+    const shard = resolve('scripts/ci/integration/shard.sh');
+    sh(`setsid bash -c '${leftover} & sleep 0.3; exec bash ${shard} 1 1 0 ${work} x y' < /dev/null > /dev/null 2>&1`);
+    return work;
+  }
+  const running = (name: string) => sh(`ps -eo pid=,args= | awk -v n=${name} '$2 == n { print $1 }'`);
+
+  it('shard.sh ends the leftovers in its own session on exit (a suite\'s forgotten child)', () => {
     const name = `lifecycle-leftover-${process.pid}-${Date.now()}`;
-    sh(`setsid bash -c 'source ${JSON.stringify(LIB)}; trap "end_snapshot \\"\\$(snapshot \\$\\$ \\$\\$)\\"" EXIT
-      (exec -a ${name} sleep 600) & sleep 0.3; exit 0' < /dev/null > /dev/null 2>&1`);
-    const left = sh(`ps -eo pid=,args= | awk -v n=${name} '$2 == n { print $1 }'`);
-    expect(left).toBe('');
+    shardWith(`(exec -a ${name} sleep 600)`);
+    expect(running(name)).toBe('');
   });
+
+  it('shard.sh also ends children forked after its first round, even ones that ignore TERM', () => {
+    const name = `lifecycle-forker-${process.pid}-${Date.now()}`;
+    shardWith(`(trap "" TERM; while :; do (exec -a ${name} sleep 600) & sleep 0.3; done)`);
+    expect(running(name)).toBe('');
+  }, 30_000);
 });
 
 describe('sweep_dead_runs', () => {
@@ -158,11 +182,12 @@ describe('sweep_dead_runs', () => {
       .toEqual([false, true, true, true, true, true, true]);
   });
 
-  it('deletes, without signalling, a run from a pid namespace that no longer exists once it is over a day old', () => {
+  it('leaves a run from another pid namespace alone however old, and says so (whether it lives cannot be told)', () => {
     const old = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
     writeFileSync(join(old, 'owner'), `27 1 pid:[1] ${sh('boot_id')}\n`);
-    sh('date() { echo $(( $(command date +%s) + 90000 )); }; sweep_dead_runs > /dev/null');
-    expect(existsSync(old)).toBe(false);
+    const said = sh('date() { echo $(( $(command date +%s) + 90000 )); }; sweep_dead_runs');
+    expect({ dir: existsSync(old), said: said.includes('left alone') && said.includes('other pid namespace') })
+      .toEqual({ dir: true, said: true });
   });
 
   it('deletes, without signalling, a run from another boot id made before this boot began', () => {
