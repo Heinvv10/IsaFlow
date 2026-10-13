@@ -25,8 +25,9 @@ dir="$work/c$i"
 # shellcheck source=pg-cluster.sh
 source scripts/ci/integration/pg-cluster.sh
 
-sid=$(ps -o sid= -p $$ | tr -d ' ')
-echo "$sid $(proc_start "$sid")" > "$dir/sid"
+# run.sh records this shard's session (c<i>/sid) when it starts it; drop the
+# record when the shard is done, so nothing ever signals by it afterwards.
+trap 'rm -f "$dir/sid"' EXIT
 limit=${CI_INT_SHARD_TIMEOUT:-1800}
 deadline=$(( $(date +%s) + limit ))
 rc=0

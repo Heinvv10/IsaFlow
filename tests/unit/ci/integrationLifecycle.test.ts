@@ -9,7 +9,7 @@
  * processes (a `sleep` stands in for the victim) in a scratch directory.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -85,6 +85,23 @@ describe('remove_run', () => {
     sh(`remove_run ${JSON.stringify(run)}`);
     expect({ victim: alive(v), dir: existsSync(run) }).toEqual({ victim: true, dir: false });
   });
+  it('leaves a session alone whose leader has exited (a daemon-shaped session now holding a reused id)', () => {
+    // setsid'd leader forks a worker and exits; the shell running it reaps the leader.
+    const name = `lifecycle-victim-${process.pid}-${Date.now()}`;
+    const worker = Number(sh(`setsid bash -c '(exec -a ${name} sleep 600) & exit 0' < /dev/null > /dev/null 2>&1
+      sleep 0.3; ps -eo pid=,args= | awk -v n=${name} '$2 == n { print $1 }'`));
+    const sid = Number(sh(`ps -o sid= -p ${worker}`));
+    const run = deadRun();
+    mkdirSync(join(run, 'c3'));
+    writeFileSync(join(run, 'c3', 'sid'), `${sid} 12345\n`);
+    try {
+      expect({ leaderGone: !existsSync(`/proc/${sid}`), worker: alive(worker) }).toEqual({ leaderGone: true, worker: true });
+      sh(`remove_run ${JSON.stringify(run)}`);
+      expect({ worker: alive(worker), dir: existsSync(run) }).toEqual({ worker: true, dir: false });
+    } finally {
+      if (worker && alive(worker)) process.kill(worker, 'SIGKILL');
+    }
+  });
   it('does not signal a pid a stale postmaster.pid names when it is not a postmaster in that data dir', () => {
     const v = victim(); settle(v);
     const run = deadRun();
@@ -98,7 +115,7 @@ describe('remove_run', () => {
 });
 
 describe('sweep_dead_runs', () => {
-  it('removes a run whose owner is dead; keeps a live one, one from another pid namespace or boot, and an old record', () => {
+  it('removes a run whose owner is dead and one from an earlier boot; keeps a live one, one from another pid namespace, an old record and a symlink', () => {
     const dead = deadRun();
     const live = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
     const v = victim(); settle(v);
@@ -111,9 +128,35 @@ describe('sweep_dead_runs', () => {
     writeFileSync(join(otherBoot, 'owner'), `${exited} 1 ${sh('my_pidns')} 00000000-0000-0000-0000-000000000000\n`);
     const legacy = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
     writeFileSync(join(legacy, 'owner'), `${exited}\n`);
+    // A link named like a run, to a directory that would otherwise be swept.
+    const target = mkdtempSync(join(scratch, 'elsewhere-'));
+    writeFileSync(join(target, 'owner'), `${exited} 1 ${sh('my_pidns')} ${sh('boot_id')}\n`);
+    const link = join(scratch, 'isaflow-ci-int.linked');
+    symlinkSync(target, link);
     sh('sweep_dead_runs > /dev/null');
-    expect([dead, live, foreign, otherBoot, legacy].map((d) => existsSync(d))).toEqual([false, true, true, true, true]);
+    expect([dead, live, foreign, otherBoot, legacy, link, target].map((d) => existsSync(d)))
+      .toEqual([false, true, true, false, true, true, true]);
   });
+});
+
+describe('pg_cluster_stop on a live postmaster', () => {
+  it('stops the postmaster pg_cluster_start started, and not one whose start time differs', () => {
+    const dir = mkdtempSync(join(scratch, 'cluster-'));
+    const port = sh(`export PGPASSWORD=lc; pg_cluster_init ${JSON.stringify(dir)} && pg_cluster_start ${JSON.stringify(dir)}`);
+    const pid = Number(readFileSync(join(dir, 'data', 'postmaster.pid'), 'utf8').split('\n')[0]);
+    const recorded = readFileSync(join(dir, 'postmaster.start'), 'utf8').trim();
+    try {
+      writeFileSync(join(dir, 'postmaster.start'), '1\n');
+      sh(`pg_cluster_stop ${JSON.stringify(dir)}`);
+      expect({ port: /^\d+$/.test(port), runningAfterStaleRecord: alive(pid) }).toEqual({ port: true, runningAfterStaleRecord: true });
+      writeFileSync(join(dir, 'postmaster.start'), `${recorded}\n`);
+      sh(`pg_cluster_stop ${JSON.stringify(dir)}`);
+      for (let i = 0; i < 100 && alive(pid); i++) execFileSync('sleep', ['0.1']);
+      expect(alive(pid)).toBe(false);
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL');
+    }
+  }, 60_000);
 });
 
 describe('shard_outcome', () => {

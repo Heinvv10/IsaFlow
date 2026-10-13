@@ -68,10 +68,25 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 
 echo "[baseline] dumping isaflow_dev schema (read-only session)"
-PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000' \
-  "$PG_BIN/pg_dump" "$DEV_URL" --schema-only -f "$WORK/dev-schema.sql"
-PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000' \
-  "$PG_BIN/pg_dump" "$DEV_URL" --data-only --no-owner -t public.schema_migrations -f "$WORK/dev-tracking.sql"
+# The URL is split into libpq's environment, so its password never reaches a
+# command line (ps shows argv to every user on the machine).
+dev_env() {
+  DEV_URL="$DEV_URL" bun -e '
+    const u = new URL(process.env.DEV_URL);
+    const sslmode = u.searchParams.get("sslmode") ?? "prefer";
+    const pairs = [["PGHOST", u.hostname], ["PGPORT", u.port || "5432"], ["PGUSER", decodeURIComponent(u.username)],
+      ["PGPASSWORD", decodeURIComponent(u.password)], ["PGDATABASE", u.pathname.slice(1)], ["PGSSLMODE", sslmode]];
+    process.stdout.write(pairs.map(([k, v]) => `${k}=${v}`).join("\0"));'
+}
+mapfile -d '' DEV_ENV < <(dev_env)
+dev_dump() (
+  local kv
+  for kv in "${DEV_ENV[@]}"; do export "${kv?}"; done # a builtin: nothing in argv
+  export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=120000'
+  exec "$PG_BIN/pg_dump" "$@"
+)
+dev_dump --schema-only -f "$WORK/dev-schema.sql"
+dev_dump --data-only --no-owner -t public.schema_migrations -f "$WORK/dev-tracking.sql"
 
 PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 export PGPASSWORD
