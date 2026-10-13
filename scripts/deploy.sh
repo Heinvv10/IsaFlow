@@ -235,10 +235,13 @@ echo "$GIT_SHA" | sudo tee "$DEPLOY_DIR/RELEASE_SHA" >/dev/null
 # Fix ownership
 sudo chown -R velo:velo "$DEPLOY_DIR"
 
-# 4. Copy env file if not exists
-if [ ! -f "$DEPLOY_DIR/.env.local" ]; then
+# 4. Copy env file if not exists. The production file is velo:velo 0600, so
+# the deploy user cannot reliably stat it or copy into its directory without
+# sudo. Use root only for the file operation and preserve the least-privilege
+# owner/mode expected by the systemd service.
+if ! sudo test -f "$DEPLOY_DIR/.env.local"; then
   echo "Creating .env.local..."
-  sudo -u velo cp "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"
+  sudo install -o velo -g velo -m 600 "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"
 fi
 
 # 5. Install/update systemd service
