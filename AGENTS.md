@@ -9,12 +9,6 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 
 **Stack:** Next.js 14 (Pages Router) · TypeScript strict · React 18 · Tailwind · Vitest 4 · Playwright. Auth is GoTrue (Supabase Auth); `withAuth` sets user + company + transaction GUCs.
 
-## Runtime
-
-- Node.js `>=20.12.0` is required for local tooling and tests. Vitest 4/Rolldown imports `node:util` `styleText`, which is unavailable in Node 20.11.x and older.
-- Bun `>=1.3.0` is required. This repo pins `packageManager` to `bun@1.3.2`.
-- Use `.nvmrc` before installing dependencies: `nvm use` (or install `20.12.0` first), then `bun install`.
-
 ## Critical Rules (ALL code, ALL agents)
 
 - **Branch first**: Parallel Claude sessions run on this repo — branch isolation is what stops one session's commit sweeping up another's unstaged files. NEVER edit on `master`. First action of any code-editing task is `git checkout -b <name>`.
@@ -32,23 +26,9 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 - **Nav**: Update `src/components/accounting/accountingNavConfig.ts` for every new page.
 - **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`.
 - **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
-- **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path — never `git add -A` (parallel sessions leave untracked files in the tree). **No `git stash`** — `push`, `pop`, `list`-then-`apply`, none of it: `refs/stash` is shared across every worktree, and `stash push -- <path>` creates NO entry when that path is already clean, so a paired bare `pop` silently takes whatever another session left at `stash@{0}` instead. Commit to your own branch instead — a WIP commit is cheap, reversible, and scoped to your worktree. Prefix every Bash call with an explicit `cd` to your worktree; a drifted cwd is what turns a worktree-local mistake into a cross-session one. **When reading a committed state, read it with `git show <sha>:<path>`, not from disk.** Seven worktrees are active as a matter of course and an author can commit and resume editing between your first command and your next one — on a shared worktree a clean `git status` is a fact about one instant, not a state that holds for a round; checking it once at the start of a review or a run proves nothing about the reads that follow it. This binds reviewers especially: score a named commit, not a working tree, and if you need the working tree, say so explicitly in the finding. Same hazard as the `stash` rule above, and why `git show` is the only safe read — a reviewer cannot stash the author's work to get a clean one, and should not want to.
-- **Merges need green checks on the exact head** (Hein, 2026-09-26): GitHub cannot require status checks on this plan (branch protection 403s), so a red or cancelled check does NOT block a merge — #496 merged with Type Check FAILED. Before every `gh pr merge`: `gh pr checks <N>` must show every check `pass` for the PR's current head (a `cancelled` Golden Paths is not a pass — re-run it), then merge with `--match-head-commit <full 40-char sha>` of that same head. Never merge on a check from an earlier head (R-052).
-- **Deploys**: `bash scripts/deploy.sh` enforces the lint ratchet and migration-naming gate, and runs `scripts/check-migration-parity.ts --apply-dev` first (dev vs prod vs repo; applies pending migrations to dev only, prod read-only; not skippable by `SKIP_CI`). Tradeoff: the gate updates dev *before* CI, so if CI then fails, dev can end ahead of master. A dev outage blocks every deploy; rollback uses `/home/velo/isaflow-rollback` (`scripts/rollback-deploy.sh`), not `deploy.sh`. The gate's real-database suite (`tests/integration/migration-parity-gate.int.test.ts`) needs `PARITY_TEST_PG_URL` + `PARITY_TEST_PG_DISPOSABLE=1` on a throwaway Postgres; `bun run ci`'s integration step provides both (two empty throwaway clusters it starts; on GitHub, or locally with `CI_INTEGRATION=1`), and the file header says how to run it alone. Production deploys are blocked during business hours (08:00–17:00 SAST, Mon–Fri) without explicit approval.
-
-## Repo layout
-
-```
-src/
-├── modules/      # Domain modules (see table below)
-├── lib/          # Shared utilities (neon, logger, apiResponse, auth)
-└── components/   # Shared UI (AppLayout, accountingNavConfig)
-pages/
-├── api/          # API routes (Next.js Pages API)
-└── accounting/   # UI pages
-scripts/migrations/sql/   # Numbered SQL migrations
-tests/{unit,e2e}/         # Vitest unit + Playwright E2E
-```
+- **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path, never `git add -A`. **No `git stash`** (`refs/stash` is shared across every worktree). Commit WIP to your own branch instead. Prefix every Bash call with an explicit `cd` to your worktree. Read committed state with `git show <sha>:<path>`, not from disk; reviewers score a named commit, not a working tree. Full rationale: `docs/agent-workflow.md`.
+- **Merges need green checks on the exact head** (Hein, 2026-09-26): GitHub cannot require status checks on this plan, so a red or cancelled check does NOT block a merge. Before every `gh pr merge <N>`: `gh pr checks <N>` must show every check `pass` for the current head (a `cancelled` Golden Paths is not a pass; re-run it), then merge with `--match-head-commit <full 40-char sha>`. Never merge on a check from an earlier head (R-052). Detail: `docs/agent-workflow.md`.
+- **Deploys**: `bash scripts/deploy.sh` takes no arguments, has **no clock or approval gate**, and deploys production immediately, any day, any hour. NEVER run it without Hein's explicit approval for that deploy, and NEVER during 08:00-17:00 SAST Mon-Fri. `SKIP_CI=1` skips the CI gate and is incident-only; it does not skip the migration-parity gate. It applies pending migrations to the **production DB** before switching code (irreversible), then `rsync --delete`s and restarts the service; a failed post-deploy verification auto-runs `scripts/rollback-deploy.sh`, which reverts **code only, never migrations**. `SKIP_VERIFY=1` skips that verification and leaves the deploy unverified: emergencies only, and say so in the deploy report. Manual rollback uses `scripts/rollback-deploy.sh` (`/home/velo/isaflow-rollback`), not `deploy.sh`. Parity-gate behaviour and test procedure: `docs/agent-workflow.md`.
 
 ## Modules (`src/modules/`)
 
@@ -62,55 +42,19 @@ tests/{unit,e2e}/         # Vitest unit + Playwright E2E
 | `bureau` | Bureau-mode payroll |
 | `onboarding` | SA address + CIPC reg-number normalisers (pure) |
 
-## Key Paths
-
-| What | Where |
-|------|-------|
-| DB client | `src/lib/neon.ts` |
-| API response helpers | `src/lib/apiResponse.ts` |
-| Logger | `src/lib/logger.ts` |
-| Auth middleware | `src/lib/auth/index.ts` (re-exports `withAuth`, `withRole`, `withUserAuth`) |
-| Services | `src/modules/accounting/services/` |
-| API routes | `pages/api/accounting/` |
-| UI pages | `pages/accounting/` |
-| Migrations | `scripts/migrations/sql/` |
-| Nav config | `src/components/accounting/accountingNavConfig.ts` |
-| Unit tests | `tests/unit/` |
-| E2E tests | `tests/e2e/` |
-
 ## Commands
 
-```bash
-bun run dev          # Start dev server on :3200
-bun run build        # Production build
-bun run lint         # ESLint (with unused-disable-directive reporting)
-bun run type-check   # tsc --noEmit
-bun run test:unit    # Vitest unit tests
-bun run ci           # Full CI gate (scripts/ci/run-ci.sh)
-bun run db:migrate   # Apply pending Supabase migrations
-bash scripts/deploy.sh  # Deploy
-```
+- `bun run ci` is the full gate (`scripts/ci/run-ci.sh`); required before any PR.
+- `bun run db:migrate` applies pending migrations; `bun run dev` serves on :3200.
+- Node `>=20.12.0` (Vitest 4/Rolldown needs `styleText`); use `.nvmrc`.
 
 ## Testing
 
 - Unit tests: Vitest in `tests/unit/services/`
 - E2E: Playwright in `tests/e2e/`
 - TDD enforced: tests FIRST, implementation second
-- **CI gate**: `bun run ci` runs every gate in `scripts/ci/run-ci.sh` (type-check, lint, the text guards, unit + component tests, migration-naming, the integration suites, production build). **Required before any PR.** GitHub's `quality` job runs the same `bun run ci` (R-052), so add a gate to `run-ci.sh` only — never list gates in `.github/workflows/ci.yml`; the `workflow-runs-ci` gate refuses any change to that job's shape. The `integration` step (`scripts/ci/integration/run.sh`) runs every `tests/integration/**/*.int.test.ts` **on GitHub only** (`GITHUB_ACTIONS=true`); a local `bun run ci` (and so the pre-push hook) prints one `[skip] integration: NOT RUN` line instead, unless you opt in with `CI_INTEGRATION=1 bun run ci`. It `initdb`s throwaway PostgreSQL 16 clusters as the current user (needs `postgresql-16` + `postgresql-16-pgvector`; no docker, no dev database, no secret), loads the committed schema baseline `scripts/ci/integration/baseline.sql.gz` (schema-only dump of isaflow_dev, gzipped so the text censuses do not read it as a writer; refresh with `refresh-baseline.sh`, see its header) plus the branch's newer migrations, routes each suite to `isaflow_schema_fixture` or `isaflow_test` by the guard it calls, and runs 6 shards one file at a time. It ignores `DATABASE_URL`. A suite that cannot run there (live GoTrue, dev's tenants) skips and must say why in a `ci-integration-skip:` comment; the step prints each one and fails on a suite that skips everything without one. Inside the step (`CI_INTEGRATION_GATE=1`, `tests/helpers/integrationGate.ts`) the wall-clock bounds in `w2-28-system-role-round9/12` and `r035-pr5-perf` skip and their correctness checks still run. The GitHub job's `timeout-minutes` is 60 for it. GitHub has no required checks on this repo, so a red check does not block a merge — look at it.
+- **CI gate**: `bun run ci` runs every gate in `scripts/ci/run-ci.sh` (type-check, lint, the text guards, unit + component tests, migration-naming, the integration suites, production build). **Required before any PR.** GitHub's `quality` job runs the same `bun run ci` (R-052), so add a gate to `run-ci.sh` only — never list gates in `.github/workflows/ci.yml`; the `workflow-runs-ci` gate refuses any change to that job's shape. The `integration` step (`scripts/ci/integration/run.sh`) runs every `tests/integration/**/*.int.test.ts` **on GitHub only** (`GITHUB_ACTIONS=true`); a local `bun run ci` (and so the pre-push hook) prints one `[skip] integration: NOT RUN` line instead, unless you opt in with `CI_INTEGRATION=1 bun run ci`. It `initdb`s throwaway PostgreSQL 16 clusters as the current user (needs `postgresql-16` + `postgresql-16-pgvector`; no docker, no dev database, no secret), loads the committed schema baseline `scripts/ci/integration/baseline.sql.gz` (schema-only dump of isaflow_dev, gzipped so the text censuses do not read it as a writer; refresh with `refresh-baseline.sh`, see its header) plus the branch's newer migrations, routes each suite to `isaflow_schema_fixture` or `isaflow_test` by the guard it calls, and runs 6 shards one file at a time. It ignores `DATABASE_URL`, and it applies the branch's new migrations as a non-superuser `postgres`, as production's deploy does. A suite that cannot run there (live GoTrue, dev's tenants) skips and must say why in a `ci-integration-skip:` comment; the step prints each one and fails on a suite that skips everything without one. Inside the step (`CI_INTEGRATION_GATE=1`, `tests/helpers/integrationGate.ts`) the wall-clock bounds in `w2-28-system-role-round9/12` and `r035-pr5-perf` skip and their correctness checks still run. The GitHub job's `timeout-minutes` is 120 for it (a shard is cut at 30 min). GitHub has no required checks on this repo, so a red check does not block a merge — look at it.
 
 ## Module docs (sibling `.claude.md` files)
 
 Module-level rules live in `.claude.md` files next to each module and API-route group — 54 of them, covering all of `src/modules/*` and every API route group under `pages/api/accounting/*`. `CLAUDE.md` and every `.claude.md` are canonical; generate their `AGENTS.md` mirrors with `bun run agent-docs:generate`, and verify drift with `bun run agent-docs:check`. Codex/Cursor/Copilot walk the tree and compose the sibling `AGENTS.md` mirrors with this root file. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
-
-## Plugins Active
-
-- `/frontend-design` — bold/distinctive UI components (avoid generic AI aesthetics)
-- `/superpowers` — git worktrees, TDD, parallel agents, debugging
-- `context7` MCP — fetch live docs for Next.js, React, Neon, etc.
-- `/code-review` — multi-agent PR code review
-- `github` MCP — GitHub API (requires `GITHUB_PERSONAL_ACCESS_TOKEN`)
-- `/skill-creator` — create/iterate new skills
-- `/revise-claude-md` — update this file after sessions
-- `typescript-lsp` — TS go-to-def, find-references, error checking
-- `/review-pr` — comprehensive PR review with specialized agents
-- `telegram` MCP — Telegram notifications (deploy alerts, etc.)

@@ -1,3 +1,6 @@
+---
+description: Run a zero-tolerance full-stack audit of ISAFlow covering code quality, API correctness, UI/UX, workflows, documents, data integrity, security, and accessibility.
+---
 # /audit — ISAFlow Zero-Tolerance Full-Stack Audit
 
 Run a comprehensive, zero-tolerance audit across **every layer** of ISAFlow: code quality, API correctness, UI/UX, workflows, document generation, data integrity, security, and accessibility. This is an **accounting application** — there is no margin for error.
@@ -87,7 +90,7 @@ grep -rn "FLOAT\|REAL\|DOUBLE PRECISION" scripts/migrations/sql/
 ### 2C. API Route Correctness
 For **every** API route in `pages/api/`:
 
-- [ ] **Uses `withCompany` middleware** (or `withAdmin` for admin routes)
+- [ ] **Uses an auth wrapper**: `withAuth` (or `withUserAuth` for user-scoped routes, `withBearerAuth` / `withBearerOrCookieAuth` for token callers, `withExtensionToken` for the bank-feed extension, `withPortalAuth` for the client portal, `withPlatformAdmin` for platform admin). Public by design, expected to be flagged by the loop below: the portal login, verify and logout routes, and inbound webhooks (`capture/inbound*`). The loop is a substring grep, so it cannot see cron endpoints that authenticate by a shared secret (`afs/cron/*`, whose comments mention `withAuth` and so pass): check those by hand.
 - [ ] **Uses `withErrorHandler`** wrapper
 - [ ] **Returns via `apiResponse` helpers** (not raw `res.json()`)
 - [ ] **HTTP method validation** — rejects unsupported methods with 405
@@ -101,7 +104,7 @@ For **every** API route in `pages/api/`:
 ```bash
 # Check for missing middleware
 for f in $(find pages/api/accounting -name "*.ts"); do
-  if ! grep -q "withCompany\|withAdmin\|withPublic" "$f"; then
+  if ! grep -q "withAuth\|withUserAuth\|withBearer\|withPlatformAdmin\|withExtensionToken\|withPortalAuth" "$f"; then
     echo "MISSING MIDDLEWARE: $f"
   fi
 done

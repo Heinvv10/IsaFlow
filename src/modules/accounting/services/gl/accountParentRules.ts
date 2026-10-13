@@ -17,7 +17,7 @@
  */
 
 import { sql } from '@/lib/neon';
-import { isSubjectToLeafRule } from './isReportVisibleLeaf';
+import { BALANCE_SHEET_LEAF_LEVEL, LEAF_RULE_ACCOUNT_TYPES, isSubjectToLeafRule } from './isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from './glAccountLock';
 import { lockSystemRoleWrites } from './systemRoleWriteLock';
 import { holderAsParentRefusal, roleBarringChildren } from './roleTargetRules';
@@ -100,8 +100,9 @@ export async function assertParentUsable(
   // the Add Account dialog for a case that loses nothing — the reports carry
   // a level-3 account whether or not it has children, so nothing disappears.
   // That is the whole justification. `validateLeafAccount` is NOT a second one:
-  // it runs on the expense-claim posting route and nowhere else, so a later
-  // post to the parent through any other path is not refused.
+  // it runs on the expense-claim posting route and nowhere else, and
+  // `headerAccountGuard` refuses posts to level 1-2 headers only, so a later
+  // post to a level-3 parent through any other path is not refused.
   if (isSubjectToLeafRule(Number(parent.level), parent.account_type)) {
     // LOCKED BEFORE THE READ, and this is what makes the verdict hold.
     //
@@ -154,4 +155,44 @@ export async function assertParentUsable(
     );
   }
   return { childLevel };
+}
+
+/**
+ * Moving an account UP re-levels it and its whole subtree. A posted asset, liability or equity
+ * parent that crosses from level 3 to below it becomes a header the balance sheet drops
+ * (isReportVisibleLeaf), so the move is refused, as `assertParentUsable` refuses a child on one.
+ * An account that was already a header is not newly hidden and does not block. Named limit: a journal
+ * that posts to BOTH the moved account and an at-risk descendant can deadlock with the move (40P01, one
+ * request fails and retries); neither commits a hidden header.
+ */
+export async function assertNoPostedParentHidden(companyId: string, id: string, delta: number): Promise<void> {
+  // Two reads of the same predicate. The first finds the at-risk accounts without their lines; they are then
+  // locked FOR UPDATE (ascending, under the role lock, like every chart edit), so a journal guard posting to one
+  // waits for this request (gl/headerAccountGuard takes KEY SHARE on every parent). The second read, a fresh
+  // statement, sees any line committed while this waited.
+  const atRisk = async (withLines: boolean) => (await sql`
+    WITH RECURSIVE subtree AS (
+      SELECT id, 1 AS depth FROM gl_accounts WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+      UNION ALL
+      SELECT ch.id, s.depth + 1 FROM gl_accounts ch JOIN subtree s ON ch.parent_account_id = s.id
+       WHERE ch.company_id = ${companyId}::UUID AND s.depth < ${MAX_TREE_DEPTH}
+    )
+    SELECT ga.id, ga.account_code FROM subtree s JOIN gl_accounts ga ON ga.id = s.id AND ga.company_id = ${companyId}::UUID
+     WHERE ga.account_type = ANY(${[...LEAF_RULE_ACCOUNT_TYPES]}::TEXT[])
+       AND ga.level >= ${BALANCE_SHEET_LEAF_LEVEL} AND ga.level + ${delta} < ${BALANCE_SHEET_LEAF_LEVEL}
+       AND EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ${companyId}::UUID)
+       AND (${!withLines}::BOOLEAN OR EXISTS (
+         SELECT 1 FROM gl_journal_lines jl WHERE jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID))
+     ORDER BY ga.account_code
+  `) as { id: string; account_code: string }[];
+  const candidates = await atRisk(false);
+  if (candidates.length === 0) return;
+  await lockGlAccountsForUpdate(companyId, candidates.map((c) => String(c.id)));
+  const hidden = await atRisk(true);
+  if (hidden[0]) {
+    throw new ParentAccountError(
+      `Moving this account would put ${hidden[0].account_code} above level ${BALANCE_SHEET_LEAF_LEVEL}. It has sub-accounts and `
+        + 'journal lines posted to it, so it would become a header and its balance would leave the balance sheet.',
+    );
+  }
 }

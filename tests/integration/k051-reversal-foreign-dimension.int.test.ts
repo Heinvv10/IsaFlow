@@ -57,7 +57,10 @@ async function inRequestTx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T
   } finally { client.release(); }
 }
 
-/** One posted, balanced entry on expense/accrual, tagged as asked. */
+/**
+ * One posted, balanced entry on expense/accrual, tagged as asked. A cost centre goes in BOTH cost_center_id and
+ * cc1_id: the historic shape (D4, 2026-10-12: no new line writes cost_center_id, but old ones carry it beside cc1).
+ */
 async function seedEntry(
   id: string,
   number: string,
@@ -68,8 +71,8 @@ async function seedEntry(
      VALUES($1,$2,$3,$4::date,$5,'K051R history','manual','posted',$6,NOW(),$6)`,
     [id, company, number, DATE, periodId, user]);
   await pool.query(
-    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,project_id,cost_center_id,bu_id)
-     VALUES($1,$2,$3,$4,1000,0,'tagged-debit',$5,$6,$7)`,
+    `INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit,description,project_id,cost_center_id,cc1_id,bu_id)
+     VALUES($1,$2,$3,$4,1000,0,'tagged-debit',$5,$6,$6,$7)`,
     [debitLine.id ?? crypto.randomUUID(), company, id, expense,
       debitLine.projectId ?? null, debitLine.costCentreId ?? null, debitLine.buId ?? null]);
   await pool.query(
@@ -136,7 +139,7 @@ it('reverses a journal carrying another company\'s dimensions, dropping only tho
 
     const { rows: legs } = await client.query(
       `SELECT gl_account_id, debit::float8 AS debit, credit::float8 AS credit,
-              project_id, cost_center_id, bu_id, description
+              project_id, cost_center_id, cc1_id, bu_id, description
          FROM gl_journal_lines
         WHERE company_id = $1 AND journal_entry_id = $2
         ORDER BY description`, [company, reversal.id]);
@@ -146,7 +149,7 @@ it('reverses a journal carrying another company\'s dimensions, dropping only tho
     const { rows: original } = await client.query(
       'SELECT reversed_at, status FROM gl_journal_entries WHERE id = $1', [mixedEntry]);
     const { rows: originalLine } = await client.query(
-      'SELECT project_id, cost_center_id, bu_id FROM gl_journal_lines WHERE id = $1', [foreignLine]);
+      'SELECT project_id, cost_center_id, cc1_id, bu_id FROM gl_journal_lines WHERE id = $1', [foreignLine]);
     // The PAIR: original plus its contra. Scoped to these two entries because
     // the other fixtures post to the same account.
     const { rows: net } = await client.query(
@@ -177,6 +180,7 @@ it('reverses a journal carrying another company\'s dimensions, dropping only tho
   expect(contra).toBeDefined();
   expect(contra.project_id).toBeNull();
   expect(contra.cost_center_id).toBeNull();
+  expect(contra.cc1_id).toBeNull();
   expect(contra.bu_id).toBeNull();
   // Debits and credits swapped, and the pair nets to zero on the account.
   expect(Number(contra.debit)).toBeCloseTo(0, 2);
@@ -189,6 +193,7 @@ it('reverses a journal carrying another company\'s dimensions, dropping only tho
   // of the row being corrected.
   expect(seen.originalLine.project_id).toBe(foreignProject);
   expect(seen.originalLine.cost_center_id).toBe(foreignCc);
+  expect(seen.originalLine.cc1_id).toBe(foreignCc);
   expect(seen.originalLine.bu_id).toBe(foreignBu);
 }, 60_000);
 
@@ -238,7 +243,7 @@ it('carries an OWN dimension forward untouched, and reports nothing dropped', as
   const seen = await inRequestTx(async (client) => {
     const reversal = await reverseJournalEntry(company, ownEntry, user);
     const { rows } = await client.query(
-      `SELECT cost_center_id, description FROM gl_journal_lines
+      `SELECT cost_center_id, cc1_id, description FROM gl_journal_lines
         WHERE company_id = $1 AND journal_entry_id = $2 ORDER BY description`,
       [company, reversal.id]);
     return { reversal, rows };
@@ -246,7 +251,9 @@ it('carries an OWN dimension forward untouched, and reports nothing dropped', as
 
   expect(seen.reversal.foreignDimensionDroppedLines).toBe(0);
   const contra = seen.rows.find((r) => String(r.description).includes('tagged-debit'));
-  expect(contra.cost_center_id).toBe(ownCc);
+  // The slot is carried; the legacy column is not (it stays on the original only).
+  expect(contra.cc1_id).toBe(ownCc);
+  expect(contra.cost_center_id).toBeNull();
 });
 
 it('still refuses a CALLER that names another company\'s dimension on a new line', async () => {
@@ -308,7 +315,7 @@ it('renders the same warning on the LIVE MCP call, which really does write the c
       reversal_entry_id: string; warnings: { code: string }[];
     };
     const { rows } = await client.query(
-      `SELECT project_id, cost_center_id, bu_id FROM gl_journal_lines
+      `SELECT project_id, cost_center_id, cc1_id, bu_id FROM gl_journal_lines
         WHERE company_id = $1 AND journal_entry_id = $2`,
       [company, payload.reversal_entry_id]);
     return { result, payload, rows };
@@ -324,6 +331,7 @@ it('renders the same warning on the LIVE MCP call, which really does write the c
   for (const r of seen.rows) {
     expect(r.project_id).toBeNull();
     expect(r.cost_center_id).toBeNull();
+    expect(r.cc1_id).toBeNull();
     expect(r.bu_id).toBeNull();
   }
 }, 60_000);

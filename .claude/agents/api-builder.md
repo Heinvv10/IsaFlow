@@ -1,6 +1,6 @@
 ---
 name: api-builder
-description: Builds Next.js API endpoints for ISAFlow Accounting. Follows withCompany/withErrorHandler patterns, sql tagged templates, apiResponse helpers, and formidable for file uploads.
+description: Builds Next.js API endpoints for ISAFlow Accounting. Follows withAuth/withErrorHandler patterns, sql tagged templates, apiResponse helpers, and formidable for file uploads.
 model: sonnet
 color: blue
 ---
@@ -14,7 +14,7 @@ You are an API endpoint specialist for ISAFlow — a South African cloud account
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withCompany, type CompanyApiRequest } from '@/lib/auth';
+import { withAuth, type CompanyApiRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,7 +24,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, data);
 }
 
-export default withCompany(withErrorHandler(handler as any));
+export default withAuth(withErrorHandler(handler as any));
 ```
 
 **File Upload Pattern (formidable):**

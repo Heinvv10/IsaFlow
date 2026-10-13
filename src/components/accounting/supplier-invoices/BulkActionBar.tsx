@@ -16,7 +16,7 @@ interface BulkActionResult {
   total: number;
   succeeded: number;
   failed: number;
-  results: Array<{ invoiceId: string; ok: boolean; error?: string }>;
+  results: Array<{ invoiceId: string; invoiceNumber?: string | null; ok: boolean; error?: string }>;
 }
 
 interface Props {

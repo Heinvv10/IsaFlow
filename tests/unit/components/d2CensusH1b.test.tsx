@@ -3,6 +3,7 @@
  * account list, the supplier payment form and the bank-transaction smart categorisation. A 400 envelope shows
  * the server message, an empty-body 500 shows a plain sentence (never the JSON parse error), a 200 still works.
  */
+import { chartAccount } from '../helpers/chartAccount';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
@@ -141,7 +142,7 @@ describe('purchase order edit: GL account list', () => {
     noParserText();
   });
   it('200: the accounts fill the line selects', async () => {
-    script(() => false, empty500, u => (u.includes('chart-of-accounts') ? [{ id: 'a1', code: '5D2', name: 'D2 Cost Account' }] : po));
+    script(() => false, empty500, u => (u.includes('chart-of-accounts') ? [chartAccount('a1', '5D2', 'D2 Cost Account')] : po));
     render(<PurchaseOrderDetailPage />); await edit();
     expect((await screen.findAllByText(/5D2 – D2 Cost Account/)).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Could not load/)).toBeNull();
