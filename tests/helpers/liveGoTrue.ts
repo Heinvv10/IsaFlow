@@ -15,24 +15,31 @@
  * skipped (vitest names the file the line came from).
  */
 export async function liveGoTrue(): Promise<boolean> {
-  const live = await answers(process.env.GOTRUE_URL);
-  if (!live) {
-    process.stderr.write(`[skip] no GoTrue answers at ${process.env.GOTRUE_URL ?? '(GOTRUE_URL unset)'}: `
-      + 'this suite needs a live one (sign-in, TOTP enrolment or the admin user API), so it skips.\n');
+  const base = process.env.GOTRUE_URL;
+  const missing = await whyNoGoTrue(base);
+  if (missing) {
+    process.stderr.write(`[skip] ${missing}: this suite needs a live GoTrue `
+      + '(sign-in, TOTP enrolment or the admin user API), so it skips.\n');
   }
-  return live;
+  return missing === null;
 }
 
-async function answers(base: string | undefined): Promise<boolean> {
-  if (!base) return false;
+const PROBE_MS = 3000;
+
+/** Why there is no GoTrue to test against, or null when one answered. */
+async function whyNoGoTrue(base: string | undefined): Promise<string | null> {
+  if (!base) return 'GOTRUE_URL is not set';
   const health = new URL(`${new URL(base).pathname.replace(/\/$/, '')}/health`, base);
   try {
-    await fetch(health, { signal: AbortSignal.timeout(3000) });
-    return true;
+    await fetch(health, { signal: AbortSignal.timeout(PROBE_MS) });
+    return null;
   } catch (err) {
     // Connection refused / unreachable (TypeError: fetch failed) or no answer
     // in time: there is no GoTrue to test against. Anything else is a defect.
-    if (err instanceof TypeError || (err instanceof Error && err.name === 'TimeoutError')) return false;
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      return `GoTrue at ${base} did not answer within ${PROBE_MS / 1000} s`;
+    }
+    if (err instanceof TypeError) return `nothing answers at ${base} (${err.message})`;
     throw err;
   }
 }
