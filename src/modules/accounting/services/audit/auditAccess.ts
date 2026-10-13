@@ -1,6 +1,6 @@
 /**
  * Who may do what with audit snapshots and check runs (forensic-controls
- * step 4) — the same rules RLS and the writers enforce in 890, said once for
+ * step 4) — the same rules RLS and the writers enforce in 891, said once for
  * the routes, the MCP tools and the UI:
  *  - read (list, detail, verify, compare): owner, admin, manager — manager is
  *    the payroll-detail reader, and snapshots carry no person data;

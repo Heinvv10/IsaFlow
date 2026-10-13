@@ -188,7 +188,7 @@ export const MCP_TOOLS = [
   auditTrailTool,
   // Forensic-controls step 3: master-data change history (migration 888).
   entityHistoryTool,
-  // Forensic-controls step 4: sealed audit snapshots and comparisons (migration 890).
+  // Forensic-controls step 4: sealed audit snapshots and comparisons (migration 891).
   auditSnapshotsTool,
   compareAuditSnapshotTool,
   listDocumentsTool,

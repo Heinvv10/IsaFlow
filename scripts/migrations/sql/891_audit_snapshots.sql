@@ -1,4 +1,4 @@
--- 890: Audit snapshots, check runs and their seal (forensic-controls rebuild,
+-- 891: Audit snapshots, check runs and their seal (forensic-controls rebuild,
 -- step 4; Hein's decisions 2026-10-12).
 --
 --   A snapshot freezes a company's books at an accounting-date cutoff: the
@@ -489,36 +489,36 @@ BEGIN
     LOOP
       FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'TRIGGER', 'REFERENCES'] LOOP
         IF pg_catalog.has_table_privilege(v_role, 'public.' || v_table, v_priv) THEN
-          RAISE EXCEPTION 'migration 890: % still holds % on %', v_role, v_priv, v_table;
+          RAISE EXCEPTION 'migration 891: % still holds % on %', v_role, v_priv, v_table;
         END IF;
       END LOOP;
       FOREACH v_priv IN ARRAY ARRAY['INSERT', 'UPDATE', 'REFERENCES'] LOOP
         IF pg_catalog.has_any_column_privilege(v_role, 'public.' || v_table, v_priv) THEN
-          RAISE EXCEPTION 'migration 890: % still holds column % on %', v_role, v_priv, v_table;
+          RAISE EXCEPTION 'migration 891: % still holds column % on %', v_role, v_priv, v_table;
         END IF;
       END LOOP;
     END LOOP;
     IF NOT pg_catalog.has_table_privilege('app_user', 'public.' || v_table, 'SELECT')
        OR pg_catalog.has_table_privilege('platform_admin', 'public.' || v_table, 'SELECT') THEN
-      RAISE EXCEPTION 'migration 890: app_user must read %, platform_admin must not', v_table;
+      RAISE EXCEPTION 'migration 891: app_user must read %, platform_admin must not', v_table;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.oid = ('public.' || v_table)::pg_catalog.regclass
                    AND c.relrowsecurity AND c.relforcerowsecurity) THEN
-      RAISE EXCEPTION 'migration 890: % must have forced row level security', v_table;
+      RAISE EXCEPTION 'migration 891: % must have forced row level security', v_table;
     END IF;
     IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_trigger t
         WHERE t.tgrelid = ('public.' || v_table)::pg_catalog.regclass AND NOT t.tgisinternal AND t.tgenabled = 'A'
           AND t.tgfoid = 'public.audit_snapshot_append_only()'::pg_catalog.regprocedure) <> 2
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
         WHERE t.tgrelid = ('public.' || v_table)::pg_catalog.regclass AND NOT t.tgisinternal AND t.tgenabled <> 'A') THEN
-      RAISE EXCEPTION 'migration 890: % must carry its two ENABLE ALWAYS append-only guards and no disabled trigger', v_table;
+      RAISE EXCEPTION 'migration 891: % must carry its two ENABLE ALWAYS append-only guards and no disabled trigger', v_table;
     END IF;
   END LOOP;
 
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = 'public.audit_trail_exports'::pg_catalog.regclass
                  AND t.tgname = 'audit_trail_export_pack_guard' AND t.tgenabled = 'A'
                  AND (t.tgtype::pg_catalog.int4 & 28) = 28) THEN  -- INSERT (4), DELETE (8) and UPDATE (16)
-    RAISE EXCEPTION 'migration 890: audit_trail_exports must carry its ENABLE ALWAYS pack guard on INSERT, UPDATE and DELETE';
+    RAISE EXCEPTION 'migration 891: audit_trail_exports must carry its ENABLE ALWAYS pack guard on INSERT, UPDATE and DELETE';
   END IF;
 
   -- FORCE RLS binds the writers' owner too: one without BYPASSRLS would be refused every insert.
@@ -529,7 +529,7 @@ BEGIN
       SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
       WHERE p.oid = v_fn::pg_catalog.regprocedure AND p.prosecdef AND (r.rolbypassrls OR r.rolsuper)
     ) THEN
-      RAISE EXCEPTION 'migration 890: % must be SECURITY DEFINER with an owner that bypasses RLS', v_fn;
+      RAISE EXCEPTION 'migration 891: % must be SECURITY DEFINER with an owner that bypasses RLS', v_fn;
     END IF;
   END LOOP;
   FOREACH v_fn IN ARRAY ARRAY[
@@ -543,7 +543,7 @@ BEGIN
       WHERE p.oid = v_fn::pg_catalog.regprocedure
         AND p.proconfig[pg_catalog.array_upper(p.proconfig, 1)] ~ '^search_path=.*pg_temp$'
     ) THEN
-      RAISE EXCEPTION 'migration 890: % must pin search_path with pg_temp last', v_fn;
+      RAISE EXCEPTION 'migration 891: % must pin search_path with pg_temp last', v_fn;
     END IF;
   END LOOP;
   -- Who may call what: the two writers app_user alone; the caller check and
@@ -562,7 +562,7 @@ BEGIN
       UNION ALL SELECT 'public'
     LOOP
       IF pg_catalog.has_function_privilege(v_role, v_fn, 'EXECUTE') THEN
-        RAISE EXCEPTION 'migration 890: % may execute %', v_role, v_fn;
+        RAISE EXCEPTION 'migration 891: % may execute %', v_role, v_fn;
       END IF;
     END LOOP;
   END LOOP;

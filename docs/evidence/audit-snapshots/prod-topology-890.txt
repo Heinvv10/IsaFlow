@@ -1,3 +1,4 @@
+# NOTE (2026-10-13): the migration was renumbered 890 → 891 (#707 took 890 on dev); its SQL is unchanged apart from the number in its messages. This run was made as 890.
 # Prod-topology proof of migration 890 (review round 4 version: sealed attempts, ZIP seal, immutable ready packs) — 2026-10-12T18:22:15Z
 # Container isaflow-prodtopo-890 (pgvector pg15): isaflow_dev schema-only + roles (no passwords); every public/app/auth table, view, sequence and routine re-owned to migration_admin (NOSUPERUSER BYPASSRLS); deploy login 'deployer' NOSUPERUSER BYPASSRLS, member of migration_admin and app_user (step 3's prodtopo.sql).
 

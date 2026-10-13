@@ -301,7 +301,7 @@ describe('audit pack from a snapshot', { timeout: 120_000 }, () => {
     }
   });
 
-  it('an older PDF-only pack (built before 890) still downloads as its PDF', async () => {
+  it('an older PDF-only pack (built before 891) still downloads as its PDF', async () => {
     const c = await company();
     storage.files.set(`captured-documents/${c}/legacy.pdf`, Buffer.from('%PDF-legacy'));
     // Such rows exist from before the guard; one can no longer be made ready without a snapshot and its ZIP.

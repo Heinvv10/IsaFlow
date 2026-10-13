@@ -1,3 +1,4 @@
+# NOTE (2026-10-13): the migration was renumbered 890 → 891 (#707 took 890 on dev); its SQL is unchanged apart from the number in its messages. This run was made as 890.
 # Mutation proof — forensic-controls step 4 (migration 890 + TypeScript), 2026-10-12
 # Runner: notes/mutation/mutate.py — throwaway worktree audit-snapshots-mut + its own container isaflow-fixture-auditsnap-mut.
 # Each mutant: one exact string replaced, fixture reset from the template, the migration applied as mutated, the named suites run, file restored.

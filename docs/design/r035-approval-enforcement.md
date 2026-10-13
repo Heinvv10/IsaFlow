@@ -666,7 +666,7 @@ purged; nothing can erase one person's rows short of owner DDL. Retention of acc
 obligation for years, which this serves; whether POPIA needs a per-person redaction path (owner-run, audited) is a
 product decision, not built here.
 
-## As built: audit snapshots (forensic-controls step 4, migration 890)
+## As built: audit snapshots (forensic-controls step 4, migration 891)
 
 Hein's decisions 2026-10-12 (D1–D4): snapshot = books + hashes at an accounting-date cutoff; comparison = snapshot
 vs today's books (field-level) and snapshot vs snapshot; taken by hand and automatically on lock, synchronously, no
@@ -697,7 +697,7 @@ from the snapshot's own trial balance, so reclassifying an account is a master-d
 journals. The key is the app's alone: storing a hash
 beside mutable rows is not tamper protection, which is why the rows are also append-only.
 
-**890.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
+**891.** `audit_snapshots`, `audit_snapshot_tb`, `audit_snapshot_journals`, `audit_snapshot_lines`,
 `audit_check_runs`, `audit_check_results` (composite `(company_id, …)` FKs, so a snapshot cites only its company's run
 and a child only its company's snapshot), plus additive `audit_trail_exports.snapshot_id / zip_*`. Written ONLY by
 two SECURITY DEFINER writers, one call with every row: `audit_snapshot_record`, `audit_check_run_record` (EXECUTE:
@@ -767,7 +767,7 @@ review round 2, N1). Nothing but the manifest (≤ 1 MiB) and its seal is inflat
 entry past the size the manifest gives it. The guard stamps `built_at` with the database's clock when a pack becomes
 ready and fixes it; a pack sealed under a retired key verifies only when built before that key was retired.
 Downloads are rate-limited (the owner's in the audit bucket, the portal's at ten a minute per auditor session),
-since each verifies the whole ZIP. Packs built before 890 (PDF only) carry no seal and are served as before.
+since each verifies the whole ZIP. Packs built before 891 (PDF only) carry no seal and are served as before.
 
 **Automatic snapshots.** `closePeriod`, `lockPeriod`, `closeYear` (fiscal-periods-action, MCP close), `closeFiscalYear`
 (year-end route, MCP) and `lockVatPeriod` (route, MCP) call `scheduleAutoSnapshot`, which only queues work on the

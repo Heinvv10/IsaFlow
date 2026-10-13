@@ -4,7 +4,7 @@
 # services/audit/ — audit snapshots, comparison, check runs, sealed packs
 
 ## Purpose
-Forensic-controls step 4 (migration 890). A **snapshot** freezes a company's books at a cutoff — TB, every POSTED
+Forensic-controls step 4 (migration 891). A **snapshot** freezes a company's books at a cutoff — TB, every POSTED
 journal and line ≤ cutoff as canonical rows with a material hash, ageing / control totals and a sealed **check
 run** — under SHA-256 + HMAC-SHA256 with a server key the database never sees. A **comparison** shows what changed
 behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of records ≤ cutoff, as at taken_at.
@@ -20,7 +20,7 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 
 ## Business rules
 - Rows are spelled by the database so a hash recomputes years later; canonical JSON refuses floats and Dates.
-- Written only through 890's definers (one call, every row), binding taken_by, company, now(), channel and role.
+- Written only through 891's definers (one call, every row), binding taken_by, company, now(), channel and role.
   Append-only for every role; purge cascade only.
 - Verify decides integrity before the key and checks the filing columns. Each document stores `document_version` in
   its sealed totals and is rebuilt under it. Comparisons compare only columns both sides froze (`notCompared`).
@@ -33,7 +33,7 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
   it re-reads in its own tx that its close / lock stands (`lock_gone` otherwise). Each step tightens statement_timeout to what is left of `SNAPSHOT_TIME_BUDGET_MS`; past it a
   watchdog cancels the running statement.
 - Packs: ZIP sealed (`zip_hmac`), checked before parsing; exact central directory; ready only once built and then
-  immutable (890 guard); downloads serve a ZIP only through `verifiedPackZip` (`packVerify.ts`).
+  immutable (891 guard); downloads serve a ZIP only through `verifiedPackZip` (`packVerify.ts`).
 - Keys: `AUDIT_SNAPSHOT_RETIRED_KEYS=id=secret@retired-at,…` verifies seals taken before retired-at only; a malformed
   entry is a config error (503). MCP audit tools charge the member's audit bucket (`chargeAuditJob`).
 - Column census: decisions in `tests/helpers/auditSnapshotColumns.ts`; integration (schema) + unit (migrations).
@@ -47,4 +47,4 @@ behind it; an **audit pack** (ZIP) is built from it. Caveat: current values of r
 - Storage ~520 bytes per frozen line per snapshot (`docs/evidence/audit-snapshots/size-cap-measurement.txt`).
 
 ## Recent changes
-- 2026-10-12: created (step 4, migration 890); review rounds 1–2 (see the PR #702 reconciliation comments).
+- 2026-10-12: created (step 4, migration 891); review rounds 1–2 (see the PR #702 reconciliation comments).

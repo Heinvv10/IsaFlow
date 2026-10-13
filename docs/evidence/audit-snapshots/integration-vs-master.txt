@@ -1,3 +1,4 @@
+# NOTE (2026-10-13): the migration was renumbered 890 → 891 (#707 took 890 on dev); its SQL is unchanged apart from the number in its messages. This run was made as 890.
 # Full integration suite on disposable fixtures — branch (2a33c494b's tests, fixture isaflow-fixture-auditsnap + 890) vs master 9189b2f1e (fixture isaflow-fixture-auditsnap-mut, no 890), 2026-10-12
 # Files: branch 923 (208 failed), master 917 (206 failed) — most failures are suites that refuse a fixture DB or need services the fixture lacks, on both sides.
 # Branch-only failing files: 23. Each re-run alone on the branch fixture:
