@@ -240,6 +240,8 @@ export function allocateCreditNote(
   creditNoteNumber: string,
   defaultRevenueAccountId: string,
   legacyNotes: readonly number[] = [],
+  /** 'debit' reverses revenue (customer notes); 'credit' reverses a bill's expense legs (supplier notes). */
+  side: 'debit' | 'credit' = 'debit',
 ): { lines: JournalLineInput[]; allocations: CreditNoteAllocation[] } {
   let carries = legs.map((l) => cents(l.net));
   for (const earlier of legacyNotes) {
@@ -273,7 +275,7 @@ export function allocateCreditNote(
   }
   return {
     lines: [...merged.values()]
-      .map((m) => leg(m.account, m.amount, 'debit', description, m.tags))
+      .map((m) => leg(m.account, m.amount, side, description, m.tags))
       .filter((l): l is JournalLineInput => l !== null),
     allocations,
   };

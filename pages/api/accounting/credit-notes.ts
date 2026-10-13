@@ -22,6 +22,7 @@ import type { CreditNoteStatus } from '@/modules/accounting/types/ar.types';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
+import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -53,7 +54,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     try {
       const { type, clientId, customerInvoiceId, supplierId, supplierInvoiceId,
-        creditDate, reason, subtotal, taxRate, projectId } = req.body;
+        creditDate, reason, subtotal, taxRate, projectId, glAccountId } = req.body;
 
       if (!type || !creditDate || subtotal === undefined) {
         return apiResponse.badRequest(res, 'type, creditDate, and subtotal are required');
@@ -77,6 +78,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         subtotal: Number(subtotal),
         taxRate: taxRate !== undefined ? Number(taxRate) : undefined,
         projectId: projectId || undefined,
+        glAccountId: glAccountId || undefined,
       }, userId);
 
       return apiResponse.created(res, creditNote);
@@ -88,6 +90,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (err instanceof CreditNoteDimensionRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       // Before any write: a counterparty or invoice the note may not name (FX PR0 adds a foreign invoice).
       if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
+      // A supplier note's own account (891) held to the bill-line rule, before any write.
+      if (err instanceof BillLineAccountRefusal) return apiResponse.badRequest(res, err.message, { code: err.code });
       log.error('Failed to create credit note', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create credit note');
     }

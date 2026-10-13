@@ -38,6 +38,12 @@ export const createCreditNoteTool: McpTool = {
       supplier_id: { type: 'string', description: 'Supplier UUID — required when type is "supplier"' },
       customer_invoice_id: { type: 'string', description: 'Invoice this note credits; auto-applied at approve' },
       supplier_invoice_id: { type: 'string', description: 'Supplier invoice this note credits; auto-applied at approve' },
+      gl_account_id: {
+        type: 'string',
+        description: 'Supplier notes only: the GL account credited when the note is not linked to a bill, or for what the '
+          + 'expense lines of the linked bill can no longer take (a linked note reverses the accounts and CC1/CC2/BU of that bill first). '
+          + 'Omitted: the default expense account.',
+      },
       credit_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
       subtotal: { type: 'number', exclusiveMinimum: 0, description: 'NET of VAT' },
       tax_rate: { type: 'number', minimum: 0, maximum: 100, description: 'VAT %, default 15' },
@@ -60,7 +66,7 @@ export const createCreditNoteTool: McpTool = {
     if (!creditDate) return toolError('credit_date is required (YYYY-MM-DD)');
 
     const bad = guardCastableArgs(args, {
-      uuid: ['client_id', 'supplier_id', 'customer_invoice_id', 'supplier_invoice_id', 'duplicate_of'],
+      uuid: ['client_id', 'supplier_id', 'customer_invoice_id', 'supplier_invoice_id', 'duplicate_of', 'gl_account_id'],
       date: ['credit_date'],
     });
     if (bad) return bad;
@@ -96,6 +102,8 @@ export const createCreditNoteTool: McpTool = {
     if (type === 'supplier' && (clientId || customerInvoiceId)) {
       return toolError('A supplier credit note cannot carry client_id or customer_invoice_id');
     }
+    const glAccountId = strArg(args, 'gl_account_id');
+    if (type === 'customer' && glAccountId) return toolError('gl_account_id can only be set on a supplier credit note');
 
     // Tenant AND counterparty ownership, before the first write. Neither the
     // service nor the database re-checks either one — every id below is a bare
@@ -179,6 +187,7 @@ export const createCreditNoteTool: McpTool = {
         reason: strArg(args, 'reason'),
         subtotal,
         taxRate,
+        glAccountId,
       },
       ctx.userId,
       // A draft note posts no journal, so the document row is the only place

@@ -35,6 +35,8 @@ import { assertNotImpersonating, respondIfImpersonationForbidden } from '@/lib/a
 import { ApprovalRequiredError, describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { CreditNoteDimensionRefusal } from '@/modules/accounting/services/ar/creditNoteHeaderTags';
+import { BillLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -71,10 +73,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     try {
       const {
         supplierId, supplierInvoiceId, creditDate, reference,
-        description, lineItems, submitAction,
+        description, lineItems, submitAction, glAccountId,
       } = req.body as {
         supplierId?: string;
         supplierInvoiceId?: string;
+        /** 891: the account credited when no linked bill's legs can take it; default_expense when omitted. */
+        glAccountId?: string;
         creditDate?: string;
         reference?: string;
         description?: string;
@@ -116,6 +120,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         subtotal: Math.round(subtotal * 100) / 100,
         taxRate,
         projectId: undefined,
+        glAccountId: glAccountId || undefined,
       }, userId);
 
       // Auto-post if requested
@@ -152,6 +157,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfLockTimeout(res, err)) return;
       // Before any write: a supplier or bill the note may not name (FX PR0 adds a foreign bill).
       if (err instanceof CreditNoteLinkError) return apiResponse.badRequest(res, err.message);
+      // 891, before any write: the note's own account (bill-line rule), header CC1/CC2/BU on a linked note.
+      if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal) {
+        return apiResponse.badRequest(res, err.message, { code: err.code });
+      }
       log.error('supplier-credit-notes POST failed', { error: err }, 'accounting-api');
       return apiResponse.internalError(res, err, 'Failed to create supplier credit note');
     }
@@ -203,6 +212,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (respondIfApprovalRequired(res, err)) return;
       if (err instanceof VatPeriodLockedError || err instanceof ReversalBeforeOriginalError || isDimensionRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
+      }
+      // 891: 'post' re-checks the note's own account and its header tags under the row lock, before any write.
+      if (err instanceof BillLineAccountRefusal || err instanceof CreditNoteDimensionRefusal) {
+        return apiResponse.badRequest(res, err.message, { code: err.code });
       }
       // 'reverse' runs under the credit-note cancel's flow lock budget (D8 round 10): 503 + Retry-After.
       if (respondIfLockTimeout(res, err)) return;
