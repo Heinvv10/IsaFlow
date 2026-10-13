@@ -64,31 +64,10 @@ write_owner "$WORK"
 SUITE_TMP="$WORK/tmp"
 mkdir "$SUITE_TMP"
 export SUITE_TMP
-# A second INT/TERM/HUP must not cut cleanup short of rm -rf: ignored from here
-# on. The schema-building step running now, if any, is ended with the shards.
-cleanup() {
-  local step=""
-  trap '' INT TERM HUP
-  [ -f "$WORK/step" ] && step=$(cat "$WORK/step")
-  remove_run "$WORK" "$step"
-}
+# Cleanup (lifecycle.sh end_run) ends the shard sessions and the schema-build
+# step, stops the clusters and deletes the run; INT/TERM/HUP end the run.
+cleanup() { end_run "$WORK"; }
 trap cleanup EXIT
-# hold_signals / release_signals: around starting a background child and
-# recording it, an INT/TERM is noted instead of acted on, so cleanup always
-# finds the record. (Ignoring them would pass SIG_IGN on to the child; a
-# handler is reset to the default in it.)
-pending=""
-release_signals() {
-  trap 'exit 129' HUP
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  [ -z "$pending" ] || exit "$pending"
-}
-hold_signals() {
-  trap 'pending=129' HUP
-  trap 'pending=130' INT
-  trap 'pending=143' TERM
-}
 release_signals
 
 PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -104,19 +83,17 @@ bun scripts/ci/integration/plan.ts "$SHARDS" > "$WORK/plan.tsv"
 # so a migration or load that hangs fails the step instead of holding the
 # runner. It runs in the background and is waited for: bash runs a trap only
 # once a FOREGROUND child returns, so a TERM would otherwise wait out the limit.
-# cleanup() ends it (pid + start time in $WORK/step).
+# It runs in a session of its own, recorded like a shard's ($WORK/cstep/sid), so
+# cleanup ends it and whatever it started.
 MIGRATE_LIMIT=${CI_INT_MIGRATE_TIMEOUT:-300}
 bounded() {
-  local what=$1 status=0 t0 pid
+  local what=$1 status=0 t0
   shift
   t0=$(date +%s)
-  hold_signals
-  timeout -k 30 "$MIGRATE_LIMIT" "$@" &
-  pid=$!
-  echo "$pid $(proc_start "$pid")" > "$WORK/step"
-  release_signals
-  wait "$pid" || status=$?
-  rm -f "$WORK/step"
+  mkdir -p "$WORK/cstep"
+  launch_session "$WORK/cstep/sid" timeout -k 30 "$MIGRATE_LIMIT" "$@"
+  wait "$LAUNCHED" || status=$?
+  rm -f "$WORK/cstep/sid"
   case $(shard_outcome "$status" "$(( $(date +%s) - t0 ))" "$MIGRATE_LIMIT") in
     timeout) echo "[integration] $what did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2 ;;
     killed) echo "[integration] $what was KILLED (SIGKILL, not the time limit)" >&2 ;;
@@ -167,18 +144,11 @@ parity2="postgresql://$PG_SUPERUSER@127.0.0.1:$(pg_cluster_start "$WORK/cp2")/po
 
 declare -a PIDS=()
 for i in $(seq 1 "$SHARDS"); do
-  hold_signals
-  setsid --wait bash scripts/ci/integration/shard.sh "$i" "$SHARDS" "${PORTS[$((i - 1))]}" "$WORK" "$parity" "$parity2" &
-  # Recorded here, at launch, so a TERM a moment later still finds the shard:
-  # a background child is no process-group leader, so setsid(1) does not fork
-  # and $! becomes the session leader (sid == pid). Were it ever to fork, the
-  # session would not match and nothing would be signalled (the shard's own
-  # timeout still bounds it).
-  # The child may not have called setsid() yet; record it once it has (2 s at most).
-  for n in $(seq 1 40); do [ "$(proc_sid "$!")" = "$!" ] && break; sleep 0.05; done
-  echo "$! $(proc_start "$!")" > "$WORK/c$i/sid"
-  PIDS+=("$!")
-  release_signals
+  # Recorded at launch (lifecycle.sh launch_session), so a TERM a moment later
+  # still finds the shard's session.
+  launch_session "$WORK/c$i/sid" bash scripts/ci/integration/shard.sh "$i" "$SHARDS" "${PORTS[$((i - 1))]}" \
+    "$WORK" "$parity" "$parity2"
+  PIDS+=("$LAUNCHED")
 done
 
 FAILED=0

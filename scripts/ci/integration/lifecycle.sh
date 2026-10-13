@@ -84,20 +84,33 @@ snapshot() {
   return 0
 }
 
-# end_snapshot <lines>: TERM each listed process that still matches, wait up to
-# 10 s for them to go, then KILL any that still match.
-end_snapshot() {
-  local list=$1 n pid start live
-  [ -n "$list" ] || return 0
-  while read -r pid start; do same_proc "$pid" "$start" && kill -TERM "$pid" 2> /dev/null; done <<< "$list"
-  for n in $(seq 1 20); do
+# signal_list <signal> <lines>: send it to each listed process that still matches.
+signal_list() {
+  local pid start
+  [ -n "$2" ] || return 0
+  while read -r pid start; do same_proc "$pid" "$start" && kill -"$1" "$pid" 2> /dev/null; done <<< "$2"
+  return 0
+}
+
+# wait_list <half-seconds> <lines>: wait until none of them matches any more.
+wait_list() {
+  local n pid start live
+  for n in $(seq 1 "$1"); do
     live=0
-    while read -r pid start; do same_proc "$pid" "$start" && live=1; done <<< "$list"
+    if [ -n "$2" ]; then
+      while read -r pid start; do same_proc "$pid" "$start" && live=1; done <<< "$2"
+    fi
     [ "$live" -eq 0 ] && return 0
     sleep 0.5
   done
-  while read -r pid start; do same_proc "$pid" "$start" && kill -KILL "$pid" 2> /dev/null; done <<< "$list"
-  return 0
+}
+
+# end_snapshot <lines>: TERM each listed process that still matches, wait up to
+# 10 s for them to go, then KILL any that still match.
+end_snapshot() {
+  signal_list TERM "$1"
+  wait_list 20 "$1"
+  signal_list KILL "$1"
 }
 
 # end_own_session: for a session leader on its way out (shard.sh's EXIT trap).
@@ -121,21 +134,71 @@ end_own_session() {
   return 0
 }
 
-# remove_run <run dir> [more "pid start" lines]: end every shard session it
-# recorded that is still its own, and the extra processes listed. The members
-# (and each recorded leader itself) are snapshot first; then the clusters are
-# stopped, so nothing is left running if this is cut short; then the snapshot
-# gets TERM / KILL; then the directory goes.
+# remove_run <run dir>: end every session it recorded (shards, the schema-build
+# step) that is still its own, stop its clusters, delete it. In this order:
+# snapshot each session's members; TERM the members and the leaders, so no
+# shard starts its next vitest; stop the clusters; give the members 10 s, then
+# KILL them; give the leaders 30 s, longer than their own end_own_session takes,
+# then KILL them last.
 remove_run() {
-  local run=$1 f sid start list=${2:-}$'\n'
+  local run=$1 f sid start members="" leaders=""
   for f in "$run"/c*/sid; do
     [ -f "$f" ] || continue
     read -r sid start < "$f" || continue
-    session_ours "$sid" "$start" && list+="$sid $start"$'\n'"$(snapshot "$sid")"$'\n'
+    session_ours "$sid" "$start" || continue
+    leaders+="$sid $start"$'\n'
+    members+="$(snapshot "$sid" "$sid")"$'\n'
   done
+  members=$(printf '%s' "$members" | sed '/^$/d' | sort -u)
+  leaders=$(printf '%s' "$leaders" | sed '/^$/d')
+  signal_list TERM "$members"
+  signal_list TERM "$leaders"
   for f in "$run"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
-  end_snapshot "$(printf '%s' "$list" | sed '/^$/d' | sort -u)"
+  wait_list 20 "$members"
+  signal_list KILL "$members"
+  wait_list 60 "$leaders"
+  signal_list KILL "$leaders"
   rm -rf "$run"
+}
+
+# end_run <run dir>: run.sh's cleanup. A second INT/TERM/HUP must not cut it
+# short of rm -rf, so they are ignored from here on.
+end_run() {
+  trap '' INT TERM HUP
+  remove_run "$1"
+}
+
+# hold_signals / release_signals: around starting a background child and
+# recording it, an INT/TERM/HUP is noted instead of acted on, so cleanup always
+# finds the record. (Ignoring them would pass SIG_IGN on to the child; a
+# handler is reset to the default in it.) release_signals acts on a held one.
+pending=""
+hold_signals() {
+  trap 'pending=129' HUP
+  trap 'pending=130' INT
+  trap 'pending=143' TERM
+}
+release_signals() {
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [ -z "$pending" ] || exit "$pending"
+}
+
+# launch_session <record> <command...>: start the command as the leader of a new
+# session and record "pid start" in <record>, signals held meanwhile. A
+# background child is no process-group leader, so setsid(1) does not fork and
+# the child's pid becomes the session id; it is recorded once the child has
+# called setsid() (2 s at most). Sets LAUNCHED to the pid.
+launch_session() {
+  local record=$1 n
+  shift
+  hold_signals
+  setsid --wait "$@" &
+  LAUNCHED=$!
+  for n in $(seq 1 40); do [ "$(proc_sid "$LAUNCHED")" = "$LAUNCHED" ] && break; sleep 0.05; done
+  echo "$LAUNCHED $(proc_start "$LAUNCHED")" > "$record"
+  release_signals
 }
 
 # boot_time: when this boot began, in seconds since the epoch (/proc/stat btime).
