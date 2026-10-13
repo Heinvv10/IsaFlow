@@ -112,8 +112,8 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['no timeout floor (key removed)', null],
   ])('%s: the check ends cancelled, never red', (_label, line) => {
     // Anchored on quality's own comment: golden-paths has a timeout-minutes too.
-    const from = 'so 60.\n    timeout-minutes: 60\n';
-    expect(check(edit(from, line === null ? 'so 60.\n' : `so 60.\n    ${line}\n`)).length).toBeGreaterThan(0);
+    const from = 'so 120.\n    timeout-minutes: 120\n';
+    expect(check(edit(from, line === null ? 'so 120.\n' : `so 120.\n    ${line}\n`)).length).toBeGreaterThan(0);
   });
 
   it.each([

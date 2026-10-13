@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": [
+    "scripts/ci/integration/*.ts",
+    "scripts/ci/skippedIntegrationSuites.ts",
+    "scripts/ci/report-skipped-integration.ts",
+    "tests/helpers/liveGoTrue.ts",
+    "tests/helpers/integrationGate.ts",
+    "next-env.d.ts"
+  ],
+  "exclude": ["node_modules"]
+}

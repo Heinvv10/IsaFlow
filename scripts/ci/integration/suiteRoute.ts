@@ -95,7 +95,7 @@ export function assignShards<T extends { file: string }>(
   const out = new Array<T & { shard: number }>(suites.length);
   for (const { s, i } of order) {
     const shard = load.indexOf(Math.min(...load));
-    load[shard] += weight(s);
+    load[shard] = (load[shard] ?? 0) + weight(s);
     out[i] = { ...s, shard: shard + 1 };
   }
   return out;
