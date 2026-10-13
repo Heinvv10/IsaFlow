@@ -33,4 +33,4 @@
 
 ## Recent changes
 - 2026-04-22: PRD-05 Phase 12 — audit-trail-as-a-product (initial drop)
-- 2026-10-12: forensic step 4 (migration 890) — packs built from sealed snapshots (ZIP); the live-data PDF build is gone
+- 2026-10-12: forensic step 4 (migration 891) — packs built from sealed snapshots (ZIP); the live-data PDF build is gone
