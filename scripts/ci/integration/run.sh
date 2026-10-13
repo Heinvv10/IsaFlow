@@ -55,38 +55,15 @@ source scripts/ci/integration/pg-cluster.sh
 SHARDS=6
 pg_require_extensions
 
-# The pids of every process in a shard's session.
-session_pids() { ps -eo pid=,sid= | awk -v s="$1" '$2 == s { print $1 }'; }
-# remove_run <run dir>: end every shard session it recorded (TERM, then KILL
-# after up to 10 s), stop its clusters, delete it.
-remove_run() {
-  local run=$1 f n live
-  for f in "$run"/c*/sid; do
-    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -TERM 2> /dev/null || true
-  done
-  for n in $(seq 1 20); do
-    live=0
-    for f in "$run"/c*/sid; do [ -f "$f" ] && [ -n "$(session_pids "$(cat "$f")")" ] && live=1; done
-    [ "$live" -eq 0 ] && break
-    sleep 0.5
-  done
-  for f in "$run"/c*/sid; do
-    [ -f "$f" ] && session_pids "$(cat "$f")" | xargs -r kill -KILL 2> /dev/null || true
-  done
-  for f in "$run"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
-  rm -rf "$run"
-}
-
-# 0. Sweep this user's dead runs. A pid that is alive (or reused) is left alone.
-for old in "${TMPDIR:-/tmp}"/isaflow-ci-int.*; do
-  [ -d "$old" ] && [ -O "$old" ] && [ -f "$old/owner" ] || continue
-  kill -0 "$(cat "$old/owner")" 2> /dev/null && continue
-  remove_run "$old"
-  echo "[integration] removed the leftovers of a run that died: $old"
-done
+# 0. Sweep this user's runs that died without cleaning up (lifecycle.sh).
+sweep_dead_runs
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/isaflow-ci-int.XXXXXX")
-echo $$ > "$WORK/owner"
+write_owner "$WORK"
+# The suites' (and vite's) temporary files live and die with the run.
+SUITE_TMP="$WORK/tmp"
+mkdir "$SUITE_TMP"
+export SUITE_TMP
 cleanup() { remove_run "$WORK"; }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -100,6 +77,20 @@ START=$(date +%s)
 
 bun scripts/ci/integration/plan.ts "$SHARDS" > "$WORK/plan.tsv"
 
+# bounded <what> <command...>: building the schema gets CI_INT_MIGRATE_TIMEOUT
+# seconds per command (default 600; it takes under 30 s), so a migration or
+# load that hangs fails the step instead of holding the runner.
+MIGRATE_LIMIT=${CI_INT_MIGRATE_TIMEOUT:-600}
+bounded() {
+  local what=$1 status=0
+  shift
+  timeout -k 30 "$MIGRATE_LIMIT" "$@" || status=$?
+  if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+    echo "[integration] $what did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2
+  fi
+  return "$status"
+}
+
 # 1. Template cluster.
 mkdir "$WORK/c1"
 pg_cluster_init "$WORK/c1"
@@ -107,17 +98,19 @@ PORT=$(pg_cluster_start "$WORK/c1")
 PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1)
 pg_create_roles "$PORT"
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_schema_fixture OWNER postgres"
-gunzip -c scripts/ci/integration/baseline.sql.gz | "${PSQL[@]}" -d isaflow_schema_fixture > /dev/null
+gunzip -c scripts/ci/integration/baseline.sql.gz | bounded "loading the baseline" "${PSQL[@]}" -d isaflow_schema_fixture > /dev/null
 # A schema-only dump leaves every materialized view unpopulated, and reading
 # one then errors; populate them (empty) as a deploy would have.
 "${PSQL[@]}" -d isaflow_schema_fixture -At \
   -c "SELECT format('REFRESH MATERIALIZED VIEW %I.%I', schemaname, matviewname) FROM pg_matviews" \
-  | "${PSQL[@]}" -d isaflow_schema_fixture
+  | bounded "refreshing the materialized views" "${PSQL[@]}" -d isaflow_schema_fixture
 # As production's deploy: `postgres`, not a superuser. The runner forces TLS
 # unless the URL says sslmode=disable.
 with_db "$PORT" isaflow_schema_fixture \
   env "DATABASE_URL=postgresql://postgres@127.0.0.1:$PORT/isaflow_schema_fixture?sslmode=disable" \
-  bun scripts/apply-migrations.ts
+  timeout -k 30 "$MIGRATE_LIMIT" bun scripts/apply-migrations.ts \
+  || { status=$?; [ "$status" -eq 124 ] || [ "$status" -eq 137 ] \
+    && echo "[integration] the migrations did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2; exit "$status"; }
 "${PSQL[@]}" -d postgres -c "ALTER ROLE postgres SUPERUSER" \
   -c "CREATE DATABASE isaflow_test TEMPLATE isaflow_schema_fixture OWNER postgres"
 pg_cluster_stop "$WORK/c1"

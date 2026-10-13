@@ -19,6 +19,8 @@
 
 PG_BIN=${PG_BIN:-/usr/lib/postgresql/16/bin}
 PG_SUPERUSER=ci_superuser
+# shellcheck source=lifecycle.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lifecycle.sh"
 
 # A port the kernel says is free right now. Another process can take it before
 # postgres binds it, so pg_cluster_start retries on a fresh one.
@@ -44,6 +46,7 @@ pg_cluster_start() {
         -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c max_connections=200 \
         -c timezone=UTC -c log_timezone=UTC \
         -c fsync=off -c full_page_writes=off -c synchronous_commit=off" start > /dev/null; then
+      proc_start "$(head -n 1 "$dir/data/postmaster.pid")" > "$dir/postmaster.start"
       echo "$port"
       return 0
     fi
@@ -56,10 +59,17 @@ pg_cluster_start() {
   return 1
 }
 
-# pg_cluster_stop <dir>: stop the cluster at once. Safe to call on one that never started.
+# pg_cluster_stop <dir>: stop the cluster at once. Safe to call on one that never
+# started, and on a stale postmaster.pid: pg_ctl signals the pid in that file,
+# so it runs only while that pid is a postmaster working in this data directory
+# and, where recorded, the same process pg_cluster_start started.
 pg_cluster_stop() {
-  [ -f "$1/data/postmaster.pid" ] || return 0
-  "$PG_BIN/pg_ctl" -D "$1/data" -m immediate stop > /dev/null 2>&1 || true
+  local dir=$1 pid
+  [ -f "$dir/data/postmaster.pid" ] || return 0
+  pid=$(head -n 1 "$dir/data/postmaster.pid")
+  [ -n "$pid" ] && [ "$(readlink "/proc/$pid/cwd" 2> /dev/null)" = "$(cd "$dir/data" && pwd -P)" ] || return 0
+  if [ -f "$dir/postmaster.start" ]; then same_proc "$pid" "$(cat "$dir/postmaster.start")" || return 0; fi
+  "$PG_BIN/pg_ctl" -D "$dir/data" -m immediate stop > /dev/null 2>&1 || true
 }
 
 # pg_create_roles <port>: the roles the schema's grants, policies and owners
@@ -69,8 +79,8 @@ pg_cluster_stop() {
 # migrates as, is NOT a superuser, bypasses RLS and inherits migration_admin
 # and app_user. Only `postgres` can log in, with $PGPASSWORD.
 pg_create_roles() {
-  "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1 -d postgres \
-    -v pw="$PGPASSWORD" <<'SQL'
+  "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1 -d postgres <<'SQL'
+\getenv pw PGPASSWORD
 CREATE ROLE app_user NOLOGIN;
 CREATE ROLE migration_admin NOLOGIN BYPASSRLS;
 CREATE ROLE platform_admin NOLOGIN BYPASSRLS;
@@ -83,13 +93,14 @@ SQL
 # environment (env -i: a developer's .env.local or shell can never point it at
 # a shared database or a real GoTrue), connected as `postgres`. No password in
 # the URL: pg and psql read PGPASSWORD. RUNNER_TRACKING_ID is kept so the
-# GitHub runner can still find and end what the step started.
+# GitHub runner can still find and end what the step started. Temporary files
+# go to $SUITE_TMP (run.sh: inside the run directory, so they go with it).
 with_db() {
   local url="postgresql://postgres@127.0.0.1:$1/$2"
   local keep=()
   shift 2
   [ -n "${RUNNER_TRACKING_ID:-}" ] && keep+=("RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID")
-  env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${TMPDIR:-/tmp}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}" \
+  env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${SUITE_TMP:-${TMPDIR:-/tmp}}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}" \
     "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url" \
     DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1 \
     "JWT_SECRET=$JWT" "$@"
