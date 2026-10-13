@@ -26,6 +26,16 @@ proc_start() {
   echo "${20}"
 }
 
+# proc_sid <pid>: the session the process is in (field 6 of /proc/<pid>/stat).
+proc_sid() {
+  local stat
+  stat=$(cat "/proc/$1/stat" 2> /dev/null) || return 0
+  stat=${stat##*) }
+  # shellcheck disable=SC2086
+  set -- $stat
+  echo "$4"
+}
+
 # same_proc <pid> <start>: the recorded process is still running.
 same_proc() { [ -n "$2" ] && [ "$(proc_start "$1")" = "$2" ]; }
 
@@ -55,8 +65,8 @@ session_pids() { ps -eo pid=,sid=,stat= | awk -v s="$1" '$2 == s && $3 !~ /^Z/ {
 # its leader is alive with the recorded start time. A session whose leader has
 # gone is never signalled: its id may by now belong to someone else's session
 # whose own leader has exited (a daemon's). A shard ends its own session's
-# leftovers before it exits (shard.sh); what a SIGKILLed shard leaves behind is
-# not ended by anyone here.
+# leftovers before it exits (end_own_session); what a SIGKILLed shard leaves
+# behind is not ended by anyone here.
 session_ours() { same_proc "$1" "$2"; }
 
 # snapshot <sid> [exclude pid]: "pid start" for every live member of the session
@@ -64,11 +74,14 @@ session_ours() { same_proc "$1" "$2"; }
 # has that start time: never by session id again, since a session can end and
 # its id pass to another process while we are still waiting on it.
 snapshot() {
-  local pid
+  local pid start
   for pid in $(session_pids "$1"); do
-    [ "$pid" = "${2:-}" ] && continue
-    echo "$pid $(proc_start "$pid")"
+    # Not the excluded pid, nor this very subshell (it is in the session too).
+    [ "$pid" = "${2:-}" ] || [ "$pid" = "$BASHPID" ] && continue
+    start=$(proc_start "$pid")
+    [ -n "$start" ] && echo "$pid $start"
   done
+  return 0
 }
 
 # end_snapshot <lines>: TERM each listed process that still matches, wait up to
@@ -87,38 +100,55 @@ end_snapshot() {
   return 0
 }
 
-# remove_run <run dir>: end every shard session it recorded that is still its
-# own (snapshot first, then TERM / KILL by the snapshot), stop its clusters,
-# delete it.
+# end_own_session: for a session leader on its way out (shard.sh's EXIT trap).
+# While the leader lives its session id cannot pass to anyone else, so it may
+# re-read its members: TERM them, round after round (a member may fork after a
+# snapshot), for up to 10 s, then KILL what is left, and return.
+end_own_session() {
+  local n list pid start
+  for n in $(seq 1 20); do
+    list=$(snapshot $$ $$)
+    [ -n "$list" ] || return 0
+    while read -r pid start; do same_proc "$pid" "$start" && kill -TERM "$pid" 2> /dev/null; done <<< "$list"
+    sleep 0.5
+  done
+  for n in 1 2 3 4 5; do
+    list=$(snapshot $$ $$)
+    [ -n "$list" ] || return 0
+    while read -r pid start; do same_proc "$pid" "$start" && kill -KILL "$pid" 2> /dev/null; done <<< "$list"
+    sleep 0.2
+  done
+  return 0
+}
+
+# remove_run <run dir> [more "pid start" lines]: end every shard session it
+# recorded that is still its own, and the extra processes listed. The members
+# (and each recorded leader itself) are snapshot first; then the clusters are
+# stopped, so nothing is left running if this is cut short; then the snapshot
+# gets TERM / KILL; then the directory goes.
 remove_run() {
-  local run=$1 f sid start list=""
+  local run=$1 f sid start list=${2:-}$'\n'
   for f in "$run"/c*/sid; do
     [ -f "$f" ] || continue
     read -r sid start < "$f" || continue
-    session_ours "$sid" "$start" && list+="$(snapshot "$sid")"$'\n'
+    session_ours "$sid" "$start" && list+="$sid $start"$'\n'"$(snapshot "$sid")"$'\n'
   done
-  end_snapshot "$(printf '%s' "$list" | sed '/^$/d')"
   for f in "$run"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
+  end_snapshot "$(printf '%s' "$list" | sed '/^$/d' | sort -u)"
   rm -rf "$run"
 }
 
 # boot_time: when this boot began, in seconds since the epoch (/proc/stat btime).
 boot_time() { awk '$1 == "btime" { print $2 }' /proc/stat; }
 
-# pidns_gone <ns>: no visible process is in that pid namespace any more.
-pidns_gone() {
-  local inode=${1#pid:[}
-  inode=${inode%]}
-  [ -n "$inode" ] && [ -z "$(find /proc -mindepth 3 -maxdepth 3 -path '/proc/[0-9]*/ns/pid' \
-    -lname "pid:?${inode}?" -print -quit 2> /dev/null)" ]
-}
-
 # sweep_dead_runs: remove this user's run directories whose run.sh is
 # certainly dead (SIGKILL leaves them behind). Without signalling anything, it
-# also deletes one made before this boot began, and one from a pid namespace
-# that no longer exists if it is over a day old. Anything it cannot judge is
+# also deletes one made before this boot began. Anything it cannot judge is
 # left alone and said so: another boot id but newer than this boot (another
-# kernel sharing the directory), another live or unknown pid namespace.
+# kernel sharing the directory), and any other pid namespace. Named limit: a
+# run SIGKILLed inside another pid namespace stays until removed by hand; whether
+# that namespace still lives cannot be told from here (other users' /proc ns
+# links are unreadable, so a live one looks gone).
 # Symlinks, other users' directories and incomplete owner records are skipped.
 sweep_dead_runs() {
   local old pid start ns boot made
@@ -137,12 +167,7 @@ sweep_dead_runs() {
       continue
     fi
     if [ "$ns" != "$(my_pidns)" ]; then
-      if [ "$made" -lt $(( $(date +%s) - 86400 )) ] && pidns_gone "$ns"; then
-        rm -rf "$old"
-        echo "[integration] removed the leftovers of a run from a pid namespace that is gone: $old"
-      else
-        echo "[integration] left alone: $old (other pid namespace)"
-      fi
+      echo "[integration] left alone: $old (other pid namespace)"
       continue
     fi
     owner_dead "$pid" "$start" || continue

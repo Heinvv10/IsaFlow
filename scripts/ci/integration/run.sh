@@ -64,15 +64,13 @@ write_owner "$WORK"
 SUITE_TMP="$WORK/tmp"
 mkdir "$SUITE_TMP"
 export SUITE_TMP
-# The schema-building step running now (bounded), then every shard session.
-# A second INT/TERM must not cut cleanup short of rm -rf: ignored from here on.
+# A second INT/TERM/HUP must not cut cleanup short of rm -rf: ignored from here
+# on. The schema-building step running now, if any, is ended with the shards.
 cleanup() {
-  local pid start
-  trap '' INT TERM
-  if [ -f "$WORK/step" ] && read -r pid start < "$WORK/step" && same_proc "$pid" "$start"; then
-    kill -TERM "$pid" 2> /dev/null || true
-  fi
-  remove_run "$WORK"
+  local step=""
+  trap '' INT TERM HUP
+  [ -f "$WORK/step" ] && step=$(cat "$WORK/step")
+  remove_run "$WORK" "$step"
 }
 trap cleanup EXIT
 # hold_signals / release_signals: around starting a background child and
@@ -81,11 +79,13 @@ trap cleanup EXIT
 # handler is reset to the default in it.)
 pending=""
 release_signals() {
+  trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
   [ -z "$pending" ] || exit "$pending"
 }
 hold_signals() {
+  trap 'pending=129' HUP
   trap 'pending=130' INT
   trap 'pending=143' TERM
 }
@@ -174,6 +174,8 @@ for i in $(seq 1 "$SHARDS"); do
   # and $! becomes the session leader (sid == pid). Were it ever to fork, the
   # session would not match and nothing would be signalled (the shard's own
   # timeout still bounds it).
+  # The child may not have called setsid() yet; record it once it has (2 s at most).
+  for n in $(seq 1 40); do [ "$(proc_sid "$!")" = "$!" ] && break; sleep 0.05; done
   echo "$! $(proc_start "$!")" > "$WORK/c$i/sid"
   PIDS+=("$!")
   release_signals
