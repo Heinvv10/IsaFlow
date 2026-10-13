@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 
 type Row = DbRow;
 
@@ -164,7 +165,9 @@ export async function closePeriod(companyId: string, id: string, userId: string)
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `) as Row[];
-    return mapRow(rows[0]!);
+    const closed = mapRow(rows[0]!);
+    scheduleAutoSnapshot('period_close', closed.endDate); // forensic step 4: after commit, never blocks the close
+    return closed;
   } catch (err) {
     log.error('Failed to close period', { id, error: err }, 'accounting');
     throw err;
@@ -181,7 +184,9 @@ export async function lockPeriod(companyId: string, id: string): Promise<FiscalP
     const rows = (await sql`
       UPDATE fiscal_periods SET status = 'locked' WHERE id = ${id} AND company_id = ${companyId} RETURNING *
     `) as Row[];
-    return mapRow(rows[0]!);
+    const locked = mapRow(rows[0]!);
+    scheduleAutoSnapshot('period_close', locked.endDate);
+    return locked;
   } catch (err) {
     log.error('Failed to lock period', { id, error: err }, 'accounting');
     throw err;
@@ -228,7 +233,9 @@ export async function closeYear(companyId: string, fiscalYear: number, userId: s
     `) as Row[];
 
     log.info('Fiscal year closed', { companyId, fiscalYear, updated: rows.length }, 'accounting');
-    return rows.map(mapRow);
+    const closed = rows.map(mapRow);
+    for (const p of closed) scheduleAutoSnapshot('year_close', p.endDate); // one snapshot, at the latest end date
+    return closed;
   } catch (err) {
     log.error('Failed to close fiscal year', { fiscalYear, error: err }, 'accounting');
     throw err;

@@ -56,6 +56,7 @@ import type {
   CloseYearDryRunResult, CloseYearError, CloseYearOptions, CloseYearResult,
 } from './yearEndCloseTypes';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { scheduleAutoSnapshot } from '@/modules/accounting/services/audit/autoSnapshotQueue';
 
 export async function closeFiscalYear(
   companyId: string,
@@ -225,6 +226,7 @@ export async function closeFiscalYear(
   log.info('Year-end processed', {
     year: yearLabel, entryId: closingEntry?.id ?? null, periodsLocked, netIncome, module: 'accounting',
   });
+  scheduleAutoSnapshot('year_close', fmtDate(yearRange.end_date)); // forensic step 4: after commit, never blocks the close
 
   return {
     closingEntry,
