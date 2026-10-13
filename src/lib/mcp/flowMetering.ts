@@ -408,6 +408,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   set_gl_account_reporting_attributes: null,
   set_customer_default_fno: null,
   set_bank_account_default_dimensions: null,
+  set_supplier_default_dimensions: null,
   // A split is a bank allocation, and bank allocation is free in the app.
   split_allocate_bank_transaction: null,
   // Dimension-only restatement of posted lines, and its undo: a remediation

@@ -146,10 +146,13 @@ export async function planUpdateBusinessUnit(companyId: string, ref: string, inp
   const after = { code, name, description, division, isActive: input.isActive ?? before.isActive };
   if (!after.isActive && before.isActive) {
     const [row] = (await sql`
-      SELECT COUNT(*) AS accounts FROM gl_accounts
-      WHERE default_bu_id = ${before.id}::UUID AND company_id = ${companyId}::UUID
+      SELECT
+        (SELECT COUNT(*) FROM gl_accounts
+          WHERE default_bu_id = ${before.id}::UUID AND company_id = ${companyId}::UUID) AS accounts,
+        (SELECT COUNT(*) FROM supplier_coding_rules
+          WHERE default_bu_id = ${before.id}::UUID AND company_id = ${companyId}::UUID) AS coding_rules
     `) as Record<string, unknown>[];
-    const defaults = countedParts(row, [['accounts', 'account(s)']]);
+    const defaults = countedParts(row, [['accounts', 'account(s)'], ['coding_rules', 'supplier coding rule(s)']]);
     if (defaults) throw new BusinessUnitActionError(`${before.code} is the default on ${defaults} — clear those defaults before deactivating it`);
   }
   const changed = [
@@ -209,8 +212,12 @@ export async function assertBusinessUnitUnused(companyId: string, id: string): P
       + (SELECT COUNT(*) FROM credit_notes cn
           WHERE cn.bu_id = ${id}::UUID AND cn.company_id = ${companyId}::UUID)
       ) AS documents,
-      (SELECT COUNT(*) FROM gl_accounts ga
-        WHERE ga.default_bu_id = ${id}::UUID AND ga.company_id = ${companyId}::UUID) AS defaults,
+      (
+        (SELECT COUNT(*) FROM gl_accounts ga
+          WHERE ga.default_bu_id = ${id}::UUID AND ga.company_id = ${companyId}::UUID)
+      + (SELECT COUNT(*) FROM supplier_coding_rules scr
+          WHERE scr.default_bu_id = ${id}::UUID AND scr.company_id = ${companyId}::UUID)
+      ) AS defaults,
       (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE tl.old_bu_id = ${id}::UUID AND tb.reversed_at IS NULL
