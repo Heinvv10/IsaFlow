@@ -1,7 +1,7 @@
 /**
- * Census for forensic-controls step 4 (migration 890) — every writer and entry
+ * Census for forensic-controls step 4 (migration 891) — every writer and entry
  * point pinned, so a new one fails here and has to be decided on:
- *  1. the six audit tables are written only by 890's two definers, called only
+ *  1. the six audit tables are written only by 891's two definers, called only
  *     from the snapshot and check-run services, and read only by snapshotRead;
  *  2. audit_trail_exports is written only where the pack flow writes it;
  *  3. every statement that closes or locks a fiscal period, a year or a VAT
@@ -35,7 +35,7 @@ beforeAll(() => { code(); }, 120_000);
 const AUDIT_TABLE = /\baudit_(?:snapshots|snapshot_tb|snapshot_journals|snapshot_lines|check_runs|check_results)\b/;
 
 describe('the audit tables', () => {
-  it('only the audit readers name them outside 890 (the writers are definers); the MCP tool shares one name', () => {
+  it('only the audit readers name them outside 891 (the writers are definers); the MCP tool shares one name', () => {
     // snapshotRead: every read (the chain's links included); snapshotAttempts: the 'unchanged' twin; packVerify: the
     // cited snapshot's taken_at for the ZIP seal.
     expect(filesMatching(AUDIT_TABLE)).toEqual([
