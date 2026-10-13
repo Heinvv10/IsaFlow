@@ -1,4 +1,4 @@
--- 891_supplier_credit_note_expense_accounts.sql
+-- 892_supplier_credit_note_expense_accounts.sql
 -- A SUPPLIER credit note reverses the bill it is linked to, on the bill's own accounts (Hein,
 -- 2026-10-13). Until now approveCreditNote credited every supplier note's net to default_expense
 -- (5100), whatever the bill had debited: Velocity Fibre re-pointed R8.54m of such credits off 5100

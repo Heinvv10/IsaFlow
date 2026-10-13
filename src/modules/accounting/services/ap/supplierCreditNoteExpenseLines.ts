@@ -1,11 +1,11 @@
 /**
- * The expense credit of a SUPPLIER credit note (migration 891) — the mirror of
+ * The expense credit of a SUPPLIER credit note (migration 892) — the mirror of
  * a customer note's revenue debit (ar/invoiceRevenuePosting
  * `creditNoteRevenueJournalLines`), sharing its pure allocator
  * (ar/invoiceRevenueLines `allocateCreditNote`, side 'credit').
  *
  * `approveCreditNote` makes ONE call here and keeps its AP debit (total) and
- * single VAT credit (tax) as they were. Before 891 it credited the whole net
+ * single VAT credit (tax) as they were. Before 892 it credited the whole net
  * to default_expense, whatever the bill had debited (Velocity Fibre re-pointed
  * R8.54m off 5100 by journal on 13 Oct 2026).
  *
@@ -17,7 +17,7 @@
  *     on the leg's account, job, CC1, CC2 and BU. Each leg is capped at what it
  *     still carries: its net less what the live (approved, not cancelled)
  *     earlier notes on the bill took, as `credit_note_expense_allocations`
- *     records it; notes approved before 891 recorded nothing and are REPLAYED
+ *     records it; notes approved before 892 recorded nothing and are REPLAYED
  *     in approval order. A leg whose account was deactivated since is credited
  *     on the fallback account, keeping its tags.
  *  2. What no leg can take (no bill, a bill with no journal, a bill already
@@ -45,7 +45,7 @@ export interface SupplierCreditNotePosting {
   /** The note's net (subtotal). */
   amount: number;
   supplierInvoiceId: string | null;
-  /** The note's own account (891), or null. */
+  /** The note's own account (892), or null. */
   glAccountId: string | null;
   /** Header CC1 / CC2 / BU — posted on an unlinked note only. */
   tags: LegTags;
@@ -126,7 +126,7 @@ export async function creditNoteExpenseJournalLines(
       AND NOT a.is_excess AND cn.status NOT IN ('draft', 'cancelled') AND cn.id <> ${note.id}::UUID
     GROUP BY a.journal_line_id
   `) as { journal_line_id: string; amount: number | string }[];
-  // Live earlier notes on this bill that recorded nothing: approved before 891 — replayed.
+  // Live earlier notes on this bill that recorded nothing: approved before 892 — replayed.
   const legacy = (await sql`
     SELECT cn.subtotal FROM credit_notes cn
     WHERE cn.company_id = ${companyId}::UUID AND cn.supplier_invoice_id = ${note.supplierInvoiceId}::UUID

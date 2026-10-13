@@ -40,6 +40,11 @@ vi.mock('@/modules/accounting/services/shared/documentCurrency', async (importOr
   ...(await importOriginal<typeof import('@/modules/accounting/services/shared/documentCurrency')>()),
   resolveDocumentCurrency: async () => ({ currencyCode: 'ZAR', exchangeRate: 1 }),
 }));
+// The dimension pre-check ahead of the number reservation reads the supplier's defaults; it is pinned by
+// tests/integration/supplier-default-dimensions.int.test.ts. Stubbed here: this file is about the line whitelist.
+vi.mock('@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults', () => ({
+  resolveBillLineDimensions: vi.fn(async (_companyId: string, _supplierId: string, lines: unknown[]) => [...lines]),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceStatusCounts: vi.fn(),

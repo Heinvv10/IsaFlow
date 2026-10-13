@@ -38,6 +38,8 @@ export interface ListEntityChangesOptions {
   entityId?: string;
   /** Only changes older than this change id (the previous page's nextCursor). */
   before?: string;
+  /** Only changes recorded after this instant (an audit snapshot's taken_at). */
+  since?: string;
   limit?: number;
 }
 
@@ -102,7 +104,8 @@ export function toView(row: EntityChangeRow, reveal = false): EntityChangeView {
  * members (approval_company_member_name); a script's 'db:<role>' has none.
  */
 export async function selectEntityChanges(companyId: string, opts: {
-  types: readonly EntityType[]; entityType?: EntityType; entityId?: string; before?: string; changeId?: string; limit: number;
+  types: readonly EntityType[]; entityType?: EntityType; entityId?: string; before?: string; changeId?: string; since?: string;
+  limit: number;
 }): Promise<EntityChangeRow[]> {
   return (await sql`
     SELECT ec.id, ec.entity_type, ec.entity_id, ec.op, ec.changed, ec.before, ec.after,
@@ -118,6 +121,7 @@ export async function selectEntityChanges(companyId: string, opts: {
       AND (${opts.entityType ?? null}::TEXT IS NULL OR ec.entity_type = ${opts.entityType ?? null}::TEXT)
       AND (${opts.entityId ?? null}::UUID IS NULL OR ec.entity_id = ${opts.entityId ?? null}::UUID)
       AND (${opts.changeId ?? null}::UUID IS NULL OR ec.id = ${opts.changeId ?? null}::UUID)
+      AND (${opts.since ?? null}::TIMESTAMPTZ IS NULL OR ec.recorded_at > ${opts.since ?? null}::TIMESTAMPTZ)
       AND (${opts.before ?? null}::UUID IS NULL OR (ec.recorded_at, ec.id) < (
         SELECT b.recorded_at, b.id FROM entity_changes b WHERE b.id = ${opts.before ?? null}::UUID AND b.company_id = ${companyId}::UUID))
     ORDER BY ec.recorded_at DESC, ec.id DESC

@@ -1,7 +1,8 @@
 /**
  * /api/accounting/audit-exports/[id]/sessions
- *   GET  — list portal sessions issued for this export
- *   POST — mint a new session (returns access token exactly once)
+ *   GET  — list portal sessions issued for this export (owner / admin / manager)
+ *   POST — mint a new session (returns access token exactly once); owner / admin — the link hands an outsider the
+ *          pack, which carries the snapshot's ledger rows (forensic step 4)
  */
 
 import type { NextApiResponse } from 'next';
@@ -14,6 +15,7 @@ import {
   createPortalSession,
   getExport,
 } from '@/modules/accounting/services/capture/auditTrailExportService';
+import { mayReadAudit, mayTakeAudit } from '@/modules/accounting/services/audit/auditAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,11 +30,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!id || !UUID_RE.test(id)) return apiResponse.notFound(res, 'Audit export', id);
 
   if (req.method === 'GET') {
+    if (!mayReadAudit(req.companyRole)) return apiResponse.forbidden(res, 'Only an owner, admin or manager can see auditor sessions.');
     const sessions = await listPortalSessions(id, companyId);
     return apiResponse.success(res, { sessions, total: sessions.length });
   }
 
   if (req.method === 'POST') {
+    if (!mayTakeAudit(req.companyRole)) return apiResponse.forbidden(res, 'Only an owner or admin can invite an auditor.');
     const body = (req.body ?? {}) as CreateBody;
     if (!body.auditorEmail) return apiResponse.badRequest(res, 'auditorEmail is required');
 

@@ -27,8 +27,9 @@ export async function dropRouteUser(fx: Fixture): Promise<void> {
 export async function callRoute(
   fx: Fixture, token: string, handler: Handler, body: Record<string, unknown>,
   query: Record<string, string> = {},
+  method = 'POST',
 ): Promise<{ statusCode: number; body: unknown }> {
-  const req = request({ 'sb-access-token': token, active_company_id: fx.companyId }, 'POST') as never as
+  const req = request({ 'sb-access-token': token, active_company_id: fx.companyId }, method) as never as
     { body: unknown; query: Record<string, string>; url: string };
   req.body = body;
   req.query = query;

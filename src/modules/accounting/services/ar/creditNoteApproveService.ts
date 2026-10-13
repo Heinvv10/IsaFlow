@@ -69,7 +69,7 @@ export async function approveCreditNote(
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
     // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
-    // A supplier note's bill takes the same key (891): two notes on one bill must not take one leg twice.
+    // A supplier note's bill takes the same key (892): two notes on one bill must not take one leg twice.
     const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
     if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
@@ -78,7 +78,7 @@ export async function approveCreditNote(
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
     const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
-    // A supplier note's CC1 / CC2 / BU: refused on a note linked to a bill (891), posted on an unlinked one.
+    // A supplier note's CC1 / CC2 / BU: refused on a note linked to a bill (892), posted on an unlinked one.
     const supplierTags = String(cn.type) === 'supplier' ? assertSupplierNoteHeaderTags({
       supplierInvoiceId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null,
       cc1Id: cn.cc1_id ? String(cn.cc1_id) : null, cc2Id: cn.cc2_id ? String(cn.cc2_id) : null,
@@ -125,7 +125,7 @@ export async function approveCreditNote(
       lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
         description: `AR credit: ${cn.credit_note_number}` });
     } else {
-      // Supplier CN: DR Accounts Payable, CR VAT Input, CR the bill's own expense legs (891)
+      // Supplier CN: DR Accounts Payable, CR VAT Input, CR the bill's own expense legs (892)
       const apAccount = await getSystemAccount('payable', companyId);
       const expenseAccount = await getSystemAccount('default_expense', companyId);
       const vatAccount = await getSystemAccount('vat_input', companyId);
@@ -244,4 +244,3 @@ export async function approveCreditNote(
     throw err;
   }
 }
-

@@ -75,6 +75,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   audit_trail: null,
   // Who changed which master record: the same control surface.
   entity_history: null,
+  // Sealed audit snapshots and what changed behind them (forensic step 4): the same control surface.
+  audit_snapshots: null,
+  compare_audit_snapshot: null,
   // Reading what evidence exists — and what has none — is a review surface too.
   list_documents: null,
   get_document: null,
@@ -386,6 +389,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   mark_vat_declared_elsewhere: null,
   // Posts nothing to the ledger — links/unlinks evidence, same reasoning.
   link_document_to_journal: null,
+  // Posts nothing — an append-only freeze of the books an auditor relies on; a period close takes one free anyway.
+  take_audit_snapshot: null,
 
   // ── CC1 / CC2 / BU dimensions ─────────────────────────────────────────────
   // Reads are free, like every read.
@@ -403,6 +408,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   set_gl_account_reporting_attributes: null,
   set_customer_default_fno: null,
   set_bank_account_default_dimensions: null,
+  set_supplier_default_dimensions: null,
   // A split is a bank allocation, and bank allocation is free in the app.
   split_allocate_bank_transaction: null,
   // Dimension-only restatement of posted lines, and its undo: a remediation
