@@ -29,7 +29,8 @@ source scripts/ci/integration/pg-cluster.sh
 # out, while this leader is still alive and the session is surely its own, the
 # shard ends whatever is left in it (a suite's forgotten child, say), then drops
 # the record so nothing ever signals by it afterwards.
-trap 'end_own_session; rm -f "$dir/sid"' EXIT
+# A signal arriving meanwhile must not cut that short: ignored inside the trap.
+trap 'trap "" INT TERM HUP; end_own_session; rm -f "$dir/sid"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
