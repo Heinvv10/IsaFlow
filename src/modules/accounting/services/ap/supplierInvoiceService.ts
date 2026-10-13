@@ -27,9 +27,7 @@ import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaul
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBillLineAccounts } from './billLineAccountGuard';
 import { resolveDocumentCurrency } from '../shared/documentCurrency';
-import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
-import { applySupplierDefaultDimensions, loadSupplierDefaultDimensions } from '../gl/dimensions/supplierDimensionDefaults';
-import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
+import { resolveBillLineDimensions } from '../gl/dimensions/supplierDimensionDefaults';
 import {
   assertSupplierInvoiceLines,
   computeSupplierInvoiceTotals,
@@ -101,13 +99,9 @@ export async function createSupplierInvoice(
     const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
     const { items: totalledItems, subtotal, totalTax, totalAmount } =
       computeSupplierInvoiceTotals(input.items, invoiceTaxRate, trustSourceTax);
-    // The supplier's default CC1/CC2/BU (migration 890) fill what a line leaves open; the line's own win.
-    const defaulted = applySupplierDefaultDimensions(
-      totalledItems, await loadSupplierDefaultDimensions(companyId, input.supplierId), input.costCenterId,
-    );
-    // CC1 derived from each line's CC2, a conflicting CC1 refused — before any write (no query without a CC2).
-    const computedItems = await deriveLineDimensions(companyId, defaulted);
-    await assertDocumentDimensions(companyId, computedItems); // tenant + slot + active; no query when none named
+    // The supplier's default CC1/CC2/BU (migration 890) fill what a line leaves open (the line's own win); CC1 is
+    // derived from each CC2, a conflicting CC1 refused — before any write (no dimension query when none is named).
+    const computedItems = await resolveBillLineDimensions(companyId, input.supplierId, totalledItems, input.costCenterId);
 
     const dueDate = input.dueDate || calculateDueDate(input.invoiceDate, input.paymentTerms);
 
