@@ -173,6 +173,8 @@ export async function countCc2Carriers(companyId: string, ids: string[]): Promis
         WHERE cn.cc2_id = ANY(${ids}::UUID[]) AND cn.company_id = ${companyId}::UUID)
     + (SELECT COUNT(*) FROM gl_accounts ga
         WHERE ga.default_cc2_id = ANY(${ids}::UUID[]) AND ga.company_id = ${companyId}::UUID)
+    + (SELECT COUNT(*) FROM supplier_coding_rules scr
+        WHERE scr.default_cc2_id = ANY(${ids}::UUID[]) AND scr.company_id = ${companyId}::UUID)
     + (SELECT COUNT(*) FROM dimension_tag_batch_lines tl
         JOIN dimension_tag_batches tb ON tb.id = tl.batch_id
         WHERE tl.old_cc2_id = ANY(${ids}::UUID[]) AND tb.reversed_at IS NULL

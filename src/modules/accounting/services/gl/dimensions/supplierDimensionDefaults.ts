@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { assertSupplierInCompany } from '../../core/contactDirectoryService';
 import { resolveDimensionRefs } from './dimensionRefResolver';
 import { deriveLineDimensions } from './dimensionDerivation';
+import { assertDocumentDimensions } from './dimensionPolicy';
 import type { DimensionIds, DimensionRefs } from './dimensionTypes';
 
 const nonEmpty = (v: string | null | undefined): string | undefined =>
@@ -62,6 +63,22 @@ export function applySupplierDefaultDimensions<T extends BillLine>(
   });
 }
 
+/**
+ * The dimension half of creating a bill, reads only: the supplier's defaults, CC1 derived from CC2 (a
+ * conflicting CC1 refused), then tenant / slot / active. createSupplierInvoice runs it before its first write;
+ * the REST route runs it too, ahead of the bill-number reservation (a 400 there commits the consumed number).
+ */
+export async function resolveBillLineDimensions<T extends BillLine>(
+  companyId: string, supplierId: string, lines: readonly T[], billCostCenterId?: string,
+): Promise<T[]> {
+  const defaulted = applySupplierDefaultDimensions(
+    lines, await loadSupplierDefaultDimensions(companyId, supplierId), billCostCenterId,
+  );
+  const derived = await deriveLineDimensions(companyId, defaulted);
+  await assertDocumentDimensions(companyId, derived); // no query when none named
+  return derived;
+}
+
 /** `refs[kind] === null` clears that default; undefined leaves it unchanged. */
 export type SupplierDefaultRefs = { [K in keyof DimensionRefs]?: string | null };
 
@@ -98,8 +115,17 @@ export async function planSupplierDefaults(
   const pick = (kind: 'cc1' | 'cc2' | 'bu', key: keyof DimensionIds): string | undefined =>
     refs[kind] === null ? undefined : refs[kind] === undefined ? previous[key] : resolved?.[key];
   const next: DimensionIds = { cc1Id: pick('cc1', 'cc1Id'), cc2Id: pick('cc2', 'cc2Id'), buId: pick('bu', 'buId') };
-  // A default CC1 that contradicts the default project's FNO would be refused on every bill.
-  await deriveLineDimensions(companyId, [next], () => 'defaults');
+  // What a bill would take: a held default whose master has been deactivated is not applied (see load), so it
+  // is judged only when this call sets it. A default CC1 contradicting the project's FNO, or a project whose
+  // derived FNO is inactive, would be refused on every bill.
+  const held = await loadSupplierDefaultDimensions(companyId, supplierId);
+  const effective: DimensionIds = {
+    cc1Id: refs.cc1 === undefined ? held.cc1Id : next.cc1Id,
+    cc2Id: refs.cc2 === undefined ? held.cc2Id : next.cc2Id,
+    buId: refs.bu === undefined ? held.buId : next.buId,
+  };
+  const derived = await deriveLineDimensions(companyId, [effective], () => 'defaults');
+  await assertDocumentDimensions(companyId, derived);
   return { supplierId, next, previous };
 }
 
