@@ -31,7 +31,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
-  sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
+  sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [], warnings: [] }),
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
   relinkTransferCounterparts: vi.fn().mockResolvedValue({ linked: 0, passes: 0, failed: false }),

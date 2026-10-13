@@ -174,7 +174,7 @@ describe('sweep', () => {
   it('early-outs with no run row when disabled', async () => {
     routeSql([{ match: /FROM bank_auto_post_settings/, rows: [] }]); // no row → disabled
     const r = await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1');
-    expect(r).toEqual({ runId: null, posted: 0, skipped: [] });
+    expect(r).toEqual({ runId: null, posted: 0, skipped: [], warnings: [] });
     expect(sqlMock).toHaveBeenCalledTimes(1);
   });
 
@@ -296,7 +296,7 @@ describe('sweep', () => {
 
     const r = await sweep('co-1', ['t1'], 'categorization', 'u-1');
 
-    expect(r).toEqual({ runId: null, posted: 0, skipped: [{ txId: 't1', reason: 'feed_state pending' }], vatDenied: 0, nonSupplyCoerced: 0 });
+    expect(r).toEqual({ runId: null, posted: 0, skipped: [{ txId: 't1', reason: 'feed_state pending' }], vatDenied: 0, nonSupplyCoerced: 0, warnings: [] });
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(postProvisional).not.toHaveBeenCalled();
   });
