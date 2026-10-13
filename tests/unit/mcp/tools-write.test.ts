@@ -749,6 +749,7 @@ describe('write-tool manifest invariants', () => {
       set_gl_account_reporting_attributes: { ...KEY },
       set_customer_default_fno: { ...KEY },
       set_bank_account_default_dimensions: { ...KEY },
+      set_supplier_default_dimensions: { ...KEY },
       split_allocate_bank_transaction: { ...KEY },
       tag_journal_lines: { ...KEY },
       reverse_dimension_tag_batch: { ...KEY },

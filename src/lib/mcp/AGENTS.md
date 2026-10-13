@@ -196,6 +196,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
 
 
 ## Recent changes
+- 2026-10-12: **Transport refusals echo the request id** (`transportRefusals.ts`): connector-off, per-company rate limit (carries `limitPerMinute` / `windowSeconds` in `error.data`) and per-IP throttle answer with the single request's id, not `null` (a null-id reply to an id-bearing request shows as a "malformed result" in MCP clients, hiding the message); a batch keeps null. `appOrigin` / `serverIcons` moved to `clientMetadata.ts` so `pages/api/mcp/index.ts` stays under 300 lines.
 - 2026-10-12: **Bank rows mirror the journal's dimensions (migration 889), 1 tool (159 = 75 read + 84 write).** The Banking screen shows `bank_transactions.cc1_id/cc2_id/bu_id`, but tagging writes the posted journal lines, so allocated rows showed blank columns over tagged books. `tag_journal_lines` now writes through: the bank row allocated to each journal it touched MIRRORS that journal's CC1/CC2/BU when its dimension lines (every line but the bank leg that is not on a control account) agree on ONE set, NULLs included (a journal whose tags were all cleared clears the row; a split or partial tagging is left alone) — `bank_rows_synced`. **`sync_bank_dimensions`** (`writeBankDimensionSync.ts`; write, `write:journals`, free, not requiresPost — it writes no journal line; its undo `reverse_dimension_tag_batch` IS requiresPost, so undoing a sync needs `write:post`) back-fills a required `date_from`/`date_to` window, at most 2000 rows a run. **A journal tagged CC1-only BLANKS the row's CC2/BU (intended): dry run returns `would_blank`, every row where a held value would become NULL, with its `blanks`.** Every bank row changed is recorded with old and new values in `dimension_tag_batch_bank_rows`; `reverse_dimension_tag_batch` restores lines AND bank rows (`would_restore_bank_rows` / `bank_rows_restored`), and refuses when a bank row was re-tagged since. An idempotency key that names a batch of the other kind, or a sync of another window, is refused (`BANK_DIMENSION_SYNC_REFUSED`). Service: `gl/dimensions/dimensionBankSync.ts`.
 - 2026-10-10: **`entity_history`** (read, `read:reports`, free): who changed which supplier, customer, GL / bank account, employee, member or company setting, from what to what — the history migration 888's trigger records whoever writes. Always masked (no reveal over MCP); without `entity_id` it is the company-wide feed, owner / admin only; employees need `read:payroll` and suppliers / customers `read:contacts` too (as their list tools), the feed filtered to such a type included (security review; breaker #696 R5); the cursor is a change id, never the global `seq`. `audit_trail`'s DOES NOT COVER now points here. 75 read tools (158 = 75 read + 83 write, with `export_gl_lines` from the 2026-10-09 entry below).
 
@@ -250,8 +251,12 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON; bounded like ha
   `companies.require_project_on_cos`). Dimensions on a supplier/customer allocation are refused
   (a settlement carries none). New: `list_cost_centres`, `list_business_units` (reads);
   `create_cost_centre`, `create_business_unit`, `set_gl_account_reporting_attributes`,
-  `set_customer_default_fno`, `set_bank_account_default_dimensions` (master data, free, not
-  requiresPost); `split_allocate_bank_transaction`, `tag_journal_lines`,
+  `set_customer_default_fno`, `set_bank_account_default_dimensions`, `set_supplier_default_dimensions`
+  (master data, free, not requiresPost; the last takes `supplier_id` (UUID) and `cc1` / `cc2` / `bu`, each a
+  code, UUID or alias to set, null to clear, omitted to keep; scope `write:contacts`; a rule it creates has no
+  GL account, so it never auto-publishes; `create_supplier_invoice` and `bulk_create_supplier_invoices` then
+  default an open line's CC2 / CC1 / BU from it, and their `dimension_warnings` / cost-of-sales refusal judge
+  the defaulted lines; `update_supplier_invoice` applies no supplier default); `split_allocate_bank_transaction`, `tag_journal_lines`,
   `reverse_dimension_tag_batch` (requiresPost — a split posts; tagging rewrites POSTED lines'
   dimensions, never amounts). `tag_journal_lines` refuses ANY key that is not a dimension, at the
   top level and per line, because the transport does not enforce `additionalProperties`. The split

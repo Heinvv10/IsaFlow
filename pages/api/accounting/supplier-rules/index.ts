@@ -12,7 +12,12 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import { listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
+import { getRule, listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
+import { AutoPublishNeedsAccountError } from '@/modules/accounting/services/capture/supplierRuleErrors';
+import {
+  applySupplierDefaultsPlan, planSupplierDefaults, supplierDefaultRefsFromBody,
+} from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
+import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 
 // `strict()` — every field the UI in
@@ -27,6 +32,9 @@ const UpsertSupplierRuleSchema = z.object({
   defaultVatCode: z.string().max(20).nullable().optional(),
   defaultCostCentreId: UUID.nullable().optional(),
   defaultProjectId: UUID.nullable().optional(),
+  defaultCc1Id: UUID.nullable().optional(),
+  defaultCc2Id: UUID.nullable().optional(),
+  defaultBuId: UUID.nullable().optional(),
   autoPublish: z.boolean().optional(),
   autoPublishMaxAmount: z.number().nullable().optional(),
   autoPublishMinConfidence: z.number().min(0).max(1).optional(),
@@ -54,14 +62,23 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         parsed.error.flatten().fieldErrors as Record<string, string | string[]>,
       );
     }
-    const { supplierId, ...patch } = parsed.data;
+    const { supplierId, defaultCc1Id, defaultCc2Id, defaultBuId, ...patch } = parsed.data;
+    const dimRefs = supplierDefaultRefsFromBody({ defaultCc1Id, defaultCc2Id, defaultBuId });
 
     let rule;
     try {
+      // Every dimension refusal comes from reads, before the upsert writes anything.
+      const dimPlan = dimRefs ? await planSupplierDefaults(companyId, supplierId, dimRefs) : null;
       rule = await upsertRule(companyId, supplierId, patch, userId);
+      if (dimPlan) {
+        await applySupplierDefaultsPlan(companyId, dimPlan, userId || null);
+        rule = await getRule(companyId, supplierId);
+      }
     } catch (err) {
       // R-068: refused before the upsert, so nothing has been written.
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
+      if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
+      if (err instanceof AutoPublishNeedsAccountError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
     log.info('Supplier rule upserted via API', { companyId, supplierId }, 'supplier-rules-api');

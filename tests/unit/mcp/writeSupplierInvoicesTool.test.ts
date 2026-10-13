@@ -17,6 +17,12 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The supplier's default CC/BU (migration 890) are read from the database; this file does not, so the supplier
+// has none. Their effect on the cost-of-sales check is pinned by tests/integration/supplier-default-dimensions-checks.int.test.ts.
+vi.mock('@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults', () => ({
+  loadSupplierDefaultDimensions: vi.fn(async () => ({})),
+  applySupplierDefaultDimensions: vi.fn((lines: unknown[]) => [...lines]),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));

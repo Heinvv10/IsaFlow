@@ -1,12 +1,18 @@
 /**
  * BillLineItemsTable — editable line-item grid for supplier bill creation.
+ * Behind "Dimensions", each line may name its CC2 project and BU (migration
+ * 870); the CC1 is derived from the CC2, never picked. The pickers are the
+ * customer invoice table's, offering the same active masters.
  */
 import {
   NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, classifyNonSupplyAccount,
   type NonSupplyReason,
 } from '@/modules/accounting/services/gl/nonSupplyAccounts';
-import { Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Tags, Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { CodingPicker } from '@/components/accounting/customer-invoices/InvoiceLineItemsTable';
+import type { InvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
 
 const inp =
   'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ' +
@@ -20,6 +26,9 @@ export interface BillLineItem {
   unitPrice: number;
   taxRate: number;
   glAccountId: string;
+  /** Migration 870's CC2 project and BU ('' = none); the CC1 is derived from the CC2 or the supplier's default. */
+  cc2Id?: string;
+  buId?: string;
 }
 
 export interface GLAccount {
@@ -69,9 +78,17 @@ interface Props {
   onAdd: () => void;
   onUpdate: (key: string, field: keyof BillLineItem, value: string | number) => void;
   onRemove: (key: string) => void;
+  /** CC2 / BU picker options; without them the Dimensions toggle is not offered. */
+  codingOptions?: InvoiceLineCodingOptions;
+  /** The supplier's pre-filled CC2 / BU (migration 890) and what the server applies on save; see useSupplierDimensionDefaults. */
+  supplierDefaults?: { cc2Id: string; buId: string; note: string };
 }
 
-export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove }: Props) {
+export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemove, codingOptions, supplierDefaults }: Props) {
+  const [dimensionsToggled, setDimensionsToggled] = useState<boolean | null>(null);
+  // Open by default once a line carries a dimension (a supplier default), so the user sees what will post.
+  const showDimensions = codingOptions !== undefined
+    && (dimensionsToggled ?? lines.some(l => Boolean(l.cc2Id) || Boolean(l.buId)));
   return (
     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -81,6 +98,18 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
           </span>
           Line Items
         </h3>
+        <div className="flex items-center gap-2">
+        {codingOptions && (
+          <button
+            type="button"
+            aria-expanded={showDimensions}
+            onClick={() => setDimensionsToggled(!showDimensions)}
+            className={`inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${showDimensions ? 'border-teal-400/60 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20' : 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-amber-400/50 hover:text-amber-500'}`}
+          >
+            <Tags className="h-3 w-3" />
+            {showDimensions ? 'Hide Dimensions' : 'Dimensions'}
+          </button>
+        )}
         <button
           type="button"
           onClick={onAdd}
@@ -89,7 +118,17 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
           <Plus className="h-3 w-3" />
           Add Line
         </button>
+        </div>
       </div>
+      {supplierDefaults?.note && (
+        <p className="px-5 pt-3 text-xs text-slate-500 dark:text-slate-400">{supplierDefaults.note}</p>
+      )}
+      {showDimensions && codingOptions?.error && (
+        <p className="px-5 pt-3 text-xs text-red-600 dark:text-red-400">
+          {codingOptions.error}{' '}
+          <button type="button" onClick={codingOptions.retry} className="underline font-medium">Retry</button>
+        </p>
+      )}
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden mx-5 my-4">
         <table className="w-full text-sm">
@@ -101,6 +140,16 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
               <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-36">
                 GL Account
               </th>
+              {showDimensions && (
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-36">
+                  CC2 project
+                </th>
+              )}
+              {showDimensions && (
+                <th className="px-3 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 w-32">
+                  BU
+                </th>
+              )}
               <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 dark:text-slate-400 w-20">
                 Qty
               </th>
@@ -151,6 +200,18 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                     </span>
                   )}
                 </td>
+                {showDimensions && codingOptions && (
+                  <td className="px-3 py-2">
+                    <CodingPicker label="CC2 project" value={line.cc2Id ?? ''} options={codingOptions.cc2s} all={codingOptions}
+                      empty={supplierDefaults?.cc2Id ? 'Supplier default' : 'No CC2 project'} onChange={v => onUpdate(line.key, 'cc2Id', v)} />
+                  </td>
+                )}
+                {showDimensions && codingOptions && (
+                  <td className="px-3 py-2">
+                    <CodingPicker label="BU" value={line.buId ?? ''} options={codingOptions.bus} all={codingOptions}
+                      empty={supplierDefaults?.buId ? 'Supplier default' : 'No BU'} onChange={v => onUpdate(line.key, 'buId', v)} />
+                  </td>
+                )}
                 <td className="px-3 py-2">
                   <input
                     type="number"
