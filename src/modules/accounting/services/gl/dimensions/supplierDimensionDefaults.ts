@@ -115,9 +115,11 @@ export async function planSupplierDefaults(
   const pick = (kind: 'cc1' | 'cc2' | 'bu', key: keyof DimensionIds): string | undefined =>
     refs[kind] === null ? undefined : refs[kind] === undefined ? previous[key] : resolved?.[key];
   const next: DimensionIds = { cc1Id: pick('cc1', 'cc1Id'), cc2Id: pick('cc2', 'cc2Id'), buId: pick('bu', 'buId') };
-  // What a bill would take: a held default whose master has been deactivated is not applied (see load), so it
-  // is judged only when this call sets it. A default CC1 contradicting the project's FNO, or a project whose
-  // derived FNO is inactive, would be refused on every bill.
+  // What a bill would take: the defaults a bill would APPLY after this call. A held default whose own master is
+  // inactive is dropped (the load skips it), so it is not judged. A held default whose master is active stays in
+  // the set and IS judged even when this call sets another field: a held project whose derived FNO is inactive
+  // refuses a BU-only edit, because every bill would be refused (send that default too, or null, to repair it).
+  // A default CC1 contradicting the project's FNO is refused the same way.
   const held = await loadSupplierDefaultDimensions(companyId, supplierId);
   const effective: DimensionIds = {
     cc1Id: refs.cc1 === undefined ? held.cc1Id : next.cc1Id,
