@@ -9,6 +9,7 @@ import {
 } from './dimensionMasterEditTools';
 import {
   setBankAccountDefaultDimensionsTool, setCustomerDefaultFnoTool, setGlAccountReportingAttributesTool,
+  setSupplierDefaultDimensionsTool,
 } from './dimensionDefaultsTools';
 import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
 import { syncBankDimensionsTool } from './writeBankDimensionSync';
@@ -26,6 +27,7 @@ export const DIMENSION_WRITE_TOOLS = [
   setGlAccountReportingAttributesTool,
   setCustomerDefaultFnoTool,
   setBankAccountDefaultDimensionsTool,
+  setSupplierDefaultDimensionsTool,
   // Post (requiresPost): a split posts a journal; tagging rewrites posted lines' dimensions in place.
   splitAllocateBankTransactionTool,
   tagJournalLinesTool,

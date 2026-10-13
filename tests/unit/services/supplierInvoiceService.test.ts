@@ -46,6 +46,11 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 vi.mock('@/modules/accounting/services/ap/billLineAccountGuard', () => ({
   assertBillLineAccounts: vi.fn(async () => undefined),
 }));
+// Same for the supplier's default CC/BU read (migration 890): no defaults, lines
+// pass through; the precedence is pinned by tests/unit/services/ap/supplierDimensionDefaults.test.ts.
+vi.mock('@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults', () => ({
+  resolveBillLineDimensions: vi.fn(async (_companyId: string, _supplierId: string, lines: unknown[]) => [...lines]),
+}));
 
 vi.mock('@/modules/accounting/services/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
