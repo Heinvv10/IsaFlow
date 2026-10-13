@@ -1,4 +1,5 @@
 // D2 census group 4 (a): a failed load/action shows the server's message (400) or a plain sentence (empty 500), never a blank view or raw JSON.
+import { chartAccount } from '../helpers/chartAccount';
 import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -102,7 +103,7 @@ describe('Expense claim GL account list', () => {
     open(empty500); expect(await screen.findByText('Could not load GL accounts - try again')).toBeTruthy(); noRawJson();
   });
   it('offers the accounts when posting on success', async () => {
-    open(() => okRes({ accounts: [{ id: 'a1', code: '2300', name: 'D2 Reimbursements' }] }));
+    open(() => okRes([chartAccount('a1', '2300', 'D2 Reimbursements', { accountType: 'liability' })]));
     fireEvent.click(await screen.findByText('Post to GL'));
     expect((await screen.findAllByRole('option', { name: '2300 — D2 Reimbursements' })).length).toBeGreaterThan(0);
   });

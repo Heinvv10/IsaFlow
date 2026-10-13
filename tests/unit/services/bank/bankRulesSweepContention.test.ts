@@ -57,6 +57,7 @@ import { PaymentLockTimeoutError } from '@/modules/accounting/services/core/paym
 import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
 import { VatPeriodLockedError } from '@/modules/accounting/services/gl/journalVatLockGuard';
+import { HeaderAccountRefusal } from '@/modules/accounting/services/gl/headerAccountGuard';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 const BANK_GL = '22222222-2222-2222-2222-222222222222';
@@ -119,6 +120,23 @@ describe('applyRules — a line dated in a locked (filed) VAT period is a skip, 
     const result = await applyRules(COMPANY, BANK_GL, USER);
 
     expect(result.autoPostSkippedVatLocked).toBe(1);
+    expect(result.applied).toBe(1);
+    expect(autoPostMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('applyRules — a rule whose account is a balance-sheet header is a skip, not a failure', () => {
+  // createJournalEntry refuses the line before its draft exists (gl/headerAccountGuard), inside the
+  // line's savepoint; re-throwing it aborted the run on every sweep and the route's 400 committed the
+  // lines already posted.
+  it('counts it as autoPostSkippedHeaderAccount and still posts the next candidate', async () => {
+    autoPostMock
+      .mockRejectedValueOnce(new HeaderAccountRefusal('Line 1: 1000 Assets is a header with sub-accounts; post to one of them.', 0))
+      .mockResolvedValueOnce({ kind: 'posted', journalEntryId: 'je-2' });
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(result.autoPostSkippedHeaderAccount).toBe(1);
     expect(result.applied).toBe(1);
     expect(autoPostMock).toHaveBeenCalledTimes(2);
   });

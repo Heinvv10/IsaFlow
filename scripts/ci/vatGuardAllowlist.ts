@@ -134,12 +134,6 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     reason: 'Attended API action on one transaction the user is looking at.',
   },
 
-  'src/modules/accounting/services/gl/journalEntryCrudService.ts': {
-    kinds: ['vat_field_on_a_posting_path'],
-    reason: 'Manual journal CRUD. The vat_type on each line is typed by whoever is '
-    + 'writing the journal — the oldest and broadest trust boundary in the '
-    + 'ledger, and not one this guard was scoped to change.',
-  },
   'src/modules/accounting/services/gl/glImportExecuteService.ts': {
     kinds: ['vat_field_on_a_posting_path'],
     reason: 'GL import: `vatCode` comes from the file a user uploaded and confirmed. '

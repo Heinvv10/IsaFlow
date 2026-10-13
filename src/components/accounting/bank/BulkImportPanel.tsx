@@ -13,8 +13,11 @@ import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
 import { findCrossFileDuplicates } from '@/lib/bulkUpload/crossFileDedup';
 import { BankAccountSelector, type BankAccountOption } from './BankAccountSelector';
 import { BulkImportFileRow, type BulkImportRowState } from './BulkImportFileRow';
-import type { BulkPreviewResponse, BulkCommitResponse } from './bulkImportTypes';
+import type { BulkPreviewResponse } from './bulkImportTypes';
 import { localISODate } from '@/lib/dateUtils';
+import { commitStatement, type DroppedPickLine } from './commitStatement';
+import { warningMessages } from '@/lib/warningMessages';
+import { notifyPostingWarnings } from '@/components/accounting/postingWarningsNotice';
 
 const PREVIEW_CONCURRENCY = 3;
 const COMMIT_CONCURRENCY = 2;
@@ -45,6 +48,7 @@ interface BulkSummary {
   imported: number;
   skipped: number;
   failed: number;
+  withProblems: number; // imported files whose own warnings (a failed auto-post, a parse error) are in their row
   totalTransactions: number;
 }
 
@@ -151,6 +155,7 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       return {
         ...r,
         phase: 'previewed',
+        errorMessage: undefined, // a retried file carries no stale error
         accountMatch: data.accountMatch,
         detectedBank: data.detectedBank,
         extractedAccountNumber: data.extractedAccountNumber,
@@ -275,6 +280,8 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     let skipped = 0;
     let failed = 0;
     let totalTransactions = 0;
+    let withProblems = 0;
+    const droppedByFile: DroppedPickLine[][] = []; // bank lines that auto-posted without their cost centre, by file (sequence)
 
     await runWithConcurrency(
       eligible.map((r, i) => ({ row: r, sequence: i + 1 })),
@@ -289,40 +296,27 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
           return;
         }
         try {
-          const filePayload = await readFileForUpload(collectedFile);
-          const statementDate = row.dateRange?.to ?? localISODate();
-          const res = await apiFetch('/api/accounting/bank-transactions-bulk-commit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              bankAccountId,
-              bulkImportId,
-              bulkSequence: sequence,
-              filename: collectedFile.file.name,
-              statementDate,
-              sourceFileSizeBytes: collectedFile.sizeBytes,
-              applyBankRules,
-              ...filePayload,
-            }),
+          const { data, dropped: lines, importWarnings } = await commitStatement({
+            bankAccountId, bulkImportId, bulkSequence: sequence, collected: collectedFile, applyBankRules,
+            statementDate: row.dateRange?.to ?? localISODate(),
           });
-          await assertOk(res, 'Could not import this statement - try again');
-          const json = await res.json();
-          const data = (json?.data ?? json) as BulkCommitResponse;
           if (data.status === 'imported') {
             imported++;
+            if (importWarnings.length > 0) withProblems++;
+            droppedByFile[sequence - 1] = lines;
             totalTransactions += data.transactionCount ?? 0;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0,
+              ...r, phase: 'imported', importedTransactionCount: data.transactionCount ?? 0, droppedPicks: lines, importWarnings, errorMessage: undefined,
             } : r));
           } else if (data.status === 'skipped') {
             skipped++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'skipped',
+              ...r, phase: 'skipped', errorMessage: undefined,
             } : r));
           } else {
             failed++;
             setRows(prev => prev.map(r => r.id === row.id ? {
-              ...r, phase: 'failed', errorMessage: data.reason ?? 'Could not import this statement - try again',
+              ...r, phase: 'failed', errorMessage: warningMessages(data.reason)[0] ?? 'Could not import this statement - try again',
             } : r));
           }
         } catch (err) {
@@ -336,16 +330,20 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
     );
 
     setIsCommitting(false);
-    setSummary({ bulkImportId, imported, skipped, failed, totalTransactions });
+    setSummary({ bulkImportId, imported, skipped, failed, withProblems, totalTransactions });
 
-    if (failed === 0 && imported > 0) {
+    if (failed === 0 && withProblems > 0) {
+      notify.warning(`Imported ${imported} statement${imported === 1 ? '' : 's'} — ${withProblems} with problems`, 'See the file rows below.');
+    } else if (failed === 0 && imported > 0) {
       notify.success(`Imported ${imported} statement${imported === 1 ? '' : 's'}`,
         `${totalTransactions} transactions added.`);
     } else if (imported > 0) {
-      notify.warning(`Partial import`, `${imported} imported · ${failed} failed · ${skipped} skipped`);
+      notify.warning(`Partial import${withProblems ? ` — ${withProblems} with problems` : ''}`, `${imported} imported · ${failed} failed · ${skipped} skipped`);
     } else if (failed > 0) {
       notify.error('Import failed', `${failed} file(s) could not be imported.`);
     }
+    // After the run's own toast; once for the run, not once per file. The lines are listed under their files.
+    notifyPostingWarnings({ data: { autoPost: { warnings: droppedByFile.flat() } } }); // file order, whatever finished first
   }, [bankAccountId, rows, applyBankRules]);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -490,17 +488,19 @@ export function BulkImportPanel({ initialAccountId }: { initialAccountId?: strin
       {summary && (
         <div className="rounded-xl border border-[var(--ff-border)] bg-[var(--ff-bg-secondary)] p-4">
           <div className="flex items-center gap-3">
-            {summary.failed === 0 ? (
+            {summary.failed === 0 && summary.withProblems === 0 ? (
               <CheckCircle2 className="h-6 w-6 text-emerald-500" />
             ) : (
               <AlertTriangle className="h-6 w-6 text-amber-500" />
             )}
             <div>
               <p className="text-base font-medium text-[var(--ff-text-primary)]">
-                {summary.failed === 0 ? 'Bulk import complete' : 'Bulk import finished with issues'}
+                {summary.failed > 0 ? 'Bulk import finished with issues' : summary.withProblems > 0
+                  ? `Bulk import complete — ${summary.withProblems} file${summary.withProblems === 1 ? ' has' : 's have'} problems` : 'Bulk import complete'}
               </p>
               <p className="text-xs text-[var(--ff-text-muted)]">
                 {summary.imported} imported · {summary.skipped} skipped · {summary.failed} failed
+                {summary.withProblems > 0 ? ` · ${summary.withProblems} with problems` : ''}
                 {' · '}{summary.totalTransactions} transactions added
               </p>
             </div>

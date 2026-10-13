@@ -3,6 +3,9 @@ import {
   FileText, Calendar,
 } from 'lucide-react';
 import type { AccountMatchStatus } from './bulkImportTypes';
+import type { DroppedPickLine } from './commitStatement';
+import { DroppedPicksList } from './DroppedPicksList';
+import { ImportWarningsNote } from './ImportWarningsNote';
 
 export type RowPhase =
   | 'pending'
@@ -30,6 +33,10 @@ export interface BulkImportRowState {
   dateRange?: { from: string; to: string } | null;
   errorMessage?: string;
   importedTransactionCount?: number;
+  /** Bank lines the import's auto-post posted without their predicted cost centre. */
+  droppedPicks?: DroppedPickLine[];
+  /** The import's own problems for this file (a failed auto-post, a parse error). */
+  importWarnings?: string[];
 }
 
 interface BulkImportFileRowProps {
@@ -60,6 +67,9 @@ function StatusPill({ row }: { row: BulkImportRowState }) {
   }
   if (phase === 'committing') {
     return <Pill icon={<Loader2 className="h-3 w-3 animate-spin" />} text="Importing…" tone="info" />;
+  }
+  if (phase === 'imported' && row.importWarnings?.length) {
+    return <Pill icon={<AlertTriangle className="h-3 w-3" />} text={`Imported ${row.importedTransactionCount ?? 0} · check below`} tone="warn" />;
   }
   if (phase === 'imported') {
     return <Pill icon={<CheckCircle2 className="h-3 w-3" />} text={`Imported ${row.importedTransactionCount ?? 0}`} tone="success" />;
@@ -173,6 +183,9 @@ export function BulkImportFileRow({ row, onRemove, onRetry }: BulkImportFileRowP
           )}
         </div>
       )}
+
+      {row.importWarnings && <ImportWarningsNote warnings={row.importWarnings} />}
+      {row.droppedPicks && <DroppedPicksList lines={row.droppedPicks} />}
 
       {row.mismatchReason && (
         <p className="rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-500">

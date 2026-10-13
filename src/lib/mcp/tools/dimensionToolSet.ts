@@ -11,6 +11,7 @@ import {
   setBankAccountDefaultDimensionsTool, setCustomerDefaultFnoTool, setGlAccountReportingAttributesTool,
 } from './dimensionDefaultsTools';
 import { reverseDimensionTagBatchTool, tagJournalLinesTool } from './writeDimensionTags';
+import { syncBankDimensionsTool } from './writeBankDimensionSync';
 import { splitAllocateBankTransactionTool } from './writeBankSplit';
 
 export const DIMENSION_READ_TOOLS = [listCostCentresTool, listBusinessUnitsTool, exportGlLinesTool] as const;
@@ -29,4 +30,6 @@ export const DIMENSION_WRITE_TOOLS = [
   splitAllocateBankTransactionTool,
   tagJournalLinesTool,
   reverseDimensionTagBatchTool,
+  // Copies journal tags onto allocated bank rows (bank metadata only, no posting).
+  syncBankDimensionsTool,
 ] as const;

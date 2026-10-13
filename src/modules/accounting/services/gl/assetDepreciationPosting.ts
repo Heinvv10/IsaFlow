@@ -14,6 +14,7 @@ import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 import { getSystemAccountId } from './systemAccountResolver';
+import { assertNoHeaderAccountLines } from './headerAccountGuard';
 import { assertJournalVatPeriodOpen } from './journalVatLockGuard';
 import { lockAssetTaxBase, writeAssetTaxAccumulation } from './assetTaxAccumulation';
 import {
@@ -123,6 +124,7 @@ async function postAssetDepreciationToGLThrows(
   // shared VAT-lock key like every other post, and stays correct if either
   // changes.
   await assertJournalVatPeriodOpen(companyId, period, [{ glAccountId: depExpenseId }, { glAccountId: accumDepId }]);
+  await assertNoHeaderAccountLines(companyId, [{ glAccountId: depExpenseId }, { glAccountId: accumDepId }]); // D1
 
   const entry = (await sql`
     INSERT INTO gl_journal_entries (

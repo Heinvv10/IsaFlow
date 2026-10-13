@@ -19,7 +19,7 @@
 - `@/lib/logger` — `apiLogger`
 
 ## Critical notes
-- **Wrap order convention**: `withCompany(withErrorHandler(handler as any))`. `withErrorHandler` is the inner wrapper so it catches errors from the auth layer too.
+- **Wrap order convention**: `withAuth(withErrorHandler(handler as any))`. `withErrorHandler` is the inner wrapper so it catches errors from the auth layer too.
 - `res` parameter is typed as `NextApiResponse<any>` so callers that declare `res: NextApiResponse` (no type arg) remain assignable. This is the only sanctioned `any` in the wrapper.
 - BL-53: nests a fresh Sentry isolation scope so `setTenantTags` never writes to the global hub, even if withAuth is absent or wrap order is reversed.
 - Request body logger redacts `password`, `confirmPassword`, `password_hash`, `token`, `secret`, `apiKey`, `api_key` via `sanitizeBody` before emitting. Add new sensitive keys to `SENSITIVE_KEYS`.
