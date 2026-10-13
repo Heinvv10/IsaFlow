@@ -265,7 +265,8 @@ export async function recordCoding(
 
   // 4. GL matches — increment sample count
   const newCount = rule.learnedSampleCount + 1;
-  const shouldPromote = !rule.autoPublish && newCount >= PROMOTION_THRESHOLD;
+  // A rule with no default account (the dimensions-only rows of migration 890) has nothing to auto-publish with.
+  const shouldPromote = !rule.autoPublish && rule.defaultGlAccountId !== null && newCount >= PROMOTION_THRESHOLD;
 
   await sql`
     UPDATE supplier_coding_rules SET

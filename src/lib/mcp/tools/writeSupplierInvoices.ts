@@ -21,7 +21,7 @@ import { invoiceVatRefusals } from '@/modules/accounting/services/capture/captur
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { billLineAccountRefusal } from '@/modules/accounting/services/ap/billLineAccountGuard';
 import { mcpPostingOpts } from '../mcpActor';
-import { DIMENSION_LINE_PROPERTIES, dimensionWarningsOrRefusal, itemsWithDimensions } from './dimensionArgs';
+import { DIMENSION_LINE_PROPERTIES, itemsWithDimensions, supplierBillWarningsOrRefusal } from './dimensionArgs';
 import { agentApprovalRefusal } from '@/modules/accounting/services/gl/approvalUnattended';
 import { MAX_LINES, SUPPLIER_INVOICE_TEXT_LIMITS as TEXT_LIMITS, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
@@ -98,7 +98,7 @@ export const createSupplierInvoiceTool: McpTool = {
     // cc1/cc2/bu per line: resolved, CC1 derived from CC2, conflicts refused — all pre-write.
     const items = await itemsWithDimensions(ctx.companyId, parsed.items, parsed.dimensionRefs, (i) => `lines[${i}]`);
     if (typeof items === 'string') return toolError(items);
-    const cos = await dimensionWarningsOrRefusal(ctx.companyId, items, (i) => `lines[${i}]`);
+    const cos = await supplierBillWarningsOrRefusal(ctx.companyId, parsed.supplierId, items, (i) => `lines[${i}]`);
     if (typeof cos === 'string') return toolError(cos);
 
     try {
