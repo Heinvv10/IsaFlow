@@ -244,7 +244,10 @@ describe('R-181: tenant isolation', () => {
   // The webhook must refuse such a request on its own, not lean on the FK: plant
   // one past it (FK triggers off for that one transaction, as a row from before
   // 854 or a restore would be) and deliver it, as this case did before 854.
-  it("a request naming another company's invoice, stored past the FK, settles nothing when delivered", async () => {
+  it("a request naming another company's invoice, stored past the FK, settles nothing when delivered", async (ctx) => {
+    // ci-integration-skip: the past-the-FK delivery case needs a superuser (session_replication_role); it skips, saying so, as any other role.
+    const { su } = (await pool.query('SELECT rolsuper AS su FROM pg_roles WHERE rolname = current_user')).rows[0];
+    if (!su) ctx.skip('planting a row past the FK needs a superuser (session_replication_role); DATABASE_URL is not one');
     const theirs = await invoice(B);
     const ref = `r181_${crypto.randomUUID().slice(0, 12)}`;
     const c = await pool.connect();

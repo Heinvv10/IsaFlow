@@ -50,8 +50,8 @@ describe('a 300-line batch under enforcement', () => {
     expect((await batchState(pool, b.id)).status).toBe('processed');
   }, 120_000);
 
-  it.skipIf(IN_INTEGRATION_GATE)('each well under 3 s', (ctx) => {
-    if (!timings) ctx.skip('the timed run is the test above; it did not record a time (run alone, or it failed), so there is nothing to bound');
+  it.skipIf(IN_INTEGRATION_GATE)('each well under 3 s', () => {
+    expect(timings, 'the timed run is the test above; it recorded no time (run alone, or it failed)').toBeDefined();
     expect(timings?.approve).toBeLessThan(3000);
     expect(timings?.process).toBeLessThan(3000);
   });

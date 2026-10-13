@@ -21,6 +21,10 @@
  * file skips (intended; a file with several skip conditions states them in that
  * one line). The marker counts only as a comment line of its own.
  *
+ * Named limit: this reads text, not syntax. A line inside a multi-line string
+ * (a template literal) that happens to read `// ci-integration-skip: …` counts
+ * as a marker too. Review is what catches that, not this regex.
+ *
  * Pure, so it is unit-tested (tests/unit/ci/skippedIntegrationSuites.test.ts);
  * report-skipped-integration.ts reads the logs and the files, and prints.
  */
