@@ -11,14 +11,15 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
 import {
-  SupplierDimensionDefaultsFields, type SupplierDimensionDefaults,
+  NO_DIMENSION_DEFAULTS, SupplierDimensionDefaultsSection, changedDimensionDefaults, dimensionsOfRule,
+  type RuleDimensionDefaults,
 } from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; accountCode: string; accountName: string }
 interface CostCentre { id: string; code: string; name: string }
 
-interface SupplierRule {
+interface SupplierRule extends RuleDimensionDefaults {
   id: string;
   companyId: string;
   supplierId: string;
@@ -26,9 +27,6 @@ interface SupplierRule {
   defaultVatCode: string | null;
   defaultCostCentreId: string | null;
   defaultProjectId: string | null;
-  defaultCc1Id: string | null;
-  defaultCc2Id: string | null;
-  defaultBuId: string | null;
   autoPublish: boolean;
   autoPublishMaxAmount: number | null;
   autoPublishMinConfidence: number;
@@ -69,7 +67,7 @@ export default function SupplierRulesPage() {
   const [glAccountId, setGlAccountId]         = useState('');
   const [vatCode, setVatCode]                 = useState<VatCode | ''>('');
   const [costCentreId, setCostCentreId]       = useState('');
-  const [dims, setDims] = useState<SupplierDimensionDefaults>({ cc1Id: '', cc2Id: '', buId: '' });
+  const [dims, setDims]                       = useState(NO_DIMENSION_DEFAULTS);
   const [autoPublish, setAutoPublish]         = useState(false);
   const [maxAmount, setMaxAmount]             = useState('');
   const [minConfidence, setMinConfidence]     = useState(95);
@@ -111,7 +109,7 @@ export default function SupplierRulesPage() {
           setGlAccountId(r.defaultGlAccountId ?? '');
           setVatCode((r.defaultVatCode as VatCode) ?? '');
           setCostCentreId(r.defaultCostCentreId ?? '');
-          setDims({ cc1Id: r.defaultCc1Id ?? '', cc2Id: r.defaultCc2Id ?? '', buId: r.defaultBuId ?? '' });
+          setDims(dimensionsOfRule(r));
           setAutoPublish(r.autoPublish);
           setMaxAmount(r.autoPublishMaxAmount != null ? String(r.autoPublishMaxAmount) : '');
           setMinConfidence(Math.round(r.autoPublishMinConfidence * 100));
@@ -146,10 +144,7 @@ export default function SupplierRulesPage() {
         defaultGlAccountId: glAccountId || null,
         defaultVatCode: vatCode || null,
         defaultCostCentreId: costCentreId || null,
-        // Only what changed: re-sending an unchanged default whose master was since deactivated would be refused.
-        ...((dims.cc1Id || null) !== (rule?.defaultCc1Id ?? null) ? { defaultCc1Id: dims.cc1Id || null } : {}),
-        ...((dims.cc2Id || null) !== (rule?.defaultCc2Id ?? null) ? { defaultCc2Id: dims.cc2Id || null } : {}),
-        ...((dims.buId || null) !== (rule?.defaultBuId ?? null) ? { defaultBuId: dims.buId || null } : {}),
+        ...changedDimensionDefaults(dims, rule),
         autoPublish,
         autoPublishMaxAmount: maxAmount ? parseFloat(maxAmount) : null,
         autoPublishMinConfidence: minConfidence / 100,
@@ -297,10 +292,7 @@ export default function SupplierRulesPage() {
           </section>
 
           {/* Default CC / BU (migration 890) */}
-          <section className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
-            <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Default Project &amp; Business Unit</h2>
-            <SupplierDimensionDefaultsFields value={dims} onChange={next => { setDims(next); markDirty(); }} />
-          </section>
+          <SupplierDimensionDefaultsSection value={dims} onChange={next => { setDims(next); markDirty(); }} />
 
           {/* Auto-publish */}
           <section className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">

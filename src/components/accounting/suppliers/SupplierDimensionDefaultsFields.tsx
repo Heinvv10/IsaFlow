@@ -11,6 +11,29 @@ import { centreOptions, type CodingOption } from '@/components/accounting/custom
 
 export interface SupplierDimensionDefaults { cc1Id: string; cc2Id: string; buId: string }
 
+/** The three default columns as the supplier-rules routes return them. */
+export interface RuleDimensionDefaults { defaultCc1Id: string | null; defaultCc2Id: string | null; defaultBuId: string | null }
+
+export const NO_DIMENSION_DEFAULTS: SupplierDimensionDefaults = { cc1Id: '', cc2Id: '', buId: '' };
+
+export function dimensionsOfRule(rule: RuleDimensionDefaults): SupplierDimensionDefaults {
+  return { cc1Id: rule.defaultCc1Id ?? '', cc2Id: rule.defaultCc2Id ?? '', buId: rule.defaultBuId ?? '' };
+}
+
+/**
+ * The save body's default fields: only what changed. Re-sending an unchanged default whose master was since
+ * deactivated would be refused, and an omitted field is left as held (null clears it).
+ */
+export function changedDimensionDefaults(
+  dims: SupplierDimensionDefaults, rule: RuleDimensionDefaults | null,
+): Partial<RuleDimensionDefaults> {
+  return {
+    ...((dims.cc1Id || null) !== (rule?.defaultCc1Id ?? null) ? { defaultCc1Id: dims.cc1Id || null } : {}),
+    ...((dims.cc2Id || null) !== (rule?.defaultCc2Id ?? null) ? { defaultCc2Id: dims.cc2Id || null } : {}),
+    ...((dims.buId || null) !== (rule?.defaultBuId ?? null) ? { defaultBuId: dims.buId || null } : {}),
+  };
+}
+
 interface Props {
   value: SupplierDimensionDefaults;
   onChange: (next: SupplierDimensionDefaults) => void;
@@ -67,5 +90,15 @@ export function SupplierDimensionDefaultsFields({ value, onChange }: Props) {
       <Picker label="Default FNO (CC1) — only for a supplier with no project" value={value.cc1Id} options={cc1s}
         onChange={(v) => onChange({ ...value, cc1Id: v })} />
     </div>
+  );
+}
+
+/** The coding-rule page's section: heading plus the three pickers. */
+export function SupplierDimensionDefaultsSection({ value, onChange }: Props) {
+  return (
+    <section className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">
+      <h2 className="text-base font-semibold text-[var(--ff-text-primary)]">Default Project &amp; Business Unit</h2>
+      <SupplierDimensionDefaultsFields value={value} onChange={onChange} />
+    </section>
   );
 }
