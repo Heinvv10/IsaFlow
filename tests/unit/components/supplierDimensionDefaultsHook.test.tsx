@@ -74,9 +74,9 @@ describe('defaultsNote', () => {
     expect(defaultsNote(HELD, NOTHING, { ...OFFERED, status: 'loading' }, '')).toBe('');
   });
 
-  it('when the lists failed to load, still says the server applies what the supplier holds', () => {
+  it('when the lists failed to load, still says the server may apply what the supplier holds', () => {
     const failed = { ...OFFERED, status: 'failed' as const };
-    expect(defaultsNote(HELD, NOTHING, failed, '')).toContain('default dimensions that are applied on save');
+    expect(defaultsNote(HELD, NOTHING, failed, '')).toContain('may be applied on save');
     expect(defaultsNote({ cc1Id: '', cc2Id: '', buId: '' }, NOTHING, failed, '')).toBe('');
   });
 });
@@ -119,10 +119,10 @@ describe('useSupplierDimensionDefaults', () => {
     expect(view.result.current.defaults).toEqual({ cc2Id: '', buId: '' });
   });
 
-  it('with the lists failed, nothing is pre-filled but the note says the server will apply the defaults', async () => {
+  it('with the lists failed, nothing is pre-filled but the note says the server may apply the defaults', async () => {
     serve(on('GET', '/supplier-rules/s1', () => rule({ defaultCc2Id: 'p-active', defaultBuId: 'bu-active' })));
     const { view, lines } = mount('s1', { cc2s: [], bus: [], status: 'failed' });
-    await waitFor(() => expect(view.result.current.note).toContain('applied on save'));
+    await waitFor(() => expect(view.result.current.note).toContain('may be applied on save'));
     expect(lines()[0]!.cc2Id ?? '').toBe('');
   });
 
