@@ -114,6 +114,18 @@ describeIfDb('supplier default dimensions: the COS check and rule promotion', ()
       expect(await autoPublish(sup)).toBe(false);
     });
 
+    it('a drift to no account (a human posts with none) switches auto_publish off; a drift to another account keeps it', async () => {
+      const sup = await s.newSupplier();
+      await sql`INSERT INTO supplier_coding_rules (company_id, supplier_id, default_gl_account_id, auto_publish)
+        VALUES (${s.fx.companyId}::UUID, ${sup}::UUID, ${s.fx.expenseId}::UUID, true)`;
+      await post(sup, cosId); // drifts to another account: auto_publish stays on
+      expect(await autoPublish(sup)).toBe(true);
+      await post(sup, null); // drifts to NULL: nothing to publish with
+      const [row] = (await sql`SELECT auto_publish, default_gl_account_id::TEXT AS gl, learned_sample_count AS n
+        FROM supplier_coding_rules WHERE supplier_id = ${sup}::UUID`) as Row[];
+      expect(row).toMatchObject({ auto_publish: false, gl: null, n: 1 });
+    });
+
     it('control: a rule that has a default GL account still promotes at the fifth consistent posting', async () => {
       const sup = await s.newSupplier();
       for (let i = 0; i < 5; i++) await post(sup, s.fx.expenseId);
