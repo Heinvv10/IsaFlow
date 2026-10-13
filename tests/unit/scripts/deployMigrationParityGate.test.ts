@@ -43,3 +43,17 @@ describe('deploy.sh migration-parity gate', () => {
     expect(lines[gate]).toMatch(/PARITY_PROD_DATABASE_URL="\$PARITY_PROD_DB"/);
   });
 });
+
+describe('deploy.sh protected production environment', () => {
+  it('checks the protected env file through sudo', () => {
+    expect(deploy).toContain('if ! sudo test -f "$DEPLOY_DIR/.env.local"; then');
+    expect(deploy).not.toContain('if [ ! -f "$DEPLOY_DIR/.env.local" ]; then');
+  });
+
+  it('installs a missing env file with production ownership and permissions', () => {
+    expect(deploy).toContain(
+      'sudo install -o velo -g velo -m 600 "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"'
+    );
+    expect(deploy).not.toContain('sudo -u velo cp "$ENV_LOCAL" "$DEPLOY_DIR/.env.local"');
+  });
+});
