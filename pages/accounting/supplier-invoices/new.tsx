@@ -56,7 +56,7 @@ export default function NewSupplierInvoicePage() {
   ]);
   // CC2 / BU pickers, and the supplier's default CC2 / BU pre-filled on the lines (migration 890).
   const codingOptions = useInvoiceLineCodingOptions();
-  const supplierDims = useSupplierDimensionDefaults<BillLineItem>(form.supplierId, setLines);
+  const { defaults: supplierDims, note: supplierDefaultsNote } = useSupplierDimensionDefaults<BillLineItem>(form.supplierId, setLines, codingOptions);
 
   useEffect(() => {
     const okJson = async (r: Response) => { await assertOk(r, 'Could not load the form data - try again'); return r.json(); };
@@ -259,6 +259,7 @@ export default function NewSupplierInvoicePage() {
                 onUpdate={updateLine}
                 onRemove={removeLine}
                 codingOptions={codingOptions}
+                supplierDefaults={{ ...supplierDims, note: supplierDefaultsNote }}
               />
 
               {/* Section 3 — Notes */}
