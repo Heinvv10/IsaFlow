@@ -16,6 +16,7 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
+  AutoPublishNeedsAccountError,
   getRule,
   upsertRule,
   deleteRule,
@@ -85,6 +86,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       // R-068: refused before the upsert, so nothing has been written.
       if (err instanceof SupplierNotInCompanyError) return apiResponse.badRequest(res, err.message);
       if (isDimensionRefusal(err)) return apiResponse.badRequest(res, err.message);
+      if (err instanceof AutoPublishNeedsAccountError) return apiResponse.badRequest(res, err.message);
       throw err;
     }
     log.info('Supplier rule patched via API', { companyId, supplierId }, 'supplier-rules-api');
