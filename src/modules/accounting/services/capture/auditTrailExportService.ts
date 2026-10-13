@@ -15,7 +15,6 @@ import bcrypt from 'bcryptjs';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { uploadCapturedDocument } from '@/lib/supabaseStorage';
 
 type Row = Record<string, unknown>;
 
@@ -33,8 +32,14 @@ export interface AuditExport {
   documentCount: number;
   totalDebits: number;
   totalCredits: number;
+  pdfStorageBucket: string | null;
   pdfStoragePath: string | null;
   pdfSha256: string | null;
+  /** Forensic-controls step 4: the sealed snapshot the pack was built from, and its ZIP. Null on older PDF-only packs. */
+  snapshotId: string | null;
+  zipStorageBucket: string | null;
+  zipStoragePath: string | null;
+  zipSha256: string | null;
   error: string | null;
   requestedBy: string | null;
   requestedAt: string;
@@ -64,8 +69,13 @@ function mapExport(row: Row): AuditExport {
     documentCount: Number(row.document_count ?? 0),
     totalDebits: Number(row.total_debits ?? 0),
     totalCredits: Number(row.total_credits ?? 0),
+    pdfStorageBucket: (row.pdf_storage_bucket as string) ?? null,
     pdfStoragePath: (row.pdf_storage_path as string) ?? null,
     pdfSha256: (row.pdf_sha256 as string) ?? null,
+    snapshotId: (row.snapshot_id as string) ?? null,
+    zipStorageBucket: (row.zip_storage_bucket as string) ?? null,
+    zipStoragePath: (row.zip_storage_path as string) ?? null,
+    zipSha256: (row.zip_sha256 as string) ?? null,
     error: (row.error as string) ?? null,
     requestedBy: (row.requested_by as string) ?? null,
     requestedAt: String(row.requested_at),
@@ -121,7 +131,7 @@ export async function createExport(input: CreateExportInput): Promise<AuditExpor
 
 // ─── Pack builder ─────────────────────────────────────────────────────────────
 
-interface JEForExport {
+export interface JEForExport {
   id: string;
   entryNumber: string;
   entryDate: string;
@@ -141,62 +151,12 @@ interface JEForExport {
   }>;
 }
 
-async function loadPeriodData(exportRow: AuditExport): Promise<JEForExport[]> {
-  const entries = (await sql`
-    SELECT je.id, je.entry_number, je.entry_date, je.description,
-           je.source, je.posting_agent, je.source_document_id,
-           cd.file_name AS document_file_name,
-           cd.vendor_name AS document_vendor_name,
-           cd.reference_number AS document_reference
-    FROM gl_journal_entries je
-    LEFT JOIN captured_documents cd
-      ON cd.id = je.source_document_id AND cd.company_id = ${exportRow.companyId}::uuid
-    WHERE je.company_id = ${exportRow.companyId}::uuid
-      AND je.status = 'posted'
-      AND je.entry_date BETWEEN ${exportRow.periodStart}::date AND ${exportRow.periodEnd}::date
-    ORDER BY je.entry_date ASC, je.entry_number ASC
-  `) as Row[];
-
-  const results: JEForExport[] = [];
-  for (const je of entries) {
-    const lines = (await sql`
-      SELECT jl.debit, jl.credit, jl.description,
-             ga.account_code, ga.account_name
-      FROM gl_journal_lines jl
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE jl.journal_entry_id = ${je.id as string}::uuid
-        AND jl.company_id = ${exportRow.companyId}::uuid
-      ORDER BY jl.created_at ASC
-    `) as Row[];
-
-    results.push({
-      id: je.id as string,
-      entryNumber: (je.entry_number as string) ?? '',
-      entryDate: toISODate(je.entry_date),
-      description: (je.description as string) ?? '',
-      source: (je.source as string) ?? '',
-      postingAgent: (je.posting_agent as string) ?? null,
-      sourceDocumentId: (je.source_document_id as string) ?? null,
-      documentFileName: (je.document_file_name as string) ?? null,
-      documentVendorName: (je.document_vendor_name as string) ?? null,
-      documentReference: (je.document_reference as string) ?? null,
-      lines: lines.map(l => ({
-        glAccountCode: (l.account_code as string) ?? '',
-        glAccountName: (l.account_name as string) ?? '',
-        debit: Number(l.debit ?? 0),
-        credit: Number(l.credit ?? 0),
-        description: (l.description as string) ?? null,
-      })),
-    });
-  }
-
-  return results;
-}
-
-async function buildPdf(
+export async function buildPdf(
   companyName: string,
   exportRow: AuditExport,
   entries: JEForExport[],
+  /** The seal this pack was built from (forensic-controls step 4): printed on the cover. */
+  sealNote?: string,
 ): Promise<{ buffer: Buffer; sha: string }> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40 });
@@ -230,7 +190,7 @@ async function buildPdf(
 
     doc.moveDown(2);
     doc.fontSize(8).fillColor('#888')
-      .text('This pack is cryptographically sealed. The SHA-256 hash below must match the value stored alongside this export.');
+      .text(sealNote ?? 'This pack is cryptographically sealed. The SHA-256 hash below must match the value stored alongside this export.');
 
     // Journal entries
     doc.addPage();
@@ -260,75 +220,6 @@ async function buildPdf(
 
     doc.end();
   });
-}
-
-// ─── Main pipeline ────────────────────────────────────────────────────────────
-
-export async function buildExport(id: string, companyId: string): Promise<AuditExport> {
-  const existing = await getExport(id, companyId);
-  if (!existing) throw new Error('Export not found');
-  if (existing.status === 'ready') return existing;
-
-  await sql`
-    UPDATE audit_trail_exports SET status = 'building'
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-  `;
-
-  try {
-    const [companyRow] = (await sql`
-      SELECT name FROM companies WHERE id = ${companyId}::uuid
-    `) as Row[];
-    const companyName = (companyRow?.name as string) ?? 'ISAFlow';
-
-    const entries = await loadPeriodData(existing);
-    const docIds = new Set(entries.map(e => e.sourceDocumentId).filter(Boolean) as string[]);
-
-    const { buffer, sha } = await buildPdf(companyName, existing, entries);
-
-    // Reuse the captured-documents bucket for the PDF pack. The path is
-    // namespaced by companyId/id so tenant isolation holds.
-    const upload = await uploadCapturedDocument(
-      companyId,
-      `audit-${id}`,
-      buffer,
-      'application/pdf',
-    );
-
-    const totalDr = entries.reduce((s, e) => s + e.lines.reduce((t, l) => t + l.debit, 0), 0);
-    const totalCr = entries.reduce((s, e) => s + e.lines.reduce((t, l) => t + l.credit, 0), 0);
-    const lineCount = entries.reduce((s, e) => s + e.lines.length, 0);
-
-    const [updated] = (await sql`
-      UPDATE audit_trail_exports
-      SET status = 'ready',
-          je_count = ${entries.length},
-          line_count = ${lineCount},
-          document_count = ${docIds.size},
-          total_debits = ${totalDr},
-          total_credits = ${totalCr},
-          pdf_storage_bucket = ${upload.bucket},
-          pdf_storage_path = ${upload.path},
-          pdf_sha256 = ${sha},
-          built_at = NOW()
-      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      RETURNING *
-    `) as Row[];
-
-    log.info('audit export built', {
-      id, companyId, entries: entries.length, docs: docIds.size, sha,
-    }, 'audit-export');
-
-    return mapExport(updated!);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error('audit export build failed', { id, companyId, err: msg }, 'audit-export');
-    await sql`
-      UPDATE audit_trail_exports
-      SET status = 'failed', error = ${msg}
-      WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    `;
-    throw err;
-  }
 }
 
 // ─── Portal sessions ──────────────────────────────────────────────────────────
@@ -443,4 +334,22 @@ export async function verifyPortalToken(
     exportId: row.export_id as string,
     auditorEmail: row.auditor_email as string,
   };
+}
+
+/**
+ * The file a ready export is downloaded as: the snapshot pack's ZIP (forensic-controls step 4), else the PDF of an
+ * older PDF-only pack. Null when there is nothing to download.
+ */
+export function exportDownload(ex: AuditExport): { bucket: string; path: string; contentType: string; filename: string; sha256: string } | null {
+  if (ex.status !== 'ready') return null;
+  const fallback = process.env.SUPABASE_CAPTURED_DOCS_BUCKET ?? 'captured-documents';
+  if (ex.zipStoragePath) {
+    return { bucket: ex.zipStorageBucket ?? fallback, path: ex.zipStoragePath, contentType: 'application/zip',
+      filename: `audit-pack-${ex.id}.zip`, sha256: ex.zipSha256 ?? '' };
+  }
+  if (ex.pdfStoragePath) {
+    return { bucket: ex.pdfStorageBucket ?? fallback, path: ex.pdfStoragePath, contentType: 'application/pdf',
+      filename: `audit-pack-${ex.id}.pdf`, sha256: ex.pdfSha256 ?? '' };
+  }
+  return null;
 }

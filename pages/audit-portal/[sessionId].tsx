@@ -66,13 +66,14 @@ export default function AuditPortalPage() {
           ) : (
             <>
               <p className="text-sm text-slate-400 mb-5">
-                Your client has granted you read-only access to an evidence pack. The PDF is cryptographically sealed — the
+                Your client has granted you read-only access to an evidence pack. The download&rsquo;s
                 <code className="mx-1 px-1.5 py-0.5 rounded bg-slate-800 text-xs font-mono">X-Content-SHA256</code> response header
-                matches the hash stored by IsaFlow at build time.
+                matches the hash stored by IsaFlow at build time. A pack built from an audit snapshot is a ZIP: its manifest.json
+                cites the snapshot&rsquo;s SHA-256 and HMAC seal and the hash of every file in it.
               </p>
               <a href={downloadHref}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
-                <Download className="h-4 w-4" /> Download audit pack (PDF)
+                <Download className="h-4 w-4" /> Download audit pack
               </a>
               <p className="text-xs text-slate-600 mt-4">
                 This portal is strictly read-only. All downloads are recorded against your session.
