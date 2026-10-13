@@ -46,11 +46,15 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // vi.hoisted runs before vi.mock factories. Without it, mocks would close over
 // the still-undefined const bindings declared further down.
-const { approveMock, cancelMock, postGlMock } = vi.hoisted(() => ({
+const { approveMock, cancelMock, postGlMock, sqlMock } = vi.hoisted(() => ({
   approveMock: vi.fn(),
   cancelMock: vi.fn(),
   postGlMock: vi.fn(),
+  sqlMock: vi.fn(),
 }));
+
+// Only `sql` (the bill-number lookup) is stubbed; withSavepoint stays real for the savepoint tests below.
+vi.mock('@/lib/neon', async (orig) => ({ ...(await orig<typeof import('@/lib/neon')>()), sql: sqlMock }));
 
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   approveSupplierInvoice: approveMock,
@@ -64,6 +68,7 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceWorkflowService', () =>
 import handler from '../../../pages/api/accounting/supplier-invoices-bulk-action';
 import { als } from '@/lib/als';
 import { withSavepoint } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -91,6 +96,10 @@ describe('supplier-invoices-bulk-action', () => {
     approveMock.mockReset();
     cancelMock.mockReset();
     postGlMock.mockReset();
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValue([
+      { id: ID_A, invoice_number: 'INV-A' }, { id: ID_B, invoice_number: 'INV-B' }, { id: ID_C, invoice_number: 'INV-C' },
+    ]);
   });
 
   it('returns 405 for non-POST requests', async () => {
@@ -158,9 +167,50 @@ describe('supplier-invoices-bulk-action', () => {
     const data = (result as { data: { succeeded: number; failed: number; results: Array<{ invoiceId: string; ok: boolean; error?: string }> } }).data;
     expect(data.succeeded).toBe(2);
     expect(data.failed).toBe(1);
-    expect(data.results[1]).toEqual({ invoiceId: ID_B, ok: false, error: 'row already approved' });
+    expect(data.results[1]).toEqual({ invoiceId: ID_B, invoiceNumber: 'INV-B', ok: false, error: 'row already approved' });
     expect(data.results[0]?.ok).toBe(true);
     expect(data.results[2]?.ok).toBe(true);
+  });
+
+  it('names every result by its bill number, ok or failed, and null for an id that is not this company\'s', async () => {
+    approveMock.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('row already approved')).mockResolvedValueOnce({});
+    sqlMock.mockResolvedValue([{ id: ID_A, invoice_number: 'INV-A' }, { id: ID_B, invoice_number: 'INV-B' }]);
+    const result = await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'approve', invoiceIds: [ID_A, ID_B, ID_C] }), res());
+    const { results } = (result as { data: { results: Array<{ invoiceId: string; invoiceNumber: string | null; ok: boolean }> } }).data;
+    expect(results.map((r) => [r.invoiceId, r.invoiceNumber, r.ok])).toEqual([[ID_A, 'INV-A', true], [ID_B, 'INV-B', false], [ID_C, null, true]]);
+  });
+
+  it('reads the numbers in the caller\'s company only, in one query', async () => {
+    approveMock.mockResolvedValue({});
+    await (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+      req('POST', { action: 'approve', invoiceIds: [ID_B, ID_A] }), res());
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    const [strings, ...values] = sqlMock.mock.calls[0] as [string[], ...unknown[]];
+    expect(strings.join('?')).toMatch(/FROM supplier_invoices[\s\S]*WHERE company_id = \?::UUID/);
+    expect(values).toEqual([COMPANY_ID, [ID_A, ID_B]]);
+  });
+
+  it('a bill-number lookup that fails cannot block the action: its own savepoint, logged, results unnamed', async () => {
+    const statements: string[] = [];
+    const client = { query: vi.fn(async (text: string) => { statements.push(text); return { rows: [] }; }) } as unknown as PoolClient;
+    sqlMock.mockRejectedValue(new Error('lookup exploded'));
+    approveMock.mockResolvedValue({ warnings: ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'] });
+    const result = await als.run({ client, userId: USER_ID, companyId: COMPANY_ID, claims: {} },
+      () => (handler as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>)(
+        req('POST', { action: 'approve', invoiceIds: [ID_A, ID_B] }), res()));
+    const data = (result as { data: { succeeded: number; failed: number; results: Array<{ invoiceNumber: string | null }> } }).data;
+    expect([data.succeeded, data.failed]).toEqual([2, 0]);
+    expect(data.results.map((r) => r.invoiceNumber)).toEqual([null, null]);
+    expect(approveMock).toHaveBeenCalledTimes(2);
+    // A caught SQL error poisons the transaction unless it was rolled back to a savepoint of its own.
+    expect(statements.filter((t) => t.includes('SAVEPOINT')).slice(0, 2)).toEqual([
+      'SAVEPOINT bulk_supplier_invoice_numbers', 'ROLLBACK TO SAVEPOINT bulk_supplier_invoice_numbers']);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not read'), expect.anything(), 'accounting-api');
+    // ...and the screen words the unnamed results by count.
+    const { postingWarningsNotice } = await import('@/components/accounting/postingWarningsNotice');
+    expect(postingWarningsNotice([['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.'], ['Line 1: cost centre OLD is inactive and was not applied — the line posts without it.']],
+      data.results.map((r) => r.invoiceNumber ?? undefined)).message).toBe('2 bills');
   });
 
   it('routes action=cancel to cancelSupplierInvoice', async () => {
@@ -202,6 +252,8 @@ describe('supplier-invoices-bulk-action', () => {
 
     expect((result as { data: { succeeded: number } }).data.succeeded).toBe(2);
     expect(statements.filter((t) => t.includes('SAVEPOINT'))).toEqual([
+      'SAVEPOINT bulk_supplier_invoice_numbers',
+      'RELEASE SAVEPOINT bulk_supplier_invoice_numbers',
       'SAVEPOINT bulk_supplier_invoice_item',
       'SAVEPOINT cancel_supplier_invoice',
       'RELEASE SAVEPOINT cancel_supplier_invoice',

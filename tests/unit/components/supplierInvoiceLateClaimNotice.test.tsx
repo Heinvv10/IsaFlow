@@ -44,7 +44,7 @@ describe('supplier invoice page — late claim notice', () => {
     fetchMock.mockResolvedValueOnce(ok({ ...draft, status: 'approved' }));
     fireEvent.click(await screen.findByText('Approve & Post GL'));
     await waitFor(() => expect(notify.info).toHaveBeenCalledWith(
-      'VAT claimed in a later period', expect.stringContaining('starting 2026-07-01')));
+      'Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.'));
   });
 
   it('says nothing for an ordinary approval', async () => {
