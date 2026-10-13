@@ -172,7 +172,8 @@ assertPostsStoredDimensions(companyId, status, lines, label, customerFno?) // ap
   `update_supplier_invoice` applies none, so its check is unchanged.
 - A rule created by the tool has no `default_gl_account_id`; `recordCoding` never auto-publishes such a rule, and
   `upsertRule` refuses `autoPublish: true` (`AutoPublishNeedsAccountError`, in `capture/supplierRuleErrors.ts`, a 400 from both rules routes, before any
-  write) unless the body or the held rule supplies an account. No MCP tool sets the flag.
+  write) unless the body or the held rule supplies an account. No MCP tool sets the flag. A `recordCoding` drift to no
+  account also switches an existing `auto_publish` off, so no rule ever auto-publishes without an account.
 - `planSupplierDefaults` judges the held defaults whose master is ACTIVE even when the call sets another field: a
   held project whose derived FNO is inactive refuses a BU-only edit (every bill would be refused); send that default
   too, or null, to repair it. A held default whose own master is inactive is not judged.
