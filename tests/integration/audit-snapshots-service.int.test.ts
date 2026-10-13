@@ -235,7 +235,7 @@ describe('the chain', { timeout: 120_000 }, () => {
 
   it('a forged row before the first snapshot does not break the chain for good: it reads as a restart (breaker r3 K1, blind r4 M1)', async () => {
     const { c } = await books();
-    // A forged row first (through the writer, no key, as on the day 890 ships), then the company's first genuine
+    // A forged row first (through the writer, no key, as on the day 891 ships), then the company's first genuine
     // snapshot: it can name no verifying link, so it starts at seq 2 — reported as a restart, never as intact, and not
     // as a break (the tables are append-only: a break would be for good).
     await recordSnapshot(pool, o, c, (t) => payload(c, o, t, { key_id: KEY.keyId }));
