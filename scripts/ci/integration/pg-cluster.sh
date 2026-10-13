@@ -40,6 +40,8 @@ pg_cluster_init() {
 # pg_cluster_start <dir>: start the cluster in <dir>/data and print its port.
 pg_cluster_start() {
   local dir=$1 port try
+  # A record from an earlier start of this directory would hide a new postmaster.
+  rm -f "$dir/postmaster.start"
   for try in 1 2 3 4 5; do
     port=$(free_port) || return 1
     if "$PG_BIN/pg_ctl" -D "$dir/data" -l "$dir/server.log" -w -t 120 -o "-p $port \
@@ -53,7 +55,7 @@ pg_cluster_start() {
     echo "[integration] postgres could not start on port $port (attempt $try); retrying" >&2
     # A start that timed out can leave its postmaster still coming up and
     # holding the data directory: stop it before the next attempt reuses it.
-    "$PG_BIN/pg_ctl" -D "$dir/data" -m immediate -w -t 60 stop > /dev/null 2>&1 || true
+    pg_cluster_stop "$dir"
   done
   tail -20 "$dir/server.log" >&2
   return 1

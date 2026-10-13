@@ -114,8 +114,28 @@ describe('remove_run', () => {
   });
 });
 
+describe('end_snapshot and a shard\'s own exit', () => {
+  it('signals a listed process only while it still has the listed start time, and KILLs one that ignores TERM', () => {
+    const stale = victim(); settle(stale);
+    const stubborn = spawn('bash', ['-c', 'trap "" TERM; while :; do sleep 0.2; done'], { stdio: 'ignore', detached: true });
+    victims.push(stubborn);
+    settle(stubborn.pid!);
+    sh(`end_snapshot "${stale} 1
+${stubborn.pid} ${start(stubborn.pid!)}"`);
+    expect({ stale: alive(stale), stubborn: alive(stubborn.pid!) }).toEqual({ stale: true, stubborn: false });
+  }, 20_000);
+
+  it('a shard ends the leftovers in its own session on exit (a suite\'s forgotten child)', () => {
+    const name = `lifecycle-leftover-${process.pid}-${Date.now()}`;
+    sh(`setsid bash -c 'source ${JSON.stringify(LIB)}; trap "end_snapshot \\"\\$(snapshot \\$\\$ \\$\\$)\\"" EXIT
+      (exec -a ${name} sleep 600) & sleep 0.3; exit 0' < /dev/null > /dev/null 2>&1`);
+    const left = sh(`ps -eo pid=,args= | awk -v n=${name} '$2 == n { print $1 }'`);
+    expect(left).toBe('');
+  });
+});
+
 describe('sweep_dead_runs', () => {
-  it('removes a run whose owner is dead and one from an earlier boot; keeps a live one, one from another pid namespace, an old record and a symlink', () => {
+  it('removes a run whose owner is dead; keeps a live one, another boot id made since this boot, another pid namespace, an old record and a symlink', () => {
     const dead = deadRun();
     const live = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
     const v = victim(); settle(v);
@@ -135,7 +155,25 @@ describe('sweep_dead_runs', () => {
     symlinkSync(target, link);
     sh('sweep_dead_runs > /dev/null');
     expect([dead, live, foreign, otherBoot, legacy, link, target].map((d) => existsSync(d)))
-      .toEqual([false, true, true, false, true, true, true]);
+      .toEqual([false, true, true, true, true, true, true]);
+  });
+
+  it('deletes, without signalling, a run from a pid namespace that no longer exists once it is over a day old', () => {
+    const old = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
+    writeFileSync(join(old, 'owner'), `27 1 pid:[1] ${sh('boot_id')}\n`);
+    sh('date() { echo $(( $(command date +%s) + 90000 )); }; sweep_dead_runs > /dev/null');
+    expect(existsSync(old)).toBe(false);
+  });
+
+  it('deletes, without signalling, a run from another boot id made before this boot began', () => {
+    const v = victim(); settle(v);
+    const old = mkdtempSync(join(scratch, 'isaflow-ci-int.'));
+    writeFileSync(join(old, 'owner'), `${v} ${start(v)} ${sh('my_pidns')} 00000000-0000-0000-0000-000000000000\n`);
+    mkdirSync(join(old, 'c3'));
+    writeFileSync(join(old, 'c3', 'sid'), `${v} ${start(v)}\n`);
+    // This boot "began" after the directory was made.
+    sh('boot_time() { echo $(( $(date +%s) + 60 )); }; sweep_dead_runs > /dev/null');
+    expect({ dir: existsSync(old), victim: alive(v) }).toEqual({ dir: false, victim: true });
   });
 });
 
