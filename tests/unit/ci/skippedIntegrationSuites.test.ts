@@ -81,6 +81,17 @@ describe('skipNotice', () => {
     expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
   });
 
+  it('takes the reason only from a comment line of its own, not a string or a comment about the marker', () => {
+    const files: Record<string, string> = {
+      'tests/integration/string.int.test.ts': "const note = 'see ci-integration-skip: docs';\n",
+      'tests/integration/aside.int.test.ts': '// unrelated note: the ci-integration-skip: marker is documented elsewhere\n',
+      'tests/integration/indented.int.test.ts': 'describe(() => {\n  // ci-integration-skip: needs a live GoTrue\n});\n',
+    };
+    const log = Object.keys(files).map((f) => ` ↓ ${f} (1 test | 1 skipped)`).join('\n');
+    const { unexplained } = skipNotice(skippedSuites(log, (f) => files[f]));
+    expect(unexplained).toEqual(['tests/integration/aside.int.test.ts', 'tests/integration/string.int.test.ts']);
+  });
+
   it('has nothing to say about a run where nothing skipped', () => {
     expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
       .toEqual({ lines: [], unexplained: [] });

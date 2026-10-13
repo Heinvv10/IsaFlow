@@ -178,7 +178,8 @@ describeIfDb('W2-28 round 9', () => {
   }, 120_000);
 
   // ci-integration-skip: the wall-clock bound is not asserted inside the CI gate (six shards on a shared box at load 50-250 time the machine, not the code); the correctness checks still run, and a run by hand asserts the bound too.
-  it.skipIf(IN_INTEGRATION_GATE)('…and each finishes inside the 5s other role writers will wait for them', () => {
+  it.skipIf(IN_INTEGRATION_GATE)('…and each finishes inside the 5s other role writers will wait for them', (ctx) => {
+    if (!atCaps) ctx.skip('the timed run is the test above; it did not record a time (run alone, or it failed), so there is nothing to bound');
     expect(atCaps && { importUnder5s: atCaps.importMs < 5000, executeUnder5s: atCaps.executeMs < 5000 })
       .toEqual({ importUnder5s: true, executeUnder5s: true });
   });

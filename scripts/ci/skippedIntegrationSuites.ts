@@ -16,6 +16,11 @@
  * only some tests is printed either way, with "no reason stated" when it has
  * no comment.
  *
+ * The reason is the FIRST `// ci-integration-skip: <why>` comment line in the
+ * file, and it covers the whole file: one stated reason excuses every test the
+ * file skips (intended; a file with several skip conditions states them in that
+ * one line). The marker counts only as a comment line of its own.
+ *
  * Pure, so it is unit-tested (tests/unit/ci/skippedIntegrationSuites.test.ts);
  * report-skipped-integration.ts reads the logs and the files, and prints.
  */
@@ -30,7 +35,8 @@ export interface SkippedSuite {
 
 /** ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms` (also ❯, ↓, ×). */
 const FILE_LINE = /^ [✓❯↓×] (.+?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
-const MARKER = /ci-integration-skip:\s*(.+)$/m;
+/** A line that is only a `//` comment starting with the marker: not a string, not an aside. */
+const MARKER = /^\s*\/\/\s*ci-integration-skip:\s*(.+)$/m;
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;]*m/g;
