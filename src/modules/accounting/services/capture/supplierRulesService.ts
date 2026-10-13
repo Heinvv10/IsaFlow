@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { AutoPublishNeedsAccountError } from './supplierRuleErrors';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -118,14 +119,6 @@ export async function getRule(
     LIMIT 1
   `) as Row[];
   return rows[0] ? mapRow(rows[0]) : null;
-}
-
-/** autoPublish was asked for on a rule that has no default GL account to publish with. A 400, raised before any write. */
-export class AutoPublishNeedsAccountError extends Error {
-  constructor() {
-    super('Auto-publish needs a default GL account: choose one for this supplier, or leave auto-publish off.');
-    this.name = 'AutoPublishNeedsAccountError';
-  }
 }
 
 export async function upsertRule(

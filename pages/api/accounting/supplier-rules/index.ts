@@ -12,9 +12,8 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
-import {
-  AutoPublishNeedsAccountError, getRule, listRules, upsertRule,
-} from '@/modules/accounting/services/capture/supplierRulesService';
+import { getRule, listRules, upsertRule } from '@/modules/accounting/services/capture/supplierRulesService';
+import { AutoPublishNeedsAccountError } from '@/modules/accounting/services/capture/supplierRuleErrors';
 import {
   applySupplierDefaultsPlan, planSupplierDefaults, supplierDefaultRefsFromBody,
 } from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';

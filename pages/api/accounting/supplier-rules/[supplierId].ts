@@ -16,11 +16,11 @@ import { UUID } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
-  AutoPublishNeedsAccountError,
   getRule,
   upsertRule,
   deleteRule,
 } from '@/modules/accounting/services/capture/supplierRulesService';
+import { AutoPublishNeedsAccountError } from '@/modules/accounting/services/capture/supplierRuleErrors';
 import {
   applySupplierDefaultsPlan, planSupplierDefaults, supplierDefaultRefsFromBody,
 } from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
