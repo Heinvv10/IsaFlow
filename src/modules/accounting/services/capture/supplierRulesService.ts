@@ -120,6 +120,14 @@ export async function getRule(
   return rows[0] ? mapRow(rows[0]) : null;
 }
 
+/** autoPublish was asked for on a rule that has no default GL account to publish with. A 400, raised before any write. */
+export class AutoPublishNeedsAccountError extends Error {
+  constructor() {
+    super('Auto-publish needs a default GL account: choose one for this supplier, or leave auto-publish off.');
+    this.name = 'AutoPublishNeedsAccountError';
+  }
+}
+
 export async function upsertRule(
   companyId: string,
   supplierId: string,
@@ -128,6 +136,11 @@ export async function upsertRule(
 ): Promise<SupplierRule> {
   // R-068: both routes pass a caller-supplied supplier id (body / URL).
   await assertSupplierInCompany(companyId, supplierId);
+  // The account the rule will hold after this upsert: the patch's, else the held one (a null never clears it).
+  if (patch.autoPublish === true && !patch.defaultGlAccountId) {
+    const held = await getRule(companyId, supplierId);
+    if (!held?.defaultGlAccountId) throw new AutoPublishNeedsAccountError();
+  }
   const rows = (await sql`
     INSERT INTO supplier_coding_rules (
       company_id, supplier_id,
