@@ -27,6 +27,7 @@ export function mapRow(row: Record<string, unknown>): CreditNote {
     cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
     cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
     buId: row.bu_id ? String(row.bu_id) : undefined,
+    glAccountId: row.gl_account_id ? String(row.gl_account_id) : undefined,
     createdBy: String(row.created_by),
     approvedBy: row.approved_by ? String(row.approved_by) : undefined,
     approvedAt: row.approved_at ? String(row.approved_at) : undefined,
