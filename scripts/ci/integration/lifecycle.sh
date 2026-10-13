@@ -9,7 +9,9 @@
 # gate records is stored with its start time (field 22 of /proc/<pid>/stat), and
 # is signalled only while a process with that pid AND that start time exists.
 # A run directory also records the pid namespace and boot it was made in; a
-# run from another namespace or boot is never judged from here.
+# run from another pid namespace is never judged from here, and one from an
+# earlier boot is deleted without signalling anything (nothing from an earlier
+# boot can be running).
 
 # proc_start <pid>: the process's start time in clock ticks since boot, or
 # nothing when no such process is visible.
@@ -36,7 +38,7 @@ write_owner() { echo "$$ $(proc_start $$) $(my_pidns) $(boot_id)" > "$1/owner"; 
 # A process we may not signal (EPERM) counts as alive.
 owner_dead() {
   local err
-  if err=$(kill -0 "$1" 2>&1); then
+  if err=$(export LC_ALL=C; kill -0 "$1" 2>&1); then
     [ "$(proc_start "$1")" != "$2" ]
     return
   fi
@@ -47,14 +49,12 @@ owner_dead() {
 # ended; only its parent's wait remains).
 session_pids() { ps -eo pid=,sid=,stat= | awk -v s="$1" '$2 == s && $3 !~ /^Z/ { print $1 }'; }
 
-# session_ours <sid> <leader start>: the session is still the one recorded.
-# Its leader is alive with the recorded start time, or the leader is gone: a
-# session id is not handed out again while any member of the session lives.
-session_ours() {
-  local now
-  now=$(proc_start "$1")
-  [ -z "$now" ] || [ "$now" = "$2" ]
-}
+# session_ours <sid> <leader start>: the session is still the one recorded:
+# its leader is alive with the recorded start time. A session whose leader has
+# gone is never signalled: its id may by now belong to someone else's session
+# whose own leader has exited (a daemon's). What a lost shard leader leaves
+# behind is bounded by its `timeout -k 30` instead.
+session_ours() { same_proc "$1" "$2"; }
 
 # remove_run <run dir>: end every shard session it recorded that is still its
 # own (TERM, then KILL after up to 10 s), stop its clusters, delete it.
@@ -79,15 +79,21 @@ remove_run() {
 }
 
 # sweep_dead_runs: remove this user's run directories whose run.sh is
-# certainly dead (SIGKILL leaves them behind). Directories from another pid
-# namespace or boot, from another user, or without a complete owner record are
-# left alone.
+# certainly dead (SIGKILL leaves them behind). One from an earlier boot is only
+# deleted. Symlinks, other users' directories, directories from another pid
+# namespace and ones without a complete owner record are left alone.
 sweep_dead_runs() {
   local old pid start ns boot
-  for old in "${TMPDIR:-/tmp}"/isaflow-ci-int.*; do
-    [ -d "$old" ] && [ -O "$old" ] && [ -f "$old/owner" ] || continue
+  for old in "${TMPDIR:-/tmp}"/isaflow-ci-int.??????; do
+    [ -d "$old" ] && [ ! -L "$old" ] && [ -O "$old" ] && [ -f "$old/owner" ] || continue
     read -r pid start ns boot < "$old/owner" || continue
-    [ -n "$boot" ] && [ "$ns" = "$(my_pidns)" ] && [ "$boot" = "$(boot_id)" ] || continue
+    [ -n "$boot" ] || continue
+    if [ "$boot" != "$(boot_id)" ]; then
+      rm -rf "$old"
+      echo "[integration] removed the leftovers of a run from an earlier boot: $old"
+      continue
+    fi
+    [ "$ns" = "$(my_pidns)" ] || continue
     owner_dead "$pid" "$start" || continue
     remove_run "$old"
     echo "[integration] removed the leftovers of a run that died: $old"

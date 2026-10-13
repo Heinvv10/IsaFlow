@@ -64,7 +64,14 @@ write_owner "$WORK"
 SUITE_TMP="$WORK/tmp"
 mkdir "$SUITE_TMP"
 export SUITE_TMP
-cleanup() { remove_run "$WORK"; }
+# The schema-building step running now (bounded), then every shard session.
+cleanup() {
+  local pid start
+  if [ -f "$WORK/step" ] && read -r pid start < "$WORK/step" && same_proc "$pid" "$start"; then
+    kill -TERM "$pid" 2> /dev/null || true
+  fi
+  remove_run "$WORK"
+}
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -77,17 +84,26 @@ START=$(date +%s)
 
 bun scripts/ci/integration/plan.ts "$SHARDS" > "$WORK/plan.tsv"
 
-# bounded <what> <command...>: building the schema gets CI_INT_MIGRATE_TIMEOUT
-# seconds per command (default 600; it takes under 30 s), so a migration or
-# load that hangs fails the step instead of holding the runner.
-MIGRATE_LIMIT=${CI_INT_MIGRATE_TIMEOUT:-600}
+# bounded <what> <command...>: each schema-building command gets
+# CI_INT_MIGRATE_TIMEOUT seconds (default 300; the whole build takes under 30 s),
+# so a migration or load that hangs fails the step instead of holding the
+# runner. It runs in the background and is waited for: bash runs a trap only
+# once a FOREGROUND child returns, so a TERM would otherwise wait out the limit.
+# cleanup() ends it (pid + start time in $WORK/step).
+MIGRATE_LIMIT=${CI_INT_MIGRATE_TIMEOUT:-300}
 bounded() {
-  local what=$1 status=0
+  local what=$1 status=0 t0 pid
   shift
-  timeout -k 30 "$MIGRATE_LIMIT" "$@" || status=$?
-  if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
-    echo "[integration] $what did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2
-  fi
+  t0=$(date +%s)
+  timeout -k 30 "$MIGRATE_LIMIT" "$@" &
+  pid=$!
+  echo "$pid $(proc_start "$pid")" > "$WORK/step"
+  wait "$pid" || status=$?
+  rm -f "$WORK/step"
+  case $(shard_outcome "$status" "$(( $(date +%s) - t0 ))" "$MIGRATE_LIMIT") in
+    timeout) echo "[integration] $what did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2 ;;
+    killed) echo "[integration] $what was KILLED (SIGKILL, not the time limit)" >&2 ;;
+  esac
   return "$status"
 }
 
@@ -98,19 +114,19 @@ PORT=$(pg_cluster_start "$WORK/c1")
 PSQL=("$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1)
 pg_create_roles "$PORT"
 "${PSQL[@]}" -d postgres -c "CREATE DATABASE isaflow_schema_fixture OWNER postgres"
-gunzip -c scripts/ci/integration/baseline.sql.gz | bounded "loading the baseline" "${PSQL[@]}" -d isaflow_schema_fixture > /dev/null
+gunzip -c scripts/ci/integration/baseline.sql.gz > "$WORK/baseline.sql"
+bounded "loading the baseline" "${PSQL[@]}" -d isaflow_schema_fixture -f "$WORK/baseline.sql" > /dev/null
 # A schema-only dump leaves every materialized view unpopulated, and reading
 # one then errors; populate them (empty) as a deploy would have.
-"${PSQL[@]}" -d isaflow_schema_fixture -At \
-  -c "SELECT format('REFRESH MATERIALIZED VIEW %I.%I', schemaname, matviewname) FROM pg_matviews" \
-  | bounded "refreshing the materialized views" "${PSQL[@]}" -d isaflow_schema_fixture
+bounded "listing the materialized views" "${PSQL[@]}" -d isaflow_schema_fixture -At -o "$WORK/refresh.sql" \
+  -c "SELECT format('REFRESH MATERIALIZED VIEW %I.%I;', schemaname, matviewname) FROM pg_matviews"
+bounded "refreshing the materialized views" "${PSQL[@]}" -d isaflow_schema_fixture -f "$WORK/refresh.sql"
 # As production's deploy: `postgres`, not a superuser. The runner forces TLS
 # unless the URL says sslmode=disable.
-with_db "$PORT" isaflow_schema_fixture \
-  env "DATABASE_URL=postgresql://postgres@127.0.0.1:$PORT/isaflow_schema_fixture?sslmode=disable" \
-  timeout -k 30 "$MIGRATE_LIMIT" bun scripts/apply-migrations.ts \
-  || { status=$?; [ "$status" -eq 124 ] || [ "$status" -eq 137 ] \
-    && echo "[integration] the migrations did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2; exit "$status"; }
+suite_env "$PORT" isaflow_schema_fixture
+bounded "the migrations" env "${SUITE_ENV[@]}" \
+  "DATABASE_URL=postgresql://postgres@127.0.0.1:$PORT/isaflow_schema_fixture?sslmode=disable" \
+  bun scripts/apply-migrations.ts
 "${PSQL[@]}" -d postgres -c "ALTER ROLE postgres SUPERUSER" \
   -c "CREATE DATABASE isaflow_test TEMPLATE isaflow_schema_fixture OWNER postgres"
 pg_cluster_stop "$WORK/c1"
@@ -130,6 +146,12 @@ parity2="postgresql://$PG_SUPERUSER@127.0.0.1:$(pg_cluster_start "$WORK/cp2")/po
 declare -a PIDS=()
 for i in $(seq 1 "$SHARDS"); do
   setsid --wait bash scripts/ci/integration/shard.sh "$i" "$SHARDS" "${PORTS[$((i - 1))]}" "$WORK" "$parity" "$parity2" &
+  # Recorded here, at launch, so a TERM a moment later still finds the shard:
+  # a background child is no process-group leader, so setsid(1) does not fork
+  # and $! becomes the session leader (sid == pid). Were it ever to fork, the
+  # session would not match and nothing would be signalled (the shard's own
+  # timeout still bounds it).
+  echo "$! $(proc_start "$!")" > "$WORK/c$i/sid"
   PIDS+=("$!")
 done
 

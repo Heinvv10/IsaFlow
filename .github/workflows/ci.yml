@@ -23,9 +23,10 @@ jobs:
     # run-ci.sh ends with a production build, which the old five steps did not.
     # Measured 8m13s at load ~45 (R-052/green.log). Measured on this box
     # 2026-10-12: every step but integration took 15 min at load ~65 and up to
-    # 58 min at load 150-250; integration took 8-16 min and up to 24 min, and a
-    # hung shard is cut at 30 (CI_INT_SHARD_TIMEOUT). Worst case ~91 min with
-    # the install, so 120.
+    # 58 min at load 150-250; integration took 8-16 min and up to 24 min. Its
+    # bounds: 4 schema-build commands at 300 s + 30 s kill grace each
+    # (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min (CI_INT_SHARD_TIMEOUT).
+    # Worst case 58 + 22 + 30 + ~2 install = ~112 min, so 120.
     timeout-minutes: 120
 
     steps:

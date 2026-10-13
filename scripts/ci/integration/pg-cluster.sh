@@ -89,21 +89,26 @@ GRANT migration_admin, app_user TO postgres;
 SQL
 }
 
-# with_db <port> <database> <command...>: run the command in the suites' fixed
-# environment (env -i: a developer's .env.local or shell can never point it at
+# suite_env <port> <database>: set SUITE_ENV to `env` arguments for the suites'
+# fixed environment; with_db <port> <database> <command...> runs a command in it:
+# the suites' fixed environment (env -i: a developer's .env.local or shell can never point it at
 # a shared database or a real GoTrue), connected as `postgres`. No password in
 # the URL: pg and psql read PGPASSWORD. RUNNER_TRACKING_ID is kept so the
 # GitHub runner can still find and end what the step started. Temporary files
 # go to $SUITE_TMP (run.sh: inside the run directory, so they go with it).
-with_db() {
+suite_env() {
   local url="postgresql://postgres@127.0.0.1:$1/$2"
   local keep=()
-  shift 2
   [ -n "${RUNNER_TRACKING_ID:-}" ] && keep+=("RUNNER_TRACKING_ID=$RUNNER_TRACKING_ID")
-  env -i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${SUITE_TMP:-${TMPDIR:-/tmp}}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}" \
-    "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url" \
-    DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1 \
-    "JWT_SECRET=$JWT" "$@"
+  SUITE_ENV=(-i "PATH=$PATH" "HOME=$HOME" "TMPDIR=${SUITE_TMP:-${TMPDIR:-/tmp}}" "PGPASSWORD=$PGPASSWORD" NO_COLOR=1 "${keep[@]}"
+    "DATABASE_URL=$url" "PLATFORM_ADMIN_DATABASE_URL=$url" "MIGRATION_ADMIN_DATABASE_URL=$url"
+    DATABASE_SSL=disable GOTRUE_URL=http://127.0.0.1:1/auth/v1 ISAFLOW_DISPOSABLE_AUTH_TEST=1 CI_INTEGRATION_GATE=1
+    "JWT_SECRET=$JWT")
+}
+with_db() {
+  suite_env "$1" "$2"
+  shift 2
+  env "${SUITE_ENV[@]}" "$@"
 }
 
 # pg_require_extensions: fail, saying how to fix it, when the server lacks an
