@@ -1,0 +1,94 @@
+/**
+ * THE INTEGRATION GATE READS VITEST'S PER-FILE RESULT LINES ONE WAY, EVERYWHERE.
+ *
+ * shard.sh requires exactly one result line per planned file, run.sh lists the
+ * failing files, and the skip report counts skipped tests: all three read
+ * ` ✓ tests/x.int.test.ts (3 tests | 1 skipped) 12ms` through
+ * scripts/ci/integration/resultLines.ts. A suite's own output can run into that
+ * line (no newline before the mark), and that output can carry a ✓ or × of its
+ * own; a stack trace can quote a result line. The path is the one after the LAST
+ * mark, and the line must END with the result.
+ */
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
+import { failingLines, resultLine, resultLines, wrongCounts } from '../../../scripts/ci/integration/resultLines';
+
+const A = 'tests/integration/a.int.test.ts';
+const B = 'tests/integration/b.int.test.ts';
+
+describe('resultLine', () => {
+  it('reads a plain, a coloured and a glued result line', () => {
+    expect(resultLine(` ✓ ${A} (5 tests) 120ms`)).toEqual({ mark: '✓', file: A, total: 5, counts: {} });
+    expect(resultLine(`\u001b[32m ✓\u001b[39m ${A} (1 test) 3ms`)?.file).toBe(A);
+    expect(resultLine(`noise without newline↓ ${A} (2 tests | 2 skipped)`))
+      .toEqual({ mark: '↓', file: A, total: 2, counts: { skipped: 2 } });
+    expect(resultLine(` ❯ ${A} (10 tests | 1 failed | 3 skipped) 410ms`)?.counts).toEqual({ failed: 1, skipped: 3 });
+  });
+
+  it('takes the path after the LAST mark when the glued-in output has a ✓ or × of its own', () => {
+    expect(resultLine(`[seed] ✓ migrated 3 rows↓ ${A} (4 tests | 4 skipped) 3ms`)?.file).toBe(A);
+    expect(resultLine(`stdout | ✓ ok ✓ ${A} (4 tests) 3ms`)?.file).toBe(A);
+    expect(resultLine(`× expected 1 ❯ ${A} (4 tests | 1 failed) 3ms`)).toMatchObject({ mark: '❯', file: A });
+  });
+
+  it('does not read a result line quoted inside a longer line (a stack trace, a message)', () => {
+    expect(resultLine(`    at check ("✓ ${A} (4 tests) 3ms") x.ts:3:1`)).toBeNull();
+    expect(resultLine(`Error: wanted "× ${A} (" in the log`)).toBeNull();
+    expect(resultLine('     ✓ a test inside a file 3ms')).toBeNull();
+  });
+
+  it('reads a path with a space in it', () => {
+    expect(resultLine(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)')?.file)
+      .toBe('tests/integration/zz spaced.int.test.ts');
+  });
+});
+
+describe('wrongCounts (shard.sh: exactly one result line per planned file)', () => {
+  it('passes a log with one result line per file, glued or not', () => {
+    const log = [` ✓ ${A} (1 test) 1ms`, `[seed] ✓ done× ${B} (2 tests | 1 failed) 2ms`].join('\n');
+    expect(wrongCounts(resultLines(log), [A, B])).toEqual([]);
+  });
+
+  it('does not count a stack trace that quotes a result line, so it cannot double a file or stand in for a missing one', () => {
+    const doubled = [` ✓ ${A} (1 test) 1ms`, `    at x ("✓ ${A} (1 test) 1ms")`].join('\n');
+    expect(wrongCounts(resultLines(doubled), [A])).toEqual([]);
+    const missing = [` ✓ ${A} (1 test) 1ms`, `Error: no "✓ ${B} (" line yet`].join('\n');
+    expect(wrongCounts(resultLines(missing), [A, B])).toEqual([{ file: B, n: 0 }]);
+  });
+
+  it('flags a file reported twice', () => {
+    const log = [` ✓ ${A} (1 test) 1ms`, ` ✓ ${A} (1 test) 1ms`].join('\n');
+    expect(wrongCounts(resultLines(log), [A])).toEqual([{ file: A, n: 2 }]);
+  });
+});
+
+describe('failingLines (run.sh: the failing files in the summary)', () => {
+  it('lists a failing file whose result line a suite\'s output ran into, and not a passing one', () => {
+    const log = [` ✓ ${A} (1 test) 1ms`, `stdout | ✓ ok❯ ${B} (3 tests | 1 failed) 9ms`].join('\n');
+    expect(failingLines(resultLines(log))).toEqual([` ❯ ${B} (3 tests | 1 failed)`]);
+  });
+});
+
+describe('result-lines.ts, as shard.sh and run.sh call it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'result-lines-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const log = join(dir, 'shard.log');
+  writeFileSync(log, [` ✓ ${A} (1 test) 1ms`, `    at x ("✓ ${A} (1 test) 1ms")`, `[seed] ✓ hi× ${B} (2 tests | 1 failed) 2ms`].join('\n'));
+  const run = (...args: string[]) => spawnSync('bun', ['scripts/ci/integration/result-lines.ts', ...args], { encoding: 'utf8' });
+
+  it('counts: prints only the files without exactly one result line', () => {
+    expect(run('counts', log, A, B).stdout).toBe('');
+    expect(run('counts', log, A, B, 'tests/integration/c.int.test.ts').stdout).toBe('0\ttests/integration/c.int.test.ts\n');
+  });
+
+  it('failed: prints the failing files', () => {
+    expect(run('failed', log).stdout).toBe(` × ${B} (2 tests | 1 failed)\n`);
+  });
+
+  it('refuses an unknown command', () => {
+    expect(run('nope', log).status).toBe(2);
+  });
+});

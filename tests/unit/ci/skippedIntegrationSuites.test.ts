@@ -81,6 +81,20 @@ describe('skipNotice', () => {
     expect(glued.map((m) => [m.file, m.skipped])).toEqual([['tests/integration/silent.int.test.ts', 16]]);
   });
 
+  it('takes the path from the LAST mark on a line whose glued-in output carries an earlier ✓ or × (review round 8)', () => {
+    const seed = skippedSuites('[seed] ✓ migrated 3 rows↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms', read);
+    expect(seed.map((m) => [m.file, m.skipped])).toEqual([['tests/integration/silent.int.test.ts', 16]]);
+    const stdout = skippedSuites('stdout | ✓ ok ✓ tests/integration/gotrue.int.test.ts (2 tests | 2 skipped)', read);
+    expect(stdout.map((m) => m.file)).toEqual(['tests/integration/gotrue.int.test.ts']);
+    const cross = skippedSuites('× boom ↓ tests/integration/partly.int.test.ts (10 tests | 3 skipped) 9ms', read);
+    expect(cross.map((m) => m.file)).toEqual(['tests/integration/partly.int.test.ts']);
+  });
+
+  it('does not read a result line quoted mid-line (a stack trace or a message), only one that ends the line', () => {
+    const quoted = skippedSuites('    at check ("↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms") x.ts:3', read);
+    expect(quoted).toEqual([]);
+  });
+
   it('reads a path with a space in it', () => {
     const spaced = skippedSuites(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)', () => undefined);
     expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
