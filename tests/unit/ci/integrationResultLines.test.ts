@@ -40,6 +40,12 @@ describe('resultLine', () => {
     expect(resultLine('     ✓ a test inside a file 3ms')).toBeNull();
   });
 
+  it("reads vitest's optional heap-usage suffix (--logHeapUsage)", () => {
+    expect(resultLine(` ✓ ${A} (4 tests) 3ms 45 MB heap used`)).toMatchObject({ mark: '✓', file: A, total: 4 });
+    expect(resultLine(`[seed] ✓ hi× ${A} (4 tests | 1 failed) 1203ms 112 MB heap used`)).toMatchObject({ mark: '×', file: A });
+    expect(resultLine(`    at x ("✓ ${A} (4 tests) 3ms 45 MB heap used") y.ts:1`)).toBeNull();
+  });
+
   it('reads a path with a space in it', () => {
     expect(resultLine(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)')?.file)
       .toBe('tests/integration/zz spaced.int.test.ts');

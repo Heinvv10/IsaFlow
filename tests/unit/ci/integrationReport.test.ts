@@ -94,3 +94,63 @@ describe('integration report: every database\'s results', () => {
     expect(r.stderr).toContain('survived');
   });
 });
+
+describe('integration report: a failed shard is never silent (review round 9)', () => {
+  it('names a failed shard with no log and no summary at all, and each database it has nothing for', () => {
+    const work = workDir({ 'c1/.keep': '', 'plan.tsv': '1\tisaflow_schema_fixture\ttests/integration/a.int.test.ts\n' });
+    const out = sh('report_integration_failure_logs "$2" 1 " 1"', work);
+    expect(out).toContain('[integration] shard 1/1 FAILED');
+    expect(out).toContain('[integration] shard 1/1 isaflow_schema_fixture: NO LOG (1 file planned)');
+    expect(out).toContain('[integration] shard 1/1 isaflow_test: NO LOG (no files planned)');
+  });
+
+  it('never treats a database without a summary line as passed: it says so and prints the tail', () => {
+    const work = workDir({
+      'c1/isaflow_schema_fixture.log': 'fixture passed\n',
+      'c1/isaflow_test.log': 'the shard died in the middle of this\n',
+      'c1/summary': '[integration] shard 1/1 isaflow_schema_fixture: 3 files, 2s, exit 0\n',
+    });
+    const out = sh('report_integration_failure_logs "$2" 1 "1"', work);
+    expect(out).toContain('[integration] shard 1/1 isaflow_schema_fixture: passed (exit 0), log not printed');
+    expect(out).not.toContain('fixture passed');
+    expect(out).toContain('[integration] shard 1/1 isaflow_test: NO SUMMARY LINE');
+    expect(out).toContain('the shard died in the middle of this');
+  });
+
+  it('prints the tail of a database that timed out (its summary line has no exit status)', () => {
+    const work = workDir({
+      'c1/isaflow_test.log': 'last file was hanging\n',
+      'c1/summary': '[integration] shard 1/1 isaflow_test: TIMED OUT after 1800s (shard limit 1800s); last file started: x\n',
+    });
+    expect(sh('report_integration_failure_logs "$2" 1 "1"', work)).toContain('last file was hanging');
+  });
+
+  it('cuts by characters, not bytes: a ✓ at the column limit stays whole', () => {
+    const line = `${'a'.repeat(399)}✓✓✓ tail`;
+    const out = sh('report_integration_failure_logs "$2" 1 "1"', workDir({ 'c1/isaflow_test.log': `${line}\n` }));
+    expect(out.split('\n')).toContain(`${'a'.repeat(399)}✓`);
+    expect(out).not.toContain('�');
+  });
+});
+
+describe('integration report: the failure section, and which shards failed', () => {
+  it('caps vitest\'s failure section at 300 lines', () => {
+    const body = Array.from({ length: 500 }, (_, i) => `failure detail ${i}`);
+    const log = ['⎯⎯⎯ Failed Tests 1 ⎯⎯⎯', ...body, ' Test Files  1 failed (1)'].join('\n');
+    const out = sh('report_shard_results "$2" 1', workDir({ 'c1/isaflow_test.log': `${log}\n` }));
+    expect(out).toContain('failure detail 298');
+    expect(out).not.toContain('failure detail 299');
+  });
+
+  it('wait_shards hands the failed shards (by exit status) to the report', () => {
+    const work = workDir({ 'c2/isaflow_test.log': 'shard two failed here\n', 'c1/isaflow_test.log': 'shard one passed\n',
+      'plan.tsv': '' });
+    const out = sh(`(exit 0) & a=$!; (exit 3) & b=$!; (exit 0) & c=$!
+      wait_shards "$a" "$b" "$c"; echo "failed=$FAILED shards=[$FAILED_SHARDS]"
+      report_integration_failure_logs "$2" 3 "$FAILED_SHARDS"`, work);
+    expect(out).toContain('failed=1 shards=[ 2]');
+    expect(out).toContain('[integration] shard 2/3 FAILED');
+    expect(out).toContain('shard two failed here');
+    expect(out).not.toContain('shard one passed');
+  });
+});
