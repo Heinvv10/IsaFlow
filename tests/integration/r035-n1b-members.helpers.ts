@@ -70,6 +70,12 @@ export async function acceptAsInvitee(who: string, rawToken: string) {
 
 export async function cleanupMembers(pool: Pool, companies: string[], users: string[]): Promise<void> {
   await pool.query('DELETE FROM company_invitations WHERE company_id = ANY($1)', [companies]);
+  // The invite route's send limiter: one counter per company (and per day), and
+  // one for the address the shared request() helper sends from.
+  await pool.query(
+    `DELETE FROM rate_limit_counters WHERE key = 'send:company-invitations:ip:127.0.0.79'
+       OR key LIKE ANY (SELECT 'send:company-invitations:co:' || c || '%' FROM unnest($1::text[]) c)`,
+    [companies]);
   // create_company_with_owner seeds a chart and periods: the PR2 cleanup clears the ledger tables too.
   await cleanupPr2(pool, companies, users);
 }

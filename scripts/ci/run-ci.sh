@@ -38,6 +38,9 @@ run_step "pack-fixture-types" bun run type-check:pack-fixtures
 # R-183: tests/** is outside tsconfig and vitest strips `import type`, so the type half of the
 # paystackClient export pin is only enforced by compiling that one test file.
 run_step "paystack-export-types" bun run type-check:paystack-exports
+# scripts/** is outside tsconfig.json, so the integration gate's own TypeScript
+# (and the test helpers it relies on) is compiled here.
+run_step "ci-script-types"   bun run type-check:ci-scripts
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
@@ -57,9 +60,9 @@ run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.s
 run_step "findings-numbering"     bash scripts/ci/check-findings-numbering.sh
 run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
 # The oauth_apps trust flags decide whether an app may brand the consent
-# screen. Migration 693 makes them unwritable; the only other guard on that is
-# an integration test this script SKIPS without DATABASE_URL, so a change that
-# undid 693 would leave CI green. Text-only, so it runs every time.
+# screen. Migration 693 makes them unwritable; the other guard on that is an
+# integration test, which runs only on GitHub or with CI_INTEGRATION=1, so a
+# change that undid 693 could pass a local run. Text-only, so it runs every time.
 run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 # GitHub's CI job must call this script, not a hand-kept copy of its list
 # (R-052: GitHub ran 5 of these gates while a PR showed green).
@@ -79,14 +82,22 @@ run_step "component-tests"   bun run test:components
 run_step "browser-tests"     bun run test:print
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
-if [ -n "${DATABASE_URL:-}" ]; then
-  run_step "integration-tests" bun run test:integration
+# Every tests/integration/**/*.int.test.ts against throwaway PostgreSQL 16
+# clusters the step starts and removes itself (initdb as the current user; no
+# docker, no dev database, no secret), from the committed schema baseline plus
+# this branch's newer migrations. It ignores DATABASE_URL. It names every suite
+# that skipped and why, and fails on one that skipped without saying why.
+# See the header of scripts/ci/integration/run.sh.
+# It runs on GitHub (GITHUB_ACTIONS=true) and, locally, only when asked for
+# with CI_INTEGRATION=1: it adds 8-25 minutes, so the pre-push hook skips it.
+INTEGRATION_NOTE=""
+if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
+  run_step "integration"     bash scripts/ci/integration/run.sh
+else
+  INTEGRATION_NOTE=" (integration NOT RUN)"
+  echo ""
+  echo "[skip] integration: NOT RUN — the integration suites run on GitHub only. Run them here with: CI_INTEGRATION=1 bun run ci (or bash scripts/ci/integration/run.sh)"
 fi
-# Says, by name, which integration suites this run did NOT include and why:
-# all of them without DATABASE_URL, and the disposable-database-only ones
-# whenever DATABASE_URL names anything else. They skip themselves rather than
-# fail, so without this a green run reads as if they had passed.
-CI_DATABASE_URL="${DATABASE_URL:-}" bun scripts/ci/report-skipped-integration.ts
 
 # Production build gate — catches build-breaking changes pre-merge (the deploy
 # script builds too, but that's too late). Set CI_SKIP_BUILD=1 to skip locally.
@@ -98,7 +109,7 @@ fi
 
 echo ""
 if [ "${#FAILED[@]}" -eq 0 ]; then
-  echo "[ci] all checks passed"
+  echo "[ci] all checks passed${INTEGRATION_NOTE}"
   exit 0
 fi
 

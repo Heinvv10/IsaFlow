@@ -8,6 +8,7 @@
  * debit-normal equity or liability balance and FAILS (not skips) without one, so it cannot pass by proving nothing.
  */
 import { describe, it, expect } from 'vitest';
+import { IN_INTEGRATION_GATE } from '../helpers/integrationGate';
 import { sql } from '@/lib/neon';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
 import { getMonthlyBalances } from '@/modules/accounting/services/reports/trendRowsService';
@@ -17,7 +18,8 @@ function monthEnd(monthKey: string): string {
   return new Date(Date.UTC(y!, m!, 0)).toISOString().slice(0, 10);
 }
 
-describe('account trends — contra equity / liability accounts', () => {
+// ci-integration-skip: reads isaflow_dev's real tenants and posted history; the CI gate's disposable databases have neither. Outside the gate it runs, and fails without a real DATABASE_URL.
+describe.skipIf(IN_INTEGRATION_GATE)('account trends — contra equity / liability accounts', () => {
   it('the last month of a debit-normal equity/liability series equals its balance-sheet line', async () => {
     const url = process.env['DATABASE_URL'] ?? '';
     if (!url || url.includes('dummy')) throw new Error('accountTrendsContraAccounts.int.test needs a real DATABASE_URL');

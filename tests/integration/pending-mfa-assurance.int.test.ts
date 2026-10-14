@@ -1,5 +1,6 @@
 import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import { SignJWT } from 'jose';
 import { Secret, TOTP } from 'otpauth';
 import { adminCreateUser, adminDeleteUser, signIn, refresh, verifyToken, verifyTokenSignature } from '@/lib/auth/gotrue';
@@ -11,6 +12,8 @@ if (process.env.ISAFLOW_DISPOSABLE_AUTH_TEST !== '1' || !['127.0.0.1', 'localhos
   throw new Error('Requires ISAFLOW_DISPOSABLE_AUTH_TEST=1 and localhost disposable GOTRUE_URL');
 }
 const secret = process.env.JWT_SECRET;
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
 if (!secret) throw new Error('Disposable JWT_SECRET required');
 const email = `mfa-remediation-${crypto.randomUUID()}@test.local`;
 const password = 'Disposable-Mfa-Test!2026';
@@ -19,6 +22,7 @@ let priorAnon: string | undefined;
 let priorService: string | undefined;
 
 beforeAll(async () => {
+  if (!LIVE) return;
   priorAnon = process.env.SUPABASE_ANON_KEY;
   priorService = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const key = new TextEncoder().encode(secret);
@@ -39,7 +43,7 @@ afterAll(async () => {
   }
 });
 
-it('real GoTrue: no-MFA login, enrollment, denied password token, then completed TOTP session', async () => {
+it.skipIf(!LIVE)('real GoTrue: no-MFA login, enrollment, denied password token, then completed TOTP session', async () => {
   const initial = await signIn(email, password);
   expect((await verifyToken(initial.access_token)).sub).toBe(userId);
   const enrollment = await enrollTotp(initial.access_token, 'remediation fixture');

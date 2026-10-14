@@ -22,6 +22,7 @@
  * convention as the other tests/integration/*.int.test.ts files.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { IN_INTEGRATION_GATE } from '../helpers/integrationGate';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { sql, getPoolForTests } from '@/lib/neon';
@@ -49,7 +50,8 @@ afterAll(async () => {
   await getPoolForTests().end();
 });
 
-describe('getFinancialFigures vs getBalanceSheet — Brightsphere agree after scoping', () => {
+// ci-integration-skip: reads isaflow_dev's real tenants and posted history; the CI gate's disposable databases have neither. Outside the gate it runs, and fails without a real DATABASE_URL.
+describe.skipIf(IN_INTEGRATION_GATE)('getFinancialFigures vs getBalanceSheet — Brightsphere agree after scoping', () => {
   it('JE-2026-00002 really does carry a foreign-account leg (fixture assumption)', async () => {
     const rows = await sql<{ account_company_id: string; debit: string }>`
       SELECT ga.company_id AS account_company_id, jl.debit

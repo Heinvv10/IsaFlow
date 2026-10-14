@@ -111,9 +111,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['a fractional timeout', 'timeout-minutes: 20.5'],
     ['no timeout floor (key removed)', null],
   ])('%s: the check ends cancelled, never red', (_label, line) => {
-    // Anchored on quality's own comment: golden-paths also has timeout-minutes: 30.
-    const from = '~3.5x headroom.\n    timeout-minutes: 30\n';
-    expect(check(edit(from, line === null ? '~3.5x headroom.\n' : `~3.5x headroom.\n    ${line}\n`)).length).toBeGreaterThan(0);
+    // Anchored on quality's own comment: golden-paths has a timeout-minutes too.
+    const from = 'so 120.\n    timeout-minutes: 120\n';
+    expect(check(edit(from, line === null ? 'so 120.\n' : `so 120.\n    ${line}\n`)).length).toBeGreaterThan(0);
   });
 
   it.each([
