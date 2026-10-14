@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { failingLines, resultLine, resultLines, wrongCounts } from '../../../scripts/ci/integration/resultLines';
+import { failingLines, resultLine, resultLines, unreadable, wrongCounts } from '../../../scripts/ci/integration/resultLines';
 
 const A = 'tests/integration/a.int.test.ts';
 const B = 'tests/integration/b.int.test.ts';
@@ -49,6 +49,46 @@ describe('resultLine', () => {
   it('reads a path with a space in it', () => {
     expect(resultLine(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)')?.file)
       .toBe('tests/integration/zz spaced.int.test.ts');
+  });
+});
+
+// The module line of vitest 4.1.2's default reporter (node_modules/vitest/dist/chunks/index.*.js, getModuleLog and
+// getEntityPrefix): ` <mark>[ |<project>|][  TS ] <path> (<n> test[s][ | k failed][ | k skipped][ | k todo])`
+// then ` <integer>ms` when it has a duration, then ` <integer> MB heap used` with --logHeapUsage. These strings are
+// built that way (NO_COLOR, as the gate runs it).
+describe('resultLine: every module-line form vitest 4.1.2 writes', () => {
+  it.each([
+    [` ✓ ${A} (0 test)`, { mark: '✓', file: A, total: 0, counts: {} }],
+    [` ✓ ${A} (1 test) 0ms`, { mark: '✓', file: A, total: 1, counts: {} }],
+    [` ❯ ${A} (9 tests | 2 failed | 3 skipped | 1 todo) 61234ms`, { mark: '❯', file: A, total: 9, counts: { failed: 2, skipped: 3, todo: 1 } }],
+    [` ↓ ${A} (2 tests | 2 skipped)`, { mark: '↓', file: A, total: 2, counts: { skipped: 2 } }],
+    [` ✓ ${A} (2 tests) 12ms 45 MB heap used`, { mark: '✓', file: A, total: 2, counts: {} }],
+    [` ✓ |integration| ${A} (2 tests) 12ms`, { mark: '✓', file: A, total: 2, counts: {} }],
+    [` ❯ |integration|  TS  ${A} (2 tests | 1 failed) 12ms`, { mark: '❯', file: A, total: 2, counts: { failed: 1 } }],
+  ])('%s', (line, want) => {
+    expect(resultLine(line)).toEqual(want);
+  });
+
+  // Not vitest's module line, so not read (and then named as unreadable, below): formatTime's `1.50s` / `1m 2s` is the
+  // run summary's, the module line's duration is always integer ms with no space; `(slow)` is not written; `expected
+  // fail` is counted only in the Test Files / Tests summary, never on a file's line.
+  it.each([` ✓ ${A} (3 tests) 1m 2s`, ` ✓ ${A} (3 tests) 1.50s`, ` ✓ ${A} (3 tests) 10ms (slow)`, ` ✓ ${A} (3 tests) 10 ms`,
+    ` ✓ ${A} (3 tests | 1 failed | 1 expected fail) 9ms`])('%s is not read', (line) => {
+    expect(resultLine(line)).toBeNull();
+  });
+
+  it('NAMED LIMIT: a line holding two results reads only the last; the first file then has no result line and fails closed', () => {
+    const glued = ` ✓ ${A} (3 tests) 10ms ❯ ${B} (3 tests | 1 failed) 10ms`;
+    expect(resultLines(glued).map((r) => r.file)).toEqual([B]);
+    expect(wrongCounts(resultLines(glued), [A, B])).toEqual([{ file: A, n: 0 }]);
+  });
+});
+
+describe('unreadable: a started suite whose result line cannot be read is named, not dropped', () => {
+  it('names each started file (absolute, as vitest records it) with no readable result line', () => {
+    const log = [` ✓ ${A} (1 test) 1ms`, ` ✓ ${B} (3 tests) 1m 2s`].join('\n');
+    expect(unreadable(resultLines(log), [`/repo/${A}`, `/repo/${B}`], '/repo')).toEqual([B]);
+    expect(unreadable(resultLines(log), [`/repo/${A}`], '/repo')).toEqual([]);
   });
 });
 
@@ -92,6 +132,13 @@ describe('result-lines.ts, as shard.sh and run.sh call it', () => {
 
   it('failed: prints the failing files', () => {
     expect(run('failed', log).stdout).toBe(` × ${B} (2 tests | 1 failed)\n`);
+  });
+
+  it('failed <log> <started>: also names a started suite whose result line cannot be read', () => {
+    const started = join(dir, 'shard.started');
+    writeFileSync(started, `${join(process.cwd(), A)}\n${join(process.cwd(), 'tests/integration/c.int.test.ts')}\n`);
+    expect(run('failed', log, started).stdout).toBe(` × ${B} (2 tests | 1 failed)\n`
+      + ' ? tests/integration/c.int.test.ts (started, but no readable result line)\n');
   });
 
   it('refuses an unknown command', () => {

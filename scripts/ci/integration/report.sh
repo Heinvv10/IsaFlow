@@ -28,7 +28,7 @@ report_shard_results() {
       echo ""
       echo "----- [integration] shard $i/$shards, $db -----"
       grep -E '^ +(Test Files|Tests) ' "$log"
-      bun scripts/ci/integration/result-lines.ts failed "$log"
+      bun scripts/ci/integration/result-lines.ts failed "$log" "$work/c$i/$db.started"
       awk '/⎯ Failed (Tests|Suites) /{on=1} on && n < 300 {print; n++} /^ +Test Files /{on=0}' "$log"
       grep -E '^\[integration\]' "$log"
     done
@@ -61,15 +61,24 @@ cut_columns() {
     while (<STDIN>) { chomp; print substr(decode("UTF-8", $_), 0, $n), "\n" }' "$1"
 }
 
-# positive_or_default <name> <value> <default>: the value when it is a positive
-# integer, else the default, with a note on stderr.
-positive_or_default() {
-  if [[ $2 =~ ^[1-9][0-9]{0,8}$ ]]; then
-    echo "$2"
-  else
-    echo "[integration] $1=$2 is not a positive integer; using $3" >&2
-    echo "$3"
-  fi
+# bound_from_env <variable name> <default>: the variable's value when it is a
+# positive integer of 1-9 ASCII digits without a leading zero; the default when
+# the variable is unset; otherwise the default, with a note on stderr (set but
+# empty included). The check is a case pattern listing the ten ASCII digits, not
+# a regex class or range: under a UTF-8 locale [0-9] also takes digits such as
+# U+0663, which tail rejects. The note quotes the value with %q (at most 40
+# characters), so a value holding a newline cannot start a line of its own (a
+# GitHub "::error::" command, say).
+bound_from_env() {
+  local name=$1 default=$2 value
+  [ -n "${!name+set}" ] || { echo "$default"; return 0; }
+  value=${!name}
+  case $value in
+    "" | 0* | *[!0123456789]*) ;;
+    *) if [ "${#value}" -le 9 ]; then echo "$value"; return 0; fi ;;
+  esac
+  printf '[integration] %s=%q is not a positive integer; using %s\n' "$name" "${value:0:40}" "$default" >&2
+  echo "$default"
 }
 
 # report_integration_failure_logs <work dir> <shard count> <failed shard ids>
@@ -82,8 +91,8 @@ positive_or_default() {
 report_integration_failure_logs() {
   local work=$1 shards=$2 failed_shards=$3 i db log status planned
   local lines columns
-  lines=$(positive_or_default CI_INT_FAILURE_LOG_LINES "${CI_INT_FAILURE_LOG_LINES:-400}" 400)
-  columns=$(positive_or_default CI_INT_FAILURE_LOG_COLUMNS "${CI_INT_FAILURE_LOG_COLUMNS:-400}" 400)
+  lines=$(bound_from_env CI_INT_FAILURE_LOG_LINES 400)
+  columns=$(bound_from_env CI_INT_FAILURE_LOG_COLUMNS 400)
   for i in $failed_shards; do
     echo ""
     echo "[integration] shard $i/$shards FAILED"
@@ -120,9 +129,13 @@ report_integration_failure_logs() {
 # description, shared with this shell). On a pipe read slowly (the GitHub
 # runner's) a write from this shell can then fail with EAGAIN; under set -e a
 # failed echo would end the step.
+# No redirect on perl: its fd 2 must be the caller's stderr (a separate pipe on
+# a runner), which a `2> /dev/null` would replace. Perl prints no warnings here
+# (no -w, `no warnings`), and a failure on either fd is skipped.
 unblock_stdio() {
-  perl -MFcntl -e 'for my $fd (1, 2) { open(my $h, ">&=", $fd) or next;
-    my $f = fcntl($h, F_GETFL, 0) or next; fcntl($h, F_SETFL, $f & ~O_NONBLOCK) }' 2> /dev/null || true
+  command -v perl > /dev/null || return 0
+  perl -MFcntl -e 'no warnings; for my $fd (1, 2) { open(my $h, ">&=", $fd) or next;
+    my $f = fcntl($h, F_GETFL, 0) or next; fcntl($h, F_SETFL, $f & ~O_NONBLOCK) }' || true
 }
 
 # print_report <report file> <where a local run keeps the full logs>

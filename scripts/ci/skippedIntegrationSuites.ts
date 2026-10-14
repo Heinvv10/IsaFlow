@@ -55,7 +55,12 @@ export function skippedSuites(log: string, read: (file: string) => string | unde
   return [...seen.values()].sort((a, b) => a.file.localeCompare(b.file));
 }
 
-export function skipNotice(suites: SkippedSuite[]): { lines: string[]; unexplained: string[] } {
+/**
+ * `unread`: suites that started but left no readable result line (resultLines.ts `unreadable`). Whether they skipped
+ * is unknown, so each is named and fails the report, as an unexplained skip does.
+ */
+export function skipNotice(suites: SkippedSuite[], unread: string[] = []):
+{ lines: string[]; unexplained: string[]; unreadable: string[] } {
   const unexplained = suites.filter((s) => s.skipped === s.total && !s.reason).map((s) => s.file);
   const lines = suites.map((s) => {
     const what = s.skipped === s.total ? `all ${s.total} tests skipped` : `${s.skipped} of ${s.total} tests skipped`;
@@ -66,5 +71,11 @@ export function skipNotice(suites: SkippedSuite[]): { lines: string[]; unexplain
       + 'comment saying why. State the reason in the file, or make the suite run:');
     lines.push(...unexplained.map((f) => `[skip]   ${f}`));
   }
-  return { lines, unexplained };
+  const unreadable = [...unread].sort();
+  if (unreadable.length > 0) {
+    lines.push(`[skip] FAIL: ${unreadable.length} suite(s) started but left no readable result line, so whether they `
+      + 'skipped is unknown:');
+    lines.push(...unreadable.map((f) => `[skip]   ${f}`));
+  }
+  return { lines, unexplained, unreadable };
 }
