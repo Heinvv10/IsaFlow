@@ -1,63 +1,99 @@
 /**
- * THE CI LOG NAMES THE INTEGRATION SUITES IT DID NOT RUN, AND WHY.
+ * THE CI LOG NAMES THE INTEGRATION SUITES THAT SKIPPED, AND WHY; A SUITE THAT
+ * SKIPS EVERYTHING WITHOUT SAYING WHY FAILS THE GATE.
  *
- * Three suites (pack-routes-access, report-pack-cash-flows,
- * statutory-filings-as-at) seed whole companies and so run only against a
- * disposable database on this machine; anywhere else they `describe.skip`.
- * GitHub's runner has no database at all, so `bun run ci` printed one line —
- * "integration-tests: DATABASE_URL not set" — and a reader of a green run had
- * no way to tell that the pack's real-database proofs were not in it.
+ * vitest reports a skipped suite as a pass. The integration gate runs every
+ * suite against disposable databases, where a few (live GoTrue, dev's real
+ * tenants) cannot run; without this, a green run would not say their proofs
+ * were missing from it.
  */
 import { describe, expect, it } from 'vitest';
-import { skippedIntegrationNotice, type IntegrationSuite } from '../../../scripts/ci/skippedIntegrationSuites';
+import { skipNotice, skippedSuites } from '../../../scripts/ci/skippedIntegrationSuites';
 
-const SUITES: IntegrationSuite[] = [
-  { file: 'tests/integration/pack-routes-access.int.test.ts', disposableOnly: true },
-  { file: 'tests/integration/statutory-filings-as-at.int.test.ts', disposableOnly: true },
-  { file: 'tests/integration/journal-posting.int.test.ts', disposableOnly: false },
-];
+const FILES: Record<string, string> = {
+  'tests/integration/gotrue.int.test.ts': '// ci-integration-skip: needs a live GoTrue\nconst LIVE = false;\n',
+  'tests/integration/silent.int.test.ts': 'const describeIfDb = process.env.X ? describe : describe.skip;\n',
+  'tests/integration/partly.int.test.ts': 'it.skip("one", () => {});\n',
+  'tests/integration/ran.int.test.ts': '// ci-integration-skip: never printed, nothing skipped\n',
+};
+const read = (f: string) => FILES[f];
 
-describe('with no DATABASE_URL', () => {
-  const lines = skippedIntegrationNotice(undefined, SUITES);
+const LOG = [
+  ' RUN  v4.1.2 /repo',
+  ' ↓ tests/integration/gotrue.int.test.ts (2 tests | 2 skipped)',
+  '\u001b[32m ✓\u001b[39m tests/integration/ran.int.test.ts (5 tests) 120ms',
+  ' ✓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms',
+  ' ❯ tests/integration/partly.int.test.ts (10 tests | 1 failed | 3 skipped) 410ms',
+  '     ✓ some test inside a file 3ms',
+  ' Test Files  1 failed | 3 passed | 1 skipped (5)',
+].join('\n');
 
-  it('says every integration suite was skipped, how many, and why', () => {
-    expect(lines[0]).toBe('[skip] integration-tests: DATABASE_URL not set — none of the 3 integration suites ran.');
+describe('skippedSuites', () => {
+  const suites = skippedSuites(LOG, read);
+
+  it('reads every file vitest reported with skipped tests, and only those', () => {
+    expect(suites.map((s) => [s.file, s.skipped, s.total])).toEqual([
+      ['tests/integration/gotrue.int.test.ts', 2, 2],
+      ['tests/integration/partly.int.test.ts', 3, 10],
+      ['tests/integration/silent.int.test.ts', 16, 16],
+    ]);
   });
 
-  it('names each suite that needs a disposable database', () => {
-    expect(lines).toContain('[skip]   tests/integration/pack-routes-access.int.test.ts');
-    expect(lines).toContain('[skip]   tests/integration/statutory-filings-as-at.int.test.ts');
-    expect(lines.join('\n')).not.toContain('journal-posting');
+  it("quotes the reason from the file's ci-integration-skip comment", () => {
+    expect(suites[0]!.reason).toBe('needs a live GoTrue');
+    expect(suites[2]!.reason).toBeNull();
   });
 
-  it('reads an empty string, which is what an unset GitHub secret is, the same way', () => {
-    expect(skippedIntegrationNotice('', SUITES)).toEqual(lines);
-  });
-});
-
-describe('with a DATABASE_URL that is not a disposable database', () => {
-  const lines = skippedIntegrationNotice('postgres://app:hunter2@db.internal:5432/isaflow_dev', SUITES);
-
-  it('says the other suites ran and these two did not, by name', () => {
-    expect(lines[0]).toMatch(/^\[skip\] integration-tests: 2 of the 3 integration suites did NOT run/);
-    expect(lines).toContain('[skip]   tests/integration/pack-routes-access.int.test.ts');
-    expect(lines).toContain('[skip]   tests/integration/statutory-filings-as-at.int.test.ts');
-  });
-
-  it('says what would make them run', () => {
-    expect(lines.join('\n')).toMatch(/isaflow_schema_fixture or isaflow_test on localhost/);
-  });
-
-  it('does not print the connection string', () => {
-    expect(lines.join('\n')).not.toMatch(/hunter2|db\.internal/);
+  it('reads a coloured line the same as a plain one', () => {
+    const coloured = skippedSuites('\u001b[33m ↓\u001b[39m tests/integration/gotrue.int.test.ts (2 tests | 2 skipped)', read);
+    expect(coloured).toEqual([suites[0]]);
   });
 });
 
-describe('with a disposable database', () => {
-  it.each([
-    'postgres://postgres:pw@localhost:55432/isaflow_schema_fixture',
-    'postgres://postgres:pw@127.0.0.1:5432/isaflow_test',
-  ])('has nothing to report for %s', (url) => {
-    expect(skippedIntegrationNotice(url, SUITES)).toEqual([]);
+describe('skipNotice', () => {
+  const { lines, unexplained } = skipNotice(skippedSuites(LOG, read));
+
+  it('prints each skipping suite with how much it skipped and why', () => {
+    expect(lines).toContain('[skip] tests/integration/gotrue.int.test.ts: all 2 tests skipped — needs a live GoTrue');
+    expect(lines).toContain(
+      '[skip] tests/integration/partly.int.test.ts: 3 of 10 tests skipped — no reason stated in the file');
+  });
+
+  it('fails a suite that skipped every test without a stated reason, by name', () => {
+    expect(unexplained).toEqual(['tests/integration/silent.int.test.ts']);
+    expect(lines.join('\n')).toMatch(/FAIL: 1 suite\(s\) skipped every test without a "ci-integration-skip/);
+    expect(lines).toContain('[skip]   tests/integration/silent.int.test.ts');
+  });
+
+  it('does not fail a suite that skipped only some of its tests', () => {
+    expect(unexplained).not.toContain('tests/integration/partly.int.test.ts');
+  });
+
+  it('counts it.todo as skipped: a suite of only todos asserts nothing and must say why', () => {
+    const todo = skipNotice(skippedSuites(' ↓ tests/integration/silent.int.test.ts (2 tests | 2 todo)', read));
+    expect(todo.unexplained).toEqual(['tests/integration/silent.int.test.ts']);
+    const mixed = skippedSuites(' ✓ tests/integration/gotrue.int.test.ts (5 tests | 1 skipped | 2 todo) 3ms', read);
+    expect(mixed.map((m) => [m.skipped, m.total])).toEqual([[3, 5]]);
+  });
+
+  it('reads a path with a space in it', () => {
+    const spaced = skippedSuites(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)', () => undefined);
+    expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
+  });
+
+  it('takes the reason only from a comment line of its own, not a string or a comment about the marker', () => {
+    const files: Record<string, string> = {
+      'tests/integration/string.int.test.ts': "const note = 'see ci-integration-skip: docs';\n",
+      'tests/integration/aside.int.test.ts': '// unrelated note: the ci-integration-skip: marker is documented elsewhere\n',
+      'tests/integration/indented.int.test.ts': 'describe(() => {\n  // ci-integration-skip: needs a live GoTrue\n});\n',
+    };
+    const log = Object.keys(files).map((f) => ` ↓ ${f} (1 test | 1 skipped)`).join('\n');
+    const { unexplained } = skipNotice(skippedSuites(log, (f) => files[f]));
+    expect(unexplained).toEqual(['tests/integration/aside.int.test.ts', 'tests/integration/string.int.test.ts']);
+  });
+
+  it('has nothing to say about a run where nothing skipped', () => {
+    expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
+      .toEqual({ lines: [], unexplained: [] });
   });
 });

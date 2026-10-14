@@ -133,6 +133,7 @@ describe.each(owners)('%s', (label, run) => {
     if (isWrapper) expect(r.finalizeLog).toMatchObject({ handlerFailed: false, connectionDestroyed: true, companyId: CO, userId: USER });
   });
 
+  // ci-integration-skip: the handler's-own-503 case runs for the auth wrappers only; withPublicRouteTransaction is a bare transaction owner without the wrappers' answer path.
   it.runIf(isWrapper)('a 503 answer whose ROLLBACK fails: destroyed, and the handler\'s own 503 is what the client gets', async () => {
     const r = await requestThenNext(run, 'answer-503', ['ROLLBACK'], 'gone');
     // Nothing was meant to commit, so this is not a COMMIT failure: the buffered answer stands.

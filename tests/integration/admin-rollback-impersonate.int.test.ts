@@ -7,6 +7,7 @@
  * Needs a disposable GoTrue (GOTRUE_URL on localhost) and isaflow_schema_fixture (assertDisposable).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Pool } from 'pg';
 import { adminCreateUser, adminDeleteUser, signIn } from '@/lib/auth/gotrue';
@@ -64,7 +65,10 @@ function mkRes() {
   return { res: res as unknown as NextApiResponse, wire };
 }
 
-describe('impersonate start that fails after setting the cookies', () => {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+
+describe.skipIf(!LIVE)('impersonate start that fails after setting the cookies', () => {
   let adminId = '';
   let targetId = '';
 

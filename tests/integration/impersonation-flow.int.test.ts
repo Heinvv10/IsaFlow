@@ -1,5 +1,6 @@
 // tests/integration/impersonation-flow.int.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { Pool } from 'pg';
 import { adminCreateUser, adminDeleteUser, signIn } from '@/lib/auth/gotrue';
@@ -59,7 +60,10 @@ function cookieValue(setCookies: string[], name: string): string | null {
   return null;
 }
 
-describe('impersonation flow (integration)', () => {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+
+describe.skipIf(!LIVE)('impersonation flow (integration)', () => {
   let adminId: string;
   let targetId: string;
 

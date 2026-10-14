@@ -1,17 +1,20 @@
 // tests/integration/2fa-enroll-flow.int.test.ts
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { liveGoTrue } from '../helpers/liveGoTrue';
 import { TOTP, Secret } from 'otpauth';
 import { signIn, adminCreateUser, adminDeleteUser } from '@/lib/auth/gotrue';
 import { enrollTotp, listFactors, challengeFactor, verifyFactor, unenrollFactor } from '@/lib/auth/gotrue-mfa';
 
-if (!process.env.JWT_SECRET || !process.env.GOTRUE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+// ci-integration-skip: needs a live GoTrue at GOTRUE_URL (real sign-in, TOTP enrolment or the admin user API); the CI gate starts none.
+const LIVE = await liveGoTrue();
+if (LIVE && (!process.env.JWT_SECRET || !process.env.SUPABASE_SERVICE_ROLE_KEY)) {
   throw new Error('JWT_SECRET + GOTRUE_URL + SUPABASE_SERVICE_ROLE_KEY required');
 }
 
 const TEST_EMAIL = `2fa-enroll-${Date.now()}@test.local`;
 const TEST_PW = 'E2EMfaSecret!123';
 
-describe('2FA enroll flow (against dev GoTrue)', () => {
+describe.skipIf(!LIVE)('2FA enroll flow (against dev GoTrue)', () => {
   let userId: string;
   let accessToken: string;
 

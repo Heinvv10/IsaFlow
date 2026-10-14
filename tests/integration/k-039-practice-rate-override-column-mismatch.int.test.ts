@@ -81,6 +81,12 @@ afterAll(async () => {
   await pool.end();
 });
 
+// ci-integration-skip: two cases need a legacy-only row (staff_user_id NULL), which isaflow_dev's schema refuses: its staff_user_id is NOT NULL although no migration in this repo sets that, so the row they test cannot exist there.
+const legacyOnlyRowStorable = (await pool.query(
+  `SELECT is_nullable FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'practice_client_rate_overrides' AND column_name = 'staff_user_id'`,
+)).rows[0]?.is_nullable === 'YES';
+
 describe('K-039 practice client rate override write/read use the same columns', () => {
   it('creates an override and resolveRate returns it', async () => {
     // RED #1: the INSERT omits the still-NOT NULL legacy user_id/rate columns.
@@ -181,7 +187,7 @@ describe('K-039 practice client rate override write/read use the same columns', 
     expect(await resolveRate(companyId, staff, clientId, onDate)).toBe(300);
     expect(await resolveRate(companyId, staff, clientId, '2026-06-14')).toBe(1500);
   });
-  it('resolves a pre-migration-626 row that carries only the legacy pair', async () => {
+  it.skipIf(!legacyOnlyRowStorable)('resolves a pre-migration-626 row that carries only the legacy pair', async () => {
     // MEDIUM-2: the filter half. staff_user_id is NULL, so only the user_id branch
     // of the predicate can find this row.
     const legacy = crypto.randomUUID();
@@ -198,7 +204,7 @@ describe('K-039 practice client rate override write/read use the same columns', 
     expect(await resolveRate(companyId, legacy, clientId, onDate)).toBe(222);
   });
 
-  it('lists a legacy-only row at its real rate and staff member', async () => {
+  it.skipIf(!legacyOnlyRowStorable)('lists a legacy-only row at its real rate and staff member', async () => {
     // MEDIUM-1: mapRow must fall back to user_id/rate rather than render 0 and null.
     const legacy = crypto.randomUUID();
     const id = await insertPreMirrorRow({

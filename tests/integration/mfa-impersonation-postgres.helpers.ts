@@ -11,6 +11,16 @@ export function assertDisposable() {
   const gotrue = new URL(process.env.GOTRUE_URL ?? 'http://missing.invalid');
   if (!['localhost', '127.0.0.1'].includes(gotrue.hostname)) throw new Error('GOTRUE_URL must be localhost');
 }
+/**
+ * `url`'s path below GOTRUE_URL's own path, for fetch stubs standing in for
+ * GoTrue: a Supabase-style GOTRUE_URL carries a path (`…/auth/v1`), so the
+ * app requests `/auth/v1/admin/users`, not `/admin/users`.
+ */
+export function gotruePath(url: URL): string {
+  const base = new URL(process.env.GOTRUE_URL ?? 'http://localhost').pathname.replace(/\/$/, '');
+  return url.pathname.startsWith(base) ? url.pathname.slice(base.length) : url.pathname;
+}
+
 export function request(jar: Record<string, string>, method: string, targetId?: string) {
   const csrf = 'disposable-postgres-workflow-csrf-0123456789';
   const cookies = { ...jar, isaflow_csrf: csrf };

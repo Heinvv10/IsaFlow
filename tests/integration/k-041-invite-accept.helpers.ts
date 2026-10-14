@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { vi } from 'vitest';
 import pg, { Pool } from 'pg';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, gotruePath } from './mfa-impersonation-postgres.helpers';
 import type { NextApiRequest } from 'next';
 
 assertDisposable();
@@ -146,6 +146,9 @@ export const passwordPatches: Array<{ userId: string; password?: string }> = [];
 export const adminPatches: Array<{ userId: string; body: Record<string, unknown> }> = [];
 const originalFetch = globalThis.fetch;
 
+/** Every address acceptRequest sent from: the per-IP accept limiter keeps a counter for each. */
+const seenIps = new Set<string>();
+
 let accept: typeof import('../../pages/api/invitations/[token]/accept').default;
 export function getAccept(): typeof accept { return accept; }
 
@@ -153,6 +156,7 @@ export function acceptRequest(
   inviteToken: string, password: string, remote: string,
   names: { firstName?: unknown; lastName?: unknown } = { firstName: 'K', lastName: '041' },
 ): NextApiRequest {
+  seenIps.add(remote);
   return {
     method: 'POST', url: `/api/invitations/${inviteToken}/accept`, query: { token: inviteToken },
     cookies: {}, headers: {},
@@ -192,15 +196,18 @@ export async function setupInviteFixture(): Promise<void> {
       throw new Error('External network forbidden in disposable invite fixture');
     }
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (url.pathname.startsWith('/admin/users/')) {
-      const userId = url.pathname.split('/').pop()!;
+    // The endpoint, relative to GOTRUE_URL: a Supabase-style URL carries its own
+    // path (`…/auth/v1`), so the request is `/auth/v1/admin/users/…`, not `/admin/users/…`.
+    const path = gotruePath(url);
+    if (path.startsWith('/admin/users/')) {
+      const userId = path.split('/').pop()!;
       if (userId === outageUser) throw new Error('disposable gotrue outage');
       passwordPatches.push({ userId, password: body.password });
       adminPatches.push({ userId, body });
       return new Response(JSON.stringify({ id: userId, email: userId === existingUser ? email : newEmail }),
         { status: 200, headers: { 'content-type': 'application/json' } });
     }
-    if (url.pathname === '/token') {
+    if (path === '/token') {
       const extra = extraAccounts.get(body.email);
       if (extra) {
         if (body.password !== extra.password) {
@@ -249,6 +256,6 @@ export async function teardownInviteFixture(): Promise<void> {
     await pool.query('DELETE FROM users WHERE id=ANY($1::text[])',
       [[existingUser, inviter, newInvitee, shortPwUser, l3User, l3Legacy, l4User, l5User, astralUser]]);
     await pool.query('DELETE FROM rate_limit_counters WHERE key=ANY($1::text[])',
-      [[...seenDigests].map((d) => `invite-accept:${d}`)]);
+      [[...[...seenDigests].map((d) => `invite-accept:${d}`), ...[...seenIps].map((ip) => `invite-accept-by-ip:ip:${ip}`)]]);
   } finally { await pool.end(); }
 }
