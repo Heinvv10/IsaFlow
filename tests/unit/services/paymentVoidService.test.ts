@@ -84,6 +84,7 @@ vi.mock('@/modules/accounting/services/ap/paymentJournalReversal', () => ({
 }));
 // D8 rounds 10/12: lines matched to another journal of the chain (real-ledger proof: d8-r12-chain-bank-lines); none here.
 vi.mock('@/modules/accounting/services/bank/chainBankLines', () => ({ findChainBankLines: vi.fn(async () => []) }));
+vi.mock('@/modules/accounting/services/bank/splitJournalDocuments', () => ({ splitPartRefusal: vi.fn(async () => null) }));
 
 import { sql } from '@/lib/neon';
 import {
@@ -98,6 +99,7 @@ import { reverseReconciledTransaction } from '@/modules/accounting/services/bank
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { lockBankLegOf, lockJournalAndUnmatch } from '@/modules/accounting/services/ap/paymentJournalReversal';
+import { splitPartRefusal } from '@/modules/accounting/services/bank/splitJournalDocuments';
 import {
   isVoidRefusal,
   voidPaymentDocument,
@@ -191,6 +193,19 @@ describe('voidPaymentDocument', () => {
     expect(unwindOnePayment).not.toHaveBeenCalled();
     expect(reverseJournalEntry).not.toHaveBeenCalled();
     expect(r.bankTransactionId).toBe(BANK_TX);
+  });
+
+  // PR #711: a split bank allocation carries several documents (and GL lines). The
+  // bank path reverses ALL of it, so voiding one part is refused, nothing reversed.
+  it('refuses one part of a split allocation instead of reversing the whole bank line', async () => {
+    given(paymentRow(), [{ id: BANK_TX }]);
+    vi.mocked(splitPartRefusal).mockResolvedValueOnce('Payment CP-2025-00024 is one part of a split bank allocation');
+    const r = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+
+    expect(r).toEqual({ refusal: 'split_part', message: 'Payment CP-2025-00024 is one part of a split bank allocation' });
+    expect(splitPartRefusal).toHaveBeenCalledWith(COMPANY, JE, 'Payment CP-2025-00024');
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+    expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
   });
 
   // MEDIUM-1 follow-through (round 8). This function locks TWO rows nobody else

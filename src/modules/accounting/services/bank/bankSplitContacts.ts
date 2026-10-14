@@ -23,7 +23,12 @@
  *
  * `planSplitContacts` runs every refusal before the first write; the
  * `recordSplitContactDocuments` writes run after the journal has posted and are
- * NOT caught — a throw takes the journal with it (see supplierAutoAllocate.ts).
+ * NOT caught — a throw takes the journal with it: every caller runs the split
+ * inside a savepoint (REST `withJournalDateRefusal`, the MCP registry's).
+ *
+ * Contact ids are compared LOWERCASED: both entry points accept an uppercase
+ * UUID, Postgres reads it as the same row, and a per-contact sum keyed on the
+ * raw text would count one supplier twice.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -36,6 +41,7 @@ import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDo
 import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
 import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
+import { insertCustomerBankReceipt } from '../ar/customerBankReceipt';
 import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateStrategy';
 import { assertImporterMayAllocateAs } from './bankLineImporterGate';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
@@ -74,7 +80,13 @@ function round2(n: number): number {
 /** The contact a split line names, or null for a GL-account line. */
 export function splitLineContact(line: SplitLine): { kind: SplitContactKind; contactId: string } | null {
   if (!line.contactType || !line.contactId) return null;
-  return { kind: line.contactType, contactId: line.contactId };
+  return { kind: line.contactType, contactId: line.contactId.toLowerCase() };
+}
+
+/** Adds `amount` to `key`'s running total. */
+function addTo<T extends { amount: number }>(totals: Map<string, T>, key: string, entry: T): void {
+  const prior = totals.get(key);
+  totals.set(key, { ...entry, amount: round2((prior?.amount ?? 0) + entry.amount) });
 }
 
 /**
@@ -89,9 +101,12 @@ export async function planSplitContacts(
   const isSpent = Number(tx.amount) < 0;
   const txDate = fmtDate(tx.transaction_date);
   const planned: PlannedSplitContact[] = [];
-  // A refund cannot exceed the credit the contact holds; two refund lines to
-  // one contact are checked as their SUM, or each would pass on its own.
+  // Per-contact SUMS, never per line, or each line passes on its own: a refund
+  // cannot exceed the credit the contact holds, and a hand-keyed payment to one
+  // supplier is judged by the approval rules at what that supplier is paid —
+  // R100k as eleven R9,090 lines is still a R100k payment.
   const refundTotals = new Map<string, { kind: SplitContactKind; contactId: string; amount: number }>();
+  const paymentTotals = new Map<string, { contactId: string; amount: number }>();
 
   for (const [index, line] of lines.entries()) {
     const contact = splitLineContact(line);
@@ -110,24 +125,18 @@ export async function planSplitContacts(
     let controlAccountId: string;
     if (contact.kind === 'supplier') {
       await assertSupplierInCompany(companyId, contact.contactId);
-      if (isSpent) await assertBankLineMayPaySupplier(companyId, tx, amount);
-      const rows = (await sql`SELECT name FROM suppliers WHERE id = ${contact.contactId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-      contactName = rows.length > 0 ? String(rows[0]!.name) : `Supplier #${contact.contactId}`;
+      contactName = await contactNameOf(companyId, 'suppliers', contact.contactId);
       controlAccountId = await getSystemAccountId('payable', companyId);
+      if (isSpent) addTo(paymentTotals, contact.contactId, { contactId: contact.contactId, amount });
     } else {
       await assertCustomerInCompany(companyId, contact.contactId);
-      const rows = (await sql`SELECT name FROM customers WHERE id = ${contact.contactId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-      contactName = rows.length > 0 ? String(rows[0]!.name) : `Customer #${contact.contactId}`;
+      contactName = await contactNameOf(companyId, 'customers', contact.contactId);
       controlAccountId = await getSystemAccountId('receivable', companyId);
     }
     await assertImporterMayAllocateAs(companyId, tx, userId, contact.kind, contact.contactId);
 
     const isRefund = contact.kind === 'supplier' ? !isSpent : isSpent;
-    if (isRefund) {
-      const key = `${contact.kind}:${contact.contactId}`;
-      const prior = refundTotals.get(key);
-      refundTotals.set(key, { ...contact, amount: round2((prior?.amount ?? 0) + amount) });
-    }
+    if (isRefund) addTo(refundTotals, `${contact.kind}:${contact.contactId}`, { ...contact, amount });
     const verb = contact.kind === 'supplier'
       ? (isSpent ? `Payment to ${contactName}` : `Refund from ${contactName}`)
       : (isSpent ? `Refund to ${contactName}` : `Receipt from ${contactName}`);
@@ -138,11 +147,22 @@ export async function planSplitContacts(
     });
   }
 
-  for (const r of refundTotals.values()) {
+  for (const p of paymentTotals.values()) await assertBankLineMayPaySupplier(companyId, tx, p.amount);
+  // planXRefund locks the contact: in id order, so two splits naming the same
+  // contacts in opposite orders wait for each other instead of deadlocking.
+  for (const [, r] of [...refundTotals].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     if (r.kind === 'supplier') await planSupplierRefund(companyId, r.contactId, r.amount, txDate);
     else await planCustomerRefund(companyId, r.contactId, r.amount, txDate);
   }
   return planned;
+}
+
+/** The contact's name; assert{Supplier,Customer}InCompany has already proven the row is this company's. */
+async function contactNameOf(companyId: string, table: 'suppliers' | 'customers', id: string): Promise<string> {
+  const rows = (table === 'suppliers'
+    ? await sql`SELECT name FROM suppliers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
+    : await sql`SELECT name FROM customers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
+  return String(rows[0]?.name ?? '');
 }
 
 /**
@@ -187,22 +207,13 @@ export async function recordSplitContactDocuments(args: {
       });
       out.push({ ...base, document: 'refund', paymentId: ref.paymentId, applications: [], onAccount: ref.amount });
     } else {
-      // The receipt row `allocateTransaction` inserts for a whole customer line,
-      // for this line's share. created_by/confirmed_by go through resolveUserUuid
-      // (uuid-typed, NOT NULL) as the refund writers do.
-      const createdBy = await resolveUserUuid(userId);
-      const rows = (await sql`
-        INSERT INTO customer_payments (
-          company_id, client_id, payment_date, total_amount, payment_method,
-          bank_reference, bank_account_id, description, status,
-          gl_journal_entry_id, created_by, confirmed_by, confirmed_at
-        ) VALUES (
-          ${companyId}::UUID, ${p.contactId}::UUID, ${txDate}, ${p.amount}, 'eft',
-          ${args.bankReference}, ${bankAccountId}::UUID, ${p.description}, 'confirmed',
-          ${journalEntryId}::UUID, ${createdBy}::UUID, ${createdBy}::UUID, NOW()
-        )
-        RETURNING id`) as DbRow[];
-      const paymentId = String(rows[0]!.id);
+      // The receipt row `allocateTransaction` inserts for a whole customer line, for
+      // this line's share. created_by goes through resolveUserUuid, as the refund writers do.
+      const paymentId = await insertCustomerBankReceipt(sql, {
+        companyId, customerId: p.contactId, paymentDate: txDate, amount: p.amount, bankReference: args.bankReference,
+        bankAccountId, description: p.description, journalEntryId, createdBy: await resolveUserUuid(userId),
+      });
+      if (!paymentId) throw new Error(`Split line ${p.index + 1}: the receipt was not recorded`);
       const applied = await autoApplyCustomerReceipt({
         companyId, customerId: p.contactId, paymentId, journalEntryId, amount: p.amount, userId, autoApply: p.autoApply,
       });

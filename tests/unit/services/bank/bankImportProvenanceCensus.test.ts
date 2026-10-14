@@ -109,7 +109,7 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
       expect(textOf(file), file).toMatch(/\bimporterArmOf\(/);
     }
     // The reversal and match gates read one allocation's arm through allocationFacts, which maps it by importerArmOf.
-    expect(textOf(`${B}bankLineImporterGate.ts`)).toMatch(/importerArmOf\(String\(row\.kind\), 'document', Number\(line\.amount\)\)/);
+    expect(textOf(`${B}bankLineImporterGate.ts`)).toMatch(/importerArmOf\(d\.kind, 'document', Number\(line\.amount\)\)/);
     expect(textOf(`${B}bankReversalGate.ts`)).toMatch(/\ballocationFacts\(/);
     expect(textOf(`${B}bankAllocationService.ts`)).toMatch(/\bassertImporterMayAllocateAs\(companyId, tx, userId, allocType, entityId\)/);
   });

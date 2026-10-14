@@ -66,12 +66,26 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
     action: z.literal('split_allocate'),
     bankTransactionId: UUID,
     lines: z.array(z.object({
-      contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional(),
+      // Positive rand-and-cents: the split posts each line in the bank line's own direction.
+      contraAccountId: UUID.optional(), amount: z.number().positive().refine((n) => Number(n.toFixed(2)) === n, 'amount must be in whole cents'),
+      description: z.string().max(500).optional(),
       // Per-line dimensions, stamped on that line's cost/revenue leg only (bankSplitDimensions.ts).
       cc1Id: UUID.optional(), cc2Id: UUID.optional(), buId: UUID.optional(),
       // A line that settles a supplier/customer instead of a GL account (bankSplitContacts.ts).
       contactType: z.enum(['supplier', 'customer']).optional(), contactId: UUID.optional(),
       autoApply: z.enum(AUTO_APPLY_MODES).optional(),
+    }).superRefine((line, ctx) => {
+      // Exactly one target, as the MCP tool requires: a line naming both would silently drop the account.
+      const contact = line.contactType !== undefined || line.contactId !== undefined;
+      if (contact && (line.contactType === undefined || line.contactId === undefined)) {
+        ctx.addIssue({ code: 'custom', message: 'contactType and contactId go together' });
+      } else if (contact === (line.contraAccountId !== undefined)) {
+        ctx.addIssue({ code: 'custom', message: 'a split line names exactly one of contraAccountId or contactType + contactId' });
+      } else if (!contact && line.autoApply !== undefined) {
+        ctx.addIssue({ code: 'custom', message: 'autoApply applies only to a supplier/customer line' });
+      } else if (contact && (line.cc1Id || line.cc2Id || line.buId)) {
+        ctx.addIssue({ code: 'custom', message: 'a supplier/customer line carries no cc1/cc2/bu' });
+      }
     })).min(1),
   }),
   z.object({ action: z.literal('delete'), bankTransactionId: UUID.optional(), bankTransactionIds: z.array(UUID).optional() }),

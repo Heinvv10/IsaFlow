@@ -1,170 +1,168 @@
 /**
- * Split allocation with SUPPLIER / CUSTOMER lines (bankSplitContacts.ts):
- * one bank line that settles two contacts, or a contact and a GL account.
+ * planSplitContacts (bankSplitContacts.ts): every refusal for the SUPPLIER /
+ * CUSTOMER lines of a split, from reads, before anything is written.
  *
- *   · a contact line posts to the AP/AR control account — no VAT, no dimensions —
- *     and its document is recorded AFTER the journal, on that journal
- *   · only the GL-account lines go through the dimension plan
- *   · VAT or dimensions on a contact line are refused before anything is written
- *   · two refund lines to one contact are checked against the refund ceiling as their sum
+ *   · VAT or dimensions on a contact line
+ *   · a contact that is not this company's (cross-tenant)
+ *   · a hand-keyed payment to one supplier, judged at that supplier's TOTAL
+ *   · the statement's own importer allocating it (per contact line, per arm)
+ *   · a refund past the contact's credit, judged at that contact's TOTAL
+ *   · ids compared lowercased, so one contact cannot be counted twice
+ *
+ * The service flows (journal, documents) are in bankSplitAllocateContacts.test.ts.
  */
-import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({
-  handKeyedAccountLineSkips: vi.fn(async () => new Map()), assertBankLineMayPostToAccounts: vi.fn(),
-  handKeyedLineJournalRefusal: vi.fn(async () => null),
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ name: 'Contact' }]) }));
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/contactDirectoryService')>()),
+  assertSupplierInCompany: vi.fn(), assertCustomerInCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({ assertBankLineMayPaySupplier: vi.fn() }));
-vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
-  assertCustomerInCompany: vi.fn(), assertSupplierInCompany: vi.fn(),
-}));
-vi.mock('@/lib/neon', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
-  return {
-    sql: vi.fn(),
-    withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(vi.fn().mockResolvedValue([]))),
-    withSavepoint: vi.fn((_n: string, fn: () => unknown) => Promise.resolve().then(fn)),
-    fmtDate: actual.fmtDate,
-  };
-});
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
-  createJournalEntry: vi.fn(async () => ({ id: 'je-1' })),
-  postJournalEntry: vi.fn(async () => ({})),
-}));
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({ getSystemAccountId: vi.fn(async () => 'ap-1') }));
-vi.mock('@/modules/accounting/services/bank/bankVatAccountResolver', () => ({ resolveVatAccountId: vi.fn(async () => 'vat-in') }));
-vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({ mapTxRow: vi.fn((row: unknown) => row) }));
-vi.mock('@/modules/accounting/services/bank/bankSplitDimensions', () => ({ planSplitDimensions: vi.fn() }));
-vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', () => ({
-  assertImporterMayAllocate: vi.fn(), assertImporterMayAllocateAs: vi.fn(),
-}));
-vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
-  planSupplierRefund: vi.fn(), recordSupplierRefund: vi.fn(),
-}));
+vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', () => ({ assertImporterMayAllocateAs: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({ planSupplierRefund: vi.fn(), recordSupplierRefund: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({ planCustomerRefund: vi.fn(), recordCustomerRefund: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({ recordSupplierBankPayment: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({ autoApplyCustomerReceipt: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ resolveUserUuid: vi.fn(async (u: string) => u) }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
+  getSystemAccountId: vi.fn(async (kind: string) => (kind === 'payable' ? 'ap-1' : 'ar-1')),
+}));
 
-import { sql } from '@/lib/neon';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
-import { planSplitDimensions } from '@/modules/accounting/services/bank/bankSplitDimensions';
+import {
+  CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany,
+} from '@/modules/accounting/services/core/contactDirectoryService';
+import { assertBankLineMayPaySupplier } from '@/modules/accounting/services/ap/bankLinePaymentGate';
+import { assertImporterMayAllocateAs } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { planSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
-import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
-import { splitAllocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { planCustomerRefund } from '@/modules/accounting/services/ar/customerRefundDocument';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
 import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
-import { enterFakeRequestCtx } from '../../helpers/requestCtx';
-
-const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
-const mockCreateJE = createJournalEntry as unknown as MockedFunction<(...args: unknown[]) => Promise<{ id: string }>>;
-const mockPlanSplit = planSplitDimensions as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown>>;
-const mockRecordPayment = recordSupplierBankPayment as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 
 const COMPANY = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 const USER = '00000000-0000-0000-0000-000000000001';
-const BANK = 'bank-acct';
-const FRIK = 'sup-frik';
-const SOUTHERN = 'sup-southern';
-const TX = { id: 'tx-1', bank_account_id: BANK, amount: -1959.48, transaction_date: '2026-10-07', status: 'imported', feed_state: 'posted', description: 'Frik Basson', reference: 'SAGE1' };
+const SUP_A = '2c4b0a2e-1111-4111-8111-aaaaaaaaaaaa';
+const SUP_B = '9f0d7c1a-2222-4222-8222-bbbbbbbbbbbb';
+const CUST = '5e6f7a8b-3333-4333-8333-cccccccccccc';
+const OUT = { id: 'tx-1', bank_account_id: 'bank', amount: -1000, transaction_date: '2026-10-07' };
+const IN = { ...OUT, amount: 1000 };
 
-type Line = { glAccountId: string; debit: number; credit: number; vatType?: string; cc1Id?: string; cc2Id?: string; buId?: string };
-const postedLines = (): Line[] => (mockCreateJE.mock.calls[0]![1] as { lines: Line[] }).lines;
+const plan = (tx: typeof OUT, lines: SplitLine[]) => planSplitContacts(COMPANY, tx, lines, USER);
+const refusalOf = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e);
+const sup = (contactId: string, amount: number, extra: Partial<SplitLine> = {}): SplitLine =>
+  ({ contactType: 'supplier', contactId, amount, ...extra });
+const cust = (amount: number, extra: Partial<SplitLine> = {}): SplitLine =>
+  ({ contactType: 'customer', contactId: CUST, amount, ...extra });
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  enterFakeRequestCtx();
+  vi.resetAllMocks(); // resets once-queues too, not only calls (clearAllMocks would leak them)
+  vi.mocked(assertSupplierInCompany).mockResolvedValue(undefined);
+  vi.mocked(assertCustomerInCompany).mockResolvedValue(undefined);
 });
 
-describe('split onto two suppliers', () => {
-  it('posts one AP line per supplier with no VAT or dimensions, then records each payment on the journal', async () => {
-    mockPlanSplit.mockResolvedValueOnce({ dims: [], warnings: [] });
-    mockSql
-      .mockResolvedValueOnce([TX])                       // lock
-      .mockResolvedValueOnce([{ name: 'Tech - Frik Basson' }])
-      .mockResolvedValueOnce([{ name: 'Southern Elements' }])
-      .mockResolvedValueOnce([{ id: 'jl-bank' }])        // bank journal line
-      .mockResolvedValueOnce([TX]);                      // re-read
-    mockRecordPayment
-      .mockResolvedValueOnce({ paymentId: 'p-frik', appliedLines: [{ invoiceId: 'siv5059', invoiceNumber: 'SIV0005059', amount: 800 }], unappliedRemainder: 0 })
-      .mockResolvedValueOnce({ paymentId: 'p-se', appliedLines: [], unappliedRemainder: 1159.48 });
-
-    const result = await splitAllocateTransaction(COMPANY, 'tx-1', [
-      { contactType: 'supplier', contactId: FRIK, amount: 800 },
-      { contactType: 'supplier', contactId: SOUTHERN, amount: 1159.48, autoApply: 'none' },
-    ], USER);
-
-    const lines = postedLines();
-    const ap = lines.filter((l) => l.glAccountId === 'ap-1');
-    expect(ap.map((l) => l.debit)).toEqual([800, 1159.48]);
-    for (const l of ap) {
-      expect(l.vatType).toBeUndefined();
-      expect(l.cc1Id ?? l.cc2Id ?? l.buId).toBeUndefined();
-    }
-    expect(lines.find((l) => l.glAccountId === BANK)).toMatchObject({ credit: 1959.48 });
-    expect(lines.some((l) => l.glAccountId === 'vat-in')).toBe(false);
-    // No GL-account line → nothing to plan dimensions for.
-    expect(mockPlanSplit.mock.calls[0]![2]).toEqual([]);
-    // Documents after the journal, on it, with each line's own amount and mode.
-    expect(mockRecordPayment.mock.invocationCallOrder[0]).toBeGreaterThan(mockCreateJE.mock.invocationCallOrder[0]!);
-    expect(mockRecordPayment.mock.calls[0]![0]).toMatchObject({ supplierId: FRIK, amount: 800, journalEntryId: 'je-1', autoApply: 'fifo' });
-    expect(mockRecordPayment.mock.calls[1]![0]).toMatchObject({ supplierId: SOUTHERN, amount: 1159.48, journalEntryId: 'je-1', autoApply: 'none' });
-    expect(result.contactDocuments).toEqual([
-      expect.objectContaining({ index: 0, kind: 'supplier', document: 'payment', paymentId: 'p-frik', onAccount: 0 }),
-      expect.objectContaining({ index: 1, kind: 'supplier', document: 'payment', paymentId: 'p-se', onAccount: 1159.48 }),
-    ]);
-  });
-
-  it('a mixed split sends only the GL-account line through the dimension plan', async () => {
-    mockPlanSplit.mockResolvedValueOnce({ dims: [{ buId: 'civ' }], warnings: [] });
-    mockSql
-      .mockResolvedValueOnce([TX])
-      .mockResolvedValueOnce([{ name: 'Tech - Frik Basson' }])
-      .mockResolvedValueOnce([{ id: 'jl-bank' }])
-      .mockResolvedValueOnce([TX]);
-    mockRecordPayment.mockResolvedValueOnce({ paymentId: 'p-frik', appliedLines: [], unappliedRemainder: 800 });
-
-    await splitAllocateTransaction(COMPANY, 'tx-1', [
-      { contraAccountId: 'fuel', amount: 1159.48, buId: 'civ' },
-      { contactType: 'supplier', contactId: FRIK, amount: 800 },
-    ], USER);
-
-    expect(mockPlanSplit.mock.calls[0]![2]).toEqual([expect.objectContaining({ contraAccountId: 'fuel' })]);
-    const lines = postedLines();
-    expect(lines.find((l) => l.glAccountId === 'fuel')).toMatchObject({ debit: 1159.48, buId: 'civ' });
-    expect(lines.find((l) => l.glAccountId === 'ap-1')).toMatchObject({ debit: 800 });
-  });
-});
-
-describe('planSplitContacts — refusals before any write', () => {
+describe('settlement lines carry no VAT and no dimensions', () => {
   it('refuses VAT on a supplier line', async () => {
-    const err = await planSplitContacts(COMPANY, TX, [
-      { contactType: 'supplier', contactId: FRIK, amount: 800, vatCode: 'standard' },
-    ], USER).catch((e: unknown) => e);
+    const err = await refusalOf(plan(OUT, [sup(SUP_A, 1000, { vatCode: 'standard' })]));
     expect(isBankAllocationRefusal(err)).toBe(true);
     expect(String((err as Error).message)).toMatch(/carries no VAT/);
   });
 
-  it('refuses dimensions on a supplier line', async () => {
-    const err = await planSplitContacts(COMPANY, TX, [
-      { contactType: 'supplier', contactId: FRIK, amount: 800, cc2Id: 'lawley' },
-    ], USER).catch((e: unknown) => e);
+  it('refuses dimensions on a customer line', async () => {
+    const err = await refusalOf(plan(IN, [cust(1000, { cc2Id: 'lawley' })]));
     expect(isBankAllocationRefusal(err)).toBe(true);
     expect(String((err as Error).message)).toMatch(/carries no CC1\/CC2\/BU/);
   });
 
-  it('checks two refund lines to one supplier against the ceiling as their sum', async () => {
-    const refundTx = { ...TX, amount: 300 };
-    mockSql.mockResolvedValue([{ name: 'Southern Elements' }]);
-    await planSplitContacts(COMPANY, refundTx, [
-      { contactType: 'supplier', contactId: SOUTHERN, amount: 100 },
-      { contactType: 'supplier', contactId: SOUTHERN, amount: 200 },
-    ], USER);
-    expect(planSupplierRefund).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(planSupplierRefund).mock.calls[0]).toEqual([COMPANY, SOUTHERN, 300, '2026-10-07']);
+  it('ignores GL-account lines entirely', async () => {
+    expect(await plan(OUT, [{ contraAccountId: 'fuel', amount: 1000, vatCode: 'standard' }])).toEqual([]);
+    expect(assertImporterMayAllocateAs).not.toHaveBeenCalled();
+  });
+});
+
+describe('cross-tenant: the contact must be this company\'s', () => {
+  it('refuses another company\'s supplier before the importer check or any refund plan', async () => {
+    vi.mocked(assertSupplierInCompany).mockRejectedValueOnce(new SupplierNotInCompanyError(SUP_A));
+    const err = await refusalOf(plan(IN, [sup(SUP_A, 1000)]));
+    expect(err).toBeInstanceOf(SupplierNotInCompanyError);
+    expect(vi.mocked(assertSupplierInCompany).mock.calls[0]).toEqual([COMPANY, SUP_A]);
+    expect(assertImporterMayAllocateAs).not.toHaveBeenCalled();
+    expect(planSupplierRefund).not.toHaveBeenCalled();
   });
 
-  it('ignores GL-account lines', async () => {
-    const planned = await planSplitContacts(COMPANY, TX, [{ contraAccountId: 'fuel', amount: 1959.48, vatCode: 'standard' }], USER);
-    expect(planned).toEqual([]);
-    expect(mockSql).not.toHaveBeenCalled();
+  it('refuses another company\'s customer', async () => {
+    vi.mocked(assertCustomerInCompany).mockRejectedValueOnce(new CustomerNotInCompanyError(CUST));
+    const err = await refusalOf(plan(IN, [cust(1000)]));
+    expect(err).toBeInstanceOf(CustomerNotInCompanyError);
+    expect(vi.mocked(assertCustomerInCompany).mock.calls[0]).toEqual([COMPANY, CUST]);
+  });
+});
+
+describe('a hand-keyed payment is judged at what each SUPPLIER is paid', () => {
+  it('sums one supplier\'s lines — whatever the id\'s case — into one gate call', async () => {
+    await plan(OUT, [sup(SUP_A, 400), sup(SUP_A.toUpperCase(), 350), sup(SUP_B, 250)]);
+    expect(vi.mocked(assertBankLineMayPaySupplier).mock.calls).toEqual([
+      [COMPANY, OUT, 750],
+      [COMPANY, OUT, 250],
+    ]);
+  });
+
+  it('a gate refusal of the summed payment refuses the split', async () => {
+    vi.mocked(assertBankLineMayPaySupplier).mockRejectedValueOnce(new Error('needs admin approval'));
+    await expect(plan(OUT, [sup(SUP_A, 500), sup(SUP_A, 500)])).rejects.toThrow(/needs admin approval/);
+  });
+
+  it('money IN from a supplier is a refund, not a payment: no payment gate', async () => {
+    await plan(IN, [sup(SUP_A, 1000)]);
+    expect(assertBankLineMayPaySupplier).not.toHaveBeenCalled();
+    expect(planSupplierRefund).toHaveBeenCalledWith(COMPANY, SUP_A, 1000, '2026-10-07');
+  });
+});
+
+describe('the statement\'s importer may not allocate it — per contact line, per arm', () => {
+  it('asks the importer check for every contact line, with the lowercased id', async () => {
+    await plan(OUT, [sup(SUP_A.toUpperCase(), 600), cust(400)]);
+    expect(vi.mocked(assertImporterMayAllocateAs).mock.calls).toEqual([
+      [COMPANY, OUT, USER, 'supplier', SUP_A],
+      [COMPANY, OUT, USER, 'customer', CUST],
+    ]);
+  });
+
+  it('an importer refusal refuses the split', async () => {
+    vi.mocked(assertImporterMayAllocateAs).mockRejectedValueOnce(new Error('IMPORTER_MAY_NOT_ALLOCATE'));
+    await expect(plan(OUT, [sup(SUP_A, 1000)])).rejects.toThrow(/IMPORTER_MAY_NOT_ALLOCATE/);
+  });
+});
+
+describe('a refund is judged at what each CONTACT is refunded', () => {
+  it('sums one supplier\'s refund lines, whatever the id\'s case', async () => {
+    await plan(IN, [sup(SUP_A, 100), sup(SUP_A.toUpperCase(), 200)]);
+    expect(vi.mocked(planSupplierRefund).mock.calls).toEqual([[COMPANY, SUP_A, 300, '2026-10-07']]);
+  });
+
+  it('money OUT to a customer is a refund, checked against the customer\'s credit', async () => {
+    vi.mocked(planCustomerRefund).mockRejectedValueOnce(new Error('exceeds the customer\'s credit'));
+    await expect(plan(OUT, [cust(600), cust(400)])).rejects.toThrow(/exceeds the customer's credit/);
+    expect(vi.mocked(planCustomerRefund).mock.calls[0]).toEqual([COMPANY, CUST, 1000, '2026-10-07']);
+  });
+
+  it('money IN from a customer is a receipt: no refund ceiling', async () => {
+    await plan(IN, [cust(1000)]);
+    expect(planCustomerRefund).not.toHaveBeenCalled();
+  });
+
+  it('plans (and so locks) the contacts in id order, whatever the line order', async () => {
+    await plan(IN, [sup(SUP_B, 500), sup(SUP_A, 500)]);
+    expect(vi.mocked(planSupplierRefund).mock.calls.map((c) => c[1])).toEqual([SUP_A, SUP_B]);
+  });
+});
+
+describe('the plan', () => {
+  it('names the control account, the direction\'s wording and the auto-apply mode', async () => {
+    const planned = await plan(OUT, [sup(SUP_A, 600, { autoApply: 'none' }), cust(400)]);
+    expect(planned).toEqual([
+      expect.objectContaining({ index: 0, kind: 'supplier', contactId: SUP_A, controlAccountId: 'ap-1', amount: 600, autoApply: 'none', description: 'Payment to Contact' }),
+      expect.objectContaining({ index: 1, kind: 'customer', contactId: CUST, controlAccountId: 'ar-1', amount: 400, autoApply: 'fifo', description: 'Refund to Contact' }),
+    ]);
   });
 });
