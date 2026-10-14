@@ -7,9 +7,11 @@
  * runs *.int.test.ts only, and the older *.test.ts files there (several drive
  * a running server over HTTP) are run by hand with `bun run test:integration`.
  *
- * A log's sibling `<name>.started` (startedFileReporter.ts) lists the suites
- * that started; one of them with no readable result line in that log also
- * fails the report, by name: whether it skipped cannot be told.
+ * A log's sibling `<name>.started` (startedFileReporter.ts, beside
+ * `<name>.log`) lists the suites that started; one of them with no readable
+ * result line in that log also fails the report, by name: whether it skipped
+ * cannot be told. A log without that list fails the report too, by name: its
+ * suites could not be checked.
  *
  * Run: bun scripts/ci/report-skipped-integration.ts <vitest log>...
  * (scripts/ci/integration/run.sh passes every shard's log.)
@@ -23,12 +25,21 @@ const read = (file: string): string | undefined => (existsSync(file) ? readFileS
 
 const files = process.argv.slice(2);
 const logs = files.map((f) => readFileSync(f, 'utf8'));
+const noList: string[] = [];
 const unread = files.flatMap((f, i) => {
   const started = f.replace(/\.log$/, '.started');
-  if (started === f || !existsSync(started)) return [];
+  if (started === f) {
+    noList.push(`[skip] FAIL: no started-file list for ${f} (expected a sibling <name>.started)`);
+    return [];
+  }
+  if (!existsSync(started)) {
+    noList.push(`[skip] FAIL: no started-file list for ${f} (expected ${started})`);
+    return [];
+  }
   return unreadable(resultLines(logs[i]!), readFileSync(started, 'utf8').split('\n'), process.cwd());
 });
 const { lines, unexplained, unreadable: unknown } = skipNotice(skippedSuites(logs.join('\n'), read), unread);
+lines.push(...noList);
 
 const notRun = readdirSync('tests/integration', { recursive: true, encoding: 'utf8' })
   .filter((f) => f.endsWith('.test.ts') && !f.endsWith('.int.test.ts'))
@@ -41,4 +52,4 @@ if (notRun.length > 0) {
 }
 
 for (const line of lines) process.stdout.write(`${line}\n`);
-process.exit(unexplained.length > 0 || unknown.length > 0 ? 1 : 0);
+process.exit(unexplained.length > 0 || unknown.length > 0 || noList.length > 0 ? 1 : 0);

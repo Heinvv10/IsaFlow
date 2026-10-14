@@ -189,6 +189,14 @@ describe('integration report: the tail bounds are validated (review round 12)', 
       .toBe("[integration] CI_INT_FAILURE_LOG_LINES='' is not a positive integer; using 400\n");
   });
 
+  it('the cap is 9 digits: 999999999 is taken, 1000000000 is not', () => {
+    const work = workDir({ 'c1/isaflow_test.log': log });
+    expect(run({ ...utf8, CI_INT_FAILURE_LOG_COLUMNS: '999999999' }, work).stdout).toContain('999999999 columns max');
+    const ten = run({ ...utf8, CI_INT_FAILURE_LOG_COLUMNS: '1000000000' }, work);
+    expect(ten.stdout).toContain('400 columns max');
+    expect(ten.stderr).toContain('CI_INT_FAILURE_LOG_COLUMNS=1000000000 is not a positive integer; using 400');
+  });
+
   it('is silent when the variables are unset, and takes 9 digits', () => {
     const env = { ...process.env, ...utf8 };
     delete env.CI_INT_FAILURE_LOG_LINES;

@@ -5,8 +5,13 @@
  *
  *   ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms`  (also ❯, ↓, ×)
  *
- * The form is vitest 4.1.2's default reporter's module line (getModuleLog and
- * getEntityPrefix in node_modules/vitest/dist/chunks/index.*.js), as the gate
+ * The form is vitest 4.1.2's default reporter's module line, as read in
+ * node_modules/vitest/dist/chunks/index.0GYC6HAu.js (class DefaultReporter's
+ * base: getModuleLog, getEntityPrefix, getDurationPrefix) and
+ * utils.DK8FXp4T.js (formatProjectName, getStateSymbol). On a vitest upgrade,
+ * re-read those: getModuleLog writes only the counts failed, skipped and todo,
+ * and a line with any other count word is not read (it is then named as
+ * unreadable, which fails loud). As the gate
  * runs it (NO_COLOR): `<mark>[ |<project>|][  TS ] <path> (<n> test[s][ | k
  * failed][ | k skipped][ | k todo])`, then ` <integer>ms` when it has a
  * duration, then ` <integer> MB heap used` with --logHeapUsage. Nothing else is
@@ -31,9 +36,12 @@
  * holding two results reads only the last, so the first file has no result
  * line and its shard fails (closed).
  *
- * Pure; unit-tested in tests/unit/ci/integrationResultLines.test.ts. The CLI is
- * result-lines.ts.
+ * Pure except `unreadable`, which resolves paths (realpath); unit-tested in
+ * tests/unit/ci/integrationResultLines.test.ts. The CLI is result-lines.ts.
  */
+
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 
 export interface ResultLine {
   mark: string;
@@ -67,10 +75,26 @@ export function wrongCounts(lines: ResultLine[], planned: string[]): { file: str
   return planned.map((file) => ({ file, n: n.get(file) ?? 0 })).filter((c) => c.n !== 1);
 }
 
-/** The started files (absolute, as vitest records them; `root` is the repo) with no readable result line. */
+/** A path with every symlink resolved, or as written when it cannot be (it does not exist). */
+const real = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+/**
+ * The started files (absolute, as vitest records them; `root` is the repo) with no readable result line. Both sides
+ * are compared as real paths: a cwd or a moduleId reached through a symlink still matches.
+ */
 export function unreadable(lines: ResultLine[], started: string[], root: string): string[] {
   const read = new Set(lines.map((r) => r.file));
-  const rel = started.filter((f) => f !== '').map((f) => (f.startsWith(`${root}/`) ? f.slice(root.length + 1) : f));
+  const top = `${real(root)}/`;
+  const rel = started.filter((f) => f !== '').map((f) => {
+    const p = isAbsolute(f) ? real(f) : f;
+    return p.startsWith(top) ? p.slice(top.length) : p;
+  });
   return [...new Set(rel)].filter((f) => !read.has(f));
 }
 

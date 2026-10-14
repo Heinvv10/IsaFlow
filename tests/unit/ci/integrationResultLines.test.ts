@@ -10,7 +10,7 @@
  * mark, and the line must END with the result.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -77,6 +77,12 @@ describe('resultLine: every module-line form vitest 4.1.2 writes', () => {
     expect(resultLine(line)).toBeNull();
   });
 
+  it('reads only the counts vitest 4.1.2 writes: an unknown count word leaves the line unread, and the file is named', () => {
+    const odd = ` ✓ ${A} (3 tests | 1 flaky) 9ms`;
+    expect(resultLine(odd)).toBeNull();
+    expect(unreadable(resultLines(odd), [`/repo/${A}`], '/repo')).toEqual([A]);
+  });
+
   it('NAMED LIMIT: a line holding two results reads only the last; the first file then has no result line and fails closed', () => {
     const glued = ` ✓ ${A} (3 tests) 10ms ❯ ${B} (3 tests | 1 failed) 10ms`;
     expect(resultLines(glued).map((r) => r.file)).toEqual([B]);
@@ -89,6 +95,29 @@ describe('unreadable: a started suite whose result line cannot be read is named,
     const log = [` ✓ ${A} (1 test) 1ms`, ` ✓ ${B} (3 tests) 1m 2s`].join('\n');
     expect(unreadable(resultLines(log), [`/repo/${A}`, `/repo/${B}`], '/repo')).toEqual([B]);
     expect(unreadable(resultLines(log), [`/repo/${A}`], '/repo')).toEqual([]);
+  });
+});
+
+describe('unreadable compares real paths: a root or a started path reached through a symlink still matches', () => {
+  const base = mkdtempSync(join(tmpdir(), 'unreadable-real-'));
+  afterAll(() => rmSync(base, { recursive: true, force: true }));
+  const real = join(base, 'repo');
+  mkdirSync(join(real, 'tests/integration'), { recursive: true });
+  writeFileSync(join(real, A), '');
+  const link = join(base, 'link');
+  symlinkSync(real, link);
+  const lines = resultLines(` ✓ ${A} (1 test) 1ms`);
+
+  it('started through the symlink, root real (vitest kept the symlinked cwd; run.sh cd\'s to the physical top level)', () => {
+    expect(unreadable(lines, [join(link, A)], real)).toEqual([]);
+  });
+
+  it('started real, root through the symlink', () => {
+    expect(unreadable(lines, [join(real, A)], link)).toEqual([]);
+  });
+
+  it('a path that does not exist is compared as written', () => {
+    expect(unreadable(lines, [join(real, B)], link)).toEqual([B]);
   });
 });
 
