@@ -58,6 +58,9 @@ pg_require_extensions
 # 0. Sweep this user's runs that died without cleaning up (lifecycle.sh).
 sweep_dead_runs
 
+# From the moment the run directory exists until cleanup is armed, a signal is
+# held, so it can never leave the directory behind.
+hold_signals
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/isaflow-ci-int.XXXXXX")
 write_owner "$WORK"
 # The suites' (and vite's) temporary files live and die with the run.
@@ -93,6 +96,10 @@ bounded() {
   mkdir -p "$WORK/cstep"
   launch_session "$WORK/cstep/sid" timeout -k 30 "$MIGRATE_LIMIT" "$@"
   wait "$LAUNCHED" || status=$?
+  # Whatever the step left in its session goes with it. Its leader is reaped, so
+  # the session id is still ours only while no process holds that pid: then any
+  # member left is the step's (an id is not reused while a member lives).
+  [ -z "$(proc_start "$LAUNCHED")" ] && end_snapshot "$(snapshot "$LAUNCHED")"
   rm -f "$WORK/cstep/sid"
   case $(shard_outcome "$status" "$(( $(date +%s) - t0 ))" "$MIGRATE_LIMIT") in
     timeout) echo "[integration] $what did not finish within ${MIGRATE_LIMIT}s (CI_INT_MIGRATE_TIMEOUT)" >&2 ;;
