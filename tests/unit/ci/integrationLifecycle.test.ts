@@ -37,8 +37,8 @@ describe('owner_dead', () => {
     const gone = Number(sh('bash -c \'echo $$\''));
     expect(sh(`owner_dead ${gone} 1 && echo dead || echo alive`)).toBe('dead');
   });
-  it('is false for a process it may not signal (EPERM): not provably dead', () => {
-    expect(sh('owner_dead 1 1 && echo dead || echo alive')).toBe('alive');
+  it('is false for another user\'s process (one it may not signal) with the recorded start time', () => {
+    expect(sh('owner_dead 1 "$(proc_start 1)" && echo dead || echo alive')).toBe('alive');
   });
 });
 

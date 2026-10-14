@@ -60,9 +60,9 @@ run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.s
 run_step "findings-numbering"     bash scripts/ci/check-findings-numbering.sh
 run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
 # The oauth_apps trust flags decide whether an app may brand the consent
-# screen. Migration 693 makes them unwritable; the only other guard on that is
-# an integration test this script SKIPS without DATABASE_URL, so a change that
-# undid 693 would leave CI green. Text-only, so it runs every time.
+# screen. Migration 693 makes them unwritable; the other guard on that is an
+# integration test, which runs only on GitHub or with CI_INTEGRATION=1, so a
+# change that undid 693 could pass a local run. Text-only, so it runs every time.
 run_step "oauth-trust-flags"      bun scripts/ci/check-oauth-trust-flags.ts
 # GitHub's CI job must call this script, not a hand-kept copy of its list
 # (R-052: GitHub ran 5 of these gates while a PR showed green).

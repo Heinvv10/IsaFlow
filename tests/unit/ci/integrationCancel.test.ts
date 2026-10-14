@@ -29,10 +29,14 @@ describe('hold_signals / release_signals', () => {
 describe('launch_session', () => {
   it('records the new session leader by pid and start time, once it has called setsid', () => {
     const rec = join(scratchDir(), 'sid');
-    const pid = Number(sh(`launch_session ${rec} sleep 600 < /dev/null > /dev/null 2>&1; echo $LAUNCHED`));
+    // A child the scheduler runs late: setsid() comes 0.3 s after the fork. The
+    // session must be the child's by the time launch_session returns.
+    const out = sh(`setsid() { sleep 0.3; exec setsid "$@"; }
+      launch_session ${rec} sleep 600 < /dev/null > /dev/null 2>&1; echo "$LAUNCHED $(proc_sid $LAUNCHED)"`);
+    const [pid, sidAtReturn] = out.split(' ').map(Number);
     const recorded = readFileSync(rec, 'utf8').trim();
     adopt(recorded);
-    expect({ recorded, sid: sh(`proc_sid ${pid}`) }).toEqual({ recorded: `${pid} ${start(pid)}`, sid: String(pid) });
+    expect({ recorded, sidAtReturn }).toEqual({ recorded: `${pid} ${start(pid!)}`, sidAtReturn: pid });
   });
 });
 
@@ -50,12 +54,14 @@ describe('remove_run order', () => {
     const run = mkdtempSync(join(scratchDir(), 'isaflow-ci-int.'));
     mkdirSync(join(run, 'c1'));
     const log = join(scratchDir(), 'log');
-    // The leader takes 12 s over its own exit (end_own_session's bound is about 11 s);
-    // one member logs its TERM, one ignores TERM.
+    // As a real shard: the leader waits on a foreground child (vitest) that
+    // ignores TERM, so its own TERM handling starts only once that child is
+    // KILLed (10 s in), and then takes 12 s (end_own_session: about 11 s). One
+    // more member logs its TERM.
     const leader = detached(`${record()}; trap 'echo leader-term >> ${log}; sleep 12; echo leader-done >> ${log}; exit 0' TERM
       (trap "echo member-term >> ${log}; exit 0" TERM; ${record()}; while :; do sleep 0.1; done) &
-      (trap "" TERM; ${record()}; while :; do sleep 0.1; done) &
-      while :; do sleep 0.1; done`);
+      (trap "" TERM; ${record()}; while :; do sleep 0.1; done)
+      exit 0`); // not the last command, or bash would exec into the child
     for (let i = 0; i < 50 && sh(`proc_sid ${leader.pid}`) !== String(leader.pid); i++) execFileSync('sleep', ['0.05']);
     execFileSync('sleep', ['0.5']);
     writeFileSync(join(run, 'c1', 'sid'), `${leader.pid} ${start(leader.pid!)}\n`);
@@ -64,7 +70,7 @@ describe('remove_run order', () => {
     sh(`pg_cluster_stop() { sleep 1; echo stop >> ${log}; }; remove_run ${run}`);
     const lines = readFileSync(log, 'utf8').trim().split('\n');
     expect({
-      termsBeforeStop: lines.indexOf('stop') > Math.max(lines.indexOf('member-term'), lines.indexOf('leader-term')),
+      termsBeforeStop: lines.indexOf('member-term') >= 0 && lines.indexOf('stop') > lines.indexOf('member-term'),
       leaderFinished: lines.includes('leader-done'),
       sessionEmpty: sh(`session_pids ${leader.pid}`),
     }).toEqual({ termsBeforeStop: true, leaderFinished: true, sessionEmpty: '' });

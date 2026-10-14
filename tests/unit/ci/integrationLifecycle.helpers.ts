@@ -61,11 +61,21 @@ export function useScratch(): void {
   beforeEach(() => { scratch = mkdtempSync(join(tmpdir(), 'lifecycle-')); });
   afterEach(() => {
     for (const c of children.splice(0)) if (c.pid && alive(c.pid)) process.kill(c.pid, 'SIGKILL');
-    if (existsSync(spawned())) {
-      for (const line of readFileSync(spawned(), 'utf8').split('\n')) {
+    // A recorded forker can fork one more child while it is being killed, and
+    // that child records itself a moment later: re-read and repeat until two
+    // passes in a row, 0.2 s apart, find nothing of ours still running.
+    for (let pass = 0, quiet = 0; pass < 40 && quiet < 2; pass++) {
+      let found = false;
+      const lines = existsSync(spawned()) ? readFileSync(spawned(), 'utf8').split('\n') : [];
+      for (const line of lines) {
         const [pid, at] = line.trim().split(' ');
-        if (pid && at && alive(Number(pid)) && start(Number(pid)) === at) process.kill(Number(pid), 'SIGKILL');
+        if (pid && at && alive(Number(pid)) && start(Number(pid)) === at) {
+          found = true;
+          process.kill(Number(pid), 'SIGKILL');
+        }
       }
+      quiet = found ? 0 : quiet + 1;
+      execFileSync('sleep', ['0.2']);
     }
     rmSync(scratch, { recursive: true, force: true });
   });

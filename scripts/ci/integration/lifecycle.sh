@@ -46,15 +46,11 @@ boot_id() { cat /proc/sys/kernel/random/boot_id; }
 write_owner() { echo "$$ $(proc_start $$) $(my_pidns) $(boot_id)" > "$1/owner"; }
 
 # owner_dead <pid> <start>: true only when the recorded process is certainly
-# gone: no such process (ESRCH), or its pid now belongs to a newer process.
-# A process we may not signal (EPERM) counts as alive.
+# gone: no such process, a zombie, or its pid now belongs to a newer process
+# (/proc/<pid>/stat, readable for any user's process, gives its start time).
 owner_dead() {
-  local err
-  if err=$(export LC_ALL=C; kill -0 "$1" 2>&1); then
-    [ "$(proc_start "$1")" != "$2" ]
-    return
-  fi
-  case "$err" in *"No such process"*) return 0 ;; *) return 1 ;; esac
+  [ -r "/proc/$1/stat" ] || return 0
+  [ "$(proc_start "$1")" != "$2" ]
 }
 
 # session_pids <sid>: every live process in the session (a zombie has already
@@ -88,7 +84,10 @@ snapshot() {
 signal_list() {
   local pid start
   [ -n "$2" ] || return 0
-  while read -r pid start; do same_proc "$pid" "$start" && kill -"$1" "$pid" 2> /dev/null; done <<< "$2"
+  # A process may end between the check and the kill: never let that stop a cleanup.
+  while read -r pid start; do
+    if same_proc "$pid" "$start"; then kill -"$1" "$pid" 2> /dev/null || true; fi
+  done <<< "$2"
   return 0
 }
 
@@ -141,7 +140,7 @@ end_own_session() {
 # KILL them; give the leaders 30 s, longer than their own end_own_session takes,
 # then KILL them last.
 remove_run() {
-  local run=$1 f sid start members="" leaders=""
+  local run=$1 f sid start more members="" leaders=""
   for f in "$run"/c*/sid; do
     [ -f "$f" ] || continue
     read -r sid start < "$f" || continue
@@ -153,6 +152,15 @@ remove_run() {
   leaders=$(printf '%s' "$leaders" | sed '/^$/d')
   signal_list TERM "$members"
   signal_list TERM "$leaders"
+  # A leader may have forked (a shard its next vitest) after the snapshot: while
+  # it lives its session is still its own, so look again.
+  while read -r sid start; do
+    [ -n "$sid" ] && same_proc "$sid" "$start" || continue
+    more=$(snapshot "$sid" "$sid")
+    signal_list TERM "$more"
+    members+=$'\n'"$more"
+  done <<< "$leaders"
+  members=$(printf '%s' "$members" | sed '/^$/d' | sort -u)
   for f in "$run"/c*; do [ -d "$f" ] && pg_cluster_stop "$f"; done
   wait_list 20 "$members"
   signal_list KILL "$members"
@@ -219,7 +227,7 @@ sweep_dead_runs() {
     [ -d "$old" ] && [ ! -L "$old" ] && [ -O "$old" ] && [ -f "$old/owner" ] || continue
     read -r pid start ns boot < "$old/owner" || continue
     [ -n "$boot" ] || continue
-    made=$(stat -c %Z "$old")
+    made=$(stat -c %Z "$old" 2> /dev/null) || continue # a concurrent sweep removed it
     if [ "$boot" != "$(boot_id)" ]; then
       if [ "$made" -lt "$(boot_time)" ]; then
         rm -rf "$old"
