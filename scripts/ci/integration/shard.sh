@@ -81,8 +81,10 @@ for db in isaflow_schema_fixture isaflow_test; do
     db_rc=1
   fi
   for f in "${files[@]}"; do
-    n=$(awk -v f="$f" 'match($0, /^ (✓|❯|↓|×) /) && index(substr($0, RLENGTH + 1), f " (") == 1 { n++ }
-      END { print n + 0 }' "$log")
+    # Anywhere in the line: a suite's own output without a final newline runs
+    # into the reporter's result line.
+    n=$(awk -v f="$f" 'index($0, "✓ " f " (") || index($0, "❯ " f " (") || index($0, "↓ " f " (") \
+      || index($0, "× " f " (") { n++ } END { print n + 0 }' "$log")
     if [ "$n" -ne 1 ]; then
       echo "[integration] shard $i/$shards $db: $n result lines for $f (expected 1)" >> "$log"
       db_rc=1
