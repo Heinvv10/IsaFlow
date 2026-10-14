@@ -242,3 +242,40 @@ describe('unblock_stdio (the GitHub runner EAGAIN fix)', () => {
     expect(readFileSync(flags, 'utf8')).toBe('before fd1=1\nbefore fd2=1\nafter fd1=0\nafter fd2=0\n');
   });
 });
+
+describe('report_skips: the skip report reads exactly the databases\' vitest logs (run.sh step 3)', () => {
+  const started = (f: string) => `${join(process.cwd(), f)}\n`;
+  const SILENT = 'tests/integration/zz-no-such-suite.int.test.ts';
+  /** A work dir as a run leaves it: two shards, the clusters' own logs beside the databases' (server.log, initdb.log). */
+  const runDir = (skipIn?: string) => {
+    const files: Record<string, string> = { 'cp1/server.log': 'LOG: database system is ready\n', 'cp1/initdb.log': 'ok\n' };
+    for (const [i, db] of [[1, 'isaflow_schema_fixture'], [2, 'isaflow_test']] as const) {
+      const skipped = skipIn === db;
+      files[`c${i}/server.log`] = 'LOG: database system is ready\n';
+      files[`c${i}/${db}.log`] = skipped ? ` ↓ ${SILENT} (2 tests | 2 skipped)\n` : ` ✓ tests/integration/a.int.test.ts (1 test) 1ms\n`;
+      files[`c${i}/${db}.started`] = started(skipped ? SILENT : 'tests/integration/a.int.test.ts');
+    }
+    return workDir(files);
+  };
+  const skips = (work: string) => spawnSync('bash', ['-c', 'source "$1"; report_skips "$2" 2', 'bash', REPORT, work],
+    { encoding: 'utf8' });
+
+  it('passes a healthy run: the clusters\' server.log and initdb.log are not read', () => {
+    const r = skips(runDir());
+    expect(r.stdout).not.toContain('[skip] FAIL');
+    expect(r.status).toBe(0);
+  });
+
+  it.each(['isaflow_schema_fixture', 'isaflow_test'])('reads %s\'s log: a suite skipping everything unexplained there fails', (db) => {
+    const r = skips(runDir(db));
+    expect(r.status).toBe(1);
+    expect(r.stdout).toContain(`[skip]   ${SILENT}`);
+  });
+
+  it('says so by name, and fails, when no database left a log', () => {
+    const work = workDir({ 'c1/server.log': 'LOG: ready\n' });
+    const r = skips(work);
+    expect(r.status).toBe(1);
+    expect(r.stdout).toBe(`[skip] FAIL: no database log in ${work}/c*/: no shard left a vitest log, so no suite can be checked\n`);
+  });
+});
