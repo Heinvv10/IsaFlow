@@ -174,13 +174,10 @@ set +e
 LOG_DIR="$PWD/.ci-integration-logs"
 rm -rf "$LOG_DIR"
 mkdir -p "$LOG_DIR"
-for i in $(seq 1 "$SHARDS"); do
-  for db in isaflow_schema_fixture isaflow_test; do
-    [ -f "$WORK/c$i/$db.log" ] && cp "$WORK/c$i/$db.log" "$LOG_DIR/shard$i-$db.log"
-  done
-done
-# The databases' vitest logs only (each has its .started list), not server.log.
-bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/isaflow_*.log > "$WORK/skips.txt" 2>&1 || FAILED=1
+while read -r log; do
+  cp "$log" "$LOG_DIR/shard$(basename "$(dirname "$log")" | cut -c2-)-$(basename "$log")"
+done < <(database_logs "$WORK" "$SHARDS")
+report_skips "$WORK" "$SHARDS" > "$WORK/skips.txt" 2>&1 || FAILED=1
 {
   report_shard_results "$WORK" "$SHARDS"
   report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"

@@ -36,6 +36,32 @@ report_shard_results() {
   return 0
 }
 
+# database_logs <work dir> <shard count>: each database's vitest log, as
+# shard.sh names it (c<i>/<db>.log), one per line; never the clusters' own
+# server.log or initdb.log.
+database_logs() {
+  local work=$1 shards=$2 i db
+  for i in $(seq 1 "$shards"); do
+    for db in isaflow_schema_fixture isaflow_test; do
+      [ -f "$work/c$i/$db.log" ] && echo "$work/c$i/$db.log"
+    done
+  done
+  return 0
+}
+
+# report_skips <work dir> <shard count>: the skip report
+# (report-skipped-integration.ts) over every database log; non-zero when it
+# fails, or when no database left a log at all (said by name).
+report_skips() {
+  local logs=()
+  mapfile -t logs < <(database_logs "$1" "$2")
+  if [ "${#logs[@]}" -eq 0 ]; then
+    echo "[skip] FAIL: no database log in $1/c*/: no shard left a vitest log, so no suite can be checked"
+    return 1
+  fi
+  bun scripts/ci/report-skipped-integration.ts "${logs[@]}"
+}
+
 # wait_shards <pid>...: waits for each shard (pid k is shard k) and sets
 # FAILED=1 and FAILED_SHARDS (" 2 5") from their exit statuses: the input of
 # report_integration_failure_logs. Run in the current shell (a subshell cannot

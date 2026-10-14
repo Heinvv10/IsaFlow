@@ -160,4 +160,28 @@ describe('report-skipped-integration.ts reads each log\'s sibling .started list'
       expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${join(dir, 'lone.log')} (expected ${join(dir, 'lone.started')})`);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it('says once, without a second failure, that a shard timed out before any suite started (shard.sh already failed it)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '[integration] shard 3/6 isaflow_test: TIMED OUT before it started (limit 1800s)\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] ${log}: the shard timed out before any suite started; no suite to check`);
+      expect(r.stdout).not.toContain('[skip] FAIL');
+      expect(r.status).toBe(0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still fails a log with no list that holds anything besides that timeout line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '[integration] shard 3/6 isaflow_test: TIMED OUT before it started (limit 1800s)\n'
+        + ' ↓ tests/integration/a.int.test.ts (1 test | 1 skipped)\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${log}`);
+      expect(r.status).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });
