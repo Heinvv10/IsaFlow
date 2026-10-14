@@ -154,3 +154,37 @@ describe('integration report: the failure section, and which shards failed', () 
     expect(out).not.toContain('shard one passed');
   });
 });
+
+describe('integration report: the tail bounds are validated (review round 12)', () => {
+  const run = (env: Record<string, string>, work: string) => spawnSync('bash', ['-c',
+    'source "$1"; report_integration_failure_logs "$2" 1 "1"', 'bash', REPORT, work],
+  { encoding: 'utf8', env: { ...process.env, ...env } });
+  const log = `${Array.from({ length: 450 }, (_, i) => `${i}:${'z'.repeat(500)}`).join('\n')}\n`;
+
+  for (const bad of ['abc', '0', '-5', '1;system("echo pwned")']) {
+    it(`falls back to the default 400 x 400 for CI_INT_FAILURE_LOG_COLUMNS / _LINES=${bad}, saying so on stderr`, () => {
+      const r = run({ CI_INT_FAILURE_LOG_COLUMNS: bad, CI_INT_FAILURE_LOG_LINES: bad }, workDir({ 'c1/isaflow_test.log': log }));
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('(failed; last 400 lines, 400 columns max)');
+      expect(r.stdout).toContain(`\n449:${'z'.repeat(396)}\n`);
+      expect(r.stdout).not.toContain('\n49:');
+      expect(r.stdout).not.toContain('pwned');
+      expect(r.stderr).toContain(`CI_INT_FAILURE_LOG_COLUMNS=${bad} is not a positive integer; using 400`);
+      expect(r.stderr).toContain(`CI_INT_FAILURE_LOG_LINES=${bad} is not a positive integer; using 400`);
+    });
+  }
+
+  it('still takes a valid override', () => {
+    const r = run({ CI_INT_FAILURE_LOG_COLUMNS: '7', CI_INT_FAILURE_LOG_LINES: '1' }, workDir({ 'c1/isaflow_test.log': log }));
+    expect(r.stdout).toContain('(failed; last 1 lines, 7 columns max) -----\n449:zzz\n');
+    expect(r.stderr).toBe('');
+  });
+
+  it('says "(log empty)" under the header of a failed database whose log is empty', () => {
+    const out = sh('report_integration_failure_logs "$2" 1 "1"', workDir({
+      'c1/isaflow_test.log': '',
+      'c1/summary': '[integration] shard 1/1 isaflow_test: 0 files, 1s, exit 1\n',
+    }));
+    expect(out).toContain('(failed; last 400 lines, 400 columns max) -----\n(log empty)\n');
+  });
+});

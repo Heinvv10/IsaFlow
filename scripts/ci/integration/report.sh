@@ -54,10 +54,22 @@ wait_shards() {
 }
 
 # cut_columns <n>: each line cut to n CHARACTERS (cut -c counts bytes and
-# would split a ✓); bytes that are not UTF-8 become U+FFFD.
+# would split a ✓); bytes that are not UTF-8 become U+FFFD. n reaches perl as
+# an argument, never as source.
 cut_columns() {
-  perl -MEncode -ne 'BEGIN { binmode STDOUT, ":encoding(UTF-8)" } chomp;
-    print substr(decode("UTF-8", $_), 0, '"$1"'), "\n"'
+  perl -MEncode -e 'my $n = shift; binmode STDOUT, ":encoding(UTF-8)";
+    while (<STDIN>) { chomp; print substr(decode("UTF-8", $_), 0, $n), "\n" }' "$1"
+}
+
+# positive_or_default <name> <value> <default>: the value when it is a positive
+# integer, else the default, with a note on stderr.
+positive_or_default() {
+  if [[ $2 =~ ^[1-9][0-9]{0,8}$ ]]; then
+    echo "$2"
+  else
+    echo "[integration] $1=$2 is not a positive integer; using $3" >&2
+    echo "$3"
+  fi
 }
 
 # report_integration_failure_logs <work dir> <shard count> <failed shard ids>
@@ -69,8 +81,9 @@ cut_columns() {
 # named as such.
 report_integration_failure_logs() {
   local work=$1 shards=$2 failed_shards=$3 i db log status planned
-  local lines=${CI_INT_FAILURE_LOG_LINES:-400}
-  local columns=${CI_INT_FAILURE_LOG_COLUMNS:-400}
+  local lines columns
+  lines=$(positive_or_default CI_INT_FAILURE_LOG_LINES "${CI_INT_FAILURE_LOG_LINES:-400}" 400)
+  columns=$(positive_or_default CI_INT_FAILURE_LOG_COLUMNS "${CI_INT_FAILURE_LOG_COLUMNS:-400}" 400)
   for i in $failed_shards; do
     echo ""
     echo "[integration] shard $i/$shards FAILED"
@@ -93,7 +106,11 @@ report_integration_failure_logs() {
         "") echo "[integration] shard $i/$shards $db: NO SUMMARY LINE" ;;
       esac
       echo "----- [integration] shard $i/$shards, $db (failed; last $lines lines, $columns columns max) -----"
-      tail -n "$lines" "$log" | cut_columns "$columns"
+      if [ -s "$log" ]; then
+        tail -n "$lines" "$log" | cut_columns "$columns"
+      else
+        echo "(log empty)"
+      fi
     done
   done
   return 0
