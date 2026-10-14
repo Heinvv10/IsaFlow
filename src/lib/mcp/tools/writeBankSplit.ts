@@ -1,13 +1,20 @@
 /**
- * MCP write tool: split ONE bank transaction across several GL-account lines,
- * each with its own VAT code and CC1 / CC2 / BU.
+ * MCP write tool: split ONE bank transaction across several lines — GL accounts,
+ * each with its own VAT code and CC1 / CC2 / BU, and/or SUPPLIERS / CUSTOMERS.
  *
  * The same service the bank screen's split modal calls (splitAllocateTransaction),
- * so the journal is identical: one cost/revenue line per split line (plus its VAT
- * line when vat_code is standard) and one bank line. Dimensions ride on the
- * cost/revenue lines only — never the bank or VAT line (brief §5.3).
+ * so the journal is identical: one cost/revenue line per GL split line (plus its VAT
+ * line when vat_code is standard), one AP/AR control line per contact line, and one
+ * bank line. Dimensions ride on the cost/revenue lines only — never the bank, VAT or
+ * control line (brief §5.3).
  *
- * UNATTENDED, unlike the screen: every line's vat_code goes through the same
+ * A contact line (supplier_id / customer_id) SETTLES: it gets its own payment,
+ * receipt or refund document on the split's journal (bankSplitContacts.ts), applied
+ * FIFO unless auto_apply is 'none', and carries no VAT and no dimensions. One bank
+ * line can therefore pay two suppliers — a claimant's own bill and a merchant's
+ * slip bill — without moving AP away from its subledger.
+ *
+ * UNATTENDED, unlike the screen: every GL line's vat_code goes through the same
  * guard as allocate_bank_transaction (allocationVatGuard → gl/ruleVatResolution)
  * and a claim the guard would change is REFUSED, as create_draft_journal does —
  * a split line names its own account, so silently relabelling the code would
@@ -23,7 +30,15 @@ import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bank
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import {
+  CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany,
+} from '@/modules/accounting/services/core/contactDirectoryService';
+import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
 import { VAT_CODES, badUuidArg, pickTxSelector, resolveTxId, type VatCode } from './allocationLine';
 import { resolveLineVatCode } from './allocationVatGuard';
@@ -36,10 +51,17 @@ const TOOL = 'split_allocate_bank_transaction';
 export const MAX_SPLIT_LINES = 50;
 
 interface ParsedSplitLine {
-  contraAccountId: string;
+  contraAccountId?: string;
+  contactType?: 'supplier' | 'customer';
+  contactId?: string;
+  autoApply?: AutoApplyMode;
   amount: number;
   vatCode?: VatCode;
   description?: string;
+}
+
+function hasDimensions(d: DimensionRefs | undefined): boolean {
+  return Boolean(d && Object.values(d).some((v) => v !== undefined && v !== null && v !== ''));
 }
 
 function parseSplitLines(raw: unknown): { lines: ParsedSplitLine[]; dims: (DimensionRefs | undefined)[] } | string {
@@ -50,9 +72,14 @@ function parseSplitLines(raw: unknown): { lines: ParsedSplitLine[]; dims: (Dimen
   for (const [i, entry] of raw.entries()) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return `lines[${i}] must be an object`;
     const o = entry as Record<string, unknown>;
-    const contra = typeof o.contra_account_id === 'string' ? o.contra_account_id.trim() : '';
-    if (!contra) return `lines[${i}].contra_account_id is required`;
-    const badId = badUuidArg({ contra_account_id: contra }, ['contra_account_id']);
+    const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string).trim() : '');
+    const contra = str('contra_account_id');
+    const supplierId = str('supplier_id');
+    const customerId = str('customer_id');
+    const named = [contra, supplierId, customerId].filter(Boolean).length;
+    if (named !== 1) return `lines[${i}] must name exactly one of contra_account_id, supplier_id, customer_id`;
+    const badId = badUuidArg({ contra_account_id: contra, supplier_id: supplierId, customer_id: customerId },
+      [contra ? 'contra_account_id' : supplierId ? 'supplier_id' : 'customer_id']);
     if (badId) return `lines[${i}]: ${badId}`;
     const amount = Number(o.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_MONEY || !hasWholeCents(amount)) {
@@ -67,9 +94,28 @@ function parseSplitLines(raw: unknown): { lines: ParsedSplitLine[]; dims: (Dimen
     }
     const d = parseDimensionRefs(o, `lines[${i}]`);
     if (typeof d === 'string') return d;
-    dims.push(d);
+    const isContact = Boolean(supplierId || customerId);
+    let autoApply: AutoApplyMode | undefined;
+    if (o.auto_apply !== undefined && o.auto_apply !== null) {
+      if (!isContact) return `lines[${i}].auto_apply applies only to a supplier_id / customer_id line`;
+      if (typeof o.auto_apply !== 'string' || !(AUTO_APPLY_MODES as readonly string[]).includes(o.auto_apply)) {
+        return `lines[${i}].auto_apply must be one of: ${AUTO_APPLY_MODES.join(', ')}`;
+      }
+      autoApply = o.auto_apply as AutoApplyMode;
+    }
+    if (isContact) {
+      // A settlement: the bill / invoice already carried the VAT and the dimensions.
+      const who = supplierId ? 'supplier' : 'customer';
+      if (vatCode && vatCode !== 'none') return `lines[${i}] settles a ${who} — omit vat_code (the document already carried the VAT)`;
+      if (hasDimensions(d)) return `lines[${i}] settles a ${who} — a settlement carries no cc1 / cc2 / bu`;
+    }
+    dims.push(isContact ? undefined : d);
     lines.push({
-      contraAccountId: contra, amount, vatCode,
+      ...(contra ? { contraAccountId: contra } : {}),
+      ...(supplierId ? { contactType: 'supplier' as const, contactId: supplierId } : {}),
+      ...(customerId ? { contactType: 'customer' as const, contactId: customerId } : {}),
+      ...(autoApply ? { autoApply } : {}),
+      amount, vatCode: isContact ? undefined : vatCode,
       description: typeof o.description === 'string' ? o.description.slice(0, 500) : undefined,
     });
   }
@@ -79,14 +125,19 @@ function parseSplitLines(raw: unknown): { lines: ParsedSplitLine[]; dims: (Dimen
 export const splitAllocateBankTransactionTool: McpTool = {
   name: TOOL,
   description:
-    'Split ONE bank transaction across several GL accounts — e.g. a paycard slip that is part fuel, part tolls — '
-    + 'each line with its own vat_code and optional cc1 / cc2 / bu. The line amounts are VAT-INCLUSIVE and must sum '
-    + 'exactly to the transaction amount. POSTS one journal: a cost/revenue line per split line (plus a VAT line where '
-    + 'vat_code is standard) and one bank line; dimensions go on the cost/revenue lines only. A line on a control '
-    + 'account (bank, AP, AR, VAT, payroll clearing) may not carry dimensions. When a line names none, the bank or '
-    + 'card account\'s default dimensions apply. A cost-of-sales line with no project (cc2) is reported in '
+    'Split ONE bank transaction across several lines — e.g. a paycard slip that is part fuel, part tolls, or one '
+    + 'payment that settles two suppliers. Each line names exactly one of contra_account_id (a GL account, with its '
+    + 'own vat_code and optional cc1 / cc2 / bu), supplier_id or customer_id. The line amounts are VAT-INCLUSIVE and '
+    + 'must sum exactly to the transaction amount. POSTS one journal: a cost/revenue line per GL line (plus a VAT line '
+    + 'where vat_code is standard), an AP/AR control line per supplier/customer line, and one bank line. A supplier/'
+    + 'customer line gets its own payment, receipt or refund document on that journal, applied to the contact\'s '
+    + 'oldest open documents unless auto_apply is "none" (then apply it with apply_payment_to_supplier_invoice / '
+    + 'apply_receipt_to_invoice using the returned payment_id); it carries no VAT and no dimensions. Dimensions go on '
+    + 'the GL cost/revenue lines only; a line on a control account may not carry them. When a GL line names none, the '
+    + 'bank or card account\'s default dimensions apply. A cost-of-sales line with no project (cc2) is reported in '
     + 'dimension_warnings (or refused where the company requires a project). A vat_code the VAT guard would change '
-    + '(no supply possible, or input tax denied) is REFUSED. Use dry_run to preview. Undo with reverse_bank_allocation.',
+    + '(no supply possible, or input tax denied) is REFUSED. Use dry_run to preview. Undo with reverse_bank_allocation, '
+    + 'which also cancels every document the split created.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
@@ -102,12 +153,18 @@ export const splitAllocateBankTransactionTool: McpTool = {
           type: 'object',
           properties: {
             contra_account_id: { type: 'string', description: 'GL account UUID for this part of the transaction' },
+            supplier_id: { type: 'string', description: 'Supplier UUID: this part pays (or is refunded by) that supplier' },
+            customer_id: { type: 'string', description: 'Customer UUID: this part is a receipt from (or refund to) that customer' },
+            auto_apply: {
+              type: 'string', enum: [...AUTO_APPLY_MODES],
+              description: 'Supplier/customer lines only: "fifo" (default) applies to the oldest open documents; "none" leaves it on account.',
+            },
             amount: { type: 'number', exclusiveMinimum: 0, description: 'VAT-inclusive amount of this part' },
             vat_code: { type: 'string', enum: [...VAT_CODES] },
             description: { type: 'string' },
             ...DIMENSION_LINE_PROPERTIES,
           },
-          required: ['contra_account_id', 'amount'],
+          required: ['amount'],
           additionalProperties: false,
         },
       },
@@ -125,8 +182,20 @@ export const splitAllocateBankTransactionTool: McpTool = {
     const parsed = parseSplitLines(args.lines);
     if (typeof parsed === 'string') return toolError(parsed);
 
-    if (!(await accountsBelongToCompany(ctx.companyId, parsed.lines.map((l) => l.contraAccountId)))) {
+    const accountIds = parsed.lines.flatMap((l) => (l.contraAccountId ? [l.contraAccountId] : []));
+    if (accountIds.length > 0 && !(await accountsBelongToCompany(ctx.companyId, accountIds))) {
       return toolError(NOT_FOUND);
+    }
+    for (const l of parsed.lines) {
+      if (!l.contactId) continue;
+      try {
+        if (l.contactType === 'supplier') await assertSupplierInCompany(ctx.companyId, l.contactId);
+        else await assertCustomerInCompany(ctx.companyId, l.contactId);
+      } catch (err) {
+        // Missing and foreign answer alike (no existence oracle); anything else is a fault, not a refusal.
+        if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) return toolError(NOT_FOUND);
+        throw err;
+      }
     }
     const lines = await itemsWithDimensions(ctx.companyId, parsed.lines, parsed.dims, (i) => `lines[${i}]`);
     if (typeof lines === 'string') return toolError(lines);
@@ -142,12 +211,15 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (Math.abs(total - Math.abs(state.amount)) > 0.005) {
       return toolError(`Split lines total R${total.toFixed(2)} does not equal the transaction amount R${Math.abs(state.amount).toFixed(2)}`);
     }
-    // Step 2: the token's user importing the statement this line came from is refused by the service too — asked here
-    // so the dry run gives the same refusal.
-    const importerRefusal = await importerRefusalForLineId(ctx.companyId, resolved.id, ctx.userId, 'manual_journal');
-    if (importerRefusal) return toolError(importerRefusal.message);
+    const accountLines = lines.flatMap((l, index) => (l.contraAccountId
+      ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
+    // Step 2: the statement's importer is refused by the service too — asked here so the dry run refuses alike.
+    if (accountLines.length > 0) {
+      const importerRefusal = await importerRefusalForLineId(ctx.companyId, resolved.id, ctx.userId, 'manual_journal');
+      if (importerRefusal) return toolError(importerRefusal.message);
+    }
 
-    for (const [i, line] of lines.entries()) {
+    for (const { l: line, index: i } of accountLines) {
       if (!line.vatCode || line.vatCode === 'none') continue;
       const guarded = await resolveLineVatCode(
         ctx.companyId, resolved.id, { allocType: 'account', contraAccountId: line.contraAccountId, vatCode: line.vatCode }, TOOL,
@@ -159,23 +231,44 @@ export const splitAllocateBankTransactionTool: McpTool = {
 
     let plan: Awaited<ReturnType<typeof planSplitDimensionsForTransaction>>;
     try {
-      plan = await planSplitDimensionsForTransaction(ctx.companyId, resolved.id, lines);
+      plan = await planSplitDimensionsForTransaction(ctx.companyId, resolved.id, accountLines.map(({ l }) => l));
     } catch (err) {
       // Reads only: a dimension on a control account, or a COS line with no project where required.
       if (isBankAllocationRefusal(err) || isDimensionRefusal(err)) return toolError(err.message);
       throw err;
     }
     if (!plan) return toolError(NOT_FOUND);
-    const warnings = plan.warnings.length > 0 ? { dimension_warnings: plan.warnings } : {};
+    const dimPlan = plan;
+    const dimsByIndex = new Map(accountLines.map(({ index }, k) => [index, dimPlan.dims[k]]));
+    const warnings = dimPlan.warnings.length > 0 ? { dimension_warnings: dimPlan.warnings } : {};
+
+    const serviceLines: SplitLine[] = lines.map((l) => (l.contactId
+      ? { contactType: l.contactType, contactId: l.contactId, autoApply: l.autoApply, amount: l.amount, description: l.description }
+      : {
+        contraAccountId: l.contraAccountId, amount: l.amount, description: l.description,
+        vatCode: l.vatCode === 'none' ? undefined : l.vatCode, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId,
+      }));
 
     if (args.dry_run === true) {
+      // The service's own pre-write refusals, against the locked row, uncaught — so the preview refuses what the
+      // live call would: per contact (payment gate per supplier, importer check per arm, refund ceilings), and the
+      // hand-keyed manual-journal gate at the whole line when any line is a GL account.
+      const txRow = await lockBankTransactionForUpdate(ctx.companyId, resolved.id);
+      if (!txRow) return toolError(NOT_FOUND);
+      await planSplitContacts(ctx.companyId, txRow, serviceLines, ctx.userId);
+      if (accountLines.length > 0) await assertBankLineMayPostToAccounts(ctx.companyId, txRow, Math.abs(Number(txRow.amount)));
       const preview = ok({
         dry_run: true,
         transaction_id: resolved.id,
-        lines: lines.map((l, i) => ({
-          contra_account_id: l.contraAccountId, amount: l.amount, vat_code: l.vatCode ?? null,
-          cc1_id: plan!.dims[i]?.cc1Id ?? null, cc2_id: plan!.dims[i]?.cc2Id ?? null, bu_id: plan!.dims[i]?.buId ?? null,
-        })),
+        lines: lines.map((l, i) => (l.contactId
+          ? {
+            [l.contactType === 'supplier' ? 'supplier_id' : 'customer_id']: l.contactId,
+            amount: l.amount, auto_apply: l.autoApply ?? 'fifo',
+          }
+          : {
+            contra_account_id: l.contraAccountId, amount: l.amount, vat_code: l.vatCode ?? null,
+            cc1_id: dimsByIndex.get(i)?.cc1Id ?? null, cc2_id: dimsByIndex.get(i)?.cc2Id ?? null, bu_id: dimsByIndex.get(i)?.buId ?? null,
+          })),
         ...warnings,
       });
       preview.wroteNothing = true;
@@ -184,13 +277,22 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
 
     // No catch below: anything the service throws must reach the registry's savepoint.
-    const result = await splitAllocateTransaction(ctx.companyId, resolved.id, lines.map((l) => ({
-      contraAccountId: l.contraAccountId, amount: l.amount, description: l.description,
-      vatCode: l.vatCode === 'none' ? undefined : l.vatCode, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId,
-    })), ctx.userId, mcpPostingOpts(ctx, TOOL));
+    const result = await splitAllocateTransaction(ctx.companyId, resolved.id, serviceLines, ctx.userId, mcpPostingOpts(ctx, TOOL));
     return ok({
       journal_entry_id: result.journalEntryId,
       transaction_id: result.bankTransaction.id,
+      ...(result.contactDocuments
+        ? {
+          contact_documents: result.contactDocuments.map((d) => ({
+            line: d.index,
+            [d.kind === 'supplier' ? 'supplier_id' : 'customer_id']: d.contactId,
+            document: d.document,
+            payment_id: d.paymentId,
+            applications: d.applications.map((a) => ({ document_id: a.documentId, document_number: a.documentNumber, amount: a.amount })),
+            on_account: d.onAccount,
+          })),
+        }
+        : {}),
       ...(result.lateClaim ? { late_claim: result.lateClaim } : {}),
       ...warnings,
     });

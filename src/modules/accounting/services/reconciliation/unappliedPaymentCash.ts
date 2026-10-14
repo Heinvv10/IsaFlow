@@ -70,6 +70,13 @@ export async function getUnappliedPaymentCash(
   // difference it can explain. A payment whose journal went somewhere else
   // returns no row here.
   //
+  // A journal that carries SEVERAL live documents of this side (a split bank
+  // allocation: one payment per supplier line, bank/bankSplitContacts) moved the
+  // control for all of them at once. Each document is given its SHARE of the
+  // journal's posted control movement, by its total: still the ledger's figure
+  // (a posting that differs from the documents shows as offControl), never a
+  // sibling's movement counted twice. One document: its share is the whole.
+  //
   // AR and AP are SEPARATE queries rather than one branching on a boolean
   // parameter: that form type-checked, ran without error and returned nothing
   // on data where a manual join found the rows.
@@ -77,7 +84,11 @@ export async function getUnappliedPaymentCash(
     ? []
     : ((await (isAr
       ? sql`
-        SELECT p.id, COALESCE(SUM(jl.credit - jl.debit), 0) AS control_movement
+        SELECT p.id,
+               COALESCE(SUM(jl.credit - jl.debit), 0) * COALESCE(p.total_amount / NULLIF((
+                 SELECT SUM(s.total_amount) FROM customer_payments s
+                 WHERE s.company_id = p.company_id AND s.gl_journal_entry_id = p.gl_journal_entry_id
+                   AND COALESCE(s.status, '') <> 'cancelled'), 0), 1) AS control_movement
         FROM customer_payments p
         JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
                                   AND je.company_id = ${companyId}::UUID
@@ -88,10 +99,14 @@ export async function getUnappliedPaymentCash(
                                 AND jl.gl_account_id = ANY(${ids}::uuid[])
         WHERE p.company_id = ${companyId}::UUID
           AND p.id = ANY(${paymentIds}::uuid[])
-        GROUP BY p.id
+        GROUP BY p.id, p.company_id, p.gl_journal_entry_id, p.total_amount
       `
       : sql`
-        SELECT p.id, COALESCE(SUM(jl.debit - jl.credit), 0) AS control_movement
+        SELECT p.id,
+               COALESCE(SUM(jl.debit - jl.credit), 0) * COALESCE(p.total_amount / NULLIF((
+                 SELECT SUM(s.total_amount) FROM supplier_payments s
+                 WHERE s.company_id = p.company_id AND s.gl_journal_entry_id = p.gl_journal_entry_id
+                   AND COALESCE(s.status, '') <> 'cancelled'), 0), 1) AS control_movement
         FROM supplier_payments p
         JOIN gl_journal_entries je ON je.id = p.gl_journal_entry_id
                                   AND je.company_id = ${companyId}::UUID
@@ -102,7 +117,7 @@ export async function getUnappliedPaymentCash(
                                 AND jl.gl_account_id = ANY(${ids}::uuid[])
         WHERE p.company_id = ${companyId}::UUID
           AND p.id = ANY(${paymentIds}::uuid[])
-        GROUP BY p.id
+        GROUP BY p.id, p.company_id, p.gl_journal_entry_id, p.total_amount
       `)) as DbRow[]);
   const movementById = new Map(
     movementRows.map((r) => [String(r.id), Number(r.control_movement ?? 0)]),
