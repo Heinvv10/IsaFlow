@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -161,18 +161,46 @@ describe('integration report: the tail bounds are validated (review round 12)', 
   { encoding: 'utf8', env: { ...process.env, ...env } });
   const log = `${Array.from({ length: 450 }, (_, i) => `${i}:${'z'.repeat(500)}`).join('\n')}\n`;
 
-  for (const bad of ['abc', '0', '-5', '1;system("echo pwned")']) {
-    it(`falls back to the default 400 x 400 for CI_INT_FAILURE_LOG_COLUMNS / _LINES=${bad}, saying so on stderr`, () => {
-      const r = run({ CI_INT_FAILURE_LOG_COLUMNS: bad, CI_INT_FAILURE_LOG_LINES: bad }, workDir({ 'c1/isaflow_test.log': log }));
+  // Under a UTF-8 locale, as a GitHub runner and most shells are: a regex [0-9] there also takes U+0663 (٣).
+  const utf8 = { LC_ALL: 'en_US.UTF-8', LANG: 'en_US.UTF-8' };
+  const BAD = ['abc', '0', '-5', '1;system("echo pwned")', '٣', '5٣', '05', '5\n', '1234567890', '', '7\n::error::boom'];
+  for (const bad of BAD) {
+    it(`falls back to the default 400 x 400 for CI_INT_FAILURE_LOG_COLUMNS / _LINES=${JSON.stringify(bad)}, saying so on stderr`, () => {
+      const r = run({ ...utf8, CI_INT_FAILURE_LOG_COLUMNS: bad, CI_INT_FAILURE_LOG_LINES: bad },
+        workDir({ 'c1/isaflow_test.log': log }));
       expect(r.status).toBe(0);
       expect(r.stdout).toContain('(failed; last 400 lines, 400 columns max)');
       expect(r.stdout).toContain(`\n449:${'z'.repeat(396)}\n`);
       expect(r.stdout).not.toContain('\n49:');
       expect(r.stdout).not.toContain('pwned');
-      expect(r.stderr).toContain(`CI_INT_FAILURE_LOG_COLUMNS=${bad} is not a positive integer; using 400`);
-      expect(r.stderr).toContain(`CI_INT_FAILURE_LOG_LINES=${bad} is not a positive integer; using 400`);
+      // Exactly one note per variable, each one line of its own, starting with the gate's prefix.
+      const notes = r.stderr.split('\n').filter((l) => l !== '');
+      expect(notes).toHaveLength(2);
+      expect(notes[0]).toMatch(/^\[integration\] CI_INT_FAILURE_LOG_LINES=.* is not a positive integer; using 400$/);
+      expect(notes[1]).toMatch(/^\[integration\] CI_INT_FAILURE_LOG_COLUMNS=.* is not a positive integer; using 400$/);
     });
   }
+
+  it('quotes the value in the note: a newline in it cannot start a line, an empty one shows as \'\'', () => {
+    const work = workDir({ 'c1/isaflow_test.log': log });
+    expect(run({ ...utf8, CI_INT_FAILURE_LOG_LINES: '7\n::error::boom' }, work).stderr)
+      .toBe("[integration] CI_INT_FAILURE_LOG_LINES=$'7\\n::error::boom' is not a positive integer; using 400\n");
+    expect(run({ ...utf8, CI_INT_FAILURE_LOG_LINES: '' }, work).stderr)
+      .toBe("[integration] CI_INT_FAILURE_LOG_LINES='' is not a positive integer; using 400\n");
+  });
+
+  it('is silent when the variables are unset, and takes 9 digits', () => {
+    const env = { ...process.env, ...utf8 };
+    delete env.CI_INT_FAILURE_LOG_LINES;
+    delete env.CI_INT_FAILURE_LOG_COLUMNS;
+    const r = spawnSync('bash', ['-c', 'source "$1"; report_integration_failure_logs "$2" 1 "1"', 'bash', REPORT,
+      workDir({ 'c1/isaflow_test.log': log })], { encoding: 'utf8', env });
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toContain('(failed; last 400 lines, 400 columns max)');
+    const nine = run({ ...utf8, CI_INT_FAILURE_LOG_LINES: '999999999' }, workDir({ 'c1/isaflow_test.log': log }));
+    expect(nine.stderr).toBe('');
+    expect(nine.stdout).toContain('(failed; last 999999999 lines, 400 columns max)');
+  });
 
   it('still takes a valid override', () => {
     const r = run({ CI_INT_FAILURE_LOG_COLUMNS: '7', CI_INT_FAILURE_LOG_LINES: '1' }, workDir({ 'c1/isaflow_test.log': log }));
@@ -186,5 +214,23 @@ describe('integration report: the tail bounds are validated (review round 12)', 
       'c1/summary': '[integration] shard 1/1 isaflow_test: 0 files, 1s, exit 1\n',
     }));
     expect(out).toContain('(failed; last 400 lines, 400 columns max) -----\n(log empty)\n');
+  });
+});
+
+describe('unblock_stdio (the GitHub runner EAGAIN fix)', () => {
+  // stdout and stderr are separate pipes here (spawnSync's default), as on a runner that keeps the two streams apart.
+  it('clears O_NONBLOCK on stdout AND on a separate stderr pipe', () => {
+    const work = workDir({});
+    const flags = join(work, 'flags');
+    const flagsOf = (label: string) => `perl -MFcntl -e 'open(my $o, ">>", $ARGV[0]) or die; for my $fd (1, 2) {
+      open(my $h, ">&=", $fd) or die; my $f = fcntl($h, F_GETFL, 0); print $o "${label} fd$fd=", ($f & O_NONBLOCK ? 1 : 0), "\\n" }' "$2"`;
+    const r = spawnSync('bash', ['-c', `source "$1"
+      perl -MFcntl -e 'for my $fd (1, 2) { open(my $h, ">&=", $fd) or die; my $f = fcntl($h, F_GETFL, 0);
+        fcntl($h, F_SETFL, $f | O_NONBLOCK) or die }'
+      ${flagsOf('before')}
+      unblock_stdio
+      ${flagsOf('after')}`, 'bash', REPORT, flags], { encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(flags, 'utf8')).toBe('before fd1=1\nbefore fd2=1\nafter fd1=0\nafter fd2=0\n');
   });
 });

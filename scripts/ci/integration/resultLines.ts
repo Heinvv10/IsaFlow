@@ -5,6 +5,17 @@
  *
  *   ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms`  (also ❯, ↓, ×)
  *
+ * The form is vitest 4.1.2's default reporter's module line (getModuleLog and
+ * getEntityPrefix in node_modules/vitest/dist/chunks/index.*.js), as the gate
+ * runs it (NO_COLOR): `<mark>[ |<project>|][  TS ] <path> (<n> test[s][ | k
+ * failed][ | k skipped][ | k todo])`, then ` <integer>ms` when it has a
+ * duration, then ` <integer> MB heap used` with --logHeapUsage. Nothing else is
+ * read: `1.50s` / `1m 2s` are the run summary's formatTime, `(slow)` is never
+ * written, and `expected fail` is counted only in the summary. A coloured
+ * project label (no NO_COLOR) is not read either. A line in any other form is
+ * not a result: shard.sh then counts the file as missing, and the report and
+ * the skip report name it (unreadable).
+ *
  * Two hazards, both seen in real shard logs or by review:
  * - A suite's own output that ends without a newline runs into the reporter's
  *   line, and that output can carry a ✓ or × of its own
@@ -15,8 +26,10 @@
  *   the line: `(…)`, an optional duration, vitest's optional `N MB heap used`
  *   (--logHeapUsage), nothing else.
  *
- * Named limit: a line whose glued-in output itself ends with a whole quoted
- * result line is still read as one. The reporter never writes that.
+ * Named limits: a line whose glued-in output itself ends with a whole quoted
+ * result line is still read as one (the reporter never writes that); a line
+ * holding two results reads only the last, so the first file has no result
+ * line and its shard fails (closed).
  *
  * Pure; unit-tested in tests/unit/ci/integrationResultLines.test.ts. The CLI is
  * result-lines.ts.
@@ -30,7 +43,8 @@ export interface ResultLine {
   counts: Record<string, number>;
 }
 
-const RESULT = /[✓❯↓×] ([^✓❯↓×\s][^✓❯↓×]*?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)(?: \d+(?:\.\d+)?m?s)?(?: \d+(?:\.\d+)? MB heap used)?\s*$/u;
+const RESULT = new RegExp('[✓❯↓×](?: \\|[^|\\n]*\\|)?(?:  TS )? ([^✓❯↓×\\s][^✓❯↓×]*?\\.test\\.ts) '
+  + '\\((\\d+) tests?((?: \\| \\d+ (?:failed|skipped|todo))*)\\)(?: \\d+ms)?(?: \\d+ MB heap used)?\\s*$', 'u');
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;]*m/g;
 
@@ -51,6 +65,13 @@ export function wrongCounts(lines: ResultLine[], planned: string[]): { file: str
   const n = new Map<string, number>();
   for (const r of lines) n.set(r.file, (n.get(r.file) ?? 0) + 1);
   return planned.map((file) => ({ file, n: n.get(file) ?? 0 })).filter((c) => c.n !== 1);
+}
+
+/** The started files (absolute, as vitest records them; `root` is the repo) with no readable result line. */
+export function unreadable(lines: ResultLine[], started: string[], root: string): string[] {
+  const read = new Set(lines.map((r) => r.file));
+  const rel = started.filter((f) => f !== '').map((f) => (f.startsWith(`${root}/`) ? f.slice(root.length + 1) : f));
+  return [...new Set(rel)].filter((f) => !read.has(f));
 }
 
 /** The failing files (❯ or ×), one normalised line each, as the run's summary prints them. */

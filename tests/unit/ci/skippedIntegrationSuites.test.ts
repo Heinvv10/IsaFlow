@@ -7,6 +7,10 @@
  * tenants) cannot run; without this, a green run would not say their proofs
  * were missing from it.
  */
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { skipNotice, skippedSuites } from '../../../scripts/ci/skippedIntegrationSuites';
 
@@ -113,6 +117,34 @@ describe('skipNotice', () => {
 
   it('has nothing to say about a run where nothing skipped', () => {
     expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
-      .toEqual({ lines: [], unexplained: [] });
+      .toEqual({ lines: [], unexplained: [], unreadable: [] });
+  });
+});
+
+describe('skipNotice: a suite whose result line cannot be read fails the report, by name', () => {
+  it('cannot tell whether such a suite skipped, so it fails rather than dropping it', () => {
+    const { lines, unexplained, unreadable } = skipNotice([], ['tests/integration/odd.int.test.ts']);
+    expect(unexplained).toEqual([]);
+    expect(unreadable).toEqual(['tests/integration/odd.int.test.ts']);
+    expect(lines).toContain('[skip] FAIL: 1 suite(s) started but left no readable result line, so whether they skipped is '
+      + 'unknown:');
+    expect(lines).toContain('[skip]   tests/integration/odd.int.test.ts');
+  });
+
+  it('says nothing extra when every started suite was read', () => {
+    expect(skipNotice([], [])).toEqual({ lines: [], unexplained: [], unreadable: [] });
+  });
+});
+
+describe('report-skipped-integration.ts reads each log\'s sibling .started list', () => {
+  it('exits 1 and names a started suite with no readable result line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      writeFileSync(join(dir, 'isaflow_test.log'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1m 2s\n');
+      writeFileSync(join(dir, 'isaflow_test.started'), `${join(process.cwd(), 'tests/integration/a.int.test.ts')}\n`);
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', join(dir, 'isaflow_test.log')], { encoding: 'utf8' });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain('[skip]   tests/integration/a.int.test.ts');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
