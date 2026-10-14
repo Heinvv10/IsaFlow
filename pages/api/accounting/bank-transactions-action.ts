@@ -69,6 +69,9 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
       // Positive rand-and-cents: the split posts each line in the bank line's own direction.
       contraAccountId: UUID.optional(), amount: z.number().positive().refine((n) => Number(n.toFixed(2)) === n, 'amount must be in whole cents'),
       description: z.string().max(500).optional(),
+      // The line's VAT treatment, as the split modal sends it (VAT_OPTIONS). Missing from this schema from BL-33
+      // (2026-04-15) until 2026-10-14: zod stripped it, and every screen split posted with no VAT leg.
+      vatCode: z.enum(['none', 'standard', 'zero_rated', 'exempt']).optional(),
       // Per-line dimensions, stamped on that line's cost/revenue leg only (bankSplitDimensions.ts).
       cc1Id: UUID.optional(), cc2Id: UUID.optional(), buId: UUID.optional(),
       // A line that settles a supplier/customer instead of a GL account (bankSplitContacts.ts).
@@ -85,6 +88,8 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
         ctx.addIssue({ code: 'custom', message: 'autoApply applies only to a supplier/customer line' });
       } else if (contact && (line.cc1Id || line.cc2Id || line.buId)) {
         ctx.addIssue({ code: 'custom', message: 'a supplier/customer line carries no cc1/cc2/bu' });
+      } else if (contact && line.vatCode !== undefined && line.vatCode !== 'none') {
+        ctx.addIssue({ code: 'custom', message: 'a supplier/customer line carries no VAT (the bill or invoice already did)' });
       }
     })).min(1),
   }),

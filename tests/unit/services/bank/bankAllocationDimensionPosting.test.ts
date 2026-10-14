@@ -110,3 +110,26 @@ describe('split allocation', () => {
     expect(mockPlanSplit.mock.invocationCallOrder[0]).toBeLessThan(mockCreateJE.mock.invocationCallOrder[0]!);
   });
 });
+
+// The REST split route forwards each line's vatCode (tests/unit/api/bankSplitVatCode.test.ts); this is
+// what the service then posts for each code the split modal offers.
+describe('split allocation — each VAT code posts as the user chose', () => {
+  it('standard: net + a VAT leg; none / zero_rated / exempt: gross, no VAT leg, the code stamped', async () => {
+    mockPlanSplit.mockResolvedValueOnce({ dims: [{}, {}, {}, {}], warnings: [] });
+    mockSql.mockResolvedValueOnce([{ ...TX, amount: -230 }]).mockResolvedValueOnce([{ id: 'jl-1' }]).mockResolvedValueOnce([TX]);
+    await splitAllocateTransaction(COMPANY, 'tx-1', [
+      { contraAccountId: 'fuel', amount: 115, vatCode: 'standard' },
+      { contraAccountId: 'tolls', amount: 50, vatCode: 'none' },
+      { contraAccountId: 'export', amount: 40, vatCode: 'zero_rated' },
+      { contraAccountId: 'fees', amount: 25, vatCode: 'exempt' },
+    ], USER);
+    const lines = postedLines();
+    const on = (id: string) => lines.filter((l) => l.glAccountId === id);
+    expect(on('fuel')).toEqual([expect.objectContaining({ debit: 100, credit: 0, vatType: 'standard' })]);
+    expect(on('vat-in')).toEqual([expect.objectContaining({ debit: 15, credit: 0, vatType: 'standard' })]);
+    expect(on('tolls')).toEqual([expect.objectContaining({ debit: 50, vatType: undefined })]);
+    expect(on('export')).toEqual([expect.objectContaining({ debit: 40, vatType: 'zero_rated' })]);
+    expect(on('fees')).toEqual([expect.objectContaining({ debit: 25, vatType: 'exempt' })]);
+    expect(on(BANK)).toEqual([expect.objectContaining({ debit: 0, credit: 230 })]);
+  });
+});
