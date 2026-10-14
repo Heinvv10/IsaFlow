@@ -45,7 +45,7 @@ import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
 import { planSplitDimensions } from './bankSplitDimensions';
 import { planSplitContacts, recordSplitContactDocuments, type SplitContactDocument } from './bankSplitContacts';
-import { accountSplitLines, buildSplitJournalLines } from './bankSplitJournal';
+import { buildSplitJournalLines, splitParts } from './bankSplitJournal';
 import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
 
 
@@ -656,8 +656,8 @@ export async function splitAllocateTransaction(
   }
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
-  const contactByIndex = new Map(contactPlan.map((p) => [p.index, p]));
-  const accountLines = accountSplitLines(lines, new Set(contactByIndex.keys()));
+  const parts = splitParts(lines, contactPlan);
+  const accountLines = parts.flatMap((p) => (p.kind === 'account' ? [p] : []));
   if (accountLines.length > 0) {
     // R-035 PR6 H2, judged at the WHOLE line's amount as it was before split lines
     // could name contacts: a R10k hand-keyed line split R5k account / R5k supplier is
@@ -679,8 +679,7 @@ export async function splitAllocateTransaction(
   // GL-account lines only: a contact line is a settlement and carries no dimensions.
   const dimensionPlan = await planSplitDimensions(companyId, bankAccountId, accountLines.map(({ line }) => line));
   const journalLines = await buildSplitJournalLines({
-    companyId, lines, contactByIndex, isSpent, entryDesc, bankAccountId, totalAmount,
-    accountByIndex: new Map(accountLines.map(({ index, line }) => [index, line])),
+    companyId, parts, isSpent, entryDesc, bankAccountId, totalAmount,
     dimsByIndex: new Map(accountLines.map(({ index }, k) => [index, dimensionPlan.dims[k]])),
   });
 

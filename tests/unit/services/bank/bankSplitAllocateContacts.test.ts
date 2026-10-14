@@ -134,6 +134,21 @@ describe('money out to two suppliers', () => {
   });
 });
 
+describe('documents are written in contact order, reported in line order', () => {
+  it('locks each contact\'s bills in id order — two splits over the same suppliers cannot deadlock', async () => {
+    given(OUT);
+    vi.mocked(recordSupplierBankPayment)
+      .mockResolvedValueOnce({ paymentId: 'p-frik', appliedLines: [], unappliedRemainder: 800 } as never)
+      .mockResolvedValueOnce({ paymentId: 'p-se', appliedLines: [], unappliedRemainder: 1159.48 } as never);
+    const result = await split([
+      { contactType: 'supplier', contactId: SOUTHERN, amount: 1159.48 },
+      { contactType: 'supplier', contactId: FRIK, amount: 800 },
+    ]);
+    expect(vi.mocked(recordSupplierBankPayment).mock.calls.map((c) => (c[0] as { supplierId: string }).supplierId)).toEqual([FRIK, SOUTHERN]);
+    expect(result.contactDocuments!.map((d) => [d.index, d.paymentId])).toEqual([[0, 'p-se'], [1, 'p-frik']]);
+  });
+});
+
 describe('a mixed split', () => {
   it('plans dimensions for the GL line only, and judges the journal gates at the WHOLE line', async () => {
     given(OUT);

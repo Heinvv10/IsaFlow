@@ -83,6 +83,9 @@ export function splitLineContact(line: SplitLine): { kind: SplitContactKind; con
   return { kind: line.contactType, contactId: line.contactId.toLowerCase() };
 }
 
+/** One contact, across both kinds: the per-contact sums and the lock order key on it. */
+const contactKey = (c: { kind: SplitContactKind; contactId: string }) => `${c.kind}:${c.contactId}`;
+
 /** Adds `amount` to `key`'s running total. */
 function addTo<T extends { amount: number }>(totals: Map<string, T>, key: string, entry: T): void {
   const prior = totals.get(key);
@@ -136,7 +139,7 @@ export async function planSplitContacts(
     await assertImporterMayAllocateAs(companyId, tx, userId, contact.kind, contact.contactId);
 
     const isRefund = contact.kind === 'supplier' ? !isSpent : isSpent;
-    if (isRefund) addTo(refundTotals, `${contact.kind}:${contact.contactId}`, { ...contact, amount });
+    if (isRefund) addTo(refundTotals, contactKey(contact), { ...contact, amount });
     const verb = contact.kind === 'supplier'
       ? (isSpent ? `Payment to ${contactName}` : `Refund from ${contactName}`)
       : (isSpent ? `Refund to ${contactName}` : `Receipt from ${contactName}`);
@@ -150,7 +153,7 @@ export async function planSplitContacts(
   for (const p of paymentTotals.values()) await assertBankLineMayPaySupplier(companyId, tx, p.amount);
   // planXRefund locks the contact: in id order, so two splits naming the same
   // contacts in opposite orders wait for each other instead of deadlocking.
-  for (const [, r] of [...refundTotals].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+  for (const [, r] of [...refundTotals].sort(([a], [b]) => a.localeCompare(b))) {
     if (r.kind === 'supplier') await planSupplierRefund(companyId, r.contactId, r.amount, txDate);
     else await planCustomerRefund(companyId, r.contactId, r.amount, txDate);
   }
@@ -162,7 +165,7 @@ async function contactNameOf(companyId: string, table: 'suppliers' | 'customers'
   const rows = (table === 'suppliers'
     ? await sql`SELECT name FROM suppliers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`
     : await sql`SELECT name FROM customers WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  return String(rows[0]?.name ?? '');
+  return String(rows[0]?.name || (table === 'suppliers' ? 'supplier' : 'customer'));
 }
 
 /**
@@ -182,7 +185,9 @@ export async function recordSplitContactDocuments(args: {
 }): Promise<SplitContactDocument[]> {
   const { companyId, bankTxId, bankAccountId, journalEntryId, isSpent, txDate, userId } = args;
   const out: SplitContactDocument[] = [];
-  for (const p of args.planned) {
+  // Each writer locks that contact's open bills / invoices to apply its document: in contact-id order (as the
+  // refund plans), so two splits over the same contacts wait for each other instead of deadlocking.
+  for (const p of [...args.planned].sort((a, b) => contactKey(a).localeCompare(contactKey(b)) || a.index - b.index)) {
     const base = { index: p.index, kind: p.kind, contactId: p.contactId };
     if (p.kind === 'supplier' && isSpent) {
       const rec = await recordSupplierBankPayment({
@@ -224,5 +229,5 @@ export async function recordSplitContactDocuments(args: {
       });
     }
   }
-  return out;
+  return out.sort((a, b) => a.index - b.index);
 }
