@@ -34,6 +34,9 @@ import { ArPostingAfterWriteError } from './arErrors';
 import { afterJournalWritten, assertCreditNoteCanPost, lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { assertStoredDocumentPostable, storedDocumentsSettleable } from '../shared/documentCurrency';
 import { POST_AS_STORED, assertPostsStoredDimensions } from '../gl/dimensions/dimensionStoredPosting';
+import {
+  assertSupplierNoteHeaderTags, creditNoteExpenseJournalLines, recordCreditNoteExpenseAllocations,
+} from '../ap/supplierCreditNoteExpenseLines';
 
 /**
  * `autoApply` defaults to 'fifo': a credit note exists to reduce what the
@@ -66,13 +69,21 @@ export async function approveCreditNote(
     const cn = await lockCreditNoteForUpdate(companyId, id);
     if (!cn) throw new Error(`Credit note ${id} not found`);
     // Next statement after the row read: one approval at a time per linked invoice (lock order: ar/.claude.md).
-    if (cn.customer_invoice_id) await lockInvoiceCreditNotes(String(cn.customer_invoice_id));
+    // A supplier note's bill takes the same key (892): two notes on one bill must not take one leg twice.
+    const lockedDocument = cn.customer_invoice_id ?? cn.supplier_invoice_id;
+    if (lockedDocument) await lockInvoiceCreditNotes(String(lockedDocument));
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
     // R-035 PR3: under the lock and before any other read or write, so a
     // refusal (ApprovalRequiredError, answered 409) has written nothing.
     await assertApprovalCleared(companyId, creditNoteApprovalType(String(cn.type)), id);
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, posted on an unlinked one.
     const headerTags = String(cn.type) === 'customer' ? await creditNoteHeaderTags(companyId, creditNoteHeaderOf(cn)) : null;
+    // A supplier note's CC1 / CC2 / BU: refused on a note linked to a bill (892), posted on an unlinked one.
+    const supplierTags = String(cn.type) === 'supplier' ? assertSupplierNoteHeaderTags({
+      supplierInvoiceId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null,
+      cc1Id: cn.cc1_id ? String(cn.cc1_id) : null, cc2Id: cn.cc2_id ? String(cn.cc2_id) : null,
+      buId: cn.bu_id ? String(cn.bu_id) : null,
+    }) : null;
     // FX PR0, before any write: the note itself, and the invoice approving it
     // applies to — a ZAR note would otherwise add rands to a USD amount_paid.
     await assertStoredDocumentPostable(companyId, 'credit_note', id);
@@ -114,7 +125,7 @@ export async function approveCreditNote(
       lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
         description: `AR credit: ${cn.credit_note_number}` });
     } else {
-      // Supplier CN: DR Accounts Payable, CR Expense
+      // Supplier CN: DR Accounts Payable, CR VAT Input, CR the bill's own expense legs (892)
       const apAccount = await getSystemAccount('payable', companyId);
       const expenseAccount = await getSystemAccount('default_expense', companyId);
       const vatAccount = await getSystemAccount('vat_input', companyId);
@@ -127,8 +138,13 @@ export async function approveCreditNote(
         lines.push({ glAccountId: vatAccount.id, debit: 0, credit: Number(cn.tax_amount),
           description: `VAT reversal: ${cn.credit_note_number}`, vatType: 'standard' });
       }
-      lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
-        description: `Expense credit: ${cn.credit_note_number}`, ...dims });
+      const expense = await creditNoteExpenseJournalLines(companyId, {
+        id, number: String(cn.credit_note_number), amount: Number(cn.subtotal),
+        supplierInvoiceId: cn.supplier_invoice_id ? String(cn.supplier_invoice_id) : null,
+        glAccountId: cn.gl_account_id ? String(cn.gl_account_id) : null, tags: supplierTags!,
+      }, { defaultExpenseAccountId: expenseAccount.id, payableAccountId: apAccount.id, vatInputAccountId: vatAccount?.id ?? null });
+      lines.push(...expense.lines);
+      allocations = expense.allocations;
     }
 
     // credit_date comes back from pg as a Date object (or a string on some
@@ -161,6 +177,9 @@ export async function approveCreditNote(
     if (allocations.length > 0 && cn.customer_invoice_id) {
       const invoiceId = String(cn.customer_invoice_id);
       await afterJournalWritten(noteNumber, () => recordCreditNoteRevenueAllocations(companyId, id, invoiceId, allocations));
+    } else if (allocations.length > 0 && cn.supplier_invoice_id) {
+      const billId = String(cn.supplier_invoice_id);
+      await afterJournalWritten(noteNumber, () => recordCreditNoteExpenseAllocations(companyId, id, billId, allocations));
     }
 
     // N6 (P2.1) and L2: approving a note APPLIES it. A linked note settles the
@@ -225,4 +244,3 @@ export async function approveCreditNote(
     throw err;
   }
 }
-

@@ -17,6 +17,8 @@ import { deriveLineDimensions } from '../gl/dimensions/dimensionDerivation';
 import { assertDocumentDimensions } from '../gl/dimensions/dimensionPolicy';
 import { CreditNoteDimensionRefusal, creditNoteHeaderTags } from './creditNoteHeaderTags';
 import { readCodingId } from './invoiceLineCoding';
+import { assertBillLineAccounts } from '../ap/billLineAccountGuard';
+import { assertSupplierNoteHeaderTags } from '../ap/supplierCreditNoteExpenseLines';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -127,6 +129,17 @@ export async function createCreditNote(companyId: string,
     // A customer note's header job / CC1 / CC2 / BU: refused on a linked note, a job checked on an unlinked one.
     const projectId = readCodingId(input.projectId);
     if (projectId === undefined) throw new CreditNoteDimensionRefusal('projectId must be a UUID');
+    const glAccountId = readCodingId(input.glAccountId);
+    if (glAccountId === undefined) throw new CreditNoteLinkError('glAccountId must be a UUID');
+    if (glAccountId && input.type !== 'supplier') {
+      throw new CreditNoteLinkError('glAccountId can only be set on a supplier credit note');
+    }
+    if (input.type === 'supplier') {
+      // 892: the note's own account follows the bill-line rule; header tags are refused on a linked note.
+      if (glAccountId) await assertBillLineAccounts(companyId, [glAccountId]);
+      assertSupplierNoteHeaderTags({ supplierInvoiceId: input.supplierInvoiceId || null,
+        cc1Id: dims?.cc1Id || null, cc2Id: dims?.cc2Id || null, buId: dims?.buId || null });
+    }
     if (input.type === 'customer') {
       await creditNoteHeaderTags(companyId, {
         customerInvoiceId: input.customerInvoiceId || null, projectId,
@@ -151,7 +164,7 @@ export async function createCreditNote(companyId: string,
         company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
-        project_id, created_by, actor_type, actor_token_jti, cc1_id, cc2_id, bu_id
+        project_id, created_by, actor_type, actor_token_jti, cc1_id, cc2_id, bu_id, gl_account_id
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
@@ -161,7 +174,8 @@ export async function createCreditNote(companyId: string,
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
         ${projectId}, ${userId}::UUID,
         ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null},
-        ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID
+        ${dims?.cc1Id || null}::UUID, ${dims?.cc2Id || null}::UUID, ${dims?.buId || null}::UUID,
+        ${glAccountId}::UUID
       ) RETURNING *
     `) as Record<string, unknown>[];
 

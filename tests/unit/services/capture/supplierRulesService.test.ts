@@ -192,6 +192,7 @@ describe('upsertRule', () => {
 
     const result = await upsertRule(COMPANY_ID, SUPPLIER_ID, {
       autoPublish: true,
+      defaultGlAccountId: GL_ID,
       defaultVatCode: 'Z',
     }, USER_ID);
 

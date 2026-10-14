@@ -10,12 +10,16 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ArrowLeft, Loader2, AlertCircle, Check, X } from 'lucide-react';
+import {
+  NO_DIMENSION_DEFAULTS, SupplierDimensionDefaultsSection, changedDimensionDefaults, dimensionsOfRule,
+  type RuleDimensionDefaults,
+} from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; accountCode: string; accountName: string }
 interface CostCentre { id: string; code: string; name: string }
 
-interface SupplierRule {
+interface SupplierRule extends RuleDimensionDefaults {
   id: string;
   companyId: string;
   supplierId: string;
@@ -63,6 +67,7 @@ export default function SupplierRulesPage() {
   const [glAccountId, setGlAccountId]         = useState('');
   const [vatCode, setVatCode]                 = useState<VatCode | ''>('');
   const [costCentreId, setCostCentreId]       = useState('');
+  const [dims, setDims]                       = useState(NO_DIMENSION_DEFAULTS);
   const [autoPublish, setAutoPublish]         = useState(false);
   const [maxAmount, setMaxAmount]             = useState('');
   const [minConfidence, setMinConfidence]     = useState(95);
@@ -104,6 +109,7 @@ export default function SupplierRulesPage() {
           setGlAccountId(r.defaultGlAccountId ?? '');
           setVatCode((r.defaultVatCode as VatCode) ?? '');
           setCostCentreId(r.defaultCostCentreId ?? '');
+          setDims(dimensionsOfRule(r));
           setAutoPublish(r.autoPublish);
           setMaxAmount(r.autoPublishMaxAmount != null ? String(r.autoPublishMaxAmount) : '');
           setMinConfidence(Math.round(r.autoPublishMinConfidence * 100));
@@ -138,6 +144,7 @@ export default function SupplierRulesPage() {
         defaultGlAccountId: glAccountId || null,
         defaultVatCode: vatCode || null,
         defaultCostCentreId: costCentreId || null,
+        ...changedDimensionDefaults(dims, rule),
         autoPublish,
         autoPublishMaxAmount: maxAmount ? parseFloat(maxAmount) : null,
         autoPublishMinConfidence: minConfidence / 100,
@@ -283,6 +290,9 @@ export default function SupplierRulesPage() {
               </div>
             )}
           </section>
+
+          {/* Default CC / BU (migration 890) */}
+          <SupplierDimensionDefaultsSection value={dims} onChange={next => { setDims(next); markDirty(); }} />
 
           {/* Auto-publish */}
           <section className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg p-5 space-y-4">

@@ -21,6 +21,8 @@ import type { BillLineItem, GLAccount } from '@/components/accounting/suppliers/
 import { InvoiceNumberField } from '@/components/accounting/suppliers/InvoiceNumberField';
 import { SupplierInvoiceSummaryCard } from '@/components/accounting/suppliers/SupplierInvoiceSummaryCard';
 import { localISODate } from '@/lib/dateUtils';
+import { useInvoiceLineCodingOptions } from '@/components/accounting/customer-invoices/useInvoiceLineCodingOptions';
+import { useSupplierDimensionDefaults } from '@/components/accounting/suppliers/useSupplierDimensionDefaults';
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
@@ -50,8 +52,11 @@ export default function NewSupplierInvoicePage() {
   const [sequencePreview, setSequencePreview] = useState<string>('');
 
   const [lines, setLines] = useState<BillLineItem[]>([
-    { key: crypto.randomUUID(), description: '', quantity: 1, unitPrice: 0, taxRate: 15, glAccountId: '' },
+    { key: crypto.randomUUID(), description: '', quantity: 1, unitPrice: 0, taxRate: 15, glAccountId: '', cc2Id: '', buId: '' },
   ]);
+  // CC2 / BU pickers, and the supplier's default CC2 / BU pre-filled on the lines (migration 890).
+  const codingOptions = useInvoiceLineCodingOptions();
+  const { defaults: supplierDims, note: supplierDefaultsNote } = useSupplierDimensionDefaults<BillLineItem>(form.supplierId, setLines, codingOptions);
 
   useEffect(() => {
     const okJson = async (r: Response) => { await assertOk(r, 'Could not load the form data - try again'); return r.json(); };
@@ -87,12 +92,13 @@ export default function NewSupplierInvoicePage() {
       unitPrice: item.unitPrice,
       taxRate: item.taxRate,
       glAccountId: '',
+      ...supplierDims,
     })));
   }
 
   const addLine = () => setLines(prev => [
     ...prev,
-    { key: crypto.randomUUID(), description: '', quantity: 1, unitPrice: 0, taxRate: form.taxRate, glAccountId: '' },
+    { key: crypto.randomUUID(), description: '', quantity: 1, unitPrice: 0, taxRate: form.taxRate, glAccountId: '', ...supplierDims },
   ]);
 
   const updateLine = (key: string, field: keyof BillLineItem, value: string | number) =>
@@ -133,7 +139,7 @@ export default function NewSupplierInvoicePage() {
       setLines(data.lineItems.map(li => ({
         key: crypto.randomUUID(), description: li.description,
         quantity: li.quantity ?? 1, unitPrice: li.unitPrice ?? 0,
-        taxRate: data.vatRate ?? form.taxRate, glAccountId: '',
+        taxRate: data.vatRate ?? form.taxRate, glAccountId: '', ...supplierDims,
       })));
     }
     setScanBanner(`Auto-filled from document (${Math.round(data.confidence * 100)}% confidence). Review all fields before submitting.`);
@@ -162,6 +168,8 @@ export default function NewSupplierInvoicePage() {
             description: l.description, quantity: l.quantity,
             unitPrice: l.unitPrice, taxRate: l.taxRate,
             glAccountId: l.glAccountId || undefined,
+            cc2Id: l.cc2Id || undefined,
+            buId: l.buId || undefined,
           })),
         }),
       });
@@ -250,6 +258,8 @@ export default function NewSupplierInvoicePage() {
                 onAdd={addLine}
                 onUpdate={updateLine}
                 onRemove={removeLine}
+                codingOptions={codingOptions}
+                supplierDefaults={{ ...supplierDims, note: supplierDefaultsNote }}
               />
 
               {/* Section 3 — Notes */}

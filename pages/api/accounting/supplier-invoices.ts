@@ -23,6 +23,7 @@ import type { SupplierInvoiceCreateInput } from '@/modules/accounting/types/ap.t
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
 import { assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { resolveDocumentCurrency } from '@/modules/accounting/services/shared/documentCurrency';
+import { resolveBillLineDimensions } from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -61,6 +62,22 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
     // The raw body value: a non-string code is refused here, not silently defaulted below.
     await resolveDocumentCurrency(companyId, currencyCode, exchangeRate ? Number(exchangeRate) : undefined, 'bill');
 
+    // Line fields are whitelisted, not forwarded. The service honours an exact
+    // per-line `taxAmount` for importers; letting a request body carry one here
+    // would make input VAT client-settable and unbounded. Every key the service
+    // reads is listed, so this drops nothing it would have used.
+    const safeItems = (items as Record<string, unknown>[]).map(i => ({
+      poItemId: i.poItemId, description: i.description, quantity: i.quantity,
+      unitPrice: i.unitPrice, taxRate: i.taxRate, vatClassification: i.vatClassification,
+      glAccountId: i.glAccountId, projectId: i.projectId, costCenterId: i.costCenterId,
+      // CC1 / CC2 / BU (migration 870): validated by the service (tenant, slot, active, FNO conflict).
+      cc1Id: i.cc1Id, cc2Id: i.cc2Id, buId: i.buId,
+    })) as SupplierInvoiceCreateInput['items'];
+
+    // The supplier's default CC/BU, the CC1 derivation and the tenant / slot / active checks refuse with a 400
+    // (migration 890), so they run ahead of the reservation too; the service runs them again.
+    await resolveBillLineDimensions(companyId, String(supplierId), safeItems, costCenterId);
+
     // Resolve the invoice number. If `useSequence` is true OR no invoiceNumber
     // was supplied, atomically reserve the next number from
     // company_document_numbers (SIV sequence in Settings → Document Numbers).
@@ -73,16 +90,6 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
 
     // User identity comes from JWT (req.user), never from client request body
     const userId = req.user.id;
-
-    // Line fields are whitelisted, not forwarded. The service honours an exact
-    // per-line `taxAmount` for importers; letting a request body carry one here
-    // would make input VAT client-settable and unbounded. Every key the service
-    // reads is listed, so this drops nothing it would have used.
-    const safeItems = (items as Record<string, unknown>[]).map(i => ({
-      poItemId: i.poItemId, description: i.description, quantity: i.quantity,
-      unitPrice: i.unitPrice, taxRate: i.taxRate, vatClassification: i.vatClassification,
-      glAccountId: i.glAccountId, projectId: i.projectId, costCenterId: i.costCenterId,
-    })) as SupplierInvoiceCreateInput['items'];
 
     const invoice = await createSupplierInvoice(companyId, {
       invoiceNumber: resolvedInvoiceNumber, supplierId: String(supplierId), purchaseOrderId, grnId,
