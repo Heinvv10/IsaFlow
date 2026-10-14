@@ -38,8 +38,9 @@
 #      port and runs its share of each database's suites, one file at a time
 #      (--no-file-parallelism: parallel files on one database deadlock), in
 #      its own session (shard.sh, under a time limit).
-#   3. Each shard's vitest log is printed; the step fails if any shard fails,
-#      ran a different number of files than it was given, or timed out.
+#   3. Compact summaries are printed for every shard. If one fails, its log's
+#      bounded tail is printed too; successful logs stay on disk until cleanup
+#      instead of flooding the GitHub runner's output pipe.
 #   4. On exit (also on INT/TERM) every shard session is ended (TERM, then KILL
 #      after a grace), every cluster is stopped (pg_ctl -m immediate) and the
 #      mktemp dir is deleted, and nothing else.
@@ -51,6 +52,8 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=pg-cluster.sh
 source scripts/ci/integration/pg-cluster.sh
+# shellcheck source=report.sh
+source scripts/ci/integration/report.sh
 
 SHARDS=6
 pg_require_extensions
@@ -159,17 +162,17 @@ for i in $(seq 1 "$SHARDS"); do
 done
 
 FAILED=0
-for pid in "${PIDS[@]}"; do wait "$pid" || FAILED=1; done
-
-# 3. Report: every shard's log, then which suites skipped and why.
+FAILED_SHARDS=""
 for i in $(seq 1 "$SHARDS"); do
-  for db in isaflow_schema_fixture isaflow_test; do
-    [ -f "$WORK/c$i/$db.log" ] || continue
-    echo ""
-    echo "----- [integration] shard $i/$SHARDS, $db -----"
-    cat "$WORK/c$i/$db.log"
-  done
+  pid=${PIDS[$((i - 1))]}
+  if ! wait "$pid"; then
+    FAILED=1
+    FAILED_SHARDS+=" $i"
+  fi
 done
+
+# 3. Report: bounded tails for failed shards, then skips and every summary.
+report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"
 echo ""
 bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log || FAILED=1
 echo ""
