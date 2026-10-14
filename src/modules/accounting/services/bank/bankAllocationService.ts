@@ -43,6 +43,7 @@ import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
 import { planSplitDimensions } from './bankSplitDimensions';
+import { planSplitContacts, recordSplitContactDocuments, type SplitContactDocument } from './bankSplitContacts';
 
 
 type Row = DbRow;
@@ -634,6 +635,8 @@ export async function splitAllocateTransaction(
   journalEntryId: string; bankTransaction: BankTransaction; lateClaim?: LateClaimInfo;
   /** COS split lines with no project (CC2), when the company does not block them. */
   dimensionWarnings?: string[];
+  /** The payment / receipt / refund each supplier or customer line became (bankSplitContacts.ts). */
+  contactDocuments?: SplitContactDocument[];
 }> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   // Same two pre-write refusals as `allocateTransaction`, and the same class:
@@ -656,8 +659,22 @@ export async function splitAllocateTransaction(
   if (Math.abs(linesTotal - totalAmount) > 0.01) {
     throw new Error(`Split lines total R${linesTotal.toFixed(2)} does not equal transaction amount R${totalAmount.toFixed(2)}`);
   }
-  await assertBankLineMayPostToAccounts(companyId, tx, totalAmount); // R-035 PR6 H2: every split line is a GL account
-  await assertImporterMayAllocate(companyId, tx, userId, 'manual_journal'); // step 2: not the statement's own importer
+  // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
+  const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
+  const contactByIndex = new Map(contactPlan.map((p) => [p.index, p]));
+  const accountLines = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ index }) => !contactByIndex.has(index));
+  for (const { line, index } of accountLines) {
+    if (!line.contraAccountId) {
+      throw new BankAllocationRefusal(`Split line ${index + 1} names neither a GL account nor a supplier/customer`);
+    }
+  }
+  if (accountLines.length > 0) {
+    const accountTotal = Math.round(accountLines.reduce((s, { line }) => s + Math.abs(Number(line.amount)), 0) * 100) / 100;
+    await assertBankLineMayPostToAccounts(companyId, tx, accountTotal); // R-035 PR6 H2: the GL-account part of the split
+    await assertImporterMayAllocate(companyId, tx, userId, 'manual_journal'); // step 2: not the statement's own importer
+  }
 
   const bankAccountId = String(tx.bank_account_id);
   // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
@@ -669,31 +686,44 @@ export async function splitAllocateTransaction(
   const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];
   // Reads only: refusals (dimensions on a control account, COS with no project where required) precede every write.
-  const dimensionPlan = await planSplitDimensions(companyId, bankAccountId, lines);
+  // GL-account lines only: a contact line is a settlement and carries no dimensions.
+  const dimensionPlan = await planSplitDimensions(companyId, bankAccountId,
+    accountLines.map(({ line }) => ({ ...line, contraAccountId: line.contraAccountId! })));
+  const dimsByIndex = new Map(accountLines.map(({ index }, k) => [index, dimensionPlan.dims[k]]));
 
   for (const [lineIndex, line] of lines.entries()) {
-    const lineDims = dimensionPlan.dims[lineIndex] ?? {};
+    const contact = contactByIndex.get(lineIndex);
+    if (contact) {
+      // DR AP (payment) / CR AR (receipt), or the mirror for a refund — on the
+      // control account, no VAT and no dimensions; the document follows the post.
+      journalLines.push(isSpent
+        ? { glAccountId: contact.controlAccountId, debit: contact.amount, credit: 0, description: contact.description }
+        : { glAccountId: contact.controlAccountId, debit: 0, credit: contact.amount, description: contact.description });
+      continue;
+    }
+    const contraAccountId = line.contraAccountId!;
+    const lineDims = dimsByIndex.get(lineIndex) ?? {};
     const lineAmount = Number(line.amount);
     // Attended path, same as allocateTransaction: the split modal warned, the
     // user chose. Not coerced here.
     const lineVatCode = line.vatCode;
     const hasVat = lineVatCode === 'standard';
     const { netAmount, vatAmount } = vatInclusiveSplit(lineAmount, hasVat);
-    // A split line is always a GL account — the split path has no entity — so
-    // here the direction genuinely IS the only signal available.
+    // A GL-account line (contact lines left the loop above), so the direction
+    // genuinely IS the only signal available.
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
     const mapVatType = lineVatCode === 'standard' ? 'standard' as const
       : lineVatCode === 'zero_rated' ? 'zero_rated' as const
       : lineVatCode === 'exempt' ? 'exempt' as const : undefined;
     if (isSpent) {
-      journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType, ...lineDims });
+      journalLines.push({ glAccountId: contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType, ...lineDims });
       if (hasVat) {
         const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: 'VAT @ 15%', vatType: 'standard' });
       }
     } else {
-      journalLines.push({ glAccountId: line.contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType, ...lineDims });
+      journalLines.push({ glAccountId: contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType, ...lineDims });
       if (hasVat) {
         const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
         journalLines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: 'VAT @ 15%', vatType: 'standard' });
@@ -736,11 +766,23 @@ export async function splitAllocateTransaction(
     });
   }
 
-  log.info('Split-allocated bank transaction', { bankTxId, journalEntryId: je.id, lineCount: lines.length }, 'accounting');
+  // The supplier / customer documents, on the journal just posted — so a reversal
+  // of this split unwinds them with it. Not caught: see recordSplitContactDocuments.
+  const contactDocuments = contactPlan.length > 0
+    ? await recordSplitContactDocuments({
+      companyId, bankTxId, bankAccountId, journalEntryId: je.id, isSpent, txDate, planned: contactPlan, userId,
+      bankReference: (tx.reference || tx.bank_reference || tx.description || null) as string | null,
+    })
+    : [];
+
+  log.info('Split-allocated bank transaction', {
+    bankTxId, journalEntryId: je.id, lineCount: lines.length, contactLines: contactPlan.length,
+  }, 'accounting');
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   return {
     journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!), ...(lateClaim ? { lateClaim } : {}),
     ...(dimensionPlan.warnings.length > 0 ? { dimensionWarnings: dimensionPlan.warnings } : {}),
+    ...(contactDocuments.length > 0 ? { contactDocuments } : {}),
   };
 }
 

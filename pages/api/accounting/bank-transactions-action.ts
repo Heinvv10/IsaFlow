@@ -69,6 +69,9 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
       contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional(),
       // Per-line dimensions, stamped on that line's cost/revenue leg only (bankSplitDimensions.ts).
       cc1Id: UUID.optional(), cc2Id: UUID.optional(), buId: UUID.optional(),
+      // A line that settles a supplier/customer instead of a GL account (bankSplitContacts.ts).
+      contactType: z.enum(['supplier', 'customer']).optional(), contactId: UUID.optional(),
+      autoApply: z.enum(AUTO_APPLY_MODES).optional(),
     })).min(1),
   }),
   z.object({ action: z.literal('delete'), bankTransactionId: UUID.optional(), bankTransactionIds: z.array(UUID).optional() }),

@@ -12,6 +12,7 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn(async () => true) }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customersBelongToCompany: vi.fn(async () => true), suppliersBelongToCompany: vi.fn(async () => true),
+  assertSupplierInCompany: vi.fn(async () => undefined), assertCustomerInCompany: vi.fn(async () => undefined),
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(), findBankTransactionsByReferences: vi.fn(async () => new Map()),
@@ -162,6 +163,55 @@ describe('split_allocate_bank_transaction', () => {
       expect.objectContaining({ contraAccountId: TOLLS, amount: 46, buId: 'id-maint' }),
     ]);
     expect(opts).toMatchObject({ postingAgent: 'mcp:split_allocate_bank_transaction:v1' });
+  });
+
+  describe('supplier / customer lines', () => {
+    const FRIK = '72f81766-7be5-424d-9bb0-88286cd53169';
+    const SOUTHERN = '7896dcc0-2275-4703-b2fe-1fd2d28f5ef7';
+
+    it('refuses a line naming both a GL account and a supplier, before any lookup', async () => {
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ contra_account_id: FUEL, supplier_id: FRIK, amount: 69 }, lines[1]], ...KEY,
+      }, ctx);
+      expect(text(r)).toMatch(/exactly one of contra_account_id, supplier_id, customer_id/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a VAT code on a supplier line — the bill already carried the VAT', async () => {
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ supplier_id: FRIK, amount: 69, vat_code: 'standard' }, lines[1]], ...KEY,
+      }, ctx);
+      expect(text(r)).toMatch(/settles a supplier — omit vat_code/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('posts two supplier lines as contact lines and reports each document', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      vi.mocked(splitAllocateTransaction).mockResolvedValueOnce({
+        journalEntryId: 'je-7', bankTransaction: { id: TX },
+        contactDocuments: [
+          { index: 0, kind: 'supplier', contactId: FRIK, document: 'payment', paymentId: 'p1', applications: [{ documentId: 'b1', documentNumber: 'SIV0005059', amount: 69 }], onAccount: 0 },
+          { index: 1, kind: 'supplier', contactId: SOUTHERN, document: 'payment', paymentId: 'p2', applications: [], onAccount: 46 },
+        ],
+      } as never);
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX,
+        lines: [{ supplier_id: FRIK, amount: 69 }, { supplier_id: SOUTHERN, amount: 46, auto_apply: 'none' }],
+        ...KEY,
+      }, ctx);
+      const [, , splitLines] = vi.mocked(splitAllocateTransaction).mock.calls[0]!;
+      expect(splitLines).toEqual([
+        expect.objectContaining({ contactType: 'supplier', contactId: FRIK, amount: 69 }),
+        expect.objectContaining({ contactType: 'supplier', contactId: SOUTHERN, amount: 46, autoApply: 'none' }),
+      ]);
+      expect((splitLines as { contraAccountId?: string }[])[0]!.contraAccountId).toBeUndefined();
+      const body = JSON.parse(text(r));
+      expect(body.contact_documents).toEqual([
+        expect.objectContaining({ line: 0, supplier_id: FRIK, document: 'payment', payment_id: 'p1', on_account: 0 }),
+        expect.objectContaining({ line: 1, supplier_id: SOUTHERN, payment_id: 'p2', on_account: 46 }),
+      ]);
+    });
   });
 });
 
