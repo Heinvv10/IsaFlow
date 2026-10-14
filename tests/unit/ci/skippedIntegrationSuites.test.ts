@@ -147,4 +147,17 @@ describe('report-skipped-integration.ts reads each log\'s sibling .started list'
       expect(r.stdout).toContain('[skip]   tests/integration/a.int.test.ts');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+
+  it('fails loud, by name, for a log whose .started list cannot be found (not *.log, or no sibling list)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      writeFileSync(join(dir, 'odd.txt'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1ms\n');
+      writeFileSync(join(dir, 'lone.log'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1ms\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', join(dir, 'odd.txt'), join(dir, 'lone.log')],
+        { encoding: 'utf8' });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${join(dir, 'odd.txt')} (expected a sibling <name>.started)`);
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${join(dir, 'lone.log')} (expected ${join(dir, 'lone.started')})`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
 });

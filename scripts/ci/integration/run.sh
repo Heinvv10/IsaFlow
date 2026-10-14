@@ -179,7 +179,8 @@ for i in $(seq 1 "$SHARDS"); do
     [ -f "$WORK/c$i/$db.log" ] && cp "$WORK/c$i/$db.log" "$LOG_DIR/shard$i-$db.log"
   done
 done
-bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log > "$WORK/skips.txt" 2>&1 || FAILED=1
+# The databases' vitest logs only (each has its .started list), not server.log.
+bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/isaflow_*.log > "$WORK/skips.txt" 2>&1 || FAILED=1
 {
   report_shard_results "$WORK" "$SHARDS"
   report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"
