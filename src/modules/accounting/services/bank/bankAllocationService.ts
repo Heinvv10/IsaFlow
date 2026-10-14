@@ -23,6 +23,7 @@ import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
 import { planSupplierRefund, recordSupplierRefund } from '../ap/supplierRefundDocument';
 import { planCustomerRefund, recordCustomerRefund } from '../ar/customerRefundDocument';
 import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
+import { insertCustomerBankReceipt } from '../ar/customerBankReceipt';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -44,6 +45,8 @@ import { vatInclusiveSplit } from './bankVatInclusive';
 import { isControlSubtype, planAllocationDimensions, stampContraDimensions } from './bankAllocationDimensions';
 import { planSplitDimensions } from './bankSplitDimensions';
 import { planSplitContacts, recordSplitContactDocuments, type SplitContactDocument } from './bankSplitContacts';
+import { accountSplitLines, buildSplitJournalLines } from './bankSplitJournal';
+import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
 
 
 type Row = DbRow;
@@ -455,22 +458,14 @@ export async function allocateTransaction(
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {
-      const inserted = (await wTx`
-        INSERT INTO customer_payments (
-          company_id, client_id, payment_date, total_amount, payment_method,
-          bank_reference, bank_account_id, description, status,
-          gl_journal_entry_id, created_by, confirmed_by, confirmed_at
-        ) VALUES (
-          ${companyId}::UUID, ${entityId}::UUID, ${txDate}, ${totalAmount}, 'eft',
-          ${tx.reference || tx.bank_reference || tx.description || null},
-          ${bankAccountId}::UUID, ${entryDesc}, 'confirmed',
-          ${je.id}::UUID, ${paymentUserId}::UUID, ${paymentUserId}::UUID, NOW()
-        )
-        RETURNING id`) as Row[];
       // Captured so the receipt can be APPLIED below. Before this the row was
       // inserted and its id thrown away, which is why every one of them landed
       // in list_unapplied_receipts.
-      customerPaymentId = inserted.length > 0 ? String(inserted[0]!.id) : null;
+      customerPaymentId = await insertCustomerBankReceipt(wTx, {
+        companyId, customerId: entityId, paymentDate: txDate, amount: totalAmount,
+        bankReference: (tx.reference || tx.bank_reference || tx.description || null) as string | null,
+        bankAccountId, description: entryDesc, journalEntryId: je.id, createdBy: paymentUserId,
+      });
     }
   });
 
@@ -662,17 +657,13 @@ export async function splitAllocateTransaction(
   // Supplier / customer lines: every refusal for them, from reads, before any write (bankSplitContacts.ts).
   const contactPlan = await planSplitContacts(companyId, tx, lines, userId);
   const contactByIndex = new Map(contactPlan.map((p) => [p.index, p]));
-  const accountLines = lines
-    .map((line, index) => ({ line, index }))
-    .filter(({ index }) => !contactByIndex.has(index));
-  for (const { line, index } of accountLines) {
-    if (!line.contraAccountId) {
-      throw new BankAllocationRefusal(`Split line ${index + 1} names neither a GL account nor a supplier/customer`);
-    }
-  }
+  const accountLines = accountSplitLines(lines, new Set(contactByIndex.keys()));
   if (accountLines.length > 0) {
-    const accountTotal = Math.round(accountLines.reduce((s, { line }) => s + Math.abs(Number(line.amount)), 0) * 100) / 100;
-    await assertBankLineMayPostToAccounts(companyId, tx, accountTotal); // R-035 PR6 H2: the GL-account part of the split
+    // R-035 PR6 H2, judged at the WHOLE line's amount as it was before split lines
+    // could name contacts: a R10k hand-keyed line split R5k account / R5k supplier is
+    // not two R5k decisions. The supplier part is judged again as a payment
+    // (planSplitContacts, per supplier).
+    await assertBankLineMayPostToAccounts(companyId, tx, totalAmount);
     await assertImporterMayAllocate(companyId, tx, userId, 'manual_journal'); // step 2: not the statement's own importer
   }
 
@@ -684,58 +675,14 @@ export async function splitAllocateTransaction(
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
   const entryDesc = String(tx.description || 'Split bank allocation');
-  const journalLines: JournalLineInput[] = [];
   // Reads only: refusals (dimensions on a control account, COS with no project where required) precede every write.
   // GL-account lines only: a contact line is a settlement and carries no dimensions.
-  const dimensionPlan = await planSplitDimensions(companyId, bankAccountId,
-    accountLines.map(({ line }) => ({ ...line, contraAccountId: line.contraAccountId! })));
-  const dimsByIndex = new Map(accountLines.map(({ index }, k) => [index, dimensionPlan.dims[k]]));
-
-  for (const [lineIndex, line] of lines.entries()) {
-    const contact = contactByIndex.get(lineIndex);
-    if (contact) {
-      // DR AP (payment) / CR AR (receipt), or the mirror for a refund — on the
-      // control account, no VAT and no dimensions; the document follows the post.
-      journalLines.push(isSpent
-        ? { glAccountId: contact.controlAccountId, debit: contact.amount, credit: 0, description: contact.description }
-        : { glAccountId: contact.controlAccountId, debit: 0, credit: contact.amount, description: contact.description });
-      continue;
-    }
-    const contraAccountId = line.contraAccountId!;
-    const lineDims = dimsByIndex.get(lineIndex) ?? {};
-    const lineAmount = Number(line.amount);
-    // Attended path, same as allocateTransaction: the split modal warned, the
-    // user chose. Not coerced here.
-    const lineVatCode = line.vatCode;
-    const hasVat = lineVatCode === 'standard';
-    const { netAmount, vatAmount } = vatInclusiveSplit(lineAmount, hasVat);
-    // A GL-account line (contact lines left the loop above), so the direction
-    // genuinely IS the only signal available.
-    const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
-    const lineDesc = line.description || entryDesc;
-    const mapVatType = lineVatCode === 'standard' ? 'standard' as const
-      : lineVatCode === 'zero_rated' ? 'zero_rated' as const
-      : lineVatCode === 'exempt' ? 'exempt' as const : undefined;
-    if (isSpent) {
-      journalLines.push({ glAccountId: contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType, ...lineDims });
-      if (hasVat) {
-        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
-        journalLines.push({ glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: 'VAT @ 15%', vatType: 'standard' });
-      }
-    } else {
-      journalLines.push({ glAccountId: contraAccountId, debit: 0, credit: netAmount, description: lineDesc, vatType: mapVatType, ...lineDims });
-      if (hasVat) {
-        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
-        journalLines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: 'VAT @ 15%', vatType: 'standard' });
-      }
-    }
-  }
-
-  if (isSpent) {
-    journalLines.push({ glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc });
-  } else {
-    journalLines.unshift({ glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc });
-  }
+  const dimensionPlan = await planSplitDimensions(companyId, bankAccountId, accountLines.map(({ line }) => line));
+  const journalLines = await buildSplitJournalLines({
+    companyId, lines, contactByIndex, isSpent, entryDesc, bankAccountId, totalAmount,
+    accountByIndex: new Map(accountLines.map(({ index, line }) => [index, line])),
+    dimsByIndex: new Map(accountLines.map(({ index }, k) => [index, dimensionPlan.dims[k]])),
+  });
 
   const splitMeta: JournalEntryMeta = {
     postingAgent: opts?.postingAgent ?? 'system:bank-allocation:v1',
@@ -759,7 +706,7 @@ export async function splitAllocateTransaction(
       await wTx`
         UPDATE bank_transactions
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
-            allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW(),
+            allocation_type = 'account', allocated_entity_name = ${SPLIT_ALLOCATION_NAME}, updated_at = NOW(),
             allocation_rule_id = NULL, allocation_rule_name = NULL,
             allocation_batch_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;

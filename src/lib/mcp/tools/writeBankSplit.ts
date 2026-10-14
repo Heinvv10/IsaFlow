@@ -30,7 +30,12 @@ import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bank
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { importerRefusalForLineId } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { assertCustomerInCompany, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import {
+  CustomerNotInCompanyError, SupplierNotInCompanyError, assertCustomerInCompany, assertSupplierInCompany,
+} from '@/modules/accounting/services/core/contactDirectoryService';
+import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { SELECTOR_PROPERTIES } from './allocationSchema';
@@ -185,8 +190,10 @@ export const splitAllocateBankTransactionTool: McpTool = {
       try {
         if (l.contactType === 'supplier') await assertSupplierInCompany(ctx.companyId, l.contactId);
         else await assertCustomerInCompany(ctx.companyId, l.contactId);
-      } catch {
-        return toolError(NOT_FOUND);
+      } catch (err) {
+        // Missing and foreign answer alike (no existence oracle); anything else is a fault, not a refusal.
+        if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) return toolError(NOT_FOUND);
+        throw err;
       }
     }
     const lines = await itemsWithDimensions(ctx.companyId, parsed.lines, parsed.dims, (i) => `lines[${i}]`);
@@ -203,9 +210,10 @@ export const splitAllocateBankTransactionTool: McpTool = {
     if (Math.abs(total - Math.abs(state.amount)) > 0.005) {
       return toolError(`Split lines total R${total.toFixed(2)} does not equal the transaction amount R${Math.abs(state.amount).toFixed(2)}`);
     }
-    const accountLines = lines.map((l, index) => ({ l, index })).filter(({ l }) => Boolean(l.contraAccountId));
+    const accountLines = lines.flatMap((l, index) => (l.contraAccountId
+      ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
     // Step 2: the token's user importing the statement this line came from is refused by the service too — asked here
-    // so the dry run gives the same refusal. (Contact lines are checked per arm by the service.)
+    // so the dry run gives the same refusal. (Contact lines: planSplitContacts, below — the dry run runs it too.)
     if (accountLines.length > 0) {
       const importerRefusal = await importerRefusalForLineId(ctx.companyId, resolved.id, ctx.userId, 'manual_journal');
       if (importerRefusal) return toolError(importerRefusal.message);
@@ -214,7 +222,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     for (const { l: line, index: i } of accountLines) {
       if (!line.vatCode || line.vatCode === 'none') continue;
       const guarded = await resolveLineVatCode(
-        ctx.companyId, resolved.id, { allocType: 'account', contraAccountId: line.contraAccountId!, vatCode: line.vatCode }, TOOL,
+        ctx.companyId, resolved.id, { allocType: 'account', contraAccountId: line.contraAccountId, vatCode: line.vatCode }, TOOL,
       );
       if (guarded.vatCoerced) {
         return toolError(`lines[${i}].vat_code ${line.vatCode} is not claimable on that account (${guarded.vatCoerced.reason}).`);
@@ -223,8 +231,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
 
     let plan: Awaited<ReturnType<typeof planSplitDimensionsForTransaction>>;
     try {
-      plan = await planSplitDimensionsForTransaction(ctx.companyId, resolved.id,
-        accountLines.map(({ l }) => ({ ...l, contraAccountId: l.contraAccountId! })));
+      plan = await planSplitDimensionsForTransaction(ctx.companyId, resolved.id, accountLines.map(({ l }) => l));
     } catch (err) {
       // Reads only: a dimension on a control account, or a COS line with no project where required.
       if (isBankAllocationRefusal(err) || isDimensionRefusal(err)) return toolError(err.message);
@@ -235,7 +242,20 @@ export const splitAllocateBankTransactionTool: McpTool = {
     const dimsByIndex = new Map(accountLines.map(({ index }, k) => [index, dimPlan.dims[k]]));
     const warnings = dimPlan.warnings.length > 0 ? { dimension_warnings: dimPlan.warnings } : {};
 
+    const serviceLines: SplitLine[] = lines.map((l) => (l.contactId
+      ? { contactType: l.contactType, contactId: l.contactId, autoApply: l.autoApply, amount: l.amount, description: l.description }
+      : {
+        contraAccountId: l.contraAccountId, amount: l.amount, description: l.description,
+        vatCode: l.vatCode === 'none' ? undefined : l.vatCode, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId,
+      }));
+
     if (args.dry_run === true) {
+      // The contact lines' refusals — hand-keyed payment gate per supplier, the importer check per arm, the
+      // refund ceilings — are the service's own, from reads, against the locked row: run them, so the preview
+      // refuses what the live call would. Not caught: a refusal reaches the registry exactly as the live one does.
+      const txRow = await lockBankTransactionForUpdate(ctx.companyId, resolved.id);
+      if (!txRow) return toolError(NOT_FOUND);
+      await planSplitContacts(ctx.companyId, txRow, serviceLines, ctx.userId);
       const preview = ok({
         dry_run: true,
         transaction_id: resolved.id,
@@ -256,12 +276,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
 
     // No catch below: anything the service throws must reach the registry's savepoint.
-    const result = await splitAllocateTransaction(ctx.companyId, resolved.id, lines.map((l) => (l.contactId
-      ? { contactType: l.contactType, contactId: l.contactId, autoApply: l.autoApply, amount: l.amount, description: l.description }
-      : {
-        contraAccountId: l.contraAccountId, amount: l.amount, description: l.description,
-        vatCode: l.vatCode === 'none' ? undefined : l.vatCode, cc1Id: l.cc1Id, cc2Id: l.cc2Id, buId: l.buId,
-      })), ctx.userId, mcpPostingOpts(ctx, TOOL));
+    const result = await splitAllocateTransaction(ctx.companyId, resolved.id, serviceLines, ctx.userId, mcpPostingOpts(ctx, TOOL));
     return ok({
       journal_entry_id: result.journalEntryId,
       transaction_id: result.bankTransaction.id,

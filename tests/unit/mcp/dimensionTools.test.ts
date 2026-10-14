@@ -10,10 +10,15 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(), reverseReconciledTransaction: vi.fn(), splitAllocateTransaction: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn(async () => true) }));
-vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/contactDirectoryService')>()),
   customersBelongToCompany: vi.fn(async () => true), suppliersBelongToCompany: vi.fn(async () => true),
   assertSupplierInCompany: vi.fn(async () => undefined), assertCustomerInCompany: vi.fn(async () => undefined),
 }));
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
+  lockBankTransactionForUpdate: vi.fn(async () => ({ id: 'tx-row', amount: -115, transaction_date: '2026-10-07' })),
+}));
+vi.mock('@/modules/accounting/services/bank/bankSplitContacts', () => ({ planSplitContacts: vi.fn(async () => []) }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(), findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(async () => 'imported'),
@@ -66,6 +71,10 @@ import { syncBankDimensionsTool } from '@/lib/mcp/tools/writeBankDimensionSync';
 import { applyBankSyncBatch, previewBankSync } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { setGlAccountReportingAttributesTool } from '@/lib/mcp/tools/dimensionDefaultsTools';
 import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { SupplierNotInCompanyError, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
+import { NOT_FOUND } from '@/lib/mcp/tools/toolHelpers';
 
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null, scopes: [] } as never;
 const TX = '045ef594-d81d-4f21-84d6-1151ed71260d';
@@ -211,6 +220,40 @@ describe('split_allocate_bank_transaction', () => {
         expect.objectContaining({ line: 0, supplier_id: FRIK, document: 'payment', payment_id: 'p1', on_account: 0 }),
         expect.objectContaining({ line: 1, supplier_id: SOUTHERN, payment_id: 'p2', on_account: 46 }),
       ]);
+    });
+
+    const contactLines = [{ supplier_id: FRIK, amount: 69 }, { customer_id: SOUTHERN, amount: 46 }];
+
+    it('dry_run runs the contact lines\' own refusals against the locked row, as the live call does', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      const r = await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx);
+      expect(r.wroteNothing).toBe(true);
+      expect(lockBankTransactionForUpdate).toHaveBeenCalledWith(ctx.companyId, TX);
+      const [company, row, planned, user] = vi.mocked(planSplitContacts).mock.calls[0]!;
+      expect([company, row, user]).toEqual([ctx.companyId, expect.objectContaining({ id: 'tx-row' }), ctx.userId]);
+      expect(planned).toEqual([
+        expect.objectContaining({ contactType: 'supplier', contactId: FRIK, amount: 69 }),
+        expect.objectContaining({ contactType: 'customer', contactId: SOUTHERN, amount: 46 }),
+      ]);
+    });
+
+    it('dry_run refuses what the live call refuses — the refusal is not swallowed into a preview', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      vi.mocked(planSplitContacts).mockRejectedValueOnce(new Error('A supplier payment of R69.00 needs admin approval'));
+      await expect(splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx))
+        .rejects.toThrow(/needs admin approval/);
+    });
+
+    it('answers a foreign or missing contact NOT_FOUND, but lets a database fault propagate', async () => {
+      vi.mocked(assertSupplierInCompany).mockRejectedValueOnce(new SupplierNotInCompanyError(FRIK));
+      const r = await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, ...KEY }, ctx);
+      expect(text(r)).toBe(NOT_FOUND);
+      vi.mocked(assertSupplierInCompany).mockRejectedValueOnce(Object.assign(new Error('lock timeout'), { code: '55P03' }));
+      await expect(splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, ...KEY }, ctx))
+        .rejects.toThrow(/lock timeout/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
     });
   });
 });

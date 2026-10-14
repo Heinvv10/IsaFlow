@@ -228,7 +228,7 @@ async function voidSupplierPaymentInner(
     // A bank ALLOCATION posted this journal: undo it the MCP void's way — bills,
     // payment, contra and bank line in one call (`voidViaBankAllocation`).
     if (leg // an OUT chain too: the bank path frees the line and reverses nothing (D8)
-      && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`)) {
+      && journalId && await voidViaBankAllocation(companyId, leg, userId, `Payment ${payment.paymentNumber}`, journalId)) {
       return (await getSupplierPaymentById(companyId, id)) ?? { ...payment, status: 'cancelled' };
     }
 
