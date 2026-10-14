@@ -117,6 +117,47 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
     expect(facts?.arm).toBe('manual_journal');
   }, 120000);
 
+  it('two receipts on one journal: each is credited its share of the AR movement; a cancelled sibling stops sharing it', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-10-11', amount: 1000, description: 'two receipts' });
+    const result = await inTx(fx, () => splitAllocateTransaction(fx.companyId, tx, [
+      { contactType: 'customer', contactId: fx.customerId, amount: 700, autoApply: 'none' },
+      { contactType: 'customer', contactId: fx.customerId, amount: 300, autoApply: 'none' },
+    ], fx.userId));
+    const receipts = (await sql`
+      SELECT id, total_amount::float8 AS total FROM customer_payments
+      WHERE company_id = ${fx.companyId}::UUID AND gl_journal_entry_id = ${result.journalEntryId}::UUID
+      ORDER BY total_amount DESC`) as { id: string; total: number }[];
+    expect(receipts.map((r) => r.total)).toEqual([700, 300]);
+    const ar = await accountByCode('1100');
+    const read = () => inTx(fx, () => getUnappliedPaymentCash(fx.companyId, 'ar', '2026-12-31', [ar]));
+    const ours = (cash: Awaited<ReturnType<typeof read>>) => receipts.map((r) => cash.withPaymentRecord.find((i) => i.id === r.id)?.amount);
+
+    const cash = await read();
+    expect(ours(cash)).toEqual([700, 300]); // each its share of the R1,000 AR credit, not R1,000 each
+    expect(cash.offControl.filter((o) => receipts.some((r) => r.id === o.paymentId))).toEqual([]);
+
+    // A sibling cancelled while the journal stands (no path does this; simulated): the one left carries the
+    // journal's whole movement, and the R300 it cannot claim surfaces as offControl instead of vanishing.
+    await sql`UPDATE customer_payments SET status = 'cancelled' WHERE id = ${receipts[1]!.id}::UUID AND company_id = ${fx.companyId}::UUID`;
+    const after = await read();
+    expect(after.withPaymentRecord.find((i) => i.id === receipts[0]!.id)?.amount).toBe(1000);
+    expect(after.offControl.find((o) => o.paymentId === receipts[0]!.id)?.amount).toBe(-300);
+
+    // The AP twin: two supplier payments on one journal, one cancelled.
+    const out = await seedBankTx(fx, { date: '2026-10-11', amount: -1000, description: 'two payments' });
+    const [s1, s2] = [await seedSupplier(fx, 'SHARE-1'), await seedSupplier(fx, 'SHARE-2')];
+    const paid = await inTx(fx, () => splitAllocateTransaction(fx.companyId, out, [
+      { contactType: 'supplier', contactId: s1, amount: 700, autoApply: 'none' },
+      { contactType: 'supplier', contactId: s2, amount: 300, autoApply: 'none' },
+    ], fx.userId));
+    const [p1, p2] = await supplierPaymentsOn(paid.journalEntryId).then((ps) => [ps.find((p) => p.supplier === s1)!, ps.find((p) => p.supplier === s2)!]);
+    const ap = await accountByCode('2100');
+    const apCash = () => inTx(fx, () => getUnappliedPaymentCash(fx.companyId, 'ap', '2026-12-31', [ap]));
+    expect((await apCash()).withPaymentRecord.find((i) => i.id === p1!.id)?.amount).toBe(700);
+    await sql`UPDATE supplier_payments SET status = 'cancelled' WHERE id = ${p2!.id}::UUID AND company_id = ${fx.companyId}::UUID`;
+    expect((await apCash()).withPaymentRecord.find((i) => i.id === p1!.id)?.amount).toBe(1000);
+  }, 120000);
+
   it('every refusal lands before the first write, on a real ledger', async () => {
     const other = await seedFixture('SPLIT711X', DATABASE_URL!);
     try {
@@ -129,6 +170,8 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
           [{ contactType: 'customer', contactId: fx.customerId, amount: 500 }], /A refund of 500\.00 exceeds the 0\.00 .* has on account/],
         ['a GL line straight onto the AP control', -500,
           [{ contraAccountId: await accountByCode('2100'), amount: 500 }], /accounts payable control account: name the supplier/],
+        ['a GL line straight onto the AR control', 500,
+          [{ contraAccountId: await accountByCode('1100'), amount: 500 }], /accounts receivable control account: name the customer/],
       ];
       for (const [what, amount, lines, message] of refusals) {
         const tx = await seedBankTx(fx, { date: '2026-10-09', amount, description: what });
