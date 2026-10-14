@@ -73,6 +73,15 @@ cleanup() { end_run "$WORK"; }
 trap cleanup EXIT
 release_signals
 
+# unblock_stdio: bun leaves stdout/stderr O_NONBLOCK (one open file
+# description, shared with this shell). On a pipe read slowly (the GitHub
+# runner's) a write from this shell can then fail with EAGAIN; under set -e a
+# failed echo would end the step. Called before this script prints.
+unblock_stdio() {
+  perl -MFcntl -e 'for my $fd (1, 2) { open(my $h, ">&=", $fd) or next;
+    my $f = fcntl($h, F_GETFL, 0) or next; fcntl($h, F_SETFL, $f & ~O_NONBLOCK) }' 2> /dev/null || true
+}
+
 PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 # The suites sign and verify their own session tokens with it; random per run.
 JWT=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -131,6 +140,7 @@ bounded "the migrations" env "${SUITE_ENV[@]}" \
 "${PSQL[@]}" -d postgres -c "ALTER ROLE postgres SUPERUSER" \
   -c "CREATE DATABASE isaflow_test TEMPLATE isaflow_schema_fixture OWNER postgres"
 pg_cluster_stop "$WORK/c1"
+unblock_stdio
 echo "[integration] schema built in $(( $(date +%s) - START ))s"
 
 # 2. Shards: SHARDS copies of the stopped template, each on its own port.
@@ -161,18 +171,40 @@ done
 FAILED=0
 for pid in "${PIDS[@]}"; do wait "$pid" || FAILED=1; done
 
-# 3. Report: every shard's log, then which suites skipped and why.
-for i in $(seq 1 "$SHARDS"); do
-  for db in isaflow_schema_fixture isaflow_test; do
-    [ -f "$WORK/c$i/$db.log" ] || continue
-    echo ""
-    echo "----- [integration] shard $i/$SHARDS, $db -----"
-    cat "$WORK/c$i/$db.log"
+# 3. Report. The verdict ($FAILED) comes only from the shards and the skip rule;
+# printing must never change it. Full shard logs are kept as files in
+# .ci-integration-logs/ (replaced each run); stdout gets per-shard totals, every
+# failing file with its failure excerpt, the skip report and the summary lines.
+# Nothing in this section may end the script early (set +e), and stdout is
+# made blocking again before it is printed (unblock_stdio).
+set +e
+LOG_DIR="$PWD/.ci-integration-logs"
+rm -rf "$LOG_DIR"
+mkdir -p "$LOG_DIR"
+bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log > "$WORK/skips.txt" 2>&1 || FAILED=1
+{
+  for i in $(seq 1 "$SHARDS"); do
+    for db in isaflow_schema_fixture isaflow_test; do
+      log="$WORK/c$i/$db.log"
+      [ -f "$log" ] || continue
+      cp "$log" "$LOG_DIR/shard$i-$db.log"
+      echo ""
+      echo "----- [integration] shard $i/$SHARDS, $db (full log: .ci-integration-logs/shard$i-$db.log) -----"
+      grep -E '^ +(Test Files|Tests) ' "$log"
+      # Failing files, then vitest's failure section (capped), then the gate's own notes.
+      grep -E '^ [❯×] .*\.test\.ts' "$log"
+      awk '/⎯ Failed (Tests|Suites) /{on=1} on && n < 300 {print; n++} /^ +Test Files /{on=0}' "$log"
+      grep -E '^\[integration\]' "$log"
+    done
   done
-done
-echo ""
-bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log || FAILED=1
-echo ""
-cat "$WORK"/c*/summary
-echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"
+  echo ""
+  cat "$WORK/skips.txt"
+  echo ""
+  cat "$WORK"/c*/summary
+  echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"
+} > "$WORK/report.txt" 2>&1
+unblock_stdio
+if ! cat "$WORK/report.txt"; then
+  echo "[integration] could not print the whole report (stdout write failed); the verdict stands, full logs in $LOG_DIR" >&2 || true
+fi
 exit "$FAILED"
