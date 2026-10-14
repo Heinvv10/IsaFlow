@@ -88,7 +88,7 @@ describe('1. every import path records the importer', () => {
 
 describe('2. every hand-keyed gate site also asks the importer check', () => {
   const HAND_KEYED = /\b(assertBankLineMayPostToAccounts|assertBankLineMayPaySupplier|handKeyedLineJournalRefusal|manualLinePaymentRefusal|handKeyedAccountLineSkips)\(/;
-  const IMPORTER = /\b(assertImporterMayAllocate|importerAllocationRefusal|importerRefusalForLineId|importerHeldLineSkips)\(/;
+  const IMPORTER = /\b(assertImporterMayAllocate|assertImporterMayAllocateAs|importerAllocationRefusal|importerRefusalForLineId|importerHeldLineSkips)\(/;
   it('the callers of the hand-keyed gates are these, and each asks the importer check too', () => {
     const DEFINERS = [`src/modules/accounting/services/ap/bankLinePaymentGate.ts`, `${B}bankLineJournalGate.ts`];
     const NO_IMPORT = ['pages/api/accounting/bank-transactions-manual.ts']; // inserts its own hand-keyed line: no batch, no importer
@@ -96,7 +96,8 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
     expect(callers).toEqual([
       ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`,
       'src/modules/accounting/services/ap/provisionalSettlementClaim.ts', `${B}bankAllocationService.ts`,
-      `${B}bankRuleAutoPostLine.ts`, 'src/modules/accounting/services/capture/provisionalPostingService.ts',
+      `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitContacts.ts`,
+      'src/modules/accounting/services/capture/provisionalPostingService.ts',
     ].sort());
     for (const file of callers.filter((f) => !NO_IMPORT.includes(f))) expect(textOf(file), file).toMatch(IMPORTER);
     expect(textOf(`${MCP}writeBankSplit.ts`)).toMatch(IMPORTER); // the split dry run, ahead of the service
