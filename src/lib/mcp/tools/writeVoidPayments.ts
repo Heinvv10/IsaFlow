@@ -89,6 +89,7 @@ function voidTool(
             + 'Reverse each bank line with reverse_bank_allocation instead.',
           );
         }
+        if (result.refusal === 'split_part') return toolError(result.message);
         if (result.refusal === 'batch_member') {
           // The HTTP void's wording (supplierPaymentGates.refuseBatchMember): the batch's one journal paid it.
           return toolError(`Payment ${result.paymentNumber ?? paymentId} belongs to batch ${result.batchId} — `
