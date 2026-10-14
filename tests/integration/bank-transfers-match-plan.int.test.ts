@@ -5,7 +5,7 @@
  * provisionals, and no answer in 300 s past about 210k matched lines. Times are not testable; the plan shape is: with
  * work_mem at its floor and a few thousand of each, no subplan may be an unhashed NOT IN. Everything is seeded, analysed
  * and planned in one transaction that is rolled back: the rows and pg_statistic go with it, but ANALYZE writes pg_class's
- * reltuples/relpages in place (sec-nrfa round 28), so afterAll analyses both tables again to put the row counts back.
+ * reltuples/relpages in place (sec-nrfa round 28), so afterAll vacuums and analyses both tables to put the row counts back.
  * The plan is checked twice: with the company's rows analysed, and with them arriving after the last ANALYZE (which saw
  * only another company's statement lines, half of them matched) — the state stale statistics leave (sec-nrfa round 29).
  */
@@ -146,8 +146,10 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
       await sql`DELETE FROM bank_transactions WHERE company_id = ${d.fx.companyId}::UUID`;
       await dropFixture(d.fx);
     }
-    await sql`ANALYZE bank_transactions`;
-    await sql`ANALYZE gl_journal_lines`;
+    // VACUUM, not just ANALYZE: the rolled-back rows leave both tables hundreds of pages of dead tuples, and an ANALYZE
+    // over them records 0 rows on 300 pages, so every later suite's fresh rows plan as none (bank-dimension-sync-batches'
+    // row cap: 20 s). VACUUM drops the dead pages and records the row counts true.
+    await sql`VACUUM (ANALYZE) bank_transactions, gl_journal_lines`;
   }, 60000);
 
   it('neither exclusion is an unhashed NOT IN or an anti join, with the company analysed', async () => {
