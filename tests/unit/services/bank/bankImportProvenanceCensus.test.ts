@@ -88,18 +88,19 @@ describe('1. every import path records the importer', () => {
 
 describe('2. every hand-keyed gate site also asks the importer check', () => {
   const HAND_KEYED = /\b(assertBankLineMayPostToAccounts|assertBankLineMayPaySupplier|handKeyedLineJournalRefusal|manualLinePaymentRefusal|handKeyedAccountLineSkips)\(/;
-  const IMPORTER = /\b(assertImporterMayAllocate|importerAllocationRefusal|importerRefusalForLineId|importerHeldLineSkips)\(/;
+  const IMPORTER = /\b(assertImporterMayAllocate|assertImporterMayAllocateAs|importerAllocationRefusal|importerRefusalForLineId|importerHeldLineSkips)\(/;
   it('the callers of the hand-keyed gates are these, and each asks the importer check too', () => {
     const DEFINERS = [`src/modules/accounting/services/ap/bankLinePaymentGate.ts`, `${B}bankLineJournalGate.ts`];
     const NO_IMPORT = ['pages/api/accounting/bank-transactions-manual.ts']; // inserts its own hand-keyed line: no batch, no importer
     const callers = filesMatching(HAND_KEYED).filter((f) => !DEFINERS.includes(f));
     expect(callers).toEqual([
-      ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`,
+      ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`, `${MCP}writeBankSplit.ts`,
       'src/modules/accounting/services/ap/provisionalSettlementClaim.ts', `${B}bankAllocationService.ts`,
-      `${B}bankRuleAutoPostLine.ts`, 'src/modules/accounting/services/capture/provisionalPostingService.ts',
+      `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitContacts.ts`,
+      'src/modules/accounting/services/capture/provisionalPostingService.ts',
     ].sort());
     for (const file of callers.filter((f) => !NO_IMPORT.includes(f))) expect(textOf(file), file).toMatch(IMPORTER);
-    expect(textOf(`${MCP}writeBankSplit.ts`)).toMatch(IMPORTER); // the split dry run, ahead of the service
+    // writeBankSplit: the split dry run asks the service's own hand-keyed journal gate (PR #711), and the importer check.
   });
 
   it('one arm mapping: no site but the gate decides supplier_payment vs manual_journal for an importer check', () => {
@@ -108,7 +109,7 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
       expect(textOf(file), file).toMatch(/\bimporterArmOf\(/);
     }
     // The reversal and match gates read one allocation's arm through allocationFacts, which maps it by importerArmOf.
-    expect(textOf(`${B}bankLineImporterGate.ts`)).toMatch(/importerArmOf\(String\(row\.kind\), 'document', Number\(line\.amount\)\)/);
+    expect(textOf(`${B}bankLineImporterGate.ts`)).toMatch(/importerArmOf\(d\.kind, 'document', Number\(line\.amount\)\)/);
     expect(textOf(`${B}bankReversalGate.ts`)).toMatch(/\ballocationFacts\(/);
     expect(textOf(`${B}bankAllocationService.ts`)).toMatch(/\bassertImporterMayAllocateAs\(companyId, tx, userId, allocType, entityId\)/);
   });

@@ -164,7 +164,7 @@ async function cancelCustomerPaymentInner(
     assertSameJournal(journalId, payment.glJournalEntryId);
     const label = `Receipt ${payment.paymentNumber}`;
     // A bank ALLOCATION posted the journal: the bank path unwinds the receipt, posts the contra and frees the line.
-    const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label);
+    const delegated = !!leg && await voidViaBankAllocation(companyId, leg, userId, label, journalId);
     // Step 2: a statement line MATCHED to this journal (a refund out is gated; a receipt is money in) — before any write.
     const auditLeg = !delegated && journalId && leg ? await assertMayReverseMatchedLeg(companyId, journalId, leg.bankLineIds, userId) : null;
 

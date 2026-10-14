@@ -67,6 +67,13 @@ describe('split_allocate passes each line\'s VAT code to the service', () => {
     expect((vi.mocked(splitAllocateTransaction).mock.calls[0]![2] as { vatCode?: string }[])[0]!.vatCode).toBeUndefined();
   });
 
+  it('refuses a VAT code on a supplier line: the bill already carried the VAT', async () => {
+    const SUP = '00000000-0000-4000-8000-0000000000cc';
+    expect(await split([{ contactType: 'supplier', contactId: SUP, amount: 115, vatCode: 'standard' }])).toMatchObject({ kind: 'validationError' });
+    expect(await split([{ contactType: 'supplier', contactId: SUP, amount: 115, vatCode: 'none' }])).toMatchObject({ kind: 'success' });
+    expect(splitAllocateTransaction).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a VAT code that is not one of the four, rather than posting it as no VAT', async () => {
     expect(await split([{ contraAccountId: FUEL, amount: 115, vatCode: 'standard15' }])).toMatchObject({ kind: 'validationError' });
     expect(splitAllocateTransaction).not.toHaveBeenCalled();
