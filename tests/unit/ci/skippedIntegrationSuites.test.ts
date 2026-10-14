@@ -173,6 +173,18 @@ describe('report-skipped-integration.ts reads each log\'s sibling .started list'
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
+  it('fails an EMPTY log with no list by name: an empty log is not a pre-start timeout', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${log}`);
+      expect(r.stdout).not.toContain('timed out before any suite started');
+      expect(r.status).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it('still fails a log with no list that holds anything besides that timeout line', () => {
     const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
     try {

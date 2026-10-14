@@ -172,3 +172,42 @@ print_report() {
   fi
   return 0
 }
+
+# local_log_name <database log>: its name in the local copy, shard<i>-<db>.log
+# (c3/isaflow_test.log -> shard3-isaflow_test.log).
+local_log_name() {
+  local shard
+  shard=$(basename "$(dirname "$1")")
+  echo "shard${shard#c}-$(basename "$1")"
+}
+
+# finish_run <work dir> <shard count> <failed shard ids> <start epoch> <local log dir>
+# run.sh's whole last stage, once the shards have exited (wait_shards has set
+# FAILED and FAILED_SHARDS): the local copy of the databases' logs (replaced
+# each run; GitHub has only stdout), the skip report (a failure sets FAILED=1),
+# and the report, printed in one go. The verdict ($FAILED) comes only from the
+# shards and the skip rule; printing never changes it, so nothing here may end
+# the run early (set +e).
+finish_run() {
+  local work=$1 shards=$2 failed_shards=$3 start=$4 log_dir=$5 log i
+  set +e
+  rm -rf "$log_dir"
+  mkdir -p "$log_dir"
+  while read -r log; do
+    cp "$log" "$log_dir/$(local_log_name "$log")"
+  done < <(database_logs "$work" "$shards")
+  report_skips "$work" "$shards" > "$work/skips.txt" 2>&1 || FAILED=1
+  {
+    report_shard_results "$work" "$shards"
+    report_integration_failure_logs "$work" "$shards" "$failed_shards"
+    echo ""
+    cat "$work/skips.txt"
+    echo ""
+    for i in $(seq 1 "$shards"); do
+      [ -f "$work/c$i/summary" ] && cat "$work/c$i/summary"
+    done
+    echo "[integration] $(wc -l < "$work/plan.tsv") suites on $shards shards in $(( $(date +%s) - start ))s"
+  } > "$work/report.txt" 2>&1
+  print_report "$work/report.txt" "$log_dir"
+  return 0
+}

@@ -166,26 +166,7 @@ FAILED=0
 # Sets FAILED and FAILED_SHARDS from the shards' exit statuses (report.sh).
 wait_shards "${PIDS[@]}"
 
-# 3. Report (report.sh). The verdict ($FAILED) comes only from the shards and
-# the skip rule; printing must never change it, so nothing here may end the
-# script early (set +e). A local run also keeps the full logs in
-# .ci-integration-logs/ (replaced each run); GitHub has only stdout.
-set +e
-LOG_DIR="$PWD/.ci-integration-logs"
-rm -rf "$LOG_DIR"
-mkdir -p "$LOG_DIR"
-while read -r log; do
-  cp "$log" "$LOG_DIR/shard$(basename "$(dirname "$log")" | cut -c2-)-$(basename "$log")"
-done < <(database_logs "$WORK" "$SHARDS")
-report_skips "$WORK" "$SHARDS" > "$WORK/skips.txt" 2>&1 || FAILED=1
-{
-  report_shard_results "$WORK" "$SHARDS"
-  report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"
-  echo ""
-  cat "$WORK/skips.txt"
-  echo ""
-  cat "$WORK"/c*/summary
-  echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"
-} > "$WORK/report.txt" 2>&1
-print_report "$WORK/report.txt" "$LOG_DIR"
+# 3. Report (report.sh finish_run): the local log copy, the skip report and the
+# printed report; it sets FAILED=1 when the skip report fails.
+finish_run "$WORK" "$SHARDS" "$FAILED_SHARDS" "$START" "$PWD/.ci-integration-logs"
 exit "$FAILED"
