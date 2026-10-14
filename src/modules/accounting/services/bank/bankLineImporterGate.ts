@@ -23,6 +23,7 @@ import type { DbRow } from '@/lib/neon';
 import { BankControlError, isSoleAtFloor } from './bankControlRefusal';
 import { coupledTypes, isEnforced } from '../gl/approvalEnforcement';
 import { findJournalChainRoot } from '../shared/journalChainHead';
+import { documentsOnJournal } from './splitJournalDocuments';
 
 /** The approval type an allocation (or its reversal) is judged under. */
 export type BankArm = 'manual_journal' | 'supplier_payment';
@@ -111,8 +112,13 @@ export async function assertImporterMayAllocateAs(
 
 /**
  * The arm of the allocation behind `line` (its journal's chain root `rootId`) and who made it — the journal's,
- * the payment document's and the auto-post run's creator (the zero uuid is nobody); null when ungated (money in).
+ * every payment document's and the auto-post run's creator (the zero uuid is nobody); null when ungated (money in).
  * Shared by the reversal gate and the match gate, so both judge one allocation alike.
+ *
+ * A split can carry several documents and GL-account lines beside them (splitJournalDocuments), so the arm is
+ * judged over ALL of them: each document's arm, plus `manual_journal` for a plain journal or the GL part of a
+ * split. Where they differ, an ENFORCED one wins — an R0.01 receipt line must not carry a GL split out of the
+ * manual-journal gate, nor an R0.01 supplier line move it to an arm that is switched off.
  */
 export async function allocationFacts(companyId: string, line: DbRow, rootId: string | null): Promise<{ arm: BankArm; allocators: string[] } | null> {
   if (!rootId) return null;
@@ -120,23 +126,23 @@ export async function allocationFacts(companyId: string, line: DbRow, rootId: st
     SELECT (SELECT created_by::TEXT FROM gl_journal_entries WHERE id = ${rootId}::UUID AND company_id = ${companyId}::UUID) AS journal_by,
            (SELECT created_by::TEXT FROM bank_auto_post_runs
              WHERE id = ${line.auto_post_run_id == null ? null : String(line.auto_post_run_id)}::UUID
-               AND company_id = ${companyId}::UUID) AS run_by,
-           doc.kind, doc.created_by AS doc_by
-    FROM (SELECT 1) one
-    LEFT JOIN LATERAL (
-      SELECT 'supplier' AS kind, created_by::TEXT AS created_by FROM supplier_payment_batches
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      UNION ALL SELECT 'supplier', created_by::TEXT FROM supplier_payments
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      UNION ALL SELECT 'customer', created_by::TEXT FROM customer_payments
-        WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${rootId}::UUID
-      LIMIT 1
-    ) doc ON true
+               AND company_id = ${companyId}::UUID) AS run_by
   `) as DbRow[];
+  const { docs, hasOtherLines } = await documentsOnJournal(companyId, rootId);
   // The allocation side's one mapping: a document is a contact; a plain journal is the account arm.
-  const arm = row?.kind ? importerArmOf(String(row.kind), 'document', Number(line.amount)) : 'manual_journal';
+  const arms = new Set<BankArm>();
+  if (docs.length === 0 || hasOtherLines) arms.add('manual_journal');
+  for (const d of docs) {
+    const arm = importerArmOf(d.kind, 'document', Number(line.amount));
+    if (arm) arms.add(arm);
+  }
+  let arm: BankArm | null = null;
+  for (const candidate of arms) {
+    arm ??= candidate;
+    if (arms.size > 1 && await armEnforced(companyId, candidate)) { arm = candidate; break; }
+  }
   if (!arm) return null; // money in: a receipt, a supplier refund
-  const allocators = [...new Set([row?.journal_by, row?.doc_by, row?.run_by]
+  const allocators = [...new Set([row?.journal_by, ...docs.map((d) => d.createdBy), row?.run_by]
     .filter((id): id is string => typeof id === 'string' && id !== NOBODY))];
   return { arm, allocators };
 }

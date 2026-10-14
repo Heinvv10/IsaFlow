@@ -58,6 +58,7 @@ import {
   unwindOnePayment,
 } from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
+import { splitPartRefusal } from '../bank/splitJournalDocuments';
 import { lockBankTransactionsInIdOrder } from '../bank/bankTxLock';
 import { findBankTransactions, peekPaymentJournal } from './paymentVoidReads';
 import { findChainBankLines } from '../bank/chainBankLines';
@@ -96,7 +97,8 @@ export type VoidRefusal =
   | { refusal: 'not_applied'; status: string }
   | { refusal: 'ambiguous_bank_lines'; count: number }
   /** D10 O2: a member of a payment batch moves money only through its batch, as the HTTP void refuses it. */
-  | { refusal: 'batch_member'; paymentNumber: string | null; batchId: string };
+  | { refusal: 'batch_member'; paymentNumber: string | null; batchId: string }
+  | { refusal: 'split_part'; message: string }; // one part of a split allocation (bank/splitJournalDocuments)
 
 /**
  * The statuses at which a payment's allocations HAVE been added to the
@@ -221,6 +223,9 @@ async function voidPaymentDocumentInner(
   // Shape 1: the bank path already unwinds, posts the contra AND resets the
   // bank line. Doing any of that here as well would double-reverse.
   if (bankTransactionId) {
+    const splitPart = payment.journalEntryId
+      && await splitPartRefusal(companyId, payment.journalEntryId, `Payment ${payment.paymentNumber ?? payment.id}`);
+    if (splitPart) return { refusal: 'split_part', message: splitPart };
     // The counts come back from the bank path rather than being reported as
     // zero: this branch does the MOST work, and an agent told "0 invoices
     // reopened" after a successful void concludes nothing was undone and
@@ -234,14 +239,9 @@ async function voidPaymentDocumentInner(
       amountUnapplied: unwoundViaBank.amountUnapplied,
     }, 'accounting');
     return {
-      paymentId: payment.id,
-      paymentNumber: payment.paymentNumber,
-      kind,
-      invoicesReopened: unwoundViaBank.invoicesReopened,
-      amountUnapplied: unwoundViaBank.amountUnapplied,
-      journalEntryId: payment.journalEntryId,
-      bankTransactionId,
-      vatLockRoll: unwoundViaBank.vatLockRoll ?? null,
+      paymentId: payment.id, paymentNumber: payment.paymentNumber, kind,
+      invoicesReopened: unwoundViaBank.invoicesReopened, amountUnapplied: unwoundViaBank.amountUnapplied,
+      journalEntryId: payment.journalEntryId, bankTransactionId, vatLockRoll: unwoundViaBank.vatLockRoll ?? null,
     };
   }
 
@@ -251,10 +251,8 @@ async function voidPaymentDocumentInner(
   // one. Reversing the journal takes the cash back out of the ledger for all of
   // them, so unwinding only the named payment would leave any sibling reading as
   // settled with its posting reversed — the subledger-to-control gap this
-  // function exists to avoid, arrived at from the other direction. Nothing
-  // writes two payments against one journal today and no unique index forbids
-  // it, so this is a guard against a shape the schema permits rather than a
-  // live defect.
+  // function exists to avoid, arrived at from the other direction. A split
+  // allocation writes several (bank/bankSplitContacts); it is refused above.
   // The unwind and the contra share ONE savepoint of their own (K-021). Without
   // it the pair is atomic only because today's single caller happens to hold a
   // savepoint and never catches: a REST route over this function, or any caller
