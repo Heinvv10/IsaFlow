@@ -38,8 +38,9 @@
 #      port and runs its share of each database's suites, one file at a time
 #      (--no-file-parallelism: parallel files on one database deadlock), in
 #      its own session (shard.sh, under a time limit).
-#   3. Each shard's results are reported (step 3 below); the step fails if any shard fails,
-#      ran a different number of files than it was given, or timed out.
+#   3. Compact results are printed for every shard (report.sh); a failed
+#      shard's bounded log tail too. The step fails if any shard fails, ran a
+#      different number of files than it was given, or timed out.
 #   4. On exit (also on INT/TERM) every shard session is ended (TERM, then KILL
 #      after a grace), every cluster is stopped (pg_ctl -m immediate) and the
 #      mktemp dir is deleted, and nothing else.
@@ -51,6 +52,8 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 # shellcheck source=pg-cluster.sh
 source scripts/ci/integration/pg-cluster.sh
+# shellcheck source=report.sh
+source scripts/ci/integration/report.sh
 
 SHARDS=6
 pg_require_extensions
@@ -72,15 +75,6 @@ export SUITE_TMP
 cleanup() { end_run "$WORK"; }
 trap cleanup EXIT
 release_signals
-
-# unblock_stdio: bun leaves stdout/stderr O_NONBLOCK (one open file
-# description, shared with this shell). On a pipe read slowly (the GitHub
-# runner's) a write from this shell can then fail with EAGAIN; under set -e a
-# failed echo would end the step. Called before this script prints.
-unblock_stdio() {
-  perl -MFcntl -e 'for my $fd (1, 2) { open(my $h, ">&=", $fd) or next;
-    my $f = fcntl($h, F_GETFL, 0) or next; fcntl($h, F_SETFL, $f & ~O_NONBLOCK) }' 2> /dev/null || true
-}
 
 PGPASSWORD=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 # The suites sign and verify their own session tokens with it; random per run.
@@ -169,61 +163,36 @@ for i in $(seq 1 "$SHARDS"); do
 done
 
 FAILED=0
-for pid in "${PIDS[@]}"; do wait "$pid" || FAILED=1; done
+FAILED_SHARDS=""
+for i in $(seq 1 "$SHARDS"); do
+  if ! wait "${PIDS[$((i - 1))]}"; then
+    FAILED=1
+    FAILED_SHARDS+=" $i"
+  fi
+done
 
-# 3. Report. The verdict ($FAILED) comes only from the shards and the skip rule;
-# printing must never change it. stdout gets per-shard totals, every failing
-# file with vitest's failure excerpt, the skip report and the summary lines, and,
-# when the step fails, the last $TAIL_LINES lines of each failing shard's log
-# (a hang, or an error before vitest's summary, is in no excerpt). stdout is all
-# there is on GitHub: the job uploads nothing. A local run also keeps the full
-# logs in .ci-integration-logs/ (replaced each run). Nothing in this section may
-# end the script early (set +e), and stdout is made blocking again before it is
-# printed (unblock_stdio).
+# 3. Report (report.sh). The verdict ($FAILED) comes only from the shards and
+# the skip rule; printing must never change it, so nothing here may end the
+# script early (set +e). A local run also keeps the full logs in
+# .ci-integration-logs/ (replaced each run); GitHub has only stdout.
 set +e
-TAIL_LINES=400
 LOG_DIR="$PWD/.ci-integration-logs"
 rm -rf "$LOG_DIR"
 mkdir -p "$LOG_DIR"
+for i in $(seq 1 "$SHARDS"); do
+  for db in isaflow_schema_fixture isaflow_test; do
+    [ -f "$WORK/c$i/$db.log" ] && cp "$WORK/c$i/$db.log" "$LOG_DIR/shard$i-$db.log"
+  done
+done
 bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log > "$WORK/skips.txt" 2>&1 || FAILED=1
 {
-  for i in $(seq 1 "$SHARDS"); do
-    for db in isaflow_schema_fixture isaflow_test; do
-      log="$WORK/c$i/$db.log"
-      [ -f "$log" ] || continue
-      cp "$log" "$LOG_DIR/shard$i-$db.log"
-      echo ""
-      echo "----- [integration] shard $i/$SHARDS, $db -----"
-      grep -E '^ +(Test Files|Tests) ' "$log"
-      # Failing files (resultLines.ts, as shard.sh reads them), then vitest's
-      # failure section (capped), then the gate's own notes.
-      bun scripts/ci/integration/result-lines.ts failed "$log"
-      awk '/⎯ Failed (Tests|Suites) /{on=1} on && n < 300 {print; n++} /^ +Test Files /{on=0}' "$log"
-      grep -E '^\[integration\]' "$log"
-    done
-  done
-  # A failing shard's log ends where it failed: its last lines, each cut to
-  # 400 characters (a JSON log line can be far longer), so the output stays bounded.
-  if [ "$FAILED" -ne 0 ]; then
-    for i in $(seq 1 "$SHARDS"); do
-      for db in isaflow_schema_fixture isaflow_test; do
-        log="$WORK/c$i/$db.log"
-        [ -f "$log" ] || continue
-        grep -qE "^\[integration\] shard $i/$SHARDS $db: .*, exit 0\$" "$WORK/c$i/summary" 2> /dev/null && continue
-        echo ""
-        echo "----- [integration] shard $i/$SHARDS, $db FAILED: its last $TAIL_LINES log lines -----"
-        tail -n "$TAIL_LINES" "$log" | cut -c 1-400
-      done
-    done
-  fi
+  report_shard_results "$WORK" "$SHARDS"
+  report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"
   echo ""
   cat "$WORK/skips.txt"
   echo ""
   cat "$WORK"/c*/summary
   echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"
 } > "$WORK/report.txt" 2>&1
-unblock_stdio
-if ! cat "$WORK/report.txt"; then
-  echo "[integration] could not print the whole report (stdout write failed); the verdict stands; a local run keeps the full logs in $LOG_DIR" >&2 || true
-fi
+print_report "$WORK/report.txt" "$LOG_DIR"
 exit "$FAILED"
