@@ -29,6 +29,8 @@
  * report-skipped-integration.ts reads the logs and the files, and prints.
  */
 
+import { resultLines } from './integration/resultLines';
+
 export interface SkippedSuite {
   file: string;
   total: number;
@@ -37,28 +39,18 @@ export interface SkippedSuite {
   reason: string | null;
 }
 
-/** ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms` (also ❯, ↓, ×). */
-// Not anchored to the start of the line: a suite's own output that ends without
-// a newline runs into the reporter's next line.
-const FILE_LINE = /[✓❯↓×] (\S.*?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
 /** A line that is only a `//` comment starting with the marker: not a string, not an aside. */
 const MARKER = /^\s*\/\/\s*ci-integration-skip:\s*(.+)$/m;
 
-// eslint-disable-next-line no-control-regex
-const ANSI = /\u001b\[[0-9;]*m/g;
-
 export function skippedSuites(log: string, read: (file: string) => string | undefined): SkippedSuite[] {
   const seen = new Map<string, SkippedSuite>();
-  for (const raw of log.split('\n')) {
-    const m = FILE_LINE.exec(raw.replace(ANSI, ''));
-    if (!m) continue;
+  // vitest's result lines, read as the rest of the gate reads them (integration/resultLines.ts).
+  for (const r of resultLines(log)) {
     // An it.todo asserts nothing either: count it with the skipped tests.
-    const count = (what: string) => Number(new RegExp(`\\| (\\d+) ${what}`).exec(m[3] ?? '')?.[1] ?? 0);
-    const skipped = count('skipped') + count('todo');
+    const skipped = (r.counts.skipped ?? 0) + (r.counts.todo ?? 0);
     if (skipped === 0) continue;
-    const file = m[1]!;
-    const reason = MARKER.exec(read(file) ?? '')?.[1]?.trim() ?? null;
-    seen.set(file, { file, total: Number(m[2]), skipped, reason });
+    const reason = MARKER.exec(read(r.file) ?? '')?.[1]?.trim() ?? null;
+    seen.set(r.file, { file: r.file, total: r.total, skipped, reason });
   }
   return [...seen.values()].sort((a, b) => a.file.localeCompare(b.file));
 }

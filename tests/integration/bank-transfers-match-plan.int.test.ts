@@ -150,6 +150,13 @@ describeIfDb('the match screen\'s exclusions stay hashed past hash_mem', () => {
     // over them records 0 rows on 300 pages, so every later suite's fresh rows plan as none (bank-dimension-sync-batches'
     // row cap: 20 s). VACUUM drops the dead pages and records the row counts true.
     await sql`VACUUM (ANALYZE) bank_transactions, gl_journal_lines`;
+    const rel = (await sql`SELECT relname, reltuples, relpages FROM pg_class
+      WHERE oid IN ('bank_transactions'::REGCLASS, 'gl_journal_lines'::REGCLASS) ORDER BY relname`) as Row[];
+    expect(rel).toHaveLength(2);
+    for (const r of rel) {
+      expect(Number(r.relpages) === 0 || Number(r.reltuples) > 0, `${r.relname}: ${r.reltuples} rows on ${r.relpages} pages`)
+        .toBe(true);
+    }
   }, 60000);
 
   it('neither exclusion is an unhashed NOT IN or an anti join, with the company analysed', async () => {

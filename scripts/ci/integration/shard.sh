@@ -80,16 +80,18 @@ for db in isaflow_schema_fixture isaflow_test; do
     echo "[integration] shard $i/$shards $db: vitest ran ${ran:-no} files of ${#files[@]}" >> "$log"
     db_rc=1
   fi
-  for f in "${files[@]}"; do
-    # Anywhere in the line: a suite's own output without a final newline runs
-    # into the reporter's result line.
-    n=$(awk -v f="$f" 'index($0, "✓ " f " (") || index($0, "❯ " f " (") || index($0, "↓ " f " (") \
-      || index($0, "× " f " (") { n++ } END { print n + 0 }' "$log")
-    if [ "$n" -ne 1 ]; then
-      echo "[integration] shard $i/$shards $db: $n result lines for $f (expected 1)" >> "$log"
-      db_rc=1
-    fi
-  done
+  # One result line per planned file, read as the whole gate reads them
+  # (resultLines.ts: the path after the line's last mark, the result ending the
+  # line, so glued suite output and a quoted stack trace both read right).
+  if ! wrong=$(bun scripts/ci/integration/result-lines.ts counts "$log" "${files[@]}"); then
+    echo "[integration] shard $i/$shards $db: could not read the result lines" >> "$log"
+    db_rc=1
+  fi
+  while IFS=$'\t' read -r n f; do
+    [ -n "$f" ] || continue
+    echo "[integration] shard $i/$shards $db: $n result lines for $f (expected 1)" >> "$log"
+    db_rc=1
+  done <<< "$wrong"
   echo "[integration] shard $i/$shards $db: ${#files[@]} files, $(( $(date +%s) - t0 ))s, exit $db_rc" >> "$dir/summary"
   [ "$db_rc" -ne 0 ] && rc=1
 done
