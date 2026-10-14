@@ -1,0 +1,212 @@
+# NOTE (2026-10-13): the migration was renumbered 890 → 891 (#707 took 890 on dev); its SQL is unchanged apart from the number in its messages. This run was made as 890.
+# Mutation proof — forensic-controls step 4 (migration 890 + TypeScript), 2026-10-12
+# Runner: notes/mutation/mutate.py — throwaway worktree audit-snapshots-mut + its own container isaflow-fixture-auditsnap-mut.
+# Each mutant: one exact string replaced, fixture reset from the template, the migration applied as mutated, the named suites run, file restored.
+# KILLED = the migration refused to apply or a named test went red. Baseline (unmutated) first: 37 integration + 31 unit green.
+# TOTAL across rounds: round 1 52/52, round 2 25/25, round 3 9/9 (see the round sections below).
+# Round 1 at 47375e442 (52 mutants; the migration was then numbered 889 — renumbered to 890 later, text only): 49 killed, 3 survived.
+# Each survivor got a test, re-run at 76bda28d8: all 3 killed. Guards added in review are proven in ROUND 2 and ROUND 3 below.
+
+m01  KILLED   grants left in place (default privileges)            890_audit_snapshots.sql          by: 889 refused to apply
+m02  KILLED   append-only guard misses UPDATE                      890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m03  KILLED   append-only lets every DELETE through                890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m04  KILLED   TRUNCATE guard left ENABLE (not ALWAYS)              890_audit_snapshots.sql          by: 889 refused to apply
+m05  KILLED   RLS reader drops the role                            890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m06  KILLED   RLS reader drops the company GUC                     890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts (round 2; round 1 survived)
+m07  KILLED   writer trusts taken_by                               890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m08  KILLED   writer trusts the company                            890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m09  KILLED   writer skips the role                                890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m10  KILLED   writer trusts taken_at                               890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m11  KILLED   channel: token recorded as session                   890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m12  KILLED   manual snapshot open to manager                      890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m13  KILLED   failed attempt may carry rows                        890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m14  KILLED   snapshot may cite another company's run              890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m15  KILLED   sealed row without a seal                            890_audit_snapshots.sql          by: audit-snapshots-db.int.test.ts
+m16  KILLED   RLS not forced                                       890_audit_snapshots.sql          by: 889 refused to apply
+m17  KILLED   platform_admin may write runs                        890_audit_snapshots.sql          by: 889 refused to apply
+t01  KILLED   canonical JSON unsorted                              canonical.ts                     by: canonicalSeal.test.ts
+t02  KILLED   fractional numbers accepted                          canonical.ts                     by: canonicalSeal.test.ts
+t03  KILLED   HMAC not compared                                    seal.ts                          by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+t04  KILLED   key id ignored                                       seal.ts                          by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+t05  KILLED   verify trusts stored row hashes                      snapshotVerify.ts                by: audit-snapshots-service.int.test.ts
+t06  KILLED   verify ignores row mismatches                        snapshotVerify.ts                by: audit-snapshots-service.int.test.ts
+t07  KILLED   verify ignores the seal                              snapshotVerify.ts                by: audit-snapshots-service.int.test.ts (round 2; round 1 survived)
+t08  KILLED   verify trusts the stored run hash                    snapshotVerify.ts                by: audit-snapshots-service.int.test.ts
+t09  KILLED   no size cap                                          snapshotService.ts               by: audit-snapshots-service.int.test.ts
+t10  KILLED   backdating ignores posted_at                         comparisonDiff.ts                by: comparisonCsv.test.ts
+t11  KILLED   nothing is backdated                                 comparisonDiff.ts                by: audit-snapshots-compare.int.test.ts
+t12  KILLED   every change counted as reversed-after               comparisonService.ts             by: audit-snapshots-compare.int.test.ts
+t13  KILLED   master-data changes dropped                          comparisonService.ts             by: audit-snapshots-compare.int.test.ts
+t14  KILLED   queueing may throw into the lock                     autoSnapshotQueue.ts             by: autoSnapshotQueue.test.ts
+t15  KILLED   bulk close snapshots the earliest cutoff             autoSnapshotQueue.ts             by: audit-snapshots-auto.int.test.ts, autoSnapshotQueue.test.ts
+t16  KILLED   failed attempt not recorded                          autoSnapshot.ts                  by: audit-snapshots-auto.int.test.ts
+t17  KILLED   a rolled-back lock still snapshots                   autoSnapshot.ts                  by: audit-snapshots-auto.int.test.ts (round 2; round 1 survived)
+t18  KILLED   period close takes no snapshot                       fiscalPeriodService.ts           by: audit-snapshots-auto.int.test.ts, auditSnapshotCensus.test.ts
+t19  KILLED   VAT lock takes no snapshot                           vatPeriodLockService.ts          by: audit-snapshots-auto.int.test.ts, auditSnapshotCensus.test.ts
+t20  KILLED   year-end close takes no snapshot                     yearEndCloseService.ts           by: audit-snapshots-auto.int.test.ts, auditSnapshotCensus.test.ts
+t21  KILLED   route: manager may take                              audit-snapshots.ts               by: audit-snapshots-routes.int.test.ts
+t22  KILLED   route: Login-as may take                             audit-snapshots.ts               by: audit-snapshots-routes.int.test.ts
+t23  KILLED   route: viewer may read                               audit-snapshots.ts               by: audit-snapshots-routes.int.test.ts
+t24  KILLED   viewer may download the pack                         download.ts                      by: audit-snapshots-pack.int.test.ts
+t25  KILLED   MCP take without write:journals                      auditSnapshots.ts                by: audit-snapshots-routes.int.test.ts
+t26  KILLED   MCP take open to manager                             auditSnapshots.ts                by: audit-snapshots-routes.int.test.ts
+t27  KILLED   CSV not neutralised                                  csv.ts                           by: audit-snapshots-pack.int.test.ts, comparisonCsv.test.ts
+t28  KILLED   pack from a snapshot that does not verify            packExport.ts                    by: audit-snapshots-pack.int.test.ts
+t29  KILLED   manifest omits the snapshot hash                     packExport.ts                    by: audit-snapshots-pack.int.test.ts
+t30  KILLED   portal/download serve no ZIP                         auditTrailExportService.ts       by: audit-snapshots-pack.int.test.ts
+t31  KILLED   erroring check recorded as pass                      integrityAdapter.ts              by: integrityAdapter.test.ts
+t32  KILLED   backdated-entry check finds nothing                  journalRiskChecks.ts             by: audit-snapshots-service.int.test.ts
+t33  KILLED   threshold split never found                          journalRiskChecks.ts             by: audit-snapshots-service.int.test.ts
+t34  KILLED   outside-hours check finds nothing                    journalRiskChecks.ts             by: audit-snapshots-service.int.test.ts
+t35  KILLED   drafts frozen as posted                              snapshotRows.ts                  by: audit-snapshots-service.int.test.ts
+
+TOTAL: 52/52 killed
+Survivors in round 1 and the test each got:
+  m06 RLS reader without the company GUC  -> a member of two companies reads only the request company (audit-snapshots-db)
+  t07 verify ignoring the snapshot seal   -> a forgery with the right canonical hash but no key is invalid (audit-snapshots-service)
+  t17 snapshot of a rolled-back lock      -> the test now awaits the queued work instead of a 2.5 s sleep (audit-snapshots-auto)
+Not mutated, by design: bulkPlan (performance only, measured in size-cap-measurement.txt); RLS company filter + explicit company_id in
+reads (two layers; each mutant alone is equivalent at the route); log lines.
+
+# ROUND 2 — guards added for review round 1 (blind r1 + breaker r1), at 061200239: 25/25 killed
+c01  KILLED   writer accepts any chain position                          by: audit-snapshots-db.int.test.ts
+c02  KILLED   chain position not signed                                  by: canonicalSeal.test.ts
+c03  KILLED   chain check ignores gaps                                   by: audit-snapshots-service.int.test.ts
+c04  KILLED   chain check ignores links (and gaps survive via c03 only)  by: audit-snapshots-service.int.test.ts
+c05  KILLED   ready pack pointers mutable                                by: audit-snapshots-pack.int.test.ts
+c06  KILLED   any key id reads unknown_key                               by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+c07  KILLED   comparison of an unverified snapshot                       by: audit-snapshots-compare.int.test.ts
+c08  KILLED   re-dated journals not flagged                              by: audit-snapshots-compare.int.test.ts
+c09  KILLED   unchanged recorded although the ledger moved               by: audit-snapshots-auto.int.test.ts
+c10  KILLED   duplicate full copies for an unchanged ledger              by: audit-snapshots-auto.int.test.ts
+c11  KILLED   manual snapshot queues behind another                      by: audit-snapshots-service.int.test.ts
+c12  KILLED   only the latest queued cutoff is tried                     by: audit-snapshots-auto.int.test.ts
+c13  KILLED   filing columns unchecked                                   by: audit-snapshots-service.int.test.ts
+c14  KILLED   TB account column unchecked                                by: audit-snapshots-service.int.test.ts
+c15  KILLED   a retired key hides tampering                              by: audit-snapshots-service.int.test.ts
+c16  KILLED   manager mints auditor links                                by: audit-snapshots-pack.int.test.ts
+c17  KILLED   viewer reads pack metadata                                 by: audit-snapshots-pack.int.test.ts
+c18  KILLED   audit routes not rate-limited                              by: autoRateLimit.test.ts
+c19  KILLED   late_claim_base not frozen                                 by: audit-snapshots-columns.int.test.ts
+c20  KILLED   pack verify fails open on a bad part                       by: audit-snapshots-pack.int.test.ts
+c21  KILLED   manifest seal ignored                                      by: audit-snapshots-pack.int.test.ts
+c22  KILLED   no process-wide cap                                        by: snapshotSlots.test.ts
+c23  KILLED   snapshot-vs-snapshot removals unexplained                  by: audit-snapshots-compare.int.test.ts
+c24  KILLED   restore after a failed read hides its error                by: bulkPlan.test.ts
+c25  KILLED   lost automatic snapshots not listed                        by: audit-snapshots-auto.int.test.ts
+
+# ROUND 3 — guards added for the background security reviews, at 29a2a3ad4: 9/9 killed
+r01  KILLED   any key id verifies under the current key                  by: canonicalSeal.test.ts
+r02  KILLED   retired keys ignored (old seals stop verifying)            by: audit-snapshots-service.int.test.ts, canonicalSeal.test.ts
+r03  KILLED   one company may hold every slot                            by: audit-snapshots-routes.int.test.ts, snapshotSlots.test.ts
+r04  KILLED   unchanged vouches for an altered snapshot                  by: audit-snapshots-auto.int.test.ts
+r05  KILLED   pack verify ignores seals                                  by: audit-snapshots-pack.int.test.ts
+r06  KILLED   one member spends the company audit bucket                 by: autoRateLimit.test.ts
+r07  KILLED   comparisons outside the slots                              by: audit-snapshots-routes.int.test.ts
+r08  KILLED   integrity not decided before the seal                      by: audit-snapshots-service.int.test.ts
+r09  KILLED   comparison of a snapshot that does not verify              by: audit-snapshots-compare.int.test.ts
+
+# Notes
+# c06 / c15 / c20 (round 2) mutated code that round 3 replaced: unknown_key no longer exists (retired keys are held and
+#   verified); their successors r01, r02, r05 and r08 are killed at 29a2a3ad4.
+# c11 (manual snapshot queues behind another) was killed at 061200239. Since 3892e287a the per-company slot refuses
+#   the second manual snapshot first within one process; the chain lock stays as the cross-process guard, so c11 is now
+#   equivalent inside a single process (named, not chased).
+
+## Round 4 — blind review r2 fixes (a00efab49; mutants-round4.json; baseline green: 33 integration + 17 unit)
+baseline  SURVIVED unmutated baseline  []
+s01       KILLED   every audit- request charged (audit log throttled again)  [autoRateLimit.test.ts]
+s02       KILLED   cookie path does not pass the method (POST takes go uncharged)  [autoRateLimit.test.ts]
+s03       SURVIVED snapshot rebuilt under the current version (a bump invalidates old snapshots)  []
+s04       SURVIVED check run rebuilt under the current version  []
+s05       KILLED   snapshot does not record its document version  [audit-snapshots-versions.int.test.ts]
+s06       KILLED   columns frozen later compared (every journal changed)  [audit-snapshots-versions.int.test.ts, comparisonCsv.test.ts]
+s07       KILLED   budget only checked between steps (no statement bound)  [audit-snapshots-versions.int.test.ts]
+s08       KILLED   a cut-off statement is reported as an error, not too_slow  [audit-snapshots-versions.int.test.ts]
+s09       KILLED   budget not checked between check families  [audit-snapshots-versions.int.test.ts]
+s10       KILLED   slot waiters effectively never time out  [snapshotSlots.test.ts]
+s11       KILLED   chain-lock wait unbounded  [audit-snapshots-versions.int.test.ts, audit-snapshots-versions.int.test.ts ]]
+s12       KILLED   pack build without a slot  [audit-snapshots-routes.int.test.ts]
+s13       KILLED   malformed manifest crashes verify (500)  [audit-snapshots-pack.int.test.ts]
+s14       KILLED   chain check reads no / a bounded window of sealed rows  [audit-snapshots-routes.int.test.ts, audit-snapshots-versions.int.test.ts]
+s15       KILLED   a just-made lock is reported lost  [audit-snapshots-auto.int.test.ts]
+s16       KILLED   unchanged ignores the ageing and control totals  [audit-snapshots-auto.int.test.ts]
+s17       KILLED   unchanged attempt freezes no checks of its own  [audit-snapshots-auto.int.test.ts]
+s18       KILLED   an unchanged attempt's altered check run passes  [audit-snapshots-auto.int.test.ts]
+Round 4: 16/18 killed. s03/s04 survived: the versions test mocks DOCUMENT_VERSION for importers only, so documents.ts reading its own constant went unseen; documentVersion.test.ts pins the hashed version to the stored one, and round 5 re-ran both (s03b, s04b).
+
+## Round 5 — breaker r2 + security review fixes (67a293d72; mutants-round5.json; the run was interrupted by a terminal crash after t06 and resumed from t07)
+baseline  SURVIVED unmutated baseline  []
+s03b      KILLED   snapshot rebuilt under the current version (a bump invalidates old snapshots)  [documentVersion.test.ts]
+s04b      KILLED   check run rebuilt under the current version  [documentVersion.test.ts]
+t01       KILLED   a retired key verifies seals taken after it was retired  [canonicalSeal.test.ts]
+t02       KILLED   a retired key without a retirement instant is held  [canonicalSeal.test.ts]
+t03       KILLED   a new link chains to a forged head  [audit-snapshots-service.int.test.ts]
+t04       KILLED   verifyChain does not skip forged rows  [audit-snapshots-service.int.test.ts]
+t05       KILLED   writer accepts a prev_hmac naming no row  [audit-snapshots-db.int.test.ts]
+t06       KILLED   a row may be INSERTed ready  [audit-snapshots-pack.int.test.ts]
+t07       KILLED   a ready pack may be deleted  [audit-snapshots-pack.int.test.ts]
+t08       KILLED   a bare file pointer may be made ready  [audit-snapshots-pack.int.test.ts]
+t09       KILLED   a ready pack's pdf bucket may change  [audit-snapshots-pack.int.test.ts]
+t10       KILLED   guard on UPDATE only (890 must refuse to apply)  [889 refused to apply]
+t11       KILLED   owner download serves an unverified ZIP  [audit-snapshots-pack.int.test.ts]
+t12       KILLED   portal serves an unverified ZIP  [audit-snapshots-pack.int.test.ts]
+t13       KILLED   one person may hold every slot  [snapshotSlots.test.ts]
+t14       KILLED   a migration-added column stops being frozen (unit census)  [snapshotColumnMigrationCensus.test.ts]
+u01       KILLED   entries inflated past their cap  [audit-snapshots-pack.int.test.ts]
+u02       KILLED   a file the manifest does not list passes  [audit-snapshots-pack.int.test.ts]
+u03       KILLED   a retired pack key judged by the manifest's own time  [audit-snapshots-pack.int.test.ts]
+u04       KILLED   built_at is the writer's, not the database's clock  [audit-snapshots-pack.int.test.ts]
+u05       KILLED   a ready pack's built_at may change  [audit-snapshots-pack.int.test.ts]
+Round 5: 21/21 killed.
+
+## Round 6 — blind r3 fixes (961d2876d; mutants-round6.json)
+baseline  SURVIVED unmutated baseline  []
+v01       KILLED   unchanged accepts a check run borrowed from another transaction  [audit-snapshots-auto.int.test.ts]
+v02       KILLED   unchanged written without a check run  [audit-snapshots-auto.int.test.ts]
+v03       KILLED   a backdated link keeps the chain valid  [audit-snapshots-service.int.test.ts]
+v04       KILLED   no watchdog: a many-statement step outruns the budget  [audit-snapshots-versions.int.test.ts]
+v05       KILLED   owner pack downloads uncharged  [autoRateLimit.test.ts]
+v06       KILLED   portal downloads unbounded  [audit-snapshots-pack.int.test.ts]
+Round 6: 6/6 killed (baseline green).
+
+## Round 7 — breaker r3 + security-review fixes (02db71a22; mutants-round7.json)
+baseline  KILLED   unmutated baseline  [audit-snapshots-versions.int.test.ts]
+w01       KILLED   ZIP seal not checked before parsing  [audit-snapshots-pack.int.test.ts]
+w02       KILLED   directory entries pass  [audit-snapshots-pack.int.test.ts]
+w03       KILLED   duplicate entries in the central directory pass  [audit-snapshots-pack.int.test.ts]
+w04       KILLED   waiting counted as budget time  [audit-snapshots-versions.int.test.ts]
+w05       KILLED   writer accepts any unchanged attempt  [audit-snapshots-auto.int.test.ts]
+w06       KILLED   twin = newest row with the fingerprint, verifying or not  [audit-snapshots-auto.int.test.ts]
+w07       KILLED   malformed retired key skipped silently  [canonicalSeal.test.ts]
+w08       KILLED   a restarted chain reads valid  [audit-snapshots-service.int.test.ts]
+w09       KILLED   MCP verify_chain uncharged  [audit-snapshots-routes.int.test.ts]
+w10       KILLED   a ready pack's other columns may change  [audit-snapshots-pack.int.test.ts]
+w11       KILLED   no cap on a person's waiting jobs  [snapshotSlots.test.ts]
+w12       KILLED   automatic snapshots skip the per-person cap  [audit-snapshots-versions.int.test.ts]
+w13       KILLED   queued snapshot freezes books of an undone close  [audit-snapshots-auto.int.test.ts]
+w14       SURVIVED a pack made ready without its ZIP seal  []
+Round 7: 13/14 killed (baseline RED). The BASELINE FAILED this round (the versions suite was red at 02db71a22: my lock_gone re-check refused a test that never closed its period — breaker r4 M2), so every kill this round attributes to the versions suite (w04, w12) is unproven; w04, w12 and the survivor w14 were re-run in round 8 after the fixture was fixed.
+
+## Round 8 — r4 fixes, plus the round-7 kills its red baseline left unproven (a5089cd2d; mutants-round8.json)
+baseline  SURVIVED unmutated baseline  []
+w04b      KILLED   waiting counted as budget time  [audit-snapshots-versions.int.test.ts]
+w12b      SURVIVED automatic snapshots skip the per-person cap  []
+w14b      KILLED   a pack made ready without its ZIP seal  [audit-snapshots-pack.int.test.ts]
+y01       KILLED   no fallback to the next standing close after lock_gone  [audit-snapshots-auto.int.test.ts]
+y02       SURVIVED a failed attempt covers earlier cutoffs  []
+y03       KILLED   unsealed attempts cover locks  [audit-snapshots-auto.int.test.ts]
+y04       SURVIVED an unchanged attempt's own seal not checked  []
+y05       KILLED   automatic jobs may hold every slot  [snapshotSlots.test.ts]
+y06       KILLED   queue in arrival order, not people in turn  [snapshotSlots.test.ts]
+y07       KILLED   a restart read as a break (forged first row breaks the chain)  [audit-snapshots-service.int.test.ts]
+y08       KILLED   twin search limited to the newest candidate  [audit-snapshots-auto.int.test.ts]
+y09       KILLED   attempts recorded unsealed  [audit-snapshots-auto.int.test.ts]
+Round 8: 9/12 killed (baseline green). Survivors w12b (the per-person cap was masked by the automatic one), y02 and y04 got tests and were re-run in round 9.
+
+## Round 9 — the round-8 survivors, after their tests were added (6fdd8df37; mutants-round9.json)
+baseline  SURVIVED unmutated baseline  []
+w12_r9    KILLED   automatic snapshots skip the per-person cap  [audit-snapshots-versions.int.test.ts]
+y02_r9    KILLED   a failed attempt covers earlier cutoffs  [audit-snapshots-auto.int.test.ts]
+y04_r9    KILLED   an unchanged attempt's own seal not checked  [audit-snapshots-auto.int.test.ts]
+Round 9: 3/3 killed (baseline green).

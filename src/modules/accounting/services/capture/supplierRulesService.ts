@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
+import { AutoPublishNeedsAccountError } from './supplierRuleErrors';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,10 @@ export interface SupplierRule {
   defaultVatCode: string | null;
   defaultCostCentreId: string | null;
   defaultProjectId: string | null;
+  /** Default CC1 / CC2 / BU of this supplier's bill lines (migration 890); set via supplierDimensionDefaults. */
+  defaultCc1Id: string | null;
+  defaultCc2Id: string | null;
+  defaultBuId: string | null;
   autoPublish: boolean;
   autoPublishMaxAmount: number | null;
   autoPublishMinConfidence: number;
@@ -63,6 +68,9 @@ function mapRow(row: Row): SupplierRule {
     defaultVatCode: row.default_vat_code ? String(row.default_vat_code) : null,
     defaultCostCentreId: row.default_cost_centre_id ? String(row.default_cost_centre_id) : null,
     defaultProjectId: row.default_project_id ? String(row.default_project_id) : null,
+    defaultCc1Id: row.default_cc1_id ? String(row.default_cc1_id) : null,
+    defaultCc2Id: row.default_cc2_id ? String(row.default_cc2_id) : null,
+    defaultBuId: row.default_bu_id ? String(row.default_bu_id) : null,
     autoPublish: Boolean(row.auto_publish),
     autoPublishMaxAmount: row.auto_publish_max_amount != null ? Number(row.auto_publish_max_amount) : null,
     autoPublishMinConfidence: Number(row.auto_publish_min_confidence),
@@ -121,6 +129,11 @@ export async function upsertRule(
 ): Promise<SupplierRule> {
   // R-068: both routes pass a caller-supplied supplier id (body / URL).
   await assertSupplierInCompany(companyId, supplierId);
+  // The account the rule will hold after this upsert: the patch's, else the held one (a null never clears it).
+  if (patch.autoPublish === true && !patch.defaultGlAccountId) {
+    const held = await getRule(companyId, supplierId);
+    if (!held?.defaultGlAccountId) throw new AutoPublishNeedsAccountError();
+  }
   const rows = (await sql`
     INSERT INTO supplier_coding_rules (
       company_id, supplier_id,
@@ -241,6 +254,8 @@ export async function recordCoding(
       UPDATE supplier_coding_rules SET
         default_gl_account_id = ${entry.glAccountId ?? null}::uuid,
         default_vat_code      = ${entry.vatCode ?? null},
+        -- A rule with no account has nothing to auto-publish with (upsertRule refuses the same state).
+        auto_publish          = CASE WHEN ${entry.glAccountId ?? null}::uuid IS NULL THEN false ELSE auto_publish END,
         learned_sample_count  = 1,
         learned_from_last_correction_at = NOW(),
         updated_at = NOW()
@@ -258,7 +273,8 @@ export async function recordCoding(
 
   // 4. GL matches — increment sample count
   const newCount = rule.learnedSampleCount + 1;
-  const shouldPromote = !rule.autoPublish && newCount >= PROMOTION_THRESHOLD;
+  // A rule with no default account (the dimensions-only rows of migration 890) has nothing to auto-publish with.
+  const shouldPromote = !rule.autoPublish && rule.defaultGlAccountId !== null && newCount >= PROMOTION_THRESHOLD;
 
   await sql`
     UPDATE supplier_coding_rules SET

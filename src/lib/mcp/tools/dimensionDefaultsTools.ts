@@ -4,7 +4,8 @@
  *   set_gl_account_reporting_attributes — the account ladder (category,
  *     statement line/group, class, cash class, capex/opex) on up to 500 accounts;
  *   set_customer_default_fno — the FNO every revenue line of that customer takes;
- *   set_bank_account_default_dimensions — the CC/BU card spend defaults to.
+ *   set_bank_account_default_dimensions — the CC/BU card spend defaults to;
+ *   set_supplier_default_dimensions — the CC/BU a supplier's bill lines default to.
  *
  * None moves an amount or posts, so none is requiresPost. Each refuses from
  * reads before writing and supports dry_run.
@@ -16,6 +17,11 @@ import {
   type ReportingAttributePatch, type ReportingAttributesItem,
 } from '@/modules/accounting/services/gl/dimensions/dimensionDefaultsService';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import {
+  applySupplierDefaultsPlan, planSupplierDefaults, type SupplierDefaultRefs,
+} from '@/modules/accounting/services/gl/dimensions/supplierDimensionDefaults';
+import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { UUID_RE } from '@/lib/validation';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 export const MAX_ATTRIBUTE_ITEMS = 500;
@@ -175,6 +181,55 @@ export const setBankAccountDefaultDimensionsTool: McpTool = {
     const summary = { account_code: plan.accountCode, previous: view(plan.previous), next: view(plan.next) };
     if (args.dry_run === true) return preview(summary);
     await applyBankAccountDefaults(ctx.companyId, plan);
+    return ok(summary);
+  },
+};
+
+export const setSupplierDefaultDimensionsTool: McpTool = {
+  name: 'set_supplier_default_dimensions',
+  description:
+    'Set the default CC1 / CC2 / BU of a supplier (migration 890). Every bill line of that supplier that names '
+    + 'no CC1 or CC2 takes the default CC2 (and CC1); a line with no BU takes the default BU; a line\'s own '
+    + 'dimensions always win, and posted bills are not touched. Each of cc1 / cc2 / bu: a code, UUID or alias to '
+    + 'set, null to clear, omitted to keep. A default CC1 that contradicts the default CC2\'s FNO is refused. Posts nothing.',
+  scope: 'write:contacts',
+  write: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      supplier_id: { type: 'string' },
+      cc1: { type: ['string', 'null'] },
+      cc2: { type: ['string', 'null'] },
+      bu: { type: ['string', 'null'] },
+      dry_run: { type: 'boolean' },
+      idempotency_key: { type: 'string' },
+    },
+    required: ['supplier_id', 'idempotency_key'],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const supplierId = strArg(args, 'supplier_id');
+    if (!supplierId || !UUID_RE.test(supplierId)) return toolError('supplier_id (a supplier UUID) is required');
+    const refs: SupplierDefaultRefs = {};
+    for (const kind of ['cc1', 'cc2', 'bu'] as const) {
+      const v = args[kind];
+      if (v === undefined) continue;
+      if (v !== null && (typeof v !== 'string' || !v.trim())) return toolError(`${kind} must be a code, UUID or alias, or null`);
+      refs[kind] = v === null ? null : v.trim();
+    }
+    if (Object.keys(refs).length === 0) return toolError('Name at least one of cc1, cc2, bu (null clears it)');
+    let plan;
+    try {
+      plan = await planSupplierDefaults(ctx.companyId, supplierId, refs);
+    } catch (err) {
+      if (err instanceof SupplierNotInCompanyError) return toolError(NOT_FOUND);
+      if (isDimensionRefusal(err)) return toolError(err.message);
+      throw err;
+    }
+    const view = (d: typeof plan.next) => ({ cc1_id: d.cc1Id ?? null, cc2_id: d.cc2Id ?? null, bu_id: d.buId ?? null });
+    const summary = { supplier_id: plan.supplierId, previous: view(plan.previous), next: view(plan.next) };
+    if (args.dry_run === true) return preview(summary);
+    await applySupplierDefaultsPlan(ctx.companyId, plan, UUID_RE.test(ctx.userId) ? ctx.userId : null);
     return ok(summary);
   },
 };

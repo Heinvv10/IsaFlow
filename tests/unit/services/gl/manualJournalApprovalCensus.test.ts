@@ -160,7 +160,10 @@ describe('the other journal writers', () => {
   });
 
   it('only manualJournalApproval writes the marker, and only it and manualJournalAuthors write a journal\'s authors', () => {
-    expect(filesMatching(/approval_document_type/)).toEqual([`${A}gl/manualJournalApproval.ts`]);
+    // audit/snapshotRows.ts READS it into the audit snapshot's frozen journal row (forensic step 4) — never writes it.
+    expect(filesMatching(/approval_document_type/)).toEqual([`${A}audit/snapshotRows.ts`, `${A}gl/manualJournalApproval.ts`]);
+    expect(textOf(`${A}audit/snapshotRows.ts`)).not.toMatch(/(UPDATE|INSERT INTO)\s+gl_journal_entries/);
+    expect(textOf(`${A}audit/snapshotRows.ts`).match(/approval_document_type/g)).toEqual(['approval_document_type', 'approval_document_type']);
     expect(filesMatching(/UPDATE gl_journal_entries[\s\S]{0,80}content_authors/)).toEqual([
       `${A}gl/manualJournalApproval.ts`, `${A}gl/manualJournalAuthors.ts`,
     ]);
