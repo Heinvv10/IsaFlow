@@ -12,7 +12,8 @@
  *   anchored to the line start, the path may not contain a mark, and the path is
  *   the one after the LAST mark.
  * - A stack trace or message can quote a result line. So the result must END
- *   the line: `(…)`, an optional duration, nothing else.
+ *   the line: `(…)`, an optional duration, vitest's optional `N MB heap used`
+ *   (--logHeapUsage), nothing else.
  *
  * Named limit: a line whose glued-in output itself ends with a whole quoted
  * result line is still read as one. The reporter never writes that.
@@ -29,7 +30,7 @@ export interface ResultLine {
   counts: Record<string, number>;
 }
 
-const RESULT = /[✓❯↓×] ([^✓❯↓×\s][^✓❯↓×]*?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)(?: \d+(?:\.\d+)?m?s)?\s*$/u;
+const RESULT = /[✓❯↓×] ([^✓❯↓×\s][^✓❯↓×]*?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)(?: \d+(?:\.\d+)?m?s)?(?: \d+(?:\.\d+)? MB heap used)?\s*$/u;
 // eslint-disable-next-line no-control-regex
 const ANSI = /\u001b\[[0-9;]*m/g;
 

@@ -163,13 +163,8 @@ for i in $(seq 1 "$SHARDS"); do
 done
 
 FAILED=0
-FAILED_SHARDS=""
-for i in $(seq 1 "$SHARDS"); do
-  if ! wait "${PIDS[$((i - 1))]}"; then
-    FAILED=1
-    FAILED_SHARDS+=" $i"
-  fi
-done
+# Sets FAILED and FAILED_SHARDS from the shards' exit statuses (report.sh).
+wait_shards "${PIDS[@]}"
 
 # 3. Report (report.sh). The verdict ($FAILED) comes only from the shards and
 # the skip rule; printing must never change it, so nothing here may end the
