@@ -233,14 +233,14 @@ export function assertSameJournal(peeked: string | null, locked: string | undefi
  * the bank path would reverse all of it.
  */
 export async function voidViaBankAllocation(
-  companyId: string, leg: BankLeg, userId: string, label: string, journalId: string,
+  companyId: string, leg: BankLeg, userId: string, label: string, journalId: string | null,
 ): Promise<boolean> {
   if (leg.allocatedLineIds.length === 0) return false;
   if (leg.allocatedLineIds.length > 1 || leg.bankLineIds.length > 0) {
     throw new SupplierPaymentRefusal(`${label}'s journal is claimed by more than one bank line — `
       + 'reverse them from the bank screen.');
   }
-  const splitPart = await splitPartRefusal(companyId, journalId, label);
+  const splitPart = journalId && await splitPartRefusal(companyId, journalId, label);
   if (splitPart) throw new SupplierPaymentRefusal(splitPart);
   // Dynamic, as `voidPaymentDocument` imports the GL service: the bank module
   // reaches back into AP, and a static import here would close that cycle.

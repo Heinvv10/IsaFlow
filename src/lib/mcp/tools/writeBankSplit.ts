@@ -35,6 +35,7 @@ import {
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import { isDimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
 import { AUTO_APPLY_MODES, type AutoApplyMode } from '@/modules/accounting/services/shared/autoAllocateStrategy';
@@ -212,8 +213,7 @@ export const splitAllocateBankTransactionTool: McpTool = {
     }
     const accountLines = lines.flatMap((l, index) => (l.contraAccountId
       ? [{ l: { ...l, contraAccountId: l.contraAccountId }, index }] : []));
-    // Step 2: the token's user importing the statement this line came from is refused by the service too — asked here
-    // so the dry run gives the same refusal. (Contact lines: planSplitContacts, below — the dry run runs it too.)
+    // Step 2: the statement's importer is refused by the service too — asked here so the dry run refuses alike.
     if (accountLines.length > 0) {
       const importerRefusal = await importerRefusalForLineId(ctx.companyId, resolved.id, ctx.userId, 'manual_journal');
       if (importerRefusal) return toolError(importerRefusal.message);
@@ -250,12 +250,13 @@ export const splitAllocateBankTransactionTool: McpTool = {
       }));
 
     if (args.dry_run === true) {
-      // The contact lines' refusals — hand-keyed payment gate per supplier, the importer check per arm, the
-      // refund ceilings — are the service's own, from reads, against the locked row: run them, so the preview
-      // refuses what the live call would. Not caught: a refusal reaches the registry exactly as the live one does.
+      // The service's own pre-write refusals, against the locked row, uncaught — so the preview refuses what the
+      // live call would: per contact (payment gate per supplier, importer check per arm, refund ceilings), and the
+      // hand-keyed manual-journal gate at the whole line when any line is a GL account.
       const txRow = await lockBankTransactionForUpdate(ctx.companyId, resolved.id);
       if (!txRow) return toolError(NOT_FOUND);
       await planSplitContacts(ctx.companyId, txRow, serviceLines, ctx.userId);
+      if (accountLines.length > 0) await assertBankLineMayPostToAccounts(ctx.companyId, txRow, Math.abs(Number(txRow.amount)));
       const preview = ok({
         dry_run: true,
         transaction_id: resolved.id,

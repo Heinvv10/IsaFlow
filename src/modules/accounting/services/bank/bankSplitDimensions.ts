@@ -2,16 +2,20 @@
  * Dimensions for a SPLIT bank allocation: one plan per split line, decided from
  * reads only, before the split posts anything.
  *
- * Each split line is a GL-account line, so the single-allocation rules apply
+ * Each line here is a GL-account line (a supplier/customer line is planned by
+ * bankSplitContacts), so the single-allocation rules apply
  * per line (bankAllocationDimensions.ts): explicit dimensions on a control
  * account are refused, the card's defaults fill a cost line the caller left
- * blank, and the COS-without-project rule warns (or blocks, per company).
+ * blank, and the COS-without-project rule warns (or blocks, per company). A line
+ * on the AP/AR control itself is refused: that is a contact line's job.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { cosProjectWarnings } from '../gl/dimensions/dimensionPolicy';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { isControlSubtype, planAllocationDimensions } from './bankAllocationDimensions';
+import { canonicalSubtype, type CanonicalSubtype } from '../gl/accountSubtypes';
+import { BankAllocationRefusal } from './bankAllocationRefusal';
 
 export interface SplitDimensionLine extends DimensionIds {
   contraAccountId: string;
@@ -23,6 +27,12 @@ export interface SplitDimensionPlan {
   /** COS lines with no project, when the company does not block them. */
   warnings: string[];
 }
+
+/** The control accounts a contact line settles through: a GL split line may not post to them directly. */
+const CONTACT_CONTROLS: Partial<Record<CanonicalSubtype, { name: string; who: 'supplier' | 'customer' }>> = {
+  payable: { name: 'accounts payable', who: 'supplier' },
+  receivable: { name: 'accounts receivable', who: 'customer' },
+};
 
 export async function planSplitDimensions(
   companyId: string,
@@ -45,6 +55,16 @@ export async function planSplitDimensions(
     cc2Id: defaultsRow?.bank_cc2_id ? String(defaultsRow.bank_cc2_id) : undefined,
     buId: defaultsRow?.bank_bu_id ? String(defaultsRow.bank_bu_id) : undefined,
   };
+  // A GL line straight onto AP/AR control moves the control with no document, so the subledger drifts from it by
+  // that amount — and beside a contact line's document it hides behind that document's gate. Name the contact.
+  for (const line of lines) {
+    const canonical = canonicalSubtype(byId.get(line.contraAccountId.toLowerCase())?.account_subtype as string | null | undefined);
+    const control = canonical ? CONTACT_CONTROLS[canonical] : undefined;
+    if (control) {
+      throw new BankAllocationRefusal(`A split line posts to the ${control.name} control account: name the ${control.who} `
+        + `instead (contactType '${control.who}' / ${control.who}_id), so the line gets its document`);
+    }
+  }
   const dims = lines.map((line) => {
     const account = byId.get(line.contraAccountId.toLowerCase());
     return planAllocationDimensions({

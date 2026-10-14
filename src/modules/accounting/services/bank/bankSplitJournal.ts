@@ -20,31 +20,33 @@ import type { PlannedSplitContact } from './bankSplitContacts';
 /** A split line that posts to a GL account. */
 export type AccountSplitLine = SplitLine & { contraAccountId: string };
 
+/** Each split line, in order: a contact line's plan, or a GL-account line. */
+export type SplitPart =
+  | { kind: 'contact'; index: number; plan: PlannedSplitContact }
+  | { kind: 'account'; index: number; line: AccountSplitLine };
+
 /**
- * The split's GL-account lines with their positions — every line no contact
- * plan claimed. A line that names neither an account nor a contact is refused
+ * The split's lines as parts: every line a contact plan claimed is a contact
+ * part, the rest must name a GL account. A line that names neither is refused
  * (a read-only refusal: nothing has been written yet).
  */
-export function accountSplitLines(
-  lines: readonly SplitLine[], contactIndexes: ReadonlySet<number>,
-): { index: number; line: AccountSplitLine }[] {
-  const out: { index: number; line: AccountSplitLine }[] = [];
-  for (const [index, line] of lines.entries()) {
-    if (contactIndexes.has(index)) continue;
+export function splitParts(lines: readonly SplitLine[], contactPlan: readonly PlannedSplitContact[]): SplitPart[] {
+  const byIndex = new Map(contactPlan.map((p) => [p.index, p]));
+  return lines.map((line, index): SplitPart => {
+    const plan = byIndex.get(index);
+    if (plan) return { kind: 'contact', index, plan };
     const { contraAccountId } = line;
     if (!contraAccountId) {
       throw new BankAllocationRefusal(`Split line ${index + 1} names neither a GL account nor a supplier/customer`);
     }
-    out.push({ index, line: { ...line, contraAccountId } });
-  }
-  return out;
+    return { kind: 'account', index, line: { ...line, contraAccountId } };
+  });
 }
 
 export async function buildSplitJournalLines(args: {
   companyId: string;
-  lines: readonly SplitLine[];
-  contactByIndex: ReadonlyMap<number, PlannedSplitContact>;
-  accountByIndex: ReadonlyMap<number, AccountSplitLine>;
+  parts: readonly SplitPart[];
+  /** Per GL-account part, by its line index. */
   dimsByIndex: ReadonlyMap<number, DimensionIds | undefined>;
   isSpent: boolean;
   entryDesc: string;
@@ -53,9 +55,9 @@ export async function buildSplitJournalLines(args: {
 }): Promise<JournalLineInput[]> {
   const { companyId, isSpent, entryDesc } = args;
   const journalLines: JournalLineInput[] = [];
-  for (const lineIndex of args.lines.keys()) {
-    const contact = args.contactByIndex.get(lineIndex);
-    if (contact) {
+  for (const part of args.parts) {
+    if (part.kind === 'contact') {
+      const contact = part.plan;
       // DR AP (payment) / CR AR (receipt), or the mirror for a refund — on the
       // control account, no VAT and no dimensions; the document follows the post.
       journalLines.push(isSpent
@@ -63,9 +65,8 @@ export async function buildSplitJournalLines(args: {
         : { glAccountId: contact.controlAccountId, debit: 0, credit: contact.amount, description: contact.description });
       continue;
     }
-    const line = args.accountByIndex.get(lineIndex);
-    if (!line) throw new BankAllocationRefusal(`Split line ${lineIndex + 1} names neither a GL account nor a supplier/customer`);
-    const lineDims = args.dimsByIndex.get(lineIndex) ?? {};
+    const { line } = part;
+    const lineDims = args.dimsByIndex.get(part.index) ?? {};
     // Attended path, same as allocateTransaction: the split modal warned, the
     // user chose. Not coerced here.
     const lineVatCode = line.vatCode;

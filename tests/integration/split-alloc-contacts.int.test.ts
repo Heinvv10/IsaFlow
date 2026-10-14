@@ -15,6 +15,7 @@ import {
 import { getUnappliedPaymentCash } from '@/modules/accounting/services/reconciliation/unappliedPaymentCash';
 import { voidPaymentDocument } from '@/modules/accounting/services/core/paymentVoidService';
 import { allocationFacts } from '@/modules/accounting/services/bank/bankLineImporterGate';
+import type { SplitLine } from '@/modules/accounting/services/bank/bankAllocationTypes';
 import {
   billState, dropFixture, inTx, seedBankTx, seedBill, seedFixture, seedInvoice, seedSupplier, type Fixture,
 } from './helpers/l1FifoFixture';
@@ -89,8 +90,7 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
     await inTx(fx, () => reverseReconciledTransaction(fx.companyId, tx, fx.userId));
     expect((await supplierPaymentsOn(result.journalEntryId)).map((p) => p.status)).toEqual(['cancelled', 'cancelled']);
     expect(await billState(fx, bill)).toMatchObject({ amountPaid: 0 });
-    const [line] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID`) as Record<string, unknown>[];
-    expect(line!.status).toBe('imported');
+    expect(await lineStatus(tx)).toBe('imported');
   }, 120000);
 
   it('money in, a GL line and a customer receipt: the receipt applies, and the reversal arm stays manual_journal', async () => {
@@ -116,4 +116,64 @@ describeIfDb('PR #711 — a bank line split onto suppliers and customers', () =>
     const facts = await inTx(fx, () => allocationFacts(fx.companyId, { amount: 1000, auto_post_run_id: null }, result.journalEntryId));
     expect(facts?.arm).toBe('manual_journal');
   }, 120000);
+
+  it('every refusal lands before the first write, on a real ledger', async () => {
+    const other = await seedFixture('SPLIT711X', DATABASE_URL!);
+    try {
+      const refusals: [string, number, SplitLine[], RegExp][] = [
+        ['another company\'s supplier', -500,
+          [{ contactType: 'supplier', contactId: other.supplierId, amount: 500 }], /not found for this company/],
+        ['a supplier refund past the supplier\'s credit (none)', 500,
+          [{ contactType: 'supplier', contactId: await seedSupplier(fx, 'NOCREDIT'), amount: 500 }], /A refund of 500\.00 exceeds the 0\.00 .* has on account/],
+        ['a customer refund past the customer\'s credit (none)', -500,
+          [{ contactType: 'customer', contactId: fx.customerId, amount: 500 }], /A refund of 500\.00 exceeds the 0\.00 .* has on account/],
+        ['a GL line straight onto the AP control', -500,
+          [{ contraAccountId: await accountByCode('2100'), amount: 500 }], /accounts payable control account: name the supplier/],
+      ];
+      for (const [what, amount, lines, message] of refusals) {
+        const tx = await seedBankTx(fx, { date: '2026-10-09', amount, description: what });
+        const journalsBefore = await journalCount();
+        await expect(inTx(fx, () => splitAllocateTransaction(fx.companyId, tx, lines, fx.userId)), what).rejects.toThrow(message);
+        expect(await journalCount(), what).toBe(journalsBefore);
+        expect(await lineStatus(tx), what).toBe('imported');
+      }
+    } finally {
+      await dropFixture(other);
+    }
+  }, 120000);
+
+  it('under an enforced supplier-payment rule, a hand-keyed line is judged at what EACH supplier is paid', async () => {
+    const a = await seedSupplier(fx, 'GATE-A');
+    const b = await seedSupplier(fx, 'GATE-B');
+    await sql`INSERT INTO approval_enforcement (company_id, document_type, enabled_by) VALUES (${fx.companyId}::UUID, 'supplier_payment', ${fx.userId})`;
+    await sql`INSERT INTO approval_rules (company_id, name, document_type, condition_field, condition_operator, condition_value, approver_role, is_active)
+              VALUES (${fx.companyId}::UUID, 'R1000+', 'supplier_payment', 'amount', 'greater_equal', 1000, 'admin', true)`;
+    try {
+      // R1,000 to ONE supplier as R600 + R400 is a R1,000 payment: refused, nothing written.
+      const one = await seedBankTx(fx, { date: '2026-10-10', amount: -1000, description: 'one supplier' });
+      await expect(inTx(fx, () => splitAllocateTransaction(fx.companyId, one, [
+        { contactType: 'supplier', contactId: a, amount: 600 }, { contactType: 'supplier', contactId: a.toUpperCase(), amount: 400 },
+      ], fx.userId))).rejects.toThrow(/R1000\.00 needs admin approval/);
+      expect(await lineStatus(one)).toBe('imported');
+      // Two suppliers, each under the rule: two payments, each judged at its own amount.
+      const two = await seedBankTx(fx, { date: '2026-10-10', amount: -1000, description: 'two suppliers' });
+      await inTx(fx, () => splitAllocateTransaction(fx.companyId, two, [
+        { contactType: 'supplier', contactId: a, amount: 600 }, { contactType: 'supplier', contactId: b, amount: 400 },
+      ], fx.userId));
+      expect(await lineStatus(two)).toBe('allocated');
+    } finally {
+      await sql`DELETE FROM approval_rules WHERE company_id = ${fx.companyId}::UUID`;
+      await sql`DELETE FROM approval_enforcement WHERE company_id = ${fx.companyId}::UUID`;
+    }
+  }, 120000);
 });
+
+async function journalCount(): Promise<number> {
+  const [r] = (await sql`SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
+  return Number(r!.n);
+}
+
+async function lineStatus(tx: string): Promise<string> {
+  const [r] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID AND company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
+  return String(r!.status);
+}

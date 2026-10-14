@@ -94,13 +94,13 @@ describe('2. every hand-keyed gate site also asks the importer check', () => {
     const NO_IMPORT = ['pages/api/accounting/bank-transactions-manual.ts']; // inserts its own hand-keyed line: no batch, no importer
     const callers = filesMatching(HAND_KEYED).filter((f) => !DEFINERS.includes(f));
     expect(callers).toEqual([
-      ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`,
+      ...NO_IMPORT, `${MCP}bulkAllocationSkip.ts`, `${MCP}writeApplySupplierPayment.ts`, `${MCP}writeBankSplit.ts`,
       'src/modules/accounting/services/ap/provisionalSettlementClaim.ts', `${B}bankAllocationService.ts`,
       `${B}bankRuleAutoPostLine.ts`, `${B}bankSplitContacts.ts`,
       'src/modules/accounting/services/capture/provisionalPostingService.ts',
     ].sort());
     for (const file of callers.filter((f) => !NO_IMPORT.includes(f))) expect(textOf(file), file).toMatch(IMPORTER);
-    expect(textOf(`${MCP}writeBankSplit.ts`)).toMatch(IMPORTER); // the split dry run, ahead of the service
+    // writeBankSplit: the split dry run asks the service's own hand-keyed journal gate (PR #711), and the importer check.
   });
 
   it('one arm mapping: no site but the gate decides supplier_payment vs manual_journal for an importer check', () => {

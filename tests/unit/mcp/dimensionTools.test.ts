@@ -19,6 +19,7 @@ vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   lockBankTransactionForUpdate: vi.fn(async () => ({ id: 'tx-row', amount: -115, transaction_date: '2026-10-07' })),
 }));
 vi.mock('@/modules/accounting/services/bank/bankSplitContacts', () => ({ planSplitContacts: vi.fn(async () => []) }));
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ assertBankLineMayPostToAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(), findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(async () => 'imported'),
@@ -74,6 +75,7 @@ import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/di
 import { SupplierNotInCompanyError, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
+import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
 import { NOT_FOUND } from '@/lib/mcp/tools/toolHelpers';
 
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null, scopes: [] } as never;
@@ -244,6 +246,23 @@ describe('split_allocate_bank_transaction', () => {
       vi.mocked(planSplitContacts).mockRejectedValueOnce(new Error('A supplier payment of R69.00 needs admin approval'));
       await expect(splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx))
         .rejects.toThrow(/needs admin approval/);
+    });
+
+    it('dry_run asks the hand-keyed manual-journal gate at the WHOLE line when any line is a GL account', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [{}], warnings: [] });
+      vi.mocked(assertBankLineMayPostToAccounts).mockRejectedValueOnce(new Error('needs approval as a manual journal'));
+      await expect(splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ contra_account_id: FUEL, amount: 69 }, { supplier_id: FRIK, amount: 46 }], dry_run: true, ...KEY,
+      }, ctx)).rejects.toThrow(/needs approval as a manual journal/);
+      expect(vi.mocked(assertBankLineMayPostToAccounts).mock.calls[0]).toEqual([ctx.companyId, expect.objectContaining({ id: 'tx-row' }), 115]);
+    });
+
+    it('dry_run of a contact-only split asks no journal gate (the live call asks none)', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx);
+      expect(assertBankLineMayPostToAccounts).not.toHaveBeenCalled();
     });
 
     it('answers a foreign or missing contact NOT_FOUND, but lets a database fault propagate', async () => {

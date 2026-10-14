@@ -11,6 +11,13 @@
  * its GL-account lines. A journal carries something besides its documents
  * exactly when their totals do not add up to the journal's: each document's
  * control leg is its own total, so the rest of the journal is GL lines.
+ *
+ * ASSUMED, and checked against every writer as of PR #711: a whole-line
+ * payment journal is the bank leg plus ONE control leg of the document's
+ * total (allocateTransaction, processSupplierPayment, the receipt post, both
+ * refund documents, batches). A payment journal that ever gains another debit
+ * leg (a fee, a discount) reads as a split here and its void is refused
+ * `split_part` — teach this check that leg; do not loosen the refusal.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
