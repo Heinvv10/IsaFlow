@@ -38,7 +38,9 @@ export interface SkippedSuite {
 }
 
 /** ` ✓ tests/x.int.test.ts (12 tests | 1 failed | 3 skipped) 410ms` (also ❯, ↓, ×). */
-const FILE_LINE = /^ [✓❯↓×] (.+?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
+// Not anchored to the start of the line: a suite's own output that ends without
+// a newline runs into the reporter's next line.
+const FILE_LINE = /[✓❯↓×] (\S.*?\.test\.ts) \((\d+) tests?((?: \| \d+ [a-z]+)*)\)/u;
 /** A line that is only a `//` comment starting with the marker: not a string, not an aside. */
 const MARKER = /^\s*\/\/\s*ci-integration-skip:\s*(.+)$/m;
 

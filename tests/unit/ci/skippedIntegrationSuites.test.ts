@@ -76,6 +76,11 @@ describe('skipNotice', () => {
     expect(mixed.map((m) => [m.skipped, m.total])).toEqual([[3, 5]]);
   });
 
+  it('reads a result line that a suite\'s own output ran into (no newline before the mark)', () => {
+    const glued = skippedSuites('noise noise nois↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms', read);
+    expect(glued.map((m) => [m.file, m.skipped])).toEqual([['tests/integration/silent.int.test.ts', 16]]);
+  });
+
   it('reads a path with a space in it', () => {
     const spaced = skippedSuites(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)', () => undefined);
     expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
