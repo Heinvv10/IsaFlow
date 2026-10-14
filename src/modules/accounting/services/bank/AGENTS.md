@@ -127,6 +127,7 @@ measured 2026-10-05 on migration 852) are no longer a lock-order or FK-order que
 - 2026-04-22 → 04-24: PRD-05 Phase 7 status spec; PRD-06 Phase 4 receipt → invoice auto-match; bulk upload with per-file account validation; multi-page COR39 extraction; PR-8 L-tier IDOR cleanup.
 
 ## Recent changes
+- 2026-10-14: REST `split_allocate` passes each line's `vatCode` to `splitAllocateTransaction` again (`'none' | 'standard' | 'zero_rated' | 'exempt'`; anything else 422). From BL-33 (2026-04-15) the route's zod line object had no `vatCode`, so zod stripped it and every split saved from the bank screen posted gross with no VAT leg; the MCP split was unaffected. Splits posted in that window are NOT corrected by this fix. Test: `tests/unit/api/bankSplitVatCode.test.ts`.
 - 2026-10-12 (PR #688 follow-up F3): the auto-post sweep reports the cost-centre picks it could not apply.
   - **Sweep:** `SweepResult.warnings` is `SweepWarning[]` — `{ txId, journalEntryId, label, description, warnings: string[] }`, one entry per POSTED bank transaction that dropped a pick (`[]` otherwise). `label` is "date + `formatCurrency` amount"; `description` tells apart two lines with the same date and amount. An entry is taken only after the row's savepoint released with the post in it, so a rolled-back row is never reported.
   - **Allocation path:** it passes no cost-centre pick, so its `rowWarnings` is empty by construction. If `allocateTransaction` ever returns warnings they MUST be fed into `rowWarnings` in `sweep`.
