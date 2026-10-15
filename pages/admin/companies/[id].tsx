@@ -360,10 +360,12 @@ export default function AdminCompanyDetailPage() {
                     <ShieldCheck className="w-4 h-4" /> {company.status === 'deleted' ? 'Restore' : 'Activate'}
                   </button>
               }
-              <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                <Trash2 className="w-4 h-4" /> Delete
-              </button>
+              {company.status !== 'deleted' && (
+                <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
+              )}
             </div>
           </div>
 

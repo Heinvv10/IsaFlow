@@ -17,6 +17,9 @@
  *   ended while the company was deleted gets current_period_end = now, so the
  *   next cron raises one charge from today instead of one per missed cycle.
  *   A company restored as suspended is billed like any suspended company.
+ *   Not restarted: a subscription with a charge still in flight (`submitted`)
+ *   — it resumes as if never deleted. A restarted subscription flagged
+ *   cancel_at_period_end is closed out by the next cron (its period has ended).
  *
  * Accepted limits (same as the cancel-at-period-end void):
  * - money that later arrives against a voided charge is refused by
@@ -100,6 +103,15 @@ export async function restoreCompany(companyId: string): Promise<boolean> {
       WHERE s.company_id = co.id
         AND s.status IN ('active','past_due')
         AND s.current_period_end < now()
+        -- A charge still in flight at Paystack settles into the old period
+        -- (advancePeriodForSettledCharge); restarting now would bill today's
+        -- period on top of it. Such a subscription resumes as if never deleted.
+        AND NOT EXISTS (
+          SELECT 1 FROM subscription_charges ic
+          WHERE ic.subscription_id = s.id
+            AND ic.company_id = s.company_id
+            AND ic.status = 'submitted'
+        )
       RETURNING s.id
     )
     SELECT co.id, co.status,

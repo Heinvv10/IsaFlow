@@ -11,9 +11,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { restoreCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { isUuidParam } from '@/lib/validation';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = req.query.id;
+  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'POST') {
     // A failure is thrown, not answered 4xx: withPlatformAdmin rolls a 5xx back.

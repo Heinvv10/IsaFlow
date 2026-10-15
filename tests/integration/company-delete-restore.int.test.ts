@@ -154,6 +154,12 @@ describe('restoreCompany', () => {
     expect(await activateCompany(companyId)).toBe(false);
     expect(await companyStatus()).toBe('deleted');
   });
+
+  it('suspend cannot undelete a company either', async () => {
+    await deleteCompany(companyId);
+    expect(await suspendCompany(companyId, 'bulk')).toBe(false);
+    expect(await companyStatus()).toBe('deleted');
+  });
 });
 
 describe('deleteCompany', () => {
@@ -233,6 +239,20 @@ describe('billing across delete and restore', () => {
     const raised = await charges();
     expect(raised).toHaveLength(1);
     expect(raised[0]).toMatchObject({ status: 'queued', period_start: today });
+  });
+
+  it('restore leaves a subscription with a charge in flight at Paystack on its old period', async () => {
+    await generateDueCharges(cronNow);
+    await pool.query("UPDATE subscription_charges SET status='submitted' WHERE company_id=$1", [companyId]);
+    await deleteCompany(companyId);
+    await restoreCompany(companyId);
+
+    // Not restarted: the in-flight charge settles into the old period, and no
+    // second charge from today is raised on top of it.
+    const { rows } = await pool.query('SELECT current_period_end FROM subscriptions WHERE id=$1', [subscriptionId]);
+    expect(new Date(rows[0].current_period_end).toISOString()).toBe(periodEnd.toISOString());
+    await generateDueCharges(new Date());
+    expect((await charges()).map((c) => c.status)).toEqual(['submitted']);
   });
 
   it('restore leaves a subscription whose period is still running alone', async () => {

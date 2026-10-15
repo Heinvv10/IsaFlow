@@ -230,19 +230,23 @@ export async function updateCompany(
   log.info('updateCompany', { companyId }, 'AdminCompanyService');
 }
 
+/** Suspend. A deleted company is refused (false): suspending would undelete it. */
 export async function suspendCompany(
   companyId: string,
   reason: string
-): Promise<void> {
-  await sql`
+): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
     UPDATE companies
     SET status           = 'suspended',
         suspended_reason = ${reason},
         suspended_at     = NOW(),
         updated_at       = NOW()
     WHERE id = ${companyId}
+      AND status IS DISTINCT FROM 'deleted'
+    RETURNING id
   `;
-  log.info('suspendCompany', { companyId, reason }, 'AdminCompanyService');
+  log.info('suspendCompany', { companyId, reason, suspended: rows.length > 0 }, 'AdminCompanyService');
+  return rows.length > 0;
 }
 
 /**
