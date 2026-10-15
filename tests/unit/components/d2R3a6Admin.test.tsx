@@ -183,14 +183,19 @@ describe('admin dashboard', () => {
   });
 });
 
+/** A response the test hands over when it chooses. */
+function deferred() {
+  let release: (res: Response) => void = () => undefined;
+  const promise = new Promise<Response>((r) => { release = r; });
+  return { promise, release: (res: Response) => release(res) };
+}
+
 describe('company settings save', () => {
   const base = (display: Route = on('GET', 'accounting-settings', () => ok({ key: 'document_display_fields', value: null }))): Route[] => [
     on('GET', '/companies?id=', () => ok({ id: 'co1', name: 'D2 Company (Pty) Ltd' })),
-    // Answers after the company has loaded (Save enabled), as on a slow line: a save that does not wait for the
-    // numbers writes none of them, which the PUT counts and the payload check below catch.
-    (u: string, m: string) => (m === 'GET' && u.includes('type=document-numbers')
-      ? new Promise<Response>((r) => setTimeout(() => r(ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])), 300))
-      : undefined),
+    // Answered only after Save is enabled (open() releases it 300 ms after that, so a slow render cannot let the
+    // numbers arrive first): a save that does not wait for them writes none, which the PUT counts and payload catch.
+    (u: string, m: string) => (m === 'GET' && u.includes('type=document-numbers') ? numbers.promise : undefined),
     display,
   ];
   // Save is enabled once the company has loaded; the document numbers load beside it, and save() writes them only once
@@ -201,7 +206,14 @@ describe('company settings save', () => {
     await screen.findByText('D2PFX');
     fireEvent.click(await screen.findByText('Save Changes'));
   };
-  const open = async () => { render(<CompanySettingsPage />); await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false)); };
+  let numbers = deferred();
+  beforeEach(() => { numbers = deferred(); });
+  const open = async () => {
+    render(<CompanySettingsPage />);
+    await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false));
+    // 300 ms after Save is enabled, however long that took: a save that does not wait clicks well before.
+    setTimeout(() => numbers.release(ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])), 300);
+  };
 
   it('company PUT refused: the server message, no "saved" banner, the other writes are not attempted', async () => {
     serve(on('PUT', '/api/accounting/companies', () => refuse()), ...base());
