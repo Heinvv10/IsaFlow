@@ -10,6 +10,7 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/admin/AdminLayout', () => ({ AdminLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn() }) }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import InvoicesPage from '../../../pages/admin/billing/invoices';
