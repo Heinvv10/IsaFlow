@@ -39,6 +39,7 @@ import { DEFAULT_AUTO_APPLY, type AutoApplyMode } from '../shared/autoAllocateSt
 import { assertBankLineMayPaySupplier, isBankEvidenced } from '../ap/bankLinePaymentGate';
 import { assertBankLineMayPostToAccounts } from './bankLineJournalGate';
 import { assertImporterMayAllocate, assertImporterMayAllocateAs } from './bankLineImporterGate';
+import { assertNotContactControl, contactControlRefusal } from './contactControlGuard';
 import { assertMayReverse, auditedReversal } from './bankReversalGate';
 import { assertNoDuplicateTransfer } from './transferDuplicateGuard';
 import { vatInclusiveSplit } from './bankVatInclusive';
@@ -164,6 +165,15 @@ export async function allocateTransaction(
         WHERE a.id = ${contraAccountId}::UUID AND a.company_id = ${companyId}::UUID
       `) as Row[]
     : [];
+  // A line onto AP/AR control as an ACCOUNT moves the control with no document (contactControlGuard): refused,
+  // before the first write. That is the account arm, and a supplier/customer call naming no contact, which falls
+  // through to it.
+  if (allocType === 'account') {
+    const refusal = contactControlRefusal(contraRows[0]?.account_subtype, 'This allocation');
+    if (refusal) throw refusal;
+  } else if (allocType !== 'transfer' && !entityId) {
+    await assertNotContactControl(companyId, contraAccountId, 'This allocation');
+  }
   const effectiveVatCode = vatCode;
 
   // K-016: the supplier and customer arms SETTLE a document that already

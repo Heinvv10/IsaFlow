@@ -13,6 +13,7 @@ import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
 import { removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite } from './bankRuleChangeControl';
+import { assertNotContactControl } from './contactControlGuard';
 
 // Re-export matching function for backward compatibility
 export type { RuleApplyResult, HeldRuleChange };
@@ -53,6 +54,11 @@ export async function createRule(
   // R-068: the (supplier_id, company_id) FK already refuses a foreign supplier,
   // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
   await assertSupplierInCompany(companyId, input.supplierId);
+  // An account rule may not target AP/AR control: its auto-post would move the control with no document
+  // (contactControlGuard). A rule that names a supplier or customer posts there properly, with the document.
+  if (!input.supplierId && !input.clientId) {
+    await assertNotContactControl(companyId, input.glAccountId, `Rule "${input.ruleName}"`, 'rule');
+  }
   const vatCode = input.vatCode || 'none';
   // Refused, never coerced: a typo'd mode silently becoming 'fifo' would have
   // an unattended sweep apply cash the rule's author asked to leave on account.
@@ -87,6 +93,8 @@ export async function updateRule(
   // (not null/undefined) move — the COALESCE semantics this always had.
   await assertCustomerInCompany(companyId, input.clientId);
   await assertSupplierInCompany(companyId, input.supplierId);
+  // Repointing it at AP/AR control, or re-enabling one already there, is refused (as toggleRule refuses the latter).
+  if (input.glAccountId || input.isActive === true) await assertRuleAccountNotContactControl(companyId, id, input);
   return outcome(await writeRuleChange(companyId, id, {
     rule_name: input.ruleName ?? undefined, match_field: input.matchField ?? undefined,
     match_type: input.matchType ?? undefined, match_pattern: input.matchPattern ?? undefined,
@@ -96,6 +104,25 @@ export async function updateRule(
     vat_code: input.vatCode ?? undefined, auto_apply: assertAutoApply(input.autoApply) ?? undefined,
     is_active: input.isActive ?? undefined,
   }, userId));
+}
+
+/**
+ * updateRule's (and toggleRule's) twin of createRule's check: the rule's own supplier/customer and account count
+ * when this change names none.
+ */
+async function assertRuleAccountNotContactControl(
+  companyId: string, id: string, input: Partial<RuleCreateInput>,
+): Promise<void> {
+  const [cur] = (await sql`
+    SELECT rule_name, supplier_id, client_id, gl_account_id FROM bank_categorisation_rules
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as Record<string, unknown>[];
+  if (!cur) return; // no such rule: writeRuleChange answers that, not this check
+  const supplierId = input.supplierId ?? cur.supplier_id;
+  const clientId = input.clientId ?? cur.client_id;
+  if (supplierId || clientId) return;
+  const accountId = input.glAccountId ?? (cur.gl_account_id == null ? null : String(cur.gl_account_id));
+  await assertNotContactControl(companyId, accountId, `Rule "${String(input.ruleName ?? cur.rule_name)}"`, 'rule');
 }
 
 /**
@@ -126,6 +153,9 @@ export async function deleteRules(companyId: string, ids: string[]): Promise<num
 }
 
 export async function toggleRule(companyId: string, id: string, isActive: boolean, userId: string): Promise<RuleOutcome> {
+  // Re-enabling an account rule that points at AP/AR control (written before the guard, or left there when its
+  // supplier was deleted) is refused like a create; the sweep skips it anyway, but it should not read as working.
+  if (isActive) await assertRuleAccountNotContactControl(companyId, id, {});
   return outcome(await writeRuleChange(companyId, id, { is_active: isActive }, userId));
 }
 

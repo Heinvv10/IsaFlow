@@ -21,6 +21,7 @@
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { handKeyedAccountLineSkips } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import { contactControlLineSkips } from '@/modules/accounting/services/bank/contactControlGuard';
 import { importerArmOf, importerHeldLineSkips } from '@/modules/accounting/services/bank/bankLineImporterGate';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import {
@@ -169,6 +170,10 @@ export async function partitionAllocationLines(
     return arm ? [{ txId: line.txId, arm }] : [];
   }));
   for (const [txId, reason] of importerHeld) if (!held.has(txId)) held.set(txId, reason);
+  // An account line onto AP/AR control is refused by allocateTransaction before it writes (contactControlGuard).
+  const onControl = await contactControlLineSkips(companyId, candidates.filter(({ line }) => line.line.allocType === 'account')
+    .map(({ line }) => ({ txId: line.txId, accountId: line.line.contraAccountId })));
+  for (const [txId, reason] of onControl) if (!held.has(txId)) held.set(txId, reason);
   for (const { line } of candidates) {
     const reason = held.get(line.txId);
     if (reason) skipped.push({ index: line.index, transaction_id: line.txId, reason });
