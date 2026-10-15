@@ -186,7 +186,9 @@ describe('company settings save', () => {
     on('GET', 'type=document-numbers', () => ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])),
     display,
   ];
-  const save = async () => { await screen.findByText('D2PFX', { exact: false }).catch(() => undefined); fireEvent.click(await screen.findByText('Save Changes')); };
+  // open() has already waited for the loads (Save enabled). The prefix is never on screen, so waiting for it only
+  // burned the whole find timeout before every save.
+  const save = async () => { fireEvent.click(await screen.findByText('Save Changes')); };
   const open = async () => { render(<CompanySettingsPage />); await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false)); };
 
   it('company PUT refused: the server message, no "saved" banner, the other writes are not attempted', async () => {
