@@ -34,6 +34,7 @@ import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { brokenChainMessage, findJournalChainHead, lockChainHead } from '../shared/journalChainHead';
 import { withRowLockBudget } from '../core/rowLockBudget';
+import { splitPartRefusal } from '../bank/splitJournalDocuments';
 import { JournalReversalLockTimeoutError } from '../gl/journalEntryReversalClaim';
 
 export interface BankLeg {
@@ -227,16 +228,20 @@ export function assertSameJournal(peeked: string | null, locked: string | undefi
  * journal (bills reopened, the payment cancelled), posts the one contra and
  * returns the bank line to `imported`. Answers false when there is no such line.
  * Two allocated lines on one journal are refused, as MCP refuses them: picking
- * one would leave the other allocated against a reversed journal.
+ * one would leave the other allocated against a reversed journal. So is one
+ * part of a SPLIT allocation (`journalId` carries other documents or GL lines):
+ * the bank path would reverse all of it.
  */
 export async function voidViaBankAllocation(
-  companyId: string, leg: BankLeg, userId: string, label: string,
+  companyId: string, leg: BankLeg, userId: string, label: string, journalId: string | null,
 ): Promise<boolean> {
   if (leg.allocatedLineIds.length === 0) return false;
   if (leg.allocatedLineIds.length > 1 || leg.bankLineIds.length > 0) {
     throw new SupplierPaymentRefusal(`${label}'s journal is claimed by more than one bank line — `
       + 'reverse them from the bank screen.');
   }
+  const splitPart = journalId && await splitPartRefusal(companyId, journalId, label);
+  if (splitPart) throw new SupplierPaymentRefusal(splitPart);
   // Dynamic, as `voidPaymentDocument` imports the GL service: the bank module
   // reaches back into AP, and a static import here would close that cycle.
   const { reverseReconciledTransaction } = await import('../bank/bankAllocationService');

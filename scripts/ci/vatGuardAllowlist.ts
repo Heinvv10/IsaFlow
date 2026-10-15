@@ -82,6 +82,12 @@ export const ALLOWED: Record<string, AllowedEntry> = {
     + '(R-035 PR6 round 4, its line cap). Pure arithmetic on a code its attended caller already chose; '
     + 'it picks no account and posts nothing.',
   },
+  'src/modules/accounting/services/bank/bankSplitJournal.ts': {
+    kinds: ['vat_inclusive_split'],
+    reason: 'The journal lines of splitAllocateTransaction, moved out of bankAllocationService (line cap, PR #711): '
+    + 'the same attended path. The split modal warns and the user\'s vat code stands; the MCP split refuses a code '
+    + 'its guard would change before the service runs (writeBankSplit). Decides no claim of its own.',
+  },
   'src/modules/accounting/services/bank/bankAllocationService.ts': {
     kinds: ['vat_field_on_a_posting_path', 'allocate_call', 'vat_inclusive_split'],
     reason: 'THE attended path. The bank screen shows the s17(2)(a) and non-supply '
