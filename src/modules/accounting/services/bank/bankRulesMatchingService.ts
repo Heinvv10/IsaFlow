@@ -21,6 +21,7 @@ import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
+import { contactControlAccountIds } from './contactControlGuard';
 
 export async function applyRules(
   companyId: string,
@@ -95,6 +96,8 @@ export async function applyRules(
     let autoPostSkippedVatLocked = 0;
     // The rule's account is a balance-sheet header (gl/headerAccountGuard): the rule needs repointing.
     let autoPostSkippedHeaderAccount = 0;
+    // The rule's account is AP/AR control (contactControlGuard): posting there has no document. Name the contact.
+    let autoPostSkippedControlAccount = 0;
     let autoPostSkippedApprovalRequired = 0;
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
@@ -114,7 +117,7 @@ export async function applyRules(
     const ruleAccountIds = autoCreateRules
       .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
       .filter(Boolean);
-    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank] = await Promise.all([
+    const [ruleAccountVatDenied, ruleAccountNames, ruleAccountIsBank, ruleAccountIsControl] = await Promise.all([
       fetchVatDenialFlags(companyId, ruleAccountIds),
       // The non-supply guard classifies on account NAME, so the batched branch
       // needs these for the same reason and on the same one-query-per-sweep
@@ -125,6 +128,7 @@ export async function applyRules(
       // — "FNB Cheque Account" reads like any other — so the subtype comes
       // along on the same budget.
       fetchBankContraFlags(companyId, ruleAccountIds),
+      contactControlAccountIds(companyId, ruleAccountIds),
     ]);
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
@@ -147,6 +151,10 @@ export async function applyRules(
       }
 
       const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+      if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
+        autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
+        continue;
+      }
 
       // Resolve AP/AR control accounts and entity names lazily (only when needed).
       let apAccountId: string | null = null;
@@ -263,7 +271,8 @@ export async function applyRules(
 
     const counts = {
       autoPostRulesSkippedNoBankGl, autoPostSkippedClosedPeriod, autoPostSkippedNoPeriod, autoPostSkippedVatLocked,
-      autoPostSkippedHeaderAccount, autoPostSkippedApprovalRequired, autoPostSkippedRaced, autoPostSkippedLocked,
+      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
+      autoPostSkippedLocked,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
     };
     log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped, ...counts }, 'accounting');
