@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SHARD, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
+import { FORKER_LOOP, LIB, SHARD, SPIN, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
 
 useScratch();
 
@@ -91,7 +91,7 @@ describe('remove_run', () => {
 describe('end_snapshot and a shard\'s own exit', () => {
   it('signals a listed process only while it still has the listed start time, and KILLs one that ignores TERM', () => {
     const stale = victim(); settle(stale);
-    const stubborn = detached('trap "" TERM; while :; do sleep 0.2; done');
+    const stubborn = detached(`trap "" TERM; ${SPIN}`);
     settle(stubborn.pid!);
     sh(`end_snapshot "${stale} 1
 ${stubborn.pid} ${start(stubborn.pid!)}"`);
@@ -116,10 +116,38 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
     expect(running(name)).toBe('');
   });
 
-  it('shard.sh also ends children forked after its first round, even ones that ignore TERM', () => {
+  it('shard.sh also ends children forked after its first round, by a forker that ignores TERM', () => {
     const name = `lifecycle-forker-${process.pid}-${Date.now()}`;
-    shardWith(`(trap "" TERM; ${record()}; while :; do (${record()}; exec -a ${name} sleep 600) & sleep 0.3; done)`);
+    shardWith(`(trap "" TERM; ${record()}; ${FORKER_LOOP(name)})`);
     expect(running(name)).toBe('');
+  }, 30_000);
+
+  it('the TERM phase of end_own_session is 10 s by the clock, however slow each snapshot is', () => {
+    // Every snapshot made 1 s slower (as ps is on a crowded machine), with a member that ignores TERM: by the clock the
+    // TERM phase ends at 10 s and the KILL rounds empty the session in a few more; by a count of 20 rounds it would
+    // take 30 s and more.
+    const out = sh(`setsid bash -c '
+      source ${LIB}
+      eval "orig_$(declare -f snapshot)"
+      snapshot() { sleep 1; orig_snapshot "$@"; }
+      (trap "" TERM; ${record()}; ${SPIN}) &
+      sleep 0.3; t0=$SECONDS; end_own_session; echo $(( SECONDS - t0 ))' < /dev/null 2> /dev/null`);
+    expect(Number(out)).toBeLessThan(25); // ~13 s by the clock even with a 2 s ps; the 20-round loop takes 33 s
+  }, 60_000);
+
+  it('shard.sh TERMs its leftovers before it KILLs them, so one that handles TERM gets to', () => {
+    const termed = join(scratchDir(), 'termed');
+    shardWith(`(trap "echo termed >> ${termed}; exit 0" TERM; ${record()}; ${SPIN})`);
+    expect(existsSync(termed) ? readFileSync(termed, 'utf8').trim() : 'KILLed without a TERM').toBe('termed');
+  }, 30_000);
+
+  // The sleep puts at least 5 clock ticks between the subshell's start and record()'s substitution, so the old
+  // `echo $BASHPID $(cut … /proc/$BASHPID/stat)` fails this on an idle machine too.
+  it('record() stores the recording shell\'s own start time (what proc_start reads), not its substitution\'s', () => {
+    const lines = sh(`for k in $(seq 1 50); do (q=$BASHPID; sleep 0.05; ${record()}; echo "$q $(proc_start $q)"; sleep 0.2) & done; wait`)
+      .split('\n').map((l) => l.trim()).sort();
+    const recorded = readFileSync(join(scratchDir(), 'spawned'), 'utf8').trim().split('\n').map((l) => l.trim()).sort();
+    expect(recorded).toEqual(lines);
   }, 30_000);
 });
 
