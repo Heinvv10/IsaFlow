@@ -132,12 +132,13 @@ export async function cleanupAudit(pool: Pool, companies: string[], users: strin
   }
 }
 
-/** Polls until `company` has `n` snapshot rows (the automatic ones land after the request commits). */
 /**
- * Up to the snapshot's own time budget (120 s) plus 30 s by default: an automatic snapshot runs after its request,
- * and on a loaded CI runner (load ~107) one took longer than the old 30 s wait, so a close that sealed read as none.
+ * How long waitForSnapshots waits by default: the snapshot's own time budget (120 s) plus 30 s. An automatic snapshot
+ * runs after its request, and on a loaded CI runner (load ~107) one took longer than the old 30 s wait, so a close that
+ * sealed read as none.
  */
 export const SNAPSHOT_WAIT_MS = 150_000;
+/** Polls until `company` has `n` snapshot rows (the automatic ones land after the request commits). */
 export async function waitForSnapshots(pool: Pool, company: string, n: number, timeoutMs = SNAPSHOT_WAIT_MS): Promise<Record<string, unknown>[]> {
   const until = Date.now() + timeoutMs;
   for (;;) {
