@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -106,6 +107,14 @@ export default function SubscriptionsPage() {
   }, []);
 
   useEffect(() => { void loadPlans(); }, [loadPlans]);
+
+  // Company Billing tab's "Create Subscription" lands here with ?companyId= — open the form prefilled.
+  const router = useRouter();
+  useEffect(() => {
+    const cid = router.query.companyId;
+    if (!router.isReady || typeof cid !== 'string' || !cid) return;
+    setForm({ ...EMPTY_FORM, company_id: cid }); setFormError(''); setShowForm(true);
+  }, [router.isReady, router.query.companyId]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
