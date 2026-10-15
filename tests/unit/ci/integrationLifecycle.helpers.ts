@@ -39,13 +39,14 @@ export const record = (): string => `p=$BASHPID; echo $p $(cut -d" " -f22 /proc/
 export const SPIN = 'until=$(( SECONDS + 60 )); while [ $SECONDS -lt $until ]; do sleep 0.1; done';
 
 /**
- * A loop that ignores TERM and forks a named child every 0.3 s (the children inherit the ignored TERM: it survives
- * exec). Bounded, so a run killed before its cleanup cannot leak it for good: it stops forking after 60 s and its
+ * A loop that ignores TERM and forks a named child every 0.3 s. Each child restores TERM before it execs: an ignored
+ * TERM survives exec, and children that kept it piled up through the TERM phase (3 -> 123 members, each snapshot
+ * slower; isaflow-0b's measurement). Bounded, so a run killed before its cleanup cannot leak it for good: it stops forking after 60 s and its
  * children end after 120 s. Unbounded, leaked loops from killed runs once filled this machine with 21k sleeps, and
  * every ps the gate's cleanup takes slowed until these very tests timed out and leaked more (2026-10-15).
  */
 export const FORKER_LOOP = (name: string): string =>
-  `until=$(( SECONDS + 60 )); while [ $SECONDS -lt $until ]; do (${record()}; exec -a ${name} sleep 120) & sleep 0.3; done`;
+  `until=$(( SECONDS + 60 )); while [ $SECONDS -lt $until ]; do (trap - TERM; ${record()}; exec -a ${name} sleep 120) & sleep 0.3; done`;
 
 /** Take over cleanup of a process started by a script under test ("pid start"). */
 export function adopt(line: string): void {
@@ -96,7 +97,10 @@ export function useScratch(): void {
         if ((err as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= err;
       }
     };
-    for (const c of children.splice(0)) if (c.pid && procStart(c.pid) !== '') kill(c.pid);
+    // Only while node has not seen it exit: once reaped, its pid may already belong to someone else.
+    for (const c of children.splice(0)) {
+      if (c.pid && c.exitCode === null && c.signalCode === null && procStart(c.pid) !== '') kill(c.pid);
+    }
     // A recorded forker can fork one more child while it is being killed, and
     // that child records itself a moment later: re-read and repeat until two
     // passes in a row, 0.2 s apart, find nothing of ours still running.
