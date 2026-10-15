@@ -6,7 +6,8 @@ import { withAuth } from '@/lib/auth/withAuth';
 import { withBearerAuth } from '@/lib/auth/withBearerAuth';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { createPat } from '@/lib/auth/personalAccessTokens';
-import { suspendCompany, activateCompany, deleteCompany } from '@/modules/admin/services/adminCompanyService';
+import { suspendCompany, activateCompany } from '@/modules/admin/services/adminCompanyService';
+import { deleteCompany, restoreCompany } from '@/modules/admin/services/companyLifecycleService';
 import { mintPrintToken } from '@/lib/pdf/printAuth';
 import { sql } from '@/lib/neon';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -61,6 +62,7 @@ afterAll(async () => {
 for (const method of ['cookie', 'pat', 'oauth', 'print'] as const) {
   for (const standing of ['suspended', 'deleted', 'suspension-marker'] as const) {
     it(`${method}: existing credentials denied after company ${standing}; another tenant and reactivation work`, async () => {
+      await restoreCompany(companyId);
       await activateCompany(companyId);
       let calls = 0;
       const handler = async (_req: unknown, res: Parameters<ReturnType<typeof withAuth>>[1]) => {
@@ -91,7 +93,8 @@ for (const method of ['cookie', 'pat', 'oauth', 'print'] as const) {
       await withAuth(async (_req, res) => { res.status(200).json({ ok: true }); })(
         request({ 'sb-access-token': cookieToken, active_company_id: otherCompanyId }, 'GET'), other.res);
       expect(other.state.statusCode).toBe(200);
-      await activateCompany(companyId);
+      if (standing === 'deleted') await restoreCompany(companyId);
+      else await activateCompany(companyId);
       const restored = response();
       await wrapped(req(), restored.res);
       expect(restored.state.statusCode).toBe(200);
