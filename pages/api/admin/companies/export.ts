@@ -83,7 +83,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         FROM companies c
         LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
         LEFT JOIN plans p ON p.id = s.plan_id
-        WHERE c.status IS DISTINCT FROM 'deleted'
+        WHERE (c.status IS DISTINCT FROM 'deleted' OR ${statusFilter}::text = 'deleted')
           AND (${statusFilter}::text IS NULL OR COALESCE(c.status,'active') = ${statusFilter})
           AND (${fromDate}::date IS NULL OR c.created_at >= ${fromDate}::date)
           AND (${toDate}::date   IS NULL OR c.created_at <  (${toDate}::date + INTERVAL '1 day'))

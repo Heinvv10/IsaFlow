@@ -14,7 +14,7 @@ import yearEnd from '../../pages/api/accounting/year-end';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute } from './r035-approval.helpers';
 import { members, newCompany } from './entity-changes.helpers';
-import { cleanupAudit, payload, plantFiscalYear, plantJournal, plantLedger, recordSnapshot, waitForSnapshots } from './audit-snapshots.helpers';
+import { SNAPSHOT_WAIT_MS, cleanupAudit, payload, plantFiscalYear, plantJournal, plantLedger, recordSnapshot, waitForSnapshots } from './audit-snapshots.helpers';
 import { mcpRun } from './audit-snapshots-mcp.helpers';
 import { closeFiscalPeriodTool } from '../../src/lib/mcp/tools/writeFiscalPeriods';
 import { als, type RequestContext } from '../../src/lib/als';
@@ -54,7 +54,7 @@ async function company() {
 const action = (user: string, c: string, body: Record<string, unknown>) =>
   callRoute(fiscalPeriodsAction, tokens[user]!, c, 'POST', body, '/api/accounting/fiscal-periods-action');
 
-describe('automatic snapshots', { timeout: 120_000 }, () => {
+describe('automatic snapshots', { timeout: 5 * SNAPSHOT_WAIT_MS }, () => { // some tests wait for several snapshots in turn
   it('a period close takes a sealed snapshot at the period end, as the closer', async () => {
     const { c, periods } = await company();
     const res = await action(o, c, { action: 'close', id: periods[0] });

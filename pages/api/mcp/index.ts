@@ -75,8 +75,11 @@ const MAX_BATCH_SIZE = 20;
 // Accepted deliberately for the import use case. If MCP traffic grows, the
 // right fix is a size check keyed on the tool being called rather than one
 // endpoint-wide ceiling — every other tool needs only a few kb.
+// Raised to 3mb for attach_entity_document (2 MB file → ~2.7 MB base64):
+// 183 of 4,870 historical supplier-bill scans exceed 750 KB, the largest
+// 1.9 MB. Same trade-off as above; every tool still enforces its own cap.
 export const config = {
-  api: { bodyParser: { sizeLimit: '1mb' } },
+  api: { bodyParser: { sizeLimit: '3mb' } },
 };
 
 function setCors(res: NextApiResponse): void {
