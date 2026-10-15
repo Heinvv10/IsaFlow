@@ -76,7 +76,7 @@ export function SplitLineRow({
 
       <div className={`grid gap-2 ${isAccount ? 'grid-cols-2 sm:grid-cols-[1fr_100px_110px]' : 'grid-cols-[1fr_100px]'}`}>
         <div className={`relative ${isAccount ? 'col-span-2 sm:col-span-1' : ''}`}>
-          <button onClick={onTogglePicker} aria-expanded={pickerOpen} aria-haspopup="listbox"
+          <button onClick={onTogglePicker} aria-expanded={pickerOpen}
             className={`w-full text-left text-xs px-2 py-1.5 rounded border truncate ${
               line.targetId
                 ? 'bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)] text-[var(--ff-text-primary)]'
