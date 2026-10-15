@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
-import { createRule, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
+import { createRule, toggleRule, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
 import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -81,6 +81,11 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     expect(result).toMatchObject({ autoPostSkippedControlAccount: 1 });
     expect(await journalCount()).toBe(before);
     expect(await lineStatus(tx)).toBe('imported');
+    // Re-enabling that legacy rule is refused; disabling it is not.
+    const [legacy] = (await sql`SELECT id FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID AND rule_name = 'legacy AP rule'`) as Record<string, unknown>[];
+    await inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), false, fx.userId));
+    await expect(inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), true, fx.userId)))
+      .rejects.toThrow(/^Rule "legacy AP rule" posts to the accounts payable control account/);
     await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
   }, 60000);
 
