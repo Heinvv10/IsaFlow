@@ -303,10 +303,10 @@ describe('McpRegistry — fence order', () => {
     expect(errorRow!.values).not.toContain('k1');
   });
 
-  it('READ tools are NOT savepoint-wrapped (no writes to roll back)', async () => {
+  it('READ tools run inside a savepoint too: a failed statement must not leave the tx unable to audit the failure', async () => {
     registry.register(makeTool({ handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })) }));
     await registry.call('t', {}, ctxWithScopes(['read:reports']));
-    expect(savepointMock).not.toHaveBeenCalled();
+    expect(savepointMock).toHaveBeenCalledWith('mcp_t', expect.any(Function));
   });
 
   it('register throws on a duplicate tool name', () => {
