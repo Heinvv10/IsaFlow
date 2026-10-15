@@ -9,13 +9,13 @@ export const refuse = (m = MSG, status = 400) =>
   new Response(JSON.stringify({ success: false, error: { code: 'BAD_REQUEST', message: m } }), { status });
 export const empty500 = () => new Response('', { status: 500 });
 
-export type Route = (url: string, method: string) => Response | undefined;
+export type Route = (url: string, method: string) => Response | undefined | Promise<Response | undefined>;
 
 /** First route that answers wins; anything else gets a valid empty list. */
 export function serve(...routes: Route[]) {
   vi.mocked(apiFetch).mockImplementation(async (url: unknown, init?: unknown) => {
     const method = ((init as RequestInit | undefined)?.method ?? 'GET').toUpperCase();
-    for (const r of routes) { const res = r(String(url), method); if (res) return res; }
+    for (const r of routes) { const res = await r(String(url), method); if (res) return res; }
     return ok([]);
   });
 }
