@@ -19,7 +19,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     // Not caught: a 4xx would COMMIT an activation whose audit row failed;
     // a thrown error is a 500, which withPlatformAdmin rolls back.
-    if (!(await activateCompany(companyId))) return apiResponse.notFound(res, 'Company');
+    // A deleted company is not activated: Restore (POST …/restore) brings it back.
+    if (!(await activateCompany(companyId))) return apiResponse.notFound(res, 'Company (or it is deleted: use Restore)');
 
     await logAdminAction(
       req.user.id,

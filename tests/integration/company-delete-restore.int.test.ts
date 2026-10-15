@@ -132,11 +132,15 @@ describe('restoreCompany', () => {
     expect(await listed('deleted')).toEqual([]);
   });
 
-  it('brings a company that was suspended before the delete back suspended', async () => {
+  it('brings a company that was suspended before the delete back suspended, billed like any suspended company', async () => {
     await suspendCompany(companyId, 'unpaid');
     await deleteCompany(companyId);
     expect(await restoreCompany(companyId)).toBe(true);
     expect(await companyStatus()).toBe('suspended');
+
+    // Its lapsed subscription restarts from today, as for an active restore.
+    await generateDueCharges(new Date());
+    expect((await charges()).map((c) => [c.status, c.period_start])).toEqual([['queued', today]]);
   });
 
   it('refuses a company that is not deleted, and one that does not exist', async () => {

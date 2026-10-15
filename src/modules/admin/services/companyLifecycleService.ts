@@ -31,7 +31,7 @@ import { log } from '@/lib/logger';
 
 /** Returns false when the company does not exist or is already deleted. */
 export async function deleteCompany(companyId: string): Promise<boolean> {
-  const rows = await sql<{ id: string; voided: number }>`
+  const rows = await sql<{ id: string; voided: string[] }>`
     WITH co AS (
       UPDATE companies
       SET status     = 'deleted',
@@ -53,11 +53,13 @@ export async function deleteCompany(companyId: string): Promise<boolean> {
              OR c.period_start >= (s.current_period_end AT TIME ZONE 'UTC')::date)
       RETURNING c.id
     )
-    SELECT co.id, (SELECT COUNT(*) FROM voided)::int AS voided FROM co
+    SELECT co.id, ARRAY(SELECT id::text FROM voided) AS voided FROM co
   `;
   const row = rows[0];
   if (!row) return false;
-  log.info('deleteCompany (soft)', { companyId, voidedCharges: row.voided }, 'CompanyLifecycle');
+  // The voided ids are logged so a late Paystack settlement on one (refused,
+  // a refund case) can be traced back to this delete.
+  log.info('deleteCompany (soft)', { companyId, voidedChargeIds: row.voided }, 'CompanyLifecycle');
   return true;
 }
 
@@ -69,7 +71,7 @@ export async function deleteCompany(companyId: string): Promise<boolean> {
 export async function restoreCompany(companyId: string): Promise<boolean> {
   // Every CTE reads the same snapshot, so `voided` judges each charge against
   // the period end as it was BEFORE `restarted` moves it.
-  const rows = await sql<{ id: string; status: string; voided: number; restarted: number }>`
+  const rows = await sql<{ id: string; status: string; voided: string[]; restarted: number }>`
     WITH co AS (
       UPDATE companies
       SET status     = CASE WHEN suspended_at IS NOT NULL THEN 'suspended' ELSE 'active' END,
@@ -101,14 +103,14 @@ export async function restoreCompany(companyId: string): Promise<boolean> {
       RETURNING s.id
     )
     SELECT co.id, co.status,
-           (SELECT COUNT(*) FROM voided)::int AS voided,
+           ARRAY(SELECT id::text FROM voided) AS voided,
            (SELECT COUNT(*) FROM restarted)::int AS restarted
     FROM co
   `;
   const row = rows[0];
   if (!row) return false;
   log.info('restoreCompany', {
-    companyId, status: row.status, voidedCharges: row.voided, restartedSubscriptions: row.restarted,
+    companyId, status: row.status, voidedChargeIds: row.voided, restartedSubscriptions: row.restarted,
   }, 'CompanyLifecycle');
   return true;
 }
