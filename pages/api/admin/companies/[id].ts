@@ -15,10 +15,11 @@ import { log } from '@/lib/logger';
 import {
   getCompanyDetail,
   updateCompany,
-  deleteCompany,
 } from '@/modules/admin/services/adminCompanyService';
+import { deleteCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { isUuidParam } from '@/lib/validation';
 import { Email } from '@/lib/schemas/common';
 
 const PatchBody = z.object({
@@ -36,7 +37,8 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = req.query.id;
+  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'GET') {
     try {
@@ -96,23 +98,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    try {
-      await deleteCompany(companyId);
+    // Not caught: a 4xx would COMMIT a delete (and its voided charges) whose
+    // audit row failed; a thrown error is a 500, which withPlatformAdmin rolls back.
+    if (!(await deleteCompany(companyId))) return apiResponse.notFound(res, 'Company');
 
-      await logAdminAction(
-        req.user.id,
-        'company.delete',
-        'company',
-        companyId,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'company.delete',
+      'company',
+      companyId,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { deleted: true });
-    } catch (err) {
-      log.error('Failed to delete company', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to delete company');
-    }
+    return apiResponse.success(res, { deleted: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);
