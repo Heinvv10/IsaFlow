@@ -118,10 +118,16 @@ end_snapshot() {
 # snapshot), for up to 10 s, then KILL what is left, and return.
 # 10 s by the clock, not by a count of rounds: a snapshot reads every process on
 # the machine (ps), which took ~0.6 s a round at 24k processes, and remove_run
-# gives a leader 30 s for all of this.
+# gives a leader 30 s for all of this. The clock is the monotonic uptime, in
+# hundredths of a second (a wall-clock step cannot stretch or cut the phase).
+uptime_cs() {
+  local up rest
+  read -r up rest < /proc/uptime
+  echo $(( ${up%.*} * 100 + 10#${up#*.} ))
+}
 end_own_session() {
-  local n list pid start until=$(( SECONDS + 10 ))
-  while [ "$SECONDS" -lt "$until" ]; do
+  local n list pid start until=$(( $(uptime_cs) + 1000 ))
+  while [ "$(uptime_cs)" -lt "$until" ]; do
     list=$(snapshot $$ $$)
     [ -n "$list" ] || return 0
     while read -r pid start; do same_proc "$pid" "$start" && kill -TERM "$pid" 2> /dev/null; done <<< "$list"
