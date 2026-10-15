@@ -25,7 +25,7 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 const { generateDueCharges, runQueuedCharges } = await import(
   '@/modules/billing/services/subscriptionBillingService'
 );
-const { listCompanies, suspendCompany } = await import('@/modules/admin/services/adminCompanyService');
+const { listCompanies, suspendCompany, activateCompany } = await import('@/modules/admin/services/adminCompanyService');
 const { deleteCompany, restoreCompany } = await import('@/modules/admin/services/companyLifecycleService');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -144,6 +144,20 @@ describe('restoreCompany', () => {
     expect(await restoreCompany(crypto.randomUUID())).toBe(false);
     expect(await companyStatus()).toBe('active');
   });
+
+  it('activate cannot undelete a company (that is restore, which restarts billing)', async () => {
+    await deleteCompany(companyId);
+    expect(await activateCompany(companyId)).toBe(false);
+    expect(await companyStatus()).toBe('deleted');
+  });
+});
+
+describe('deleteCompany', () => {
+  it('refuses a company that is already deleted, and one that does not exist', async () => {
+    expect(await deleteCompany(companyId)).toBe(true);
+    expect(await deleteCompany(companyId)).toBe(false);
+    expect(await deleteCompany(crypto.randomUUID())).toBe(false);
+  });
 });
 
 describe('billing across delete and restore', () => {
@@ -183,6 +197,24 @@ describe('billing across delete and restore', () => {
     expect(ran.submitted).toBe(0);
     expect(chargeAuthorization).not.toHaveBeenCalled();
     expect((await charges()).map((c) => c.status)).toEqual(['queued']);
+  });
+
+  it('restore voids a charge that was in flight during the delete and failed afterwards', async () => {
+    await generateDueCharges(cronNow);
+    await pool.query("UPDATE subscription_charges SET status='submitted' WHERE company_id=$1", [companyId]);
+    await deleteCompany(companyId);
+    expect((await charges()).map((c) => c.status)).toEqual(['submitted']);
+    // The stale-charge resolver hears back from Paystack: the attempt failed.
+    await pool.query("UPDATE subscription_charges SET status='failed' WHERE company_id=$1", [companyId]);
+
+    await restoreCompany(companyId);
+    expect(await charges()).toEqual([
+      expect.objectContaining({ status: 'cancelled', failure_reason: 'company_deleted' }),
+    ]);
+    await pool.query("UPDATE subscription_charges SET last_attempt_at = now() - interval '2 days' WHERE company_id=$1", [companyId]);
+    const ran = await runQueuedCharges(new Date());
+    expect(ran.submitted).toBe(0);
+    expect(chargeAuthorization).not.toHaveBeenCalled();
   });
 
   it('restore after a long delete bills one period from today, not every missed cycle', async () => {
