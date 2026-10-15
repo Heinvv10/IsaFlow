@@ -9,17 +9,18 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
 import { suspendCompany } from '@/modules/admin/services/adminCompanyService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { isUuidParam } from '@/lib/validation';
 
 const PostBody = z.object({
   reason: z.string().min(1).max(500),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = req.query.id;
+  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'POST') {
     const parsed = PostBody.safeParse(req.body);
@@ -27,25 +28,25 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'A suspension reason is required');
     }
 
-    try {
-      const { reason } = parsed.data;
+    const { reason } = parsed.data;
 
-      await suspendCompany(companyId, reason.trim());
-
-      await logAdminAction(
-        req.user.id,
-        'company.suspend',
-        'company',
-        companyId,
-        { reason: reason.trim() },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, { suspended: true });
-    } catch (err) {
-      log.error('Failed to suspend company', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to suspend company');
+    // Not caught: a 4xx would COMMIT a suspension whose audit row failed; a
+    // thrown error is a 500, which withPlatformAdmin rolls back. A deleted
+    // company is refused: suspending it would undelete it.
+    if (!(await suspendCompany(companyId, reason.trim()))) {
+      return apiResponse.notFound(res, 'Company (or it is deleted: use Restore)');
     }
+
+    await logAdminAction(
+      req.user.id,
+      'company.suspend',
+      'company',
+      companyId,
+      { reason: reason.trim() },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, { suspended: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);

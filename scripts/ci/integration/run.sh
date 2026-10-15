@@ -38,9 +38,9 @@
 #      port and runs its share of each database's suites, one file at a time
 #      (--no-file-parallelism: parallel files on one database deadlock), in
 #      its own session (shard.sh, under a time limit).
-#   3. Compact summaries are printed for every shard. If one fails, its log's
-#      bounded tail is printed too; successful logs stay on disk until cleanup
-#      instead of flooding the GitHub runner's output pipe.
+#   3. Compact results are printed for every shard (report.sh); a failed
+#      shard's bounded log tail too. The step fails if any shard fails, ran a
+#      different number of files than it was given, or timed out.
 #   4. On exit (also on INT/TERM) every shard session is ended (TERM, then KILL
 #      after a grace), every cluster is stopped (pg_ctl -m immediate) and the
 #      mktemp dir is deleted, and nothing else.
@@ -134,6 +134,7 @@ bounded "the migrations" env "${SUITE_ENV[@]}" \
 "${PSQL[@]}" -d postgres -c "ALTER ROLE postgres SUPERUSER" \
   -c "CREATE DATABASE isaflow_test TEMPLATE isaflow_schema_fixture OWNER postgres"
 pg_cluster_stop "$WORK/c1"
+unblock_stdio
 echo "[integration] schema built in $(( $(date +%s) - START ))s"
 
 # 2. Shards: SHARDS copies of the stopped template, each on its own port.
@@ -162,20 +163,10 @@ for i in $(seq 1 "$SHARDS"); do
 done
 
 FAILED=0
-FAILED_SHARDS=""
-for i in $(seq 1 "$SHARDS"); do
-  pid=${PIDS[$((i - 1))]}
-  if ! wait "$pid"; then
-    FAILED=1
-    FAILED_SHARDS+=" $i"
-  fi
-done
+# Sets FAILED and FAILED_SHARDS from the shards' exit statuses (report.sh).
+wait_shards "${PIDS[@]}"
 
-# 3. Report: bounded tails for failed shards, then skips and every summary.
-report_integration_failure_logs "$WORK" "$SHARDS" "$FAILED_SHARDS"
-echo ""
-bun scripts/ci/report-skipped-integration.ts "$WORK"/c*/*.log || FAILED=1
-echo ""
-cat "$WORK"/c*/summary
-echo "[integration] $(wc -l < "$WORK/plan.tsv") suites on $SHARDS shards in $(( $(date +%s) - START ))s"
+# 3. Report (report.sh finish_run): the local log copy, the skip report and the
+# printed report; it sets FAILED=1 when the skip report fails.
+finish_run "$WORK" "$SHARDS" "$FAILED_SHARDS" "$START" "$PWD/.ci-integration-logs"
 exit "$FAILED"
