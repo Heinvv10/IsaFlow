@@ -51,7 +51,7 @@ export async function planSplitDimensions(
   // A GL line straight onto AP/AR control moves the control with no document, so the subledger drifts from it by
   // that amount — and beside a contact line's document it hides behind that document's gate. Name the contact.
   for (const line of lines) {
-    const refusal = contactControlRefusal(byId.get(line.contraAccountId.toLowerCase())?.account_subtype, 'A split line');
+    const refusal = contactControlRefusal(byId.get(line.contraAccountId.toLowerCase())?.account_subtype, 'A split line', 'split line');
     if (refusal) throw refusal;
   }
   const dims = lines.map((line) => {

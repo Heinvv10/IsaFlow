@@ -13,6 +13,7 @@ import type {
   BankCategorisationRule, RuleCreateInput, RuleApplyResult,
 } from '../../types/bank.types';
 import { removeRules, writeNewRule, writeRuleChange, type HeldRuleChange, type RuleWrite } from './bankRuleChangeControl';
+import { assertNotContactControl } from './contactControlGuard';
 
 // Re-export matching function for backward compatibility
 export type { RuleApplyResult, HeldRuleChange };
@@ -53,6 +54,11 @@ export async function createRule(
   // R-068: the (supplier_id, company_id) FK already refuses a foreign supplier,
   // but as a 23503 mid-statement; this refuses it typed, before the INSERT.
   await assertSupplierInCompany(companyId, input.supplierId);
+  // An account rule may not target AP/AR control: its auto-post would move the control with no document
+  // (contactControlGuard). A rule that names a supplier or customer posts there properly, with the document.
+  if (!input.supplierId && !input.clientId) {
+    await assertNotContactControl(companyId, input.glAccountId, `Rule "${input.ruleName}"`, 'rule');
+  }
   const vatCode = input.vatCode || 'none';
   // Refused, never coerced: a typo'd mode silently becoming 'fifo' would have
   // an unattended sweep apply cash the rule's author asked to leave on account.
@@ -87,6 +93,7 @@ export async function updateRule(
   // (not null/undefined) move — the COALESCE semantics this always had.
   await assertCustomerInCompany(companyId, input.clientId);
   await assertSupplierInCompany(companyId, input.supplierId);
+  if (input.glAccountId) await assertRuleAccountNotContactControl(companyId, id, input);
   return outcome(await writeRuleChange(companyId, id, {
     rule_name: input.ruleName ?? undefined, match_field: input.matchField ?? undefined,
     match_type: input.matchType ?? undefined, match_pattern: input.matchPattern ?? undefined,
@@ -96,6 +103,20 @@ export async function updateRule(
     vat_code: input.vatCode ?? undefined, auto_apply: assertAutoApply(input.autoApply) ?? undefined,
     is_active: input.isActive ?? undefined,
   }, userId));
+}
+
+/** updateRule's twin of createRule's check: the rule's own supplier/customer counts when this change names none. */
+async function assertRuleAccountNotContactControl(
+  companyId: string, id: string, input: Partial<RuleCreateInput>,
+): Promise<void> {
+  const [cur] = (await sql`
+    SELECT rule_name, supplier_id, client_id FROM bank_categorisation_rules
+    WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
+  `) as Record<string, unknown>[];
+  const supplierId = input.supplierId ?? cur?.supplier_id;
+  const clientId = input.clientId ?? cur?.client_id;
+  if (supplierId || clientId) return;
+  await assertNotContactControl(companyId, input.glAccountId, `Rule "${String(input.ruleName ?? cur?.rule_name ?? id)}"`, 'rule');
 }
 
 /**

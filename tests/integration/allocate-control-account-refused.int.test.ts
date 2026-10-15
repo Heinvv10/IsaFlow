@@ -12,6 +12,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
+import { createRule, updateRule } from '@/modules/accounting/services/bank/bankRulesService';
 import { dropFixture, inTx, seedBankTx, seedFixture, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -55,6 +57,43 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     await expect(inTx(fx, async () => allocateTransaction(fx.companyId, tx, await accountByCode('2100'), fx.userId, undefined, 'supplier', undefined)))
       .rejects.toThrow(/accounts payable control account: name the supplier/);
     expect(await journalCount()).toBe(before);
+  }, 60000);
+
+  it('refuses a customer allocation that names no customer and falls through to AR control', async () => {
+    const tx = await seedBankTx(fx, { date: '2026-10-03', amount: 400, description: 'no customer' });
+    await expect(inTx(fx, async () => allocateTransaction(fx.companyId, tx, await accountByCode('1100'), fx.userId, undefined, 'customer', undefined)))
+      .rejects.toThrow(/accounts receivable control account: name the customer/);
+    expect(await lineStatus(tx)).toBe('imported');
+  }, 60000);
+
+  it('refuses a bank rule that posts to AP control, and the sweep skips (counts) one that already does', async () => {
+    const ap = await accountByCode('2100');
+    await expect(inTx(fx, () => createRule(fx.companyId, {
+      ruleName: 'AP rule', matchField: 'description', matchType: 'contains', matchPattern: 'CTRLRULE', glAccountId: ap, autoCreateEntry: true,
+    } as never, fx.userId))).rejects.toThrow(/^Rule "AP rule" posts to the accounts payable control account: .*set the rule's supplier/);
+
+    // A rule written before the guard existed (straight INSERT): the sweep must not post through it.
+    await sql`INSERT INTO bank_categorisation_rules (company_id, rule_name, match_field, match_type, match_pattern, gl_account_id, auto_create_entry, created_by)
+              VALUES (${fx.companyId}::UUID, 'legacy AP rule', 'description', 'contains', 'CTRLRULE', ${ap}::UUID, true, ${fx.userId}::UUID)`;
+    const tx = await seedBankTx(fx, { date: '2026-10-04', amount: -250, description: 'CTRLRULE debit' });
+    const before = await journalCount();
+    const result = await inTx(fx, () => applyRules(fx.companyId, fx.bankAccountId, fx.userId));
+    expect(result).toMatchObject({ autoPostSkippedControlAccount: 1 });
+    expect(await journalCount()).toBe(before);
+    expect(await lineStatus(tx)).toBe('imported');
+    await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
+  }, 60000);
+
+  it('refuses repointing an account rule at AP control; a supplier rule may carry that account', async () => {
+    const ap = await accountByCode('2100');
+    const base = { matchField: 'description', matchType: 'contains', autoCreateEntry: false };
+    const expense = await accountByCode('6000');
+    const rule = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'expense rule', matchPattern: 'UPD1', glAccountId: expense } as never, fx.userId));
+    await expect(inTx(fx, () => updateRule(fx.companyId, String((rule as { id: string }).id), { glAccountId: ap }, fx.userId)))
+      .rejects.toThrow(/^Rule "expense rule" posts to the accounts payable control account/);
+    const sup = await inTx(fx, () => createRule(fx.companyId, { ...base, ruleName: 'supplier rule', matchPattern: 'UPD2', supplierId: fx.supplierId } as never, fx.userId));
+    await inTx(fx, () => updateRule(fx.companyId, String((sup as { id: string }).id), { glAccountId: ap }, fx.userId));
+    await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
   }, 60000);
 
   it('still allocates to an ordinary account, and to the supplier (the remedy)', async () => {
