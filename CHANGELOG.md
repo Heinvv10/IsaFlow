@@ -45,6 +45,17 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-14 — CI Integration Suite Hardening
+
+**CI / Test Infrastructure**
+
+- Cancelled-path LOW scenarios covered: tests for short leader-budget timeouts and missing `setsid` wait (#710)
+- Integration failure logs bounded — log output no longer unbounded on suite failure (#710)
+- Baseline snapshot refreshed after TERM signal handling fix (#710)
+- Integration lifecycle scripts (`lifecycle.sh`, `pg-cluster.sh`, `shard.sh`, `run.sh`) updated; `integrationGate.ts` and `suiteRoute.ts` revised to match (#710)
+
+---
+
 ## 2026-10-09 — Invoice Line Dimensions, Deploy Parity Gate, FX Guard, Bank Fixes
 
 **AR — Invoice Lines**
