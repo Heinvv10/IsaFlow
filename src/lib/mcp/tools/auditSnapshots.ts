@@ -122,8 +122,9 @@ export const takeAuditSnapshotTool: McpTool = {
     'TAKE A SEALED AUDIT SNAPSHOT NOW at an accounting-date cutoff: the trial balance, every posted journal and line dated '
     + 'on or before it (each hashed), AR / AP ageing and control totals, and a check run, sealed with an HMAC. Append-only: '
     + 'it cannot be changed or deleted afterwards. Refused over the size cap (choose an earlier cutoff). dry_run: true '
-    + 'runs every refusal the take would make and returns how many posted lines it would freeze (snapshot.lines, against '
-    + 'snapshot.maxLines), writing nothing. Owner or admin '
+    + 'runs the take\'s refusals (role, rate limit, signing key, busy, size cap) and returns how many posted lines it would '
+    + 'freeze (snapshot.lines, against snapshot.maxLines), writing nothing; it cannot foresee the take running past its '
+    + 'time budget (SNAPSHOT_TOO_SLOW). Owner or admin '
     + `only; needs write:journals. Closing a period, locking a VAT period or closing a year takes one automatically. ${CAVEAT}`,
   scope: 'read:reports',
   requiresScope: 'write:journals',
@@ -146,10 +147,10 @@ export const takeAuditSnapshotTool: McpTool = {
     try {
       if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
       if (args.dry_run === true) {
-        // Every refusal the take makes before it writes, and the size; no journal posts, so the preview's lists are empty.
+        // The take's refusals and the size (snapshotPreview); no journal posts, so the preview's lists are empty.
         const preview: DryRunResult & { snapshot: Awaited<ReturnType<typeof previewSnapshot>> } = {
           dryRun: true, journals: [], skipped: [], effects: [], journalsTotal: 0, truncated: false,
-          snapshot: await previewSnapshot(ctx.companyId, cutoff),
+          snapshot: await previewSnapshot(principalFromRequest(), cutoff),
         };
         return { ...ok(preview), wroteNothing: DRY_RUN_WROTE_NOTHING };
       }
