@@ -54,7 +54,7 @@ async function company() {
 const action = (user: string, c: string, body: Record<string, unknown>) =>
   callRoute(fiscalPeriodsAction, tokens[user]!, c, 'POST', body, '/api/accounting/fiscal-periods-action');
 
-describe('automatic snapshots', { timeout: 2 * SNAPSHOT_WAIT_MS }, () => {
+describe('automatic snapshots', { timeout: 5 * SNAPSHOT_WAIT_MS }, () => { // some tests wait for several snapshots in turn
   it('a period close takes a sealed snapshot at the period end, as the closer', async () => {
     const { c, periods } = await company();
     const res = await action(o, c, { action: 'close', id: periods[0] });
