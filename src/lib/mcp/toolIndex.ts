@@ -18,6 +18,7 @@ import { agedCreditorsTool, agedDebtorsTool } from './tools/reportsAging';
 import { profitAndLossTool } from './tools/reportsProfitAndLoss';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
+import { attachEntityDocumentTool } from './tools/writeAttachEntityDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
 import { listUnappliedPaymentsTool } from './tools/supplierPayments';
@@ -282,6 +283,7 @@ export const MCP_TOOLS = [
   reverseAllocationsTool,
   setOpeningBalanceTool,
   attachDocumentTool,
+  attachEntityDocumentTool,
   cancelBankReconciliationTool,
   // Reopening posts nothing but undoes a sign-off, so requiresPost (as reopen_fiscal_period).
   reopenBankReconciliationTool,
