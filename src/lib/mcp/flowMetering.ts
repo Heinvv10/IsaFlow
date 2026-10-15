@@ -283,6 +283,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Attachments: free ────────────────────────────────────────────────────
   // bank-tx-attachments is not metered in the app, and the file posts nothing.
   attach_document: null,
+  // Same for the entity store: the app's document upload is unmetered.
+  attach_entity_document: null,
 
   // ── Bank rules: free ─────────────────────────────────────────────────────
   // The app does not meter rule edits, and a rule posts nothing when it is
