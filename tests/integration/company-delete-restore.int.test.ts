@@ -1,9 +1,11 @@
 /**
- * Deleting a company is a soft delete (companies.status='deleted') that the
- * admin platform can undo. Pins the three things that make it undoable and
- * safe: the admin list can still find a deleted company, activateCompany
- * restores it, and the billing run neither raises nor debits a charge for a
- * company while it is deleted. Paystack is mocked.
+ * Deleting a company is a soft delete the admin platform can undo
+ * (companyLifecycleService). Pins: the admin list finds deleted companies
+ * only under the Deleted filter; restore brings a company back (suspended if
+ * it was suspended); and billing follows the "fresh start" rule — delete voids
+ * unsent charges for periods not yet granted, keeps a debt for a granted
+ * period without debiting it while deleted, and restore bills one new period
+ * from today instead of every cycle missed. Paystack is mocked.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -23,40 +25,44 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 const { generateDueCharges, runQueuedCharges } = await import(
   '@/modules/billing/services/subscriptionBillingService'
 );
-const { listCompanies, deleteCompany, activateCompany } = await import(
-  '@/modules/admin/services/adminCompanyService'
-);
+const { listCompanies, suspendCompany } = await import('@/modules/admin/services/adminCompanyService');
+const { deleteCompany, restoreCompany } = await import('@/modules/admin/services/companyLifecycleService');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companyId = crypto.randomUUID();
-const companyName = `Restore fixture ${companyId}`;
+const nullStatusId = crypto.randomUUID();
+const tag = `Restore fixture ${companyId}`;
 const planId = crypto.randomUUID();
 const subscriptionId = crypto.randomUUID();
 const mandateId = crypto.randomUUID();
 const userId = crypto.randomUUID();
 
+const DAY = 24 * 3600_000;
 const cronNow = new Date();
-const periodEnd = new Date(cronNow.getTime() - 24 * 3600_000);
-const periodStart = new Date(periodEnd.getTime() - 30 * 24 * 3600_000);
+const today = cronNow.toISOString().slice(0, 10);
+const periodEnd = new Date(cronNow.getTime() - DAY);
+const periodStart = new Date(periodEnd.getTime() - 30 * DAY);
 
 let cronLock: PoolClient;
 
-async function listed(status?: string): Promise<string[]> {
-  const result = await listCompanies({ search: companyName, status, limit: 100 });
-  return result.items.map((c) => c.id);
-}
+const listed = async (status?: string): Promise<string[]> =>
+  (await listCompanies({ search: tag, status, limit: 100 })).items.map((c) => c.id).sort();
 
-async function charges(): Promise<Array<{ status: string; attempt_count: number }>> {
+async function charges(): Promise<Array<{ status: string; failure_reason: string | null; period_start: string }>> {
   const { rows } = await pool.query(
-    'SELECT status, attempt_count FROM subscription_charges WHERE company_id=$1',
+    `SELECT status, failure_reason, period_start::text AS period_start
+     FROM subscription_charges WHERE company_id=$1 ORDER BY period_start`,
     [companyId],
   );
   return rows;
 }
+const companyStatus = async (): Promise<string> =>
+  (await pool.query('SELECT status FROM companies WHERE id=$1', [companyId])).rows[0].status;
 
 beforeAll(async () => {
   cronLock = await acquireCronLock(pool);
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [companyId, companyName]);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [companyId, tag, nullStatusId, `${tag} null`]);
+  await pool.query('UPDATE companies SET status=NULL WHERE id=$1', [nullStatusId]);
   await pool.query(
     "INSERT INTO users(id,email,role,is_active,account_type) VALUES($1,$2,'admin',true,'direct')",
     [userId, `${userId}@restore.test.local`],
@@ -74,7 +80,10 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await activateCompany(companyId);
+  await pool.query(
+    "UPDATE companies SET status='active', suspended_at=NULL, suspended_reason=NULL WHERE id=$1",
+    [companyId],
+  );
   await pool.query('DELETE FROM subscription_charges WHERE company_id=$1', [companyId]);
   await pool.query('DELETE FROM subscriptions WHERE company_id=$1', [companyId]);
   await pool.query(
@@ -91,7 +100,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM subscription_charges WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM subscriptions WHERE company_id=$1', [companyId]);
     await pool.query('DELETE FROM subscription_mandates WHERE company_id=$1', [companyId]);
-    await pool.query('DELETE FROM companies WHERE id=$1', [companyId]);
+    await pool.query('DELETE FROM companies WHERE id IN ($1,$2)', [companyId, nullStatusId]);
     await pool.query('DELETE FROM plans WHERE id=$1', [planId]);
     await pool.query('DELETE FROM users WHERE id=$1', [userId]);
   } finally {
@@ -101,48 +110,102 @@ afterAll(async () => {
 });
 
 describe('admin company list', () => {
-  it('hides a deleted company by default and shows it under the Deleted filter', async () => {
-    expect(await listed()).toEqual([companyId]);
+  it('shows a deleted company only under the Deleted filter; a NULL-status company counts as active', async () => {
+    const both = [companyId, nullStatusId].sort();
+    expect(await listed()).toEqual(both);
+    expect(await listed('active')).toEqual(both);
     expect(await listed('deleted')).toEqual([]);
 
     await deleteCompany(companyId);
 
-    expect(await listed()).toEqual([]);
-    expect(await listed('active')).toEqual([]);
+    expect(await listed()).toEqual([nullStatusId]);
+    expect(await listed('active')).toEqual([nullStatusId]);
     expect(await listed('deleted')).toEqual([companyId]);
-  });
-
-  it('restores a deleted company to active', async () => {
-    await deleteCompany(companyId);
-    await activateCompany(companyId);
-
-    expect(await listed()).toEqual([companyId]);
-    expect(await listed('deleted')).toEqual([]);
-    const { rows } = await pool.query('SELECT status FROM companies WHERE id=$1', [companyId]);
-    expect(rows[0].status).toBe('active');
   });
 });
 
-describe('billing a deleted company', () => {
-  it('raises no charge for a deleted company, and bills it again once restored', async () => {
+describe('restoreCompany', () => {
+  it('brings a deleted company back to active', async () => {
+    await deleteCompany(companyId);
+    expect(await restoreCompany(companyId)).toBe(true);
+    expect(await companyStatus()).toBe('active');
+    expect(await listed('deleted')).toEqual([]);
+  });
+
+  it('brings a company that was suspended before the delete back suspended', async () => {
+    await suspendCompany(companyId, 'unpaid');
+    await deleteCompany(companyId);
+    expect(await restoreCompany(companyId)).toBe(true);
+    expect(await companyStatus()).toBe('suspended');
+  });
+
+  it('refuses a company that is not deleted, and one that does not exist', async () => {
+    expect(await restoreCompany(companyId)).toBe(false);
+    expect(await restoreCompany(crypto.randomUUID())).toBe(false);
+    expect(await companyStatus()).toBe('active');
+  });
+});
+
+describe('billing across delete and restore', () => {
+  it('raises no charge for a deleted company', async () => {
     await deleteCompany(companyId);
     await generateDueCharges(cronNow);
     expect(await charges()).toEqual([]);
-
-    await activateCompany(companyId);
-    await generateDueCharges(cronNow);
-    expect(await charges()).toEqual([{ status: 'queued', attempt_count: 0 }]);
   });
 
-  it('does not debit a charge queued before the company was deleted', async () => {
+  it('voids an unsent charge for a period not yet granted, so restore never debits it', async () => {
     await generateDueCharges(cronNow);
-    expect(await charges()).toEqual([{ status: 'queued', attempt_count: 0 }]);
+    expect((await charges()).map((c) => c.status)).toEqual(['queued']);
 
     await deleteCompany(companyId);
-    const ran = await runQueuedCharges(new Date());
+    expect(await charges()).toEqual([
+      expect.objectContaining({ status: 'cancelled', failure_reason: 'company_deleted' }),
+    ]);
 
+    await restoreCompany(companyId);
+    const ran = await runQueuedCharges(new Date());
     expect(ran.submitted).toBe(0);
     expect(chargeAuthorization).not.toHaveBeenCalled();
-    expect(await charges()).toEqual([{ status: 'queued', attempt_count: 0 }]);
+  });
+
+  it('keeps a debt for a granted period, and does not debit it while deleted', async () => {
+    await generateDueCharges(cronNow);
+    // The period was granted (past_due) before payment: the charge is a debt.
+    await pool.query(
+      "UPDATE subscriptions SET status='past_due', current_period_end=$2 WHERE id=$1",
+      [subscriptionId, new Date(cronNow.getTime() + 20 * DAY)],
+    );
+
+    await deleteCompany(companyId);
+    expect((await charges()).map((c) => c.status)).toEqual(['queued']);
+
+    const ran = await runQueuedCharges(new Date());
+    expect(ran.submitted).toBe(0);
+    expect(chargeAuthorization).not.toHaveBeenCalled();
+    expect((await charges()).map((c) => c.status)).toEqual(['queued']);
+  });
+
+  it('restore after a long delete bills one period from today, not every missed cycle', async () => {
+    await pool.query(
+      'UPDATE subscriptions SET current_period_start=$2, current_period_end=$3 WHERE id=$1',
+      [subscriptionId, new Date(cronNow.getTime() - 120 * DAY), new Date(cronNow.getTime() - 90 * DAY)],
+    );
+    await deleteCompany(companyId);
+    await restoreCompany(companyId);
+
+    await generateDueCharges(new Date());
+    const raised = await charges();
+    expect(raised).toHaveLength(1);
+    expect(raised[0]).toMatchObject({ status: 'queued', period_start: today });
+  });
+
+  it('restore leaves a subscription whose period is still running alone', async () => {
+    const running = new Date(cronNow.getTime() + 10 * DAY);
+    await pool.query('UPDATE subscriptions SET current_period_end=$2 WHERE id=$1', [subscriptionId, running]);
+    await deleteCompany(companyId);
+    await restoreCompany(companyId);
+
+    const { rows } = await pool.query('SELECT current_period_end FROM subscriptions WHERE id=$1', [subscriptionId]);
+    expect(new Date(rows[0].current_period_end).toISOString()).toBe(running.toISOString());
   });
 });

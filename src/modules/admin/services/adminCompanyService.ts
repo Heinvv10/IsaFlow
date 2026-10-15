@@ -297,17 +297,6 @@ export async function createCompany(input: {
   return created;
 }
 
-/** Soft delete — sets status='deleted', preserves data; activateCompany restores it. */
-export async function deleteCompany(companyId: string): Promise<void> {
-  await sql`
-    UPDATE companies
-    SET status     = 'deleted',
-        updated_at = NOW()
-    WHERE id = ${companyId}
-  `;
-  log.info('deleteCompany (soft)', { companyId }, 'AdminCompanyService');
-}
-
 export async function getCompanyUsers(
   companyId: string
 ): Promise<{ id: string; name: string; email: string; role: string; last_login: string | null }[]> {

@@ -40,7 +40,7 @@ const STATUS_BADGE: Record<string, string> = {
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
   cancelled: 'bg-gray-500/10 text-gray-500',
-  deleted:   'bg-gray-500/10 text-gray-500',
+  deleted:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 };
 
 type SortField = 'name' | 'plan_name' | 'status' | 'user_count' | 'mrr_cents' | 'created_at' | 'last_active';
@@ -190,14 +190,14 @@ export default function AdminCompaniesPage() {
     finally { setActionLoading(null); }
   }
 
-  async function handleActivate(e: React.MouseEvent, companyId: string) {
+  async function handleActivate(e: React.MouseEvent, companyId: string, action: 'activate' | 'restore') {
     e.stopPropagation();
     setActionLoading(companyId + ':activate'); setError('');
     try {
-      const res = await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Could not activate the company - try again');
+      const res = await apiFetch(`/api/admin/companies/${companyId}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, `Could not ${action} the company - try again`);
       void load(search, status, page, sortBy, sortDir);
-    } catch (err) { setError(apiErrorMessage(err, 'Could not activate the company - try again')); }
+    } catch (err) { setError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
     finally { setActionLoading(null); }
   }
 
@@ -425,7 +425,7 @@ export default function AdminCompaniesPage() {
                           </button>
                         : <button
                             title={c.status === 'deleted' ? 'Restore' : 'Activate'}
-                            onClick={e => void handleActivate(e, c.id)}
+                            onClick={e => void handleActivate(e, c.id, c.status === 'deleted' ? 'restore' : 'activate')}
                             disabled={actionLoading !== null}
                             className="p-1.5 rounded text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50"
                           >
