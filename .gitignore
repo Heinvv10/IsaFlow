@@ -93,3 +93,6 @@ scripts/**/*[a-z]State.json
 scripts/**/*[Ss]ession*.json
 scripts/**/[Aa]uth.json
 **/.auth/
+
+# scripts/ci/integration/run.sh keeps the last run's full shard logs here
+.ci-integration-logs/

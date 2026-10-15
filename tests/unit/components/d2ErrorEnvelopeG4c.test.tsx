@@ -128,7 +128,7 @@ describe('admin company detail', () => {
     script(companyRoute('active', '/api/admin/companies/x-1', 'DELETE', msg));
     render(<CompanyDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^delete company$/i }));
     expect(await screen.findByText(msg)).toBeTruthy();
   });
 });

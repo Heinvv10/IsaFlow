@@ -60,6 +60,7 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
            p.monthly_price_cents, p.annual_price_cents
     FROM subscriptions s
     JOIN plans p ON p.id = s.plan_id
+    JOIN companies co ON co.id = s.company_id AND co.status IS DISTINCT FROM 'deleted'
     WHERE s.status IN ('active','past_due')
       AND COALESCE(s.cancel_at_period_end, false) = false
       AND s.current_period_end IS NOT NULL
@@ -184,6 +185,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
            u.email AS user_email
     FROM subscription_charges c
     JOIN subscription_mandates m ON m.id = c.mandate_id
+    JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
     LEFT JOIN users u ON u.id = m.authorised_by
     WHERE c.gateway = 'paystack'
       -- Unattributed charges cannot be settled (624's CHECK) and the rejection
