@@ -89,6 +89,7 @@ const STATUS_BADGE: Record<string, string> = {
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
   cancelled: 'bg-gray-500/10 text-gray-500',
+  deleted:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 };
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -181,12 +182,13 @@ export default function AdminCompanyDetailPage() {
 
   async function handleActivate() {
     if (!id || typeof id !== 'string') return;
+    const action = company?.status === 'deleted' ? 'restore' : 'activate';
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Could not activate the company - try again');
+      const res  = await apiFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, `Could not ${action} the company - try again`);
       void load();
-    } catch (err) { setActionError(apiErrorMessage(err, 'Could not activate the company - try again')); }
+    } catch (err) { setActionError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
     finally { setActionLoading(false); }
   }
 
@@ -348,20 +350,22 @@ export default function AdminCompanyDetailPage() {
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
                 <UserCog className="w-4 h-4" /> Impersonate
               </button>
-              {company.status !== 'suspended'
+              {company.status !== 'suspended' && company.status !== 'deleted'
                 ? <button onClick={() => setSuspendOpen(true)} disabled={actionLoading}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50">
                     <ShieldOff className="w-4 h-4" /> Suspend
                   </button>
                 : <button onClick={() => void handleActivate()} disabled={actionLoading}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50">
-                    <ShieldCheck className="w-4 h-4" /> Activate
+                    <ShieldCheck className="w-4 h-4" /> {company.status === 'deleted' ? 'Restore' : 'Activate'}
                   </button>
               }
-              <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
-                <Trash2 className="w-4 h-4" /> Delete
-              </button>
+              {company.status !== 'deleted' && (
+                <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50">
+                  <Trash2 className="w-4 h-4" /> Delete
+                </button>
+              )}
             </div>
           </div>
 
@@ -588,8 +592,8 @@ export default function AdminCompanyDetailPage() {
       <ConfirmModal
         open={deleteOpen}
         title="Delete Company"
-        message={<>This action is <strong>permanent</strong>. All data for <strong>{company?.name}</strong> will be deleted and cannot be recovered.</>}
-        confirmLabel="Delete Permanently"
+        message={<>Users lose access to <strong>{company?.name}</strong> and its subscription is no longer charged. Its data is kept: filter the Companies list by Deleted, open it and click Restore.</>}
+        confirmLabel="Delete Company"
         loading={actionLoading}
         onConfirm={() => void handleDelete()}
         onCancel={() => setDeleteOpen(false)}
