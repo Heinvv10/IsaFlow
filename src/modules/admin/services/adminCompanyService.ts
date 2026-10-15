@@ -245,16 +245,23 @@ export async function suspendCompany(
   log.info('suspendCompany', { companyId, reason }, 'AdminCompanyService');
 }
 
-export async function activateCompany(companyId: string): Promise<void> {
-  await sql`
+/**
+ * Lift a suspension. A deleted company is refused (false): it comes back only
+ * through companyLifecycleService.restoreCompany, which also restarts billing.
+ */
+export async function activateCompany(companyId: string): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
     UPDATE companies
     SET status           = 'active',
         suspended_reason = NULL,
         suspended_at     = NULL,
         updated_at       = NOW()
     WHERE id = ${companyId}
+      AND status IS DISTINCT FROM 'deleted'
+    RETURNING id
   `;
-  log.info('activateCompany', { companyId }, 'AdminCompanyService');
+  log.info('activateCompany', { companyId, activated: rows.length > 0 }, 'AdminCompanyService');
+  return rows.length > 0;
 }
 
 export async function createCompany(input: {

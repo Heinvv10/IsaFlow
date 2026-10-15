@@ -96,23 +96,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    try {
-      await deleteCompany(companyId);
+    // Not caught: a 4xx would COMMIT a delete (and its voided charges) whose
+    // audit row failed; a thrown error is a 500, which withPlatformAdmin rolls back.
+    if (!(await deleteCompany(companyId))) return apiResponse.notFound(res, 'Company');
 
-      await logAdminAction(
-        req.user.id,
-        'company.delete',
-        'company',
-        companyId,
-        null,
-        getIp(req)
-      );
+    await logAdminAction(
+      req.user.id,
+      'company.delete',
+      'company',
+      companyId,
+      null,
+      getIp(req)
+    );
 
-      return apiResponse.success(res, { deleted: true });
-    } catch (err) {
-      log.error('Failed to delete company', { companyId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to delete company');
-    }
+    return apiResponse.success(res, { deleted: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'PATCH', 'DELETE']);
