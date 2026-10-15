@@ -40,6 +40,12 @@ export interface RuleApplyResult {
    */
   autoPostSkippedHeaderAccount?: number;
   /**
+   * Auto-post attempts skipped because the rule's account is AP or AR control
+   * (bank/contactControlGuard): posted there, the control moves with no payment
+   * or receipt document. Remedy: set the rule's supplier or customer instead.
+   */
+  autoPostSkippedControlAccount?: number;
+  /**
    * R-035 PR5 (D2): supplier-rule auto-posts skipped because the line was keyed
    * by hand and an enforced supplier_payment rule governs the amount — a payment
    * instruction, recorded through a supplier payment and its approval instead.
