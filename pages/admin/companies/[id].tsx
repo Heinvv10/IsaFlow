@@ -89,7 +89,7 @@ const STATUS_BADGE: Record<string, string> = {
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
   cancelled: 'bg-gray-500/10 text-gray-500',
-  deleted:   'bg-gray-500/10 text-gray-500',
+  deleted:   'bg-orange-500/10 text-orange-600 dark:text-orange-400',
 };
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -182,12 +182,13 @@ export default function AdminCompanyDetailPage() {
 
   async function handleActivate() {
     if (!id || typeof id !== 'string') return;
+    const action = company?.status === 'deleted' ? 'restore' : 'activate';
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/companies/${id}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
-      await assertOk(res, 'Could not activate the company - try again');
+      const res  = await apiFetch(`/api/admin/companies/${id}/${action}`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, `Could not ${action} the company - try again`);
       void load();
-    } catch (err) { setActionError(apiErrorMessage(err, 'Could not activate the company - try again')); }
+    } catch (err) { setActionError(apiErrorMessage(err, `Could not ${action} the company - try again`)); }
     finally { setActionLoading(false); }
   }
 
@@ -589,7 +590,7 @@ export default function AdminCompanyDetailPage() {
       <ConfirmModal
         open={deleteOpen}
         title="Delete Company"
-        message={<>Users lose access to <strong>{company?.name}</strong> and it stops being billed. Its data is kept, and you can restore it from Companies → Deleted.</>}
+        message={<>Users lose access to <strong>{company?.name}</strong> and its subscription is no longer charged. Its data is kept: filter the Companies list by Deleted, open it and click Restore.</>}
         confirmLabel="Delete Company"
         loading={actionLoading}
         onConfirm={() => void handleDelete()}

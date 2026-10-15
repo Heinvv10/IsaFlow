@@ -15,8 +15,8 @@ import { log } from '@/lib/logger';
 import {
   getCompanyDetail,
   updateCompany,
-  deleteCompany,
 } from '@/modules/admin/services/adminCompanyService';
+import { deleteCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { Email } from '@/lib/schemas/common';
