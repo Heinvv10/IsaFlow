@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -59,6 +60,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function SubscriptionsPage() {
   const adminHref = useAdminHref();
+  const router = useRouter();
   const [rows, setRows]         = useState<Subscription[]>([]);
   const [total, setTotal]       = useState(0);
   const [page, setPage]         = useState(1);
@@ -107,6 +109,15 @@ export default function SubscriptionsPage() {
 
   useEffect(() => { void loadPlans(); }, [loadPlans]);
 
+  // Company Billing tab's "Create Subscription" lands here with ?companyId= — open the form prefilled,
+  // then drop the param so a refresh doesn't reopen it.
+  useEffect(() => {
+    const cid = router.query.companyId;
+    if (!router.isReady || typeof cid !== 'string' || !cid) return;
+    setForm({ ...EMPTY_FORM, company_id: cid }); setFormError(''); setShowForm(true);
+    void router.replace(router.pathname, undefined, { shallow: true });
+  }, [router.isReady, router.query.companyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -133,7 +144,7 @@ export default function SubscriptionsPage() {
           company_id:    form.company_id,
           plan_id:       form.plan_id,
           billing_cycle: form.billing_cycle,
-          discount_pct:  parseFloat(form.discount_pct) || 0,
+          discount_percent: parseFloat(form.discount_pct) || 0,
         }),
       });
       await assertOk(res, 'Could not create the subscription - try again');
@@ -243,7 +254,7 @@ export default function SubscriptionsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Discount %</label>
-                  <input type="number" min="0" max="100" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
+                  <input type="number" min="0" max="50" value={form.discount_pct} onChange={e => setForm(f => ({ ...f, discount_pct: e.target.value }))}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500" />
                 </div>
               </div>
