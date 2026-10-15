@@ -173,5 +173,5 @@ describe('quiet() is bounded', () => {
     render(<EmployeesPage />);
     expect(await screen.findByText('Marker employee')).toBeTruthy();
     await quiet();
-  });
+  }, 15_000); // quiet() gives up after ~3.5 s by design, so this one runs about 4 s: past vitest's 5 s default under load
 });
