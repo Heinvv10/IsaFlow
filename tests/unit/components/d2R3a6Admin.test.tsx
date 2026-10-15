@@ -18,7 +18,10 @@ vi.mock('@/contexts/CompanyContext', () => {
   const value = { activeCompany: { id: 'co1' }, loading: false }; // stable identity
   return { useCompany: () => value };
 });
-vi.mock('@/components/accounting/settings/SettingsSidebar', () => ({ SettingsSidebar: () => <span /> }));
+vi.mock('@/components/accounting/settings/SettingsSidebar', () => ({
+  SettingsSidebar: ({ onTabChange }: { onTabChange: (tab: string) => void }) =>
+    <button type="button" onClick={() => onTabChange('documents')}>Open documents tab</button>,
+}));
 vi.mock('@/components/accounting/settings/DimensionSettings', () => ({ DimensionSettings: () => <span /> }));
 vi.mock('@/components/accounting/settings/GeneralTab', () => ({
   GeneralTab: ({ company }: { company: { name: string } }) => <p>{company.name}</p>,
@@ -183,10 +186,21 @@ describe('admin dashboard', () => {
 describe('company settings save', () => {
   const base = (display: Route = on('GET', 'accounting-settings', () => ok({ key: 'document_display_fields', value: null }))): Route[] => [
     on('GET', '/companies?id=', () => ok({ id: 'co1', name: 'D2 Company (Pty) Ltd' })),
-    on('GET', 'type=document-numbers', () => ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])),
+    // Answers after the company has loaded (Save enabled), as on a slow line: a save that does not wait for the
+    // numbers writes none of them, which the PUT counts and the payload check below catch.
+    (u: string, m: string) => (m === 'GET' && u.includes('type=document-numbers')
+      ? new Promise<Response>((r) => setTimeout(() => r(ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])), 300))
+      : undefined),
     display,
   ];
-  const save = async () => { await screen.findByText('D2PFX', { exact: false }).catch(() => undefined); fireEvent.click(await screen.findByText('Save Changes')); };
+  // Save is enabled once the company has loaded; the document numbers load beside it, and save() writes them only once
+  // they have. So wait for them where they show: the Documents tab. (Waiting for 'D2PFX' without opening that tab
+  // never matched: it only ever timed out, and that timeout was the real wait.)
+  const save = async () => {
+    fireEvent.click(await screen.findByText('Open documents tab'));
+    await screen.findByText('D2PFX');
+    fireEvent.click(await screen.findByText('Save Changes'));
+  };
   const open = async () => { render(<CompanySettingsPage />); await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false)); };
 
   it('company PUT refused: the server message, no "saved" banner, the other writes are not attempted', async () => {
@@ -241,5 +255,10 @@ describe('company settings save', () => {
     await save();
     expect(await screen.findByText('Changes saved successfully')).toBeDefined();
     expect(writeCalls('PUT', 'accounting-settings')).toBe(1);
+    // The document numbers that loaded are the ones written back.
+    const put = vi.mocked(apiFetch).mock.calls.find(([u, i]) =>
+      String(u).includes('type=document-numbers') && (i as RequestInit | undefined)?.method === 'PUT');
+    expect(JSON.parse(String((put?.[1] as RequestInit | undefined)?.body ?? '{}'))).toEqual(
+      { updates: [{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }] });
   });
 });
