@@ -105,18 +105,23 @@ export async function updateRule(
   }, userId));
 }
 
-/** updateRule's twin of createRule's check: the rule's own supplier/customer counts when this change names none. */
+/**
+ * updateRule's (and toggleRule's) twin of createRule's check: the rule's own supplier/customer and account count
+ * when this change names none.
+ */
 async function assertRuleAccountNotContactControl(
   companyId: string, id: string, input: Partial<RuleCreateInput>,
 ): Promise<void> {
   const [cur] = (await sql`
-    SELECT rule_name, supplier_id, client_id FROM bank_categorisation_rules
+    SELECT rule_name, supplier_id, client_id, gl_account_id FROM bank_categorisation_rules
     WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
   `) as Record<string, unknown>[];
-  const supplierId = input.supplierId ?? cur?.supplier_id;
-  const clientId = input.clientId ?? cur?.client_id;
+  if (!cur) return; // no such rule: writeRuleChange answers that, not this check
+  const supplierId = input.supplierId ?? cur.supplier_id;
+  const clientId = input.clientId ?? cur.client_id;
   if (supplierId || clientId) return;
-  await assertNotContactControl(companyId, input.glAccountId, `Rule "${String(input.ruleName ?? cur?.rule_name ?? id)}"`, 'rule');
+  const accountId = input.glAccountId ?? (cur.gl_account_id == null ? null : String(cur.gl_account_id));
+  await assertNotContactControl(companyId, accountId, `Rule "${String(input.ruleName ?? cur.rule_name)}"`, 'rule');
 }
 
 /**
@@ -147,6 +152,9 @@ export async function deleteRules(companyId: string, ids: string[]): Promise<num
 }
 
 export async function toggleRule(companyId: string, id: string, isActive: boolean, userId: string): Promise<RuleOutcome> {
+  // Re-enabling an account rule that points at AP/AR control (written before the guard, or left there when its
+  // supplier was deleted) is refused like a create; the sweep skips it anyway, but it should not read as working.
+  if (isActive) await assertRuleAccountNotContactControl(companyId, id, {});
   return outcome(await writeRuleChange(companyId, id, { is_active: isActive }, userId));
 }
 
