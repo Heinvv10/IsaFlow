@@ -187,10 +187,13 @@ local_log_name() {
 # each run; GitHub has only stdout), the skip report (a failure sets FAILED=1),
 # and the report, printed in one go. The verdict ($FAILED) comes only from the
 # shards and the skip rule; printing never changes it, so nothing here may end
-# the run early (set +e inside; the caller's errexit is given back on return).
+# the run early (set +e inside). The caller's shell options are given back on
+# return: `set +o` lists them all, but a command substitution runs with errexit
+# off, so errexit is read from $- and added. Nothing here changes a shopt.
 finish_run() {
-  local work=$1 shards=$2 failed_shards=$3 start=$4 log_dir=$5 log i errexit=0
-  [[ $- == *e* ]] && errexit=1
+  local work=$1 shards=$2 failed_shards=$3 start=$4 log_dir=$5 log i _opts
+  _opts=$(set +o)
+  [[ $- == *e* ]] && _opts+=$'\nset -o errexit'
   set +e
   rm -rf "$log_dir"
   mkdir -p "$log_dir"
@@ -210,6 +213,6 @@ finish_run() {
     echo "[integration] $(wc -l < "$work/plan.tsv") suites on $shards shards in $(( $(date +%s) - start ))s"
   } > "$work/report.txt" 2>&1
   print_report "$work/report.txt" "$log_dir"
-  [ "$errexit" -eq 1 ] && set -e
+  eval "$_opts"
   return 0
 }

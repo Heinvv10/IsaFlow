@@ -1,14 +1,22 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 const REPORT = join(process.cwd(), 'scripts/ci/integration/report.sh');
+/** Every temporary directory this file makes, removed after it. */
+const made: string[] = [];
+const tempDir = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'isaflow-integration-report-'));
+  made.push(dir);
+  return dir;
+};
+afterAll(() => { for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe('integration shard log reporting', () => {
   it('prints only failed shards and bounds both their lines and line width', () => {
-    const work = mkdtempSync(join(tmpdir(), 'isaflow-integration-report-'));
+    const work = tempDir();
     mkdirSync(join(work, 'c1'));
     mkdirSync(join(work, 'c2'));
     writeFileSync(join(work, 'c1', 'isaflow_test.log'), 'successful log must stay quiet\n');
@@ -30,7 +38,7 @@ describe('integration shard log reporting', () => {
 
 /** A work dir with shard logs and summaries, as shard.sh leaves them. */
 function workDir(files: Record<string, string>): string {
-  const work = mkdtempSync(join(tmpdir(), 'isaflow-integration-report-'));
+  const work = tempDir();
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(join(work, path, '..'), { recursive: true });
     writeFileSync(join(work, path), text);
