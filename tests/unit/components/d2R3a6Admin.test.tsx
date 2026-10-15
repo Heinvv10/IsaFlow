@@ -18,7 +18,10 @@ vi.mock('@/contexts/CompanyContext', () => {
   const value = { activeCompany: { id: 'co1' }, loading: false }; // stable identity
   return { useCompany: () => value };
 });
-vi.mock('@/components/accounting/settings/SettingsSidebar', () => ({ SettingsSidebar: () => <span /> }));
+vi.mock('@/components/accounting/settings/SettingsSidebar', () => ({
+  SettingsSidebar: ({ onTabChange }: { onTabChange: (tab: string) => void }) =>
+    <button type="button" onClick={() => onTabChange('documents')}>Open documents tab</button>,
+}));
 vi.mock('@/components/accounting/settings/DimensionSettings', () => ({ DimensionSettings: () => <span /> }));
 vi.mock('@/components/accounting/settings/GeneralTab', () => ({
   GeneralTab: ({ company }: { company: { name: string } }) => <p>{company.name}</p>,
@@ -186,9 +189,14 @@ describe('company settings save', () => {
     on('GET', 'type=document-numbers', () => ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])),
     display,
   ];
-  // open() has already waited for the loads (Save enabled). The prefix is never on screen, so waiting for it only
-  // burned the whole find timeout before every save.
-  const save = async () => { fireEvent.click(await screen.findByText('Save Changes')); };
+  // Save is enabled once the company has loaded; the document numbers load beside it, and save() writes them only once
+  // they have. So wait for them where they show: the Documents tab. (Waiting for 'D2PFX' without opening that tab
+  // never matched: it only ever timed out, and that timeout was the real wait.)
+  const save = async () => {
+    fireEvent.click(await screen.findByText('Open documents tab'));
+    await screen.findByText('D2PFX');
+    fireEvent.click(await screen.findByText('Save Changes'));
+  };
   const open = async () => { render(<CompanySettingsPage />); await waitFor(() => expect((screen.getByText('Save Changes').closest('button') as HTMLButtonElement).disabled).toBe(false)); };
 
   it('company PUT refused: the server message, no "saved" banner, the other writes are not attempted', async () => {
