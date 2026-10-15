@@ -27,6 +27,12 @@
  * - a charge the cron has already claimed when the delete runs is still
  *   debited; the cron's own status write then records what really happened
  *   (submitted / settled) over the 'cancelled'.
+ * - a subscription left on its old period because a charge was `submitted` at
+ *   restore time: if that charge later FAILS, the cron retries it and then
+ *   bills each missed cycle (the back-billing the restart avoids). Needs a long
+ *   delete plus a charge stuck at Paystack across the restore; check the
+ *   subscription's current_period_end by hand if a restore logs
+ *   restartedSubscriptions = 0 for a lapsed subscription.
  */
 
 import { sql } from '@/lib/neon';
