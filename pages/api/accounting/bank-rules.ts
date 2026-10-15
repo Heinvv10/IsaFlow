@@ -20,6 +20,7 @@ import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { getRules, createRule, applyRules } from '@/modules/accounting/services/bank/bankRulesService';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 
 const CreateRuleSchema = z.object({
   ruleName: z.string().min(1).max(200),
@@ -79,7 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }, userId);
     } catch (err) {
       // Refused before the INSERT, so nothing has been written.
-      if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError) {
+      if (err instanceof CustomerNotInCompanyError || err instanceof SupplierNotInCompanyError || isBankAllocationRefusal(err)) {
         return apiResponse.badRequest(res, err.message);
       }
       throw err;

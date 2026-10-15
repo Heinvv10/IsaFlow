@@ -22,6 +22,7 @@ import { deleteRule, deleteRules, toggleRule, applyRules, updateRule } from '@/m
 import { UUID } from '@/lib/schemas/common';
 import { AUTO_APPLY_MODES } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { CustomerNotInCompanyError, SupplierNotInCompanyError } from '@/modules/accounting/services/core/contactDirectoryService';
+import { isBankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 
 const BankRulesActionSchema = z.discriminatedUnion('action', [
@@ -99,7 +100,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (respondIfBankControlRefused(res, err)) return;
     // R-067 / R-068: both fences run before any write, so the 4xx commits
     // nothing; surface the typed message rather than the generic fallback.
-    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError) {
+    if (err instanceof SupplierNotInCompanyError || err instanceof CustomerNotInCompanyError || isBankAllocationRefusal(err)) {
       return apiResponse.badRequest(res, err.message);
     }
     log.error('Bank rules action failed', { action: body.action, error: err }, 'accounting-api');

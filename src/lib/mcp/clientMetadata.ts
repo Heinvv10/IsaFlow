@@ -141,6 +141,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'reverse_allocations',
   'set_opening_balance',
   'attach_document',
+  'attach_entity_document',
   'cancel_bank_reconciliation',
   'reopen_bank_reconciliation',
   'create_job_category',

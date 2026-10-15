@@ -42,3 +42,19 @@ export function reversalGateOpen() {
       (await import('@/modules/accounting/services/bank/reconciledCash')).refuseJournalCashOfCompletedReconciliation(companyId, journalEntryId)),
   };
 }
+
+/**
+ * contactControlGuard with every account open (not AP/AR control): its batch reads hit Postgres. The refusal itself
+ * is proven in tests/unit/services/bank/contactControlGuard.test.ts and the allocate-control-account-refused int test.
+ */
+export async function contactControlOpen() {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/bank/contactControlGuard')>(
+    '@/modules/accounting/services/bank/contactControlGuard');
+  return {
+    ...actual,
+    contactControlLineSkips: vi.fn(async () => new Map<string, string>()),
+    contactControlAccountIds: vi.fn(async () => new Set<string>()),
+    assertNotContactControl: vi.fn(async () => undefined),
+  };
+}
+
