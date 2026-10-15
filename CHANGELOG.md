@@ -28,6 +28,23 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-15 — Admin Company Restore, CI Lifecycle Hardening
+
+**Admin**
+
+- Deleted companies can now be restored from the admin platform; billing halts from the delete date, in-flight charges are re-voided on restore, and a fresh billing start is created; suspend and activate cannot undelete (#717)
+
+**CI**
+
+- `finish_run` returns the caller's `errexit`; `run.sh`'s tail is a validated allowlist; `record()` start-time fixed; forker children restore `TERM` and kill only before exit; shell options fully restored; deterministic regression tests added (#718)
+- Integration report: failing shards always named with their log tail; vitest per-file result lines parsed correctly; `finish_run` survives a non-blocking stdout pipe; `run.sh`'s final stage is `report.sh`'s `finish_run`; unreadable compares and skip reports hardened (#713)
+
+**Bank (decision)**
+
+- Contact-only split gating is confirmed per-contact (decided 2026-10-14; not deployed) (#715)
+
+---
+
 ## 2026-10-14 — CI Integration Suite Hardening
 
 **CI / Test Infrastructure**
