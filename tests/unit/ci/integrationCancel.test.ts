@@ -9,7 +9,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { LIB, SHARD, adopt, alive, detached, record, scratchDir, sh, start, useScratch } from './integrationLifecycle.helpers';
+import { FORKER_LOOP, LIB, SHARD, adopt, alive, detached, record, scratchDir, sh, start, useScratch } from './integrationLifecycle.helpers';
 
 useScratch();
 
@@ -83,7 +83,7 @@ describe('a real shard signalled in the middle of its own cleanup', () => {
     const work = mkdtempSync(join(scratchDir(), 'work-'));
     mkdirSync(join(work, 'c1'));
     writeFileSync(join(work, 'plan.tsv'), '');
-    const shard = detached(`(trap "" TERM; ${record()}; while :; do (${record()}; exec -a ${name} sleep 600) & sleep 0.3; done) &
+    const shard = detached(`(trap "" TERM; ${record()}; ${FORKER_LOOP(name)}) &
       sleep 0.3; exec bash ${SHARD} 1 1 0 ${work} x y`);
     execFileSync('sleep', ['2']); // the shard is in its EXIT trap, ending a TERM-ignoring forker
     process.kill(shard.pid!, `SIG${sig}`);
