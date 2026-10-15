@@ -101,6 +101,8 @@ export function BankTxModals({
         <SplitTransactionModal
           transaction={splitTx}
           glAccounts={glAccounts}
+          suppliers={suppliers}
+          customers={customers}
           cc2Options={cc2Options}
           buOptions={buOptions}
           onClose={onSplitClose}
