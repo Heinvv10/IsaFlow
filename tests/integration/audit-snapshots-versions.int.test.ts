@@ -168,16 +168,17 @@ describe('across releases', { timeout: 120_000 }, () => {
     }
   });
 
-  it('waiting for the slot or the lock is not budget time: an automatic snapshot queued behind its person still seals (breaker r3 B1)', async () => {
+  it('waiting for a slot is not budget time: an automatic snapshot queued behind its person still seals (breaker r3 B1)', async () => {
     const { c } = await books();
     // The budget is wide enough for the work itself on a loaded CI shard (15 s was not: master run 38621724095);
     // the waits below still outlast it, which is the point.
     Object.assign(knobs, { budgetMs: 40_000, waitMs: 60_000 });
-    // The company's snapshot lock held elsewhere for longer than the whole budget, then released.
+    // The company's snapshot lock held elsewhere for 2 s, then released: a short wait for the lock. The wait that
+    // outlasts the budget is the slot's, below (the budget clock starts after both, inside the locked transaction).
     const other = await pool.connect();
     await other.query("SELECT pg_advisory_lock(hashtext('audit_snapshot_chain:' || $1))", [c]);
     const release = setTimeout(() => { void other.query("SELECT pg_advisory_unlock(hashtext('audit_snapshot_chain:' || $1))", [c]); }, 2_000);
-    // Meanwhile the same person holds a slot for another of their companies, for longer than the budget too.
+    // Meanwhile the same person holds a slot for another of their companies, for longer than the whole budget.
     let free = () => {};
     // Held as the person's own (manual) job: only the per-person cap, not the automatic one, makes the snapshot wait.
     const held = withSnapshotSlot(crypto.randomUUID(), false, () => new Promise<void>((r) => { free = r; }), o);
@@ -195,7 +196,7 @@ describe('across releases', { timeout: 120_000 }, () => {
       await held;
       other.release();
     }
-  });
+  }, 180_000); // 42 s of waiting plus up to the 40 s budget, with room on a loaded runner
 
   it('the chain check reads every sealed snapshot, however many attempts were recorded after it', async () => {
     const { c } = await books();
